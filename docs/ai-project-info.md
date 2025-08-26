@@ -1,0 +1,12 @@
+# Workshop Material Inventory Tracking
+
+For the past few years, I have been tracking the materials inventory for my home workshop (mostly metal stock and threaded rod) via a Google Sheets spreadsheet. A copy of this spreadsheet in ODS format is available in [MaterialStock.ods](./MaterialStock.ods); it currently has two sheets, one for metal stock (also available at [MaterialStock-Metal.csv](./MaterialStock-Metal.csv)) and one for drive belts (also available at [MaterialStock-Belts.csv](./MaterialStock-Belts.csv)). All of my inventory/stock items have unique ID barcode labels on them, using Code128 barcode symbology and a custom numbering scheme beginning with the letters `JA` followed by six numeric digits (`JA` ID). I also track the location where materials are stored, using either a system made up of a letter followed by a number and an optional suffix made up of a letter or string of letters (`M1`, `T1`, `M1-A`, `T1-H`, `M1-left`, `T1-right`) also encoded in Code128, or a rarely used free-form string (such as `Bedroom closet`).
+
+The spreadsheet for metal stock currently tracks whether each row is active or not (when I cut a portion off of a piece of stock copy the row, mark the old row as Active No, and update the new dimensions on the copy), the length, width, thickness, wall thickness (if applicable, for tubes), weight (optionally tracked only for some items), type (i.e. "Bar", "Angle", "Tube", "Plate", "Threaded Rod", etc.), shape (round, rectangular, square, hex, etc.), material (Steel, HRS, CRS, Stainless, O1 Tool Steel, B7 Steel, 321 Stainless, Brass, Copper, 15-5 Stainless, A-2, 4140 Steel, etc.), thread (if threaded; this could be an inch or metric standard thread, Acme, Trapezoidal, etc.), quantity, location (as described previously), sub-location (free-form string, usually encoded in a Code128 label), purchase date, purchase price, and purchase location, notes (free-form string), vendor name, and vendor part number. The only _required_ fields are the Code128 unique ID (`JA` ID), length, width or thread, type, shape, material, and location; all other fields are optional.
+
+I have a few distinct use cases for this:
+
+1. **Logging-in new inventory**: foo. Often a large batch from the same purchase date and purchase location, and often the same type, shape, and material.
+2. **Moving existing inventory**: foo.
+3. **Shortening existing inventory**: This involves invalidating an existing inventory item (by unique `JA` ID) and creating a copy of it with an updated length.
+4. **Searching inventory**: foo.
