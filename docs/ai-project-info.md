@@ -4,9 +4,19 @@ For the past few years, I have been tracking the materials inventory for my home
 
 The spreadsheet for metal stock currently tracks whether each row is active or not (when I cut a portion off of a piece of stock copy the row, mark the old row as Active No, and update the new dimensions on the copy), the length, width, thickness, wall thickness (if applicable, for tubes), weight (optionally tracked only for some items), type (i.e. "Bar", "Angle", "Tube", "Plate", "Threaded Rod", etc.), shape (round, rectangular, square, hex, etc.), material (Steel, HRS, CRS, Stainless, O1 Tool Steel, B7 Steel, 321 Stainless, Brass, Copper, 15-5 Stainless, A-2, 4140 Steel, etc.), thread (if threaded; this could be an inch or metric standard thread, Acme, Trapezoidal, etc.), quantity, location (as described previously), sub-location (free-form string, usually encoded in a Code128 label), purchase date, purchase price, and purchase location, notes (free-form string), vendor name, and vendor part number. The only _required_ fields are the Code128 unique ID (`JA` ID), length, width or thread, type, shape, material, and location; all other fields are optional.
 
-I have a few distinct use cases for this:
+Our goal is to write a small, simple web application that can help optimize the tasks that I've been using the existing spreadsheet for. I have a few distinct use cases for this application:
 
-1. **Logging-in new inventory**: foo. Often a large batch from the same purchase date and purchase location, and often the same type, shape, and material.
-2. **Moving existing inventory**: foo.
-3. **Shortening existing inventory**: This involves invalidating an existing inventory item (by unique `JA` ID) and creating a copy of it with an updated length.
-4. **Searching inventory**: foo.
+1. **Logging-in new inventory**: I purchase most of my metal stock in mixed lots from machine shop closing auctions and similar venues; using the current spreadsheet to log in new inventory is inefficient, especially when logging in many pieces of the same type, shape, material, thread, purchase price and location, etc. when in reality all that I should have to input for each item is the `JA` ID, length, and storage location. Ideally, I could log in multiple items where subsequent items would re-use the same data as the previous item except for ID and length.
+2. **Moving existing inventory**: There is no quick way for me to move an item (by ID) from one storage location to another. Ideally this could be accomplished with a special form/modal/interface and quickly scanning the two relevant barcodes (item ID and new storage location).
+3. **Shortening existing inventory**: This involves invalidating an existing inventory item (by unique `JA` ID) and creating a copy of it with an updated length. This should be optimized.
+4. **Searching inventory**: The current Google Sheets approach provides no easy way to filter based on ranges, such as finding round steel bar with a diameter (width) of between 0.5" and 0.625" and a length of at least 36", or finding all threaded steel rod with a thread size of over 3/4".
+
+## Taxonomy
+
+Obviously this application will have to understand some level of taxonomy, even if it just uses the current taxonomy in the Google Sheet and provides a means for adding to it. Ideally, it would validate some amount of the input, at least for Type / Shape / Material. Note that material I purchase is often unidentified when purchased in a lot, so my classification of "Material" needs to accomodate varying levels of specificity; i.e. I may know that one piece is 4140 Steel alloy, another piece is just generic "hot rolled steel" (HRS), and another piece can only be identified as "Steel" (of completely unknown alloy).
+
+## Technical Constraints
+
+* I will be the only person using this application. Assume that it will be served by a single-threaded server and therefore concurrency and locking are not concerns. There will only ever be one user writing to it at a time.
+* I do not know what the backend data storage layer will be; using the existing Google Sheet is possible, as is using a lightweight local data storage layer such as SQLite or even a flat file. Let's discuss these options and decide on one.
+* Bias for Python/Flask, but we can discuss other options. The main goal is simplicity and ease of maintenance going forward.
