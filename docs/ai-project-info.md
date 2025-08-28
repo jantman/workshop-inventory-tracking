@@ -26,11 +26,52 @@ Obviously this application will have to understand some level of taxonomy, even 
 Please answer/decide the following to guide design and implementation.
 
 ### Core data and taxonomy
-- [ ] Scope: Should v1 cover only metal stock, or also include belts?
-- [ ] Required fields by shape/type: Confirm the minimal set for each (e.g., tube: length + OD + wall; plate: length + width + thickness; round bar: length + diameter). Use shape-specific fields or a generic "width" for round (diameter)?
-- [ ] Units: What inputs should be accepted (inches, fractional inches like 1-5/8, decimals, mm)? Should the app normalize and store in a canonical unit?
-- [ ] Thread representation: How should thread be stored (e.g., 3/4-10 UNC, M12x1.75)? Include handedness and class? For searches like "> 3/4", should comparison use nominal major diameter?
+- [x] Scope: v1 should cover only metal stock (not belts) but should be written so that it will be easy to add additional material types/taxonomies in the future
+- [x] Required fields by shape/type:
+  - Observed Type values (from current CSV): Bar, Tube, Angle, Plate, Sheet, Threaded Rod
+  - Observed Shape values (from current CSV): Rectangular, Square, Round, Hex (only required for Bar and Tube types)
+  - Minimal required CSV columns by Type/Shape (based on current data):
+    - Bar, Rectangular: Length (in), Width (in), Thickness (in)
+    - Bar, Square: Length (in), Width (in) [Thickness equals Width if provided]
+    - Bar, Round: Length (in), Width (in) [diameter]
+    - Bar, Hex: Length (in), Width (in) [across flats]
+    - Tube, Rectangular: Length (in), Width (in), Thickness (in), Wall Thickness (in) [Width/Thickness are OD]
+    - Tube, Square: Length (in), Width (in) [equals Thickness], Wall Thickness (in) [Width/Thickness are OD]
+    - Tube, Round: Length (in), Width (in) [OD], Wall Thickness (in)
+    - Angle, Rectangular: Length (in), Width (in) [leg A], Thickness (in) [leg B], Wall Thickness (in)
+    - Plate, Rectangular: Length (in), Width (in), Thickness (in)
+    - Sheet, Rectangular: Length (in), Width (in), Thickness (in)
+    - Threaded Rod, Round: Length (in), Thread
+  - Normalization notes:
+    - For Round/Hex bars, Thickness (in) is typically blank; use Width (in) as diameter/AF
+- [x] Units: What inputs should be accepted (inches, fractional inches like 1-5/8, decimals, mm)? Should the app normalize and store in a canonical unit?
+  - length, width, thickness, wall thickness are all decimal inches. The app should assume all units for these dimensions are inches; any fractions should be normalized to decimal.
+- [x] Thread representation: How should thread be stored (e.g., 3/4-10 UNC, M12x1.75)? Include handedness and class? For searches like "> 3/4", should comparison use nominal major diameter?
+  - Threads should be stored as six fields:
+    - `Series` - `I` (imperial; default) or `M` (metric)
+    - `Handedness` - `LH` or `RH` (latter is default unless specified otherwise)
+    - `Size` - nominal diameter of thread, i.e. `1/2` or `1 1/4` imperial or `4` or `18` metric
+    - `TPI / Pitch` - TPI for imperial or Pitch for metric. Provisions must be made for non-standard pitches.
+    - `Type` - normally empty/blank for normal `Unified` (UN) or `Metric` (ISO) depending on `Series`, but could be `Acme`, `Trapezoidal`, `Buttress`, `Square`, `Whitworth`, `BA`, `NPT`, `BSPT`, etc.
+    - `ThreadString` - when none of the above values can be determined accurately, a free-text value describing the best-known aspects of the thread. Only to be used when none of the above values can be accurately determined.
+  - Observed thread values (from current CSV, de-duplicated); 
+    - Inch UNC/UNF: #10-24, 1/4-20, 1/4-28, 5/16-18, 5/16-24, 3/8-16, 7/16-14, 1/2-13, 1/2-20, 5/8-11, 3/4-10, 7/8-9, 7/8-14, 1-7, 1-8, 1-14, 1 1/2-6, 1 1/2-12, 1 1/4-7, 1 1/8-7 (incl. LH)
+    - Metric: M10-1.5, M12-1.75
+    - Acme: 5/8-5 Acme, 5/8-8 Acme, 3/4-6 Acme, 1-5 Acme, 1-8 Acme, 1 1/4-5 LH Acme
+    - Trapezoidal: 16x3 Trapezoidal
+  - Normalization ideas:
+    - Treat ambiguous entries as free-text `ThreadString` only until corrected.
 - [ ] Materials taxonomy: Controlled list with ability to add on-the-fly? Do you want tiers like Unknown Steel, HRS, CRS, 4140, etc.? Any aliases/synonyms to dedupe (e.g., 304 vs 18-8)?
+  - Observed Material values (from current CSV, grouped):
+    - Stainless: 304 / 304L, 304 Stainless, T-304L, T-304 Stainless, 316L Sch. 40, T-316 Stainless, T-316 Annealed, 321 Stainless, 410 Stainless, 440 Stainless, RA330 Stainless, Stainless, Stainless?, Stainless non-magnetic
+    - Carbon/Alloy Steel: HRS, A36, A36 HRS, HR A36, CRS, CRS mystery?, 1018, 12L14, 4140, 4140 Pre-Hard, ETD 4140?, 300M Alloy Steel, RDS Steel, Steel, Mystery, Mystery Steel
+    - Tool Steel: O1 Tool Steel (Drill Rod), A-2, H11 Tool Steel, L6 Tool Steel, Vasco Max 350, B7 Steel
+    - Tube/Structural grades: A500, A513, A53, EMT
+    - Nonferrous: Aluminum, 6061-T6/T6511, 6063-T52; Brass (unspec), 360-H02, C693, C385-H02, H58, H58-330, C23000 red brass, Naval Brass; Copper, C10100 Copper; Bronze??; Lead (99.9%); 96% Nickel; Dura Bar Cast Iron
+    - High-temp/special: Inconel, Hasteloy/Hastelloy (spelling varies)
+  - Normalization ideas:
+    - Use canonical names (e.g., 304 Stainless; 304L Stainless) and map aliases/suspect entries (e.g., "Stainless?", "CRS mystery?", "Hasteloy" → "Hastelloy").
+    - Allow Unknown categories (e.g., Unknown Stainless, Unknown Steel) and preserve original text in a notes/original_material field.
 - [ ] Types and shapes: Start with fixed lists? Maintain tables for Type/Shape/Material with active flags and alias relationships?
 - [ ] Locations: Free-form strings or records with codes/barcodes? Should locations be hierarchical (e.g., M1 → M1-left)? Should the app print new location labels?
 
