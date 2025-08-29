@@ -45,7 +45,7 @@ Please answer/decide the following to guide design and implementation.
   - Normalization notes:
     - For Round/Hex bars, Thickness (in) is typically blank; use Width (in) as diameter/AF
 - [x] Units: What inputs should be accepted (inches, fractional inches like 1-5/8, decimals, mm)? Should the app normalize and store in a canonical unit?
-  - length, width, thickness, wall thickness are all decimal inches. The app should assume all units for these dimensions are inches; any fractions should be normalized to decimal.
+  - length, width, thickness, wall thickness are all decimal inches. The app should assume all units for these dimensions are inches; any fractions should be normalized to decimal. The only metric units used are for metric threads.
 - [x] Thread representation: How should thread be stored (e.g., 3/4-10 UNC, M12x1.75)? Include handedness and class? For searches like "> 3/4", should comparison use nominal major diameter?
   - Threads should be stored as six fields:
     - `Series` - `I` (imperial; default) or `M` (metric)
@@ -61,7 +61,7 @@ Please answer/decide the following to guide design and implementation.
     - Trapezoidal: 16x3 Trapezoidal
   - Normalization ideas:
     - Treat ambiguous entries as free-text `ThreadString` only until corrected.
-- [ ] Materials taxonomy: Controlled list with ability to add on-the-fly? Do you want tiers like Unknown Steel, HRS, CRS, 4140, etc.? Any aliases/synonyms to dedupe (e.g., 304 vs 18-8)?
+- [x] Materials taxonomy: Controlled list with ability to add on-the-fly. Want tiers like Unknown Steel, HRS, CRS, 4140, etc. Any aliases/synonyms in existing data should be to deduped, but we need to provide a way to also capture the aliases in use (i.e. maybe we have one category for `18-8 / 304`).
   - Observed Material values (from current CSV, grouped):
     - Stainless: 304 / 304L, 304 Stainless, T-304L, T-304 Stainless, 316L Sch. 40, T-316 Stainless, T-316 Annealed, 321 Stainless, 410 Stainless, 440 Stainless, RA330 Stainless, Stainless, Stainless?, Stainless non-magnetic
     - Carbon/Alloy Steel: HRS, A36, A36 HRS, HR A36, CRS, CRS mystery?, 1018, 12L14, 4140, 4140 Pre-Hard, ETD 4140?, 300M Alloy Steel, RDS Steel, Steel, Mystery, Mystery Steel
@@ -72,87 +72,45 @@ Please answer/decide the following to guide design and implementation.
   - Normalization ideas:
     - Use canonical names (e.g., 304 Stainless; 304L Stainless) and map aliases/suspect entries (e.g., "Stainless?", "CRS mystery?", "Hasteloy" → "Hastelloy").
     - Allow Unknown categories (e.g., Unknown Stainless, Unknown Steel) and preserve original text in a notes/original_material field.
-- [ ] Types and shapes: Start with fixed lists? Maintain tables for Type/Shape/Material with active flags and alias relationships?
-- [ ] Locations: Free-form strings or records with codes/barcodes? Should locations be hierarchical (e.g., M1 → M1-left)? Should the app print new location labels?
-
-V1 recommendations (Core data and taxonomy)
-- Scope: Metal stock only for v1; belts later.
-- Shape fields: Use shape-specific fields (round uses diameter; tube uses OD + wall; plate uses length + width + thickness).
-- Units: Accept inches (fractional and decimal) and mm; parse all; normalize and store canonically in millimeters using Decimal; display in preferred unit.
-- Thread: Store free-text thread_spec plus numeric major_diameter_mm for search; default right-hand; class optional.
-- Taxonomies: Seed fixed lists for Type/Shape/Material; allow add-on-the-fly via admin; support aliases.
-- Locations: Structured records with code and optional parent (hierarchical like M1 → M1-left). No label printing in v1.
+- [x] Types and shapes: Start with fixed lists. Maintain tables for Type/Shape/Material with active flags and alias relationships.
+- [x] Locations: Set list in code that we can easily add to when needed. Locations are not hierarchical. Location names are manually assigned and labels manually printed outside of the app.
 
 ### IDs, barcodes, and labels
-- [ ] JA ID: Will the app generate new IDs or will you use pre-printed labels? If generating, confirm pattern, handling of gaps, and any check digit.
-- [ ] Barcode scanning: Plan to use a USB keyboard-wedge scanner? Should camera-based scanning be supported?
-- [ ] Label printing: Should the app generate/print Code128 labels for items and locations? Specify printer/model or preferred label software/workflow.
-
-V1 recommendations (IDs, barcodes, labels)
-- IDs: Use pre-printed JA IDs; no in-app generation in v1.
-- Scanning: USB keyboard-wedge scanner only; no camera scanning in v1.
-- Printing: No label printing in v1; consider later export to label software if needed.
+- [x] JA ID: These are assigned and printed manually outside of the app.
+- [x] Barcode scanning is done via a keyboard wedge scanner.
+- [x] Label printing is done manually outside of the app.
 
 ### Workflows
-- [ ] Logging new inventory: Which fields should carry forward from the previous item? Do you want templates/presets (e.g., "3/4 CRS round bar")?
-- [ ] Moving inventory: Always one item → one new location, or support batch moves by scanning multiple IDs first?
-- [ ] Shortening inventory: Should the app compute new length (old − cut − kerf), or will you enter the new length? Track kerf loss? Link new record to old (parent/child) and auto-mark old inactive?
-- [ ] Deactivation reasons: Besides shortening, capture reasons like lost/scrapped?
-- [ ] Notes and attachments: Do you want photos/documents per item?
-
-V1 recommendations (Workflows)
-- Intake: Carry-forward type, shape, material, thread, purchase fields, and location; optional "save as template" lightweight presets.
-- Move: Support single-item move and simple batch mode (scan many IDs, then scan destination).
-- Shorten: Enter the new length manually; optional kerf field; auto-mark old inactive and link via parent_item_id.
-- Deactivation: Enum reasons (Shortened, Scrapped, Lost, Correction).
-- Attachments: Notes only in v1; photos later.
+- [x] Logging new inventory: We don't need templates. We should be able to easily change/configure the fields that carry forward from one item to the next in a single list in code, but to start with we'll carry forward type, shape, material, purchase date, and purchase location.
+- [x] Moving inventory: We should be able to scan one or more pairs of item/location codes and then move them all.
+- [x] Shortening inventory: I'll enter the new length. No need to track kerf loss. We want to keep the old and new records linked, such as by using the current process of setting the old record's `Active?` column to `No` and then adding a new record with the new length.
+- [x] Deactivation reasons: Let's make provision for selecting a deactivation reason from a list of possible options in code, but for now the only option will be shortening (used part of the stock).
+- [x] Notes and attachments: We do not want photos/documents per item.
 
 ### Search and reporting
-- [ ] Range queries: Confirm numeric fields to support ranges (length, diameter/width, thickness, thread size). Support compound filters and saved searches?
-- [ ] Sorting and export: Need CSV export of results? Any standard reports (by location, by material, by type)?
-- [ ] Derived fields: Compute theoretical weight from material and dimensions? For which materials only, and with what density source?
-
-V1 recommendations (Search and reporting)
-- Filters: Range filters for length, diameter/width, thickness, and thread major diameter; support compound filters.
-- Export: CSV export of search results; basic sorting by columns.
-- Weight: Compute theoretical weight when density known for round bar, plate, and tube; optional toggle.
+- [x] Range queries: Only the basic numeric fields to support ranges (length, diameter/width, thickness, wall thickness). We will need to support compound filters, including filters on any/all of the fields; we will not need to support saved searches at this time.
+- [x] Sorting and export: Need CSV export of results. Do not need any saved reports, but ideally reports could be bookmark-able by URL.
+- [x] No need for derived fields.
 
 ### Data import, storage, and integrity
-- [ ] Import: Perform a one-time import from existing CSV/ODS? How to handle conflicts/duplicates?
+- [x] Import: All of our initial data is in the existing Google sheet.
 - [ ] Storage choice: Pick one:
   - [ ] SQLite (local file, simple, good with Flask)
   - [ ] Google Sheets (no local DB; API limits/latency/complexity)
   - [ ] Flat files (JSON/CSV; simple, but weaker for range queries/integrity)
-- [ ] Backups: Automatic periodic exports to CSV? Where to store backups?
-- [ ] History/audit: Do you want full audit trail (who/when/what changed) or just item events (create/move/shorten/update)?
-- [ ] Validation: Enforce JA ID pattern, required fields by shape/type, and allowed values for enums. How strict should validation be?
-
-V1 recommendations (Data/import/storage/integrity)
-- Import: One-time import from CSV; dedupe on JA ID; preserve inactive rows.
-- Storage: SQLite with SQLAlchemy; NullPool in tests.
-- Backups: Daily CSV export to `backups/` with timestamped filenames.
-- Audit: Minimal events table logging create/move/shorten/update.
-- Validation: Strict JA ID regex, shape-specific required fields, FK to taxonomy tables.
+- [x] Backups will be handled external to the app.
+- [x] History/audit is not needed outside of normal logging by the application when data is changed.
+- [x] Validation: Enforce JA ID pattern, required fields by shape/type, and allowed values for enums. Validation should err on the side of being lax and allowing bad data to be corrected later.
 
 ### Security and deployment
-- [ ] Access: Single user on LAN only? Require basic auth? Any plan to expose beyond localhost?
-- [ ] Hosting: Local Flask + SQLite OK? Prefer Docker or simple virtualenv/poetry?
-- [ ] Offline: Must it work offline in the browser? Or is local-only server sufficient?
-
-V1 recommendations (Security/deployment)
-- Access: Localhost or LAN only; optional HTTP Basic Auth.
-- Hosting: Flask + SQLite managed via Poetry; no Docker in v1.
-- Offline: Not required.
+- [x] Access: Single user on LAN only. No auth needed.
+- [x] Hosting: Docker will be added later; for now, run directly via Python for testing and rapid iteration.
+- [x] Offline: App will be dependent on the local server.
 
 ### UX details
-- [ ] Scanner-first flows: Auto-focus on input, submit on Enter, audible/visual feedback, and "undo last" operation?
-- [ ] Bulk actions: "Scan many" mode for moves and intake?
-- [ ] Keyboard-only operation: Is full keyboard operation required/preferred?
-
-V1 recommendations (UX)
-- Scanner-first: Autofocus, Enter-to-submit, toast + beep, and Undo Last.
-- Bulk: Provide scan-many modes for moves and intake.
-- Keyboard: Keyboard-first navigation throughout.
+- [x] Scanner-first flows: Auto-focus on input, submit on Enter, audible/visual feedback, and "undo last" operation. Assume that the scanner sends an Enter/newline after every scan. Possibly consider using a specific barcode to scan to trigger submission (e.g. Code128 `>>DONE<<` or similar).
+- [x] Bulk actions: "Scan many" mode for moves only.
+- [x] Keyboard-only operation: Full keyboard operation preferred but not required.
 
 ### Schema and structure to validate
 - [ ] Separate tables for items, locations, materials, types, shapes, and optional events/history? Any additional entities needed?
