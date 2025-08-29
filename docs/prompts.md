@@ -1,6 +1,6 @@
 # Copilot Prompts
 
-## Project Info
+## Project Info (Copilot / GPT-5)
 
 We are trying to define the outline and requirements of a software project, which will be implemented by a human/AI collaboration. The outline of this project is currently in `docs/ai-project-info.md`. Please help me review this overview outline and determine if there are any major points or decisions missing. We will discuss any omissions or unclear portions, come to an agreement on each of your recommendations, and then you will update the document accordingly.
 
