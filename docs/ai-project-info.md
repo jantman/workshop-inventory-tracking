@@ -35,10 +35,9 @@ Please answer/decide the following to guide design and implementation.
     - Bar, Square: Length (in), Width (in) [Thickness equals Width if provided]
     - Bar, Round: Length (in), Width (in) [diameter]
     - Bar, Hex: Length (in), Width (in) [across flats]
-    - Tube, Rectangular: Length (in), Width (in), Thickness (in), Wall Thickness (in) [Width/Thickness are OD]
-    - Tube, Square: Length (in), Width (in) [equals Thickness], Wall Thickness (in) [Width/Thickness are OD]
+    - Tube, Square: Length (in), Width (in), Thickness (in), Wall Thickness (in) [Width/Thickness are OD and equal for true square]
     - Tube, Round: Length (in), Width (in) [OD], Wall Thickness (in)
-    - Angle, Rectangular: Length (in), Width (in) [leg A], Thickness (in) [leg B], Wall Thickness (in)
+    - Angle, Rectangular: Length (in), Width (in) [leg A], Thickness (in) [leg B], Wall Thickness (in) [angle thickness]
     - Plate, Rectangular: Length (in), Width (in), Thickness (in)
     - Sheet, Rectangular: Length (in), Width (in), Thickness (in)
     - Threaded Rod, Round: Length (in), Thread
@@ -73,12 +72,51 @@ Please answer/decide the following to guide design and implementation.
     - Use canonical names (e.g., 304 Stainless; 304L Stainless) and map aliases/suspect entries (e.g., "Stainless?", "CRS mystery?", "Hasteloy" → "Hastelloy").
     - Allow Unknown categories (e.g., Unknown Stainless, Unknown Steel) and preserve original text in a notes/original_material field.
 - [x] Types and shapes: Start with fixed lists. Maintain tables for Type/Shape/Material with active flags and alias relationships.
-- [x] Locations: Set list in code that we can easily add to when needed. Locations are not hierarchical. Location names are manually assigned and labels manually printed outside of the app.
+  - Canonical Types (v1): Bar, Tube, Angle, Plate, Sheet, Threaded Rod
+  - Canonical Shapes (by Type):
+    - Bar: Rectangular, Square, Round, Hex
+    - Tube: Round, Square
+    - Angle/Plate/Sheet/Threaded Rod: Rectangular or Round as per data; no additional shapes
+  - Materials (canonical examples; aliases map to these):
+    - Steels: Unknown Steel; A36; HRS; CRS; 1018; 12L14; 4140; 4140 Pre-Hard; 300M; B7; Cast Iron (Dura-Bar)
+    - Stainless: 304; 304L; 316; 316L; 321; 410; 440; RA330; Unknown Stainless
+    - Tool Steel: O1; A2; H11; L6
+    - Nonferrous: Aluminum (6061-T6/T6511, 6063-T52); Brass (generic, 360, C693, C385, H58, H58-330, C23000 red brass, Naval Brass); Copper (generic, C10100); Bronze (Unknown); Lead (99.9%); Nickel (96%)
+    - Structural/Tube: A500; A513; A53; EMT
+    - Exotic: Inconel; Hastelloy; Vasco Max 350
+  - Alias normalization (examples):
+    - "Stainless?", "Stainless non-magnetic" → "Unknown Stainless"; "T-304L" → "304L"; "T-304 Stainless" → "304"; "T-316 Stainless" → "316"; "316L Sch. 40" → "316L"
+    - "CRS mystery?" → "CRS" (with note retained); "Mystery", "Mystery Steel" → "Unknown Steel"; "Hasteloy" → "Hastelloy"
+    - "Dura Bar Cast Iron" → "Cast Iron (Dura-Bar)"; "RA330 Stainless" → "RA330"
 
 ### IDs, barcodes, and labels
 - [x] JA ID: These are assigned and printed manually outside of the app.
 - [x] Barcode scanning is done via a keyboard wedge scanner.
 - [x] Label printing is done manually outside of the app.
+
+### Data import, storage, and integrity
+- [x] Import: All of our initial data is in the existing Google sheet.
+- [x] Storage choice: Use Google Sheets initially (wrapped by a storage adapter class). Other options remain possible later.
+  - Storage abstraction plan:
+    - Define a `Storage` interface (or abstract base class) with methods: `create_item`, `update_item`, `deactivate_and_copy`, `move_item`, `get_item`, `search_items(filters)`, `list_taxonomy`, `upsert_taxonomy_alias`, `validate_unique_ja_id`.
+    - Implement `GoogleSheetsStorage` using the Sheets API; all app code calls only the interface.
+    - Map between logical schema fields and sheet columns in one place; keep JA ID unique among active rows.
+    - Handle retries/backoff for API errors; single-writer assumption simplifies concurrency.
+    - Enable swapping to `SQLiteStorage` later without changing callers.
+  - Google Sheets auth/config (decision): Use OAuth (installed app)
+    - Use OAuth 2.0 Installed App flow. On first run, a browser consent will authorize and create a refresh token.
+    - Credentials files: `credentials.json` (client ID/secret) and `token.json` (access/refresh). Store paths via env vars (e.g., `GOOGLE_SHEETS_CREDENTIALS`, `GOOGLE_SHEETS_TOKEN`) and restrict file perms.
+    - Scope: `https://www.googleapis.com/auth/spreadsheets` with offline access so refresh happens silently.
+    - Configuration: Spreadsheet ID: `1ZC2ifvEebC7tK2-Ns4TG98dc7E8zon9ru-CPUWrx0J4`; Tab: `Metal`; Header row index: 1. Keep these in a single config module.
+- [x] Backups will be handled external to the app.
+- [x] History/audit is not needed outside of normal logging by the application when data is changed.
+- [x] Validation: Enforce JA ID pattern, required fields by shape/type, and allowed values for enums. Validation should err on the side of being lax and allowing bad data to be corrected later.
+
+V1 recommendations (Data/import/storage/integrity)
+- Storage: Google Sheets via a storage wrapper now; keep a clean interface for an easy future switch to SQLite.
+- Backups: External to the app.
+- Audit: Rely on app logs only.
+- Validation: Strict on format, lenient on unknown materials with alias/original text preserved.
 
 ### Workflows
 - [x] Logging new inventory: We don't need templates. We should be able to easily change/configure the fields that carry forward from one item to the next in a single list in code, but to start with we'll carry forward type, shape, material, purchase date, and purchase location.
@@ -87,51 +125,97 @@ Please answer/decide the following to guide design and implementation.
 - [x] Deactivation reasons: Let's make provision for selecting a deactivation reason from a list of possible options in code, but for now the only option will be shortening (used part of the stock).
 - [x] Notes and attachments: We do not want photos/documents per item.
 
+V1 recommendations (Workflows)
+- Intake: Carry-forward type, shape, material, purchase date, and purchase location. No templates in v1.
+- Move (batch pairs): User scans JA ID then location ID, repeating for multiple pairs; then scans a special submit code to finish. If errors are made, user clears/reset and starts over.
+- Submit code literal for batch move: ">>DONE<<"
+- Shorten: Enter the new length manually; auto-mark old inactive and link via parent_item_id.
+- Deactivation: Enum reasons (start with Shortened).
+- Attachments: None in v1.
+
 ### Search and reporting
 - [x] Range queries: Only the basic numeric fields to support ranges (length, diameter/width, thickness, wall thickness). We will need to support compound filters, including filters on any/all of the fields; we will not need to support saved searches at this time.
 - [x] Sorting and export: Need CSV export of results. Do not need any saved reports, but ideally reports could be bookmark-able by URL.
 - [x] No need for derived fields.
 
-### Data import, storage, and integrity
-- [x] Import: All of our initial data is in the existing Google sheet.
-- [ ] Storage choice: Pick one:
-  - [ ] SQLite (local file, simple, good with Flask)
-  - [ ] Google Sheets (no local DB; API limits/latency/complexity)
-  - [ ] Flat files (JSON/CSV; simple, but weaker for range queries/integrity)
-- [x] Backups will be handled external to the app.
-- [x] History/audit is not needed outside of normal logging by the application when data is changed.
-- [x] Validation: Enforce JA ID pattern, required fields by shape/type, and allowed values for enums. Validation should err on the side of being lax and allowing bad data to be corrected later.
-
-### Security and deployment
-- [x] Access: Single user on LAN only. No auth needed.
-- [x] Hosting: Docker will be added later; for now, run directly via Python for testing and rapid iteration.
-- [x] Offline: App will be dependent on the local server.
-
-### UX details
-- [x] Scanner-first flows: Auto-focus on input, submit on Enter, audible/visual feedback, and "undo last" operation. Assume that the scanner sends an Enter/newline after every scan. Possibly consider using a specific barcode to scan to trigger submission (e.g. Code128 `>>DONE<<` or similar).
-- [x] Bulk actions: "Scan many" mode for moves only.
-- [x] Keyboard-only operation: Full keyboard operation preferred but not required.
+V1 recommendations (Search and reporting)
+- Filters: Numeric operators <, <=, =, >=, > for numeric fields; exact match or wildcard for text/enums.
+- Export: CSV export of search results; basic sorting by columns; filter state reflected in URL for bookmarking (exact schema to be set during implementation).
+- Derived fields: None in v1.
 
 ### Schema and structure to validate
-- [ ] Separate tables for items, locations, materials, types, shapes, and optional events/history? Any additional entities needed?
-- [ ] Item fields to include: active flag, sub-location, quantity, purchase info (date/price/source), vendor info (name/part number), notes, parent_item_id (for shortening), timestamps (created_at/updated_at).
 
-V1 recommendations (Schema)
-- Tables: items, locations, materials, types, shapes, aliases (for taxonomy), events.
-- Fields: Include those listed above; add `thread_spec` (text) and `thread_major_diameter_mm` (numeric).
+- Logical entities: items and simple taxonomy lists (materials, types, shapes, aliases). Events/history optional and not required in v1.
+- Item fields: JA ID, active, type, shape, material, location, sub-location, length, width, thickness, wall_thickness, thread fields (series/handedness/size/tpi-or-pitch/type/threadString), quantity, purchase_date, purchase_price, purchase_source, vendor_name, vendor_part_number, notes, parent_item_id, created_at, updated_at.
 
-### Decisions to make now
-1) Storage backend selection (SQLite vs Google Sheets vs flat files)
-2) Units handling and normalization rules
-3) Shape-specific required fields and how to treat width/diameter
-4) Whether the app should generate/print labels and/or JA IDs
-5) Audit/history depth and backup/export approach
-6) v1 workflow scope (intake, move, shorten, search) and any extras (templates, saved searches)
+#### Proposed column header mapping (Metal tab)
+- Core
+  - ja_id -> "JA ID"
+  - active -> "Active?" (Yes/No)
+  - type -> "Type"
+  - shape -> "Shape"
+  - material -> "Material"
+  - location -> "Location"
+  - sub_location -> "Sub-Location"
+- Dimensions (inches)
+  - length -> "Length (in)"
+  - width -> "Width (in)"  [for Round = diameter; for Hex = across flats]
+  - thickness -> "Thickness (in)"
+  - wall_thickness -> "Wall Thickness (in)"
+- Thread (structured)
+  - thread_series -> "Thread Series"  [I/M]
+  - thread_handedness -> "Thread Handedness"  [RH/LH]
+  - thread_size -> "Thread Size"
+  - thread_tpi_or_pitch -> "Thread TPI/Pitch"
+  - thread_type -> "Thread Type"
+  - thread_string -> "Thread String"
+- Other
+  - quantity -> "Qty"
+  - purchase_date -> "Purchase Date"
+  - purchase_price -> "Purchase Price"
+  - purchase_source -> "Purchase Source"
+  - vendor_name -> "Vendor Name"
+  - vendor_part_number -> "Vendor Part Number"
+  - notes -> "Notes"
+  - parent_item_id -> "Parent JA ID"
+  - deactivation_reason -> "Deactivation Reason"
+  - created_at -> "Created At"
+  - updated_at -> "Updated At"
+  - weight (optional) -> "Weight (lb)"
 
-V1 proposal (quick answers)
-1) SQLite
-2) Accept inches (fractional/decimal) and mm; store canonical in millimeters (Decimal)
-3) Shape-specific fields; use diameter for round, no generic width for round
-4) No ID generation or label printing in v1; use pre-printed labels
-5) Minimal events log + daily CSV backups
-6) Scope: intake, move, shorten, search; extras: carry-forward, simple batch move, CSV export; templates optional
+Notes
+- No derived columns; all dimensions are decimal inches. For Round/Hex bars, use Width (in) as diameter/AF.
+- Existing single "Thread" text in the legacy data can be retained as "Thread String"; structured fields fill as data is normalized.
+
+#### Sheet header changes and data migration plan
+- Header rename/add map (from likely legacy names):
+  - "Length" → "Length (in)"; "Width" → "Width (in)"; "Thickness" → "Thickness (in)"; "Wall Thickness" → "Wall Thickness (in)"
+  - "Quantity" → "Qty"
+  - "Purchase Location" → "Purchase Source"
+  - "Thread" → "Thread String" (keep original free-text)
+  - Add new (blank initially): "Thread Series", "Thread Handedness", "Thread Size", "Thread TPI/Pitch", "Thread Type", "Parent JA ID", "Deactivation Reason", "Created At", "Updated At", "Weight (lb)" (if not present)
+- Migration steps:
+  1) Backup: Make a full copy of the spreadsheet and export the Metal tab to CSV.
+  2) Create new tab: `Metal_v1` with the proposed headers in row 1; freeze row 1.
+  3) Copy data: Read from `Metal`, write to `Metal_v1` applying header renames above; insert any missing columns as empty.
+  4) Normalize values:
+     - Convert fractional dimensions (e.g., `1-5/8`) to decimal inches; round to 4 decimal places.
+     - For Bar Round/Hex, interpret Width (in) as diameter/AF; for Tube Round, ensure Width (in) is OD.
+     - Standardize `Active?` to `Yes`/`No`.
+     - Map Material via alias rules; optionally preserve raw text in Notes.
+     - Move legacy `Thread` text to `Thread String`; optionally parse into structured fields if confidently recognized (leave blank otherwise).
+  5) Validate: Enforce required fields by type/shape, JA ID pattern, and uniqueness among active rows; emit a report of anomalies.
+  6) Cutover: After spot checks, either rename tabs (`Metal` → `Metal_legacy_YYYYMMDD`, `Metal_v1` → `Metal`) or point config to `Metal_v1`.
+  7) Archive: Keep the legacy tab read-only for reference.
+- Automation plan:
+  - Provide a one-off migration script using the Sheets API with a dry-run mode; idempotent and safe to rerun.
+- Open choices for you:
+  - Do you want separate columns `Original Material` and `Original Thread` to preserve raw inputs, or rely on `Notes`?
+  - Should we auto-parse threads into structured fields during migration, or leave structured blank initially?
+  - Confirm rounding precision for decimals (default 4 places).
+
+### Decisions to make now (remaining)
+- OAuth chosen: confirm credential file locations (paths for `credentials.json` and `token.json`) and the env var names to reference them. [Resolved]
+- Approve the Proposed column header mapping and the migration plan above (or suggest edits).
+- Choose answers for the open choices listed in the migration plan.
+- Storage interface: finalize exact method signatures and error handling during implementation kickoff.
