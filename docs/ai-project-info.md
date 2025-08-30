@@ -192,30 +192,29 @@ Notes
   - "Length" → "Length (in)"; "Width" → "Width (in)"; "Thickness" → "Thickness (in)"; "Wall Thickness" → "Wall Thickness (in)"
   - "Quantity" → "Qty"
   - "Purchase Location" → "Purchase Source"
-  - "Thread" → "Thread String" (keep original free-text)
-  - Add new (blank initially): "Thread Series", "Thread Handedness", "Thread Size", "Thread TPI/Pitch", "Thread Type", "Parent JA ID", "Deactivation Reason", "Created At", "Updated At", "Weight (lb)" (if not present)
+  - "Thread" → "Original Thread" (preserve original free-text)
+  - Add new: "Thread Series", "Thread Handedness", "Thread Size", "Thread TPI/Pitch", "Thread Type", "Thread String", "Original Material", "Parent JA ID", "Deactivation Reason", "Created At", "Updated At", "Weight (lb)" (if not present)
 - Migration steps:
   1) Backup: Make a full copy of the spreadsheet and export the Metal tab to CSV.
-  2) Create new tab: `Metal_v1` with the proposed headers in row 1; freeze row 1.
-  3) Copy data: Read from `Metal`, write to `Metal_v1` applying header renames above; insert any missing columns as empty.
-  4) Normalize values:
-     - Convert fractional dimensions (e.g., `1-5/8`) to decimal inches; round to 4 decimal places.
+  2) Rename existing: `Metal` tab → `Metal_original`.
+  3) Create new tab: `Metal` with the proposed headers in row 1; freeze row 1.
+  4) Copy data: Read from `Metal_original`, write to `Metal` applying header renames above; insert any missing columns as empty.
+  5) Normalize values:
+     - Convert fractional dimensions (e.g., `1-5/8`) to decimal inches using customary precision (e.g., 1/4 → 0.25, not 0.2500); preserve user-entered precision exactly.
      - For Bar Round/Hex, interpret Width (in) as diameter/AF; for Tube Round, ensure Width (in) is OD.
      - Standardize `Active?` to `Yes`/`No`.
-     - Map Material via alias rules; optionally preserve raw text in Notes.
-     - Move legacy `Thread` text to `Thread String`; optionally parse into structured fields if confidently recognized (leave blank otherwise).
-  5) Validate: Enforce required fields by type/shape, JA ID pattern, and uniqueness among active rows; emit a report of anomalies.
-  6) Cutover: After spot checks, either rename tabs (`Metal` → `Metal_legacy_YYYYMMDD`, `Metal_v1` → `Metal`) or point config to `Metal_v1`.
-  7) Archive: Keep the legacy tab read-only for reference.
+     - Copy original Material text to `Original Material`; map normalized Material via alias rules.
+     - Copy original Thread text to `Original Thread`; parse into structured fields where confidently recognized.
+  6) Validate: Enforce required fields by type/shape, JA ID pattern, and uniqueness among active rows; emit a report of anomalies.
+  7) Test: The new `Metal` tab can be deleted and regenerated if migration needs adjustment.
 - Automation plan:
-  - Provide a one-off migration script using the Sheets API with a dry-run mode; idempotent and safe to rerun.
-- Open choices for you:
-  - Do you want separate columns `Original Material` and `Original Thread` to preserve raw inputs, or rely on `Notes`?
-  - Should we auto-parse threads into structured fields during migration, or leave structured blank initially?
-  - Confirm rounding precision for decimals (default 4 places).
+  - Provide a dedicated migration script using the Sheets API with a dry-run mode; idempotent and safe to rerun.
 
-### Decisions to make now (remaining)
-- OAuth chosen: confirm credential file locations (paths for `credentials.json` and `token.json`) and the env var names to reference them. [Resolved]
-- Approve the Proposed column header mapping and the migration plan above (or suggest edits).
-- Choose answers for the open choices listed in the migration plan.
-- Storage interface: finalize exact method signatures and error handling during implementation kickoff.
+### Final Decisions Made
+- **OAuth Configuration**: Store `credentials.json` and `token.json` in the current working directory. Environment variables: `GOOGLE_SHEETS_CREDENTIALS_PATH` and `GOOGLE_SHEETS_TOKEN_PATH`.
+- **Data Preservation**: Create separate `Original Material` and `Original Thread` columns to preserve raw inputs from existing data.
+- **Thread Parsing**: Dedicated migration script will parse threads into structured fields during initial migration.
+- **Decimal Precision**: Preserve user-entered precision exactly (e.g., distinguish between `1.2` and `1.2000` for machining practices).
+- **Technology Stack**: Python/Flask backend with Jinja2 templates and Bootstrap CSS for UI (optimized for simplicity and maintainability).
+- **Column Header Mapping**: Approved as specified above.
+- **Migration Plan**: Approved with modifications (rename to `Metal_original`, use customary decimal precision, preserve original values).
