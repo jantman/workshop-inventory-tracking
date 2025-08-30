@@ -29,20 +29,20 @@ Each milestone includes:
 **Objective**: Establish the basic project structure, development environment, and Google Sheets connectivity.
 
 ### Tasks
-1. **Project Structure Setup**
+1. **Project Structure Setup** ☐
    - Create Flask application skeleton with standard directory structure
    - Set up virtual environment and requirements.txt
    - Configure basic Flask app with development settings
    - Create basic logging configuration
 
-2. **Google Sheets Integration Foundation**
+2. **Google Sheets Integration Foundation** ☐
    - Implement OAuth 2.0 authentication flow
    - Create storage abstraction interface (`Storage` abstract base class)
    - Implement `GoogleSheetsStorage` class with basic CRUD operations
    - Set up environment variable configuration for credential paths
    - Test connection to existing Google Sheet
 
-3. **Basic Web Interface**
+3. **Basic Web Interface** ☐
    - Create base HTML template with Bootstrap CSS
    - Implement basic navigation structure
    - Create simple home page with application overview
@@ -75,21 +75,21 @@ Each milestone includes:
 **Objective**: Implement the data migration script and establish the new sheet structure with proper data normalization.
 
 ### Tasks
-1. **Migration Script Development**
+1. **Migration Script Development** ☐
    - Create standalone migration script with dry-run capability
    - Implement sheet backup functionality
    - Implement sheet rename (`Metal` → `Metal_original`)
    - Create new `Metal` sheet with updated headers
    - Implement data copying with normalization rules
 
-2. **Data Normalization Logic**
+2. **Data Normalization Logic** ☐
    - Fraction-to-decimal conversion (preserving user precision)
    - Material alias mapping and normalization
    - Thread parsing into structured fields
    - Original data preservation (Original Material, Original Thread columns)
    - Active status standardization (Yes/No)
 
-3. **Validation & Reporting**
+3. **Validation & Reporting** ☐
    - JA ID pattern validation
    - Required field validation by type/shape
    - Uniqueness checks among active rows
@@ -125,19 +125,19 @@ Each milestone includes:
 **Objective**: Implement the complete data model, storage interface, and taxonomy management system.
 
 ### Tasks
-1. **Data Model Implementation**
+1. **Data Model Implementation** ☐
    - Define Item model with all required fields
    - Implement validation rules for different type/shape combinations
    - Create thread representation models (series, handedness, size, etc.)
    - Implement decimal precision preservation for dimensions
 
-2. **Storage Interface Completion**
+2. **Storage Interface Completion** ☐
    - Complete all storage interface methods
    - Implement search functionality with filtering
    - Add batch operations for inventory management
    - Implement error handling and retry logic for API calls
 
-3. **Taxonomy Management**
+3. **Taxonomy Management** ☐
    - Create material taxonomy with alias mapping
    - Implement type/shape relationship management
    - Add support for adding new taxonomy entries
@@ -171,25 +171,25 @@ Each milestone includes:
 **Objective**: Implement the main web application features for inventory management.
 
 ### Tasks
-1. **New Inventory Logging Interface**
+1. **New Inventory Logging Interface** ☐
    - Create form for adding new inventory items
    - Implement carry-forward functionality for common fields
    - Add barcode scanner support (keyboard wedge)
    - Implement form validation and error handling
 
-2. **Inventory Movement System**
+2. **Inventory Movement System** ☐
    - Create batch move interface
    - Implement barcode scanning for item ID and location pairs
    - Add submit code recognition (">>DONE<<")
    - Implement move validation and confirmation
 
-3. **Inventory Shortening Feature**
+3. **Inventory Shortening Feature** ☐
    - Create interface for shortening existing inventory
    - Implement automatic deactivation of original item
    - Create new item record with updated length
    - Maintain parent-child relationship tracking
 
-4. **Basic Inventory Listing**
+4. **Basic Inventory Listing** ☐
    - Create inventory list view with pagination
    - Implement basic sorting by columns
    - Add active/inactive filtering
@@ -223,19 +223,19 @@ Each milestone includes:
 **Objective**: Implement the advanced search functionality with range queries and complex filtering.
 
 ### Tasks
-1. **Search Interface Design**
+1. **Search Interface Design** ☐
    - Create advanced search form with multiple filter types
    - Implement numeric range inputs (length, width, thickness, wall thickness)
    - Add dropdown filters for categorical fields (type, shape, material)
    - Implement text search for notes and locations
 
-2. **Search Engine Implementation**
+2. **Search Engine Implementation** ☐
    - Implement range query logic for numeric fields
    - Add compound filtering (AND/OR combinations)
    - Implement thread size comparison logic
    - Add wildcard text matching
 
-3. **Results Display & Export**
+3. **Results Display & Export** ☐
    - Create search results table with sorting
    - Implement CSV export functionality
    - Add result count and pagination
@@ -269,19 +269,19 @@ Each milestone includes:
 **Objective**: Polish the user interface and add convenience features for optimal workflow.
 
 ### Tasks
-1. **UI/UX Improvements**
+1. **UI/UX Improvements** ☐
    - Enhance form layouts and responsiveness
    - Add progress indicators and loading states
    - Implement user-friendly error messages
    - Add keyboard shortcuts for common operations
 
-2. **Workflow Optimizations**
+2. **Workflow Optimizations** ☐
    - Add bulk operations capabilities
    - Implement recent items quick access
    - Add form auto-completion for repeated values
    - Create workflow shortcuts and hotkeys
 
-3. **Data Validation & Help**
+3. **Data Validation & Help** ☐
    - Add inline validation with helpful messages
    - Create context-sensitive help system
    - Implement data entry guides (e.g., thread format help)
@@ -314,25 +314,25 @@ Each milestone includes:
 **Objective**: Implement comprehensive testing, complete documentation, and prepare for deployment.
 
 ### Tasks
-1. **Automated Testing Implementation**
+1. **Automated Testing Implementation** ☐
    - Create unit tests for all data models and validation logic
    - Implement integration tests for storage operations
    - Add end-to-end tests for critical workflows
    - Create test data fixtures and mocking
 
-2. **Performance & Reliability**
+2. **Performance & Reliability** ☐
    - Implement proper error handling and recovery
    - Add logging for debugging and audit trail
    - Optimize Google Sheets API usage
    - Add data backup verification
 
-3. **Complete Documentation**
+3. **Complete Documentation** ☐
    - Create comprehensive user manual
    - Document deployment and maintenance procedures
    - Create troubleshooting guide
    - Document backup and recovery processes
 
-4. **Deployment Package**
+4. **Deployment Package** ☐
    - Create deployment scripts and configuration
    - Package application with all dependencies
    - Create maintenance and monitoring tools
@@ -370,6 +370,13 @@ Each milestone includes:
 - Implement proper error handling with informative messages
 - Add docstrings for all classes and functions
 - Use type hints where appropriate
+
+### Git Workflow
+- **Commit after each task**: Every completed task must be committed to git
+- **Commit message format**: `ClaudeCode - [Milestone.Task] [Summary]`
+  - Example: `ClaudeCode - 1.2 Google Sheets OAuth integration and storage abstraction`
+- **Track progress**: Update this implementation plan with checkmarks (✅) for completed tasks as part of each commit
+- **Atomic commits**: Each task should result in a single, focused commit
 
 ### Security Considerations
 - Store OAuth credentials securely with appropriate file permissions
