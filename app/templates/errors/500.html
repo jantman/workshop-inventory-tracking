@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="text-center">
+            <div class="display-1 text-danger mb-4">
+                <i class="bi bi-exclamation-triangle"></i>
+            </div>
+            <h1 class="display-4 mb-3">Server Error</h1>
+            <p class="lead">
+                Something went wrong on our end. We're working to fix it!
+            </p>
+            <p class="text-muted">
+                This error has been logged and our team has been notified.
+                Please try again in a few moments.
+            </p>
+            
+            <div class="mt-4">
+                <a href="{{ url_for('main.index') }}" class="btn btn-primary">
+                    <i class="bi bi-house"></i> Go Home
+                </a>
+                <button onclick="location.reload()" class="btn btn-outline-secondary ms-2">
+                    <i class="bi bi-arrow-clockwise"></i> Try Again
+                </button>
+            </div>
+            
+            <div class="mt-4 pt-4 border-top">
+                <h5>What you can do:</h5>
+                <div class="text-start">
+                    <ul class="list-unstyled">
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle text-success"></i>
+                            Refresh the page and try again
+                        </li>
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle text-success"></i>
+                            Check your internet connection
+                        </li>
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle text-success"></i>
+                            Wait a few minutes and try again
+                        </li>
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle text-success"></i>
+                            Contact support if the problem persists
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="jumbotron bg-primary text-white rounded p-5 mb-4">
+            <div class="container-fluid">
+                <h1 class="display-4">
+                    <i class="bi bi-tools"></i>
+                    Workshop Material Inventory Tracking
+                </h1>
+                <p class="lead">
+                    Efficiently manage and track your workshop's material inventory with barcode scanning, 
+                    advanced search capabilities, and seamless Google Sheets integration.
+                </p>
+                <hr class="my-4 border-light">
+                <p class="mb-0">
+                    <a class="btn btn-light btn-lg" href="{{ url_for('main.inventory_add') }}" role="button">
+                        <i class="bi bi-plus-circle"></i> Add New Item
+                    </a>
+                    <a class="btn btn-outline-light btn-lg ms-3" href="{{ url_for('main.inventory_search') }}" role="button">
+                        <i class="bi bi-search"></i> Search Inventory
+                    </a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card stat-card text-center">
+            <div class="card-body">
+                <h3 class="mb-2">-</h3>
+                <p class="card-text">
+                    <i class="bi bi-box"></i> Total Items
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card text-center" style="background: linear-gradient(135deg, #198754 0%, #157347 100%);">
+            <div class="card-body">
+                <h3 class="mb-2">-</h3>
+                <p class="card-text">
+                    <i class="bi bi-check-circle"></i> Active Items
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card text-center" style="background: linear-gradient(135deg, #fd7e14 0%, #e55d00 100%);">
+            <div class="card-body">
+                <h3 class="mb-2">-</h3>
+                <p class="card-text">
+                    <i class="bi bi-geo-alt"></i> Unique Locations
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-activity"></i>
+                    Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="d-grid">
+                            <a href="{{ url_for('main.inventory_add') }}" class="btn btn-outline-primary btn-lg">
+                                <i class="bi bi-plus-circle"></i>
+                                <div>Add New Inventory</div>
+                                <small class="text-muted d-block">Log new materials into the system</small>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-grid">
+                            <a href="{{ url_for('main.inventory_move') }}" class="btn btn-outline-success btn-lg">
+                                <i class="bi bi-arrow-left-right"></i>
+                                <div>Move Items</div>
+                                <small class="text-muted d-block">Batch move items to new locations</small>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-grid">
+                            <a href="{{ url_for('main.inventory_shorten') }}" class="btn btn-outline-warning btn-lg">
+                                <i class="bi bi-scissors"></i>
+                                <div>Shorten Items</div>
+                                <small class="text-muted d-block">Cut materials to new lengths</small>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-grid">
+                            <a href="{{ url_for('main.inventory_search') }}" class="btn btn-outline-info btn-lg">
+                                <i class="bi bi-search"></i>
+                                <div>Advanced Search</div>
+                                <small class="text-muted d-block">Find items with complex filters</small>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    System Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span>Google Sheets Connection</span>
+                    <span id="home-connection-status">
+                        <i class="bi bi-question-circle text-warning"></i>
+                    </span>
+                </div>
+                
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span>Data Storage</span>
+                    <span class="text-success">
+                        <i class="bi bi-cloud-check"></i>
+                    </span>
+                </div>
+                
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span>Last Sync</span>
+                    <small class="text-muted">Just now</small>
+                </div>
+                
+                <hr>
+                
+                <h6>Recent Activity</h6>
+                <div class="small text-muted">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>• System started</span>
+                        <span>Now</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>• Database connected</span>
+                        <span>Now</span>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-outline-primary btn-sm" onclick="WorkshopInventory.checkConnectionStatus(true)">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh Status
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightbulb"></i>
+                    Tips & Shortcuts
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0 small">
+                    <li class="mb-2">
+                        <i class="bi bi-keyboard text-primary"></i>
+                        Use barcode scanners for quick item entry
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-search text-primary"></i>
+                        Search by material, location, or dimensions
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-tags text-primary"></i>
+                        Use consistent naming for materials
+                    </li>
+                    <li class="mb-0">
+                        <i class="bi bi-cloud text-primary"></i>
+                        Data is automatically backed up to Google Sheets
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Home page specific JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+    // Update home page connection status when main status changes
+    const mainStatus = document.getElementById('connection-status');
+    const homeStatus = document.getElementById('home-connection-status');
+    
+    if (mainStatus && homeStatus) {
+        // Copy initial status
+        homeStatus.innerHTML = mainStatus.querySelector('i').outerHTML;
+        
+        // Listen for changes (we'll use MutationObserver)
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    homeStatus.innerHTML = mainStatus.querySelector('i').outerHTML;
+                }
+            });
+        });
+        
+        observer.observe(mainStatus.querySelector('i'), {
+            attributes: true,
+            attributeFilter: ['class']
+        });
+    }
+    
+    // Load stats (placeholder for future implementation)
+    loadDashboardStats();
+});
+
+function loadDashboardStats() {
+    // Placeholder function for loading dashboard statistics
+    // This will be implemented in future milestones
+    console.log('Loading dashboard stats...');
+}
+</script>
+{% endblock %}
