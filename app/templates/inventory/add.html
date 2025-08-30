@@ -2,25 +2,341 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2><i class="bi bi-plus-circle"></i> Add New Item</h2>
-    <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-list"></i> View All Items
-    </a>
-</div>
-
-<div class="card">
-    <div class="card-body text-center py-5">
-        <div class="display-1 text-muted mb-4">
-            <i class="bi bi-plus-circle"></i>
-        </div>
-        <h3>Add New Item Coming Soon</h3>
-        <p class="text-muted">
-            This feature will be implemented in Milestone 4.<br>
-            You'll be able to add new inventory items with barcode scanning here.
-        </p>
-        <a href="{{ url_for('main.index') }}" class="btn btn-outline-primary">
-            <i class="bi bi-house"></i> Return to Home
+    <h2><i class="bi bi-plus-circle"></i> Add New Inventory Item</h2>
+    <div>
+        <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-list"></i> View All Items
         </a>
+        <button type="button" class="btn btn-outline-info ms-2" id="carry-forward-btn" title="Use previous item values">
+            <i class="bi bi-arrow-clockwise"></i> Carry Forward
+        </button>
     </div>
 </div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div id="flash-messages">
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<form id="add-item-form" class="needs-validation" novalidate method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    
+    <!-- Alert for messages -->
+    <div id="form-alerts"></div>
+    
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Basic Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="ja_id" class="form-label">JA ID *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="ja_id" name="ja_id" 
+                                       pattern="JA\d{6}" placeholder="JA000001" required
+                                       title="Format: JA followed by 6 digits">
+                                <button type="button" class="btn btn-outline-secondary" id="scan-ja-id-btn" title="Scan barcode">
+                                    <i class="bi bi-upc-scan"></i>
+                                </button>
+                            </div>
+                            <div class="invalid-feedback">
+                                Please enter a valid JA ID (format: JA######)
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="item_type" class="form-label">Type *</label>
+                            <select class="form-select" id="item_type" name="item_type" required>
+                                <option value="">Select type...</option>
+                                <option value="Bar">Bar</option>
+                                <option value="Plate">Plate</option>
+                                <option value="Sheet">Sheet</option>
+                                <option value="Tube">Tube</option>
+                                <option value="Pipe">Pipe</option>
+                                <option value="Rod">Rod</option>
+                                <option value="Angle">Angle</option>
+                                <option value="Channel">Channel</option>
+                                <option value="Beam">Beam</option>
+                                <option value="Wire">Wire</option>
+                                <option value="Fastener">Fastener</option>
+                                <option value="Other">Other</option>
+                            </select>
+                            <div class="invalid-feedback">
+                                Please select an item type
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="shape" class="form-label">Shape *</label>
+                            <select class="form-select" id="shape" name="shape" required>
+                                <option value="">Select shape...</option>
+                                <option value="Rectangular">Rectangular</option>
+                                <option value="Round">Round</option>
+                                <option value="Square">Square</option>
+                                <option value="Hexagonal">Hexagonal</option>
+                                <option value="Octagonal">Octagonal</option>
+                                <option value="L-Shaped">L-Shaped</option>
+                                <option value="T-Shaped">T-Shaped</option>
+                                <option value="U-Shaped">U-Shaped</option>
+                                <option value="I-Beam">I-Beam</option>
+                                <option value="C-Channel">C-Channel</option>
+                                <option value="Irregular">Irregular</option>
+                                <option value="Other">Other</option>
+                            </select>
+                            <div class="invalid-feedback">
+                                Please select a shape
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label for="material" class="form-label">Material *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="material" name="material" 
+                                       placeholder="Enter material name..." required autocomplete="off">
+                                <button type="button" class="btn btn-outline-info" id="material-suggestions-btn" 
+                                        title="Show material suggestions">
+                                    <i class="bi bi-lightbulb"></i>
+                                </button>
+                            </div>
+                            <div class="invalid-feedback">
+                                Please enter a material
+                            </div>
+                            <div id="material-suggestions" class="dropdown-menu" style="max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity" 
+                                   value="1" min="1" step="1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Dimensions -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-rulers"></i> Dimensions</h5>
+                    <small class="text-muted">Required fields depend on type and shape</small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="length" class="form-label">Length <span class="dimension-required" style="display:none">*</span></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="length" name="length" 
+                                       placeholder="0.0" pattern="[\d./\s]+">
+                                <span class="input-group-text">in</span>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <label for="width" class="form-label">
+                                <span id="width-label">Width</span> 
+                                <span class="dimension-required" style="display:none">*</span>
+                            </label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="width" name="width" 
+                                       placeholder="0.0" pattern="[\d./\s]+">
+                                <span class="input-group-text">in</span>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <label for="thickness" class="form-label">Thickness <span class="dimension-required" style="display:none">*</span></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="thickness" name="thickness" 
+                                       placeholder="0.0" pattern="[\d./\s]+">
+                                <span class="input-group-text">in</span>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <label for="wall_thickness" class="form-label">Wall Thickness <span class="dimension-required" style="display:none">*</span></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="wall_thickness" name="wall_thickness" 
+                                       placeholder="0.0" pattern="[\d./\s]+">
+                                <span class="input-group-text">in</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="weight" class="form-label">Weight</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="weight" name="weight" 
+                                       placeholder="0.0" pattern="[\d.]+">
+                                <span class="input-group-text">lbs</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Threading Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-gear"></i> Threading Information</h5>
+                    <small class="text-muted">Optional - leave blank for non-threaded items</small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="thread_series" class="form-label">Thread Series</label>
+                            <select class="form-select" id="thread_series" name="thread_series">
+                                <option value="">None</option>
+                                <option value="UNC">UNC (Unified National Coarse)</option>
+                                <option value="UNF">UNF (Unified National Fine)</option>
+                                <option value="UNEF">UNEF (Unified National Extra Fine)</option>
+                                <option value="Metric">Metric</option>
+                                <option value="BSW">BSW (British Standard Whitworth)</option>
+                                <option value="BSF">BSF (British Standard Fine)</option>
+                                <option value="NPT">NPT (National Pipe Thread)</option>
+                                <option value="Acme">Acme</option>
+                                <option value="Custom">Custom</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="thread_handedness" class="form-label">Handedness</label>
+                            <select class="form-select" id="thread_handedness" name="thread_handedness">
+                                <option value="">Default (RH)</option>
+                                <option value="RH">Right Hand (RH)</option>
+                                <option value="LH">Left Hand (LH)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="thread_size" class="form-label">Thread Size</label>
+                            <input type="text" class="form-control" id="thread_size" name="thread_size" 
+                                   placeholder="e.g., 1/2-13, M12x1.75">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <!-- Location Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Location</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Location</label>
+                        <input type="text" class="form-control" id="location" name="location" 
+                               placeholder="e.g., Shop A, Storage Room">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="sub_location" class="form-label">Sub-Location</label>
+                        <input type="text" class="form-control" id="sub_location" name="sub_location" 
+                               placeholder="e.g., Shelf 3, Bin B">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Purchase Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-receipt"></i> Purchase Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="purchase_date" class="form-label">Purchase Date</label>
+                        <input type="date" class="form-control" id="purchase_date" name="purchase_date">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="purchase_price" class="form-label">Purchase Price</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="text" class="form-control" id="purchase_price" name="purchase_price" 
+                                   placeholder="0.00" pattern="[\d.]+">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="purchase_location" class="form-label">Purchase Location</label>
+                        <input type="text" class="form-control" id="purchase_location" name="purchase_location" 
+                               placeholder="e.g., Home Depot, Online">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="vendor" class="form-label">Vendor</label>
+                        <input type="text" class="form-control" id="vendor" name="vendor" 
+                               placeholder="e.g., McMaster-Carr">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="vendor_part_number" class="form-label">Vendor Part Number</label>
+                        <input type="text" class="form-control" id="vendor_part_number" name="vendor_part_number" 
+                               placeholder="e.g., 8975K123">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Notes -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-sticky"></i> Notes</h5>
+                </div>
+                <div class="card-body">
+                    <textarea class="form-control" id="notes" name="notes" rows="4" 
+                              placeholder="Additional notes about this item..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Form Actions -->
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="active" name="active" checked>
+                        <label class="form-check-label" for="active">
+                            Item is active
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="btn-group">
+                    <button type="submit" name="submit_type" value="add" class="btn btn-primary" id="submit-btn">
+                        <i class="bi bi-check-circle"></i> Add Item
+                    </button>
+                    <button type="submit" name="submit_type" value="continue" class="btn btn-success" id="submit-and-continue-btn">
+                        <i class="bi bi-plus-circle"></i> Add & Continue
+                    </button>
+                    <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inventory-add.js') }}"></script>
 {% endblock %}
