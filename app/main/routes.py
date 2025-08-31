@@ -22,7 +22,7 @@ def health():
 
 @bp.route('/inventory')
 def inventory_list():
-    """Inventory list view (placeholder)"""
+    """Inventory list view"""
     return render_template('inventory/list.html', title='Inventory')
 
 @bp.route('/inventory/add', methods=['GET', 'POST'])
@@ -453,6 +453,58 @@ def get_next_ja_id():
         return jsonify({
             'success': False,
             'error': 'Failed to generate next JA ID'
+        }), 500
+
+@bp.route('/api/inventory/list')
+def api_inventory_list():
+    """Get inventory list data for the frontend"""
+    try:
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        
+        # Get all items
+        items = service.get_all_items()
+        
+        # Convert to JSON-serializable format
+        items_data = []
+        for item in items:
+            item_data = {
+                'ja_id': item.ja_id,
+                'display_name': item.display_name,
+                'item_type': item.item_type.value,
+                'shape': item.shape.value,
+                'material': item.material,
+                'dimensions': item.dimensions.to_dict() if item.dimensions else None,
+                'thread': item.thread.to_dict() if item.thread else None,
+                'quantity': item.quantity,
+                'location': item.location,
+                'sub_location': item.sub_location,
+                'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
+                'purchase_price': str(item.purchase_price) if item.purchase_price else None,
+                'purchase_location': item.purchase_location,
+                'vendor': item.vendor,
+                'vendor_part_number': item.vendor_part_number,
+                'notes': item.notes,
+                'active': item.active,
+                'parent_ja_id': item.parent_ja_id,
+                'child_ja_ids': list(item.child_ja_ids) if item.child_ja_ids else [],
+                'date_added': item.date_added.isoformat() if item.date_added else None,
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None
+            }
+            items_data.append(item_data)
+        
+        return jsonify({
+            'success': True,
+            'items': items_data,
+            'total_count': len(items_data)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error loading inventory list: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to load inventory list',
+            'items': []
         }), 500
 
 def _execute_shortening_operation(form_data):
