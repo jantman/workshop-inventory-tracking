@@ -60,7 +60,8 @@ class DataMigrator:
             'skipped_rows': 0,
             'material_normalizations': 0,
             'thread_parsing': 0,
-            'fraction_conversions': 0
+            'fraction_conversions': 0,
+            'price_cleanings': 0
         }
         
     def log_info(self, message: str):
@@ -185,6 +186,33 @@ class DataMigrator:
             self.stats['thread_parsing'] += 1
             
         return series, handedness, size, original
+    
+    def clean_price(self, price: str) -> Optional[str]:
+        """Clean price data by removing currency symbols and invalid characters"""
+        if not price or price.strip() == '':
+            return None
+        
+        price = price.strip()
+        
+        # Remove common currency symbols and whitespace
+        price = price.replace('$', '').replace('€', '').replace('£', '').replace('¥', '')
+        price = price.replace(',', '').strip()
+        
+        # Handle empty result after cleaning
+        if not price:
+            return None
+        
+        try:
+            # Validate it's a valid decimal number
+            decimal_value = self.fraction_to_decimal(price)
+            if decimal_value and float(decimal_value) >= 0:
+                self.stats['price_cleanings'] += 1
+                return decimal_value
+            else:
+                return None
+        except (ValueError, TypeError):
+            self.log_warning(f"Could not parse price '{price}' - invalid format")
+            return None
     
     def validate_ja_id(self, ja_id: str) -> bool:
         """Validate JA ID format"""
@@ -321,7 +349,7 @@ class DataMigrator:
             new_row[14] = row_dict.get('Location', '').strip()
             new_row[15] = row_dict.get('Sub-Location', '').strip()
             new_row[16] = row_dict.get('Purch. Date', '').strip()
-            new_row[17] = row_dict.get('Purch. Price (line)', '').strip()
+            new_row[17] = self.clean_price(row_dict.get('Purch. Price (line)', '')) or ''
             new_row[18] = row_dict.get('Purch. Loc.', '').strip()
             new_row[19] = row_dict.get('Notes', '').strip()
             new_row[20] = row_dict.get('Vendor', '').strip()
@@ -399,6 +427,84 @@ class DataMigrator:
             self.log_error(f"Failed to create new sheet: {result.error}")
             return False
     
+    def backup_current_metal_sheet(self) -> bool:
+        """Create backup of current Metal sheet before replacing it"""
+        self.log_info("Creating backup of current Metal sheet...")
+        
+        if self.dry_run:
+            self.log_info("DRY RUN: Would create backup Metal_replaced_YYYYMMDD_HHMMSS")
+            return True
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"Metal_replaced_{timestamp}"
+        
+        result = self.storage.backup_sheet('Metal', backup_name)
+        if result.success:
+            self.log_info(f"Successfully created backup: {backup_name}")
+            return True
+        else:
+            self.log_error(f"Failed to create backup: {result.error}")
+            return False
+    
+    def replace_metal_sheet(self) -> bool:
+        """Replace Metal sheet by clearing it and writing new headers"""
+        self.log_info("Clearing Metal sheet and adding new headers...")
+        
+        if self.dry_run:
+            self.log_info("DRY RUN: Would clear Metal sheet and add new headers")
+            return True
+        
+        # Simply write the headers as the first row - this will effectively replace the sheet
+        # The write_rows method will handle clearing and writing all data
+        result = self.storage.write_row('Metal', self.NEW_HEADERS)
+        if result.success:
+            self.log_info(f"Successfully added new headers to Metal sheet ({len(self.NEW_HEADERS)} columns)")
+            return True
+        else:
+            self.log_error(f"Failed to write headers: {result.error}")
+            return False
+    
+    def _replace_sheet_content(self, sheet_name: str, data: List[List[str]]) -> bool:
+        """Replace entire sheet content using Google Sheets API update method"""
+        try:
+            from googleapiclient.discovery import build
+            from app.auth import GoogleAuth
+            
+            auth = GoogleAuth()
+            credentials = auth.credentials
+            service = build('sheets', 'v4', credentials=credentials)
+            
+            # Clear the entire sheet first
+            clear_range = f"{sheet_name}!A:ZZ"  # Clear all columns
+            clear_request = service.spreadsheets().values().clear(
+                spreadsheetId=self.storage.spreadsheet_id,
+                range=clear_range
+            )
+            clear_request.execute()
+            self.log_info(f"Cleared existing content from {sheet_name}")
+            
+            # Update with new data (replaces content starting from A1)
+            range_name = f"{sheet_name}!A1"
+            body = {
+                'values': data
+            }
+            
+            update_request = service.spreadsheets().values().update(
+                spreadsheetId=self.storage.spreadsheet_id,
+                range=range_name,
+                valueInputOption='USER_ENTERED',
+                body=body
+            )
+            result = update_request.execute()
+            
+            updated_cells = result.get('updatedCells', 0)
+            self.log_info(f"Updated {updated_cells} cells in {sheet_name}")
+            return True
+            
+        except Exception as e:
+            self.log_error(f"Failed to replace sheet content: {e}")
+            return False
+    
     def migrate_data(self) -> bool:
         """Perform the complete data migration"""
         self.log_info("Starting data migration process...")
@@ -413,8 +519,8 @@ class DataMigrator:
         self.log_info(f"Connected to spreadsheet: {connect_result.data.get('title', 'Unknown')}")
         
         # Step 2: Read original data
-        self.log_info("Reading original Metal sheet...")
-        data_result = self.storage.read_all('Metal')
+        self.log_info("Reading original Metal_original sheet...")
+        data_result = self.storage.read_all('Metal_original')
         if not data_result.success:
             self.log_error(f"Failed to read Metal sheet: {data_result.error}")
             return False
@@ -455,26 +561,17 @@ class DataMigrator:
             self._print_migration_summary()
             return True
         
-        # Step 4: Create backup
-        if not self.backup_original_sheet():
+        # Step 4: Create backup of current Metal sheet (if exists)
+        if not self.backup_current_metal_sheet():
             return False
         
-        # Step 5: Rename original sheet
-        if not self.rename_original_sheet():
+        # Step 5: Replace all content in Metal sheet
+        self.log_info("Replacing all content in Metal sheet...")
+        all_data = [self.NEW_HEADERS] + transformed_rows
+        if not self._replace_sheet_content('Metal', all_data):
             return False
         
-        # Step 6: Create new sheet
-        if not self.create_new_sheet():
-            return False
-        
-        # Step 7: Write transformed data
-        self.log_info("Writing transformed data to new Metal sheet...")
-        write_result = self.storage.write_rows('Metal', transformed_rows)
-        if not write_result.success:
-            self.log_error(f"Failed to write transformed data: {write_result.error}")
-            return False
-        
-        self.log_info(f"Successfully wrote {write_result.affected_rows} rows to new Metal sheet")
+        self.log_info(f"Successfully replaced Metal sheet with {len(all_data)} rows")
         
         # Step 8: Final validation and integrity verification
         self.log_info("Performing final validation and data integrity verification...")
@@ -584,6 +681,7 @@ class DataMigrator:
         print(f"  Material normalizations: {self.stats['material_normalizations']}")
         print(f"  Thread parsing operations: {self.stats['thread_parsing']}")
         print(f"  Fraction conversions: {self.stats['fraction_conversions']}")
+        print(f"  Price cleanings: {self.stats['price_cleanings']}")
         print()
         print(f"Errors: {len(self.errors)}")
         print(f"Warnings: {len(self.warnings)}")

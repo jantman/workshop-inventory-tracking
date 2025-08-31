@@ -8,9 +8,55 @@ including support for different materials, shapes, and threading specifications.
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 import re
+
+def parse_date_value(date_value: Union[str, int, float]) -> Optional[datetime]:
+    """
+    Parse a date value that could be either a string or Excel serial number.
+    
+    Args:
+        date_value: Either a string date or Excel serial number
+        
+    Returns:
+        datetime object or None if parsing fails
+    """
+    if not date_value:
+        return None
+        
+    # If it's already a string, try parsing as ISO format
+    if isinstance(date_value, str):
+        try:
+            return datetime.fromisoformat(date_value)
+        except ValueError:
+            return None
+    
+    # If it's a number, treat as Excel serial date
+    if isinstance(date_value, (int, float)):
+        try:
+            # Excel epoch starts on January 1, 1900, but Excel incorrectly 
+            # treats 1900 as a leap year, so we start from 1899-12-30
+            excel_epoch = datetime(1899, 12, 30)
+            return excel_epoch + timedelta(days=date_value)
+        except (ValueError, OverflowError):
+            return None
+    
+    return None
+
+def safe_str(value: Any) -> str:
+    """
+    Safely convert a value to string, handling None and empty values.
+    
+    Args:
+        value: Any value that needs to be converted to string
+        
+    Returns:
+        String representation, empty string for None/empty values
+    """
+    if value is None or value == '':
+        return ''
+    return str(value)
 
 class ItemType(Enum):
     """Enumeration of valid item types"""
@@ -408,12 +454,15 @@ class Item:
             thread = Thread.from_dict(data['thread'])
         
         # Handle dates
-        purchase_date = None
-        if data.get('purchase_date'):
-            purchase_date = datetime.fromisoformat(data['purchase_date'])
+        purchase_date = parse_date_value(data.get('purchase_date'))
+        date_added = parse_date_value(data['date_added'])
+        last_modified = parse_date_value(data['last_modified'])
         
-        date_added = datetime.fromisoformat(data['date_added'])
-        last_modified = datetime.fromisoformat(data['last_modified'])
+        # date_added and last_modified are required
+        if not date_added:
+            raise ValueError("date_added is required")
+        if not last_modified:
+            raise ValueError("last_modified is required")
         
         # Handle purchase price
         purchase_price = None
@@ -540,7 +589,13 @@ class Item:
         purchase_price_str = row_dict.get('Purchase Price')
         if purchase_price_str:
             try:
-                data['purchase_price'] = purchase_price_str
+                # Clean currency symbols from price string
+                cleaned_price = str(purchase_price_str).strip()
+                cleaned_price = cleaned_price.replace('$', '').replace('€', '').replace('£', '').replace('¥', '')
+                cleaned_price = cleaned_price.replace(',', '').strip()
+                
+                if cleaned_price:  # Only use if not empty after cleaning
+                    data['purchase_price'] = cleaned_price
             except (ValueError, InvalidOperation):
                 pass
         
