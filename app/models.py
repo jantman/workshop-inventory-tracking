@@ -128,12 +128,26 @@ class Thread:
         
         # Common thread size patterns
         patterns = [
-            r'^\d+/\d+-\d+$',  # Fractional: 1/2-13
-            r'^\d+-\d+$',      # Number: 10-24
-            r'^#\d+-\d+$',     # Machine screw: #10-24
-            r'^M\d+x[\d.]+$',  # Metric: M12x1.75
-            r'^M\d+$',         # Metric coarse: M12
-            r'^\d+/\d+"$',     # Pipe: 1/2"
+            # Basic patterns
+            r'^\d+/\d+-\d+$',           # Fractional: 1/2-13
+            r'^\d+-\d+$',               # Number: 10-24
+            r'^#\d+-\d+$',              # Machine screw: #10-24
+            r'^M\d+x[\d.]+$',           # Metric: M12x1.75
+            r'^M\d+-[\d.]+$',           # Metric with dash: M10-1.5 (to be normalized)
+            r'^M\d+$',                  # Metric coarse: M12
+            r'^\d+/\d+"$',              # Pipe: 1/2"
+            
+            # Mixed fractions (>1 inch)
+            r'^\d+ \d+/\d+-\d+$',       # Mixed fraction: 1 1/8-8
+            
+            # Thread forms with specifications
+            r'^\d+/\d+-\d+\s+\w+$',     # Fractional with form: 3/4-6 Acme
+            r'^\d+-\d+\s+\w+$',         # Number with form: 1-5 Acme  
+            r'^\d+ \d+/\d+-\d+\s+\w+$', # Mixed fraction with form: 1 1/8-7 Acme
+            r'^\d+x\d+\s+\w+$',         # Metric-like with form: 16x3 Trapezoidal
+            
+            # Handle multiple spaces (normalize later)
+            r'^\d+/\d+-\d+\s+\s+\w+$',  # Extra spaces: 1 1/4-5  Acme
         ]
         
         return any(re.match(pattern, self.size) for pattern in patterns)
