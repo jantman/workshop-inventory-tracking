@@ -221,8 +221,16 @@ class DataMigrator:
             required_issues.append('Missing Shape')
         
         # Dimension requirements based on type/shape
-        shape = row_data.get('Shape', '').lower()
-        if shape == 'rectangular':
+        item_type = row_data.get('Type', '').strip()
+        shape = row_data.get('Shape', '').lower().strip()
+        
+        if item_type == 'Threaded Rod':
+            # Threaded rods only need length and thread specification
+            if not row_data.get('Length'):
+                required_issues.append('Length required for threaded rods')
+            if not row_data.get('Thread Size') and not row_data.get('Original Thread'):
+                required_issues.append('Thread specification required for threaded rods')
+        elif shape == 'rectangular':
             if not row_data.get('Length'):
                 required_issues.append('Length required for rectangular items')
             if not row_data.get('Width'):
@@ -256,12 +264,20 @@ class DataMigrator:
     
     def transform_row(self, original_row: List[str], original_headers: List[str], row_index: int) -> Optional[List[str]]:
         """Transform a single row from original to new format"""
-        if len(original_row) != len(original_headers):
-            self.log_error(f"Row {row_index}: Column count mismatch")
+        # Pad row with empty strings if it's shorter than headers
+        padded_row = original_row + [''] * (len(original_headers) - len(original_row))
+        
+        # Truncate if row is longer than headers (shouldn't happen but be safe)
+        if len(padded_row) > len(original_headers):
+            padded_row = padded_row[:len(original_headers)]
+            self.log_warning(f"Row {row_index}: Truncated extra columns")
+        
+        if len(padded_row) != len(original_headers):
+            self.log_error(f"Row {row_index}: Column count mismatch after padding")
             return None
         
         # Create mapping from original headers to values
-        row_dict = dict(zip(original_headers, original_row))
+        row_dict = dict(zip(original_headers, padded_row))
         
         # Transform to new format
         new_row = [''] * len(self.NEW_HEADERS)

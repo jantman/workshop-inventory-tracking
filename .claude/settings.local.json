@@ -6,7 +6,8 @@
       "Bash(chmod:*)",
       "Bash(source:*)",
       "Bash(python test:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []
