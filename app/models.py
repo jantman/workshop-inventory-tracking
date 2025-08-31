@@ -20,6 +20,7 @@ class ItemType(Enum):
     TUBE = "Tube"
     PIPE = "Pipe"
     ROD = "Rod"
+    THREADED_ROD = "Threaded Rod"
     ANGLE = "Angle"
     CHANNEL = "Channel"
     BEAM = "Beam"
@@ -32,6 +33,7 @@ class ItemShape(Enum):
     RECTANGULAR = "Rectangular"
     ROUND = "Round"
     SQUARE = "Square"
+    HEX = "Hex"
     HEXAGONAL = "Hexagonal"
     OCTAGONAL = "Octagonal"
     L_SHAPED = "L-Shaped"
@@ -283,8 +285,14 @@ class Item:
         if not self.material or not self.material.strip():
             errors.append("Material is required")
         
-        # Shape-specific dimension requirements
-        if self.shape == ItemShape.RECTANGULAR:
+        # Type and shape-specific dimension requirements
+        if self.item_type == ItemType.THREADED_ROD:
+            # Threaded rods only need length and thread specification
+            if not self.dimensions.length:
+                errors.append("Length is required for threaded rods")
+            if not self.thread or not self.thread.size:
+                errors.append("Thread specification is required for threaded rods")
+        elif self.shape == ItemShape.RECTANGULAR:
             if not self.dimensions.length:
                 errors.append("Length is required for rectangular items")
             if not self.dimensions.width:
@@ -309,7 +317,8 @@ class Item:
     
     def _validate_dimensions(self):
         """Validate dimension values are positive"""
-        dimension_fields = ['length', 'width', 'thickness', 'wall_thickness', 'weight']
+        # Weight is optional and can be empty/None, so exclude it from validation
+        dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
         
         for field_name in dimension_fields:
             value = getattr(self.dimensions, field_name)
