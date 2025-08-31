@@ -3,8 +3,8 @@
 ## 🎯 CURRENT STATUS (Updated: 2025-08-31)
 
 **✅ COMPLETED MILESTONES:** 1, 2, 3, 4 (All core features implemented)  
-**🔄 CURRENT PHASE:** Ready for Milestone 4 validation testing  
-**⏭️ NEXT MILESTONE:** 5 (Advanced Search & Filtering) - Awaiting approval  
+**🔄 CURRENT PHASE:** Data migration optimization (93.9% parsing success)  
+**⏭️ NEXT MILESTONE:** 5 (Thread System Enhancement) - Ready for approval  
 
 ### 📋 Implementation Summary
 - **Total Commits:** 7 major milestone commits
@@ -263,7 +263,62 @@ Each milestone includes:
 
 ---
 
-## Milestone 5: Advanced Search & Filtering
+## Milestone 5: Thread System Enhancement
+
+**Objective**: Enhance the thread specification system to properly handle all thread formats including mixed fractions, Acme, Trapezoidal, and standardized metric notation.
+
+### Tasks
+1. **Thread Format Standardization** ☐
+   - Define standard format for mixed fractions >1" (e.g., "1 1/8-8" support)
+   - Implement migration script normalization for metric threads (M10-1.5 → M10x1.5)
+   - Add validation patterns for mixed fraction formats with spaces
+   - Update thread parsing to handle fractional inch specifications properly
+
+2. **Thread Form Classification** ☐
+   - Add `Thread Form` column to data model and database schema
+   - Implement Thread Form enumeration: UN (default inch), ISO Metric (default metric), Acme, Trapezoidal, NPT, ACME, BSW, BSF
+   - Update migration script to extract thread form from existing thread size data
+   - Modify Item model to include thread_form field with proper validation
+
+3. **Data Migration Enhancement** ☐
+   - Update migration script to parse and separate thread form from size (e.g., "3/4-6 Acme" → size="3/4-6", form="Acme")
+   - Implement thread form detection logic for existing data
+   - Add data cleaning for mixed fraction formats
+   - Ensure backward compatibility with existing thread specifications
+
+4. **Validation & Testing** ☐
+   - Update thread validation patterns to support all formats
+   - Test parsing of all 31 currently failing thread specifications
+   - Verify migration maintains data integrity
+   - Test thread form defaults (UN for inch, ISO for metric)
+
+### Deliverables
+- Enhanced Thread data model with Thread Form support
+- Updated migration script with thread normalization
+- Comprehensive thread format validation
+- 100% parsing success rate for all thread specifications
+- Documentation: Thread format standards guide
+
+### Acceptance Criteria
+- All thread formats parse successfully (target: 505/505 items)
+- Mixed fractions with spaces are properly supported (e.g., "1 1/8-8")
+- Metric threads use consistent x notation (M10x1.5, not M10-1.5)
+- Thread forms are correctly identified and stored
+- Migration preserves all existing thread information
+- New thread specifications follow standardized formats
+
+### Validation Steps
+1. Test parsing success rate reaches 100% (505/505 items)
+2. Verify all thread format patterns work correctly
+3. Test migration script with thread form extraction
+4. Confirm thread form defaults are applied correctly
+5. Validate mixed fraction format support
+
+**PAUSE POINT**: Get explicit approval before proceeding to Milestone 6.
+
+---
+
+## Milestone 6: Advanced Search & Filtering
 
 **Objective**: Implement the advanced search functionality with range queries and complex filtering.
 
@@ -305,11 +360,11 @@ Each milestone includes:
 3. Test CSV export with different result sets
 4. Confirm URL bookmarking functionality
 
-**PAUSE POINT**: Get explicit approval before proceeding to Milestone 6.
+**PAUSE POINT**: Get explicit approval before proceeding to Milestone 7.
 
 ---
 
-## Milestone 6: User Experience Enhancements
+## Milestone 7: User Experience Enhancements
 
 **Objective**: Polish the user interface and add convenience features for optimal workflow.
 
@@ -350,11 +405,11 @@ Each milestone includes:
 3. Verify help system coverage and accuracy
 4. Confirm keyboard shortcuts work correctly
 
-**PAUSE POINT**: Get explicit approval before proceeding to Milestone 7.
+**PAUSE POINT**: Get explicit approval before proceeding to Milestone 8.
 
 ---
 
-## Milestone 7: Testing, Documentation & Deployment Preparation
+## Milestone 8: Testing, Documentation & Deployment Preparation
 
 **Objective**: Implement comprehensive testing, complete documentation, and prepare for deployment.
 
