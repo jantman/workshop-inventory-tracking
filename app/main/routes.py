@@ -88,10 +88,43 @@ def inventory_move():
     # Handle POST request would go here (currently handled by API)
     return redirect(url_for('main.inventory_move'))
 
-@bp.route('/inventory/shorten')
+@bp.route('/inventory/shorten', methods=['GET', 'POST'])
 def inventory_shorten():
-    """Shorten items interface (placeholder)"""
-    return render_template('inventory/shorten.html', title='Shorten Items')
+    """Shorten items interface"""
+    if request.method == 'GET':
+        return render_template('inventory/shorten.html', title='Shorten Items')
+    
+    # Handle POST request for shortening operation
+    try:
+        # Get form data
+        form_data = request.form.to_dict()
+        
+        # Validate required fields
+        required_fields = ['source_ja_id', 'new_length', 'new_ja_id', 'confirm_operation']
+        missing_fields = [field for field in required_fields if not form_data.get(field)]
+        
+        if missing_fields:
+            flash(f'Missing required fields: {", ".join(missing_fields)}', 'error')
+            return redirect(url_for('main.inventory_shorten'))
+        
+        if form_data.get('confirm_operation') != 'on':
+            flash('You must confirm the shortening operation', 'error')
+            return redirect(url_for('main.inventory_shorten'))
+        
+        # Execute shortening operation
+        result = _execute_shortening_operation(form_data)
+        
+        if result['success']:
+            flash(f"Item successfully shortened! New item {result['new_ja_id']} created, original item {result['source_ja_id']} deactivated.", 'success')
+            return redirect(url_for('main.inventory_shorten'))
+        else:
+            flash(f"Shortening failed: {result['error']}", 'error')
+            return redirect(url_for('main.inventory_shorten'))
+            
+    except Exception as e:
+        current_app.logger.error(f'Error in shortening operation: {e}\n{traceback.format_exc()}')
+        flash('An error occurred during the shortening operation. Please try again.', 'error')
+        return redirect(url_for('main.inventory_shorten'))
 
 # API Routes
 @bp.route('/api/connection-test')
@@ -380,6 +413,186 @@ def batch_move_items():
             'success': False,
             'error': 'Batch move operation failed'
         }), 500
+
+@bp.route('/api/inventory/next-ja-id')
+def get_next_ja_id():
+    """Get the next available JA ID"""
+    try:
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        
+        # Get all items to find the highest JA ID
+        all_items = service.get_all_items()
+        
+        if not all_items:
+            # No items exist, start with JA000001
+            next_id = "JA000001"
+        else:
+            # Find the highest numeric part
+            max_number = 0
+            for item in all_items:
+                ja_id = item.ja_id
+                if ja_id.startswith('JA') and len(ja_id) == 8:
+                    try:
+                        number = int(ja_id[2:])
+                        max_number = max(max_number, number)
+                    except ValueError:
+                        continue
+            
+            # Generate next ID
+            next_number = max_number + 1
+            next_id = f"JA{next_number:06d}"
+        
+        return jsonify({
+            'success': True,
+            'next_ja_id': next_id
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error generating next JA ID: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to generate next JA ID'
+        }), 500
+
+def _execute_shortening_operation(form_data):
+    """Execute the shortening operation"""
+    try:
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        
+        source_ja_id = form_data['source_ja_id'].upper()
+        new_ja_id = form_data['new_ja_id'].upper()
+        
+        # Get the source item
+        source_item = service.get_item(source_ja_id)
+        if not source_item:
+            return {'success': False, 'error': f'Source item {source_ja_id} not found'}
+        
+        if not source_item.active:
+            return {'success': False, 'error': f'Source item {source_ja_id} is not active'}
+        
+        # Check if new JA ID already exists
+        if service.get_item(new_ja_id):
+            return {'success': False, 'error': f'New JA ID {new_ja_id} already exists'}
+        
+        # Parse new length
+        try:
+            new_length = _parse_dimension_value(form_data['new_length'])
+            if not new_length or float(new_length) <= 0:
+                return {'success': False, 'error': 'Invalid new length'}
+        except Exception:
+            return {'success': False, 'error': 'Invalid new length format'}
+        
+        # Validate new length is shorter than original
+        if source_item.dimensions and source_item.dimensions.length:
+            original_length = float(source_item.dimensions.length)
+            if float(new_length) >= original_length:
+                return {'success': False, 'error': 'New length must be shorter than original length'}
+        
+        # Create new shortened item
+        new_item = Item(
+            ja_id=new_ja_id,
+            item_type=source_item.item_type,
+            shape=source_item.shape,
+            material=source_item.material,
+            dimensions=Dimensions(
+                length=new_length,
+                width=source_item.dimensions.width if source_item.dimensions else None,
+                thickness=source_item.dimensions.thickness if source_item.dimensions else None,
+                wall_thickness=source_item.dimensions.wall_thickness if source_item.dimensions else None,
+                weight=source_item.dimensions.weight if source_item.dimensions else None
+            ),
+            thread=source_item.thread,
+            quantity=1,  # Shortened items are always quantity 1
+            location=form_data.get('new_location') or source_item.location,
+            sub_location=form_data.get('new_sub_location') or source_item.sub_location,
+            purchase_date=source_item.purchase_date,
+            purchase_price=source_item.purchase_price,
+            purchase_location=source_item.purchase_location,
+            vendor=source_item.vendor,
+            vendor_part_number=source_item.vendor_part_number,
+            notes=_build_shortening_notes(source_item, form_data),
+            active=True,
+            parent_ja_id=source_ja_id  # Set parent relationship
+        )
+        
+        # Add the new item
+        if not service.add_item(new_item):
+            return {'success': False, 'error': 'Failed to create new shortened item'}
+        
+        # Deactivate the original item and add child relationship
+        source_item.active = False
+        source_item.add_child(new_ja_id)
+        
+        # Update notes to indicate shortening
+        original_notes = source_item.notes or ''
+        shortening_note = f"Shortened on {form_data.get('cut_date', 'unknown date')} to create {new_ja_id}"
+        if form_data.get('operator'):
+            shortening_note += f" by {form_data['operator']}"
+        
+        if original_notes:
+            source_item.notes = f"{original_notes}\n\n{shortening_note}"
+        else:
+            source_item.notes = shortening_note
+        
+        # Update the source item
+        if not service.update_item(source_item):
+            # Try to remove the new item if source update fails
+            current_app.logger.warning(f'Failed to update source item {source_ja_id}, but new item {new_ja_id} was created')
+        
+        current_app.logger.info(f'Shortening operation completed: {source_ja_id} -> {new_ja_id}')
+        
+        return {
+            'success': True,
+            'source_ja_id': source_ja_id,
+            'new_ja_id': new_ja_id,
+            'operation': 'shortening'
+        }
+        
+    except Exception as e:
+        current_app.logger.error(f'Error in shortening operation: {e}')
+        return {'success': False, 'error': str(e)}
+
+def _build_shortening_notes(source_item, form_data):
+    """Build notes for the new shortened item"""
+    notes_parts = []
+    
+    # Add source information
+    notes_parts.append(f"Shortened from {source_item.ja_id}")
+    
+    # Add original length info
+    if source_item.dimensions and source_item.dimensions.length:
+        notes_parts.append(f"Original length: {source_item.dimensions.length}\"")
+    
+    # Add cut information
+    cut_date = form_data.get('cut_date')
+    if cut_date:
+        notes_parts.append(f"Cut date: {cut_date}")
+    
+    operator = form_data.get('operator')
+    if operator:
+        notes_parts.append(f"Operator: {operator}")
+    
+    # Add cut loss if specified
+    cut_loss = form_data.get('cut_loss')
+    if cut_loss:
+        try:
+            loss_value = _parse_dimension_value(cut_loss)
+            notes_parts.append(f"Cut loss: {loss_value}\"")
+        except:
+            pass
+    
+    # Add user notes
+    user_notes = form_data.get('shortening_notes')
+    if user_notes:
+        notes_parts.append(f"Notes: {user_notes}")
+    
+    # Add original item notes if any
+    if source_item.notes:
+        notes_parts.append(f"Original item notes: {source_item.notes}")
+    
+    return '\n'.join(notes_parts)
 
 def _parse_item_from_form(form_data):
     """Parse form data into an Item object"""

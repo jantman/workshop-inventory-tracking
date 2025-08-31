@@ -3,24 +3,320 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-scissors"></i> Shorten Items</h2>
-    <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-list"></i> View All Items
-    </a>
-</div>
-
-<div class="card">
-    <div class="card-body text-center py-5">
-        <div class="display-1 text-muted mb-4">
-            <i class="bi bi-scissors"></i>
-        </div>
-        <h3>Shorten Items Coming Soon</h3>
-        <p class="text-muted">
-            This feature will be implemented in Milestone 4.<br>
-            You'll be able to cut materials to new lengths and update inventory here.
-        </p>
-        <a href="{{ url_for('main.index') }}" class="btn btn-outline-primary">
-            <i class="bi bi-house"></i> Return to Home
+    <div>
+        <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-list"></i> View All Items
         </a>
+        <button type="button" class="btn btn-outline-info ms-2" id="clear-form-btn" title="Clear form">
+            <i class="bi bi-eraser"></i> Clear Form
+        </button>
     </div>
 </div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div id="flash-messages">
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<form id="shorten-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    
+    <!-- Alert for messages -->
+    <div id="form-alerts"></div>
+    
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Item Selection -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-search"></i> Select Item to Shorten
+                        <span class="badge bg-secondary ms-2" id="scanner-status">Ready</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label for="source-ja-id" class="form-label">Source JA ID *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control form-control-lg" id="source-ja-id" name="source_ja_id" 
+                                       pattern="JA\d{6}" placeholder="Scan or enter JA ID (e.g., JA000001)" required
+                                       title="Format: JA followed by 6 digits">
+                                <button type="button" class="btn btn-outline-secondary" id="scan-ja-id-btn" title="Focus for barcode scan">
+                                    <i class="bi bi-upc-scan"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-primary" id="load-item-btn" title="Load item details">
+                                    <i class="bi bi-arrow-clockwise"></i> Load
+                                </button>
+                            </div>
+                            <div class="invalid-feedback">
+                                Please enter a valid JA ID (format: JA######)
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Item Details Display -->
+                    <div id="item-details" class="d-none">
+                        <div class="alert alert-info">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <strong>Item:</strong> <span id="item-display-name">-</span><br>
+                                    <strong>Material:</strong> <span id="item-material">-</span><br>
+                                    <strong>Type:</strong> <span id="item-type">-</span><br>
+                                    <strong>Shape:</strong> <span id="item-shape">-</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>Current Length:</strong> <span id="current-length">-</span> in<br>
+                                    <strong>Location:</strong> <span id="item-location">-</span><br>
+                                    <strong>Status:</strong> <span id="item-status">-</span><br>
+                                    <strong>Quantity:</strong> <span id="item-quantity">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="item-not-found" class="alert alert-warning d-none">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Item not found or not suitable for shortening. Please check the JA ID and ensure the item:
+                        <ul class="mb-0 mt-2">
+                            <li>Exists in the inventory</li>
+                            <li>Is currently active</li>
+                            <li>Has a length dimension that can be shortened</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Shortening Details -->
+            <div class="card mb-4" id="shortening-section" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-rulers"></i> Shortening Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="new-length" class="form-label">New Length *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="new-length" name="new_length" 
+                                       placeholder="0.0" pattern="[\d./\s]+" required
+                                       title="Enter new length in inches (supports fractions like 1 1/2)">
+                                <span class="input-group-text">in</span>
+                            </div>
+                            <div class="form-text">
+                                <i class="bi bi-info-circle"></i>
+                                Enter the new length after cutting. Supports fractions (e.g., 12.5, 12 1/2, 12.75)
+                            </div>
+                            <div class="invalid-feedback">
+                                Please enter a valid new length
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="cut-loss" class="form-label">Cut Loss (Optional)</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="cut-loss" name="cut_loss" 
+                                       placeholder="0.125" pattern="[\d./\s]+"
+                                       title="Material lost during cutting (kerf width)">
+                                <span class="input-group-text">in</span>
+                            </div>
+                            <div class="form-text">
+                                Account for material lost during cutting (kerf width, typically 0.125")
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Length Validation -->
+                    <div id="length-validation" class="d-none">
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="alert" id="length-validation-alert">
+                                    <!-- Validation messages will be inserted here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="cut-date" class="form-label">Cut Date</label>
+                            <input type="date" class="form-control" id="cut-date" name="cut_date">
+                            <div class="form-text">Date when the material was cut (defaults to today)</div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="operator" class="form-label">Operator</label>
+                            <input type="text" class="form-control" id="operator" name="operator" 
+                                   placeholder="Who performed the cut?">
+                            <div class="form-text">Person who performed the cutting operation</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- New Item Details -->
+            <div class="card mb-4" id="new-item-section" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-plus-circle"></i> New Item Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="new-ja-id" class="form-label">New JA ID *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="new-ja-id" name="new_ja_id" 
+                                       pattern="JA\d{6}" placeholder="JA000001" required readonly
+                                       title="New JA ID will be auto-generated">
+                                <button type="button" class="btn btn-outline-primary" id="generate-ja-id-btn" title="Generate next available JA ID">
+                                    <i class="bi bi-magic"></i> Generate
+                                </button>
+                            </div>
+                            <div class="form-text">New JA ID for the shortened piece</div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="new-location" class="form-label">New Location</label>
+                            <input type="text" class="form-control" id="new-location" name="new_location" 
+                                   placeholder="Same as original">
+                            <div class="form-text">Location for the new item (defaults to original location)</div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="new-sub-location" class="form-label">New Sub-Location</label>
+                            <input type="text" class="form-control" id="new-sub-location" name="new_sub_location" 
+                                   placeholder="Same as original">
+                            <div class="form-text">Sub-location for the new item</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="shortening-notes" class="form-label">Shortening Notes</label>
+                        <textarea class="form-control" id="shortening-notes" name="shortening_notes" rows="3" 
+                                  placeholder="Notes about the shortening operation..."></textarea>
+                        <div class="form-text">Additional notes about the cutting/shortening process</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <!-- Operation Summary -->
+            <div class="card mb-4" id="summary-section" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Operation Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="list-group list-group-flush">
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Original Item:</span>
+                            <span id="summary-original-id" class="fw-bold">-</span>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Original Length:</span>
+                            <span id="summary-original-length">-</span>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>New Length:</span>
+                            <span id="summary-new-length" class="text-primary fw-bold">-</span>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Material Removed:</span>
+                            <span id="summary-removed-length" class="text-danger">-</span>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>New Item ID:</span>
+                            <span id="summary-new-id" class="fw-bold text-success">-</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="confirm-operation" name="confirm_operation">
+                            <label class="form-check-label" for="confirm-operation">
+                                <strong>I confirm this shortening operation</strong>
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            <i class="bi bi-exclamation-triangle text-warning"></i>
+                            This will deactivate the original item and create a new shortened item.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Parent-Child Relationship Info -->
+            <div class="card" id="relationship-section" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Relationship Tracking</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Parent-Child Relationship:</strong><br>
+                            The original item will be marked as the parent, and the new shortened item will be recorded as its child. 
+                            This maintains a complete history of material usage and transformations.
+                        </small>
+                    </div>
+                    
+                    <div class="list-group list-group-flush">
+                        <div class="list-group-item d-flex align-items-center">
+                            <i class="bi bi-arrow-up-circle text-primary me-2"></i>
+                            <div>
+                                <div class="fw-bold">Parent Item</div>
+                                <small class="text-muted">Original item (will be deactivated)</small>
+                            </div>
+                        </div>
+                        <div class="list-group-item d-flex align-items-center">
+                            <i class="bi bi-arrow-down-circle text-success me-2"></i>
+                            <div>
+                                <div class="fw-bold">Child Item</div>
+                                <small class="text-muted">New shortened item (will be active)</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Action Buttons -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i>
+                                Load an item, enter the new length, and confirm to create the shortened item
+                            </small>
+                        </div>
+                        
+                        <div class="btn-group">
+                            <button type="submit" class="btn btn-success" id="execute-shortening-btn" disabled>
+                                <i class="bi bi-scissors"></i> Execute Shortening
+                            </button>
+                            <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inventory-shorten.js') }}"></script>
 {% endblock %}
