@@ -2,25 +2,173 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2><i class="bi bi-arrow-left-right"></i> Move Items</h2>
-    <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-list"></i> View All Items
-    </a>
-</div>
-
-<div class="card">
-    <div class="card-body text-center py-5">
-        <div class="display-1 text-muted mb-4">
-            <i class="bi bi-arrow-left-right"></i>
-        </div>
-        <h3>Move Items Coming Soon</h3>
-        <p class="text-muted">
-            This feature will be implemented in Milestone 4.<br>
-            You'll be able to batch move items to new locations with barcode scanning here.
-        </p>
-        <a href="{{ url_for('main.index') }}" class="btn btn-outline-primary">
-            <i class="bi bi-house"></i> Return to Home
+    <h2><i class="bi bi-arrow-left-right"></i> Batch Move Items</h2>
+    <div>
+        <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-list"></i> View All Items
         </a>
+        <button type="button" class="btn btn-outline-info ms-2" id="clear-all-btn" title="Clear all entries">
+            <i class="bi bi-eraser"></i> Clear All
+        </button>
     </div>
 </div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div id="flash-messages">
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<form id="batch-move-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    
+    <!-- Alert for messages -->
+    <div id="form-alerts"></div>
+    
+    <div class="row">
+        <div class="col-lg-6">
+            <!-- Barcode Input Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-upc-scan"></i> Barcode Scanner Input
+                        <span class="badge bg-secondary ms-2" id="scanner-status">Ready</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="barcode-input" class="form-label">Scan Item ID & Location</label>
+                        <input type="text" class="form-control form-control-lg" id="barcode-input" 
+                               placeholder="Scan JA ID or Location..." autocomplete="off"
+                               title="Scan item JA ID followed by location, then scan >>DONE<< when finished">
+                        <div class="form-text">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Instructions:</strong><br>
+                            1. Scan or type JA ID (e.g., JA000001)<br>
+                            2. Scan or type new location (e.g., Shop B)<br>
+                            3. Repeat for all items to move<br>
+                            4. Scan or type <code>>>DONE&lt;&lt;</code> when finished
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="manual-entry-mode">
+                            <label class="form-check-label" for="manual-entry-mode">
+                                Manual Entry Mode (disable barcode auto-advance)
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Current Input Status -->
+                    <div class="alert alert-info mb-0" id="input-status">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="status-text">Ready to scan first JA ID</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-6">
+            <!-- Move Queue Display -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-check"></i> Move Queue
+                        <span class="badge bg-primary ms-2" id="queue-count">0 items</span>
+                    </h5>
+                    <button type="button" class="btn btn-sm btn-outline-danger" id="clear-queue-btn" disabled>
+                        <i class="bi bi-trash"></i> Clear Queue
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="move-queue-empty" class="text-center text-muted py-4">
+                        <i class="bi bi-inbox display-4"></i>
+                        <p class="mt-3 mb-0">No items queued for moving</p>
+                        <small>Scan JA IDs and locations to build your move queue</small>
+                    </div>
+                    
+                    <div id="move-queue-list" class="d-none">
+                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Current Location</th>
+                                        <th>New Location</th>
+                                        <th>Status</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="queue-items">
+                                    <!-- Queue items will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Validation Results -->
+    <div class="row" id="validation-section" style="display: none;">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-check-circle-fill text-success"></i> Move Validation Results
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="validation-results">
+                        <!-- Validation results populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Action Buttons -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i>
+                                Scan <code>>>DONE&lt;&lt;</code> or click "Validate & Preview" to review moves before executing
+                            </small>
+                        </div>
+                        
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-outline-primary" id="validate-btn" disabled>
+                                <i class="bi bi-check-square"></i> Validate & Preview
+                            </button>
+                            <button type="button" class="btn btn-success" id="execute-moves-btn" disabled>
+                                <i class="bi bi-play-fill"></i> Execute Moves
+                            </button>
+                            <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inventory-move.js') }}"></script>
 {% endblock %}

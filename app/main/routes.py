@@ -79,10 +79,14 @@ def inventory_search():
     """Advanced search interface (placeholder)"""
     return render_template('inventory/search.html', title='Search')
 
-@bp.route('/inventory/move')
+@bp.route('/inventory/move', methods=['GET', 'POST'])
 def inventory_move():
-    """Batch move items interface (placeholder)"""
-    return render_template('inventory/move.html', title='Move Items')
+    """Batch move items interface"""
+    if request.method == 'GET':
+        return render_template('inventory/move.html', title='Move Items')
+    
+    # Handle POST request would go here (currently handled by API)
+    return redirect(url_for('main.inventory_move'))
 
 @bp.route('/inventory/shorten')
 def inventory_shorten():
@@ -251,6 +255,130 @@ def validate_type_shape():
         return jsonify({
             'success': False,
             'error': 'Validation failed'
+        }), 500
+
+@bp.route('/api/items/<ja_id>')
+def get_item_details(ja_id):
+    """Get detailed information about an item"""
+    try:
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        
+        item = service.get_item(ja_id)
+        
+        if not item:
+            return jsonify({
+                'success': False,
+                'error': 'Item not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'item': {
+                'ja_id': item.ja_id,
+                'display_name': item.display_name,
+                'item_type': item.item_type.value,
+                'shape': item.shape.value,
+                'material': item.material,
+                'location': item.location,
+                'sub_location': item.sub_location,
+                'active': item.active,
+                'dimensions': item.dimensions.to_dict() if item.dimensions else None
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting item details for {ja_id}: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get item details'
+        }), 500
+
+@bp.route('/api/inventory/batch-move', methods=['POST'])
+@csrf.exempt
+def batch_move_items():
+    """Execute batch move of inventory items"""
+    try:
+        data = request.get_json()
+        if not data or 'moves' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid request data'
+            }), 400
+        
+        moves = data['moves']
+        if not moves or not isinstance(moves, list):
+            return jsonify({
+                'success': False,
+                'error': 'No moves provided'
+            }), 400
+        
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        
+        successful_moves = 0
+        failed_moves = []
+        
+        for move in moves:
+            ja_id = move.get('ja_id')
+            new_location = move.get('new_location')
+            
+            if not ja_id or not new_location:
+                failed_moves.append({
+                    'ja_id': ja_id,
+                    'error': 'Missing JA ID or location'
+                })
+                continue
+            
+            try:
+                # Get the current item
+                item = service.get_item(ja_id)
+                if not item:
+                    failed_moves.append({
+                        'ja_id': ja_id,
+                        'error': 'Item not found'
+                    })
+                    continue
+                
+                # Update location
+                old_location = item.location
+                item.location = new_location.strip()
+                
+                # Save the updated item
+                if service.update_item(item):
+                    successful_moves += 1
+                    current_app.logger.info(f'Moved {ja_id} from "{old_location}" to "{new_location}"')
+                else:
+                    failed_moves.append({
+                        'ja_id': ja_id,
+                        'error': 'Failed to update item'
+                    })
+                    
+            except Exception as e:
+                current_app.logger.error(f'Error moving item {ja_id}: {e}')
+                failed_moves.append({
+                    'ja_id': ja_id,
+                    'error': str(e)
+                })
+        
+        # Prepare response
+        response_data = {
+            'success': len(failed_moves) == 0,
+            'moved_count': successful_moves,
+            'total_count': len(moves),
+            'failed_moves': failed_moves
+        }
+        
+        if len(failed_moves) > 0:
+            response_data['error'] = f'{len(failed_moves)} items failed to move'
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        current_app.logger.error(f'Batch move error: {e}\n{traceback.format_exc()}')
+        return jsonify({
+            'success': False,
+            'error': 'Batch move operation failed'
         }), 500
 
 def _parse_item_from_form(form_data):
