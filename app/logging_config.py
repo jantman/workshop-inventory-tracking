@@ -123,7 +123,7 @@ def setup_logging(app):
         backupCount=10
     )
     perf_handler.setFormatter(logging.Formatter(
-        '%(asctime)s PERF [%(user_id)s] %(operation)s completed in %(duration_ms)dms - %(message)s'
+        '%(asctime)s PERF [%(user_id)s] %(operation)s completed in %(duration)dms - %(message)s'
     ))
     perf_handler.addFilter(audit_filter)
     perf_handler.setLevel(logging.INFO)
