@@ -151,6 +151,10 @@ class Thread:
         """Validate thread data after initialization"""
         if self.size and not self._validate_thread_size():
             raise ValueError(f"Invalid thread size format: {self.size}")
+        
+        # Validate semantic relationship between size and form
+        if self.size and self.form and not self._validate_size_form_compatibility():
+            raise ValueError(f"Thread size '{self.size}' is not compatible with form '{self.form.value}'")
     
     def _validate_thread_size(self) -> bool:
         """Validate thread size format"""
@@ -183,6 +187,48 @@ class Thread:
         ]
         
         return any(re.match(pattern, self.size) for pattern in patterns)
+    
+    def _validate_size_form_compatibility(self) -> bool:
+        """Validate that thread size format is compatible with thread form"""
+        if not self.size or not self.form:
+            return True  # No validation needed if either is missing
+        
+        size = self.size
+        form = self.form
+        
+        # Metric threads (M prefix) should have ISO Metric form
+        if re.match(r'^M\d+', size):
+            return form == ThreadForm.ISO_METRIC
+        
+        # Trapezoidal threads (digit x digit format)
+        if re.match(r'^\d+x\d+$', size):
+            return form == ThreadForm.TRAPEZOIDAL
+        
+        # Pipe threads (ends with ")
+        if re.match(r'^\d+/\d+"$', size):
+            return form == ThreadForm.NPT
+        
+        # Acme threads - typically fractional or whole number formats
+        # But need to be explicitly marked as Acme (can't infer from size alone)
+        if form == ThreadForm.ACME:
+            # Acme threads can use standard fractional or whole number formats
+            return bool(re.match(r'^(\d+/\d+-\d+|\d+-\d+|\d+ \d+/\d+-\d+)$', size))
+        
+        # UN (Unified National) threads - standard inch formats
+        if form == ThreadForm.UN:
+            # Standard inch thread formats
+            return bool(re.match(r'^(\d+/\d+-\d+|\d+-\d+|#\d+-\d+|\d+ \d+/\d+-\d+)$', size))
+        
+        # BSW/BSF - British Standard formats (similar to UN)
+        if form in [ThreadForm.BSW, ThreadForm.BSF]:
+            return bool(re.match(r'^(\d+/\d+-\d+|\d+-\d+)$', size))
+        
+        # Trapezoidal threads must use digit x digit format
+        if form == ThreadForm.TRAPEZOIDAL:
+            return bool(re.match(r'^\d+x\d+$', size))
+        
+        # For other forms (SQUARE, BUTTRESS, CUSTOM, OTHER), allow flexibility
+        return True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation"""
