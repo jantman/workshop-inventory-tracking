@@ -1,0 +1,410 @@
+"""
+Unit tests for InventoryService class.
+
+Tests the business logic layer of inventory management.
+"""
+
+import pytest
+from decimal import Decimal
+from app.inventory_service import InventoryService, SearchFilter
+from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.test_storage import TestStorage
+
+
+class TestSearchFilter:
+    """Tests for SearchFilter class"""
+    
+    @pytest.mark.unit
+    def test_search_filter_creation(self):
+        """Test basic search filter creation"""
+        search_filter = SearchFilter()
+        
+        assert search_filter.filters == {}
+        assert search_filter.ranges == {}
+        assert search_filter.text_searches == {}
+    
+    @pytest.mark.unit
+    def test_add_exact_match(self):
+        """Test adding exact match filter"""
+        search_filter = SearchFilter()
+        result = search_filter.add_exact_match('material', 'Steel')
+        
+        assert result is search_filter  # Should return self for chaining
+        assert search_filter.filters['material'] == 'Steel'
+    
+    @pytest.mark.unit
+    def test_add_range_filter(self):
+        """Test adding range filter"""
+        search_filter = SearchFilter()
+        result = search_filter.add_range('length', Decimal('100'), Decimal('500'))
+        
+        assert result is search_filter
+        assert search_filter.ranges['length'] == {'min': Decimal('100'), 'max': Decimal('500')}
+    
+    @pytest.mark.unit
+    def test_add_text_search(self):
+        """Test adding text search filter"""
+        search_filter = SearchFilter()
+        result = search_filter.add_text_search('notes', 'important', exact=False)
+        
+        assert result is search_filter
+        assert search_filter.text_searches['notes'] == {'query': 'important', 'exact': False}
+    
+    @pytest.mark.unit
+    def test_convenience_methods(self):
+        """Test convenience filter methods"""
+        search_filter = SearchFilter()
+        
+        # Test chaining
+        result = (search_filter
+                 .active_only()
+                 .material('Steel')
+                 .item_type(ItemType.ROD)
+                 .shape(ItemShape.ROUND)
+                 .location('Storage A')
+                 .length_range(Decimal('100'), Decimal('500'))
+                 .notes_contain('test'))
+        
+        assert result is search_filter
+        assert search_filter.filters['active'] is True
+        assert search_filter.filters['material'] == 'Steel'
+        assert search_filter.filters['item_type'] == 'Rod'
+        assert search_filter.filters['shape'] == 'Round'
+        assert search_filter.filters['location'] == 'Storage A'
+        assert 'length' in search_filter.ranges
+        assert search_filter.text_searches['notes']['query'] == 'test'
+
+
+class TestInventoryService:
+    """Tests for InventoryService class"""
+    
+    @pytest.fixture
+    def storage(self):
+        """Create test storage with inventory sheet"""
+        storage = TestStorage()
+        storage.connect()
+        
+        # Create inventory sheet with proper headers
+        headers = [
+            'JA_ID', 'Item_Type', 'Shape', 'Material', 'Length_mm', 'Width_mm', 
+            'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
+            'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
+        ]
+        storage.create_sheet('Inventory', headers)
+        
+        yield storage
+        storage.close()
+    
+    @pytest.fixture
+    def service(self, storage):
+        """Create inventory service with test storage"""
+        return InventoryService(storage)
+    
+    @pytest.fixture
+    def sample_item(self):
+        """Create a sample item for testing"""
+        return Item(
+            ja_id='TEST001',
+            item_type=ItemType.ROD,
+            shape=ItemShape.ROUND,
+            material='Steel',
+            dimensions=Dimensions(length_mm=Decimal('1000'), diameter_mm=Decimal('25')),
+            location='Storage A',
+            notes='Test item',
+            active=True
+        )
+    
+    @pytest.fixture
+    def sample_threaded_item(self):
+        """Create a sample threaded item for testing"""
+        return Item(
+            ja_id='TEST002',
+            item_type=ItemType.THREADED_ROD,
+            shape=ItemShape.ROUND,
+            material='Stainless Steel',
+            dimensions=Dimensions(length_mm=Decimal('500'), diameter_mm=Decimal('12')),
+            thread=Thread(
+                series=ThreadSeries.METRIC_COARSE,
+                handedness=ThreadHandedness.RIGHT_HAND,
+                length_mm=Decimal('500')
+            ),
+            location='Storage B',
+            notes='M12 threaded rod',
+            active=True
+        )
+    
+    @pytest.mark.unit
+    def test_service_creation(self, storage):
+        """Test inventory service creation"""
+        service = InventoryService(storage)
+        
+        assert service.storage is storage
+        assert service._cache == {}
+        assert service._cache_timestamp is None
+    
+    @pytest.mark.unit
+    def test_add_item(self, service, sample_item):
+        """Test adding an item to inventory"""
+        result = service.add_item(sample_item)
+        
+        assert result is True
+        
+        # Verify item was added to storage
+        storage_result = service.storage.read_all('Inventory')
+        assert storage_result.success
+        assert len(storage_result.data) == 1
+        
+        # Verify data format
+        row = storage_result.data[0]
+        assert row[0] == 'TEST001'  # JA_ID
+        assert row[1] == 'Rod'      # Item_Type
+        assert row[2] == 'Round'    # Shape
+        assert row[3] == 'Steel'    # Material
+    
+    @pytest.mark.unit
+    def test_get_item(self, service, sample_item):
+        """Test retrieving an item by JA_ID"""
+        # Add item first
+        service.add_item(sample_item)
+        
+        # Retrieve item
+        retrieved_item = service.get_item('TEST001')
+        
+        assert retrieved_item is not None
+        assert retrieved_item.ja_id == 'TEST001'
+        assert retrieved_item.material == 'Steel'
+        assert retrieved_item.item_type == ItemType.ROD
+    
+    @pytest.mark.unit
+    def test_get_item_not_found(self, service):
+        """Test retrieving non-existent item"""
+        item = service.get_item('NONEXISTENT')
+        
+        assert item is None
+    
+    @pytest.mark.unit
+    def test_get_all_items(self, service, sample_item, sample_threaded_item):
+        """Test retrieving all items"""
+        # Add multiple items
+        service.add_item(sample_item)
+        service.add_item(sample_threaded_item)
+        
+        # Get all items
+        items = service.get_all_items()
+        
+        assert len(items) == 2
+        ja_ids = [item.ja_id for item in items]
+        assert 'TEST001' in ja_ids
+        assert 'TEST002' in ja_ids
+    
+    @pytest.mark.unit
+    def test_update_item(self, service, sample_item):
+        """Test updating an existing item"""
+        # Add item first
+        service.add_item(sample_item)
+        
+        # Update item
+        sample_item.location = 'Updated Location'
+        sample_item.notes = 'Updated notes'
+        
+        result = service.update_item(sample_item)
+        
+        assert result is True
+        
+        # Verify update
+        updated_item = service.get_item('TEST001')
+        assert updated_item.location == 'Updated Location'
+        assert updated_item.notes == 'Updated notes'
+    
+    @pytest.mark.unit
+    def test_deactivate_item(self, service, sample_item):
+        """Test deactivating an item"""
+        # Add item first
+        service.add_item(sample_item)
+        
+        # Deactivate item
+        result = service.deactivate_item('TEST001')
+        
+        assert result is True
+        
+        # Verify deactivation
+        item = service.get_item('TEST001')
+        assert item.active is False
+    
+    @pytest.mark.unit
+    def test_activate_item(self, service, sample_item):
+        """Test activating an item"""
+        # Add and deactivate item first
+        service.add_item(sample_item)
+        service.deactivate_item('TEST001')
+        
+        # Activate item
+        result = service.activate_item('TEST001')
+        
+        assert result is True
+        
+        # Verify activation
+        item = service.get_item('TEST001')
+        assert item.active is True
+    
+    @pytest.mark.unit
+    def test_search_items_by_material(self, service, sample_item, sample_threaded_item):
+        """Test searching items by material"""
+        # Add items with different materials
+        service.add_item(sample_item)      # Steel
+        service.add_item(sample_threaded_item)  # Stainless Steel
+        
+        # Search for Steel items
+        search_filter = SearchFilter().material('Steel')
+        results = service.search_items(search_filter)
+        
+        assert len(results) == 1
+        assert results[0].ja_id == 'TEST001'
+        assert results[0].material == 'Steel'
+    
+    @pytest.mark.unit
+    def test_search_items_by_type(self, service, sample_item, sample_threaded_item):
+        """Test searching items by type"""
+        service.add_item(sample_item)
+        service.add_item(sample_threaded_item)
+        
+        # Search for threaded rods
+        search_filter = SearchFilter().item_type(ItemType.THREADED_ROD)
+        results = service.search_items(search_filter)
+        
+        assert len(results) == 1
+        assert results[0].ja_id == 'TEST002'
+        assert results[0].item_type == ItemType.THREADED_ROD
+    
+    @pytest.mark.unit
+    def test_search_items_active_only(self, service, sample_item, sample_threaded_item):
+        """Test searching for active items only"""
+        service.add_item(sample_item)
+        service.add_item(sample_threaded_item)
+        
+        # Deactivate one item
+        service.deactivate_item('TEST001')
+        
+        # Search for active items only
+        search_filter = SearchFilter().active_only()
+        results = service.search_items(search_filter)
+        
+        assert len(results) == 1
+        assert results[0].ja_id == 'TEST002'
+        assert results[0].active is True
+    
+    @pytest.mark.unit
+    def test_search_items_by_length_range(self, service, sample_item, sample_threaded_item):
+        """Test searching items by length range"""
+        service.add_item(sample_item)      # 1000mm length
+        service.add_item(sample_threaded_item)  # 500mm length
+        
+        # Search for items between 600-1200mm
+        search_filter = SearchFilter().length_range(Decimal('600'), Decimal('1200'))
+        results = service.search_items(search_filter)
+        
+        assert len(results) == 1
+        assert results[0].ja_id == 'TEST001'
+        assert results[0].dimensions.length_mm == Decimal('1000')
+    
+    @pytest.mark.unit
+    def test_search_items_notes_contain(self, service, sample_item, sample_threaded_item):
+        """Test searching items by notes content"""
+        service.add_item(sample_item)      # notes: "Test item"
+        service.add_item(sample_threaded_item)  # notes: "M12 threaded rod"
+        
+        # Search for items with "M12" in notes
+        search_filter = SearchFilter().notes_contain('M12')
+        results = service.search_items(search_filter)
+        
+        assert len(results) == 1
+        assert results[0].ja_id == 'TEST002'
+        assert 'M12' in results[0].notes
+    
+    @pytest.mark.unit
+    def test_search_items_multiple_filters(self, service, sample_item, sample_threaded_item):
+        """Test searching with multiple filters"""
+        service.add_item(sample_item)
+        service.add_item(sample_threaded_item)
+        
+        # Search for Steel items that are Rods
+        search_filter = (SearchFilter()
+                        .material('Steel')
+                        .item_type(ItemType.ROD)
+                        .active_only())
+        results = service.search_items(search_filter)
+        
+        assert len(results) == 1
+        assert results[0].ja_id == 'TEST001'
+        assert results[0].material == 'Steel'
+        assert results[0].item_type == ItemType.ROD
+    
+    @pytest.mark.unit
+    def test_batch_move_items(self, service, sample_item, sample_threaded_item):
+        """Test moving multiple items to new location"""
+        service.add_item(sample_item)
+        service.add_item(sample_threaded_item)
+        
+        # Move both items to new location
+        moved_count, failed_ids = service.batch_move_items(
+            ['TEST001', 'TEST002'], 
+            'New Storage Location',
+            'Batch move test'
+        )
+        
+        assert moved_count == 2
+        assert len(failed_ids) == 0
+        
+        # Verify items were moved
+        item1 = service.get_item('TEST001')
+        item2 = service.get_item('TEST002')
+        assert item1.location == 'New Storage Location'
+        assert item2.location == 'New Storage Location'
+    
+    @pytest.mark.unit
+    def test_batch_deactivate_items(self, service, sample_item, sample_threaded_item):
+        """Test deactivating multiple items"""
+        service.add_item(sample_item)
+        service.add_item(sample_threaded_item)
+        
+        # Deactivate both items
+        deactivated_count, failed_ids = service.batch_deactivate_items(['TEST001', 'TEST002'])
+        
+        assert deactivated_count == 2
+        assert len(failed_ids) == 0
+        
+        # Verify items were deactivated
+        item1 = service.get_item('TEST001')
+        item2 = service.get_item('TEST002')
+        assert item1.active is False
+        assert item2.active is False
+    
+    @pytest.mark.unit
+    def test_cache_invalidation(self, service, sample_item):
+        """Test that cache is invalidated after modifications"""
+        # Add item and get all items (should populate cache)
+        service.add_item(sample_item)
+        items1 = service.get_all_items()
+        
+        # Add another item directly to storage (bypassing service)
+        service.storage.write_row('Inventory', [
+            'DIRECT001', 'Rod', 'Round', 'Aluminum', '200', '', '', '10',
+            '', '', '', 'Direct Location', 'Direct add', '', 'True'
+        ])
+        
+        # Get all items without refresh (should use cache)
+        items2 = service.get_all_items()
+        assert len(items2) == 1  # Still cached result
+        
+        # Get all items with refresh (should bypass cache)
+        items3 = service.get_all_items(force_refresh=True)
+        assert len(items3) == 2  # Should see the directly added item
+    
+    @pytest.mark.unit
+    def test_error_handling_invalid_ja_id(self, service):
+        """Test error handling for invalid JA_ID operations"""
+        result = service.deactivate_item('INVALID_ID')
+        assert result is False
+        
+        result = service.activate_item('INVALID_ID')
+        assert result is False

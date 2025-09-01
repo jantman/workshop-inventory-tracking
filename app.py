@@ -3,9 +3,20 @@ from config import Config
 import logging
 import os
 
-def create_app(config_class=Config):
+def create_app(config_class=Config, storage_backend=None):
+    """
+    Create Flask application factory with optional storage backend injection.
+    
+    Args:
+        config_class: Configuration class to use (defaults to Config)
+        storage_backend: Optional storage backend instance for testing
+    """
     app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
     app.config.from_object(config_class)
+    
+    # Store the storage backend in app config for access by routes
+    if storage_backend:
+        app.config['STORAGE_BACKEND'] = storage_backend
     
     # Configure logging
     if not app.debug:
