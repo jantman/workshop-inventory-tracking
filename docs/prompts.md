@@ -6,8 +6,12 @@ We are trying to define the outline and requirements of a software project, whic
 
 ## Planning
 
-Please read and understand ALL of the `ai-project-info.md` file. Our task is to plan the implementation of this project. We must NOT write any code. Please help me develop a detailed implementation plan for this project, in a new `implementation-plan.md` file. The plan should be broken down into distinct Milestones, each of which is one logical unit of work that can be reviewed, evaluated, and committed. Each Milestone should ideally be testable and verifiable at its end. We will NOT write any automated tests during milestone work; this will be saved for the final milestone. We are working collaboratively on this; please ask me (the human) for feedback and guidance whenever you need it, and include my thoughts and opions when planning. The implementation plan should include explicit instructions that the implementers must pause at the end of each milestone and get explicit confirmation before proceeding to the next milestone. Each milestone must also include generating/updating all relevant documentation.
+Please read and understand ALL of the `docs/ai-project-info.md` file. Our task is to plan the implementation of this project. We must NOT write any code. Please help me develop a detailed implementation plan for this project, in a new `docs/implementation-plan.md` file. The plan should be broken down into distinct Milestones, each of which is one logical unit of work that can be reviewed, evaluated, and committed. Each Milestone should ideally be testable and verifiable at its end. We will NOT write any automated tests during milestone work; this will be saved for the final milestone. We are working collaboratively on this; please ask me (the human) for feedback and guidance whenever you need it, and include my thoughts and opions when planning. The implementation plan should include explicit instructions that the implementers must pause at the end of each milestone and get explicit confirmation before proceeding to the next milestone. Each milestone must also include generating/updating all relevant documentation.
 
-## Implementation
+## Implementation (Claude Code)
 
-Please read over and understand all of the `ai-project-info.md` and `implementation-plan.md` files and ask me any questions that you have. Once you understand our goal, let's begin implementing the first milestone.
+Please read over and understand all of the `docs/ai-project-info.md` and `docs/implementation-plan.md` files and ask me any questions that you have. Once you understand our goal, let's begin implementing the first milestone.
+
+## Continue Implementation (Claude Code)
+
+Please read `docs/implementation-plan.md` and `docs/PROGRESS.md` and help me pick up where we left off working.
