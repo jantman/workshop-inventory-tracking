@@ -25,12 +25,28 @@ def parse_date_value(date_value: Union[str, int, float]) -> Optional[datetime]:
     if not date_value:
         return None
         
-    # If it's already a string, try parsing as ISO format
+    # If it's already a string, try parsing various formats
     if isinstance(date_value, str):
+        # Try ISO format first
         try:
             return datetime.fromisoformat(date_value)
         except ValueError:
-            return None
+            pass
+        
+        # Try common formats that Google Sheets might use
+        formats_to_try = [
+            '%Y-%m-%d %H:%M:%S',     # 2025-09-01 9:46:46
+            '%Y-%m-%d %H:%M',        # 2025-09-01 9:46
+            '%Y-%m-%d',              # 2025-09-01
+        ]
+        
+        for fmt in formats_to_try:
+            try:
+                return datetime.strptime(date_value, fmt)
+            except ValueError:
+                continue
+        
+        return None
     
     # If it's a number, treat as Excel serial date
     if isinstance(date_value, (int, float)):
@@ -160,6 +176,7 @@ class Thread:
             r'^\d+-\d+\s+\w+$',         # Number with form: 1-5 Acme  
             r'^\d+ \d+/\d+-\d+\s+\w+$', # Mixed fraction with form: 1 1/8-7 Acme
             r'^\d+x\d+\s+\w+$',         # Metric-like with form: 16x3 Trapezoidal
+            r'^\d+x\d+$',               # Trapezoidal without suffix: 16x3
             
             # Handle multiple spaces (normalize later)
             r'^\d+/\d+-\d+\s+\s+\w+$',  # Extra spaces: 1 1/4-5  Acme
