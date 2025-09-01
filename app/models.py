@@ -108,11 +108,26 @@ class ThreadHandedness(Enum):
     RIGHT = "RH"  # Right-hand thread
     LEFT = "LH"   # Left-hand thread
 
+class ThreadForm(Enum):
+    """Enumeration of thread form types"""
+    UN = "UN"                # Unified National (default for inch sizes)
+    ISO_METRIC = "ISO Metric"  # ISO Metric (default for metric sizes) 
+    ACME = "Acme"            # Acme threads
+    TRAPEZOIDAL = "Trapezoidal"  # Trapezoidal threads
+    NPT = "NPT"              # National Pipe Thread
+    BSW = "BSW"              # British Standard Whitworth
+    BSF = "BSF"              # British Standard Fine
+    SQUARE = "Square"        # Square threads
+    BUTTRESS = "Buttress"    # Buttress threads
+    CUSTOM = "Custom"        # Custom/specialized forms
+    OTHER = "Other"          # Other thread forms
+
 @dataclass
 class Thread:
     """Thread specification for threaded items"""
     series: Optional[ThreadSeries] = None
     handedness: Optional[ThreadHandedness] = None
+    form: Optional[ThreadForm] = None  # Thread form type (UN, Acme, etc.)
     size: Optional[str] = None  # e.g., "1/2-13", "M12x1.75"
     original: Optional[str] = None  # Original thread specification as entered
     
@@ -157,6 +172,7 @@ class Thread:
         return {
             'series': self.series.value if self.series else None,
             'handedness': self.handedness.value if self.handedness else None,
+            'form': self.form.value if self.form else None,
             'size': self.size,
             'original': self.original
         }
@@ -166,10 +182,12 @@ class Thread:
         """Create Thread from dictionary"""
         series = ThreadSeries(data['series']) if data.get('series') else None
         handedness = ThreadHandedness(data['handedness']) if data.get('handedness') else None
+        form = ThreadForm(data['form']) if data.get('form') else None
         
         return cls(
             series=series,
             handedness=handedness,
+            form=form,
             size=data.get('size'),
             original=data.get('original')
         )
@@ -528,6 +546,7 @@ class Item:
                 'Material': self.material,
                 'Thread Series': self.thread.series.value if self.thread and self.thread.series else '',
                 'Thread Handedness': self.thread.handedness.value if self.thread and self.thread.handedness else '',
+                'Thread Form': self.thread.form.value if self.thread and self.thread.form else '',
                 'Thread Size': self.thread.size if self.thread and self.thread.size else '',
                 'Quantity': str(self.quantity),
                 'Location': self.location or '',
@@ -581,12 +600,14 @@ class Item:
         # Handle thread data
         thread_series = row_dict.get('Thread Series')
         thread_handedness = row_dict.get('Thread Handedness') 
+        thread_form = row_dict.get('Thread Form')
         thread_size = row_dict.get('Thread Size')
         
-        if any([thread_series, thread_handedness, thread_size]):
+        if any([thread_series, thread_handedness, thread_form, thread_size]):
             data['thread'] = {
                 'series': thread_series or None,
                 'handedness': thread_handedness or None,
+                'form': thread_form or None,
                 'size': thread_size or None,
                 'original': row_dict.get('Original Thread') or None,
             }

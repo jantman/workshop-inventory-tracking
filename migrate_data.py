@@ -30,7 +30,7 @@ class DataMigrator:
     NEW_HEADERS = [
         'Active', 'JA ID', 'Length', 'Width', 'Thickness', 'Wall Thickness',
         'Weight', 'Type', 'Shape', 'Material', 'Thread Series', 'Thread Handedness',
-        'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
+        'Thread Form', 'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
         'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
         'Original Material', 'Original Thread', 'Date Added', 'Last Modified'
     ]
@@ -142,19 +142,17 @@ class DataMigrator:
         
         return normalized, original
     
-    def parse_thread(self, thread: str) -> Tuple[Optional[str], Optional[str], Optional[str], str]:
-        """Parse thread into series, handedness, size, and original"""
+    def parse_thread(self, thread: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], str]:
+        """Parse thread into series, handedness, form, size, and original"""
         if not thread or thread.strip() == '':
-            return None, None, None, ''
+            return None, None, None, None, ''
         
         thread = thread.strip()
         original = thread
         
-        # Thread parsing patterns
-        # Examples: "1/2-13 UNC", "M12x1.75", "1/4-20 UNC RH", etc.
-        
         series = None
         handedness = None
+        form = None
         size = None
         
         # Extract handedness first
@@ -165,6 +163,24 @@ class DataMigrator:
             handedness = 'LH'
             thread = re.sub(r'\b(LH|LEFT)\b', '', thread, flags=re.IGNORECASE).strip()
         
+        # Extract thread form first (before series)
+        thread_upper = thread.upper()
+        if 'ACME' in thread_upper:
+            form = 'Acme'
+            thread = re.sub(r'\bACME\b', '', thread, flags=re.IGNORECASE).strip()
+        elif 'TRAPEZOIDAL' in thread_upper:
+            form = 'Trapezoidal'
+            thread = re.sub(r'\bTRAPEZOIDAL\b', '', thread, flags=re.IGNORECASE).strip()
+        elif 'NPT' in thread_upper:
+            form = 'NPT'
+            thread = re.sub(r'\bNPT\b', '', thread, flags=re.IGNORECASE).strip()
+        elif 'BSW' in thread_upper:
+            form = 'BSW'
+            thread = re.sub(r'\bBSW\b', '', thread, flags=re.IGNORECASE).strip()
+        elif 'BSF' in thread_upper:
+            form = 'BSF'
+            thread = re.sub(r'\bBSF\b', '', thread, flags=re.IGNORECASE).strip()
+        
         # Extract series
         if 'UNC' in thread.upper():
             series = 'UNC'
@@ -172,20 +188,33 @@ class DataMigrator:
         elif 'UNF' in thread.upper():
             series = 'UNF'
             thread = thread.upper().replace('UNF', '').strip()
-        elif 'METRIC' in thread.upper() or 'M' in thread:
+        elif 'UNEF' in thread.upper():
+            series = 'UNEF'
+            thread = thread.upper().replace('UNEF', '').strip()
+        elif 'METRIC' in thread.upper() or thread.startswith('M'):
             series = 'Metric'
         
-        # Extract size (what's left)
+        # Extract and normalize size
         if thread:
-            # Clean up common separators
+            # Clean up common separators and extra spaces
             size = re.sub(r'^[-\s]+', '', thread).strip()
-            if size:
-                size = size
+            size = re.sub(r'\s+', ' ', size)  # Normalize multiple spaces
+            
+            # Normalize metric threads from dash to x notation
+            if series == 'Metric' or (size and size.startswith('M')):
+                # Convert M10-1.5 to M10x1.5
+                size = re.sub(r'^(M\d+)-(\d+\.?\d*)$', r'\1x\2', size)
+                series = 'Metric'  # Ensure series is set for metric
+                if not form:
+                    form = 'ISO Metric'  # Default form for metric
+            elif size and not form:
+                # Default form for inch threads (if no form was specified)
+                form = 'UN'
         
-        if any([series, handedness, size]):
+        if any([series, handedness, form, size]):
             self.stats['thread_parsing'] += 1
             
-        return series, handedness, size, original
+        return series, handedness, form, size, original
     
     def clean_price(self, price: str) -> Optional[str]:
         """Clean price data by removing currency symbols and invalid characters"""
@@ -335,30 +364,31 @@ class DataMigrator:
             # Material normalization
             normalized_material, original_material = self.normalize_material(row_dict.get('Material', ''))
             new_row[9] = normalized_material
-            new_row[22] = original_material  # Store original
+            new_row[23] = original_material  # Store original
             
             # Thread parsing
-            thread_series, thread_handedness, thread_size, original_thread = self.parse_thread(row_dict.get('Thread', ''))
+            thread_series, thread_handedness, thread_form, thread_size, original_thread = self.parse_thread(row_dict.get('Thread', ''))
             new_row[10] = thread_series or ''
             new_row[11] = thread_handedness or ''
-            new_row[12] = thread_size or ''
-            new_row[23] = original_thread  # Store original
+            new_row[12] = thread_form or ''
+            new_row[13] = thread_size or ''
+            new_row[24] = original_thread  # Store original
             
             # Other fields
-            new_row[13] = row_dict.get('Quantity (>1)', '').strip()
-            new_row[14] = row_dict.get('Location', '').strip()
-            new_row[15] = row_dict.get('Sub-Location', '').strip()
-            new_row[16] = row_dict.get('Purch. Date', '').strip()
-            new_row[17] = self.clean_price(row_dict.get('Purch. Price (line)', '')) or ''
-            new_row[18] = row_dict.get('Purch. Loc.', '').strip()
-            new_row[19] = row_dict.get('Notes', '').strip()
-            new_row[20] = row_dict.get('Vendor', '').strip()
-            new_row[21] = row_dict.get('Vendor Part #', '').strip()
+            new_row[14] = row_dict.get('Quantity (>1)', '').strip()
+            new_row[15] = row_dict.get('Location', '').strip()
+            new_row[16] = row_dict.get('Sub-Location', '').strip()
+            new_row[17] = row_dict.get('Purch. Date', '').strip()
+            new_row[18] = self.clean_price(row_dict.get('Purch. Price (line)', '')) or ''
+            new_row[19] = row_dict.get('Purch. Loc.', '').strip()
+            new_row[20] = row_dict.get('Notes', '').strip()
+            new_row[21] = row_dict.get('Vendor', '').strip()
+            new_row[22] = row_dict.get('Vendor Part #', '').strip()
             
             # Metadata
             current_time = datetime.now().isoformat()
-            new_row[24] = current_time  # Date Added
-            new_row[25] = current_time  # Last Modified
+            new_row[25] = current_time  # Date Added
+            new_row[26] = current_time  # Last Modified
             
             # Validate the transformed row
             row_data = dict(zip(self.NEW_HEADERS, new_row))
