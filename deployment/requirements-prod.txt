@@ -1,0 +1,22 @@
+# Production requirements for Workshop Inventory Tracking
+
+# Core Flask application
+Flask==3.0.0
+Flask-WTF==1.2.1
+
+# Google API clients
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.110.0
+
+# Production WSGI server
+gunicorn==21.2.0
+
+# Additional production dependencies
+python-dotenv==1.0.0
+
+# Security and performance
+cryptography==41.0.8
+
+# Process monitoring
+psutil==5.9.6

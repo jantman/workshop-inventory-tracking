@@ -5,6 +5,8 @@ from app.google_sheets_storage import GoogleSheetsStorage
 from app.inventory_service import InventoryService
 from app.taxonomy import taxonomy_manager
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.error_handlers import with_error_handling, ErrorHandler
+from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from decimal import Decimal, InvalidOperation
 import traceback
 from config import Config

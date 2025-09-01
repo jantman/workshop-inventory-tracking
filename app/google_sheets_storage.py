@@ -2,9 +2,12 @@ from typing import List, Dict, Any, Optional
 from flask import current_app
 from googleapiclient.errors import HttpError
 import time
+import json
 
 from app.storage import Storage, StorageResult
 from app.auth import GoogleAuth
+from app.exceptions import GoogleSheetsError, RateLimitError, TemporaryError, AuthenticationError
+from app.error_handlers import retry_with_backoff, google_sheets_circuit_breaker
 
 class GoogleSheetsStorage(Storage):
     """Google Sheets implementation of the Storage interface"""
@@ -22,43 +25,65 @@ class GoogleSheetsStorage(Storage):
             self.service = self.auth.get_service()
         return self.service
     
-    def _retry_request(self, func, *args, **kwargs):
-        """Retry a request with exponential backoff"""
-        for attempt in range(self._retry_count):
-            try:
-                return func(*args, **kwargs)
-            except HttpError as e:
-                if e.resp.status == 429:  # Rate limit
-                    if attempt < self._retry_count - 1:
-                        delay = self._retry_delay * (2 ** attempt)
-                        current_app.logger.warning(f'Rate limited, retrying in {delay}s')
-                        time.sleep(delay)
-                        continue
-                raise
+    def _handle_http_error(self, e: HttpError, operation: str) -> None:
+        """Convert HttpError to appropriate custom exception"""
+        status = e.resp.status
+        
+        try:
+            error_details = json.loads(e.content.decode('utf-8'))
+            message = error_details.get('error', {}).get('message', str(e))
+        except (json.JSONDecodeError, KeyError, AttributeError):
+            message = str(e)
+        
+        if status == 401:
+            raise AuthenticationError(f"Authentication failed for {operation}: {message}")
+        elif status == 403:
+            raise GoogleSheetsError(f"Access denied for {operation}: {message}", operation, status, e)
+        elif status == 429:
+            raise RateLimitError(f"Rate limit exceeded for {operation}: {message}", 
+                               retry_after=60, service="Google Sheets")
+        elif status >= 500:
+            raise TemporaryError(f"Server error during {operation}: {message}")
+        else:
+            raise GoogleSheetsError(f"HTTP {status} error during {operation}: {message}", operation, status, e)
+
+    @retry_with_backoff(max_retries=3, base_delay=1.0)
+    def _retry_request(self, func, operation: str, *args, **kwargs):
+        """Execute request with circuit breaker and error handling"""
+        try:
+            return google_sheets_circuit_breaker.call(func, *args, **kwargs)
+        except HttpError as e:
+            self._handle_http_error(e, operation)
+        except Exception as e:
+            if "credentials" in str(e).lower() or "auth" in str(e).lower():
+                raise AuthenticationError(f"Authentication error during {operation}: {e}")
+            else:
+                raise GoogleSheetsError(f"Unexpected error during {operation}: {e}", operation, original_error=e)
         
     def connect(self) -> StorageResult:
         """Test connection to Google Sheets"""
         try:
             service = self._get_service()
-            # Test by getting spreadsheet metadata
-            sheet_metadata = service.spreadsheets().get(
+            sheet_metadata = self._retry_request(
+                service.spreadsheets().get,
+                "connect",
                 spreadsheetId=self.spreadsheet_id
             ).execute()
             
-            current_app.logger.info(f'Connected to spreadsheet: {sheet_metadata.get("properties", {}).get("title", "Unknown")}')
+            title = sheet_metadata.get("properties", {}).get("title", "Unknown")
+            current_app.logger.info(f'Connected to spreadsheet: {title}')
             
             return StorageResult(
                 success=True,
                 data={
-                    'title': sheet_metadata.get('properties', {}).get('title'),
+                    'title': title,
                     'sheets': [sheet['properties']['title'] for sheet in sheet_metadata.get('sheets', [])]
                 }
             )
             
-        except HttpError as e:
-            error_msg = f'Failed to connect to Google Sheets: {e}'
-            current_app.logger.error(error_msg)
-            return StorageResult(success=False, error=error_msg)
+        except (GoogleSheetsError, AuthenticationError, RateLimitError, TemporaryError) as e:
+            current_app.logger.error(f'Connection failed: {e}')
+            return StorageResult(success=False, error=str(e))
         except Exception as e:
             error_msg = f'Unexpected error connecting to Google Sheets: {e}'
             current_app.logger.error(error_msg)
@@ -70,6 +95,7 @@ class GoogleSheetsStorage(Storage):
             service = self._get_service()
             result = self._retry_request(
                 service.spreadsheets().values().get,
+                f"read_all from {sheet_name}",
                 spreadsheetId=self.spreadsheet_id,
                 range=sheet_name
             ).execute()
@@ -79,8 +105,11 @@ class GoogleSheetsStorage(Storage):
             
             return StorageResult(success=True, data=values)
             
-        except HttpError as e:
-            error_msg = f'Failed to read from sheet {sheet_name}: {e}'
+        except (GoogleSheetsError, AuthenticationError, RateLimitError, TemporaryError) as e:
+            current_app.logger.error(f'Failed to read from sheet {sheet_name}: {e}')
+            return StorageResult(success=False, error=str(e))
+        except Exception as e:
+            error_msg = f'Unexpected error reading from sheet {sheet_name}: {e}'
             current_app.logger.error(error_msg)
             return StorageResult(success=False, error=error_msg)
     
@@ -119,6 +148,7 @@ class GoogleSheetsStorage(Storage):
             
             result = self._retry_request(
                 service.spreadsheets().values().append,
+                f"write_rows to {sheet_name}",
                 spreadsheetId=self.spreadsheet_id,
                 range=sheet_name,
                 valueInputOption='USER_ENTERED',
@@ -130,8 +160,11 @@ class GoogleSheetsStorage(Storage):
             
             return StorageResult(success=True, affected_rows=updated_rows)
             
-        except HttpError as e:
-            error_msg = f'Failed to write rows to {sheet_name}: {e}'
+        except (GoogleSheetsError, AuthenticationError, RateLimitError, TemporaryError) as e:
+            current_app.logger.error(f'Failed to write rows to {sheet_name}: {e}')
+            return StorageResult(success=False, error=str(e))
+        except Exception as e:
+            error_msg = f'Unexpected error writing rows to {sheet_name}: {e}'
             current_app.logger.error(error_msg)
             return StorageResult(success=False, error=error_msg)
     

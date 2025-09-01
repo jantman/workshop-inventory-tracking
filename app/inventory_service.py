@@ -9,11 +9,14 @@ It works with the Item model and abstracts the underlying storage.
 from typing import List, Dict, Any, Optional, Union, Tuple
 from decimal import Decimal
 from datetime import datetime
+import time
 from flask import current_app
 
 from app.models import Item, ItemType, ItemShape, Thread, Dimensions
 from app.storage import Storage, StorageResult
 from app.google_sheets_storage import GoogleSheetsStorage
+from app.performance import cached, timed, performance_monitor, batch_manager
+from app.logging_config import log_operation, log_performance
 
 class SearchFilter:
     """Search filter specification"""
@@ -99,25 +102,39 @@ class InventoryService:
     
     # Basic CRUD Operations
     
+    @cached(ttl=300)  # Cache for 5 minutes
+    @timed("get_item")
     def get_item(self, ja_id: str) -> Optional[Item]:
         """Get a single item by JA ID"""
         try:
+            start_time = time.time()
+            
             # First try to find in all items
             items = self.get_all_items()
             for item in items:
                 if item.ja_id == ja_id:
+                    log_operation("get_item", 
+                                int((time.time() - start_time) * 1000), 
+                                ja_id, 
+                                {"found": True})
                     return item
+            
+            log_operation("get_item", 
+                        int((time.time() - start_time) * 1000), 
+                        ja_id, 
+                        {"found": False})
             return None
         except Exception as e:
             current_app.logger.error(f"Failed to get item {ja_id}: {e}")
             return None
     
+    @cached(ttl=180)  # Cache for 3 minutes (shorter than single item cache)
+    @timed("get_all_items")
     def get_all_items(self, force_refresh: bool = False) -> List[Item]:
-        """Get all inventory items with optional caching"""
-        if not force_refresh and self._is_cache_valid():
-            return self._cache.get('all_items', [])
-        
+        """Get all inventory items with performance optimization"""
         try:
+            start_time = time.time()
+            
             result = self.storage.read_all('Metal')
             if not result.success:
                 current_app.logger.error(f"Failed to read items: {result.error}")
@@ -130,17 +147,26 @@ class InventoryService:
             rows = result.data[1:]
             
             items = []
+            parse_errors = 0
+            
             for row in rows:
                 try:
                     item = Item.from_row(row, headers)
                     items.append(item)
                 except Exception as e:
+                    parse_errors += 1
                     current_app.logger.warning(f"Failed to parse item row: {e}")
                     continue
             
-            # Update cache
-            self._cache['all_items'] = items
-            self._cache_timestamp = datetime.now()
+            # Log operation performance
+            end_time = time.time()
+            log_operation("get_all_items", 
+                        int((end_time - start_time) * 1000), 
+                        details={
+                            "item_count": len(items),
+                            "parse_errors": parse_errors,
+                            "rows_processed": len(rows)
+                        })
             
             return items
             
@@ -148,10 +174,13 @@ class InventoryService:
             current_app.logger.error(f"Failed to get all items: {e}")
             return []
     
+    @timed("add_item")
     def add_item(self, item: Item) -> bool:
-        """Add a new item to inventory"""
+        """Add a new item to inventory with performance optimization"""
         try:
-            # Validate item
+            start_time = time.time()
+            
+            # Validate item doesn't already exist
             if self.get_item(item.ja_id):
                 current_app.logger.error(f"Item {item.ja_id} already exists")
                 return False
@@ -159,15 +188,35 @@ class InventoryService:
             # Convert to row format
             row = item.to_row(self.SHEET_HEADERS)
             
-            # Add to storage
-            result = self.storage.write_row('Metal', row)
-            if result.success:
-                self._invalidate_cache()
-                current_app.logger.info(f"Added item {item.ja_id}")
-                return True
+            # Add to batch or write immediately
+            if batch_manager.add_to_batch('add_items', {'item': item, 'row': row}):
+                # Batch is ready, process it
+                batch = batch_manager.get_batch('add_items')
+                rows_to_add = [entry['row'] for entry in batch]
+                result = self.storage.write_rows('Metal', rows_to_add)
+                
+                if result.success:
+                    # Clear cache since we added items
+                    self.get_all_items.cache_clear()
+                    
+                    # Log batch operation
+                    end_time = time.time()
+                    log_operation("add_item_batch", 
+                                int((end_time - start_time) * 1000), 
+                                details={"batch_size": len(batch)})
+                    
+                    current_app.logger.info(f"Added batch of {len(batch)} items including {item.ja_id}")
+                    return True
+                else:
+                    current_app.logger.error(f"Failed to add item batch: {result.error}")
+                    return False
             else:
-                current_app.logger.error(f"Failed to add item {item.ja_id}: {result.error}")
-                return False
+                # Add to batch for later processing
+                log_operation("add_item", 
+                            int((time.time() - start_time) * 1000), 
+                            item.ja_id, 
+                            {"batched": True})
+                return True
                 
         except Exception as e:
             current_app.logger.error(f"Failed to add item {item.ja_id}: {e}")
