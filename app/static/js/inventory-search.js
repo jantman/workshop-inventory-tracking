@@ -1,0 +1,499 @@
+/*!
+ * Advanced Inventory Search JavaScript
+ * Handles complex search queries with range filtering and CSV export
+ */
+
+class AdvancedInventorySearch {
+    constructor() {
+        this.form = document.getElementById('advanced-search-form');
+        this.resultsSection = document.getElementById('search-results-section');
+        this.loadingElement = document.getElementById('search-loading');
+        this.noResultsElement = document.getElementById('no-results');
+        this.tableContainer = document.getElementById('results-table-container');
+        this.tableBody = document.getElementById('results-table-body');
+        this.resultsCount = document.getElementById('results-count');
+        
+        this.currentResults = [];
+        this.isSearching = false;
+        
+        this.init();
+    }
+    
+    init() {
+        this.attachEventListeners();
+        this.loadSearchFromURL();
+    }
+    
+    attachEventListeners() {
+        // Form submission
+        this.form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.performSearch();
+        });
+        
+        // Clear form button
+        document.getElementById('clear-form-btn').addEventListener('click', () => {
+            this.clearForm();
+        });
+        
+        // Reset search button
+        document.getElementById('reset-search-btn').addEventListener('click', () => {
+            this.resetSearch();
+        });
+        
+        // Export CSV button
+        document.getElementById('export-csv-btn').addEventListener('click', () => {
+            this.exportCSV();
+        });
+        
+        // Bookmark search button
+        document.getElementById('bookmark-search-btn').addEventListener('click', () => {
+            this.bookmarkSearch();
+        });
+        
+        // Real-time validation for JA ID pattern
+        const jaIdInput = document.getElementById('ja_id');
+        jaIdInput.addEventListener('input', (e) => {
+            this.validateJAID(e.target);
+        });
+        
+        // Range validation for dimensions
+        this.attachRangeValidation();
+        
+        // Auto-search on Enter in text fields
+        const textInputs = this.form.querySelectorAll('input[type="text"], input[type="number"]');
+        textInputs.forEach(input => {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.performSearch();
+                }
+            });
+        });
+    }
+    
+    attachRangeValidation() {
+        // Pairs of min/max range inputs
+        const rangePairs = [
+            ['length_min', 'length_max'],
+            ['width_min', 'width_max'],
+            ['thickness_min', 'thickness_max'],
+            ['wall_thickness_min', 'wall_thickness_max']
+        ];
+        
+        rangePairs.forEach(([minId, maxId]) => {
+            const minInput = document.getElementById(minId);
+            const maxInput = document.getElementById(maxId);
+            
+            const validateRange = () => {
+                const min = parseFloat(minInput.value) || 0;
+                const max = parseFloat(maxInput.value) || Infinity;
+                
+                if (min > max && maxInput.value) {
+                    maxInput.setCustomValidity('Maximum must be greater than minimum');
+                } else {
+                    maxInput.setCustomValidity('');
+                }
+                
+                if (max < min && minInput.value) {
+                    minInput.setCustomValidity('Minimum must be less than maximum');
+                } else {
+                    minInput.setCustomValidity('');
+                }
+            };
+            
+            minInput.addEventListener('input', validateRange);
+            maxInput.addEventListener('input', validateRange);
+        });
+    }
+    
+    validateJAID(input) {
+        const value = input.value;
+        const pattern = /^JA\d{6}$/;
+        
+        if (value && !pattern.test(value)) {
+            input.setCustomValidity('JA ID must be in format JA123456 (JA followed by 6 digits)');
+        } else {
+            input.setCustomValidity('');
+        }
+    }
+    
+    async performSearch() {
+        if (this.isSearching) return;
+        
+        this.isSearching = true;
+        this.showLoading();
+        
+        try {
+            const searchData = this.collectSearchData();
+            const results = await this.executeSearch(searchData);
+            
+            this.currentResults = results;
+            this.displayResults(results);
+            this.updateURL(searchData);
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            this.showError('Search failed. Please try again.');
+        } finally {
+            this.isSearching = false;
+        }
+    }
+    
+    collectSearchData() {
+        const formData = new FormData(this.form);
+        const searchData = {};
+        
+        // Collect all form values
+        for (let [key, value] of formData.entries()) {
+            if (value.trim()) {
+                searchData[key] = value.trim();
+            }
+        }
+        
+        // Convert boolean strings
+        if (searchData.active) {
+            searchData.active = searchData.active === 'true';
+        }
+        if (searchData.material_exact) {
+            searchData.material_exact = searchData.material_exact === 'true';
+        }
+        
+        // Convert numeric values
+        const numericFields = ['length_min', 'length_max', 'width_min', 'width_max', 
+                              'thickness_min', 'thickness_max', 'wall_thickness_min', 'wall_thickness_max'];
+        
+        numericFields.forEach(field => {
+            if (searchData[field]) {
+                searchData[field] = parseFloat(searchData[field]);
+            }
+        });
+        
+        return searchData;
+    }
+    
+    async executeSearch(searchData) {
+        const response = await fetch('/api/inventory/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': this.getCSRFToken()
+            },
+            body: JSON.stringify(searchData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Search failed: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Search failed');
+        }
+        
+        return data.items || [];
+    }
+    
+    displayResults(results) {
+        this.hideLoading();
+        
+        if (results.length === 0) {
+            this.showNoResults();
+            return;
+        }
+        
+        this.showResultsTable();
+        this.renderResultsTable(results);
+        this.updateResultsCount(results.length);
+    }
+    
+    renderResultsTable(items) {
+        this.tableBody.innerHTML = '';
+        
+        items.forEach(item => {
+            const row = this.createResultRow(item);
+            this.tableBody.appendChild(row);
+        });
+    }
+    
+    createResultRow(item) {
+        const row = document.createElement('tr');
+        
+        // Format dimensions display
+        const dimensions = this.formatDimensions(item.dimensions);
+        const thread = this.formatThread(item.thread);
+        const status = item.active ? 
+            '<span class="badge bg-success">Active</span>' : 
+            '<span class="badge bg-secondary">Inactive</span>';
+        
+        row.innerHTML = `
+            <td><strong>${this.escapeHtml(item.ja_id)}</strong></td>
+            <td>${this.escapeHtml(item.display_name || 'N/A')}</td>
+            <td>${this.escapeHtml(item.item_type || 'N/A')}</td>
+            <td>${this.escapeHtml(item.material || 'N/A')}</td>
+            <td><small>${dimensions}</small></td>
+            <td><small>${thread}</small></td>
+            <td>${this.escapeHtml(item.location || 'N/A')}</td>
+            <td class="text-center">${status}</td>
+            <td class="text-center">
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-primary btn-sm" 
+                            onclick="viewItemDetails('${item.ja_id}')" title="View Details">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                    ${item.active ? `
+                        <button type="button" class="btn btn-outline-warning btn-sm" 
+                                onclick="editItem('${item.ja_id}')" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            </td>
+        `;
+        
+        return row;
+    }
+    
+    formatDimensions(dims) {
+        if (!dims) return 'N/A';
+        
+        const parts = [];
+        if (dims.length) parts.push(`L: ${dims.length}"`);
+        if (dims.width) parts.push(`W: ${dims.width}"`);
+        if (dims.thickness) parts.push(`T: ${dims.thickness}"`);
+        if (dims.wall_thickness) parts.push(`WT: ${dims.wall_thickness}"`);
+        
+        return parts.join(', ') || 'N/A';
+    }
+    
+    formatThread(thread) {
+        if (!thread || !thread.size) return 'N/A';
+        
+        let result = thread.size;
+        if (thread.series) result += ` ${thread.series}`;
+        if (thread.handedness && thread.handedness !== 'RH') result += ` ${thread.handedness}`;
+        
+        return result;
+    }
+    
+    showLoading() {
+        this.resultsSection.classList.remove('d-none');
+        this.loadingElement.classList.remove('d-none');
+        this.noResultsElement.classList.add('d-none');
+        this.tableContainer.classList.add('d-none');
+    }
+    
+    hideLoading() {
+        this.loadingElement.classList.add('d-none');
+    }
+    
+    showNoResults() {
+        this.noResultsElement.classList.remove('d-none');
+        this.tableContainer.classList.add('d-none');
+    }
+    
+    showResultsTable() {
+        this.noResultsElement.classList.add('d-none');
+        this.tableContainer.classList.remove('d-none');
+    }
+    
+    showError(message) {
+        this.hideLoading();
+        alert(`Error: ${message}`);
+    }
+    
+    updateResultsCount(count) {
+        const text = count === 1 ? '1 item found' : `${count} items found`;
+        this.resultsCount.textContent = text;
+    }
+    
+    clearForm() {
+        this.form.reset();
+        
+        // Clear custom validity messages
+        const inputs = this.form.querySelectorAll('input, select');
+        inputs.forEach(input => input.setCustomValidity(''));
+        
+        // Reset to defaults
+        document.getElementById('active').value = 'true';
+        document.getElementById('material_exact').value = 'false';
+        
+        // Clear results
+        this.resultsSection.classList.add('d-none');
+        this.currentResults = [];
+        
+        // Clear URL
+        window.history.replaceState({}, '', window.location.pathname);
+    }
+    
+    resetSearch() {
+        this.clearForm();
+    }
+    
+    exportCSV() {
+        if (this.currentResults.length === 0) {
+            alert('No results to export');
+            return;
+        }
+        
+        const csvData = this.generateCSV(this.currentResults);
+        const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `inventory-search-${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Show success message
+        const exportBtn = document.getElementById('export-csv-btn');
+        const originalContent = exportBtn.innerHTML;
+        exportBtn.innerHTML = '<i class="bi bi-check"></i> Exported';
+        exportBtn.disabled = true;
+        
+        setTimeout(() => {
+            exportBtn.innerHTML = originalContent;
+            exportBtn.disabled = false;
+        }, 2000);
+    }
+    
+    generateCSV(items) {
+        // CSV headers
+        const headers = [
+            'JA ID', 'Item Type', 'Shape', 'Material', 'Length', 'Width', 
+            'Thickness', 'Wall Thickness', 'Weight', 'Thread Size', 
+            'Thread Series', 'Thread Form', 'Location', 'Notes', 'Status', 'Date Added'
+        ];
+        
+        // Convert items to CSV rows
+        const csvRows = [headers.join(',')];
+        
+        items.forEach(item => {
+            const row = [
+                this.csvEscape(item.ja_id),
+                this.csvEscape(item.item_type),
+                this.csvEscape(item.shape),
+                this.csvEscape(item.material),
+                item.dimensions?.length || '',
+                item.dimensions?.width || '',
+                item.dimensions?.thickness || '',
+                item.dimensions?.wall_thickness || '',
+                item.dimensions?.weight || '',
+                this.csvEscape(item.thread?.size),
+                this.csvEscape(item.thread?.series),
+                this.csvEscape(item.thread?.form),
+                this.csvEscape(item.location),
+                this.csvEscape(item.notes),
+                item.active ? 'Active' : 'Inactive',
+                item.date_added || ''
+            ];
+            csvRows.push(row.join(','));
+        });
+        
+        return csvRows.join('\n');
+    }
+    
+    csvEscape(value) {
+        if (!value) return '';
+        
+        const stringValue = String(value);
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+            return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+    }
+    
+    bookmarkSearch() {
+        const url = window.location.href;
+        
+        // Copy URL to clipboard
+        navigator.clipboard.writeText(url).then(() => {
+            const bookmarkBtn = document.getElementById('bookmark-search-btn');
+            const originalContent = bookmarkBtn.innerHTML;
+            
+            bookmarkBtn.innerHTML = '<i class="bi bi-check"></i> Copied';
+            bookmarkBtn.disabled = true;
+            
+            setTimeout(() => {
+                bookmarkBtn.innerHTML = originalContent;
+                bookmarkBtn.disabled = false;
+            }, 2000);
+        }).catch(() => {
+            // Fallback for browsers that don't support clipboard API
+            prompt('Copy this URL to bookmark your search:', url);
+        });
+    }
+    
+    updateURL(searchData) {
+        const url = new URL(window.location);
+        url.search = '';
+        
+        // Add search parameters to URL
+        Object.keys(searchData).forEach(key => {
+            if (searchData[key] !== undefined && searchData[key] !== '') {
+                url.searchParams.set(key, searchData[key]);
+            }
+        });
+        
+        window.history.replaceState({}, '', url);
+    }
+    
+    loadSearchFromURL() {
+        const urlParams = new URLSearchParams(window.location.search);
+        let hasParams = false;
+        
+        // Load search parameters from URL
+        urlParams.forEach((value, key) => {
+            const input = document.getElementById(key) || document.querySelector(`[name="${key}"]`);
+            if (input) {
+                if (input.type === 'checkbox') {
+                    input.checked = value === 'true';
+                } else {
+                    input.value = value;
+                }
+                hasParams = true;
+            }
+        });
+        
+        // Auto-execute search if parameters are present
+        if (hasParams) {
+            setTimeout(() => this.performSearch(), 100);
+        }
+    }
+    
+    getCSRFToken() {
+        const token = document.querySelector('meta[name=csrf-token]');
+        return token ? token.getAttribute('content') : '';
+    }
+    
+    escapeHtml(text) {
+        if (!text) return '';
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    }
+}
+
+// Global functions for row actions
+function viewItemDetails(jaId) {
+    window.location.href = `/inventory/view/${jaId}`;
+}
+
+function editItem(jaId) {
+    window.location.href = `/inventory/edit/${jaId}`;
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new AdvancedInventorySearch();
+});

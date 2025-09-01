@@ -266,13 +266,17 @@ class InventoryService:
         elif field == 'material':
             return item.material.lower() == str(value).lower()
         elif field == 'item_type':
-            return item.item_type.value == value
+            return item.item_type == value
         elif field == 'shape':
-            return item.shape.value == value
+            return item.shape == value
         elif field == 'location':
             return (item.location or '').lower() == str(value).lower()
         elif field == 'ja_id':
             return item.ja_id == value
+        elif field == 'thread_series':
+            return item.thread and item.thread.series == value
+        elif field == 'thread_form':
+            return item.thread and item.thread.form == value
         
         return True
     
@@ -280,16 +284,17 @@ class InventoryService:
         """Check range match for numeric field"""
         value = None
         
-        if field == 'length':
-            value = item.dimensions.length
-        elif field == 'width':
-            value = item.dimensions.width
-        elif field == 'thickness':
-            value = item.dimensions.thickness
-        elif field == 'wall_thickness':
-            value = item.dimensions.wall_thickness
-        elif field == 'weight':
-            value = item.dimensions.weight
+        if item.dimensions:
+            if field == 'length':
+                value = item.dimensions.length
+            elif field == 'width':
+                value = item.dimensions.width
+            elif field == 'thickness':
+                value = item.dimensions.thickness
+            elif field == 'wall_thickness':
+                value = item.dimensions.wall_thickness
+            elif field == 'weight':
+                value = item.dimensions.weight
         
         if value is None:
             return range_spec.get('min') is None and range_spec.get('max') is None
@@ -316,6 +321,10 @@ class InventoryService:
             text = item.vendor or ''
         elif field == 'material':
             text = item.material or ''
+        elif field == 'location':
+            text = item.location or ''
+        elif field == 'thread_size':
+            text = item.thread.size if item.thread else ''
         
         text = text.lower()
         

@@ -507,6 +507,156 @@ def api_inventory_list():
             'items': []
         }), 500
 
+@bp.route('/api/inventory/search', methods=['POST'])
+@csrf.exempt
+def api_advanced_search():
+    """Advanced search API endpoint"""
+    try:
+        data = request.get_json() or {}
+        
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        
+        # Import SearchFilter here to avoid circular import
+        from app.inventory_service import SearchFilter
+        
+        # Build search filter from request data
+        search_filter = SearchFilter()
+        
+        # Basic identification filters
+        if data.get('ja_id'):
+            search_filter.add_exact_match('ja_id', data['ja_id'].upper())
+        
+        if data.get('location'):
+            search_filter.add_text_search('location', data['location'])
+        
+        if data.get('notes'):
+            search_filter.add_text_search('notes', data['notes'])
+        
+        # Type and shape filters
+        if data.get('item_type'):
+            try:
+                item_type = ItemType[data['item_type'].upper()]
+                search_filter.add_exact_match('item_type', item_type)
+            except KeyError:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Invalid item type: {data["item_type"]}'
+                }), 400
+        
+        if data.get('shape'):
+            try:
+                shape = ItemShape[data['shape'].upper()]
+                search_filter.add_exact_match('shape', shape)
+            except KeyError:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Invalid shape: {data["shape"]}'
+                }), 400
+        
+        # Active/inactive filter
+        if 'active' in data and data['active'] is not None:
+            if isinstance(data['active'], bool):
+                search_filter.add_exact_match('active', data['active'])
+            elif isinstance(data['active'], str):
+                search_filter.add_exact_match('active', data['active'].lower() == 'true')
+        
+        # Material filter
+        if data.get('material'):
+            exact_match = data.get('material_exact', False)
+            if isinstance(exact_match, str):
+                exact_match = exact_match.lower() == 'true'
+            search_filter.add_text_search('material', data['material'], exact=exact_match)
+        
+        # Dimension range filters
+        dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
+        for field in dimension_fields:
+            min_val = data.get(f'{field}_min')
+            max_val = data.get(f'{field}_max')
+            
+            if min_val is not None or max_val is not None:
+                try:
+                    min_decimal = Decimal(str(min_val)) if min_val is not None else None
+                    max_decimal = Decimal(str(max_val)) if max_val is not None else None
+                    search_filter.add_range(field, min_decimal, max_decimal)
+                except (ValueError, InvalidOperation):
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Invalid {field} range values'
+                    }), 400
+        
+        # Thread filters
+        if data.get('thread_size'):
+            search_filter.add_text_search('thread_size', data['thread_size'])
+        
+        if data.get('thread_series'):
+            try:
+                thread_series = ThreadSeries[data['thread_series'].upper()]
+                search_filter.add_exact_match('thread_series', thread_series)
+            except KeyError:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Invalid thread series: {data["thread_series"]}'
+                }), 400
+        
+        if data.get('thread_form'):
+            # Import ThreadForm here
+            from app.models import ThreadForm
+            try:
+                thread_form = ThreadForm[data['thread_form'].upper()]
+                search_filter.add_exact_match('thread_form', thread_form)
+            except KeyError:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Invalid thread form: {data["thread_form"]}'
+                }), 400
+        
+        # Execute search
+        items = service.search_items(search_filter)
+        
+        # Convert to JSON-serializable format
+        items_data = []
+        for item in items:
+            item_data = {
+                'ja_id': item.ja_id,
+                'display_name': item.display_name,
+                'item_type': item.item_type.value,
+                'shape': item.shape.value,
+                'material': item.material,
+                'dimensions': item.dimensions.to_dict() if item.dimensions else None,
+                'thread': item.thread.to_dict() if item.thread else None,
+                'quantity': item.quantity,
+                'location': item.location,
+                'sub_location': item.sub_location,
+                'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
+                'purchase_price': str(item.purchase_price) if item.purchase_price else None,
+                'purchase_location': item.purchase_location,
+                'vendor': item.vendor,
+                'vendor_part_number': item.vendor_part_number,
+                'notes': item.notes,
+                'active': item.active,
+                'parent_ja_id': item.parent_ja_id,
+                'child_ja_ids': list(item.child_ja_ids) if item.child_ja_ids else [],
+                'date_added': item.date_added.isoformat() if item.date_added else None,
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None
+            }
+            items_data.append(item_data)
+        
+        return jsonify({
+            'status': 'success',
+            'items': items_data,
+            'total_count': len(items_data),
+            'search_criteria': data
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Advanced search error: {e}\n{traceback.format_exc()}')
+        return jsonify({
+            'status': 'error',
+            'message': 'Search operation failed',
+            'error': str(e)
+        }), 500
+
 def _execute_shortening_operation(form_data):
     """Execute the shortening operation"""
     try:
