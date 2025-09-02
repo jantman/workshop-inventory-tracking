@@ -33,7 +33,11 @@ def tests(session):
 
 @nox.session(python=DEFAULT_PYTHON)
 def e2e(session):
-    """Run end-to-end tests with Playwright."""
+    """Run end-to-end tests with Playwright.
+    
+    Note: Requires Playwright browsers to be installed:
+    playwright install --with-deps chromium
+    """
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     

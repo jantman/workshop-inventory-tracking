@@ -179,7 +179,7 @@ def browser_context_args(browser_context_args):
     }
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
     """Configure browser launch args"""
     return {
