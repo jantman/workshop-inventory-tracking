@@ -14,6 +14,9 @@ from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeri
 from tests.test_config import TestConfig
 from decimal import Decimal
 
+# E2E Testing imports
+from tests.e2e.test_server import get_test_server
+
 
 @pytest.fixture
 def test_storage():
@@ -144,6 +147,45 @@ def populated_storage(test_storage, sample_item_data, sample_threaded_item_data)
     test_storage.write_rows('Inventory', [row1, row2])
     
     return test_storage
+
+
+# E2E Testing Fixtures
+
+@pytest.fixture(scope="session")
+def e2e_server():
+    """Session-scoped test server for E2E tests"""
+    server = get_test_server()
+    server.start()
+    
+    yield server
+    
+    server.stop()
+
+
+@pytest.fixture
+def live_server(e2e_server):
+    """Live server fixture that clears data between tests"""
+    e2e_server.clear_test_data()
+    yield e2e_server
+
+
+@pytest.fixture
+def browser_context_args(browser_context_args):
+    """Configure browser context for tests"""
+    return {
+        **browser_context_args,
+        "viewport": {"width": 1280, "height": 720},
+        "ignore_https_errors": True,
+    }
+
+
+@pytest.fixture
+def browser_type_launch_args(browser_type_launch_args):
+    """Configure browser launch args"""
+    return {
+        **browser_type_launch_args,
+        "headless": True,  # Change to False to see browser during development
+    }
 
 
 # Markers for test categorization

@@ -37,8 +37,8 @@ def e2e(session):
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     
-    # Install Playwright browsers (will be added in Milestone 2)
-    # session.run("python", "-m", "playwright", "install", "--with-deps", "chromium")
+    # Install Playwright browsers
+    session.run("python", "-m", "playwright", "install", "--with-deps", "chromium")
     
     # Run E2E tests only
     session.run(
