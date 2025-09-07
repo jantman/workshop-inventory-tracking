@@ -43,13 +43,13 @@ class TestServer:
         self.storage = TestStorage()
         self.storage.connect()
         
-        # Set up test inventory sheet
+        # Set up test inventory sheet (using 'Metal' to match inventory service)
         headers = [
             'JA_ID', 'Item_Type', 'Shape', 'Material', 'Length_mm', 'Width_mm', 
             'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
             'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
         ]
-        self.storage.create_sheet('Inventory', headers)
+        self.storage.create_sheet('Metal', headers)
         
         # Create Flask app with test storage
         self.app = create_app(TestConfig, storage_backend=self.storage)
@@ -128,7 +128,7 @@ class TestServer:
                 item_data.get('parent_ja_id', ''),
                 str(item_data.get('active', True))
             ]
-            self.storage.write_row('Inventory', row)
+            self.storage.write_row('Metal', row)
     
     def clear_test_data(self):
         """Clear all test data from storage"""
@@ -140,7 +140,7 @@ class TestServer:
                 'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
                 'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
             ]
-            self.storage.create_sheet('Inventory', headers)
+            self.storage.create_sheet('Metal', headers)
     
     def __enter__(self):
         """Context manager entry"""

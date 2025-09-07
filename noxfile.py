@@ -41,8 +41,8 @@ def e2e(session):
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     
-    # Install Playwright browsers
-    session.run("python", "-m", "playwright", "install", "--with-deps", "chromium")
+    # Install Playwright browsers (without --with-deps on Arch Linux due to sudo issues)
+    session.run("python", "-m", "playwright", "install", "chromium")
     
     # Run E2E tests only
     session.run(

@@ -25,7 +25,7 @@ class TestStorage(Storage):
     def connect(self) -> StorageResult:
         """Establish connection to SQLite database"""
         try:
-            self.connection = sqlite3.connect(self.database_path)
+            self.connection = sqlite3.connect(self.database_path, check_same_thread=False)
             self.connection.row_factory = sqlite3.Row  # Enable column access by name
             return StorageResult(success=True, data="Connected to test storage")
         except Exception as e:

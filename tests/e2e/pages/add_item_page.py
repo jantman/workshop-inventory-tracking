@@ -21,7 +21,8 @@ class AddItemPage(BasePage):
     DIAMETER_INPUT = "#diameter"
     LOCATION_INPUT = "#location"
     NOTES_INPUT = "#notes"
-    SUBMIT_BUTTON = "button[type='submit'], .btn-submit"
+    SUBMIT_BUTTON = "#submit-btn"  # Primary add button
+    SUBMIT_AND_CONTINUE_BUTTON = "#submit-and-continue-btn"  # Secondary add & continue button
     CANCEL_BUTTON = ".btn-cancel"
     
     # Form validation

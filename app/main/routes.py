@@ -11,6 +11,15 @@ from decimal import Decimal, InvalidOperation
 import traceback
 from config import Config
 
+def _get_storage_backend():
+    """Get the appropriate storage backend for the current app context"""
+    # Check if test storage is injected
+    if 'STORAGE_BACKEND' in current_app.config:
+        return current_app.config['STORAGE_BACKEND']
+    
+    # Default to Google Sheets storage
+    return GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+
 @bp.route('/')
 @bp.route('/index')
 def index():
@@ -52,7 +61,7 @@ def inventory_add():
         item = _parse_item_from_form(form_data)
         
         # Save to storage
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         result = service.add_item(item)
@@ -139,7 +148,7 @@ def connection_test():
                 'error': 'GOOGLE_SHEET_ID not configured'
             }), 500
         
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         result = storage.connect()
         
         if result.success:
@@ -179,7 +188,7 @@ def api_stats():
 def check_ja_id_exists(ja_id):
     """Check if a JA ID already exists"""
     try:
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         item = service.get_item(ja_id)
@@ -296,7 +305,7 @@ def validate_type_shape():
 def get_item_details(ja_id):
     """Get detailed information about an item"""
     try:
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         item = service.get_item(ja_id)
@@ -348,7 +357,7 @@ def batch_move_items():
                 'error': 'No moves provided'
             }), 400
         
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         successful_moves = 0
@@ -420,7 +429,7 @@ def batch_move_items():
 def get_next_ja_id():
     """Get the next available JA ID"""
     try:
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         # Get all items to find the highest JA ID
@@ -461,7 +470,7 @@ def get_next_ja_id():
 def api_inventory_list():
     """Get inventory list data for the frontend"""
     try:
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         # Get all items
@@ -516,7 +525,7 @@ def api_advanced_search():
     try:
         data = request.get_json() or {}
         
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         # Import SearchFilter here to avoid circular import
@@ -662,7 +671,7 @@ def api_advanced_search():
 def _execute_shortening_operation(form_data):
     """Execute the shortening operation"""
     try:
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        storage = _get_storage_backend()
         service = InventoryService(storage)
         
         source_ja_id = form_data['source_ja_id'].upper()
