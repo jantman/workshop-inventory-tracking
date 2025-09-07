@@ -84,31 +84,41 @@ class TestInventoryService:
         storage = TestStorage()
         storage.connect()
         
-        # Create inventory sheet with proper headers
+        # Create inventory sheet with proper headers (matching InventoryService.SHEET_HEADERS)
         headers = [
-            'JA_ID', 'Item_Type', 'Shape', 'Material', 'Length_mm', 'Width_mm', 
-            'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
-            'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
+            'Active', 'JA ID', 'Length', 'Width', 'Thickness', 'Wall Thickness',
+            'Weight', 'Type', 'Shape', 'Material', 'Thread Series', 'Thread Handedness',
+            'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
+            'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
+            'Original Material', 'Original Thread', 'Date Added', 'Last Modified'
         ]
-        storage.create_sheet('Inventory', headers)
+        storage.create_sheet('Metal', headers)  # Use 'Metal' to match inventory service expectations
         
         yield storage
         storage.close()
     
     @pytest.fixture
-    def service(self, storage):
-        """Create inventory service with test storage"""
-        return InventoryService(storage)
+    def service(self, storage, app):
+        """Create inventory service with test storage (app provides Flask context)"""
+        # Configure batch manager for immediate flushing in tests
+        from app.performance import batch_manager
+        original_batch_size = batch_manager.max_batch_size
+        batch_manager.max_batch_size = 1
+        
+        yield InventoryService(storage)
+        
+        # Restore original batch size
+        batch_manager.max_batch_size = original_batch_size
     
     @pytest.fixture
     def sample_item(self):
         """Create a sample item for testing"""
         return Item(
-            ja_id='TEST001',
+            ja_id='JA000001',
             item_type=ItemType.ROD,
             shape=ItemShape.ROUND,
             material='Steel',
-            dimensions=Dimensions(length_mm=Decimal('1000'), diameter_mm=Decimal('25')),
+            dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25')),
             location='Storage A',
             notes='Test item',
             active=True
@@ -118,15 +128,15 @@ class TestInventoryService:
     def sample_threaded_item(self):
         """Create a sample threaded item for testing"""
         return Item(
-            ja_id='TEST002',
+            ja_id='JA000002',
             item_type=ItemType.THREADED_ROD,
             shape=ItemShape.ROUND,
             material='Stainless Steel',
-            dimensions=Dimensions(length_mm=Decimal('500'), diameter_mm=Decimal('12')),
+            dimensions=Dimensions(length=Decimal('500'), width=Decimal('12')),
             thread=Thread(
-                series=ThreadSeries.METRIC_COARSE,
-                handedness=ThreadHandedness.RIGHT_HAND,
-                length_mm=Decimal('500')
+                series=ThreadSeries.METRIC,
+                handedness=ThreadHandedness.RIGHT,
+                size="M12x1.5"
             ),
             location='Storage B',
             notes='M12 threaded rod',
@@ -146,20 +156,19 @@ class TestInventoryService:
     def test_add_item(self, service, sample_item):
         """Test adding an item to inventory"""
         result = service.add_item(sample_item)
-        
         assert result is True
         
         # Verify item was added to storage
-        storage_result = service.storage.read_all('Inventory')
+        storage_result = service.storage.read_all('Metal')
         assert storage_result.success
-        assert len(storage_result.data) == 1
+        assert len(storage_result.data) == 2  # Headers + 1 data row
         
-        # Verify data format
-        row = storage_result.data[0]
-        assert row[0] == 'TEST001'  # JA_ID
-        assert row[1] == 'Rod'      # Item_Type
-        assert row[2] == 'Round'    # Shape
-        assert row[3] == 'Steel'    # Material
+        # Verify data format (data[0] is headers, data[1] is first item)
+        row = storage_result.data[1]
+        assert row[1] == 'JA000001'  # JA ID (column 1)
+        assert row[7] == 'Rod'      # Type (column 7) 
+        assert row[8] == 'Round'    # Shape (column 8)
+        assert row[9] == 'Steel'    # Material (column 9)
     
     @pytest.mark.unit
     def test_get_item(self, service, sample_item):
@@ -168,10 +177,10 @@ class TestInventoryService:
         service.add_item(sample_item)
         
         # Retrieve item
-        retrieved_item = service.get_item('TEST001')
+        retrieved_item = service.get_item('JA000001')
         
         assert retrieved_item is not None
-        assert retrieved_item.ja_id == 'TEST001'
+        assert retrieved_item.ja_id == 'JA000001'
         assert retrieved_item.material == 'Steel'
         assert retrieved_item.item_type == ItemType.ROD
     
@@ -194,8 +203,8 @@ class TestInventoryService:
         
         assert len(items) == 2
         ja_ids = [item.ja_id for item in items]
-        assert 'TEST001' in ja_ids
-        assert 'TEST002' in ja_ids
+        assert 'JA000001' in ja_ids
+        assert 'JA000002' in ja_ids
     
     @pytest.mark.unit
     def test_update_item(self, service, sample_item):
@@ -212,7 +221,7 @@ class TestInventoryService:
         assert result is True
         
         # Verify update
-        updated_item = service.get_item('TEST001')
+        updated_item = service.get_item('JA000001')
         assert updated_item.location == 'Updated Location'
         assert updated_item.notes == 'Updated notes'
     
@@ -223,12 +232,12 @@ class TestInventoryService:
         service.add_item(sample_item)
         
         # Deactivate item
-        result = service.deactivate_item('TEST001')
+        result = service.deactivate_item('JA000001')
         
         assert result is True
         
         # Verify deactivation
-        item = service.get_item('TEST001')
+        item = service.get_item('JA000001')
         assert item.active is False
     
     @pytest.mark.unit
@@ -236,15 +245,15 @@ class TestInventoryService:
         """Test activating an item"""
         # Add and deactivate item first
         service.add_item(sample_item)
-        service.deactivate_item('TEST001')
+        service.deactivate_item('JA000001')
         
         # Activate item
-        result = service.activate_item('TEST001')
+        result = service.activate_item('JA000001')
         
         assert result is True
         
         # Verify activation
-        item = service.get_item('TEST001')
+        item = service.get_item('JA000001')
         assert item.active is True
     
     @pytest.mark.unit
@@ -259,7 +268,7 @@ class TestInventoryService:
         results = service.search_items(search_filter)
         
         assert len(results) == 1
-        assert results[0].ja_id == 'TEST001'
+        assert results[0].ja_id == 'JA000001'
         assert results[0].material == 'Steel'
     
     @pytest.mark.unit
@@ -273,7 +282,7 @@ class TestInventoryService:
         results = service.search_items(search_filter)
         
         assert len(results) == 1
-        assert results[0].ja_id == 'TEST002'
+        assert results[0].ja_id == 'JA000002'
         assert results[0].item_type == ItemType.THREADED_ROD
     
     @pytest.mark.unit
@@ -283,14 +292,14 @@ class TestInventoryService:
         service.add_item(sample_threaded_item)
         
         # Deactivate one item
-        service.deactivate_item('TEST001')
+        service.deactivate_item('JA000001')
         
         # Search for active items only
         search_filter = SearchFilter().active_only()
         results = service.search_items(search_filter)
         
         assert len(results) == 1
-        assert results[0].ja_id == 'TEST002'
+        assert results[0].ja_id == 'JA000002'
         assert results[0].active is True
     
     @pytest.mark.unit
@@ -304,8 +313,8 @@ class TestInventoryService:
         results = service.search_items(search_filter)
         
         assert len(results) == 1
-        assert results[0].ja_id == 'TEST001'
-        assert results[0].dimensions.length_mm == Decimal('1000')
+        assert results[0].ja_id == 'JA000001'
+        assert results[0].dimensions.length == Decimal('1000')
     
     @pytest.mark.unit
     def test_search_items_notes_contain(self, service, sample_item, sample_threaded_item):
@@ -318,7 +327,7 @@ class TestInventoryService:
         results = service.search_items(search_filter)
         
         assert len(results) == 1
-        assert results[0].ja_id == 'TEST002'
+        assert results[0].ja_id == 'JA000002'
         assert 'M12' in results[0].notes
     
     @pytest.mark.unit
@@ -335,7 +344,7 @@ class TestInventoryService:
         results = service.search_items(search_filter)
         
         assert len(results) == 1
-        assert results[0].ja_id == 'TEST001'
+        assert results[0].ja_id == 'JA000001'
         assert results[0].material == 'Steel'
         assert results[0].item_type == ItemType.ROD
     
@@ -347,7 +356,7 @@ class TestInventoryService:
         
         # Move both items to new location
         moved_count, failed_ids = service.batch_move_items(
-            ['TEST001', 'TEST002'], 
+            ['JA000001', 'JA000002'], 
             'New Storage Location',
             'Batch move test'
         )
@@ -356,8 +365,8 @@ class TestInventoryService:
         assert len(failed_ids) == 0
         
         # Verify items were moved
-        item1 = service.get_item('TEST001')
-        item2 = service.get_item('TEST002')
+        item1 = service.get_item('JA000001')
+        item2 = service.get_item('JA000002')
         assert item1.location == 'New Storage Location'
         assert item2.location == 'New Storage Location'
     
@@ -368,14 +377,14 @@ class TestInventoryService:
         service.add_item(sample_threaded_item)
         
         # Deactivate both items
-        deactivated_count, failed_ids = service.batch_deactivate_items(['TEST001', 'TEST002'])
+        deactivated_count, failed_ids = service.batch_deactivate_items(['JA000001', 'JA000002'])
         
         assert deactivated_count == 2
         assert len(failed_ids) == 0
         
         # Verify items were deactivated
-        item1 = service.get_item('TEST001')
-        item2 = service.get_item('TEST002')
+        item1 = service.get_item('JA000001')
+        item2 = service.get_item('JA000002')
         assert item1.active is False
         assert item2.active is False
     
@@ -387,7 +396,7 @@ class TestInventoryService:
         items1 = service.get_all_items()
         
         # Add another item directly to storage (bypassing service)
-        service.storage.write_row('Inventory', [
+        service.storage.write_row('Metal', [
             'DIRECT001', 'Rod', 'Round', 'Aluminum', '200', '', '', '10',
             '', '', '', 'Direct Location', 'Direct add', '', 'True'
         ])

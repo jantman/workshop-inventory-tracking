@@ -81,6 +81,12 @@ class TestStorage(Storage):
             # Convert to list of lists (excluding id column)
             headers = self.sheets.get(sheet_name, [])
             data = []
+            
+            # Add headers as first row (to match Google Sheets format)
+            if headers:
+                data.append(headers)
+            
+            # Add data rows
             for row in rows:
                 row_data = [row[header] for header in headers]
                 data.append(row_data)
