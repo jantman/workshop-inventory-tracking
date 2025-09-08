@@ -19,6 +19,8 @@ def test_search_by_material_workflow(page, live_server):
             "item_type": "Rod", 
             "shape": "Round", 
             "material": "Steel",
+            "length": "300",
+            "width": "12",
             "location": "Storage A",
             "notes": "Steel rod item"
         },
@@ -27,6 +29,8 @@ def test_search_by_material_workflow(page, live_server):
             "item_type": "Rod", 
             "shape": "Round", 
             "material": "Aluminum",
+            "length": "250",
+            "width": "10",
             "location": "Storage B", 
             "notes": "Aluminum rod item"
         },
@@ -35,6 +39,8 @@ def test_search_by_material_workflow(page, live_server):
             "item_type": "Rod", 
             "shape": "Round", 
             "material": "Steel",
+            "length": "400",
+            "width": "15",
             "location": "Storage C",
             "notes": "Another steel rod"
         }
@@ -67,7 +73,9 @@ def test_search_by_location_workflow(page, live_server):
             "ja_id": "JA002001",
             "item_type": "Rod",
             "shape": "Round",
-            "material": "Steel", 
+            "material": "Steel",
+            "length": "200",
+            "width": "8",
             "location": "Storage A",
             "notes": "Item in Storage A"
         },
@@ -76,6 +84,9 @@ def test_search_by_location_workflow(page, live_server):
             "item_type": "Sheet",
             "shape": "Rectangular", 
             "material": "Aluminum",
+            "length": "500",
+            "width": "300",
+            "thickness": "2",
             "location": "Storage B",
             "notes": "Item in Storage B"
         }
@@ -105,6 +116,8 @@ def test_search_by_ja_id_workflow(page, live_server):
             "item_type": "Rod",
             "shape": "Round", 
             "material": "Copper",
+            "length": "150",
+            "width": "6",
             "location": "Storage A",
             "notes": "Copper rod for testing"
         },
@@ -113,6 +126,9 @@ def test_search_by_ja_id_workflow(page, live_server):
             "item_type": "Tube",
             "shape": "Round",
             "material": "Steel",
+            "length": "300",
+            "width": "25",
+            "wall_thickness": "2",
             "location": "Storage B",
             "notes": "Steel tube for testing"
         }
@@ -141,6 +157,8 @@ def test_search_multiple_criteria_workflow(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Steel",
+            "length": "250",
+            "width": "10",
             "location": "Storage A", 
             "notes": "Steel rod in A"
         },
@@ -149,6 +167,8 @@ def test_search_multiple_criteria_workflow(page, live_server):
             "item_type": "Rod",
             "shape": "Round", 
             "material": "Steel",
+            "length": "300",
+            "width": "12",
             "location": "Storage B",
             "notes": "Steel rod in B"
         },
@@ -156,7 +176,10 @@ def test_search_multiple_criteria_workflow(page, live_server):
             "ja_id": "JA004003",
             "item_type": "Sheet",
             "shape": "Rectangular",
-            "material": "Aluminum", 
+            "material": "Aluminum",
+            "length": "400",
+            "width": "200",
+            "thickness": "1.5",
             "location": "Storage A",
             "notes": "Aluminum sheet in A"
         }
@@ -186,6 +209,8 @@ def test_search_no_results_workflow(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Steel",
+            "length": "200",
+            "width": "8",
             "location": "Storage A",
             "notes": "Only steel item"
         }
@@ -213,6 +238,8 @@ def test_search_clear_form_workflow(page, live_server):
             "item_type": "Rod", 
             "shape": "Round",
             "material": "Steel",
+            "length": "180",
+            "width": "7",
             "location": "Storage A",
             "notes": "Test item"
         }
@@ -247,6 +274,8 @@ def test_search_notes_content_workflow(page, live_server):
             "item_type": "Rod",
             "shape": "Round", 
             "material": "Steel",
+            "length": "350",
+            "width": "14",
             "location": "Storage A",
             "notes": "High quality steel rod for machining"
         },
@@ -254,7 +283,10 @@ def test_search_notes_content_workflow(page, live_server):
             "ja_id": "JA007002",
             "item_type": "Sheet",
             "shape": "Rectangular",
-            "material": "Aluminum", 
+            "material": "Aluminum",
+            "length": "600",
+            "width": "400",
+            "thickness": "1",
             "location": "Storage B",
             "notes": "Thin aluminum sheet for fabrication"
         }

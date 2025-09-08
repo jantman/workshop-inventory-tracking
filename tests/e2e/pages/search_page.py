@@ -13,27 +13,27 @@ class SearchPage(BasePage):
     """Page object for inventory search"""
     
     # Search form selectors
-    SEARCH_FORM = "#search-form"
-    MATERIAL_SEARCH = "#search-material"
-    ITEM_TYPE_SEARCH = "#search-item-type"
-    LOCATION_SEARCH = "#search-location"
-    JA_ID_SEARCH = "#search-ja-id"
-    NOTES_SEARCH = "#search-notes"
-    LENGTH_MIN = "#length-min"
-    LENGTH_MAX = "#length-max"
-    DIAMETER_MIN = "#diameter-min"
-    DIAMETER_MAX = "#diameter-max"
+    SEARCH_FORM = "#advanced-search-form"
+    MATERIAL_SEARCH = "#material"
+    ITEM_TYPE_SEARCH = "#item_type"
+    LOCATION_SEARCH = "#location"
+    JA_ID_SEARCH = "#ja_id"
+    NOTES_SEARCH = "#notes"
+    LENGTH_MIN = "#length_min"
+    LENGTH_MAX = "#length_max"
+    DIAMETER_MIN = "#width_min"  # Using width as diameter equivalent
+    DIAMETER_MAX = "#width_max"
     
     # Search controls
-    SEARCH_BUTTON = "#search-button, .btn-search"
-    CLEAR_BUTTON = "#clear-button, .btn-clear"
-    ADVANCED_SEARCH_TOGGLE = "#advanced-search-toggle"
+    SEARCH_BUTTON = "button[type='submit']"
+    CLEAR_BUTTON = "#clear-form-btn"
+    ADVANCED_SEARCH_TOGGLE = "#advanced-search-toggle"  # This doesn't exist in HTML
     
     # Results
-    RESULTS_TABLE = "#search-results"
-    RESULTS_ROWS = "#search-results tbody tr"
-    NO_RESULTS = ".no-results, .no-search-results"
-    RESULTS_COUNT = ".results-count"
+    RESULTS_TABLE = "#results-table-container .table"
+    RESULTS_ROWS = "#results-table-body tr"
+    NO_RESULTS = "#no-results"
+    RESULTS_COUNT = "#results-count"
     
     def navigate(self):
         """Navigate to search page"""
@@ -137,12 +137,12 @@ class SearchPage(BasePage):
             row = rows.nth(i)
             cells = row.locator("td")
             
-            if cells.count() >= 4:  # Ensure minimum expected columns
+            if cells.count() >= 7:  # Ensure minimum expected columns (JA ID, Item, Type, Material, Dimensions, Thread, Location)
                 result = {
-                    "ja_id": cells.nth(0).text_content() or "",
-                    "type": cells.nth(1).text_content() or "",
-                    "material": cells.nth(2).text_content() or "",
-                    "location": cells.nth(3).text_content() or ""
+                    "ja_id": (cells.nth(0).text_content() or "").strip(),      # JA ID - column 0
+                    "type": (cells.nth(2).text_content() or "").strip(),       # Type - column 2  
+                    "material": (cells.nth(3).text_content() or "").strip(),   # Material - column 3
+                    "location": (cells.nth(6).text_content() or "").strip()    # Location - column 6
                 }
                 results.append(result)
         
