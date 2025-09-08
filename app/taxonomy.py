@@ -135,13 +135,13 @@ class TaxonomyManager:
         compatibilities = [
             TypeShapeCompatibility(
                 item_type=ItemType.BAR,
-                compatible_shapes=[ItemShape.RECTANGULAR, ItemShape.ROUND, ItemShape.SQUARE, ItemShape.HEXAGONAL],
+                compatible_shapes=[ItemShape.RECTANGULAR, ItemShape.ROUND, ItemShape.SQUARE, ItemShape.HEX],
                 required_dimensions=['length'],
                 optional_dimensions=['weight']
             ),
             TypeShapeCompatibility(
                 item_type=ItemType.PLATE,
-                compatible_shapes=[ItemShape.RECTANGULAR, ItemShape.SQUARE, ItemShape.ROUND, ItemShape.IRREGULAR],
+                compatible_shapes=[ItemShape.RECTANGULAR, ItemShape.SQUARE, ItemShape.ROUND],
                 required_dimensions=['length', 'width', 'thickness'],
                 optional_dimensions=['weight']
             ),
@@ -165,7 +165,7 @@ class TaxonomyManager:
             ),
             TypeShapeCompatibility(
                 item_type=ItemType.ANGLE,
-                compatible_shapes=[ItemShape.L_SHAPED],
+                compatible_shapes=[ItemShape.RECTANGULAR],
                 required_dimensions=['length', 'width', 'thickness'],
                 optional_dimensions=['weight']
             )

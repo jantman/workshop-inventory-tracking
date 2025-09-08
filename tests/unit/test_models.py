@@ -379,8 +379,7 @@ class TestEnums:
         assert ItemShape.ROUND.value == 'Round'
         assert ItemShape.SQUARE.value == 'Square'
         assert ItemShape.RECTANGULAR.value == 'Rectangular'
-        assert ItemShape.HEXAGONAL.value == 'Hexagonal'
-        assert ItemShape.OCTAGONAL.value == 'Octagonal'
+        assert ItemShape.HEX.value == 'Hex'
     
     @pytest.mark.unit
     def test_thread_series_values(self):

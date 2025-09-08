@@ -89,15 +89,6 @@ class ItemShape(Enum):
     ROUND = "Round"
     SQUARE = "Square"
     HEX = "Hex"
-    HEXAGONAL = "Hexagonal"
-    OCTAGONAL = "Octagonal"
-    L_SHAPED = "L-Shaped"
-    T_SHAPED = "T-Shaped"
-    U_SHAPED = "U-Shaped"
-    I_BEAM = "I-Beam"
-    C_CHANNEL = "C-Channel"
-    IRREGULAR = "Irregular"
-    OTHER = "Other"
 
 class ThreadSeries(Enum):
     """Enumeration of thread series types"""
