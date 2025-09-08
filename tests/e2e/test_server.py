@@ -152,6 +152,22 @@ class TestServer:
                     active=item_data.get('active', True)
                 )
                 service.add_item(item)
+        
+        # Force flush any batched operations to ensure items are immediately available
+        from app.performance import batch_manager
+        pending_batches = batch_manager.flush_all()
+        
+        # Process any pending add_items batch
+        if 'add_items' in pending_batches and pending_batches['add_items']:
+            batch = pending_batches['add_items']
+            rows_to_add = [entry['row'] for entry in batch]
+            result = self.storage.write_rows('Metal', rows_to_add)
+            if result.success:
+                # Clear cache to ensure fresh data
+                service.get_all_items.cache_clear()
+                print(f"Force-flushed {len(batch)} items to storage")
+            else:
+                print(f"Error force-flushing items: {result.error}")
     
     def clear_test_data(self):
         """Clear all test data from storage"""
