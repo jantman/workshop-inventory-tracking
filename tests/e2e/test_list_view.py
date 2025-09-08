@@ -29,6 +29,8 @@ def test_basic_inventory_list_workflow(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Steel", 
+            "length": "500",
+            "width": "12",
             "location": "Storage A",
             "notes": "Steel rod item"
         },
@@ -37,6 +39,9 @@ def test_basic_inventory_list_workflow(page, live_server):
             "item_type": "Sheet",
             "shape": "Rectangular",
             "material": "Aluminum",
+            "length": "1000",
+            "width": "500", 
+            "thickness": "3",
             "location": "Storage B",
             "notes": "Aluminum sheet"
         },
@@ -45,6 +50,9 @@ def test_basic_inventory_list_workflow(page, live_server):
             "item_type": "Tube",
             "shape": "Round",
             "material": "Copper",
+            "length": "300",
+            "width": "25",
+            "wall_thickness": "2",
             "location": "Storage C", 
             "notes": "Copper tube"
         }

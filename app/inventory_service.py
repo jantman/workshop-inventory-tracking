@@ -10,13 +10,15 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from decimal import Decimal
 from datetime import datetime
 import time
-from flask import current_app
+import logging
 
 from app.models import Item, ItemType, ItemShape, Thread, Dimensions
 from app.storage import Storage, StorageResult
 from app.google_sheets_storage import GoogleSheetsStorage
 from app.performance import cached, timed, performance_monitor, batch_manager
 from app.logging_config import log_operation, log_performance
+
+logger = logging.getLogger(__name__)
 
 class SearchFilter:
     """Search filter specification"""
@@ -125,7 +127,7 @@ class InventoryService:
                         {"found": False})
             return None
         except Exception as e:
-            current_app.logger.error(f"Failed to get item {ja_id}: {e}")
+            logger.error(f"Failed to get item {ja_id}: {e}")
             return None
     
     @cached(ttl=180)  # Cache for 3 minutes (shorter than single item cache)
@@ -137,7 +139,7 @@ class InventoryService:
             
             result = self.storage.read_all('Metal')
             if not result.success:
-                current_app.logger.error(f"Failed to read items: {result.error}")
+                logger.error(f"Failed to read items: {result.error}")
                 return []
             
             if not result.data or len(result.data) < 2:
@@ -155,7 +157,7 @@ class InventoryService:
                     items.append(item)
                 except Exception as e:
                     parse_errors += 1
-                    current_app.logger.warning(f"Failed to parse item row: {e}")
+                    logger.warning(f"Failed to parse item row: {e}")
                     continue
             
             # Log operation performance
@@ -171,7 +173,7 @@ class InventoryService:
             return items
             
         except Exception as e:
-            current_app.logger.error(f"Failed to get all items: {e}")
+            logger.error(f"Failed to get all items: {e}")
             return []
     
     @timed("add_item")
@@ -182,7 +184,7 @@ class InventoryService:
             
             # Validate item doesn't already exist
             if self.get_item(item.ja_id):
-                current_app.logger.error(f"Item {item.ja_id} already exists")
+                logger.error(f"Item {item.ja_id} already exists")
                 return False
             
             # Convert to row format
@@ -205,10 +207,10 @@ class InventoryService:
                                 int((end_time - start_time) * 1000), 
                                 details={"batch_size": len(batch)})
                     
-                    current_app.logger.info(f"Added batch of {len(batch)} items including {item.ja_id}")
+                    logger.info(f"Added batch of {len(batch)} items including {item.ja_id}")
                     return True
                 else:
-                    current_app.logger.error(f"Failed to add item batch: {result.error}")
+                    logger.error(f"Failed to add item batch: {result.error}")
                     return False
             else:
                 # Add to batch for later processing
@@ -219,7 +221,7 @@ class InventoryService:
                 return True
                 
         except Exception as e:
-            current_app.logger.error(f"Failed to add item {item.ja_id}: {e}")
+            logger.error(f"Failed to add item {item.ja_id}: {e}")
             return False
     
     def update_item(self, item: Item) -> bool:
@@ -243,17 +245,17 @@ class InventoryService:
                     update_result = self.storage.update_row('Metal', row_index, updated_row)
                     if update_result.success:
                         self._invalidate_cache()
-                        current_app.logger.info(f"Updated item {item.ja_id}")
+                        logger.info(f"Updated item {item.ja_id}")
                         return True
                     else:
-                        current_app.logger.error(f"Failed to update item {item.ja_id}: {update_result.error}")
+                        logger.error(f"Failed to update item {item.ja_id}: {update_result.error}")
                         return False
             
-            current_app.logger.error(f"Item {item.ja_id} not found for update")
+            logger.error(f"Item {item.ja_id} not found for update")
             return False
             
         except Exception as e:
-            current_app.logger.error(f"Failed to update item {item.ja_id}: {e}")
+            logger.error(f"Failed to update item {item.ja_id}: {e}")
             return False
     
     def deactivate_item(self, ja_id: str) -> bool:

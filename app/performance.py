@@ -10,12 +10,13 @@ import functools
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from threading import Lock
 from datetime import datetime, timedelta
-import logging
 import json
 import hashlib
-from flask import current_app
+import logging
 
 from app.logging_config import log_performance
+
+logger = logging.getLogger(__name__)
 
 # Simple in-memory cache for Google Sheets data
 class SimpleCache:
@@ -32,14 +33,14 @@ class SimpleCache:
             if key in self._cache:
                 entry = self._cache[key]
                 if datetime.now() < entry['expires']:
-                    current_app.logger.debug(f"Cache HIT for key: {key}")
+                    logger.debug(f"Cache HIT for key: {key}")
                     return entry['value']
                 else:
                     # Expired, remove it
                     del self._cache[key]
-                    current_app.logger.debug(f"Cache EXPIRED for key: {key}")
+                    logger.debug(f"Cache EXPIRED for key: {key}")
             
-            current_app.logger.debug(f"Cache MISS for key: {key}")
+            logger.debug(f"Cache MISS for key: {key}")
             return None
     
     def set(self, key: str, value: Any, ttl: int = None) -> None:
@@ -53,20 +54,20 @@ class SimpleCache:
                 'expires': expires,
                 'created': datetime.now()
             }
-            current_app.logger.debug(f"Cache SET for key: {key}, TTL: {ttl}s")
+            logger.debug(f"Cache SET for key: {key}, TTL: {ttl}s")
     
     def delete(self, key: str) -> None:
         """Remove key from cache"""
         with self._lock:
             if key in self._cache:
                 del self._cache[key]
-                current_app.logger.debug(f"Cache DELETE for key: {key}")
+                logger.debug(f"Cache DELETE for key: {key}")
     
     def clear(self) -> None:
         """Clear all cache entries"""
         with self._lock:
             self._cache.clear()
-            current_app.logger.info("Cache cleared")
+            logger.info("Cache cleared")
     
     def cleanup_expired(self) -> int:
         """Remove expired entries and return count of removed items"""
@@ -82,7 +83,7 @@ class SimpleCache:
                 del self._cache[key]
         
         if expired_keys:
-            current_app.logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
+            logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
         
         return len(expired_keys)
     
@@ -340,7 +341,7 @@ def optimize_sheets_query(sheet_name: str, filters: Dict[str, Any] = None,
     else:
         range_spec = sheet_name
     
-    current_app.logger.debug(f"Optimized query range: {range_spec}")
+    logger.debug(f"Optimized query range: {range_spec}")
     return range_spec
 
 def batch_sheets_operations(operations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -389,7 +390,7 @@ def batch_sheets_operations(operations: List[Dict[str, Any]]) -> List[Dict[str, 
             'operations': updates
         })
     
-    current_app.logger.info(f"Optimized {len(operations)} operations into {len(batches)} batches")
+    logger.info(f"Optimized {len(operations)} operations into {len(batches)} batches")
     return batches
 
 def cleanup_performance_data():
@@ -402,8 +403,8 @@ def cleanup_performance_data():
         cache_stats = cache.stats()
         
         # Log cleanup results
-        current_app.logger.info(f"Performance cleanup: {expired_count} expired cache entries removed")
-        current_app.logger.info(f"Cache stats: {cache_stats}")
+        logger.info(f"Performance cleanup: {expired_count} expired cache entries removed")
+        logger.info(f"Cache stats: {cache_stats}")
         
         # Clear old performance metrics (keep only recent data)
         performance_monitor.clear_stats()
@@ -415,5 +416,5 @@ def cleanup_performance_data():
         }
     
     except Exception as e:
-        current_app.logger.error(f"Error during performance cleanup: {e}")
+        logger.error(f"Error during performance cleanup: {e}")
         return {'error': str(e)}

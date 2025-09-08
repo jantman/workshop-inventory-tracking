@@ -126,15 +126,30 @@ class TestServer:
                 from app.models import Item, ItemType, ItemShape, Dimensions
                 from decimal import Decimal
                 
+                # Create dimensions from available data
+                dimensions_data = {}
+                if 'length' in item_data:
+                    dimensions_data['length'] = Decimal(str(item_data['length']))
+                if 'width' in item_data:
+                    dimensions_data['width'] = Decimal(str(item_data['width']))
+                if 'thickness' in item_data:
+                    dimensions_data['thickness'] = Decimal(str(item_data['thickness']))
+                if 'wall_thickness' in item_data:
+                    dimensions_data['wall_thickness'] = Decimal(str(item_data['wall_thickness']))
+                if 'weight' in item_data:
+                    dimensions_data['weight'] = Decimal(str(item_data['weight']))
+                
+                dimensions = Dimensions(**dimensions_data) if dimensions_data else None
+                
                 item = Item(
                     ja_id=item_data.get('ja_id', 'JA000000'),
                     item_type=ItemType(item_data.get('item_type', 'Rod')),
                     shape=ItemShape(item_data.get('shape', 'Round')),
                     material=item_data.get('material', 'Steel'),
-                    dimensions=Dimensions(
-                        length=Decimal(str(item_data.get('length', '100'))),
-                        width=Decimal(str(item_data.get('width', '10')))
-                    )
+                    dimensions=dimensions,
+                    location=item_data.get('location'),
+                    notes=item_data.get('notes'),
+                    active=item_data.get('active', True)
                 )
                 service.add_item(item)
     
