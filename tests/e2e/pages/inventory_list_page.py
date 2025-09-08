@@ -37,12 +37,12 @@ class InventoryListPage(BasePage):
             row = rows.nth(i)
             cells = row.locator("td")
             
-            if cells.count() >= 4:  # Ensure we have enough columns
+            if cells.count() >= 5:  # Ensure we have enough columns (checkbox + data columns)
                 item = {
-                    "ja_id": cells.nth(0).text_content() or "",
-                    "type": cells.nth(1).text_content() or "",
-                    "material": cells.nth(2).text_content() or "",
-                    "location": cells.nth(3).text_content() or ""
+                    "ja_id": (cells.nth(1).text_content() or "").strip(),  # JA ID is second column (after checkbox)
+                    "type": (cells.nth(2).text_content() or "").strip(),   # Type is third column  
+                    "material": (cells.nth(3).text_content() or "").strip(),  # Material is fourth column
+                    "location": (cells.nth(4).text_content() or "").strip()   # Location is fifth column
                 }
                 items.append(item)
         

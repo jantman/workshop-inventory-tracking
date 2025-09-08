@@ -3,6 +3,7 @@ from app.main import bp
 from app import csrf
 from app.google_sheets_storage import GoogleSheetsStorage
 from app.inventory_service import InventoryService
+from app.performance import batch_manager
 from app.taxonomy import taxonomy_manager
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.error_handlers import with_error_handling, ErrorHandler
@@ -67,6 +68,17 @@ def inventory_add():
         result = service.add_item(item)
         
         if result:
+            # Force flush pending add_items batch to ensure item is immediately available for E2E tests
+            pending_items = batch_manager.get_batch('add_items')
+            if pending_items:
+                # Process any remaining items in the batch
+                rows_to_add = [entry['row'] for entry in pending_items]
+                batch_result = storage.write_rows('Metal', rows_to_add)
+                if batch_result.success:
+                    # Clear cache since we added items
+                    service.get_all_items.cache_clear()
+                    current_app.logger.info(f"Force-flushed batch of {len(pending_items)} items after form submission")
+            
             flash('Item added successfully!', 'success')
             if request.form.get('submit_type') == 'continue':
                 return redirect(url_for('main.inventory_add'))
