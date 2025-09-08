@@ -139,3 +139,37 @@ def test_form_field_validation_workflow(page, live_server):
     # Fill valid data and verify it works
     add_page.add_minimal_item("JA000007", "Steel")
     add_page.assert_form_submitted_successfully()
+
+
+@pytest.mark.e2e
+def test_all_item_types_available_in_dropdown(page, live_server):
+    """Test that all ItemType enum values appear in the Type dropdown"""
+    from app.models import ItemType
+    
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    # Verify form is displayed
+    add_page.assert_form_visible()
+    
+    # Get all options from the item type dropdown (excluding the empty "Select type..." option)
+    all_options = page.locator('#item_type option').all_text_contents()
+    type_options = [option for option in all_options if option != "Select type..."]
+    
+    # Get all ItemType enum values
+    expected_types = [item_type.value for item_type in ItemType]
+    
+    # Verify all ItemType enum values are in the dropdown
+    for expected_type in expected_types:
+        assert expected_type in type_options, f"'{expected_type}' not found in dropdown options: {type_options}"
+    
+    # Verify no extra options exist (should be exactly the same)
+    assert sorted(type_options) == sorted(expected_types), f"Dropdown options don't match ItemType enum. Expected: {sorted(expected_types)}, Found: {sorted(type_options)}"
+    
+    # Test that we can actually select 'Threaded Rod' and add an item (since that was the original issue)
+    add_page.fill_basic_item_data("JA000008", "Threaded Rod", "Round", "Steel")
+    add_page.fill_dimensions(length="36", width="0.25")  # 36" long, 1/4" diameter
+    add_page.submit_form()
+    
+    # Verify successful submission
+    add_page.assert_form_submitted_successfully()

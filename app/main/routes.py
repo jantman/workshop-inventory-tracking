@@ -41,7 +41,8 @@ def inventory_list():
 def inventory_add():
     """Add new inventory item"""
     if request.method == 'GET':
-        return render_template('inventory/add.html', title='Add Item')
+        return render_template('inventory/add.html', title='Add Item', 
+                             ItemType=ItemType, ItemShape=ItemShape)
     
     # Handle POST request for adding item
     try:

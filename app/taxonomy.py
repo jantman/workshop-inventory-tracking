@@ -170,6 +170,12 @@ class TaxonomyManager:
                 optional_dimensions=['weight']
             ),
             TypeShapeCompatibility(
+                item_type=ItemType.THREADED_ROD,
+                compatible_shapes=[ItemShape.ROUND],
+                required_dimensions=['length', 'width'],
+                optional_dimensions=['weight']
+            ),
+            TypeShapeCompatibility(
                 item_type=ItemType.ANGLE,
                 compatible_shapes=[ItemShape.L_SHAPED],
                 required_dimensions=['length', 'width', 'thickness'],
