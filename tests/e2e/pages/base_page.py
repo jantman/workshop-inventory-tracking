@@ -88,7 +88,8 @@ class BasePage:
     
     def assert_url_contains(self, expected_path: str):
         """Assert that the current URL contains the expected path"""
-        expect(self.page).to_have_url(f"*{expected_path}*")
+        current_url = self.page.url
+        assert expected_path in current_url, f"Expected '{expected_path}' to be in URL '{current_url}'"
     
     def assert_page_title(self, expected_title: str):
         """Assert the page title"""

@@ -15,9 +15,9 @@ class InventoryListPage(BasePage):
     # Selectors
     INVENTORY_TABLE = "table.inventory-table"
     TABLE_ROWS = "tbody tr"
-    SEARCH_INPUT = "#search-input"
-    FILTER_MATERIAL = "#filter-material"
-    FILTER_LOCATION = "#filter-location"
+    SEARCH_INPUT = "#search-filter"
+    FILTER_MATERIAL = "#material-filter"
+    FILTER_LOCATION = "#location-filter"  # Note: this doesn't exist in the template
     ADD_ITEM_BUTTON = ".btn-add-item"
     NO_RESULTS_MESSAGE = ".no-results"
     
@@ -37,12 +37,12 @@ class InventoryListPage(BasePage):
             row = rows.nth(i)
             cells = row.locator("td")
             
-            if cells.count() >= 5:  # Ensure we have enough columns (checkbox + data columns)
+            if cells.count() >= 7:  # Ensure we have enough columns (checkbox + 6 data columns)
                 item = {
                     "ja_id": (cells.nth(1).text_content() or "").strip(),  # JA ID is second column (after checkbox)
-                    "type": (cells.nth(2).text_content() or "").strip(),   # Type is third column  
-                    "material": (cells.nth(3).text_content() or "").strip(),  # Material is fourth column
-                    "location": (cells.nth(4).text_content() or "").strip()   # Location is fifth column
+                    "type": (cells.nth(3).text_content() or "").strip(),   # Type is fourth column  
+                    "material": (cells.nth(4).text_content() or "").strip(),  # Material is fifth column
+                    "location": (cells.nth(6).text_content() or "").strip()   # Location is seventh column
                 }
                 items.append(item)
         
@@ -58,7 +58,7 @@ class InventoryListPage(BasePage):
     def filter_by_material(self, material: str):
         """Filter items by material"""
         if self.is_visible(self.FILTER_MATERIAL):
-            self.page.select_option(self.FILTER_MATERIAL, material)
+            self.fill_and_wait(self.FILTER_MATERIAL, material)
             self.page.wait_for_timeout(1000)
     
     def filter_by_location(self, location: str):

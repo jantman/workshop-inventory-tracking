@@ -94,6 +94,8 @@ def test_list_search_functionality(page, live_server):
             "item_type": "Rod", 
             "shape": "Round",
             "material": "Steel",
+            "length": "300",
+            "width": "15",
             "location": "Storage A",
             "notes": "Steel rod for testing"
         },
@@ -102,6 +104,8 @@ def test_list_search_functionality(page, live_server):
             "item_type": "Rod",
             "shape": "Round", 
             "material": "Aluminum",
+            "length": "250",
+            "width": "10",
             "location": "Storage B",
             "notes": "Aluminum rod for testing"
         },
@@ -110,6 +114,9 @@ def test_list_search_functionality(page, live_server):
             "item_type": "Sheet",
             "shape": "Rectangular",
             "material": "Steel",
+            "length": "500",
+            "width": "400",
+            "thickness": "2",
             "location": "Storage C",
             "notes": "Steel sheet for testing"
         }
@@ -141,6 +148,8 @@ def test_list_material_filter(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Steel",
+            "length": "200",
+            "width": "8",
             "location": "Storage A", 
             "notes": "Steel item"
         },
@@ -149,6 +158,8 @@ def test_list_material_filter(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Aluminum", 
+            "length": "150",
+            "width": "6",
             "location": "Storage B",
             "notes": "Aluminum item"
         },
@@ -157,6 +168,8 @@ def test_list_material_filter(page, live_server):
             "item_type": "Rod", 
             "shape": "Round",
             "material": "Steel",
+            "length": "300",
+            "width": "10",
             "location": "Storage C",
             "notes": "Another steel item"
         }
@@ -186,6 +199,8 @@ def test_list_location_filter(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Steel",
+            "length": "400",
+            "width": "12",
             "location": "Storage A",
             "notes": "Item in A"
         },
@@ -194,6 +209,8 @@ def test_list_location_filter(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Steel",
+            "length": "350",
+            "width": "10",
             "location": "Storage B",
             "notes": "Item in B"
         }
@@ -238,6 +255,8 @@ def test_list_view_with_many_items(page, live_server):
             "item_type": "Rod",
             "shape": "Round", 
             "material": f"Material{i % 5}",  # 5 different materials
+            "length": f"{100 + i * 10}",
+            "width": f"{5 + (i % 5)}",
             "location": f"Storage {chr(65 + (i % 3))}",  # Storage A, B, C
             "notes": f"Test item number {i}"
         })
@@ -269,8 +288,8 @@ def test_list_view_item_details(page, live_server):
             "item_type": "Rod",
             "shape": "Round",
             "material": "Stainless Steel", 
-            "length_mm": "1000",
-            "diameter_mm": "25",
+            "length": "1000",
+            "width": "25",
             "location": "Main Storage Area",
             "notes": "High grade stainless steel rod"
         }
