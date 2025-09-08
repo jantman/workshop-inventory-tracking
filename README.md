@@ -18,7 +18,7 @@ A Flask-based web application for managing workshop materials inventory using Go
    git clone [repository-url]
    cd workshop-inventory-tracking
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate
    pip install -r requirements.txt
    ```
 
@@ -40,10 +40,3 @@ A Flask-based web application for managing workshop materials inventory using Go
 - Python 3.8+
 - Google account with Sheets access
 - Google Cloud Console access for API credentials
-
-## Current Status
-
-✅ **Milestone 4 Complete** - All core inventory management features implemented  
-🔄 **Ready for validation testing** - Set up credentials and test with real data
-
-See [docs/PROGRESS.md](docs/PROGRESS.md) for detailed development progress.
