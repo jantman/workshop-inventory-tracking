@@ -13,13 +13,13 @@ class InventoryAddForm {
         this.scanTimeout = null;
         this.lastItemData = null;
         
-        // Field mappings for dynamic requirements
+        // Field mappings for dynamic requirements (updated for current ItemType/ItemShape enums)
         this.typeShapeRequirements = {
             'Bar': {
                 'Rectangular': ['length', 'width', 'thickness'],
                 'Round': ['length', 'width'],
                 'Square': ['length', 'width'],
-                'Hexagonal': ['length', 'width']
+                'Hex': ['length', 'width']
             },
             'Plate': {
                 'Rectangular': ['length', 'width', 'thickness'],
@@ -28,35 +28,19 @@ class InventoryAddForm {
             },
             'Sheet': {
                 'Rectangular': ['length', 'width', 'thickness'],
-                'Square': ['length', 'width', 'thickness']
+                'Square': ['length', 'width', 'thickness'],
+                'Round': ['length', 'width', 'thickness']
             },
             'Tube': {
                 'Round': ['length', 'width', 'wall_thickness'],
                 'Square': ['length', 'width', 'wall_thickness'],
                 'Rectangular': ['length', 'width', 'wall_thickness']
             },
-            'Pipe': {
-                'Round': ['length', 'width', 'wall_thickness']
-            },
-            'Rod': {
+            'Threaded Rod': {
                 'Round': ['length', 'width']
             },
             'Angle': {
-                'L-Shaped': ['length', 'width', 'thickness']
-            },
-            'Channel': {
-                'C-Channel': ['length', 'width', 'thickness'],
-                'U-Shaped': ['length', 'width', 'thickness']
-            },
-            'Beam': {
-                'I-Beam': ['length', 'width', 'thickness']
-            },
-            'Wire': {
-                'Round': ['length', 'width']
-            },
-            'Fastener': {
-                'Round': ['width'],
-                'Hexagonal': ['width']
+                'Rectangular': ['length', 'width', 'thickness']
             }
         };
         
@@ -104,10 +88,7 @@ class InventoryAddForm {
             this.carryForwardData();
         });
         
-        // Material suggestions button
-        document.getElementById('material-suggestions-btn').addEventListener('click', () => {
-            this.showMaterialSuggestions();
-        });
+        // Material suggestions button removed - using pure autocomplete
         
         // Real-time validation
         this.setupRealTimeValidation();
@@ -285,12 +266,12 @@ class InventoryAddForm {
         
         materialInput.addEventListener('input', WorkshopInventory.utils.debounce((e) => {
             const query = e.target.value.trim();
-            if (query.length >= 2) {
+            if (query.length >= 1) {
                 this.showMaterialMatches(query);
             } else {
                 suggestionsDiv.style.display = 'none';
             }
-        }, 300));
+        }, 200));
         
         // Hide suggestions when clicking outside
         document.addEventListener('click', (e) => {
@@ -305,19 +286,22 @@ class InventoryAddForm {
             const response = await fetch('/api/materials/suggestions');
             if (response.ok) {
                 this.materialSuggestions = await response.json();
+                console.log(`Loaded ${this.materialSuggestions.length} materials from inventory data`);
             } else {
-                // Fallback to basic material list if API doesn't exist
+                // Fallback based on common materials from your data
                 this.materialSuggestions = [
-                    'Steel', 'Aluminum', 'Stainless Steel', 'Brass', 'Copper', 
-                    'Iron', 'Carbon Steel', 'Alloy Steel', 'Titanium', 'Bronze'
+                    'Steel', 'Brass', 'Copper', 'Aluminum', '321 Stainless', '12L14',
+                    'Brass 360-H02', 'Stainless', 'O1 Tool Steel', '15-5 Stainless',
+                    'C23000 red brass', '6063-T52', '6061-T6511', 'A36', 'Stainless Steel'
                 ];
             }
         } catch (error) {
             console.warn('Failed to load material suggestions:', error);
-            // Ensure materialSuggestions is always an array
+            // Fallback based on common materials from your data
             this.materialSuggestions = [
-                'Steel', 'Aluminum', 'Stainless Steel', 'Brass', 'Copper', 
-                'Iron', 'Carbon Steel', 'Alloy Steel', 'Titanium', 'Bronze'
+                'Steel', 'Brass', 'Copper', 'Aluminum', '321 Stainless', '12L14',
+                'Brass 360-H02', 'Stainless', 'O1 Tool Steel', '15-5 Stainless',
+                'C23000 red brass', '6063-T52', '6061-T6511', 'A36', 'Stainless Steel'
             ];
         }
     }
@@ -326,7 +310,15 @@ class InventoryAddForm {
         const suggestionsDiv = document.getElementById('material-suggestions');
         const matches = this.materialSuggestions
             .filter(material => material.toLowerCase().includes(query.toLowerCase()))
-            .slice(0, 8);
+            .sort((a, b) => {
+                // Prioritize matches that start with the query
+                const aStarts = a.toLowerCase().startsWith(query.toLowerCase());
+                const bStarts = b.toLowerCase().startsWith(query.toLowerCase());
+                if (aStarts && !bStarts) return -1;
+                if (!aStarts && bStarts) return 1;
+                return a.localeCompare(b);
+            })
+            .slice(0, 10);
         
         if (matches.length === 0) {
             suggestionsDiv.style.display = 'none';
@@ -340,12 +332,7 @@ class InventoryAddForm {
         suggestionsDiv.innerHTML = html;
         suggestionsDiv.style.display = 'block';
         
-        // Position the dropdown
-        const materialInput = document.getElementById('material');
-        const rect = materialInput.getBoundingClientRect();
-        suggestionsDiv.style.top = `${rect.bottom}px`;
-        suggestionsDiv.style.left = `${rect.left}px`;
-        suggestionsDiv.style.width = `${rect.width}px`;
+        // Position is handled by CSS with position-relative/absolute
         
         // Add click handlers
         suggestionsDiv.querySelectorAll('.dropdown-item').forEach(item => {
@@ -357,9 +344,7 @@ class InventoryAddForm {
         });
     }
     
-    showMaterialSuggestions() {
-        this.showMaterialMatches('');
-    }
+    // showMaterialSuggestions method removed - using pure autocomplete
     
     setupRealTimeValidation() {
         // JA ID validation

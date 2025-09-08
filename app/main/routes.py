@@ -222,8 +222,8 @@ def check_ja_id_exists(ja_id):
 
 @bp.route('/api/materials/suggestions')
 def material_suggestions():
-    """Get material suggestions based on partial input"""
-    query = request.args.get('q', '').strip()
+    """Get material suggestions from actual inventory data"""
+    query = request.args.get('q', '').strip().lower()
     limit = request.args.get('limit', '10')
     
     try:
@@ -232,30 +232,34 @@ def material_suggestions():
     except (ValueError, TypeError):
         limit = 10
     
-    if not query:
-        return jsonify({
-            'success': True,
-            'suggestions': []
-        })
-    
     try:
-        suggestions = taxonomy_manager.suggest_material_matches(query, limit)
+        from app.inventory_service import InventoryService
+        from app.google_sheets_storage import GoogleSheetsStorage
+        from config import Config
         
-        # Format suggestions for frontend
-        formatted_suggestions = [
-            {
-                'name': name,
-                'confidence': confidence,
-                'category': taxonomy_manager.get_material_info(name).category if taxonomy_manager.get_material_info(name) else None
-            }
-            for name, confidence in suggestions
-        ]
+        # Get actual materials from inventory
+        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        service = InventoryService(storage)
+        items = service.get_all_items()
         
-        return jsonify({
-            'success': True,
-            'suggestions': formatted_suggestions,
-            'query': query
-        })
+        # Extract unique materials, filter out Unknown/empty, and count usage
+        from collections import Counter
+        materials = [item.material for item in items if item.material and item.material.strip() and item.material.lower() != 'unknown']
+        material_counts = Counter(materials)
+        
+        # Filter by query if provided
+        if query:
+            filtered_materials = [(material, count) for material, count in material_counts.items() 
+                                if query in material.lower()]
+        else:
+            filtered_materials = list(material_counts.items())
+        
+        # Sort by usage count (desc) then alphabetically
+        filtered_materials.sort(key=lambda x: (-x[1], x[0]))
+        
+        # Return just the material names for the simple autocomplete
+        material_names = [material for material, count in filtered_materials[:limit]]
+        return jsonify(material_names)
         
     except Exception as e:
         current_app.logger.error(f'Error getting material suggestions for "{query}": {e}')
