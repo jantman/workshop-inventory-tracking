@@ -9,7 +9,7 @@ This directory contains automated workflows for the Workshop Inventory Tracking 
 **Purpose:** Comprehensive testing and coverage reporting
 
 **Jobs:**
-- **Unit Tests**: Matrix testing across Python 3.8-3.13
+- **Unit Tests**: Python 3.13 testing
 - **Coverage**: Code coverage analysis with PR comments
 - **E2E Tests**: End-to-end browser testing with Playwright
 - **Test Summary**: Consolidated results and artifact management
@@ -39,9 +39,9 @@ This directory contains automated workflows for the Workshop Inventory Tracking 
 - **Pip Dependencies**: Cached based on requirements file hashes
 - **Retention**: Artifacts retained for 7-30 days based on type
 
-### Matrix Testing
-- **Python Versions**: 3.8, 3.9, 3.10, 3.11, 3.12, 3.13
-- **Fail-Fast**: Disabled to test all versions even if one fails
+### Python Version
+- **Target Version**: 3.13 (latest stable release)
+- **Simplified Setup**: Single version testing for faster CI
 
 ## Usage
 

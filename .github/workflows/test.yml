@@ -9,18 +9,14 @@ on:
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-      fail-fast: false
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.13
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.13"
     
     - name: Cache dependencies
       uses: actions/cache@v3
@@ -40,7 +36,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v3
       with:
-        name: unit-test-artifacts-py${{ matrix.python-version }}
+        name: unit-test-artifacts
         path: |
           .pytest_cache/
           *.log
@@ -246,7 +242,7 @@ jobs:
           
           // Unit tests
           summary += `### Unit Tests: ${unitStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
-          summary += `- **Strategy**: Matrix test across Python 3.8-3.13\n`;
+          summary += `- **Python Version**: 3.13\n`;
           summary += `- **Status**: ${unitStatus}\n\n`;
           
           // Coverage

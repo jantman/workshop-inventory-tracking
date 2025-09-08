@@ -6,8 +6,7 @@ Provides consistent test execution across development and CI environments.
 
 import nox
 
-# Python versions to test against
-PYTHON_VERSIONS = ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+# Python version
 DEFAULT_PYTHON = "3.13"
 
 # Package locations
@@ -87,18 +86,6 @@ def lint(session):
     session.run("isort", "--check-only", "--diff", PACKAGE, *TEST_PATHS)
 
 
-@nox.session(python=PYTHON_VERSIONS)
-def test_matrix(session):
-    """Run tests across multiple Python versions."""
-    session.install("-r", "requirements.txt")
-    session.install("-r", "requirements-test.txt")
-    
-    session.run(
-        "python", "-m", "pytest",
-        "-v",
-        "-m", "not e2e",
-        "--tb=short"
-    )
 
 
 # Default session when running 'nox' without arguments

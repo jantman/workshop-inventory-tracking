@@ -42,6 +42,6 @@ A Flask-based web application for managing workshop materials inventory using Go
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.13
 - Google account with Sheets access
 - Google Cloud Console access for API credentials

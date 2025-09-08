@@ -3,7 +3,7 @@
 ## Development Setup
 
 ### Prerequisites
-- Python 3.8 or higher
+- Python 3.13
 - Git
 - Chrome/Chromium browser (for E2E tests)
 
