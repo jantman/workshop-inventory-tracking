@@ -160,12 +160,16 @@ class TestStorage(Storage):
             # Pad data if shorter than headers
             padded_data = data + [None] * (len(headers) - len(data))
             
-            # Update row (convert 1-based to 0-based, then account for auto-increment id)
+            # For Google Sheets compatibility: row_index includes header row
+            # Row 1 = headers, Row 2 = first data (id=1), Row 3 = second data (id=2)
+            # So SQLite id = row_index - 1
+            sqlite_id = row_index - 1
+            
             set_clauses = ", ".join([f'"{header}" = ?' for header in headers])
             update_sql = f'UPDATE "{table_name}" SET {set_clauses} WHERE id = ?'
             
             cursor = self.connection.cursor()
-            cursor.execute(update_sql, padded_data + [row_index])
+            cursor.execute(update_sql, padded_data + [sqlite_id])
             self.connection.commit()
             
             return StorageResult(success=True, affected_rows=cursor.rowcount)
@@ -180,8 +184,13 @@ class TestStorage(Storage):
             self._ensure_connection()
             table_name = self._sanitize_sheet_name(sheet_name)
             
+            # For Google Sheets compatibility: row_index includes header row
+            # Row 1 = headers, Row 2 = first data (id=1), Row 3 = second data (id=2)
+            # So SQLite id = row_index - 1
+            sqlite_id = row_index - 1
+            
             cursor = self.connection.cursor()
-            cursor.execute(f'DELETE FROM "{table_name}" WHERE id = ?', (row_index,))
+            cursor.execute(f'DELETE FROM "{table_name}" WHERE id = ?', (sqlite_id,))
             self.connection.commit()
             
             return StorageResult(success=True, affected_rows=cursor.rowcount)
@@ -302,11 +311,11 @@ class TestStorage(Storage):
             self._ensure_connection()
             cursor = self.connection.cursor()
             
-            # Get all table names
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            # Get all table names (exclude sqlite system tables)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
             tables = cursor.fetchall()
             
-            # Drop all tables
+            # Drop all non-system tables
             for table in tables:
                 table_name = table[0]
                 cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')

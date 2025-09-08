@@ -315,9 +315,9 @@ class InventoryService:
         elif field == 'material':
             return item.material.lower() == str(value).lower()
         elif field == 'item_type':
-            return item.item_type == value
+            return item.item_type.value == value
         elif field == 'shape':
-            return item.shape == value
+            return item.shape.value == value
         elif field == 'location':
             return (item.location or '').lower() == str(value).lower()
         elif field == 'ja_id':

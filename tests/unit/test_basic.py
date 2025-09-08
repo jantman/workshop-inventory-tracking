@@ -46,8 +46,9 @@ class TestBasicInfrastructure:
         # Read data
         result = storage.read_all('TestSheet')
         assert result.success
-        assert len(result.data) == 1
-        assert result.data[0] == ['Test', '123']
+        assert len(result.data) == 2  # Headers + 1 data row
+        assert result.data[0] == ['Name', 'Value']  # Headers
+        assert result.data[1] == ['Test', '123']  # Data row
         
         storage.close()
     

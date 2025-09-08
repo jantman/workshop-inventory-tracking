@@ -79,9 +79,10 @@ class TestTestStorage:
         result = storage.read_all('People')
         
         assert result.success
-        assert len(result.data) == 2
-        assert result.data[0] == ['John', '30', 'New York']
-        assert result.data[1] == ['Jane', '25', 'Boston']
+        assert len(result.data) == 3  # Headers + 2 data rows
+        assert result.data[0] == headers  # First row should be headers
+        assert result.data[1] == ['John', '30', 'New York']
+        assert result.data[2] == ['Jane', '25', 'Boston']
     
     @pytest.mark.unit
     def test_update_row(self, storage):
@@ -92,15 +93,15 @@ class TestTestStorage:
         # Write initial data
         storage.write_row('People', ['John', '30', 'New York'])
         
-        # Update the row (row_index 1 is the first data row)
-        result = storage.update_row('People', 1, ['John', '31', 'New York'])
+        # Update the row (row_index 2 is the first data row, row 1 is headers)
+        result = storage.update_row('People', 2, ['John', '31', 'New York'])
         
         assert result.success
         assert result.affected_rows == 1
         
         # Verify the update
         read_result = storage.read_all('People')
-        assert read_result.data[0][1] == '31'  # Age should be updated
+        assert read_result.data[1][1] == '31'  # Age should be updated (data row 1)
     
     @pytest.mark.unit
     def test_delete_row(self, storage):
@@ -114,16 +115,16 @@ class TestTestStorage:
             ['Jane', '25', 'Boston']
         ])
         
-        # Delete first row
-        result = storage.delete_row('People', 1)
+        # Delete first data row (row 2, since row 1 is headers)
+        result = storage.delete_row('People', 2)
         
         assert result.success
         assert result.affected_rows == 1
         
         # Verify deletion
         read_result = storage.read_all('People')
-        assert len(read_result.data) == 1
-        assert read_result.data[0][0] == 'Jane'
+        assert len(read_result.data) == 2  # Headers + 1 data row
+        assert read_result.data[1][0] == 'Jane'
     
     @pytest.mark.unit
     def test_search_with_filters(self, storage):
@@ -182,8 +183,8 @@ class TestTestStorage:
         # Verify backup exists and has same data
         read_result = storage.read_all('Backup')
         assert read_result.success
-        assert len(read_result.data) == 1
-        assert read_result.data[0] == ['John', '30']
+        assert len(read_result.data) == 2  # Headers + 1 data row
+        assert read_result.data[1] == ['John', '30']
     
     @pytest.mark.unit
     def test_rename_sheet(self, storage):
@@ -203,7 +204,7 @@ class TestTestStorage:
         # Verify data is preserved
         read_result = storage.read_all('NewName')
         assert read_result.success
-        assert read_result.data[0] == ['John', '30']
+        assert read_result.data[1] == ['John', '30']  # Data row, not header row
     
     @pytest.mark.unit
     def test_write_row_with_padding(self, storage):
@@ -218,8 +219,8 @@ class TestTestStorage:
         
         # Read back and verify padding
         read_result = storage.read_all('People')
-        assert len(read_result.data[0]) == 4
-        assert read_result.data[0] == ['John', '30', None, None]
+        assert len(read_result.data[1]) == 4  # Check data row, not header row
+        assert read_result.data[1] == ['John', '30', None, None]
     
     @pytest.mark.unit
     def test_write_row_too_many_values(self, storage):
