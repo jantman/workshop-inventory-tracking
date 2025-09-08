@@ -187,35 +187,30 @@ def pytest_configure(config):
     )
 
 
-@pytest.fixture(autouse=True, scope="function")
-def e2e_debug_capture(request):
-    """Automatically set up debug capture for E2E tests"""
-    # Only apply to E2E tests
-    if not any(mark.name == "e2e" for mark in request.node.iter_markers()):
-        yield
-        return
+# Global storage for debug capture (keyed by node id)
+_debug_captures = {}
+
+@pytest.fixture
+def page(page, request):
+    """Enhanced page fixture with debug capture for E2E tests"""
+    # Only set up debug capture for E2E tests
+    if any(mark.name == "e2e" for mark in request.node.iter_markers()):
+        # Set up debug capture
+        test_name = request.node.name
+        debug_capture = E2EDebugCapture(test_name)
+        debug_capture.setup_page_monitoring(page)
+        
+        # Store debug capture globally (keyed by node id)
+        _debug_captures[request.node.nodeid] = {
+            'debug_capture': debug_capture,
+            'page': page
+        }
     
-    # Set up debug capture
-    test_name = request.node.name
-    debug_capture = E2EDebugCapture(test_name)
+    yield page
     
-    # Store in request for access by page objects
-    request.debug_capture = debug_capture
-    
-    yield debug_capture
-    
-    # Capture debug info if test failed
-    if request.node.rep_call.failed if hasattr(request.node, 'rep_call') else False:
-        print(f"\n🔍 Test failed, capturing debug information...")
-        if hasattr(request, '_playwright_page'):
-            debug_dir = debug_capture.capture_failure_state(
-                request._playwright_page, 
-                "Test failed during execution"
-            )
-            if debug_dir:
-                print(f"📁 Debug information saved to: {debug_dir}")
-                # Create summary
-                create_debug_summary(debug_capture.test_dir)
+    # Clean up debug capture after test
+    if request.node.nodeid in _debug_captures:
+        del _debug_captures[request.node.nodeid]
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
@@ -224,3 +219,29 @@ def pytest_runtest_makereport(item, call):
     outcome = yield
     rep = outcome.get_result()
     setattr(item, "rep_" + rep.when, rep)
+    
+    # Capture debug info on test failure
+    if rep.when == "call" and rep.failed and any(mark.name == "e2e" for mark in item.iter_markers()):
+        print(f"\n🔍 Test failed, capturing debug information...")
+        
+        # Get debug capture from global storage
+        try:
+            node_id = item.nodeid
+            if node_id in _debug_captures:
+                capture_info = _debug_captures[node_id]
+                debug_capture = capture_info['debug_capture']
+                page = capture_info['page']
+                
+                debug_dir = debug_capture.capture_failure_state(page, f"Test failed: {str(rep.longrepr)}")
+                if debug_dir:
+                    print(f"📁 Debug information saved to: {debug_dir}")
+                    # Create summary
+                    create_debug_summary(debug_capture.test_dir)
+                else:
+                    print(f"⚠️ Debug capture failed - no directory created")
+            else:
+                print(f"⚠️ Debug capture not available - test not found in global storage")
+        except Exception as e:
+            print(f"⚠️ Error during debug capture: {e}")
+            import traceback
+            traceback.print_exc()
