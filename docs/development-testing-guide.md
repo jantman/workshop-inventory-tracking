@@ -65,6 +65,11 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Runtime**: ~10-15 seconds
 
+**Debug Features**:
+- Automatic failure capture with screenshots, HTML dumps, and console logs
+- Debug output saved to `test-debug-output/` with timestamped directories
+- Comprehensive diagnostic information for failed test analysis
+
 #### 3. Test Coverage Report
 **Command**: `nox -s coverage`
 
@@ -110,11 +115,19 @@ nox -l
 
 ### E2E Test Structure
 
-**Test Server**: Dedicated Flask server with test configuration that uses TestStorage instead of Google Sheets.
+**Test Server**: Dedicated Flask server with test configuration that uses TestStorage instead of Google Sheets. Includes automatic batch processing flush to ensure test data is immediately available.
 
 **Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
 
 **Test Isolation**: Each E2E test runs with a fresh database state.
+
+**Debug Capture**: Automated failure diagnostics with comprehensive debugging information:
+- **Screenshots**: Full-page screenshots at failure point (`failure_screenshot.png`)
+- **HTML Dumps**: Complete DOM state for analysis (`failure_page.html`)  
+- **Console Logs**: Browser console output including errors (`console_logs.json`)
+- **Page State**: URL, title, viewport, and failure context (`page_state.json`)
+- **Browser Storage**: localStorage and sessionStorage contents
+- **Debug Summary**: Human-readable analysis guide (`DEBUG_SUMMARY.md`)
 
 ## Development Workflow
 
@@ -166,6 +179,13 @@ def test_workflow(page):
 - Check that test data doesn't conflict between tests
 - Use explicit waits: `page.wait_for_selector(selector)`
 
+**E2E Test Debugging**:
+- Failed tests automatically capture debug information to `test-debug-output/`
+- Review captured screenshots to see visual state at failure
+- Check console logs for JavaScript errors or API failures
+- Examine HTML dumps for missing elements or incorrect page state
+- Use debug summary for guided troubleshooting steps
+
 **Import Errors**:
 - Ensure virtual environment is activated
 - Verify all dependencies installed: `pip install -r requirements-test.txt`
@@ -179,8 +199,9 @@ def test_workflow(page):
 ## Performance Notes
 
 - **Unit tests**: Optimized for speed with in-memory storage
-- **Batch operations**: Test fixtures configured for immediate flushing
+- **Batch operations**: Test fixtures configured for immediate flushing via force flush mechanism
 - **Caching**: Service-level caching disabled in test environment for predictable results
+- **E2E data persistence**: TestServer includes automatic batch processing flush to ensure test data is immediately available for API queries
 
 ## Continuous Integration
 
