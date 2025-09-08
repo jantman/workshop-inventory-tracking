@@ -64,7 +64,7 @@ def sample_item_data():
     """Sample item data for testing"""
     return {
         'ja_id': 'JA000001',
-        'item_type': ItemType.ROD,
+        'item_type': ItemType.BAR,
         'shape': ItemShape.ROUND,
         'material': 'Steel',
         'dimensions': Dimensions(

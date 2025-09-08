@@ -59,7 +59,7 @@ class TestSearchFilter:
         result = (search_filter
                  .active_only()
                  .material('Steel')
-                 .item_type(ItemType.ROD)
+                 .item_type(ItemType.BAR)
                  .shape(ItemShape.ROUND)
                  .location('Storage A')
                  .length_range(Decimal('100'), Decimal('500'))
@@ -68,7 +68,7 @@ class TestSearchFilter:
         assert result is search_filter
         assert search_filter.filters['active'] is True
         assert search_filter.filters['material'] == 'Steel'
-        assert search_filter.filters['item_type'] == 'Rod'
+        assert search_filter.filters['item_type'] == 'Bar'
         assert search_filter.filters['shape'] == 'Round'
         assert search_filter.filters['location'] == 'Storage A'
         assert 'length' in search_filter.ranges
@@ -115,7 +115,7 @@ class TestInventoryService:
         """Create a sample item for testing"""
         return Item(
             ja_id='JA000001',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25')),
@@ -166,7 +166,7 @@ class TestInventoryService:
         # Verify data format (data[0] is headers, data[1] is first item)
         row = storage_result.data[1]
         assert row[1] == 'JA000001'  # JA ID (column 1)
-        assert row[7] == 'Rod'      # Type (column 7) 
+        assert row[7] == 'Bar'      # Type (column 7) 
         assert row[8] == 'Round'    # Shape (column 8)
         assert row[9] == 'Steel'    # Material (column 9)
     
@@ -182,7 +182,7 @@ class TestInventoryService:
         assert retrieved_item is not None
         assert retrieved_item.ja_id == 'JA000001'
         assert retrieved_item.material == 'Steel'
-        assert retrieved_item.item_type == ItemType.ROD
+        assert retrieved_item.item_type == ItemType.BAR
     
     @pytest.mark.unit
     def test_get_item_not_found(self, service):
@@ -339,14 +339,14 @@ class TestInventoryService:
         # Search for Steel items that are Rods
         search_filter = (SearchFilter()
                         .material('Steel')
-                        .item_type(ItemType.ROD)
+                        .item_type(ItemType.BAR)
                         .active_only())
         results = service.search_items(search_filter)
         
         assert len(results) == 1
         assert results[0].ja_id == 'JA000001'
         assert results[0].material == 'Steel'
-        assert results[0].item_type == ItemType.ROD
+        assert results[0].item_type == ItemType.BAR
     
     @pytest.mark.unit
     def test_batch_move_items(self, service, sample_item, sample_threaded_item):
@@ -400,7 +400,7 @@ class TestInventoryService:
         from app.models import Item, ItemType, ItemShape, Dimensions
         direct_item = Item(
             ja_id='JA000999',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Aluminum',
             dimensions=Dimensions(length=Decimal('200'), width=Decimal('10'))

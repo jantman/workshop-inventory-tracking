@@ -80,15 +80,8 @@ class ItemType(Enum):
     PLATE = "Plate"
     SHEET = "Sheet" 
     TUBE = "Tube"
-    PIPE = "Pipe"
-    ROD = "Rod"
     THREADED_ROD = "Threaded Rod"
     ANGLE = "Angle"
-    CHANNEL = "Channel"
-    BEAM = "Beam"
-    WIRE = "Wire"
-    FASTENER = "Fastener"
-    OTHER = "Other"
 
 class ItemShape(Enum):
     """Enumeration of valid item shapes"""

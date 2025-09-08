@@ -16,7 +16,7 @@ def test_search_by_material_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA001001", 
-            "item_type": "Rod", 
+            "item_type": "Bar", 
             "shape": "Round", 
             "material": "Steel",
             "length": "300",
@@ -26,7 +26,7 @@ def test_search_by_material_workflow(page, live_server):
         },
         {
             "ja_id": "JA001002",
-            "item_type": "Rod", 
+            "item_type": "Bar", 
             "shape": "Round", 
             "material": "Aluminum",
             "length": "250",
@@ -36,7 +36,7 @@ def test_search_by_material_workflow(page, live_server):
         },
         {
             "ja_id": "JA001003",
-            "item_type": "Rod", 
+            "item_type": "Bar", 
             "shape": "Round", 
             "material": "Steel",
             "length": "400",
@@ -71,7 +71,7 @@ def test_search_by_location_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA002001",
-            "item_type": "Rod",
+            "item_type": "Bar",
             "shape": "Round",
             "material": "Steel",
             "length": "200",
@@ -113,7 +113,7 @@ def test_search_by_ja_id_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA003001",
-            "item_type": "Rod",
+            "item_type": "Bar",
             "shape": "Round", 
             "material": "Copper",
             "length": "150",
@@ -154,7 +154,7 @@ def test_search_multiple_criteria_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA004001",
-            "item_type": "Rod",
+            "item_type": "Bar",
             "shape": "Round",
             "material": "Steel",
             "length": "250",
@@ -164,7 +164,7 @@ def test_search_multiple_criteria_workflow(page, live_server):
         },
         {
             "ja_id": "JA004002",
-            "item_type": "Rod",
+            "item_type": "Bar",
             "shape": "Round", 
             "material": "Steel",
             "length": "300",
@@ -206,7 +206,7 @@ def test_search_no_results_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA005001",
-            "item_type": "Rod",
+            "item_type": "Bar",
             "shape": "Round",
             "material": "Steel",
             "length": "200",
@@ -235,7 +235,7 @@ def test_search_clear_form_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA006001",
-            "item_type": "Rod", 
+            "item_type": "Bar", 
             "shape": "Round",
             "material": "Steel",
             "length": "180",
@@ -271,7 +271,7 @@ def test_search_notes_content_workflow(page, live_server):
     test_items = [
         {
             "ja_id": "JA007001",
-            "item_type": "Rod",
+            "item_type": "Bar",
             "shape": "Round", 
             "material": "Steel",
             "length": "350",

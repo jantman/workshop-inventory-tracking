@@ -126,14 +126,14 @@ class TestItem:
         """Test item creation with minimal required fields"""
         item = Item(
             ja_id='JA000001',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
         )
         
         assert item.ja_id == 'JA000001'
-        assert item.item_type == ItemType.ROD
+        assert item.item_type == ItemType.BAR
         assert item.shape == ItemShape.ROUND
         assert item.material == 'Steel'
         assert item.active is True  # Default value
@@ -183,7 +183,7 @@ class TestItem:
         with pytest.raises(ValueError, match="JA ID is required"):
             Item(
                 ja_id='',
-                item_type=ItemType.ROD,
+                item_type=ItemType.BAR,
                 shape=ItemShape.ROUND,
                 material='Steel',
                 dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -195,7 +195,7 @@ class TestItem:
         with pytest.raises(ValueError, match="Material is required"):
             Item(
                 ja_id='JA000001',
-                item_type=ItemType.ROD,
+                item_type=ItemType.BAR,
                 shape=ItemShape.ROUND,
                 material='',
                 dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -207,7 +207,7 @@ class TestItem:
         with pytest.raises(ValueError, match="Invalid JA ID format"):
             Item(
                 ja_id='   ',
-                item_type=ItemType.ROD,
+                item_type=ItemType.BAR,
                 shape=ItemShape.ROUND,
                 material='Steel',
                 dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -218,7 +218,7 @@ class TestItem:
         """Test item serialization with minimal fields"""
         item = Item(
             ja_id='JA000001',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -228,7 +228,7 @@ class TestItem:
         
         expected = {
             'ja_id': 'JA000001',
-            'item_type': 'Rod',  # Enum value
+            'item_type': 'Bar',  # Enum value
             'shape': 'Round',    # Enum value
             'material': 'Steel',
             'dimensions': {
@@ -314,7 +314,7 @@ class TestItem:
         """Test item equality comparison"""
         item1 = Item(
             ja_id='JA000001',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -322,7 +322,7 @@ class TestItem:
         
         item2 = Item(
             ja_id='JA000001',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -334,7 +334,7 @@ class TestItem:
         
         item3 = Item(
             ja_id='JA000002',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -348,7 +348,7 @@ class TestItem:
         """Test item string representation"""
         item = Item(
             ja_id='JA000001',
-            item_type=ItemType.ROD,
+            item_type=ItemType.BAR,
             shape=ItemShape.ROUND,
             material='Steel',
             dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25'))
@@ -357,7 +357,7 @@ class TestItem:
         str_repr = str(item)
         assert 'JA000001' in str_repr
         assert 'Steel' in str_repr
-        assert 'Rod' in str_repr
+        assert 'Bar' in str_repr
 
 
 class TestEnums:
@@ -366,11 +366,12 @@ class TestEnums:
     @pytest.mark.unit
     def test_item_type_values(self):
         """Test ItemType enum values"""
-        assert ItemType.ROD.value == 'Rod'
         assert ItemType.THREADED_ROD.value == 'Threaded Rod'
         assert ItemType.SHEET.value == 'Sheet'
         assert ItemType.TUBE.value == 'Tube'
         assert ItemType.BAR.value == 'Bar'
+        assert ItemType.PLATE.value == 'Plate'
+        assert ItemType.ANGLE.value == 'Angle'
     
     @pytest.mark.unit
     def test_item_shape_values(self):

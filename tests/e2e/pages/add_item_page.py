@@ -69,7 +69,7 @@ class AddItemPage(BasePage):
         if self.is_visible(self.CANCEL_BUTTON):
             self.click_and_wait(self.CANCEL_BUTTON)
     
-    def add_complete_item(self, ja_id: str, item_type: str = "Rod", shape: str = "Round", 
+    def add_complete_item(self, ja_id: str, item_type: str = "Bar", shape: str = "Round", 
                          material: str = "Steel", length: str = "1000", 
                          diameter: str = "25", location: str = "Storage A", 
                          notes: str = "Test item"):
@@ -82,8 +82,8 @@ class AddItemPage(BasePage):
     
     def add_minimal_item(self, ja_id: str, material: str = "Steel"):
         """Add an item with only required fields"""
-        self.fill_basic_item_data(ja_id, "Rod", "Round", material)
-        # Rod + Round requires length and width dimensions
+        self.fill_basic_item_data(ja_id, "Bar", "Round", material)
+        # Bar + Round requires length and width dimensions
         self.fill_dimensions(length="100", width="10")
         self.submit_form()
     

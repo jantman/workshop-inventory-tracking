@@ -43,7 +43,7 @@ def test_add_complete_item_workflow(page, live_server):
     # Add a complete item with all common fields
     add_page.add_complete_item(
         ja_id="JA000002",
-        item_type="Rod", 
+        item_type="Bar", 
         shape="Round",
         material="Aluminum",
         length="500",
@@ -113,7 +113,7 @@ def test_form_navigation_workflow(page, live_server):
     add_page.assert_form_visible()
     
     # Fill some data then cancel
-    add_page.fill_basic_item_data("JA000006", "Rod", "Round", "Steel")
+    add_page.fill_basic_item_data("JA000006", "Bar", "Round", "Steel")
     add_page.cancel_form()
     
     # Verify we're back to inventory list (or wherever cancel takes us)

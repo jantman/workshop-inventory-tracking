@@ -158,18 +158,6 @@ class TaxonomyManager:
                 optional_dimensions=['weight']
             ),
             TypeShapeCompatibility(
-                item_type=ItemType.PIPE,
-                compatible_shapes=[ItemShape.ROUND],
-                required_dimensions=['length', 'width', 'wall_thickness'],
-                optional_dimensions=['weight']
-            ),
-            TypeShapeCompatibility(
-                item_type=ItemType.ROD,
-                compatible_shapes=[ItemShape.ROUND],
-                required_dimensions=['length', 'width'],
-                optional_dimensions=['weight']
-            ),
-            TypeShapeCompatibility(
                 item_type=ItemType.THREADED_ROD,
                 compatible_shapes=[ItemShape.ROUND],
                 required_dimensions=['length', 'width'],
@@ -180,36 +168,6 @@ class TaxonomyManager:
                 compatible_shapes=[ItemShape.L_SHAPED],
                 required_dimensions=['length', 'width', 'thickness'],
                 optional_dimensions=['weight']
-            ),
-            TypeShapeCompatibility(
-                item_type=ItemType.CHANNEL,
-                compatible_shapes=[ItemShape.C_CHANNEL, ItemShape.U_SHAPED],
-                required_dimensions=['length', 'width', 'thickness'],
-                optional_dimensions=['weight']
-            ),
-            TypeShapeCompatibility(
-                item_type=ItemType.BEAM,
-                compatible_shapes=[ItemShape.I_BEAM],
-                required_dimensions=['length', 'width', 'thickness'],
-                optional_dimensions=['weight']
-            ),
-            TypeShapeCompatibility(
-                item_type=ItemType.WIRE,
-                compatible_shapes=[ItemShape.ROUND],
-                required_dimensions=['length', 'width'],
-                optional_dimensions=['weight']
-            ),
-            TypeShapeCompatibility(
-                item_type=ItemType.FASTENER,
-                compatible_shapes=[ItemShape.ROUND, ItemShape.HEXAGONAL],
-                required_dimensions=['width'],  # diameter or hex size
-                optional_dimensions=['length', 'weight']
-            ),
-            TypeShapeCompatibility(
-                item_type=ItemType.OTHER,
-                compatible_shapes=list(ItemShape),  # All shapes allowed
-                required_dimensions=[],  # No required dimensions
-                optional_dimensions=['length', 'width', 'thickness', 'wall_thickness', 'weight']
             )
         ]
         
