@@ -51,7 +51,10 @@
       "Bash(timeout 30 python -m pytest:*)",
       "Bash(timeout 60 python -m pytest:*)",
       "Bash(timeout 90 python -m pytest tests/e2e/ -v --tb=no -x)",
-      "Bash(timeout 90 python -m pytest:*)"
+      "Bash(timeout 90 python -m pytest:*)",
+      "Bash(timeout 120 python -m pytest tests/e2e/test_list_view.py -v --tb=no)",
+      "Bash(timeout 180 python -m pytest:*)",
+      "Bash(timeout 120 python -m pytest tests/e2e/test_search.py::test_search_by_location_workflow tests/e2e/test_search.py::test_search_by_ja_id_workflow -v --tb=short --browser=chromium)"
     ],
     "deny": [],
     "ask": []
