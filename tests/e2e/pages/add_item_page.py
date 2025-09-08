@@ -75,7 +75,8 @@ class AddItemPage(BasePage):
                          notes: str = "Test item"):
         """Add a complete item with all common fields filled"""
         self.fill_basic_item_data(ja_id, item_type, shape, material)
-        self.fill_dimensions(length=length, diameter=diameter)
+        # For Round shapes, diameter is entered in the width field
+        self.fill_dimensions(length=length, width=diameter)
         self.fill_location_and_notes(location=location, notes=notes)
         self.submit_form()
     

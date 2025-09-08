@@ -7,7 +7,7 @@
         <small class="text-muted" id="item-count">Loading...</small>
     </div>
     <div class="btn-group">
-        <a href="{{ url_for('main.inventory_add') }}" class="btn btn-primary">
+        <a href="{{ url_for('main.inventory_add') }}" class="btn btn-primary btn-add-item">
             <i class="bi bi-plus-circle"></i> Add New Item
         </a>
         <a href="{{ url_for('main.inventory_search') }}" class="btn btn-outline-secondary">
@@ -106,7 +106,7 @@
         </div>
         
         <!-- Empty State -->
-        <div id="empty-state" class="text-center py-5 d-none">
+        <div id="empty-state" class="text-center py-5 d-none no-results">
             <div class="display-1 text-muted mb-4">
                 <i class="bi bi-inbox"></i>
             </div>
