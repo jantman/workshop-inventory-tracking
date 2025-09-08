@@ -82,6 +82,8 @@ class AddItemPage(BasePage):
     def add_minimal_item(self, ja_id: str, material: str = "Steel"):
         """Add an item with only required fields"""
         self.fill_basic_item_data(ja_id, "Rod", "Round", material)
+        # Rod + Round requires length and width dimensions
+        self.fill_dimensions(length="100", width="10")
         self.submit_form()
     
     def assert_form_visible(self):

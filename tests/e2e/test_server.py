@@ -44,12 +44,15 @@ class TestServer:
         self.storage.connect()
         
         # Set up test inventory sheet (using 'Metal' to match inventory service)
-        headers = [
-            'JA_ID', 'Item_Type', 'Shape', 'Material', 'Length_mm', 'Width_mm', 
-            'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
-            'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
-        ]
-        self.storage.create_sheet('Metal', headers)
+        # Import headers from InventoryService to ensure consistency
+        from app.inventory_service import InventoryService
+        headers = InventoryService.SHEET_HEADERS
+        result = self.storage.create_sheet('Metal', headers)
+        print(f"DEBUG: Created Metal sheet with result: {result}")
+        
+        # Verify the sheet was created
+        info_result = self.storage.get_sheet_info('Metal')
+        print(f"DEBUG: Sheet info after creation: {info_result}")
         
         # Create Flask app with test storage
         self.app = create_app(TestConfig, storage_backend=self.storage)
@@ -109,37 +112,39 @@ class TestServer:
         if not self.storage:
             raise RuntimeError("Server not started")
             
-        # Convert items to storage format and add to database
+        # Use the InventoryService to add items properly
+        from app.inventory_service import InventoryService
+        service = InventoryService(self.storage)
+        
+        # Convert items to Item objects and add via service
         for item_data in items_data:
-            row = [
-                item_data.get('ja_id', ''),
-                item_data.get('item_type', ''),
-                item_data.get('shape', ''),
-                item_data.get('material', ''),
-                str(item_data.get('length_mm', '')),
-                str(item_data.get('width_mm', '')),
-                str(item_data.get('height_mm', '')),
-                str(item_data.get('diameter_mm', '')),
-                item_data.get('thread_series', ''),
-                item_data.get('thread_handedness', ''),
-                str(item_data.get('thread_length_mm', '')),
-                item_data.get('location', ''),
-                item_data.get('notes', ''),
-                item_data.get('parent_ja_id', ''),
-                str(item_data.get('active', True))
-            ]
-            self.storage.write_row('Metal', row)
+            # If item_data is already an Item object, add it directly
+            if hasattr(item_data, 'ja_id'):
+                service.add_item(item_data)
+            else:
+                # Convert dict to Item object if needed
+                from app.models import Item, ItemType, ItemShape, Dimensions
+                from decimal import Decimal
+                
+                item = Item(
+                    ja_id=item_data.get('ja_id', 'JA000000'),
+                    item_type=ItemType(item_data.get('item_type', 'Rod')),
+                    shape=ItemShape(item_data.get('shape', 'Round')),
+                    material=item_data.get('material', 'Steel'),
+                    dimensions=Dimensions(
+                        length=Decimal(str(item_data.get('length', '100'))),
+                        width=Decimal(str(item_data.get('width', '10')))
+                    )
+                )
+                service.add_item(item)
     
     def clear_test_data(self):
         """Clear all test data from storage"""
         if self.storage:
             self.storage.clear_all_data()
-            # Recreate the inventory sheet
-            headers = [
-                'JA_ID', 'Item_Type', 'Shape', 'Material', 'Length_mm', 'Width_mm', 
-                'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
-                'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
-            ]
+            # Recreate the inventory sheet with current headers
+            from app.inventory_service import InventoryService
+            headers = InventoryService.SHEET_HEADERS
             self.storage.create_sheet('Metal', headers)
     
     def __enter__(self):

@@ -305,9 +305,20 @@ class InventoryAddForm {
             const response = await fetch('/api/materials/suggestions');
             if (response.ok) {
                 this.materialSuggestions = await response.json();
+            } else {
+                // Fallback to basic material list if API doesn't exist
+                this.materialSuggestions = [
+                    'Steel', 'Aluminum', 'Stainless Steel', 'Brass', 'Copper', 
+                    'Iron', 'Carbon Steel', 'Alloy Steel', 'Titanium', 'Bronze'
+                ];
             }
         } catch (error) {
             console.warn('Failed to load material suggestions:', error);
+            // Ensure materialSuggestions is always an array
+            this.materialSuggestions = [
+                'Steel', 'Aluminum', 'Stainless Steel', 'Brass', 'Copper', 
+                'Iron', 'Carbon Steel', 'Alloy Steel', 'Titanium', 'Bronze'
+            ];
         }
     }
     
@@ -441,6 +452,15 @@ class InventoryAddForm {
             return;
         }
         
+        // Set submit type for continue functionality
+        if (continueAdding) {
+            const submitTypeInput = document.createElement('input');
+            submitTypeInput.type = 'hidden';
+            submitTypeInput.name = 'submit_type';
+            submitTypeInput.value = 'continue';
+            this.form.appendChild(submitTypeInput);
+        }
+        
         // Show loading state
         const submitBtn = document.getElementById('submit-btn');
         const continueBtn = document.getElementById('submit-and-continue-btn');
@@ -452,51 +472,11 @@ class InventoryAddForm {
         submitBtn.disabled = true;
         continueBtn.disabled = true;
         
-        try {
-            // Collect form data
-            const formData = this.collectFormData();
-            
-            // Submit to server
-            const response = await fetch('/api/items', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData)
-            });
-            
-            const result = await response.json();
-            
-            if (response.ok && result.success) {
-                // Store data for carry-forward
-                this.lastItemData = { ...formData };
-                
-                WorkshopInventory.utils.showToast(
-                    `Item ${formData.ja_id} added successfully!`, 
-                    'success'
-                );
-                
-                if (continueAdding) {
-                    // Clear form but keep carried-forward fields
-                    this.clearFormForContinue();
-                } else {
-                    // Redirect to item list or details
-                    window.location.href = '/inventory';
-                }
-            } else {
-                this.showFormErrors(result.errors || [result.error || 'Unknown error']);
-            }
-            
-        } catch (error) {
-            console.error('Submit error:', error);
-            this.showFormErrors(['Network error. Please try again.']);
-        } finally {
-            // Restore button states
-            submitBtn.innerHTML = originalSubmitHTML;
-            continueBtn.innerHTML = originalContinueHTML;
-            submitBtn.disabled = false;
-            continueBtn.disabled = false;
-        }
+        // Store form data for carry-forward before submitting
+        this.lastItemData = this.collectFormData();
+        
+        // Submit form normally (not via API)
+        this.form.submit();
     }
     
     collectFormData() {

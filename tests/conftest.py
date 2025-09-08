@@ -24,13 +24,10 @@ def test_storage():
     storage = TestStorage()
     storage.connect()
     
-    # Create basic inventory sheet structure matching Google Sheets format
-    headers = [
-        'JA_ID', 'Item_Type', 'Shape', 'Material', 'Length_mm', 'Width_mm', 
-        'Height_mm', 'Diameter_mm', 'Thread_Series', 'Thread_Handedness', 
-        'Thread_Length_mm', 'Location', 'Notes', 'Parent_JA_ID', 'Active'
-    ]
-    storage.create_sheet('Inventory', headers)
+    # Create basic inventory sheet structure matching InventoryService format
+    from app.inventory_service import InventoryService
+    headers = InventoryService.SHEET_HEADERS
+    storage.create_sheet('Metal', headers)
     
     yield storage
     
@@ -65,13 +62,13 @@ def runner(app):
 def sample_item_data():
     """Sample item data for testing"""
     return {
-        'ja_id': 'TEST001',
+        'ja_id': 'JA000001',
         'item_type': ItemType.ROD,
         'shape': ItemShape.ROUND,
         'material': 'Steel',
         'dimensions': Dimensions(
-            length_mm=Decimal('1000'),
-            diameter_mm=Decimal('25')
+            length=Decimal('1000'),
+            width=Decimal('25')
         ),
         'location': 'Test Location',
         'notes': 'Test item',
@@ -83,18 +80,18 @@ def sample_item_data():
 def sample_threaded_item_data():
     """Sample threaded item data for testing"""
     return {
-        'ja_id': 'TEST002', 
+        'ja_id': 'JA000002', 
         'item_type': ItemType.THREADED_ROD,
         'shape': ItemShape.ROUND,
         'material': 'Stainless Steel',
         'dimensions': Dimensions(
-            length_mm=Decimal('500'),
-            diameter_mm=Decimal('12')
+            length=Decimal('500'),
+            width=Decimal('12')
         ),
         'thread': Thread(
-            series=ThreadSeries.METRIC_COARSE,
-            handedness=ThreadHandedness.RIGHT_HAND,
-            length_mm=Decimal('500')
+            series=ThreadSeries.METRIC,
+            handedness=ThreadHandedness.RIGHT,
+            size="M12x1.75"
         ),
         'location': 'Storage Rack A',
         'notes': 'M12x1.75 threaded rod',
@@ -117,34 +114,15 @@ def sample_threaded_item(sample_threaded_item_data):
 @pytest.fixture
 def populated_storage(test_storage, sample_item_data, sample_threaded_item_data):
     """Create storage with sample data pre-populated"""
-    # Add sample items to storage
+    # Add sample items using InventoryService for proper formatting
+    from app.inventory_service import InventoryService
+    
+    service = InventoryService(test_storage)
     item1 = Item(**sample_item_data)
     item2 = Item(**sample_threaded_item_data)
     
-    # Convert to storage format (list of values)
-    row1 = [
-        item1.ja_id, item1.item_type.value, item1.shape.value, item1.material,
-        str(item1.dimensions.length_mm) if item1.dimensions.length_mm else '',
-        str(item1.dimensions.width_mm) if item1.dimensions.width_mm else '',
-        str(item1.dimensions.height_mm) if item1.dimensions.height_mm else '',
-        str(item1.dimensions.diameter_mm) if item1.dimensions.diameter_mm else '',
-        '', '', '',  # Thread fields
-        item1.location, item1.notes, item1.parent_ja_id or '', str(item1.active)
-    ]
-    
-    row2 = [
-        item2.ja_id, item2.item_type.value, item2.shape.value, item2.material,
-        str(item2.dimensions.length_mm) if item2.dimensions.length_mm else '',
-        str(item2.dimensions.width_mm) if item2.dimensions.width_mm else '',
-        str(item2.dimensions.height_mm) if item2.dimensions.height_mm else '',
-        str(item2.dimensions.diameter_mm) if item2.dimensions.diameter_mm else '',
-        item2.thread.series.value if item2.thread else '',
-        item2.thread.handedness.value if item2.thread else '',
-        str(item2.thread.length_mm) if item2.thread and item2.thread.length_mm else '',
-        item2.location, item2.notes, item2.parent_ja_id or '', str(item2.active)
-    ]
-    
-    test_storage.write_rows('Inventory', [row1, row2])
+    service.add_item(item1)
+    service.add_item(item2)
     
     return test_storage
 

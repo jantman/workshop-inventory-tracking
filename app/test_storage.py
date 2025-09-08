@@ -6,6 +6,8 @@ Implements the Storage interface for fast, isolated tests.
 """
 
 import sqlite3
+import tempfile
+import os
 from typing import List, Dict, Any, Optional, Union
 from app.storage import Storage, StorageResult
 import json
@@ -16,9 +18,16 @@ logger = logging.getLogger(__name__)
 class TestStorage(Storage):
     """SQLite in-memory storage implementation for testing"""
     
-    def __init__(self, database_path: str = ":memory:"):
-        """Initialize test storage with SQLite in-memory database"""
-        self.database_path = database_path
+    def __init__(self, database_path: str = None):
+        """Initialize test storage with SQLite database"""
+        if database_path is None:
+            # Create a temporary file for multi-connection access
+            self.temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+            self.database_path = self.temp_file.name
+            self.temp_file.close()
+        else:
+            self.database_path = database_path
+            self.temp_file = None
         self.connection: Optional[sqlite3.Connection] = None
         self.sheets: Dict[str, List[str]] = {}  # sheet_name -> headers
         
@@ -300,10 +309,17 @@ class TestStorage(Storage):
             return StorageResult(success=False, error=str(e))
     
     def close(self):
-        """Close database connection"""
+        """Close database connection and cleanup temporary file"""
         if self.connection:
             self.connection.close()
             self.connection = None
+        
+        # Clean up temporary file if we created one
+        if self.temp_file and os.path.exists(self.database_path):
+            try:
+                os.unlink(self.database_path)
+            except OSError:
+                pass  # Ignore cleanup errors
     
     def clear_all_data(self):
         """Clear all data from all sheets (useful for test cleanup)"""
