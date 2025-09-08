@@ -1,0 +1,61 @@
+name: Security & Dependencies
+
+on:
+  schedule:
+    # Run weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'requirements*.txt'
+      - '.github/workflows/security.yml'
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.13"
+    
+    - name: Install dependencies
+      run: |
+        pip install pip-audit safety bandit
+        pip install -r requirements.txt -r requirements-test.txt
+    
+    - name: Run pip-audit (vulnerability scanning)
+      run: pip-audit --require-hashes --desc --format=json --output=pip-audit-report.json
+      continue-on-error: true
+    
+    - name: Run Safety (security scanning)
+      run: safety check --json --output safety-report.json
+      continue-on-error: true
+    
+    - name: Run Bandit (static security analysis)
+      run: bandit -r app/ -f json -o bandit-report.json
+      continue-on-error: true
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          pip-audit-report.json
+          safety-report.json
+          bandit-report.json
+        retention-days: 30
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+      with:
+        fail-on-severity: moderate
+        allow-dependencies-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC

@@ -1,6 +1,11 @@
 # Workshop Inventory Tracking
 
+[![Tests](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/test.yml/badge.svg)](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/test.yml)
+[![Security](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/security.yml/badge.svg)](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/security.yml)
+
 A Flask-based web application for managing workshop materials inventory using Google Sheets as the backend storage.
+
+> **Note**: Replace `USERNAME` in the badge URLs above with your actual GitHub username/organization name.
 
 ## Features
 
