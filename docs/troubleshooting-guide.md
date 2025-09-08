@@ -73,7 +73,11 @@ chmod 600 credentials/service_account.json
    ```
 2. Review recent logs:
    ```bash
-   tail -f logs/workshop_inventory.log
+   # Application logs via systemd (production)
+   sudo journalctl -u workshop-inventory -f
+   
+   # Or via Docker (if using containers)
+   docker logs -f workshop-inventory
    ```
 3. Check server resources:
    ```bash
@@ -153,7 +157,11 @@ localStorage.clear()
 1. **Check for duplicate JA IDs** in sheet
 2. **Review item creation logs**:
    ```bash
-   grep "Added item" logs/workshop_inventory.log
+   # Production deployment
+   sudo journalctl -u workshop-inventory | grep "Added item"
+   
+   # Docker deployment
+   docker logs workshop-inventory | grep "Added item"
    ```
 3. **Data migration issues** - check original vs migrated data
 
@@ -180,7 +188,8 @@ top -p $(pgrep -f workshop-inventory)
 iostat -x 1 5
 
 # Analyze slow queries
-grep -i "slow\|timeout" logs/performance.log
+# Production: sudo journalctl -u workshop-inventory | grep -i "slow\|timeout"
+# Docker: docker logs workshop-inventory | grep -i "slow\|timeout"
 ```
 
 ### Search Taking Too Long
@@ -194,10 +203,11 @@ grep -i "slow\|timeout" logs/performance.log
 #### Performance Monitoring
 ```bash
 # Check search performance logs
-grep "search" logs/performance.log | tail -20
+# Production:
+sudo journalctl -u workshop-inventory | grep "search" | tail -20
 
 # Monitor API response times
-grep "api_access" logs/api_access.log | grep -E "search|list"
+sudo journalctl -u workshop-inventory | grep "api_access" | grep -E "search|list"
 ```
 
 ### High Memory Usage
@@ -438,10 +448,11 @@ Expected response:
 ### Performance Metrics
 ```bash
 # Check recent performance logs
-tail -100 logs/performance.log
+# Production:
+sudo journalctl -u workshop-inventory -n 100 | grep performance
 
 # Average response times
-grep "completed in" logs/performance.log | \
+sudo journalctl -u workshop-inventory | grep "completed in" | \
   grep -oE "[0-9]+ms" | \
   sed 's/ms//' | \
   awk '{sum+=$1; count++} END {printf "Average: %.1f ms\n", sum/count}'
@@ -456,11 +467,12 @@ print(cache.stats())
 
 ### API Usage Analysis
 ```bash
-# Most accessed endpoints
-awk '{print $7}' logs/api_access.log | sort | uniq -c | sort -nr
+# Most accessed endpoints (analyze structured JSON logs)
+sudo journalctl -u workshop-inventory | grep "api_access" | \
+  grep -o '"endpoint":"[^"]*"' | sort | uniq -c | sort -nr
 
 # Error rate analysis
-grep -E "Status [45][0-9][0-9]" logs/api_access.log | wc -l
+sudo journalctl -u workshop-inventory | grep -E "Status [45][0-9][0-9]" | wc -l
 ```
 
 ### Memory and Resource Monitoring
@@ -468,8 +480,9 @@ grep -E "Status [45][0-9][0-9]" logs/api_access.log | wc -l
 # Real-time monitoring
 watch -n 1 'ps aux | grep workshop-inventory | grep -v grep'
 
-# Log file growth monitoring  
-watch -n 5 'ls -lh logs/'
+# Log monitoring via systemd/Docker
+# Production: sudo journalctl -u workshop-inventory --since "1 hour ago" | wc -l
+# Docker: docker logs --since="1h" workshop-inventory | wc -l
 
 # Network connection monitoring
 watch -n 2 'ss -tuln | grep :5000'
@@ -482,9 +495,10 @@ watch -n 2 'ss -tuln | grep :5000'
 #!/bin/bash
 # error-summary.sh
 echo "=== Error Summary (Last 24 Hours) ==="
-find logs/ -name "*.log" -mtime -1 | \
-  xargs grep -i error | \
-  cut -d: -f3- | \
+# Production deployment
+sudo journalctl -u workshop-inventory --since "24 hours ago" | \
+  grep -i error | \
+  cut -d' ' -f6- | \
   sort | uniq -c | sort -nr | head -10
 ```
 
@@ -494,11 +508,11 @@ find logs/ -name "*.log" -mtime -1 | \
 # perf-summary.sh
 echo "=== Performance Summary ==="
 echo "Slowest Operations:"
-grep "completed in" logs/performance.log | \
+sudo journalctl -u workshop-inventory | grep "completed in" | \
   sort -k6 -nr | head -5
 
 echo "Most Frequent Operations:"
-grep "completed in" logs/performance.log | \
+sudo journalctl -u workshop-inventory | grep "completed in" | \
   awk '{print $4}' | sort | uniq -c | sort -nr | head -5
 ```
 

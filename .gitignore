@@ -149,8 +149,6 @@ credentials.json
 token.json
 client_secret*.json
 
-# Application logs directory
-logs/
 
 # Spyder project settings
 .spyderproject

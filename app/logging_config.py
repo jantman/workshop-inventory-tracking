@@ -70,11 +70,7 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_entry, default=str)
 
 def setup_logging(app):
-    """Configure comprehensive logging for the application"""
-    
-    # Create logs directory if it doesn't exist
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
+    """Configure comprehensive logging for the application using STDOUT/STDERR"""
     
     # Configure root logger
     log_level = getattr(logging, app.config.get('LOG_LEVEL', 'INFO').upper())
@@ -82,105 +78,47 @@ def setup_logging(app):
     # Create audit filter
     audit_filter = AuditLogFilter()
     
-    # Application logs (general)
-    app_handler = logging.handlers.RotatingFileHandler(
-        'logs/workshop_inventory.log',
-        maxBytes=10240000,  # 10MB
-        backupCount=10
-    )
-    app_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s [%(user_id)s@%(remote_addr)s] %(message)s [%(pathname)s:%(lineno)d]'
-    ))
-    app_handler.addFilter(audit_filter)
-    app_handler.setLevel(log_level)
+    # STDOUT handler for general logs
+    stdout_handler = logging.StreamHandler()
+    stdout_handler.setFormatter(JSONFormatter())
+    stdout_handler.addFilter(audit_filter)
+    stdout_handler.setLevel(log_level)
     
-    # Error logs (errors only)
-    error_handler = logging.handlers.RotatingFileHandler(
-        'logs/errors.log',
-        maxBytes=5242880,  # 5MB
-        backupCount=20
-    )
-    error_handler.setFormatter(logging.Formatter(
+    # STDERR handler for errors
+    stderr_handler = logging.StreamHandler()
+    stderr_handler.setFormatter(logging.Formatter(
         '%(asctime)s ERROR [%(user_id)s@%(remote_addr)s] %(message)s\nURL: %(url)s\nMethod: %(method)s\nUser-Agent: %(user_agent)s\n%(pathname)s:%(lineno)d\n'
     ))
-    error_handler.addFilter(audit_filter)
-    error_handler.setLevel(logging.ERROR)
-    
-    # Audit trail logs (structured JSON)
-    audit_handler = logging.handlers.RotatingFileHandler(
-        'logs/audit.log',
-        maxBytes=20971520,  # 20MB
-        backupCount=30
-    )
-    audit_handler.setFormatter(JSONFormatter())
-    audit_handler.addFilter(audit_filter)
-    audit_handler.setLevel(logging.INFO)
-    
-    # Performance logs (for timing operations)
-    perf_handler = logging.handlers.RotatingFileHandler(
-        'logs/performance.log',
-        maxBytes=5242880,  # 5MB
-        backupCount=10
-    )
-    perf_handler.setFormatter(logging.Formatter(
-        '%(asctime)s PERF [%(user_id)s] %(operation)s completed in %(duration)dms - %(message)s'
-    ))
-    perf_handler.addFilter(audit_filter)
-    perf_handler.setLevel(logging.INFO)
-    
-    # API access logs
-    api_handler = logging.handlers.RotatingFileHandler(
-        'logs/api_access.log',
-        maxBytes=10240000,  # 10MB
-        backupCount=15
-    )
-    api_handler.setFormatter(logging.Formatter(
-        '%(asctime)s [%(user_id)s@%(remote_addr)s] %(method)s %(url)s - %(message)s'
-    ))
-    api_handler.addFilter(audit_filter)
-    api_handler.setLevel(logging.INFO)
-    
-    # Console handler for development
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(
-        '%(levelname)s: %(message)s'
-    ))
-    console_handler.setLevel(log_level)
+    stderr_handler.addFilter(audit_filter)
+    stderr_handler.setLevel(logging.ERROR)
     
     # Configure Flask app logger
     app.logger.handlers.clear()  # Clear default handlers
-    app.logger.addHandler(app_handler)
-    app.logger.addHandler(error_handler)
-    app.logger.addHandler(audit_handler)
-    
-    if app.debug:
-        app.logger.addHandler(console_handler)
-    
+    app.logger.addHandler(stdout_handler)
+    app.logger.addHandler(stderr_handler)
     app.logger.setLevel(log_level)
     
-    # Create specialized loggers
+    # Create specialized loggers - all using STDOUT with structured JSON
     app.logger.info('Setting up specialized loggers')
     
     # Performance logger
     perf_logger = logging.getLogger('performance')
-    perf_logger.addHandler(perf_handler)
+    perf_logger.addHandler(stdout_handler)
     perf_logger.setLevel(logging.INFO)
     
     # API access logger
     api_logger = logging.getLogger('api_access')
-    api_logger.addHandler(api_handler)
+    api_logger.addHandler(stdout_handler)
     api_logger.setLevel(logging.INFO)
     
     # Google Sheets API logger
     sheets_logger = logging.getLogger('google_sheets')
-    sheets_logger.addHandler(app_handler)
-    sheets_logger.addHandler(audit_handler)
+    sheets_logger.addHandler(stdout_handler)
     sheets_logger.setLevel(log_level)
     
     # Inventory operations logger
     inventory_logger = logging.getLogger('inventory')
-    inventory_logger.addHandler(app_handler)
-    inventory_logger.addHandler(audit_handler)
+    inventory_logger.addHandler(stdout_handler)
     inventory_logger.setLevel(log_level)
     
     # Log startup information
@@ -191,8 +129,7 @@ def setup_logging(app):
         logging.getLogger('werkzeug').setLevel(logging.WARNING)
     
     # Log configuration details
-    app.logger.info('Logging configuration complete')
-    app.logger.info(f'Log files: workshop_inventory.log, errors.log, audit.log, performance.log, api_access.log')
+    app.logger.info('Logging configuration complete - using STDOUT/STDERR')
     
     return app.logger
 

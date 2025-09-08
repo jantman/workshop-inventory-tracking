@@ -211,7 +211,7 @@ sudo journalctl -u workshop-inventory -f
 sudo -u workshop-app /opt/workshop-inventory-tracking/health-check.sh
 
 # View application logs
-sudo tail -f /opt/workshop-inventory-tracking/logs/workshop_inventory.log
+sudo journalctl -u workshop-inventory -f
 
 # Clear cache (if needed)
 sudo systemctl restart workshop-inventory
@@ -262,12 +262,11 @@ htop
 df -h
 
 # Analyze logs
-sudo grep -i "slow\|error" /opt/workshop-inventory-tracking/logs/*.log
+sudo journalctl -u workshop-inventory | grep -i "slow\|error"
 ```
 
 ### Log Files
-- **Application**: `/opt/workshop-inventory-tracking/logs/`
-- **Service**: `sudo journalctl -u workshop-inventory`
+- **Application**: `sudo journalctl -u workshop-inventory` (structured JSON logs via STDOUT/STDERR)
 - **Nginx**: `/var/log/nginx/`
 - **System**: `/var/log/syslog`
 

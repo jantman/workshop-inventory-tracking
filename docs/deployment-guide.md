@@ -92,11 +92,12 @@ python3 test_connection.py
 ### 1. Log Monitoring
 
 #### Application Logs
-- `logs/workshop_inventory.log` - General application logs
-- `logs/errors.log` - Error logs only
-- `logs/audit.log` - Structured audit trail (JSON)
-- `logs/performance.log` - Performance metrics
-- `logs/api_access.log` - API access logs
+All application logs are output to STDOUT/STDERR in structured JSON format for easy integration with log aggregation systems (Docker, systemd, etc.). Logs include:
+- General application events
+- Error logs with full context
+- Structured audit trail
+- Performance metrics
+- API access logs
 
 #### System Logs
 ```bash
