@@ -42,7 +42,16 @@
       "Bash(python -m pytest tests/unit/test_storage.py::TestTestStorage::test_update_row tests/unit/test_storage.py::TestTestStorage::test_delete_row -v)",
       "Bash(python -m pytest tests/unit/test_inventory_service.py::TestInventoryService::test_update_item -v)",
       "Bash(python -m pytest tests/unit/test_inventory_service.py::TestInventoryService::test_search_items_by_type -v)",
-      "Bash(python -m pytest tests/unit/test_inventory_service.py::TestInventoryService::test_cache_invalidation -v)"
+      "Bash(python -m pytest tests/unit/test_inventory_service.py::TestInventoryService::test_cache_invalidation -v)",
+      "Bash(python -m pytest --version)",
+      "Bash(python -m pytest tests/unit/ -v --tb=no)",
+      "Bash(python:*)",
+      "Bash(timeout 30 python -m pytest tests/e2e/test_add_item.py::test_add_basic_item_workflow -v --tb=short --browser=chromium)",
+      "Bash(timeout 60 nox -s e2e)",
+      "Bash(timeout 30 python -m pytest:*)",
+      "Bash(timeout 60 python -m pytest:*)",
+      "Bash(timeout 90 python -m pytest tests/e2e/ -v --tb=no -x)",
+      "Bash(timeout 90 python -m pytest:*)"
     ],
     "deny": [],
     "ask": []
