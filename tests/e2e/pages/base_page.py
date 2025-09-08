@@ -7,6 +7,7 @@ Common functionality and patterns shared across all page objects.
 from playwright.sync_api import Page, expect
 from typing import Optional
 import time
+from tests.e2e.debug_utils import E2EDebugCapture
 
 
 class BasePage:
@@ -15,6 +16,7 @@ class BasePage:
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
+        self._debug_capture: Optional[E2EDebugCapture] = None
     
     def navigate_to(self, path: str = ""):
         """Navigate to a specific path"""
@@ -113,3 +115,15 @@ class BasePage:
         if expected_message:
             assert expected_message in message, f"Expected '{expected_message}' in flash message, got '{message}'"
         return message
+    
+    # Debug utilities
+    def setup_debug_capture(self, test_name: str):
+        """Set up debug capture for this test"""
+        self._debug_capture = E2EDebugCapture(test_name)
+        self._debug_capture.setup_page_monitoring(self.page)
+        
+    def capture_debug_on_failure(self, failure_message: str = ""):
+        """Capture debug information when test fails"""
+        if self._debug_capture:
+            return self._debug_capture.capture_failure_state(self.page, failure_message)
+        return None

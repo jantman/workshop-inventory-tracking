@@ -20,8 +20,10 @@ def test_empty_inventory_list_workflow(page, live_server):
 
 
 @pytest.mark.e2e
-def test_basic_inventory_list_workflow(page, live_server):
+def test_basic_inventory_list_workflow(page, live_server, e2e_debug_capture):
     """Test viewing inventory list with items"""
+    # Set up debug monitoring
+    e2e_debug_capture.setup_page_monitoring(page)
     # Add test data
     test_items = [
         {
@@ -61,13 +63,25 @@ def test_basic_inventory_list_workflow(page, live_server):
     
     # Navigate to inventory list
     list_page = InventoryListPage(page, live_server.url)
-    list_page.navigate()
     
-    # Verify all items are displayed
-    list_page.assert_items_displayed(3)
-    list_page.assert_item_in_list("JA101001")
-    list_page.assert_item_in_list("JA101002")
-    list_page.assert_item_in_list("JA101003")
+    try:
+        list_page.navigate()
+        
+        # Verify all items are displayed
+        list_page.assert_items_displayed(3)
+        list_page.assert_item_in_list("JA101001")
+        list_page.assert_item_in_list("JA101002")
+        list_page.assert_item_in_list("JA101003")
+        
+    except Exception as e:
+        # Capture debug info on failure
+        debug_dir = e2e_debug_capture.capture_failure_state(
+            page, 
+            f"Test assertion failed: {str(e)}"
+        )
+        if debug_dir:
+            print(f"🔍 Debug info captured to: {debug_dir}")
+        raise
 
 
 @pytest.mark.e2e

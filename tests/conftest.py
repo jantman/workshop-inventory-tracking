@@ -16,6 +16,7 @@ from decimal import Decimal
 
 # E2E Testing imports
 from tests.e2e.test_server import get_test_server
+from tests.e2e.debug_utils import E2EDebugCapture, create_debug_summary
 
 
 @pytest.fixture
@@ -184,3 +185,42 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: marks tests as integration tests"
     )
+
+
+@pytest.fixture(autouse=True, scope="function")
+def e2e_debug_capture(request):
+    """Automatically set up debug capture for E2E tests"""
+    # Only apply to E2E tests
+    if not any(mark.name == "e2e" for mark in request.node.iter_markers()):
+        yield
+        return
+    
+    # Set up debug capture
+    test_name = request.node.name
+    debug_capture = E2EDebugCapture(test_name)
+    
+    # Store in request for access by page objects
+    request.debug_capture = debug_capture
+    
+    yield debug_capture
+    
+    # Capture debug info if test failed
+    if request.node.rep_call.failed if hasattr(request.node, 'rep_call') else False:
+        print(f"\n🔍 Test failed, capturing debug information...")
+        if hasattr(request, '_playwright_page'):
+            debug_dir = debug_capture.capture_failure_state(
+                request._playwright_page, 
+                "Test failed during execution"
+            )
+            if debug_dir:
+                print(f"📁 Debug information saved to: {debug_dir}")
+                # Create summary
+                create_debug_summary(debug_capture.test_dir)
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Hook to capture test results for debug capture"""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, "rep_" + rep.when, rep)
