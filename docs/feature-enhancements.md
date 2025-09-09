@@ -1,17 +1,88 @@
 # Feature Enhancements
 
-## Hierarchical Materials
+## Implementation Plan
 
-Right now we have a long and mostly unorgaized list of materials in use, covering everything from `Steel` and `Stainless` (and `Stainless??`) to `4140`, `12L14`, `O1 Tool Steel`, etc. I think that we need to come up with a hierarchical taxonomy for materials and map all existing data to that taxonomy. When adding new items, we'll want to enforce material choice from this taxonomy. We should also add a form that allows adding new materials/sub-materials to the taxonomy at any level. We should assume that the taxonomy can be nested numerous levels deep. I think it's reasonable to assume that the top-level items will be `Steel`, `Stainless`, `Aluminum`, `Brass`, `Copper`, etc. and then under each of those we would have specific alloys (e.g. 4140, 12L14, etc. for steel) or groupings of alloys (e.g. "Tool Steel" as a group under "Steel", and then sub-items of "O1", "W1", etc.).
+**Recommended Phase Order:**
+1. **JA ID Assignment** - Foundation feature (easiest implementation)
+2. **Hierarchical Materials** - Core data organization (moderate complexity) 
+3. **Label Printing** - Dependent on clean data structure (integration complexity)
 
-## Storage Backend Upgrade
+**Storage Backend Decision:** Defer SQLite upgrade. Current Google Sheets integration is well-architected and stable.
 
-We're currently using Google Sheets as our storage backend, specifically a single sheet. Is it time to consider switching to a more robust storage backend, such as a SQLite3 database stored on disk? If we do this, we would still need a method of synchronizing our data to the Google Sheet in its current format, either on-demand (i.e. an endpoint that a cron job can `curl`, or a human can click a button to trigger) or possibly after saving any changes to the database.
+---
 
-## JA ID Assignment
+## Phase 1: JA ID Assignment
 
-I would like to automatically assign the next sequential JA ID to new items.
+**Goal:** Automatically assign the next sequential JA ID to new items.
 
-## Label Printing
+**Implementation Notes:**
+- Current model only validates JA ID format (`app/models.py:402`) - no auto-generation exists
+- Need to implement auto-generation logic in `app/inventory_service.py`
+- Auto-discover current highest JA ID by querying Google Sheet data
+- Update add item workflow in `app/main/routes.py` to call auto-generation
+- Consider thread-safe ID generation for concurrent requests
 
-I'd like to have an option to print a label for newly added items, as part of the item adding process. Label printing will be handled by an existing Python class in a separate package, and will simply need to be called with different sets of keyword arguments for different sizes/types of labels. I will provide the full details for this prior to implementation.
+---
+
+## Phase 2: Hierarchical Materials
+
+**Goal:** Create hierarchical taxonomy for materials and migrate existing flat structure.
+
+**Current State:** 
+- Long unorganized list including `Steel`, `Stainless` (and `Stainless??`), `4140`, `12L14`, `O1 Tool Steel`, etc.
+- Foundation exists in `app/taxonomy.py`
+
+**Proposed Structure:**
+- Top-level: `Steel`, `Stainless`, `Aluminum`, `Brass`, `Copper`
+- Sub-materials: Specific alloys (4140, 12L14) or groupings (Tool Steel → O1, W1)
+- Support unlimited nesting depth
+
+**Requirements:**
+- Hierarchical material selection UI with search/filter
+- Admin form for adding new materials at any level
+- Migration tool for existing ~200 materials
+- Maintain backward compatibility during transition
+
+**Storage Solution:** New "Materials" Google Sheet tab with columns: `Name`, `Parent`, `Level`, `Category`
+
+**Migration Strategy:**
+1. Extract all unique material values from current inventory data
+2. Clean ambiguous materials (strip question marks, etc.)
+3. Generate proposed hierarchical taxonomy mapping
+4. Present for user review and adjustment
+5. Create manual verification list for remaining ambiguous materials
+6. Populate Materials sheet with approved taxonomy
+
+**Current State Analysis:**
+- `app/taxonomy.py` is actively used for material normalization and type/shape validation
+- All taxonomy data is currently in-memory/hardcoded - no persistent storage
+- Current system only normalizes material names, no hierarchy enforcement
+
+---
+
+## Phase 3: Label Printing
+
+**Goal:** Optional label printing for newly added items during the add item process.
+
+**Integration:**
+- External Python class in separate package  
+- Different keyword arguments for different label sizes/types
+- Integrate into add item workflow
+
+**Implementation Notes:**
+- Specifications will be provided prior to implementation
+- Integration point with external Python class in separate package
+- Support different label sizes/types with varying parameters
+
+---
+
+## Storage Backend Upgrade (Deferred)
+
+**Analysis:** Current Google Sheets backend is production-ready with:
+- Clean storage abstraction (`app/storage.py`, `app/google_sheets_storage.py`)
+- Comprehensive error handling, retry logic, and circuit breakers  
+- Authentication management
+
+**Decision:** Defer SQLite upgrade. The existing architecture supports future migration without blocking current enhancements.
+
+**Future Considerations:** If migrated, would need Google Sheets sync mechanism (on-demand endpoint or post-save hooks).
