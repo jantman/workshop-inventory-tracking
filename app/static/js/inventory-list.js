@@ -390,23 +390,12 @@ class InventoryListManager {
     formatDimensions(dimensions, itemType = null) {
         if (!dimensions) return '<span class="text-muted">-</span>';
         
-        // For threaded rod, dimensions are shown in the item display, so show minimal info here
-        if (itemType === 'Threaded Rod') {
-            return '<span class="text-muted">See item</span>';
+        // The Length column should only show the length dimension
+        if (dimensions.length) {
+            return `${dimensions.length}"`;
         }
         
-        const parts = [];
-        // Add inch marks to all dimensions
-        if (dimensions.length) parts.push(`L: ${dimensions.length}"`);
-        if (dimensions.width) {
-            // Use diameter symbol for round items, width for others
-            const widthLabel = dimensions.width.toString().includes('⌀') ? '' : 'W: ';
-            parts.push(`${widthLabel}${dimensions.width}"`);
-        }
-        if (dimensions.thickness) parts.push(`T: ${dimensions.thickness}"`);
-        if (dimensions.wall_thickness) parts.push(`WT: ${dimensions.wall_thickness}"`);
-        
-        return parts.length > 0 ? parts.join('<br>') : '<span class="text-muted">-</span>';
+        return '<span class="text-muted">-</span>';
     }
     
     renderPagination() {
