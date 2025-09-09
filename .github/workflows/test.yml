@@ -34,7 +34,7 @@ jobs:
       
     - name: Upload test artifacts on failure
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: unit-test-artifacts
         path: |
@@ -69,7 +69,7 @@ jobs:
       run: nox -s coverage
     
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-reports
         path: |
@@ -202,7 +202,7 @@ jobs:
     
     - name: Upload E2E artifacts on failure
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: e2e-test-artifacts
         path: |
@@ -216,7 +216,7 @@ jobs:
     
     - name: Upload E2E test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: e2e-results
         path: |
