@@ -338,6 +338,7 @@ class InventoryAddForm {
         suggestionsDiv.querySelectorAll('.dropdown-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
+                const materialInput = document.getElementById('material');
                 materialInput.value = item.dataset.material;
                 suggestionsDiv.style.display = 'none';
             });

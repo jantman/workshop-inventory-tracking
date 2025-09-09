@@ -234,12 +234,19 @@ def material_suggestions():
     
     try:
         from app.inventory_service import InventoryService
-        from app.google_sheets_storage import GoogleSheetsStorage
-        from config import Config
         
-        # Get actual materials from inventory
-        storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
-        service = InventoryService(storage)
+        # Get actual materials from inventory using app's configured storage
+        storage_backend = current_app.config.get('STORAGE_BACKEND')
+        if storage_backend:
+            # Use injected storage backend (for testing)
+            service = InventoryService(storage_backend)
+        else:
+            # Use default Google Sheets storage for production
+            from app.google_sheets_storage import GoogleSheetsStorage
+            from config import Config
+            storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+            service = InventoryService(storage)
+        
         items = service.get_all_items()
         
         # Extract unique materials, filter out Unknown/empty, and count usage

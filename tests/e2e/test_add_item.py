@@ -176,6 +176,166 @@ def test_all_item_types_available_in_dropdown(page, live_server):
     add_page.assert_form_submitted_successfully()
 
 
-    # Note: Material autocomplete e2e test removed because it requires 
-    # Google Sheets access which isn't available in test environment.
-    # The functionality works in production with actual inventory data.
+@pytest.mark.e2e
+def test_material_autocomplete_functionality(page, live_server):
+    """Test that material autocomplete shows suggestions from inventory data"""
+    # Create test data with realistic materials based on your actual inventory
+    test_items = [
+        # Steel materials (most common - should appear first)
+        {
+            "ja_id": "JA200001",
+            "item_type": "Bar", 
+            "shape": "Round",
+            "material": "Steel",
+            "length": "1000",
+            "width": "25"
+        },
+        {
+            "ja_id": "JA200002",
+            "item_type": "Bar", 
+            "shape": "Square",
+            "material": "Steel",
+            "length": "500",
+            "width": "10"
+        },
+        {
+            "ja_id": "JA200003",
+            "item_type": "Sheet", 
+            "shape": "Rectangular",
+            "material": "Steel",
+            "length": "1200",
+            "width": "600",
+            "thickness": "3"
+        },
+        # Stainless variations 
+        {
+            "ja_id": "JA200004",
+            "item_type": "Bar", 
+            "shape": "Round",
+            "material": "321 Stainless",
+            "length": "800",
+            "width": "15"
+        },
+        {
+            "ja_id": "JA200005",
+            "item_type": "Sheet", 
+            "shape": "Rectangular",
+            "material": "Stainless Steel",
+            "length": "1000",
+            "width": "500",
+            "thickness": "2"
+        },
+        # Brass materials
+        {
+            "ja_id": "JA200006",
+            "item_type": "Bar", 
+            "shape": "Hex",
+            "material": "Brass",
+            "length": "200",
+            "width": "8"
+        },
+        {
+            "ja_id": "JA200007",
+            "item_type": "Bar", 
+            "shape": "Round",
+            "material": "Brass 360-H02",
+            "length": "300",
+            "width": "12"
+        },
+        # Other materials
+        {
+            "ja_id": "JA200008",
+            "item_type": "Tube", 
+            "shape": "Round",
+            "material": "Aluminum",
+            "length": "500",
+            "width": "20",
+            "wall_thickness": "2"
+        },
+        {
+            "ja_id": "JA200009",
+            "item_type": "Bar", 
+            "shape": "Round",
+            "material": "Copper",
+            "length": "150",
+            "width": "6"
+        },
+        {
+            "ja_id": "JA200010",
+            "item_type": "Bar", 
+            "shape": "Round",
+            "material": "12L14",
+            "length": "400",
+            "width": "18"
+        }
+    ]
+    
+    # Add test data to storage
+    live_server.add_test_data(test_items)
+    
+    # Navigate to add item page
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.assert_form_visible()
+    
+    # Test material autocomplete functionality
+    material_input = page.locator('#material')
+    suggestions_div = page.locator('#material-suggestions')
+    
+    # Test 1: Typing "Ste" should show Steel and Stainless materials
+    material_input.fill('Ste')
+    page.wait_for_timeout(300)  # Wait for debounce and API call
+    
+    expect(suggestions_div).to_be_visible()
+    suggestion_items = page.locator('#material-suggestions .dropdown-item')
+    expect(suggestion_items.first).to_be_visible()  # At least one suggestion visible
+    
+    # Should show Steel first (most common), then stainless variations
+    suggestions_text = [item.text_content() for item in suggestion_items.all()]
+    assert 'Steel' in suggestions_text, f"Expected 'Steel' in suggestions: {suggestions_text}"
+    assert any('Stainless' in s for s in suggestions_text), f"Expected stainless material in: {suggestions_text}"
+    
+    # Test 2: Clicking suggestion populates the field
+    steel_suggestion = page.locator('#material-suggestions .dropdown-item').filter(has_text='Steel').first
+    steel_suggestion.click()
+    
+    expect(material_input).to_have_value('Steel')
+    expect(suggestions_div).not_to_be_visible()
+    
+    # Test 3: Typing "Bra" should show Brass materials
+    material_input.fill('Bra')
+    page.wait_for_timeout(300)
+    
+    expect(suggestions_div).to_be_visible() 
+    suggestion_items = page.locator('#material-suggestions .dropdown-item')
+    suggestions_text = [item.text_content() for item in suggestion_items.all()]
+    
+    assert 'Brass' in suggestions_text, f"Expected 'Brass' in suggestions: {suggestions_text}"
+    assert 'Brass 360-H02' in suggestions_text, f"Expected 'Brass 360-H02' in suggestions: {suggestions_text}"
+    
+    # Test 4: Typing specific material like "12L" should show 12L14
+    material_input.fill('12L')
+    page.wait_for_timeout(300)
+    
+    expect(suggestions_div).to_be_visible()
+    suggestion_items = page.locator('#material-suggestions .dropdown-item')
+    suggestions_text = [item.text_content() for item in suggestion_items.all()]
+    assert '12L14' in suggestions_text, f"Expected '12L14' in suggestions: {suggestions_text}"
+    
+    # Test 5: Clicking outside hides suggestions
+    page.locator('#ja_id').click()
+    expect(suggestions_div).not_to_be_visible()
+    
+    # Test 6: Verify we can complete adding an item with autocomplete
+    material_input.fill('Copp')
+    page.wait_for_timeout(300)
+    
+    copper_suggestion = page.locator('#material-suggestions .dropdown-item').filter(has_text='Copper').first
+    copper_suggestion.click()
+    
+    # Complete the form and verify submission works
+    add_page.fill_basic_item_data("JA200011", "Bar", "Round", "Copper")  # Material already set
+    add_page.fill_dimensions(length="100", width="5")
+    add_page.submit_form()
+    
+    add_page.assert_form_submitted_successfully()
