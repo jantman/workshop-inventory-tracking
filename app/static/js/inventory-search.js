@@ -220,20 +220,17 @@ class AdvancedInventorySearch {
     createResultRow(item) {
         const row = document.createElement('tr');
         
-        // Format dimensions display
-        const dimensions = this.formatDimensions(item.dimensions);
-        const thread = this.formatThread(item.thread);
         const status = item.active ? 
             '<span class="badge bg-success">Active</span>' : 
             '<span class="badge bg-secondary">Inactive</span>';
         
         row.innerHTML = `
             <td><strong>${this.escapeHtml(item.ja_id)}</strong></td>
-            <td>${this.escapeHtml(item.display_name || 'N/A')}</td>
-            <td>${this.escapeHtml(item.item_type || 'N/A')}</td>
+            <td><span class="badge bg-secondary">${this.escapeHtml(item.item_type || 'N/A')}</span></td>
+            <td>${this.escapeHtml(item.shape || 'N/A')}</td>
             <td>${this.escapeHtml(item.material || 'N/A')}</td>
-            <td><small>${dimensions}</small></td>
-            <td><small>${thread}</small></td>
+            <td>${this.formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
+            <td class="text-end">${this.formatLengthOnly(item.dimensions)}</td>
             <td>${this.escapeHtml(item.location || 'N/A')}</td>
             <td class="text-center">${status}</td>
             <td class="text-center">
@@ -255,26 +252,49 @@ class AdvancedInventorySearch {
         return row;
     }
     
-    formatDimensions(dims) {
-        if (!dims) return 'N/A';
+    formatFullDimensions(dimensions, itemType, thread) {
+        if (!dimensions) return '<span class="text-muted">-</span>';
         
         const parts = [];
-        if (dims.length) parts.push(`L: ${dims.length}"`);
-        if (dims.width) parts.push(`W: ${dims.width}"`);
-        if (dims.thickness) parts.push(`T: ${dims.thickness}"`);
-        if (dims.wall_thickness) parts.push(`WT: ${dims.wall_thickness}"`);
         
-        return parts.join(', ') || 'N/A';
+        // For threaded items, show thread info first
+        if (thread) {
+            const threadDisplay = this.formatThread(thread, true); // true for display with symbol
+            parts.push(threadDisplay);
+        }
+        
+        // Then show physical dimensions
+        if (dimensions.length) {
+            if (dimensions.width && dimensions.thickness) {
+                // Rectangular: width × thickness × length
+                parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
+            } else if (dimensions.width) {
+                // Round or Square: diameter/width × length
+                const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
+                parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
+            } else {
+                // Just length
+                parts.push(`${dimensions.length}"`);
+            }
+        }
+        
+        return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
     }
     
-    formatThread(thread) {
-        if (!thread || !thread.size) return 'N/A';
+    formatLengthOnly(dimensions) {
+        if (!dimensions || !dimensions.length) return '<span class="text-muted">-</span>';
+        return `${dimensions.length}"`;
+    }
+    
+    formatThread(thread, includeSymbol = false) {
+        if (!thread) return '';
+        const parts = [];
+        if (thread.size) parts.push(thread.size);
+        if (thread.series) parts.push(thread.series);
+        if (thread.handedness && thread.handedness !== 'RH') parts.push(thread.handedness);
         
-        let result = thread.size;
-        if (thread.series) result += ` ${thread.series}`;
-        if (thread.handedness && thread.handedness !== 'RH') result += ` ${thread.handedness}`;
-        
-        return result;
+        const threadText = parts.join(' ');
+        return includeSymbol && threadText ? `🔩${threadText}` : threadText;
     }
     
     showLoading() {
