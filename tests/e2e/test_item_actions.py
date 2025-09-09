@@ -224,6 +224,72 @@ def test_edit_nonexistent_item_workflow(page, live_server):
     expect(error_alert).to_contain_text('Item JA999999 not found')
 
 
+@pytest.mark.e2e
+def test_edit_form_loads_without_validation_errors(page, live_server):
+    """Test that edit form loads cleanly without premature validation errors"""
+    # First add a test item to edit
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    test_item = {
+        "ja_id": "JA102003", 
+        "item_type": "Bar",
+        "shape": "Round",
+        "material": "Steel",
+        "length": "12",
+        "width": "1", 
+        "location": "Workshop",
+        "notes": "Test item for validation check"
+    }
+    
+    # Fill and submit the test item
+    add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], 
+                                 test_item["shape"], test_item["material"])
+    add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
+    add_page.fill_location_and_notes(location=test_item["location"], notes=test_item["notes"])
+    add_page.submit_form()
+    
+    # Navigate to edit the item
+    page.goto(f'{live_server.url}/inventory/edit/JA102003')
+    
+    # Wait for page to fully load
+    page.wait_for_load_state('domcontentloaded')
+    page.wait_for_timeout(500)  # Small delay for JavaScript to initialize
+    
+    # Verify no validation error classes are present on page load
+    invalid_fields = page.locator('.is-invalid')
+    expect(invalid_fields).to_have_count(0)
+    
+    # Verify no visible invalid-feedback messages
+    visible_errors = page.locator('.invalid-feedback:visible')
+    expect(visible_errors).to_have_count(0)
+    
+    # Verify form fields are properly populated (no red borders due to empty required fields)
+    ja_id_field = page.locator('#ja_id')
+    expect(ja_id_field).to_have_value('JA102003')
+    expect(ja_id_field).not_to_have_class('is-invalid')
+    
+    item_type_field = page.locator('#item_type')
+    expect(item_type_field).to_have_value('Bar')
+    expect(item_type_field).not_to_have_class('is-invalid')
+    
+    shape_field = page.locator('#shape')
+    expect(shape_field).to_have_value('Round')
+    expect(shape_field).not_to_have_class('is-invalid')
+    
+    material_field = page.locator('#material')
+    expect(material_field).to_have_value('Steel')
+    expect(material_field).not_to_have_class('is-invalid')
+    
+    length_field = page.locator('#length')
+    expect(length_field).to_have_value('12')
+    expect(length_field).not_to_have_class('is-invalid')
+    
+    width_field = page.locator('#width')
+    expect(width_field).to_have_value('1')
+    expect(width_field).not_to_have_class('is-invalid')
+
+
 @pytest.mark.e2e 
 def test_view_nonexistent_item_workflow(page, live_server):
     """Test viewing a nonexistent item shows error in modal"""

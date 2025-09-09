@@ -24,7 +24,7 @@
     {% endif %}
 {% endwith %}
 
-<form id="add-item-form" class="" novalidate method="POST">
+<form id="add-item-form" novalidate method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     
     <!-- Alert for messages -->
@@ -43,7 +43,7 @@
                             <label for="ja_id" class="form-label">JA ID *</label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="ja_id" name="ja_id" 
-                                       pattern="JA\d{6}" value="{{ item.ja_id }}" required
+                                       value="{{ item.ja_id }}" required
                                        title="Format: JA followed by 6 digits">
                                 <button type="button" class="btn btn-outline-secondary" id="suggest-ja-id-btn" 
                                         title="Generate next JA ID">
