@@ -37,12 +37,15 @@ class InventoryListPage(BasePage):
             row = rows.nth(i)
             cells = row.locator("td")
             
-            if cells.count() >= 7:  # Ensure we have enough columns (checkbox + 6 data columns)
+            if cells.count() >= 9:  # Ensure we have enough columns (checkbox + 8 data columns)
                 item = {
                     "ja_id": (cells.nth(1).text_content() or "").strip(),  # JA ID is second column (after checkbox)
-                    "type": (cells.nth(3).text_content() or "").strip(),   # Type is fourth column  
+                    "type": (cells.nth(2).text_content() or "").strip(),   # Type is third column  
+                    "shape": (cells.nth(3).text_content() or "").strip(),  # Shape is fourth column
                     "material": (cells.nth(4).text_content() or "").strip(),  # Material is fifth column
-                    "location": (cells.nth(6).text_content() or "").strip()   # Location is seventh column
+                    "dimensions": (cells.nth(5).text_content() or "").strip(), # Dimensions is sixth column
+                    "length": (cells.nth(6).text_content() or "").strip(),    # Length is seventh column
+                    "location": (cells.nth(7).text_content() or "").strip()   # Location is eighth column
                 }
                 items.append(item)
         
@@ -101,6 +104,7 @@ class InventoryListPage(BasePage):
             # Check if query matches any field
             if (query.lower() in item["ja_id"].lower() or
                 query.lower() in item["type"].lower() or
+                query.lower() in item["shape"].lower() or
                 query.lower() in item["material"].lower() or
                 query.lower() in item["location"].lower()):
                 matching_items.append(item)

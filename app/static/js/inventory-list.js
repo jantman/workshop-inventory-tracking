@@ -243,12 +243,20 @@ class InventoryListManager {
         switch (field) {
             case 'ja_id':
                 return item.ja_id;
-            case 'display_name':
-                return item.display_name;
             case 'item_type':
                 return item.item_type;
+            case 'shape':
+                return item.shape;
             case 'material':
                 return item.material;
+            case 'dimensions':
+                // Sort by primary dimension (length if available, otherwise width)
+                if (item.dimensions && item.dimensions.length) {
+                    return parseFloat(item.dimensions.length);
+                } else if (item.dimensions && item.dimensions.width) {
+                    return parseFloat(item.dimensions.width);
+                }
+                return null;
             case 'length':
                 return item.dimensions && item.dimensions.length ? parseFloat(item.dimensions.length) : null;
             case 'location':
@@ -295,12 +303,11 @@ class InventoryListManager {
                 ${item.child_ja_ids && item.child_ja_ids.length > 0 ? `<br><small class="text-info">Has ${item.child_ja_ids.length} child(ren)</small>` : ''}
             </td>
             <td>
-                ${this.formatItemDisplay(item)}
-            </td>
-            <td>
                 <span class="badge bg-secondary">${item.item_type}</span>
             </td>
+            <td>${item.shape}</td>
             <td>${item.material}</td>
+            <td>${this.formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
             <td class="text-end">
                 ${this.formatDimensions(item.dimensions, item.item_type)}
             </td>
@@ -361,19 +368,33 @@ class InventoryListManager {
         return row;
     }
     
-    formatItemDisplay(item) {
-        const isThreadedRod = item.item_type === 'Threaded Rod';
+    formatFullDimensions(dimensions, itemType, thread) {
+        if (!dimensions) return '<span class="text-muted">-</span>';
         
-        if (isThreadedRod && item.thread) {
-            // For threaded rod: show "Material Threaded Rod Round 🔩M10x1.5 x 18""
-            const threadDisplay = this.formatThread(item.thread, true); // true for display with symbol
-            const length = item.dimensions?.length ? ` x ${item.dimensions.length}"` : '';
-            return `<div class="fw-bold">${item.material} ${item.item_type} ${item.shape} ${threadDisplay}${length}</div>`;
-        } else {
-            // For other items: show traditional layout with shape on separate line
-            const threadInfo = item.thread ? `<br><small class="text-info"><i class="bi bi-gear"></i> ${this.formatThread(item.thread, false)}</small>` : '';
-            return `<div class="fw-bold">${item.display_name}</div><small class="text-muted">${item.shape}</small>${threadInfo}`;
+        const parts = [];
+        
+        // For threaded items, show thread info first
+        if (thread) {
+            const threadDisplay = this.formatThread(thread, true); // true for display with symbol
+            parts.push(threadDisplay);
         }
+        
+        // Then show physical dimensions
+        if (dimensions.length) {
+            if (dimensions.width && dimensions.thickness) {
+                // Rectangular: width × thickness × length
+                parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
+            } else if (dimensions.width) {
+                // Round or Square: diameter/width × length
+                const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
+                parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
+            } else {
+                // Just length
+                parts.push(`${dimensions.length}"`);
+            }
+        }
+        
+        return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
     }
     
     formatThread(thread, includeSymbol = false) {
