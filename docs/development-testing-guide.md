@@ -45,7 +45,7 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Coverage**:
 - **Model Tests** (`test_models.py`): Item, Dimensions, Thread classes and enum validation
-- **Storage Tests** (`test_storage.py`): TestStorage (SQLite in-memory) implementation 
+- **Storage Tests** (`test_storage.py`): InMemoryStorage (SQLite in-memory) implementation 
 - **Service Tests** (`test_inventory_service.py`): Business logic, search, filtering, batch operations
 - **Basic Tests** (`test_basic.py`): Infrastructure and integration points
 
@@ -105,17 +105,17 @@ nox -l
 
 ### Unit Test Structure
 
-**TestStorage**: SQLite in-memory database that implements the Storage interface for fast, isolated testing. Mimics Google Sheets behavior for compatibility.
+**InMemoryStorage**: SQLite in-memory database that implements the Storage interface for fast, isolated testing. Mimics Google Sheets behavior for compatibility.
 
 **Fixtures**: 
 - `app`: Flask application context for service tests
-- `storage`: Fresh TestStorage instance per test
+- `storage`: Fresh InMemoryStorage instance per test
 - `service`: InventoryService with test storage and optimized batch settings
 - `sample_item`/`sample_threaded_item`: Pre-configured test data
 
 ### E2E Test Structure
 
-**Test Server**: Dedicated Flask server with test configuration that uses TestStorage instead of Google Sheets. Includes automatic batch processing flush to ensure test data is immediately available.
+**Test Server**: Dedicated Flask server with test configuration that uses InMemoryStorage instead of Google Sheets. Includes automatic batch processing flush to ensure test data is immediately available.
 
 **Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
 
@@ -244,7 +244,7 @@ def test_workflow(page):
 - **Unit tests**: Optimized for speed with in-memory storage
 - **Batch operations**: Test fixtures configured for immediate flushing via force flush mechanism
 - **Caching**: Service-level caching disabled in test environment for predictable results
-- **E2E data persistence**: TestServer includes automatic batch processing flush to ensure test data is immediately available for API queries
+- **E2E data persistence**: E2ETestServer includes automatic batch processing flush to ensure test data is immediately available for API queries
 
 ## Continuous Integration
 

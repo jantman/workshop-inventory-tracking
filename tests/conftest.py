@@ -9,7 +9,7 @@ import tempfile
 import os
 from flask import Flask
 from app import create_app
-from app.test_storage import TestStorage
+from app.test_storage import InMemoryStorage
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from tests.test_config import TestConfig
 from decimal import Decimal
@@ -21,8 +21,8 @@ from tests.e2e.debug_utils import E2EDebugCapture, create_debug_summary
 
 @pytest.fixture
 def test_storage():
-    """Create a fresh TestStorage instance for each test"""
-    storage = TestStorage()
+    """Create a fresh InMemoryStorage instance for each test"""
+    storage = InMemoryStorage()
     storage.connect()
     
     # Create basic inventory sheet structure matching InventoryService format

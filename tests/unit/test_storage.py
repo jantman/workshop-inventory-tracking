@@ -1,21 +1,21 @@
 """
-Unit tests for TestStorage class.
+Unit tests for InMemoryStorage class.
 
 Tests the SQLite in-memory storage implementation.
 """
 
 import pytest
-from app.test_storage import TestStorage
+from app.test_storage import InMemoryStorage
 from app.storage import StorageResult
 
 
-class TestTestStorage:
-    """Tests for TestStorage class"""
+class TestInMemoryStorage:
+    """Tests for InMemoryStorage class"""
     
     @pytest.fixture
     def storage(self):
-        """Create a fresh TestStorage instance for each test"""
-        storage = TestStorage()
+        """Create a fresh InMemoryStorage instance for each test"""
+        storage = InMemoryStorage()
         result = storage.connect()
         assert result.success
         yield storage
@@ -276,7 +276,7 @@ class TestTestStorage:
     def test_connection_error_handling(self):
         """Test error handling for connection issues"""
         # Try to create storage with invalid path
-        storage = TestStorage('/invalid/path/database.db')
+        storage = InMemoryStorage('/invalid/path/database.db')
         result = storage.connect()
         
         # Should fail to connect to invalid path

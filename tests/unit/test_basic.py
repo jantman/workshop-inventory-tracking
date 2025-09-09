@@ -5,7 +5,7 @@ Simple tests to ensure our testing framework is working correctly.
 """
 
 import pytest
-from app.test_storage import TestStorage
+from app.test_storage import InMemoryStorage
 from app.storage import StorageResult
 
 
@@ -20,8 +20,8 @@ class TestBasicInfrastructure:
     
     @pytest.mark.unit
     def test_test_storage_basic(self):
-        """Test that TestStorage basic functionality works"""
-        storage = TestStorage()
+        """Test that InMemoryStorage basic functionality works"""
+        storage = InMemoryStorage()
         result = storage.connect()
         
         assert result.success
@@ -32,7 +32,7 @@ class TestBasicInfrastructure:
     @pytest.mark.unit
     def test_storage_create_and_read(self):
         """Test basic storage operations"""
-        storage = TestStorage()
+        storage = InMemoryStorage()
         storage.connect()
         
         # Create sheet

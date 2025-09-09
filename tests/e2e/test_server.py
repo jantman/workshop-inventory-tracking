@@ -11,11 +11,11 @@ import socket
 from contextlib import closing
 from werkzeug.serving import make_server
 from app import create_app
-from app.test_storage import TestStorage
+from app.test_storage import InMemoryStorage
 from tests.test_config import TestConfig
 
 
-class TestServer:
+class E2ETestServer:
     """Manages Flask test server for E2E testing"""
     
     def __init__(self, host='127.0.0.1', port=None):
@@ -40,7 +40,7 @@ class TestServer:
             return  # Already running
             
         # Create test storage
-        self.storage = TestStorage()
+        self.storage = InMemoryStorage()
         self.storage.connect()
         
         # Set up test inventory sheet (using 'Metal' to match inventory service)
@@ -195,5 +195,5 @@ def get_test_server():
     """Get the global test server instance"""
     global _test_server
     if _test_server is None:
-        _test_server = TestServer()
+        _test_server = E2ETestServer()
     return _test_server

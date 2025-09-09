@@ -15,7 +15,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class TestStorage(Storage):
+class InMemoryStorage(Storage):
     """SQLite in-memory storage implementation for testing"""
     
     def __init__(self, database_path: str = None):

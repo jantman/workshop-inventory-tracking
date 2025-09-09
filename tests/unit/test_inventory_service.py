@@ -8,7 +8,7 @@ import pytest
 from decimal import Decimal
 from app.inventory_service import InventoryService, SearchFilter
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
-from app.test_storage import TestStorage
+from app.test_storage import InMemoryStorage
 
 
 class TestSearchFilter:
@@ -81,7 +81,7 @@ class TestInventoryService:
     @pytest.fixture
     def storage(self):
         """Create test storage with inventory sheet"""
-        storage = TestStorage()
+        storage = InMemoryStorage()
         storage.connect()
         
         # Create inventory sheet with proper headers (matching InventoryService.SHEET_HEADERS)
