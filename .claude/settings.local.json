@@ -16,7 +16,9 @@
       "Bash(timeout 60 python -m pytest:*)",
       "Bash(timeout 90 python -m pytest:*)",
       "Bash(timeout 120 python -m pytest:*)",
-      "Bash(timeout 180 python -m pytest:*)"
+      "Bash(timeout 180 python -m pytest:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": [],
     "ask": []
