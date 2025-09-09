@@ -56,6 +56,7 @@ class InventoryAddForm {
         this.setupMaterialAutocomplete();
         this.updateDimensionRequirements();
         this.loadMaterialSuggestions();
+        this.autoPopulateJaId();
     }
     
     setupEventListeners() {
@@ -223,6 +224,30 @@ class InventoryAddForm {
             // Restore button state
             button.disabled = false;
             button.innerHTML = originalHTML;
+        }
+    }
+    
+    async autoPopulateJaId() {
+        const jaIdInput = document.getElementById('ja_id');
+        
+        // Only auto-populate if the field is empty
+        if (jaIdInput.value.trim() !== '') {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/inventory/next-ja-id');
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                jaIdInput.value = data.next_ja_id;
+                console.log(`Auto-populated JA ID: ${data.next_ja_id}`);
+            } else {
+                console.warn('Failed to auto-populate JA ID:', data.error);
+            }
+        } catch (error) {
+            console.warn('Error auto-populating JA ID:', error);
+            // Silently fail - user can still manually enter or use generate button
         }
     }
     

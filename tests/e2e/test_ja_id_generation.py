@@ -10,8 +10,29 @@ from playwright.sync_api import expect
 
 
 @pytest.mark.e2e  
+def test_ja_id_auto_population_on_page_load(page, live_server):
+    """Test that JA ID is automatically populated when add page loads"""
+    # Navigate to add item page
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    # JA ID field should be auto-populated (not empty)
+    ja_id_field = page.locator('#ja_id')
+    expect(ja_id_field).not_to_have_value('')
+    
+    # Verify the auto-populated ID follows the correct format (JA######)
+    auto_populated_id = ja_id_field.input_value()
+    assert auto_populated_id.startswith('JA'), f"Auto-populated ID should start with 'JA', got: {auto_populated_id}"
+    assert len(auto_populated_id) == 8, f"Auto-populated ID should be 8 characters long, got: {len(auto_populated_id)}"
+    assert auto_populated_id[2:].isdigit(), f"Auto-populated ID should have 6 digits after 'JA', got: {auto_populated_id}"
+    
+    # With no existing items, should be JA000001
+    assert auto_populated_id == "JA000001", f"First auto-populated ID should be JA000001, got: {auto_populated_id}"
+
+
+@pytest.mark.e2e  
 def test_generate_ja_id_button_functionality(page, live_server):
-    """Test that the Generate JA ID button works correctly"""
+    """Test that the Generate JA ID button still works correctly"""
     # Navigate to add item page
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
@@ -21,9 +42,12 @@ def test_generate_ja_id_button_functionality(page, live_server):
     expect(generate_button).to_be_visible()
     expect(generate_button).to_have_attribute('title', 'Generate next JA ID')
     
-    # Check initial state - JA ID field should be empty
+    # JA ID field should already be auto-populated
     ja_id_field = page.locator('#ja_id')
-    expect(ja_id_field).to_have_value('')
+    expect(ja_id_field).not_to_have_value('')
+    
+    # Clear the field to test manual generation
+    ja_id_field.fill('')
     
     # Click the generate button
     generate_button.click()
