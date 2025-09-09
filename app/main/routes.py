@@ -1,4 +1,5 @@
 from flask import render_template, current_app, jsonify, abort, request, flash, redirect, url_for
+from datetime import datetime
 from app.main import bp
 from app import csrf
 from app.google_sheets_storage import GoogleSheetsStorage
@@ -186,17 +187,44 @@ def connection_test():
 
 @bp.route('/api/stats')
 def api_stats():
-    """API endpoint for dashboard statistics (placeholder)"""
-    # This will be implemented in future milestones
-    return jsonify({
-        'success': True,
-        'data': {
-            'total_items': 0,
-            'active_items': 0,
-            'unique_locations': 0,
-            'last_updated': None
-        }
-    })
+    """API endpoint for dashboard statistics"""
+    try:
+        from app.inventory_service import InventoryService
+        
+        # Get storage backend
+        storage_backend = current_app.config.get('STORAGE_BACKEND')
+        if storage_backend:
+            # Use injected storage backend (for testing)
+            service = InventoryService(storage_backend)
+        else:
+            # Use default Google Sheets storage for production
+            from app.google_sheets_storage import GoogleSheetsStorage
+            from config import Config
+            storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+            service = InventoryService(storage)
+        
+        # Get all items
+        items = service.get_all_items()
+        
+        # Calculate statistics
+        total_items = len(items)
+        active_items = len([item for item in items if item.active])
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'total_items': total_items,
+                'active_items': active_items,
+                'last_updated': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting dashboard stats: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to load dashboard statistics'
+        }), 500
 
 @bp.route('/api/items/<ja_id>/exists')
 def check_ja_id_exists(ja_id):

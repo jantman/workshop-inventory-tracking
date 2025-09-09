@@ -28,32 +28,26 @@
 </div>
 
 <div class="row mb-4">
-    <div class="col-md-4">
+    <div class="col-md-6">
         <div class="card stat-card text-center">
             <div class="card-body">
-                <h3 class="mb-2">-</h3>
+                <h3 class="mb-2" id="total-items-count">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h3>
                 <p class="card-text">
                     <i class="bi bi-box"></i> Total Items
                 </p>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card stat-card text-center" style="background: linear-gradient(135deg, #198754 0%, #157347 100%);">
+    <div class="col-md-6">
+        <div class="card stat-card text-center" style="background: linear-gradient(135deg, #198754 0%, #157347 100%); color: white;">
             <div class="card-body">
-                <h3 class="mb-2">-</h3>
+                <h3 class="mb-2" id="active-items-count">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h3>
                 <p class="card-text">
                     <i class="bi bi-check-circle"></i> Active Items
-                </p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card stat-card text-center" style="background: linear-gradient(135deg, #fd7e14 0%, #e55d00 100%);">
-            <div class="card-body">
-                <h3 class="mb-2">-</h3>
-                <p class="card-text">
-                    <i class="bi bi-geo-alt"></i> Unique Locations
                 </p>
             </div>
         </div>
@@ -225,10 +219,31 @@ document.addEventListener('DOMContentLoaded', function() {
     loadDashboardStats();
 });
 
-function loadDashboardStats() {
-    // Placeholder function for loading dashboard statistics
-    // This will be implemented in future milestones
-    console.log('Loading dashboard stats...');
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const result = await response.json();
+        
+        if (result.success) {
+            const data = result.data;
+            
+            // Update total items count
+            document.getElementById('total-items-count').textContent = data.total_items.toLocaleString();
+            
+            // Update active items count
+            document.getElementById('active-items-count').textContent = data.active_items.toLocaleString();
+            
+            console.log('Dashboard stats loaded successfully');
+        } else {
+            throw new Error(result.error || 'Failed to load stats');
+        }
+    } catch (error) {
+        console.error('Error loading dashboard stats:', error);
+        
+        // Show error state
+        document.getElementById('total-items-count').innerHTML = '<span class="text-muted">Error</span>';
+        document.getElementById('active-items-count').innerHTML = '<span class="text-muted">Error</span>';
+    }
 }
 </script>
 {% endblock %}
