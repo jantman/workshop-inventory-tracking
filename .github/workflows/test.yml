@@ -192,7 +192,7 @@ jobs:
           libxrandr2 \
           libgbm1 \
           libxss1 \
-          libasound2
+          libasound2t64
     
     - name: Run E2E tests
       run: nox -s e2e
