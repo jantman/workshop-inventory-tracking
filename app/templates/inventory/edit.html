@@ -375,11 +375,36 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize field visibility based on current values
     updateFieldVisibility();
     
-    // Enable Bootstrap form validation
-    form.classList.add('needs-validation');
+    // Wait for form to be fully populated, then re-run validation to clear false errors
+    setTimeout(function() {
+        // Remove any existing validation classes
+        form.classList.remove('was-validated');
+        const fields = form.querySelectorAll('.is-invalid, .is-valid');
+        fields.forEach(field => {
+            field.classList.remove('is-invalid', 'is-valid');
+        });
+        
+        // Re-trigger validation now that form is populated
+        if (form.checkValidity()) {
+            // If form is valid, ensure no error states are showing
+            const invalidFeedbacks = form.querySelectorAll('.invalid-feedback');
+            invalidFeedbacks.forEach(feedback => {
+                feedback.style.display = 'none';
+            });
+        }
+        
+        // Now enable Bootstrap validation for future interactions
+        form.classList.add('needs-validation');
+    }, 100);
     
     // Handle form submission with validation
     form.addEventListener('submit', function(event) {
+        // Re-enable feedback display for submission validation
+        const invalidFeedbacks = form.querySelectorAll('.invalid-feedback');
+        invalidFeedbacks.forEach(feedback => {
+            feedback.style.display = '';
+        });
+        
         if (!form.checkValidity()) {
             event.preventDefault();
             event.stopPropagation();
