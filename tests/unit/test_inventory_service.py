@@ -105,7 +105,24 @@ class TestInventoryService:
         original_batch_size = batch_manager.max_batch_size
         batch_manager.max_batch_size = 1
         
-        yield InventoryService(storage)
+        # Clear any existing data from previous tests
+        storage.clear_all_data()
+        
+        # Recreate the inventory sheet with proper headers
+        headers = [
+            'Active', 'JA ID', 'Length', 'Width', 'Thickness', 'Wall Thickness',
+            'Weight', 'Type', 'Shape', 'Material', 'Thread Series', 'Thread Handedness',
+            'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
+            'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
+            'Original Material', 'Original Thread', 'Date Added', 'Last Modified'
+        ]
+        storage.create_sheet('Metal', headers)
+        
+        service = InventoryService(storage)
+        # Clear cache to ensure clean state
+        service.get_all_items.cache_clear()
+        
+        yield service
         
         # Restore original batch size
         batch_manager.max_batch_size = original_batch_size
