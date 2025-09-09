@@ -52,36 +52,18 @@
                     <label for="item_type" class="form-label">Item Type</label>
                     <select class="form-select" id="item_type" name="item_type">
                         <option value="">All Types</option>
-                        <option value="Bar">Bar</option>
-                        <option value="Plate">Plate</option>
-                        <option value="Sheet">Sheet</option>
-                        <option value="Tube">Tube</option>
-                        <option value="Pipe">Pipe</option>
-                        <option value="Rod">Rod</option>
-                        <option value="Angle">Angle</option>
-                        <option value="Channel">Channel</option>
-                        <option value="Beam">Beam</option>
-                        <option value="Wire">Wire</option>
-                        <option value="Fastener">Fastener</option>
-                        <option value="Other">Other</option>
+                        {% for item_type in ItemType %}
+                        <option value="{{ item_type.value }}">{{ item_type.value }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-4 mb-3">
                     <label for="shape" class="form-label">Shape</label>
                     <select class="form-select" id="shape" name="shape">
                         <option value="">All Shapes</option>
-                        <option value="Rectangular">Rectangular</option>
-                        <option value="Round">Round</option>
-                        <option value="Square">Square</option>
-                        <option value="Hexagonal">Hexagonal</option>
-                        <option value="Octagonal">Octagonal</option>
-                        <option value="L_Shape">L-Shape</option>
-                        <option value="T_Shape">T-Shape</option>
-                        <option value="U_Shape">U-Shape</option>
-                        <option value="I_Beam">I-Beam</option>
-                        <option value="C_Channel">C-Channel</option>
-                        <option value="Threaded">Threaded</option>
-                        <option value="Irregular">Irregular</option>
+                        {% for item_shape in ItemShape %}
+                        <option value="{{ item_shape.value }}">{{ item_shape.value }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-4 mb-3">

@@ -100,8 +100,9 @@ def inventory_add():
 
 @bp.route('/inventory/search')
 def inventory_search():
-    """Advanced search interface (placeholder)"""
-    return render_template('inventory/search.html', title='Search')
+    """Advanced search interface"""
+    return render_template('inventory/search.html', title='Search',
+                         ItemType=ItemType, ItemShape=ItemShape)
 
 @bp.route('/inventory/move', methods=['GET', 'POST'])
 def inventory_move():
