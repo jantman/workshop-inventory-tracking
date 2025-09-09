@@ -83,6 +83,11 @@ class InventoryAddForm {
             this.startBarcodeCapture('ja_id');
         });
         
+        // Generate JA ID button
+        document.getElementById('generate-ja-id-btn').addEventListener('click', () => {
+            this.generateNextJaId();
+        });
+        
         // Carry forward functionality
         document.getElementById('carry-forward-btn').addEventListener('click', () => {
             this.carryForwardData();
@@ -180,6 +185,45 @@ class InventoryAddForm {
         }
         
         this.cancelBarcodeCapture();
+    }
+    
+    async generateNextJaId() {
+        const button = document.getElementById('generate-ja-id-btn');
+        const jaIdInput = document.getElementById('ja_id');
+        
+        // Disable button and show loading state
+        button.disabled = true;
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+        
+        try {
+            const response = await fetch('/api/inventory/next-ja-id');
+            const data = await response.json();
+            
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Failed to generate JA ID');
+            }
+            
+            // Set the generated ID
+            jaIdInput.value = data.next_ja_id;
+            
+            // Show success message
+            WorkshopInventory.utils.showToast(`Generated JA ID: ${data.next_ja_id}`, 'success');
+            
+            // Focus on the next field (typically item type)
+            const nextField = document.getElementById('item_type');
+            if (nextField) {
+                nextField.focus();
+            }
+            
+        } catch (error) {
+            console.error('Error generating JA ID:', error);
+            WorkshopInventory.utils.showToast(`Failed to generate JA ID: ${error.message}`, 'error');
+        } finally {
+            // Restore button state
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        }
     }
     
     updateDimensionRequirements() {
