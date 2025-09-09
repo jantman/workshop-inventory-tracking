@@ -129,6 +129,49 @@ nox -l
 - **Browser Storage**: localStorage and sessionStorage contents
 - **Debug Summary**: Human-readable analysis guide (`DEBUG_SUMMARY.md`)
 
+## Running the Flask Application
+
+### Development Server
+
+For local development and testing, you can run the Flask application directly with automatic reloading enabled.
+
+**Command**: 
+```bash
+# Activate virtual environment first
+source venv/bin/activate
+
+# Run Flask development server
+python app.py
+```
+
+**Features**:
+- **Auto-reload**: Server automatically restarts when code changes are detected
+- **Debug mode**: Detailed error messages with stack traces in browser
+- **Local access**: Available at `http://127.0.0.1:5000`
+- **Hot reloading**: Template and static file changes are reflected immediately
+
+**Alternative Methods**:
+```bash
+# Using Flask CLI
+export FLASK_APP=app.py
+export FLASK_ENV=development
+flask run
+
+# Using Python module
+python -m flask run --debug
+
+# Custom host/port
+python app.py  # Configured for 127.0.0.1:5000
+```
+
+**Development Configuration**:
+- Debug mode enabled by default in `app.py`
+- Automatic template reloading
+- Static file serving with cache disabled
+- Detailed error pages with interactive debugger
+
+**Note**: The development server uses Google Sheets for data storage (production setup). For testing with local data, use the E2E test server instead (`nox -s e2e`).
+
 ## Development Workflow
 
 ### Running Tests During Development
