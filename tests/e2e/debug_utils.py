@@ -60,7 +60,7 @@ class E2EDebugCapture:
                     "timestamp": datetime.now().isoformat(),
                     "url": response.url,
                     "status": response.status,
-                    "status_text": response.status_text()
+                    "status_text": response.status_text
                 }
                 self.console_logs.append({
                     "timestamp": datetime.now().isoformat(),
