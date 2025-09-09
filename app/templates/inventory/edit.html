@@ -24,7 +24,7 @@
     {% endif %}
 {% endwith %}
 
-<form id="edit-item-form" class="needs-validation" novalidate method="POST">
+<form id="add-item-form" class="" novalidate method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     
     <!-- Alert for messages -->
@@ -328,22 +328,64 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/inventory-add.js') }}"></script>
 <script>
-// Initialize form with existing values
+// Edit form functionality (simplified version without complex add form features)
 document.addEventListener('DOMContentLoaded', function() {
     // Update form title
     document.title = 'Edit {{ item.ja_id }} - Workshop Inventory';
     
-    // Trigger type/shape validation for existing values
-    const itemType = document.getElementById('item_type').value;
-    const shape = document.getElementById('shape').value;
+    const form = document.getElementById('add-item-form');
+    const itemType = document.getElementById('item_type');
+    const shape = document.getElementById('shape');
     
-    if (itemType && shape) {
-        // Simulate change events to validate combination and show/hide fields
-        document.getElementById('item_type').dispatchEvent(new Event('change'));
-        document.getElementById('shape').dispatchEvent(new Event('change'));
+    // Basic type/shape change handlers for field visibility
+    function updateFieldVisibility() {
+        const typeValue = itemType.value;
+        const shapeValue = shape.value;
+        
+        // Show/hide threading section for Threaded Rod
+        const threadingSection = document.getElementById('threading-section');
+        if (threadingSection) {
+            if (typeValue === 'Threaded Rod') {
+                threadingSection.style.display = 'block';
+            } else {
+                threadingSection.style.display = 'none';
+            }
+        }
+        
+        // Update width label for round items
+        const widthLabel = document.getElementById('width-label');
+        if (widthLabel) {
+            if (shapeValue === 'Round') {
+                widthLabel.textContent = 'Diameter *';
+            } else {
+                widthLabel.textContent = 'Width *';
+            }
+        }
     }
+    
+    // Set up event listeners
+    if (itemType) {
+        itemType.addEventListener('change', updateFieldVisibility);
+    }
+    if (shape) {
+        shape.addEventListener('change', updateFieldVisibility);
+    }
+    
+    // Initialize field visibility based on current values
+    updateFieldVisibility();
+    
+    // Enable Bootstrap form validation
+    form.classList.add('needs-validation');
+    
+    // Handle form submission with validation
+    form.addEventListener('submit', function(event) {
+        if (!form.checkValidity()) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        form.classList.add('was-validated');
+    });
 });
 </script>
 {% endblock %}
