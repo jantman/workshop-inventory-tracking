@@ -99,6 +99,97 @@ def inventory_add():
         flash('An error occurred while adding the item. Please try again.', 'error')
         return redirect(url_for('main.inventory_add'))
 
+@bp.route('/inventory/edit/<ja_id>', methods=['GET', 'POST'])
+def inventory_edit(ja_id):
+    """Edit inventory item"""
+    try:
+        storage = _get_storage_backend()
+        service = InventoryService(storage)
+        
+        # Get the item
+        item = service.get_item(ja_id)
+        if not item:
+            flash(f'Item {ja_id} not found.', 'error')
+            return redirect(url_for('main.inventory_list'))
+        
+        if request.method == 'GET':
+            # Populate form with existing item data
+            return render_template('inventory/edit.html', title=f'Edit {ja_id}', 
+                                 item=item, ItemType=ItemType, ItemShape=ItemShape)
+        
+        # Handle POST request for updating item
+        form_data = request.form.to_dict()
+        
+        # Validate required fields
+        required_fields = ['ja_id', 'item_type', 'shape', 'material']
+        missing_fields = [field for field in required_fields if not form_data.get(field)]
+        
+        if missing_fields:
+            flash(f'Missing required fields: {", ".join(missing_fields)}', 'error')
+            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+        
+        # Parse form data into updated item
+        updated_item = _parse_item_from_form(form_data)
+        
+        # Update the item (preserve dates from original)
+        updated_item.date_added = item.date_added
+        updated_item.last_modified = datetime.now()
+        result = service.update_item(updated_item)
+        
+        if result:
+            flash('Item updated successfully!', 'success')
+            return redirect(url_for('main.inventory_list'))
+        else:
+            flash('Failed to update item. Please try again.', 'error')
+            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+            
+    except ValueError as e:
+        current_app.logger.error(f'Validation error updating item {ja_id}: {e}')
+        flash(f'Validation error: {str(e)}', 'error')
+        return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+    except Exception as e:
+        current_app.logger.error(f'Error updating item {ja_id}: {e}\n{traceback.format_exc()}')
+        flash('An error occurred while updating the item. Please try again.', 'error')
+        return redirect(url_for('main.inventory_list'))
+
+@bp.route('/inventory/view/<ja_id>')
+def inventory_view(ja_id):
+    """View inventory item details (JSON API for modal)"""
+    try:
+        storage = _get_storage_backend()
+        service = InventoryService(storage)
+        
+        item = service.get_item(ja_id)
+        if not item:
+            return jsonify({'success': False, 'error': f'Item {ja_id} not found.'}), 404
+        
+        # Convert item to dictionary for JSON response
+        item_dict = item.to_dict()
+        
+        # Format dimensions for display
+        dimensions = item.dimensions
+        formatted_dimensions = {}
+        
+        if dimensions.length:
+            formatted_dimensions['length'] = f"{dimensions.length}\""
+        if dimensions.width:
+            formatted_dimensions['width'] = f"{dimensions.width}\""
+        if dimensions.thickness:
+            formatted_dimensions['thickness'] = f"{dimensions.thickness}\""
+        if dimensions.wall_thickness:
+            formatted_dimensions['wall_thickness'] = f"{dimensions.wall_thickness}\""
+        if dimensions.weight:
+            formatted_dimensions['weight'] = f"{dimensions.weight} lbs"
+        
+        item_dict['formatted_dimensions'] = formatted_dimensions
+        item_dict['display_name'] = item.display_name
+        
+        return jsonify({'success': True, 'item': item_dict})
+        
+    except Exception as e:
+        current_app.logger.error(f'Error viewing item {ja_id}: {e}\n{traceback.format_exc()}')
+        return jsonify({'success': False, 'error': 'An error occurred while loading item details.'}), 500
+
 @bp.route('/inventory/search')
 def inventory_search():
     """Advanced search interface"""

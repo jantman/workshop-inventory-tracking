@@ -1,0 +1,243 @@
+"""
+E2E Tests for Item Actions - View and Edit
+
+Tests for the view (modal) and edit functionality of inventory items.
+"""
+
+import pytest
+from tests.e2e.pages.inventory_list_page import InventoryListPage
+from tests.e2e.pages.add_item_page import AddItemPage
+from playwright.sync_api import expect
+
+
+@pytest.mark.e2e  
+def test_view_item_modal_workflow(page, live_server):
+    """Test viewing item details in modal"""
+    # First add a test item
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    test_item = {
+        "ja_id": "JA102001",
+        "item_type": "Bar",
+        "shape": "Round", 
+        "material": "Stainless Steel",
+        "length": "12.5",
+        "width": "0.5",
+        "location": "Workshop A",
+        "sub_location": "Shelf 1",
+        "purchase_price": "15.99",
+        "vendor": "McMaster-Carr",
+        "notes": "High quality stainless rod"
+    }
+    
+    # Fill the form with test data
+    add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], test_item["shape"], test_item["material"])
+    add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
+    add_page.fill_location_and_notes(location=test_item["location"], notes=test_item["notes"])
+    
+    # Fill additional fields
+    page.fill("#sub_location", test_item["sub_location"])
+    page.fill("#purchase_price", test_item["purchase_price"])
+    page.fill("#vendor", test_item["vendor"])
+    
+    add_page.submit_form()
+    
+    # Navigate to inventory list
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    
+    # Wait for items to load
+    list_page.wait_for_items_loaded()
+    
+    # Find the view button for our item
+    view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102001\')"]')
+    expect(view_button).to_be_visible()
+    
+    # Click the view button
+    view_button.click()
+    
+    # Wait for modal to appear
+    modal = page.locator('#item-details-modal')
+    expect(modal).to_be_visible()
+    
+    # Verify modal title
+    modal_title = page.locator('#item-details-modal-label')
+    expect(modal_title).to_contain_text('JA102001 Details')
+    
+    # Verify key item details are displayed in modal
+    modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('JA102001')
+    expect(modal_body).to_contain_text('Bar') 
+    expect(modal_body).to_contain_text('Round')
+    expect(modal_body).to_contain_text('Stainless Steel')
+    expect(modal_body).to_contain_text('12.5"')
+    expect(modal_body).to_contain_text('0.5"')
+    expect(modal_body).to_contain_text('Workshop A')
+    expect(modal_body).to_contain_text('Shelf 1') 
+    expect(modal_body).to_contain_text('$15.99')
+    expect(modal_body).to_contain_text('McMaster-Carr')
+    expect(modal_body).to_contain_text('High quality stainless rod')
+    
+    # Verify edit button in modal footer
+    edit_link = page.locator('#edit-item-link')
+    expect(edit_link).to_be_visible()
+    expect(edit_link).to_have_attribute('href', '/inventory/edit/JA102001')
+    
+    # Close modal
+    close_button = page.locator('#item-details-modal .btn-close')
+    close_button.click()
+    
+    # Verify modal is closed
+    expect(modal).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_edit_item_workflow(page, live_server):
+    """Test editing an existing item"""
+    # First add a test item to edit
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    original_item = {
+        "ja_id": "JA102002", 
+        "item_type": "Plate",
+        "shape": "Rectangular",
+        "material": "Aluminum",
+        "length": "10",
+        "width": "5", 
+        "thickness": "0.25",
+        "location": "Storage B",
+        "notes": "Original aluminum plate"
+    }
+    
+    # Fill and submit the original item
+    add_page.fill_basic_item_data(original_item["ja_id"], original_item["item_type"], 
+                                 original_item["shape"], original_item["material"])
+    add_page.fill_dimensions(length=original_item["length"], width=original_item["width"])
+    page.fill("#thickness", original_item["thickness"])
+    add_page.fill_location_and_notes(location=original_item["location"], notes=original_item["notes"])
+    add_page.submit_form()
+    
+    # Navigate to inventory list
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    
+    # Wait for items to load  
+    list_page.wait_for_items_loaded()
+    
+    # Find and click the edit button for our item
+    edit_link = page.locator(f'a[href="/inventory/edit/JA102002"]')
+    expect(edit_link).to_be_visible()
+    edit_link.click()
+    
+    # Verify we're on the edit page
+    expect(page).to_have_url(f'{live_server.url}/inventory/edit/JA102002')
+    
+    # Verify page title and heading
+    expect(page).to_have_title('Edit JA102002 - Workshop Inventory')
+    heading = page.locator('h2')
+    expect(heading).to_contain_text('Edit Inventory Item: JA102002')
+    
+    # Verify form is pre-populated with existing data
+    ja_id_field = page.locator('#ja_id')
+    expect(ja_id_field).to_have_value('JA102002')
+    
+    item_type_field = page.locator('#item_type') 
+    expect(item_type_field).to_have_value('Plate')
+    
+    shape_field = page.locator('#shape')
+    expect(shape_field).to_have_value('Rectangular')
+    
+    material_field = page.locator('#material')
+    expect(material_field).to_have_value('Aluminum')
+    
+    length_field = page.locator('#length')
+    expect(length_field).to_have_value('10')
+    
+    width_field = page.locator('#width')
+    expect(width_field).to_have_value('5')
+    
+    thickness_field = page.locator('#thickness') 
+    expect(thickness_field).to_have_value('0.25')
+    
+    location_field = page.locator('#location')
+    expect(location_field).to_have_value('Storage B')
+    
+    notes_field = page.locator('#notes')
+    expect(notes_field).to_have_value('Original aluminum plate')
+    
+    # Make some changes to the item
+    material_field.fill('6061 Aluminum')
+    width_field.fill('6')
+    location_field.fill('Workshop C')
+    notes_field.fill('Updated aluminum plate - now 6061 alloy')
+    
+    # Submit the changes
+    submit_button = page.locator('button[type="submit"]')
+    submit_button.click()
+    
+    # Verify redirect to inventory list
+    expect(page).to_have_url(f'{live_server.url}/inventory')
+    
+    # Verify success message
+    success_alert = page.locator('.alert-success')
+    expect(success_alert).to_contain_text('Item updated successfully!')
+    
+    # Verify the changes are reflected in the list
+    list_page.wait_for_items_loaded()
+    
+    # Check that the updated item appears in the list with new values
+    items = list_page.get_inventory_items()
+    updated_item = None
+    for item in items:
+        if item['ja_id'] == 'JA102002':
+            updated_item = item
+            break
+    
+    assert updated_item is not None, "Updated item not found in list"
+    assert '6061 Aluminum' in updated_item['material']
+    
+    # Verify changes by viewing the item details
+    view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102002\')"]')
+    view_button.click()
+    
+    # Wait for modal and verify updated details
+    modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('6061 Aluminum')
+    expect(modal_body).to_contain_text('6"')  # updated width
+    expect(modal_body).to_contain_text('Workshop C')
+    expect(modal_body).to_contain_text('Updated aluminum plate - now 6061 alloy')
+
+
+@pytest.mark.e2e
+def test_edit_nonexistent_item_workflow(page, live_server):
+    """Test editing a nonexistent item shows error"""
+    # Try to navigate directly to edit a nonexistent item
+    page.goto(f'{live_server.url}/inventory/edit/JA999999')
+    
+    # Should redirect to inventory list with error message
+    expect(page).to_have_url(f'{live_server.url}/inventory')
+    
+    # Verify error message (be specific to avoid multiple matches)
+    error_alert = page.locator('.alert-danger.alert-dismissible')
+    expect(error_alert).to_contain_text('Item JA999999 not found')
+
+
+@pytest.mark.e2e 
+def test_view_nonexistent_item_workflow(page, live_server):
+    """Test viewing a nonexistent item shows error in modal"""
+    # Navigate to inventory list first
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    
+    # Manually call showItemDetails with nonexistent ID
+    page.evaluate('showItemDetails("JA999999")')
+    
+    # Wait for modal to appear
+    modal = page.locator('#item-details-modal')
+    expect(modal).to_be_visible()
+    
+    # Verify error message in modal
+    error_alert = page.locator('#item-details-modal .alert-danger')
+    expect(error_alert).to_contain_text('Item JA999999 not found')

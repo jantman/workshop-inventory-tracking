@@ -25,6 +25,25 @@ class InventoryListPage(BasePage):
         """Navigate to inventory list page"""
         self.navigate_to("/inventory")
     
+    def wait_for_items_loaded(self):
+        """Wait for inventory items to finish loading"""
+        # Wait for loading spinner to disappear
+        loading_state = self.page.locator('#loading-state')
+        if loading_state.is_visible():
+            expect(loading_state).not_to_be_visible()
+        
+        # Wait for table to be visible or empty state message
+        self.page.wait_for_function('''
+            () => {
+                const table = document.querySelector('#inventory-table-container');
+                const emptyState = document.querySelector('#empty-state');
+                const errorState = document.querySelector('#error-state');
+                return (table && !table.classList.contains('d-none')) || 
+                       (emptyState && !emptyState.classList.contains('d-none')) ||
+                       (errorState && !errorState.classList.contains('d-none'));
+            }
+        ''')
+    
     def get_inventory_items(self) -> List[Dict[str, str]]:
         """Get list of inventory items from the table"""
         self.wait_for_element(self.INVENTORY_TABLE)

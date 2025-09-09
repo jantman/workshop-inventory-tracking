@@ -654,8 +654,196 @@ class InventoryListManager {
 
 // Global functions for row actions
 window.showItemDetails = function(jaId) {
-    alert(`Show details for ${jaId} - Feature coming soon!`);
+    // Show loading state
+    const modal = new bootstrap.Modal(document.getElementById('item-details-modal') || createItemDetailsModal());
+    const modalBody = document.querySelector('#item-details-modal .modal-body');
+    
+    modalBody.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3">Loading item details...</p>
+        </div>
+    `;
+    
+    modal.show();
+    
+    // Fetch item details
+    fetch(`/inventory/view/${jaId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                modalBody.innerHTML = createItemDetailsHTML(data.item);
+            } else {
+                modalBody.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Error: ${data.error || 'Unable to load item details'}
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching item details:', error);
+            modalBody.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Error loading item details. Please try again.
+                </div>
+            `;
+        });
 };
+
+function createItemDetailsModal() {
+    const modalHTML = `
+        <div class="modal fade" id="item-details-modal" tabindex="-1" aria-labelledby="item-details-modal-label" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="item-details-modal-label">
+                            <i class="bi bi-eye"></i> Item Details
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Content will be populated by JavaScript -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <a href="#" class="btn btn-primary" id="edit-item-link">
+                            <i class="bi bi-pencil"></i> Edit Item
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    return document.getElementById('item-details-modal');
+}
+
+function createItemDetailsHTML(item) {
+    const dimensions = item.formatted_dimensions || {};
+    const thread = item.thread || {};
+    
+    // Update modal title
+    document.getElementById('item-details-modal-label').innerHTML = `
+        <i class="bi bi-eye"></i> ${item.ja_id} Details
+    `;
+    
+    // Update edit link
+    document.getElementById('edit-item-link').href = `/inventory/edit/${item.ja_id}`;
+    
+    return `
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="text-muted mb-3">Basic Information</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>JA ID:</strong></td>
+                        <td>${item.ja_id}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Type:</strong></td>
+                        <td><span class="badge bg-secondary">${item.item_type}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Shape:</strong></td>
+                        <td>${item.shape}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Material:</strong></td>
+                        <td>${item.material}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Quantity:</strong></td>
+                        <td>${item.quantity}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Status:</strong></td>
+                        <td><span class="badge ${item.active ? 'bg-success' : 'bg-secondary'}">${item.active ? 'Active' : 'Inactive'}</span></td>
+                    </tr>
+                </table>
+                
+                ${Object.keys(dimensions).length > 0 ? `
+                <h6 class="text-muted mb-3 mt-4">Dimensions</h6>
+                <table class="table table-sm">
+                    ${dimensions.length ? `<tr><td><strong>Length:</strong></td><td>${dimensions.length}</td></tr>` : ''}
+                    ${dimensions.width ? `<tr><td><strong>Width/Diameter:</strong></td><td>${dimensions.width}</td></tr>` : ''}
+                    ${dimensions.thickness ? `<tr><td><strong>Thickness:</strong></td><td>${dimensions.thickness}</td></tr>` : ''}
+                    ${dimensions.wall_thickness ? `<tr><td><strong>Wall Thickness:</strong></td><td>${dimensions.wall_thickness}</td></tr>` : ''}
+                    ${dimensions.weight ? `<tr><td><strong>Weight:</strong></td><td>${dimensions.weight}</td></tr>` : ''}
+                </table>
+                ` : ''}
+                
+                ${thread.size || thread.series || thread.handedness ? `
+                <h6 class="text-muted mb-3 mt-4">Threading</h6>
+                <table class="table table-sm">
+                    ${thread.size ? `<tr><td><strong>Size:</strong></td><td>${thread.size}</td></tr>` : ''}
+                    ${thread.series ? `<tr><td><strong>Series:</strong></td><td>${thread.series}</td></tr>` : ''}
+                    ${thread.handedness ? `<tr><td><strong>Handedness:</strong></td><td>${thread.handedness}</td></tr>` : ''}
+                </table>
+                ` : ''}
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted mb-3">Location & Purchase</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Location:</strong></td>
+                        <td>${item.location || '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Sub-location:</strong></td>
+                        <td>${item.sub_location || '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Purchase Date:</strong></td>
+                        <td>${item.purchase_date ? new Date(item.purchase_date).toLocaleDateString() : '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Purchase Price:</strong></td>
+                        <td>${item.purchase_price ? '$' + item.purchase_price : '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Purchase Location:</strong></td>
+                        <td>${item.purchase_location || '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Vendor:</strong></td>
+                        <td>${item.vendor || '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Vendor Part #:</strong></td>
+                        <td>${item.vendor_part_number || '<span class="text-muted">Not specified</span>'}</td>
+                    </tr>
+                </table>
+                
+                ${item.notes ? `
+                <h6 class="text-muted mb-3 mt-4">Notes</h6>
+                <div class="border p-3 bg-light rounded">
+                    ${item.notes}
+                </div>
+                ` : ''}
+                
+                <h6 class="text-muted mb-3 mt-4">System Information</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Date Added:</strong></td>
+                        <td>${new Date(item.date_added).toLocaleDateString()}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Last Modified:</strong></td>
+                        <td>${new Date(item.last_modified).toLocaleDateString()}</td>
+                    </tr>
+                    ${item.parent_ja_id ? `<tr><td><strong>Parent Item:</strong></td><td>${item.parent_ja_id}</td></tr>` : ''}
+                    ${item.child_ja_ids && item.child_ja_ids.length > 0 ? `<tr><td><strong>Child Items:</strong></td><td>${item.child_ja_ids.join(', ')}</td></tr>` : ''}
+                </table>
+            </div>
+        </div>
+    `;
+}
 
 window.duplicateItem = function(jaId) {
     if (confirm(`Create a duplicate of item ${jaId}?`)) {

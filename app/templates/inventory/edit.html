@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-pencil"></i> Edit Inventory Item: {{ item.ja_id }}</h2>
+    <div>
+        <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-list"></i> View All Items
+        </a>
+    </div>
+</div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div id="flash-messages">
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<form id="edit-item-form" class="needs-validation" novalidate method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    
+    <!-- Alert for messages -->
+    <div id="form-alerts"></div>
+    
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Basic Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="ja_id" class="form-label">JA ID *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="ja_id" name="ja_id" 
+                                       pattern="JA\d{6}" value="{{ item.ja_id }}" required
+                                       title="Format: JA followed by 6 digits">
+                                <button type="button" class="btn btn-outline-secondary" id="suggest-ja-id-btn" 
+                                        title="Generate next JA ID">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            <div class="invalid-feedback">
+                                Please provide a valid JA ID (format: JA000001).
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="item_type" class="form-label">Type *</label>
+                            <select class="form-select" id="item_type" name="item_type" required>
+                                <option value="">Select type...</option>
+                                {% for type in ItemType %}
+                                    <option value="{{ type.value }}" {% if item.item_type == type %}selected{% endif %}>{{ type.value }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="invalid-feedback">
+                                Please select an item type.
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="shape" class="form-label">Shape *</label>
+                            <select class="form-select" id="shape" name="shape" required>
+                                <option value="">Select shape...</option>
+                                {% for shape in ItemShape %}
+                                    <option value="{{ shape.value }}" {% if item.shape == shape %}selected{% endif %}>{{ shape.value }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="invalid-feedback">
+                                Please select a shape.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="material" class="form-label">Material *</label>
+                            <input type="text" class="form-control" id="material" name="material" 
+                                   value="{{ item.material }}" required list="materials-list" 
+                                   placeholder="e.g., Steel, Aluminum, Stainless">
+                            <datalist id="materials-list">
+                                <!-- Populated by JavaScript -->
+                            </datalist>
+                            <div class="invalid-feedback">
+                                Please specify the material.
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity" 
+                                   min="1" value="{{ item.quantity }}" placeholder="1">
+                        </div>
+                        
+                        <div class="col-md-3 mb-3 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="active" name="active" 
+                                       {% if item.active %}checked{% endif %}>
+                                <label class="form-check-label" for="active">
+                                    Active
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Dimensions -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-rulers"></i> Dimensions</h5>
+                    <small class="text-muted">All dimensions in inches</small>
+                </div>
+                <div class="card-body">
+                    <!-- Required dimensions message -->
+                    <div id="required-dimensions-info" class="alert alert-info d-none">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="required-dimensions-text"></span>
+                    </div>
+                    
+                    <div class="row" id="dimensions-row">
+                        <div class="col-md-3 mb-3">
+                            <label for="length" class="form-label">Length *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="length" name="length" 
+                                       value="{{ item.dimensions.length if item.dimensions.length }}" 
+                                       placeholder="12.5" step="any">
+                                <span class="input-group-text">"</span>
+                            </div>
+                            <div class="invalid-feedback">
+                                Length is required.
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3" id="width-field">
+                            <label for="width" class="form-label" id="width-label">Width *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="width" name="width" 
+                                       value="{{ item.dimensions.width if item.dimensions.width }}" 
+                                       placeholder="1.5" step="any">
+                                <span class="input-group-text">"</span>
+                            </div>
+                            <div class="invalid-feedback">
+                                Width is required.
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3" id="thickness-field">
+                            <label for="thickness" class="form-label">Thickness</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="thickness" name="thickness" 
+                                       value="{{ item.dimensions.thickness if item.dimensions.thickness }}" 
+                                       placeholder="0.25" step="any">
+                                <span class="input-group-text">"</span>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3" id="wall-thickness-field">
+                            <label for="wall_thickness" class="form-label">Wall Thickness</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="wall_thickness" name="wall_thickness" 
+                                       value="{{ item.dimensions.wall_thickness if item.dimensions.wall_thickness }}" 
+                                       placeholder="0.125" step="any">
+                                <span class="input-group-text">"</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="weight" class="form-label">Weight</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="weight" name="weight" 
+                                       value="{{ item.dimensions.weight if item.dimensions.weight }}" 
+                                       placeholder="2.5" step="any">
+                                <span class="input-group-text">lbs</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Threading (Conditional) -->
+            <div class="card mb-4" id="threading-section" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-nut"></i> Threading</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="thread_size" class="form-label">Thread Size</label>
+                            <input type="text" class="form-control" id="thread_size" name="thread_size" 
+                                   value="{{ item.thread.size if item.thread and item.thread.size }}" 
+                                   placeholder="1/2-13" 
+                                   title="Examples: 1/2-13, M12x1.75, #10-24">
+                            <div class="form-text">Examples: 1/2-13, M12x1.75, #10-24</div>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="thread_series" class="form-label">Thread Series</label>
+                            <select class="form-select" id="thread_series" name="thread_series">
+                                <option value="">Select series...</option>
+                                <option value="UNC" {% if item.thread and item.thread.series and item.thread.series.value == 'UNC' %}selected{% endif %}>UNC</option>
+                                <option value="UNF" {% if item.thread and item.thread.series and item.thread.series.value == 'UNF' %}selected{% endif %}>UNF</option>
+                                <option value="UNEF" {% if item.thread and item.thread.series and item.thread.series.value == 'UNEF' %}selected{% endif %}>UNEF</option>
+                                <option value="Metric" {% if item.thread and item.thread.series and item.thread.series.value == 'Metric' %}selected{% endif %}>Metric</option>
+                                <option value="NPT" {% if item.thread and item.thread.series and item.thread.series.value == 'NPT' %}selected{% endif %}>NPT</option>
+                                <option value="BSW" {% if item.thread and item.thread.series and item.thread.series.value == 'BSW' %}selected{% endif %}>BSW</option>
+                                <option value="BSF" {% if item.thread and item.thread.series and item.thread.series.value == 'BSF' %}selected{% endif %}>BSF</option>
+                                <option value="Acme" {% if item.thread and item.thread.series and item.thread.series.value == 'Acme' %}selected{% endif %}>Acme</option>
+                                <option value="Other" {% if item.thread and item.thread.series and item.thread.series.value == 'Other' %}selected{% endif %}>Other</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="thread_handedness" class="form-label">Handedness</label>
+                            <select class="form-select" id="thread_handedness" name="thread_handedness">
+                                <option value="">Select handedness...</option>
+                                <option value="RH" {% if item.thread and item.thread.handedness and item.thread.handedness.value == 'RH' %}selected{% endif %}>Right-Hand (RH)</option>
+                                <option value="LH" {% if item.thread and item.thread.handedness and item.thread.handedness.value == 'LH' %}selected{% endif %}>Left-Hand (LH)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <!-- Location -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Location</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Location</label>
+                        <input type="text" class="form-control" id="location" name="location" 
+                               value="{{ item.location if item.location }}" 
+                               placeholder="Garage, Workshop, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label for="sub_location" class="form-label">Sub-location</label>
+                        <input type="text" class="form-control" id="sub_location" name="sub_location" 
+                               value="{{ item.sub_location if item.sub_location }}" 
+                               placeholder="Shelf A, Bin 3, etc.">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Purchase Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-receipt"></i> Purchase Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="purchase_date" class="form-label">Purchase Date</label>
+                        <input type="date" class="form-control" id="purchase_date" name="purchase_date" 
+                               value="{{ item.purchase_date.strftime('%Y-%m-%d') if item.purchase_date }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="purchase_price" class="form-label">Purchase Price</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="text" class="form-control" id="purchase_price" name="purchase_price" 
+                                   value="{{ item.purchase_price if item.purchase_price }}" 
+                                   placeholder="25.99" step="0.01">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="purchase_location" class="form-label">Purchase Location</label>
+                        <input type="text" class="form-control" id="purchase_location" name="purchase_location" 
+                               value="{{ item.purchase_location if item.purchase_location }}" 
+                               placeholder="Home Depot, Online, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label for="vendor" class="form-label">Vendor</label>
+                        <input type="text" class="form-control" id="vendor" name="vendor" 
+                               value="{{ item.vendor if item.vendor }}" 
+                               placeholder="McMaster-Carr, MSC, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label for="vendor_part_number" class="form-label">Vendor Part Number</label>
+                        <input type="text" class="form-control" id="vendor_part_number" name="vendor_part_number" 
+                               value="{{ item.vendor_part_number if item.vendor_part_number }}" 
+                               placeholder="Part # or SKU">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Notes -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-card-text"></i> Notes</h5>
+                </div>
+                <div class="card-body">
+                    <textarea class="form-control" id="notes" name="notes" rows="4" 
+                              placeholder="Additional notes, condition, special properties, etc.">{{ item.notes if item.notes }}</textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Submit Buttons -->
+    <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+        <div>
+            <a href="{{ url_for('main.inventory_list') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Cancel
+            </a>
+        </div>
+        <div>
+            <button type="submit" class="btn btn-primary btn-submit" name="submit_type" value="save">
+                <i class="bi bi-check-circle"></i> Update Item
+            </button>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inventory-add.js') }}"></script>
+<script>
+// Initialize form with existing values
+document.addEventListener('DOMContentLoaded', function() {
+    // Update form title
+    document.title = 'Edit {{ item.ja_id }} - Workshop Inventory';
+    
+    // Trigger type/shape validation for existing values
+    const itemType = document.getElementById('item_type').value;
+    const shape = document.getElementById('shape').value;
+    
+    if (itemType && shape) {
+        // Simulate change events to validate combination and show/hide fields
+        document.getElementById('item_type').dispatchEvent(new Event('change'));
+        document.getElementById('shape').dispatchEvent(new Event('change'));
+    }
+});
+</script>
+{% endblock %}
