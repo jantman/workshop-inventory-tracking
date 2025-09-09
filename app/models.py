@@ -457,11 +457,11 @@ class Item:
         
         if self.dimensions.length:
             if self.shape == ItemShape.ROUND:
-                parts.append(f"⌀{self.dimensions.width} × {self.dimensions.length}")
+                parts.append(f"⌀{self.dimensions.width}\" × {self.dimensions.length}\"")
             elif self.shape == ItemShape.RECTANGULAR:
-                parts.append(f"{self.dimensions.width} × {self.dimensions.thickness} × {self.dimensions.length}")
+                parts.append(f"{self.dimensions.width}\" × {self.dimensions.thickness}\" × {self.dimensions.length}\"")
             elif self.shape == ItemShape.SQUARE:
-                parts.append(f"{self.dimensions.width} × {self.dimensions.length}")
+                parts.append(f"{self.dimensions.width}\" × {self.dimensions.length}\"")
         
         return " ".join(str(p) for p in parts if p)
     
