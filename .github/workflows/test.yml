@@ -78,14 +78,6 @@ jobs:
           .coverage
         retention-days: 30
     
-    - name: Upload coverage to Codecov (optional)
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        fail_ci_if_error: false
-        verbose: true
-      continue-on-error: true
-    
     - name: Extract coverage percentage
       id: coverage
       run: |
