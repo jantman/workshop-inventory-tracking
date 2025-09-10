@@ -70,9 +70,18 @@
 - Integrate into add item workflow
 
 **Implementation Notes:**
-- Specifications will be provided prior to implementation
-- Integration point with external Python class in separate package
-- Support different label sizes/types with varying parameters
+- Need to add dependency on the `jantman` branch of `https://github.com/jantman/pt-p710bt-label-maker` - this is not available as a Python package, but must be installed directly from that branch of that git repository.
+- https://github.com/jantman/pt-p710bt-label-maker/blob/jantman/pt_p710bt_label_maker/barcode_label.py is a command line variant of the barcode label printer that we want to implement
+- We specifically want to replicate six label types:
+
+1. `1x2` - `pt-barcode-label -L --lp-options '-d sato2 -o PageSize=w144h72 -o Level=B -o Darkness=5' --maxlen-inches 2 --lp-dpi 305 --lp-width-px 305 --fixed-len-px 610`
+2. `1x2 Flag` - same as above but with the `--flag` option added as well.
+3. `2x4` - `pt-barcode-label -L --lp-options '-d sato3 -o PageSize=w288h144 -o Level=B -o Darkness=5'  --maxlen-inches 4 --lp-dpi 305 --lp-width-px 610--fixed-len-px 1220`
+4. `2x4 Flag` - same as above but with the `--flag` option added as well.
+5. `4x6` - `pt-barcode-label -L --lp-options '-d SatoM48Pro2 -o PageSize=w400h600 -o Level=B -o Darkness=5 -o landscape' --maxlen-inches 6 --lp-width-px 1218 --fixed-len-px 2436`
+6. `4x6 Flag` - same as above but with the `--flag` option added as well.
+
+Ideally in code we will store a dictionary where keys are label type names (`1x2`, `2x4 Flag`, etc.) and values are the keyword options that get passed to the `BarcodeLabelGenerator` and `LpPrinter` classes, respectively.
 
 ---
 
