@@ -1,22 +1,30 @@
-# Hierarchical Materials Design
+# Hierarchical Materials Design (Revised)
 
 Based on analysis of 505 inventory items with 73 unique materials.
+
+## Revised Architecture Approach
+
+**Key Design Principles:**
+1. **Separation of Concerns**: Materials taxonomy in dedicated Materials sheet, inventory data stays in Metal sheet
+2. **Flexible Specificity**: Material values can be any hierarchy level (Category/Family/Specific)
+3. **Minimal Disruption**: Only update Material column values in existing Metal sheet
+4. **Progressive Enhancement**: Users can be as specific or generic as their knowledge allows
 
 ## Current State Analysis
 
 **Material Distribution:**
-- Unknown: 160 items (31.7%) - needs identification
+- Unknown: 160 items (31.7%) - can be categorized at appropriate specificity level
 - Carbon Steel: ~80 items (diverse grades: 4140, 12L14, A36, CRS)
 - Brass: ~60 items (multiple alloys: 360, C23000, H58)
 - Copper: ~30 items (including Beryllium Copper)
 - Aluminum: ~30 items (6061, 6063, T6 variants)
 - Stainless Steel: ~35 items (15 different grades)
 
-**Data Quality Issues:**
-- Inconsistent naming conventions
-- Mixed specificity levels (generic "Steel" vs specific "4140 Pre-Hard")
-- Uncertainty indicators ("Stainless?", "4140 ?")
-- Duplicate/variant entries
+**Data Quality Strategy:**
+- Replace inconsistent names with taxonomy values
+- Allow generic categories for uncertain items (e.g., "Carbon Steel" instead of "Steel")
+- Preserve specificity where known (e.g., "4140 Pre-Hard")
+- Eliminate uncertainty indicators through proper categorization
 
 ## Proposed Hierarchical Structure
 
@@ -76,25 +84,31 @@ Category (Top Level)
 #### 8. **Unknown/Uncategorized**
 - Materials requiring identification or specialty classification
 
-## Google Sheets Data Model
+## Data Model
 
-### Materials Sheet Structure
+### Materials Sheet (Taxonomy Only)
+
+The Materials sheet contains ONLY the taxonomy structure - no item data.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| **id** | String | Unique material ID (UUID) |
-| **name** | String | Display name (e.g., "4140 Pre-Hard") |
-| **category** | String | Top-level category (e.g., "Carbon Steel") |
-| **family** | String | Sub-category (e.g., "Medium Carbon Steel") |
-| **parent_id** | String | Parent material ID (for sub-materials) |
-| **level** | Integer | Hierarchy level (1=Category, 2=Family, 3=Material) |
-| **aliases** | String | Comma-separated aliases for matching |
-| **properties** | JSON | Material properties (density, strength, etc.) |
-| **common_forms** | String | Common shapes/forms available |
-| **active** | Boolean | Whether material is active for selection |
-| **usage_count** | Integer | Times used in inventory (updated by migration) |
-| **created_date** | DateTime | When added to system |
-| **notes** | String | Additional notes |
+| **name** | String | Canonical name for this taxonomy entry |
+| **level** | Integer | Hierarchy level (1=Category, 2=Family, 3=Specific) |
+| **parent** | String | Parent name (empty for top-level categories) |
+| **aliases** | String | Comma-separated alternative names |
+| **active** | Boolean | Available for selection |
+| **sort_order** | Integer | Display order within parent |
+| **created_date** | DateTime | When added |
+| **notes** | String | Additional information |
+
+### Metal Sheet (Inventory Data - Unchanged Structure)
+
+The existing Metal sheet structure remains exactly the same. Only the **Material** column values will be updated to reference taxonomy entries.
+
+**Key Change**: Material column values can now be:
+- Category level: `"Carbon Steel"` (for uncertain items)
+- Family level: `"Medium Carbon Steel"` (when subfamily is known)
+- Specific level: `"4140 Pre-Hard"` (when exact material is known)
 
 ### Example Hierarchy Structure
 
@@ -109,27 +123,48 @@ Carbon Steel (Category, Level 1)
     └── 1215 (Material, Level 3)
 ```
 
-## Migration Strategy
+## Migration Strategy (Revised)
 
-### Phase 1: Clean Data Setup
-1. Create Materials Google Sheet with hierarchical structure
-2. Populate with clean, organized material hierarchy
-3. Map existing materials to new hierarchy using aliases
+### Phase 1: Taxonomy Setup
+1. Create Materials sheet with taxonomy structure only
+2. Populate with hierarchical material taxonomy
+3. Create mapping from existing material names to taxonomy entries
 
-### Phase 2: System Integration  
-1. Build MaterialHierarchyService for data access
-2. Create hierarchical material selection UI
-3. Update material autocomplete to use new hierarchy
+### Phase 2: Data Migration  
+1. Build migration tool to update Metal sheet Material column
+2. Map existing materials to appropriate taxonomy level:
+   - Specific materials: `"Steel"` → `"Carbon Steel"` or specific grade if identifiable  
+   - Keep specific materials: `"4140 Pre-Hard"` → `"4140 Pre-Hard"`
+   - Generic materials: `"Stainless?"` → `"Stainless Steel"`
+3. **No structural changes** to Metal sheet
 
-### Phase 3: Data Migration
-1. Create migration tool to map existing inventory materials
-2. Update all existing inventory items to use new material IDs
-3. Preserve historical data with old→new material mapping
+### Phase 3: System Integration
+1. Build MaterialHierarchyService for taxonomy access
+2. Update material autocomplete to use hierarchical taxonomy
+3. Allow selection at any hierarchy level
 
-### Phase 4: Enhanced Features
-1. Admin interface for managing material hierarchy
-2. Material property display and filtering
-3. Usage analytics and reporting
+### Phase 4: Enhanced Features & Cleanup
+1. Admin interface for managing taxonomy
+2. Usage analytics across hierarchy levels
+3. Remove material properties from existing codebase (taxonomy.py, etc.)
+4. Clean up unused property-related code
+
+## Implementation Benefits
+
+### Flexible Specificity Examples
+```
+Current → New (at appropriate specificity level)
+"Steel" → "Carbon Steel" (category level - when unsure of type)
+"Stainless?" → "Stainless Steel" (category level - when unsure of grade) 
+"4140 Pre-Hard" → "4140 Pre-Hard" (specific level - when exactly known)
+"Unknown" → "Carbon Steel" (category level - after research/identification)
+```
+
+### Data Quality Improvements
+- **Eliminates uncertainty markers**: No more "?" or "Unknown"
+- **Consistent naming**: All materials reference taxonomy entries
+- **Preserves knowledge**: Can be specific where known, generic where uncertain  
+- **Progressive enhancement**: Can upgrade specificity over time
 
 ## UI/UX Design Concepts
 
@@ -137,7 +172,6 @@ Carbon Steel (Category, Level 1)
 - **Expandable tree view** for browsing categories
 - **Type-ahead search** across all levels
 - **Recent/frequent materials** for quick access  
-- **Material properties tooltip** on hover
 - **"Add new material"** option for admin users
 
 ### Search Behavior
@@ -149,16 +183,16 @@ Carbon Steel (Category, Level 1)
 ## Benefits
 
 ### For Users
-- **Organized selection** instead of long flat list
-- **Consistent naming** reduces confusion
-- **Material properties** help with selection
-- **Faster finding** through categorization
+- **Flexible specificity**: Choose level of detail appropriate to knowledge
+- **Organized selection**: Browse categories or search across all levels
+- **Consistent naming**: All materials reference clean taxonomy
+- **Progressive enhancement**: Can upgrade specificity over time
 
-### For Data Quality
-- **Eliminates duplicates** through normalization
-- **Standardized naming** conventions
-- **Uncertainty tracking** for unknown materials
-- **Usage analytics** for inventory insights
+### For Data Quality  
+- **No structural disruption**: Existing Metal sheet unchanged
+- **Eliminates uncertainty markers**: Proper categorization instead of "?"
+- **Preserves knowledge**: Maintains current specificity levels
+- **Clean taxonomy**: Centralized material definitions
 
 ## Implementation Priority
 
