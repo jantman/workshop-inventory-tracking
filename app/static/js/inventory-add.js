@@ -55,7 +55,6 @@ class InventoryAddForm {
         this.setupBarcodeScanning();
         this.setupMaterialAutocomplete();
         this.updateDimensionRequirements();
-        this.loadMaterialSuggestions();
         this.autoPopulateJaId();
     }
     
@@ -309,14 +308,25 @@ class InventoryAddForm {
         const materialInput = document.getElementById('material');
         const suggestionsDiv = document.getElementById('material-suggestions');
         
-        materialInput.addEventListener('input', WorkshopInventory.utils.debounce((e) => {
+        materialInput.addEventListener('input', WorkshopInventory.utils.debounce(async (e) => {
             const query = e.target.value.trim();
             if (query.length >= 1) {
-                this.showMaterialMatches(query);
+                await this.showMaterialMatches(query);
             } else {
                 suggestionsDiv.style.display = 'none';
             }
         }, 200));
+        
+        // Show initial suggestions when field is focused
+        materialInput.addEventListener('focus', async () => {
+            const query = materialInput.value.trim();
+            if (query.length >= 1) {
+                await this.showMaterialMatches(query);
+            } else {
+                // Show categories when no query
+                await this.showMaterialMatches('');
+            }
+        });
         
         // Hide suggestions when clicking outside
         document.addEventListener('click', (e) => {
@@ -326,68 +336,53 @@ class InventoryAddForm {
         });
     }
     
-    async loadMaterialSuggestions() {
-        try {
-            const response = await fetch('/api/materials/suggestions');
-            if (response.ok) {
-                this.materialSuggestions = await response.json();
-                console.log(`Loaded ${this.materialSuggestions.length} materials from inventory data`);
-            } else {
-                // Fallback based on common materials from your data
-                this.materialSuggestions = [
-                    'Steel', 'Brass', 'Copper', 'Aluminum', '321 Stainless', '12L14',
-                    'Brass 360-H02', 'Stainless', 'O1 Tool Steel', '15-5 Stainless',
-                    'C23000 red brass', '6063-T52', '6061-T6511', 'A36', 'Stainless Steel'
-                ];
-            }
-        } catch (error) {
-            console.warn('Failed to load material suggestions:', error);
-            // Fallback based on common materials from your data
-            this.materialSuggestions = [
-                'Steel', 'Brass', 'Copper', 'Aluminum', '321 Stainless', '12L14',
-                'Brass 360-H02', 'Stainless', 'O1 Tool Steel', '15-5 Stainless',
-                'C23000 red brass', '6063-T52', '6061-T6511', 'A36', 'Stainless Steel'
-            ];
-        }
-    }
+    // Material suggestions now use dynamic API calls
     
-    showMaterialMatches(query) {
+    async showMaterialMatches(query) {
         const suggestionsDiv = document.getElementById('material-suggestions');
-        const matches = this.materialSuggestions
-            .filter(material => material.toLowerCase().includes(query.toLowerCase()))
-            .sort((a, b) => {
-                // Prioritize matches that start with the query
-                const aStarts = a.toLowerCase().startsWith(query.toLowerCase());
-                const bStarts = b.toLowerCase().startsWith(query.toLowerCase());
-                if (aStarts && !bStarts) return -1;
-                if (!aStarts && bStarts) return 1;
-                return a.localeCompare(b);
-            })
-            .slice(0, 10);
         
-        if (matches.length === 0) {
-            suggestionsDiv.style.display = 'none';
-            return;
-        }
-        
-        const html = matches.map(material => 
-            `<a class="dropdown-item" href="#" data-material="${material}">${material}</a>`
-        ).join('');
-        
-        suggestionsDiv.innerHTML = html;
-        suggestionsDiv.style.display = 'block';
-        
-        // Position is handled by CSS with position-relative/absolute
-        
-        // Add click handlers
-        suggestionsDiv.querySelectorAll('.dropdown-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.preventDefault();
-                const materialInput = document.getElementById('material');
-                materialInput.value = item.dataset.material;
+        try {
+            // Build API query
+            const params = new URLSearchParams();
+            if (query) {
+                params.append('q', query);
+            }
+            params.append('limit', '10');
+            
+            const response = await fetch(`/api/materials/suggestions?${params}`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch suggestions');
+            }
+            
+            const matches = await response.json();
+            
+            if (matches.length === 0) {
                 suggestionsDiv.style.display = 'none';
+                return;
+            }
+            
+            const html = matches.map(material => 
+                `<a class="dropdown-item" href="#" data-material="${material}">${material}</a>`
+            ).join('');
+            
+            suggestionsDiv.innerHTML = html;
+            suggestionsDiv.style.display = 'block';
+            
+            // Add click handlers
+            suggestionsDiv.querySelectorAll('.dropdown-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const materialInput = document.getElementById('material');
+                    materialInput.value = item.dataset.material;
+                    suggestionsDiv.style.display = 'none';
+                });
             });
-        });
+            
+        } catch (error) {
+            console.warn('Failed to fetch material suggestions:', error);
+            // Fallback to hiding suggestions
+            suggestionsDiv.style.display = 'none';
+        }
     }
     
     // showMaterialSuggestions method removed - using pure autocomplete
