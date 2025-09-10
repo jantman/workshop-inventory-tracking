@@ -10,6 +10,17 @@ from dataclasses import dataclass
 from .google_sheets_storage import GoogleSheetsStorage
 
 
+def _parse_bool(value: Any) -> bool:
+    """Parse boolean value from storage data, handling string representations."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ('true', '1', 'yes', 'on')
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return bool(value)
+
+
 @dataclass
 class MaterialTaxonomy:
     """Represents a single entry in the materials taxonomy."""
@@ -29,7 +40,7 @@ class MaterialTaxonomy:
             level=int(row[1]) if row[1] else 1,
             parent=str(row[2]) if row[2] else '',
             aliases=[alias.strip() for alias in str(row[3]).split(',') if alias.strip()] if row[3] else [],
-            active=bool(row[4]) if len(row) > 4 else True,
+            active=_parse_bool(row[4]) if len(row) > 4 else True,
             sort_order=int(row[5]) if len(row) > 5 and row[5] else 0,
             notes=str(row[7]) if len(row) > 7 and row[7] else ''
         )

@@ -109,10 +109,12 @@ class AdminMaterialsPage(BasePage):
         # Find the material node and click its status toggle button
         material_node = self.page.locator(f'.taxonomy-node[data-name="{material_name}"]')
         status_btn = material_node.locator('button:has([class*="bi-eye"])').first
+        
+        # Set up dialog handler before clicking
+        self.page.on("dialog", lambda dialog: dialog.accept())
         status_btn.click()
         
-        # Handle confirmation dialog
-        self.page.on("dialog", lambda dialog: dialog.accept())
+        # Wait for page to reload/update
         self.page.wait_for_load_state("networkidle")
     
     def click_add_child(self, parent_name):
@@ -300,8 +302,10 @@ def test_parent_validation(page, live_server):
     admin_page.fill_add_form(name="Test Family No Parent")
     admin_page.submit_form()
     
-    # Should show validation error
-    expect(page.locator(".invalid-feedback")).to_be_visible()
+    # Should show parent validation error specifically
+    parent_feedback = page.locator("#parent").locator("..").locator(".invalid-feedback")
+    expect(parent_feedback).to_be_visible()
+    expect(parent_feedback).to_contain_text("select a parent")
 
 
 @pytest.mark.e2e
@@ -320,8 +324,11 @@ def test_material_status_toggle(page, live_server):
     # Toggle material to inactive
     admin_page.toggle_material_status("Test Toggle Category")
     
-    # Should still be visible with inactive badge
-    material_node = page.locator('.taxonomy-node:has-text("Test Toggle Category")')
+    # Enable "Show inactive materials" to see the inactive material
+    admin_page.toggle_show_inactive()
+    
+    # Should now be visible with inactive badge
+    material_node = page.locator('.taxonomy-node[data-name="Test Toggle Category"]')
     expect(material_node.locator(".badge:has-text('INACTIVE')")).to_be_visible()
 
 
@@ -359,13 +366,19 @@ def test_show_inactive_toggle(page, live_server):
     # Deactivate it
     admin_page.toggle_material_status("Test Inactive Category")
     
-    # Should be visible with inactive badge
-    expect(page.locator('.taxonomy-node:has-text("Test Inactive Category")')).to_be_visible()
+    # Material should now be hidden (default view shows only active materials)
+    admin_page.assert_material_not_in_tree("Test Inactive Category")
     
-    # Toggle show inactive off
+    # Enable "Show inactive materials" to see the inactive material
     admin_page.toggle_show_inactive()
     
-    # Should reload page and inactive material should be hidden
+    # Should now be visible with inactive badge
+    expect(page.locator('.taxonomy-node:has-text("Test Inactive Category")')).to_be_visible()
+    
+    # Toggle show inactive off again
+    admin_page.toggle_show_inactive()
+    
+    # Should reload page and inactive material should be hidden again
     admin_page.assert_material_not_in_tree("Test Inactive Category")
 
 
