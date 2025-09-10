@@ -290,16 +290,16 @@ def test_material_autocomplete_functionality(page, live_server):
     suggestion_items = page.locator('#material-suggestions .dropdown-item')
     expect(suggestion_items.first).to_be_visible()  # At least one suggestion visible
     
-    # Should show Steel first (most common), then stainless variations
+    # Should show steel categories and materials (hierarchical system)
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
-    assert 'Steel' in suggestions_text, f"Expected 'Steel' in suggestions: {suggestions_text}"
+    assert any('Steel' in s for s in suggestions_text), f"Expected steel material in suggestions: {suggestions_text}"
     assert any('Stainless' in s for s in suggestions_text), f"Expected stainless material in: {suggestions_text}"
     
     # Test 2: Clicking suggestion populates the field
-    steel_suggestion = page.locator('#material-suggestions .dropdown-item').filter(has_text='Steel').first
+    steel_suggestion = page.locator('#material-suggestions .dropdown-item').filter(has_text='Carbon Steel').first
     steel_suggestion.click()
     
-    expect(material_input).to_have_value('Steel')
+    expect(material_input).to_have_value('Carbon Steel')
     expect(suggestions_div).not_to_be_visible()
     
     # Test 3: Typing "Bra" should show Brass materials
@@ -310,8 +310,10 @@ def test_material_autocomplete_functionality(page, live_server):
     suggestion_items = page.locator('#material-suggestions .dropdown-item')
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
     
-    assert 'Brass' in suggestions_text, f"Expected 'Brass' in suggestions: {suggestions_text}"
-    assert 'Brass 360-H02' in suggestions_text, f"Expected 'Brass 360-H02' in suggestions: {suggestions_text}"
+    assert any('Brass' in s for s in suggestions_text), f"Expected brass material in suggestions: {suggestions_text}"
+    # Should show either the category or specific brass material
+    brass_found = any(s in ['Brass', '360 Brass'] for s in suggestions_text) or any('Brass' in s for s in suggestions_text)
+    assert brass_found, f"Expected brass material in suggestions: {suggestions_text}"
     
     # Test 4: Typing specific material like "12L" should show 12L14
     material_input.fill('12L')

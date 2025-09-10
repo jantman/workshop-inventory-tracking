@@ -57,6 +57,9 @@ class E2ETestServer:
         # Create Flask app with test storage
         self.app = create_app(TestConfig, storage_backend=self.storage)
         
+        # Set up Materials taxonomy for hierarchical system (after app creation)
+        self.setup_materials_taxonomy()
+        
         # Create server
         self.server = make_server(
             self.host, 
@@ -169,6 +172,56 @@ class E2ETestServer:
             else:
                 print(f"Error force-flushing items: {result.error}")
     
+    def setup_materials_taxonomy(self):
+        """Setup Materials sheet with hierarchical taxonomy for testing"""
+        if not self.storage:
+            raise RuntimeError("Server not started")
+        
+        # Create Materials sheet with proper headers
+        materials_headers = ['name', 'level', 'parent', 'aliases', 'active', 'sort_order', 'created_date', 'notes']
+        result = self.storage.create_sheet('Materials', materials_headers)
+        if not result.success:
+            print(f"Warning: Could not create Materials sheet: {result.error}")
+            return
+        
+        # Add basic taxonomy data for testing
+        taxonomy_data = [
+            # Categories (Level 1)
+            ['Carbon Steel', 1, '', 'Steel', True, 1, '2025-01-01', 'Structural and general purpose steel'],
+            ['Stainless Steel', 1, '', 'Stainless', True, 2, '2025-01-01', 'Corrosion resistant steel alloys'],
+            ['Aluminum', 1, '', 'Al', True, 3, '2025-01-01', 'Lightweight aluminum alloys'],
+            ['Brass', 1, '', '', True, 4, '2025-01-01', 'Copper-zinc alloys'],
+            ['Copper', 1, '', 'Cu', True, 5, '2025-01-01', 'Pure copper and copper alloys'],
+            ['Tool Steel', 1, '', '', True, 6, '2025-01-01', 'High carbon steel for tools'],
+            
+            # Families (Level 2) 
+            ['Medium Carbon Steel', 2, 'Carbon Steel', '4140 Series', True, 1, '2025-01-01', '0.3-0.6% carbon content'],
+            ['Free Machining Steel', 2, 'Carbon Steel', 'Leaded Steel', True, 2, '2025-01-01', 'Enhanced machinability'],
+            ['Austenitic Stainless', 2, 'Stainless Steel', '300 Series', True, 1, '2025-01-01', 'Non-magnetic stainless'],
+            ['6000 Series', 2, 'Aluminum', 'Al-Mg-Si', True, 1, '2025-01-01', 'Heat treatable aluminum'],
+            
+            # Specific Materials (Level 3)
+            ['4140', 3, 'Medium Carbon Steel', '4140 Steel', True, 1, '2025-01-01', 'Chromium-molybdenum alloy steel'],
+            ['4140 Pre-Hard', 3, 'Medium Carbon Steel', '4140 PHB', True, 2, '2025-01-01', 'Pre-hardened 4140 steel'],
+            ['12L14', 3, 'Free Machining Steel', '', True, 1, '2025-01-01', 'Leaded free-machining steel'],
+            ['304', 3, 'Austenitic Stainless', '304 Stainless,SS304', True, 1, '2025-01-01', 'General purpose stainless'],
+            ['304L', 3, 'Austenitic Stainless', '304L Stainless', True, 2, '2025-01-01', 'Low carbon 304'],
+            ['316', 3, 'Austenitic Stainless', '316 Stainless,SS316', True, 3, '2025-01-01', 'Molybdenum-enhanced stainless'],
+            ['316L', 3, 'Austenitic Stainless', '316L Stainless', True, 4, '2025-01-01', 'Low carbon 316'],
+            ['321', 3, 'Austenitic Stainless', '321 Stainless', True, 5, '2025-01-01', 'Titanium stabilized'],
+            ['6061-T6', 3, '6000 Series', '6061,6061 T6', True, 1, '2025-01-01', 'Heat treated aluminum'],
+            ['360 Brass', 3, 'Brass', 'Brass 360', True, 1, '2025-01-01', 'Free machining brass'],
+            ['C10100', 3, 'Copper', 'Pure Copper', True, 1, '2025-01-01', 'Oxygen-free copper']
+        ]
+        
+        # Add taxonomy data to Materials sheet
+        for row_data in taxonomy_data:
+            result = self.storage.write_row('Materials', row_data)
+            if not result.success:
+                print(f"Warning: Could not add taxonomy row {row_data[0]}: {result.error}")
+        
+        print(f"✅ Materials taxonomy initialized with {len(taxonomy_data)} entries")
+
     def clear_test_data(self):
         """Clear all test data from storage"""
         if self.storage:
@@ -177,6 +230,8 @@ class E2ETestServer:
             from app.inventory_service import InventoryService
             headers = InventoryService.SHEET_HEADERS
             self.storage.create_sheet('Metal', headers)
+            # Also setup materials taxonomy for hierarchical system
+            self.setup_materials_taxonomy()
     
     def __enter__(self):
         """Context manager entry"""
