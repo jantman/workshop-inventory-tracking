@@ -334,6 +334,10 @@ const WorkshopInventory = {
             input.addEventListener('blur', () => {
                 if (input.value.trim() === '') {
                     input.classList.add('is-invalid');
+                    input.classList.remove('is-valid');
+                } else if (!input.checkValidity()) {
+                    input.classList.add('is-invalid');
+                    input.classList.remove('is-valid');
                 } else {
                     input.classList.remove('is-invalid');
                     input.classList.add('is-valid');
@@ -493,7 +497,7 @@ const WorkshopInventory = {
         // Enhanced form validation
         validateForm: function(form, customValidators = {}) {
             let isValid = true;
-            const firstInvalidField = null;
+            let firstInvalidField = null;
             
             // Clear previous validation states
             form.querySelectorAll('.is-valid, .is-invalid').forEach(field => {
@@ -506,6 +510,12 @@ const WorkshopInventory = {
                 if (!field.value.trim()) {
                     field.classList.add('is-invalid');
                     this.showFieldError(field, 'This field is required.');
+                    isValid = false;
+                    if (!firstInvalidField) firstInvalidField = field;
+                } else if (!field.checkValidity()) {
+                    // Field has value but doesn't pass HTML5 validation (pattern, type, etc.)
+                    field.classList.add('is-invalid');
+                    this.showFieldError(field, field.validationMessage || 'Invalid value.');
                     isValid = false;
                     if (!firstInvalidField) firstInvalidField = field;
                 } else {

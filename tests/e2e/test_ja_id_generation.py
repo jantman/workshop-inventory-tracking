@@ -5,6 +5,7 @@ Tests for the automatic JA ID generation functionality.
 """
 
 import pytest
+import re
 from tests.e2e.pages.add_item_page import AddItemPage
 from playwright.sync_api import expect
 
@@ -47,6 +48,65 @@ def test_ja_id_field_validation_after_auto_population(page, live_server):
     
     # Verify the field is not marked as invalid
     expect(ja_id_field).not_to_have_class('is-invalid')
+    
+    # The auto-populated value should be valid
+    auto_populated_id = ja_id_field.input_value()
+    assert auto_populated_id == "JA000001", f"Auto-populated ID should be JA000001, got: {auto_populated_id}"
+
+
+@pytest.mark.e2e
+def test_ja_id_validation_errors_cleared_after_auto_population(page, live_server):
+    """Test that validation errors are cleared even when they appear before auto-population"""
+    # Navigate to add item page
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    ja_id_field = page.locator('#ja_id')
+    invalid_feedback = page.locator('.invalid-feedback')
+    
+    # First, clear the auto-populated value and enter an invalid one to trigger validation
+    ja_id_field.fill("")
+    ja_id_field.fill("INVALID")
+    
+    # Trigger validation by submitting the form (this should show validation errors)
+    submit_btn = page.locator('#submit-btn')
+    submit_btn.click()
+    
+    # Wait for validation to trigger
+    page.wait_for_timeout(500)
+    
+    # The field should be invalid due to pattern mismatch, but may show is-valid due to JS validation override
+    # Since checkValidity() correctly returns false, let's check if the form validation works properly
+    is_valid = ja_id_field.evaluate("el => el.checkValidity()")
+    assert not is_valid, "Field should be invalid due to pattern mismatch"
+    
+    # Check if the JavaScript validation fix worked - field should now be properly marked invalid
+    actual_classes = ja_id_field.get_attribute("class")
+    print(f"Field classes after fix: {actual_classes}")
+    
+    # Now field should be properly marked as invalid
+    expect(ja_id_field).to_have_class(re.compile(r'.*is-invalid.*'))
+    
+    # Find the specific invalid-feedback for JA ID field (it's a sibling of the input-group)
+    ja_id_container = page.locator('#ja_id').locator('../..') # Go up to the col-md-4 container
+    ja_id_feedback = ja_id_container.locator('.invalid-feedback')
+    expect(ja_id_feedback).to_be_visible()
+    
+    # Now refresh the page to trigger auto-population
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    
+    # Wait for auto-population to complete
+    page.wait_for_timeout(2000)
+    
+    # After auto-population, validation errors should be cleared
+    expect(ja_id_field).not_to_have_value('')  # Should have auto-populated value
+    
+    # Check that the field no longer has is-invalid class (this was the original issue)
+    expect(ja_id_field).not_to_have_class(re.compile(r'.*is-invalid.*'))
+    
+    # The JA ID feedback specifically should not be visible  
+    expect(ja_id_feedback).not_to_be_visible()
     
     # The auto-populated value should be valid
     auto_populated_id = ja_id_field.input_value()

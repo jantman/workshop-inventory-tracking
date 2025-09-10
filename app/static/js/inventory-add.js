@@ -200,9 +200,24 @@ class InventoryAddForm {
                 jaIdInput.value = data.next_ja_id;
                 console.log(`Auto-populated JA ID: ${data.next_ja_id}`);
                 
-                // Trigger validation to clear any validation errors
+                // Clear validation errors explicitly
+                jaIdInput.classList.remove('is-invalid');
+                jaIdInput.setCustomValidity('');
+                
+                // Trigger validation events to update Bootstrap validation state
                 jaIdInput.dispatchEvent(new Event('input', { bubbles: true }));
-                jaIdInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                jaIdInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Always force revalidation to clear any remaining errors
+                jaIdInput.checkValidity();
+                
+                // Remove was-validated class to clear error displays if form is now valid
+                if (this.form.checkValidity()) {
+                    this.form.classList.remove('was-validated');
+                } else {
+                    // If form is still invalid but JA ID is now valid, still try to clear its specific errors
+                    this.form.classList.add('was-validated');
+                }
             } else {
                 console.warn('Failed to auto-populate JA ID:', data.error);
             }

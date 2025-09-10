@@ -19,7 +19,8 @@
       "Bash(timeout 180 python -m pytest:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(FLASK_RUN_PORT=5001 python app.py)"
     ],
     "deny": [],
     "ask": []
