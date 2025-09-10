@@ -342,9 +342,11 @@ def check_ja_id_exists(ja_id):
 
 @bp.route('/api/materials/suggestions')
 def material_suggestions():
-    """Get material suggestions from actual inventory data"""
-    query = request.args.get('q', '').strip().lower()
+    """Get material suggestions from hierarchical taxonomy"""
+    query = request.args.get('q', '').strip()
     limit = request.args.get('limit', '10')
+    level = request.args.get('level')  # Filter by hierarchy level (1=Category, 2=Family, 3=Material)
+    parent = request.args.get('parent')  # Filter by parent name
     
     try:
         limit = int(limit)
@@ -353,39 +355,39 @@ def material_suggestions():
         limit = 10
     
     try:
-        from app.inventory_service import InventoryService
+        level_int = int(level) if level else None
+        if level_int and level_int not in [1, 2, 3]:
+            level_int = None
+    except (ValueError, TypeError):
+        level_int = None
+    
+    try:
+        from app.materials_service import MaterialHierarchyService
         
-        # Get actual materials from inventory using app's configured storage
+        # Get storage backend
         storage_backend = current_app.config.get('STORAGE_BACKEND')
         if storage_backend:
             # Use injected storage backend (for testing)
-            service = InventoryService(storage_backend)
+            storage = storage_backend
         else:
             # Use default Google Sheets storage for production
             from app.google_sheets_storage import GoogleSheetsStorage
             from config import Config
             storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
-            service = InventoryService(storage)
         
-        items = service.get_all_items()
+        # Initialize material hierarchy service
+        materials_service = MaterialHierarchyService(storage)
         
-        # Extract unique materials, filter out Unknown/empty, and count usage
-        from collections import Counter
-        materials = [item.material for item in items if item.material and item.material.strip() and item.material.lower() != 'unknown']
-        material_counts = Counter(materials)
+        # Get suggestions using the new service
+        suggestions = materials_service.get_suggestions(
+            query=query,
+            level=level_int,
+            parent=parent,
+            limit=limit
+        )
         
-        # Filter by query if provided
-        if query:
-            filtered_materials = [(material, count) for material, count in material_counts.items() 
-                                if query in material.lower()]
-        else:
-            filtered_materials = list(material_counts.items())
-        
-        # Sort by usage count (desc) then alphabetically
-        filtered_materials.sort(key=lambda x: (-x[1], x[0]))
-        
-        # Return just the material names for the simple autocomplete
-        material_names = [material for material, count in filtered_materials[:limit]]
+        # Return just the material names for backward compatibility with existing autocomplete
+        material_names = [suggestion['name'] for suggestion in suggestions]
         return jsonify(material_names)
         
     except Exception as e:
@@ -394,6 +396,68 @@ def material_suggestions():
             'success': False,
             'error': 'Failed to get material suggestions'
         }), 500
+
+
+@bp.route('/api/materials/hierarchy')
+def materials_hierarchy():
+    """Get hierarchical materials taxonomy (for testing)"""
+    try:
+        from app.materials_service import MaterialHierarchyService
+        
+        # Get storage backend
+        storage_backend = current_app.config.get('STORAGE_BACKEND')
+        if storage_backend:
+            storage = storage_backend
+        else:
+            from app.google_sheets_storage import GoogleSheetsStorage
+            from config import Config
+            storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        
+        materials_service = MaterialHierarchyService(storage)
+        
+        # Get categories and their children
+        categories = materials_service.get_categories()
+        hierarchy = []
+        
+        for category in categories:
+            families = materials_service.get_children(category.name)
+            category_data = {
+                'name': category.name,
+                'level': category.level,
+                'notes': category.notes,
+                'families': []
+            }
+            
+            for family in families:
+                materials = materials_service.get_children(family.name)
+                family_data = {
+                    'name': family.name,
+                    'level': family.level,
+                    'parent': family.parent,
+                    'notes': family.notes,
+                    'materials': [{'name': m.name, 'level': m.level, 'parent': m.parent, 'aliases': m.aliases, 'notes': m.notes} for m in materials]
+                }
+                category_data['families'].append(family_data)
+            
+            hierarchy.append(category_data)
+        
+        return jsonify({
+            'success': True,
+            'hierarchy': hierarchy,
+            'summary': {
+                'categories': len(categories),
+                'total_families': sum(len(cat['families']) for cat in hierarchy),
+                'total_materials': sum(sum(len(fam['materials']) for fam in cat['families']) for cat in hierarchy)
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting materials hierarchy: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get materials hierarchy'
+        }), 500
+
 
 @bp.route('/api/validate/type-shape', methods=['POST'])
 @csrf.exempt
