@@ -37,6 +37,39 @@ body {
     width: 1rem;
 }
 
+/* JA ID quick lookup styling */
+#ja-id-lookup {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+#ja-id-lookup::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+#ja-id-lookup:focus {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25);
+    color: white;
+}
+
+#ja-id-lookup.is-invalid {
+    background-color: rgba(220, 53, 69, 0.2);
+    border-color: var(--danger-color) !important;
+    color: white;
+}
+
+.navbar .input-group-text {
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.8);
+}
+
 /* Connection status indicator */
 #connection-status {
     cursor: pointer;

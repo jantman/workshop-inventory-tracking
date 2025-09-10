@@ -49,6 +49,22 @@
                     </li>
                 </ul>
                 
+                <!-- JA ID Quick Lookup -->
+                <div class="d-flex me-3">
+                    <div class="input-group" style="width: 200px;">
+                        <span class="input-group-text bg-light border-0" title="Quick JA ID Lookup">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control border-0" 
+                               id="ja-id-lookup" 
+                               placeholder="JA ID (e.g. JA000123)"
+                               pattern="JA[0-9]{6}"
+                               title="Enter JA ID and press Enter to edit item"
+                               maxlength="8">
+                    </div>
+                </div>
+                
                 <ul class="navbar-nav">
                     <li class="nav-item">
                         <a class="nav-link" href="#" id="keyboard-help-btn" title="Keyboard Shortcuts (Shift + ?)">

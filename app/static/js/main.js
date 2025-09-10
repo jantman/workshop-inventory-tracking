@@ -52,6 +52,9 @@ const WorkshopInventory = {
             });
         }
         
+        // JA ID quick lookup handler
+        this.setupJaIdLookup();
+        
         // Form validation helpers
         this.setupFormValidation();
         
@@ -314,6 +317,71 @@ const WorkshopInventory = {
     },
     
     // Set up form validation
+    // Set up JA ID quick lookup functionality
+    setupJaIdLookup: function() {
+        const jaIdInput = document.getElementById('ja-id-lookup');
+        if (!jaIdInput) return;
+        
+        jaIdInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const jaId = jaIdInput.value.trim().toUpperCase();
+                
+                // Validate JA ID format (JA######)
+                if (!jaId.match(/^JA[0-9]{6}$/)) {
+                    // Show visual feedback for invalid format
+                    jaIdInput.classList.add('is-invalid');
+                    jaIdInput.title = 'Invalid format. Use JA######';
+                    
+                    // Clear invalid state after 2 seconds
+                    setTimeout(() => {
+                        jaIdInput.classList.remove('is-invalid');
+                        jaIdInput.title = 'Enter JA ID and press Enter to edit item';
+                    }, 2000);
+                    return;
+                }
+                
+                // Clear the input and navigate
+                jaIdInput.value = '';
+                jaIdInput.classList.remove('is-invalid');
+                
+                // Navigate to edit page
+                const editUrl = `/inventory/edit/${jaId}`;
+                console.log(`Navigating to edit page for ${jaId}: ${editUrl}`);
+                window.location.href = editUrl;
+            }
+        });
+        
+        // Handle input formatting - auto uppercase and format
+        jaIdInput.addEventListener('input', (e) => {
+            let value = e.target.value.toUpperCase();
+            
+            // Remove invalid characters
+            value = value.replace(/[^JA0-9]/g, '');
+            
+            // Ensure it starts with JA
+            if (value.length > 0 && !value.startsWith('JA')) {
+                if (value.match(/^[0-9]/)) {
+                    value = 'JA' + value;
+                } else {
+                    value = 'JA';
+                }
+            }
+            
+            // Limit to 8 characters (JA + 6 digits)
+            if (value.length > 8) {
+                value = value.substring(0, 8);
+            }
+            
+            e.target.value = value;
+            
+            // Remove invalid state when user types
+            if (e.target.classList.contains('is-invalid')) {
+                e.target.classList.remove('is-invalid');
+                e.target.title = 'Enter JA ID and press Enter to edit item';
+            }
+        });
+    },
+    
     setupFormValidation: function() {
         // Add Bootstrap validation classes
         const forms = document.querySelectorAll('.needs-validation');
