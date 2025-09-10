@@ -222,9 +222,10 @@ class GoogleSheetsStorage(Storage):
             
             result = self._retry_request(
                 service.spreadsheets().batchUpdate,
+                f"create_sheet {sheet_name}",
                 spreadsheetId=self.spreadsheet_id,
                 body=body
-            ).execute()
+            )
             
             # Then add headers if provided
             if headers:
@@ -274,9 +275,10 @@ class GoogleSheetsStorage(Storage):
             
             result = self._retry_request(
                 service.spreadsheets().batchUpdate,
+                f"rename_sheet {old_name} to {new_name}",
                 spreadsheetId=self.spreadsheet_id,
                 body=body
-            ).execute()
+            )
             
             current_app.logger.info(f'Renamed sheet from {old_name} to {new_name}')
             return StorageResult(success=True)
