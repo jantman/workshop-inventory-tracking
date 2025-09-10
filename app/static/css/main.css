@@ -431,14 +431,12 @@ footer {
 
 /* Form validation feedback */
 .invalid-feedback {
-    display: block;
     font-size: 0.875rem;
     margin-top: 0.25rem;
     color: var(--danger-color);
 }
 
 .valid-feedback {
-    display: block;
     font-size: 0.875rem;
     margin-top: 0.25rem;
     color: var(--success-color);
