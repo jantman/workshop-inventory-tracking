@@ -5,7 +5,7 @@ from app import csrf
 from app.google_sheets_storage import GoogleSheetsStorage
 from app.inventory_service import InventoryService
 from app.performance import batch_manager
-from app.taxonomy import taxonomy_manager
+from app.taxonomy import type_shape_validator
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
@@ -483,11 +483,11 @@ def validate_type_shape():
                 'error': 'Invalid item_type or shape'
             }), 400
         
-        is_valid, errors = taxonomy_manager.validate_type_shape_combination(item_type, shape)
+        is_valid, errors = type_shape_validator.validate_type_shape_combination(item_type, shape)
         
         if is_valid:
-            required_dims = taxonomy_manager.get_required_dimensions(item_type, shape)
-            optional_dims = taxonomy_manager.get_optional_dimensions(item_type, shape)
+            required_dims = type_shape_validator.get_required_dimensions(item_type, shape)
+            optional_dims = type_shape_validator.get_optional_dimensions(item_type, shape)
             
             return jsonify({
                 'success': True,
@@ -1064,8 +1064,8 @@ def _parse_item_from_form(form_data):
     
     active = form_data.get('active') == 'on'
     
-    # Normalize material
-    material, _ = taxonomy_manager.normalize_material(form_data['material'])
+    # Material is now handled by hierarchical taxonomy - use as provided
+    material = form_data['material'].strip()
     
     # Create item
     item = Item(
