@@ -180,6 +180,7 @@ class GoogleSheetsStorage(Storage):
             
             result = self._retry_request(
                 service.spreadsheets().values().update,
+                'update_row',
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name,
                 valueInputOption='USER_ENTERED',
