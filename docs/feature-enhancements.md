@@ -62,7 +62,7 @@
 
 ## Phase 3: Label Printing
 
-**Goal:** Optional label printing for newly added items during the add item process.
+**Goal:** Optional label printing for newly added items during the add item process, and for existing items using a button/link to print the label.
 
 **Integration:**
 - External Python class in separate package  
