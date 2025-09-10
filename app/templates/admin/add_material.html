@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}Add {{ 'Category' if level == 1 else ('Family' if level == 2 else 'Material') }} - Workshop Inventory{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="d-flex align-items-center mb-4">
+                <a href="{{ url_for('admin.materials_overview') }}" class="btn btn-outline-secondary me-3">
+                    <i class="bi bi-arrow-left"></i> Back to Overview
+                </a>
+                <h1>
+                    <i class="bi bi-plus-circle"></i>
+                    Add {{ 'Category' if level == 1 else ('Family' if level == 2 else 'Material') }}
+                    <small class="text-muted">(Level {{ level }})</small>
+                </h1>
+            </div>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Level-specific guidance -->
+            <div class="alert alert-info mb-4">
+                {% if level == 1 %}
+                    <i class="bi bi-info-circle-fill"></i>
+                    <strong>Adding a Category:</strong> Top-level material categories (e.g., "Carbon Steel", "Plastics"). 
+                    Categories don't have parents and can contain families or materials.
+                {% elif level == 2 %}
+                    <i class="bi bi-info-circle-fill"></i>
+                    <strong>Adding a Family:</strong> Material families group related materials within a category 
+                    (e.g., "Medium Carbon Steel" under "Carbon Steel"). Must have a category as parent.
+                {% else %}
+                    <i class="bi bi-info-circle-fill"></i>
+                    <strong>Adding a Material:</strong> Specific materials or alloys 
+                    (e.g., "4140 Pre-Hard" under "Medium Carbon Steel"). Must have a family as parent.
+                {% endif %}
+            </div>
+
+            <!-- Add Material Form -->
+            <div class="card">
+                <div class="card-header">
+                    <h5>{{ 'Category' if level == 1 else ('Family' if level == 2 else 'Material') }} Details</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" id="add-material-form" novalidate>
+                        {{ csrf_token() }}
+                        <input type="hidden" name="level" value="{{ level }}">
+
+                        <!-- Name (Required) -->
+                        <div class="mb-3">
+                            <label for="name" class="form-label">
+                                {{ 'Category' if level == 1 else ('Family' if level == 2 else 'Material') }} Name *
+                            </label>
+                            <input type="text" class="form-control" id="name" name="name" 
+                                   value="{{ form_data.name if form_data else '' }}"
+                                   required maxlength="100"
+                                   placeholder="Enter unique name...">
+                            <div class="invalid-feedback" id="name-feedback">
+                                Please enter a valid name
+                            </div>
+                            <div class="form-text">
+                                Must be unique across all taxonomy levels
+                            </div>
+                        </div>
+
+                        <!-- Parent (Required for levels 2 and 3) -->
+                        {% if level > 1 %}
+                            <div class="mb-3">
+                                <label for="parent" class="form-label">
+                                    Parent {{ 'Category' if level == 2 else 'Family' }} *
+                                </label>
+                                <select class="form-select" id="parent" name="parent" required>
+                                    <option value="">Select parent...</option>
+                                    {% for parent in available_parents %}
+                                        <option value="{{ parent.name }}" 
+                                                {{ 'selected' if (form_data and form_data.parent == parent.name) or (suggested_parent == parent.name) else '' }}>
+                                            {{ parent.name }}
+                                            {% if parent.notes %} - {{ parent.notes[:50] }}{% endif %}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="invalid-feedback">
+                                    Please select a parent {{ 'category' if level == 2 else 'family' }}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Aliases (Optional) -->
+                        <div class="mb-3">
+                            <label for="aliases" class="form-label">Aliases</label>
+                            <input type="text" class="form-control" id="aliases" name="aliases"
+                                   value="{{ form_data.aliases if form_data else '' }}"
+                                   placeholder="Alternative names, separated by commas">
+                            <div class="invalid-feedback" id="aliases-feedback">
+                                One or more aliases conflict with existing materials
+                            </div>
+                            <div class="form-text">
+                                Alternative names for this material (comma-separated). Will be searchable in autocomplete.
+                            </div>
+                        </div>
+
+                        <!-- Notes (Optional) -->
+                        <div class="mb-3">
+                            <label for="notes" class="form-label">Notes / Description</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="3"
+                                      placeholder="Optional description, properties, or usage notes...">{{ form_data.notes if form_data else '' }}</textarea>
+                            <div class="form-text">
+                                Optional description to help users identify this material
+                            </div>
+                        </div>
+
+                        <!-- Sort Order (Optional) -->
+                        <div class="mb-4">
+                            <label for="sort_order" class="form-label">Sort Order</label>
+                            <input type="number" class="form-control" id="sort_order" name="sort_order"
+                                   value="{{ form_data.sort_order if form_data else '0' }}"
+                                   min="0" max="999">
+                            <div class="form-text">
+                                Display order within parent (0 = first, higher numbers appear later)
+                            </div>
+                        </div>
+
+                        <!-- Submit Buttons -->
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('admin.materials_overview') }}" class="btn btn-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn btn-success" id="submit-btn">
+                                <i class="bi bi-plus-circle"></i>
+                                Add {{ 'Category' if level == 1 else ('Family' if level == 2 else 'Material') }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('add-material-form');
+    const nameInput = document.getElementById('name');
+    const aliasesInput = document.getElementById('aliases');
+    const parentSelect = document.getElementById('parent');
+    const submitBtn = document.getElementById('submit-btn');
+    
+    // Real-time validation
+    let validationTimeout;
+    
+    function validateForm() {
+        clearTimeout(validationTimeout);
+        validationTimeout = setTimeout(async () => {
+            const formData = {
+                name: nameInput.value.trim(),
+                level: {{ level }},
+                parent: parentSelect ? parentSelect.value : '',
+                aliases: aliasesInput.value.trim(),
+                notes: document.getElementById('notes').value.trim(),
+                sort_order: document.getElementById('sort_order').value || '0'
+            };
+            
+            if (!formData.name) {
+                return; // Don't validate if no name entered
+            }
+            
+            try {
+                const response = await fetch('{{ url_for("admin.validate_material") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update validation states
+                    updateFieldValidation('name', result.valid && !hasNameError(result.errors));
+                    updateFieldValidation('aliases', result.valid && !hasAliasError(result.errors));
+                    
+                    // Show specific errors
+                    showFieldErrors('name', result.errors.filter(e => e.includes('already exists') || e.includes('required')));
+                    showFieldErrors('aliases', result.errors.filter(e => e.includes('alias') || e.includes('conflicts')));
+                    
+                    submitBtn.disabled = !result.valid;
+                } else {
+                    console.error('Validation error:', result.error);
+                }
+            } catch (error) {
+                console.error('Validation request failed:', error);
+            }
+        }, 500); // Debounce validation requests
+    }
+    
+    function hasNameError(errors) {
+        return errors.some(e => e.includes('already exists') || e.includes('Name is required'));
+    }
+    
+    function hasAliasError(errors) {
+        return errors.some(e => e.includes('alias') || e.includes('conflicts'));
+    }
+    
+    function updateFieldValidation(fieldId, isValid) {
+        const field = document.getElementById(fieldId);
+        if (isValid) {
+            field.classList.remove('is-invalid');
+            field.classList.add('is-valid');
+        } else {
+            field.classList.remove('is-valid');
+            field.classList.add('is-invalid');
+        }
+    }
+    
+    function showFieldErrors(fieldId, errors) {
+        const feedback = document.getElementById(fieldId + '-feedback');
+        if (errors.length > 0) {
+            feedback.textContent = errors.join('; ');
+        } else {
+            feedback.textContent = 'Please enter a valid ' + fieldId;
+        }
+    }
+    
+    // Attach validation to form inputs
+    nameInput.addEventListener('input', validateForm);
+    aliasesInput.addEventListener('input', validateForm);
+    if (parentSelect) {
+        parentSelect.addEventListener('change', validateForm);
+    }
+    
+    // Form submission validation
+    form.addEventListener('submit', function(e) {
+        if (!form.checkValidity()) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        form.classList.add('was-validated');
+    });
+});
+</script>
+{% endblock %}

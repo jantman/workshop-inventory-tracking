@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Materials Taxonomy Admin - Workshop Inventory{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="bi bi-gear-fill"></i> Materials Taxonomy Admin</h1>
+                <div class="btn-group" role="group">
+                    <a href="{{ url_for('admin.add_material', level=1) }}" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Add Category
+                    </a>
+                    <a href="{{ url_for('admin.add_material', level=2) }}" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Add Family  
+                    </a>
+                    <a href="{{ url_for('admin.add_material', level=3) }}" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Add Material
+                    </a>
+                </div>
+            </div>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Important Notice -->
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-info-circle-fill"></i>
+                <strong>Important:</strong> This interface supports <strong>adding new materials only</strong>. 
+                Existing materials cannot be renamed to preserve inventory data integrity. 
+                To "rename" a material, add the new name and mark the old one inactive.
+            </div>
+
+            <!-- Statistics Dashboard -->
+            <div class="row mb-4">
+                <div class="col-md-2 col-sm-4 col-6">
+                    <div class="card bg-primary text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">{{ stats.total_entries }}</h5>
+                            <p class="card-text small">Total Entries</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-6">
+                    <div class="card bg-success text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">{{ stats.active_entries }}</h5>
+                            <p class="card-text small">Active</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-6">
+                    <div class="card bg-secondary text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">{{ stats.categories }}</h5>
+                            <p class="card-text small">Categories</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-6">
+                    <div class="card bg-info text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">{{ stats.families }}</h5>
+                            <p class="card-text small">Families</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-6">
+                    <div class="card bg-warning text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">{{ stats.materials }}</h5>
+                            <p class="card-text small">Materials</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-6">
+                    <div class="card bg-danger text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">{{ stats.inactive_entries }}</h5>
+                            <p class="card-text small">Inactive</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Options -->
+            <div class="row mb-3">
+                <div class="col-12">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="includeInactive" 
+                               {{ 'checked' if include_inactive else '' }}
+                               onchange="toggleInactive(this.checked)">
+                        <label class="form-check-label" for="includeInactive">
+                            Show inactive materials
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Taxonomy Tree -->
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-diagram-3"></i> Taxonomy Hierarchy</h5>
+                </div>
+                <div class="card-body">
+                    {% if taxonomy %}
+                        <div id="taxonomy-tree">
+                            {% for category in taxonomy %}
+                                {% include 'admin/taxonomy_node.html' %}
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted py-5">
+                            <i class="bi bi-folder2-open display-1"></i>
+                            <p class="mt-3">No taxonomy entries found. <a href="{{ url_for('admin.add_material', level=1) }}">Add your first category</a>.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleInactive(show) {
+    const url = new URL(window.location);
+    if (show) {
+        url.searchParams.set('include_inactive', 'true');
+    } else {
+        url.searchParams.delete('include_inactive');
+    }
+    window.location.href = url.toString();
+}
+
+function toggleMaterialStatus(name, currentStatus) {
+    const newStatus = !currentStatus;
+    const action = newStatus ? 'activate' : 'deactivate';
+    
+    if (confirm(`Are you sure you want to ${action} "${name}"?`)) {
+        fetch(`{{ url_for('admin.update_material_status') }}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify({
+                name: name,
+                active: newStatus
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload(); // Refresh to show updated status
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error updating status: ' + error);
+        });
+    }
+}
+
+function addChild(parentName, level) {
+    const childLevel = level + 1;
+    const url = `{{ url_for('admin.add_material') }}?level=${childLevel}&parent=${encodeURIComponent(parentName)}`;
+    window.location.href = url;
+}
+</script>
+{% endblock %}

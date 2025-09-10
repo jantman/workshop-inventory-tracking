@@ -1,0 +1,60 @@
+<!-- Recursive template for taxonomy tree nodes -->
+<div class="taxonomy-node mb-3" data-level="{{ category.level }}" data-name="{{ category.name }}">
+    <div class="d-flex align-items-center p-3 border rounded 
+                {{ 'bg-light border-secondary' if not category.active else 
+                   ('bg-primary text-white' if category.level == 1 else
+                    ('bg-info text-white' if category.level == 2 else 'bg-light border-primary')) }}">
+        
+        <!-- Level indicator -->
+        <span class="badge {{ 'bg-dark' if category.active else 'bg-secondary' }} me-2">
+            L{{ category.level }}
+        </span>
+
+        <!-- Material name and info -->
+        <div class="flex-grow-1">
+            <strong>{{ category.name }}</strong>
+            {% if category.aliases %}
+                <small class="ms-2 opacity-75">(aliases: {{ category.aliases|join(', ') }})</small>
+            {% endif %}
+            {% if category.notes %}
+                <div class="small mt-1">{{ category.notes }}</div>
+            {% endif %}
+        </div>
+
+        <!-- Actions -->
+        <div class="btn-group btn-group-sm ms-2" role="group">
+            <!-- Add child button (only for levels 1 and 2) -->
+            {% if category.level < 3 %}
+                <button type="button" class="btn btn-outline-light btn-sm" 
+                        onclick="addChild('{{ category.name }}', {{ category.level }})"
+                        title="Add child material">
+                    <i class="bi bi-plus-circle"></i>
+                </button>
+            {% endif %}
+            
+            <!-- Status toggle button -->
+            <button type="button" 
+                    class="btn {{ 'btn-outline-light' if category.active else 'btn-outline-secondary' }} btn-sm"
+                    onclick="toggleMaterialStatus('{{ category.name }}', {{ category.active|lower }})"
+                    title="{{ 'Deactivate' if category.active else 'Activate' }} material">
+                <i class="bi bi-{{ 'eye-slash' if category.active else 'eye' }}"></i>
+            </button>
+        </div>
+
+        <!-- Status indicator -->
+        {% if not category.active %}
+            <span class="badge bg-warning ms-2">INACTIVE</span>
+        {% endif %}
+    </div>
+
+    <!-- Children (recursive) -->
+    {% if category.children %}
+        <div class="ms-4 mt-2">
+            {% for child in category.children %}
+                {% with category=child %}
+                    {% include 'admin/taxonomy_node.html' %}
+                {% endwith %}
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
