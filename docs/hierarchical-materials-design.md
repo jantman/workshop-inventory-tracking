@@ -201,3 +201,86 @@ Current → New (at appropriate specificity level)
 3. **Low Priority**: Advanced features and analytics
 
 This design provides a scalable foundation that can grow with your inventory needs while immediately improving the material selection experience.
+
+---
+
+## Implementation Status & Resumption Guide
+
+### ✅ Completed Work
+1. **Analysis Phase**: Analyzed 505 inventory items with 73 unique materials
+2. **Design Refinement**: Updated architecture based on feedback:
+   - Materials sheet = taxonomy only (no item data)
+   - Metal sheet = unchanged structure, only Material column values updated
+   - Flexible specificity levels (Category/Family/Specific)
+   - Removed all material properties (simplified approach)
+3. **Technical Fixes**: Fixed bugs in GoogleSheetsStorage `_retry_request` method calls
+4. **Documentation**: Complete design specification ready for implementation
+
+### 🔧 Current Issues to Resolve
+1. **Google Sheets API Issue**: Sheet creation succeeds but writing data fails
+   - Error: "Unable to parse range: Materials" 
+   - Workaround: May need to manually create Materials sheet tab first
+   - Root cause: Timing issue between sheet creation and data writing
+
+### 📋 Next Implementation Steps (In Priority Order)
+
+#### Phase 1: Foundation Setup
+1. **Create Materials Sheet** (currently blocked)
+   - Headers: name, level, parent, aliases, active, sort_order, created_date, notes
+   - Contains taxonomy structure from analysis (7 categories, ~20 families, ~50 specifics)
+   - Alternative: Manually create sheet tab, then populate with script
+
+2. **Build MaterialHierarchyService**
+   - Data access layer for Materials sheet
+   - Methods: get_all_materials(), get_by_level(), get_children(), search()
+   - Replace current material suggestions endpoint
+
+#### Phase 2: System Integration  
+3. **Update Material Autocomplete UI**
+   - Support hierarchical browsing and search
+   - Allow selection at any level (Category/Family/Specific)
+   - Maintain backward compatibility
+
+4. **Create Migration Tool**
+   - Map existing 73 materials to taxonomy entries
+   - Update Material column in Metal sheet (505 items)
+   - Preserve data integrity, no structural changes
+
+#### Phase 3: Enhancement & Cleanup
+5. **Admin Interface** - Manage taxonomy through UI
+6. **Remove Properties Code** - Clean up taxonomy.py and related files  
+7. **E2E Testing** - Comprehensive test coverage
+
+### 🗂️ Key Data Mappings (For Migration Reference)
+```
+High Priority Mappings (by usage count):
+"Unknown" (160x) → Research and categorize appropriately
+"Steel" (52x) → "Carbon Steel" 
+"Brass" (50x) → "Brass"
+"Copper" (30x) → "Copper"
+"Aluminum" (24x) → "Aluminum"
+"321 Stainless" (17x) → "321" (specific level)
+"12L14" (10x) → "12L14" (already specific)
+"Stainless?" (9x) → "Stainless Steel" (category level)
+"4140 Pre-Hard" (4x) → "4140 Pre-Hard" (already specific)
+```
+
+### 🏗️ Architecture Decisions Made
+- **Separation of Concerns**: Taxonomy separate from inventory data
+- **Flexible Specificity**: Material values can be any hierarchy level
+- **No Properties**: Removed all material property references
+- **Minimal Disruption**: Only Material column values change in Metal sheet
+- **Progressive Enhancement**: Can upgrade specificity over time
+
+### 🔍 Files Modified
+- `docs/hierarchical-materials-design.md` - Complete specification
+- `app/google_sheets_storage.py` - Fixed `_retry_request` bugs in `create_sheet`/`rename_sheet`
+
+### 🚀 Quick Resumption Checklist
+1. Manually create "Materials" sheet tab in Google Sheets (if script still fails)
+2. Build MaterialHierarchyService class in `app/materials_service.py`
+3. Update `/api/materials/suggestions` endpoint to use taxonomy
+4. Test with existing UI to ensure backward compatibility
+5. Build migration tool to update Material column values
+
+This foundation is ready for implementation - all architectural decisions are documented and the path forward is clear.
