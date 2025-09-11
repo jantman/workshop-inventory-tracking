@@ -17,6 +17,14 @@ def create_app(config_class=Config, storage_backend=None):
     # Store the storage backend in app config for access by routes
     if storage_backend:
         app.config['STORAGE_BACKEND'] = storage_backend
+    else:
+        # Create storage backend using factory
+        from app.storage_factory import get_storage_backend, get_test_storage_backend
+        
+        if app.config.get('TESTING'):
+            app.config['STORAGE_BACKEND'] = get_test_storage_backend()
+        else:
+            app.config['STORAGE_BACKEND'] = get_storage_backend()
     
     # Configure logging
     if not app.debug:
