@@ -19,7 +19,7 @@ After exploring some of these items in the UI of our application, it's clear to 
 
 We must collaboratively develop a plan to resolve these issues, broken down as a series of Milestones each made up of discrete Tasks. Our primary goal is that we MUST keep the same JA ID for a given piece of stock, even after it's shortened; but we also want to retain history of shortening operations. Secondarily, we'd also like to ensure that our implementation allows for future addition of changing other dimensions in a similar way (i.e. sheet stock can be reduced in length _or width_ and that process should have similar tracking).
 
-## Execution Plan and Status Tracking
+## Implementation Plan and Status Tracking
 
 To be filled in by Claude Code. Milestones and Tasks within them should be numbered.
 
