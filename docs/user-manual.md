@@ -7,9 +7,10 @@
 4. [Managing Existing Inventory](#managing-existing-inventory)
 5. [Advanced Search](#advanced-search)
 6. [Batch Operations](#batch-operations)
-7. [Keyboard Shortcuts](#keyboard-shortcuts)
-8. [Tips and Best Practices](#tips-and-best-practices)
-9. [Troubleshooting](#troubleshooting)
+7. [Data Export](#data-export)
+8. [Keyboard Shortcuts](#keyboard-shortcuts)
+9. [Tips and Best Practices](#tips-and-best-practices)
+10. [Troubleshooting](#troubleshooting)
 
 ## Getting Started
 
@@ -165,6 +166,281 @@ Access via "Search" menu or press `Ctrl+F`
 3. **New Length**: Specify remaining length after cut
 4. **New ID**: Assign new JA ID for shortened piece
 5. **Automatic**: Original item becomes inactive, new item created
+
+## Data Export
+
+The system provides comprehensive data export functionality to backup your inventory data and materials taxonomy to Google Sheets or download as JSON data. This feature is essential for data backup, reporting, and integration with other systems.
+
+### Export Types
+
+#### 1. Inventory Export
+Exports all inventory items with complete details including:
+- Item identification (JA ID, type, shape, material)
+- Physical dimensions (length, width, thickness, wall thickness, weight)
+- Threading information (series, handedness, size, form)
+- Location tracking (location, sub-location)
+- Purchase details (date, price, vendor, part numbers)
+- Status and history (active/inactive, dates, notes)
+
+#### 2. Materials Taxonomy Export
+Exports the hierarchical materials classification system:
+- Material names and categories
+- Hierarchy levels (1=Category, 2=Family, 3=Material)
+- Parent-child relationships
+- Example: Metal → Steel → 4140 Pre-Hard
+
+#### 3. Combined Export
+Exports both inventory and materials data in a single operation for complete backup.
+
+### Export Destinations
+
+#### JSON Format
+- **Use Case**: API integration, data processing, development
+- **Format**: Structured JSON with metadata, headers, and row data
+- **Response**: Direct API response with immediate download
+- **Benefits**: Machine-readable, preserves data types, includes export metadata
+
+#### Google Sheets Upload
+- **Use Case**: Backup, manual review, sharing with stakeholders
+- **Format**: Direct upload to Google Sheets with proper formatting
+- **Target Sheets**: `Metal_Export` (inventory), `Materials_Export` (materials)
+- **Benefits**: Human-readable, accessible via web browser, collaborative editing
+
+### Using the Web Interface
+
+#### Admin Export Page
+1. Navigate to `/admin/export` (admin access required)
+2. Select export type: Inventory, Materials, or Combined
+3. Choose destination: JSON Download or Google Sheets Upload
+4. Configure options:
+   - Include inactive items (inventory only)
+   - Batch size for processing
+   - Enable progress logging
+5. Click "Export" to start the process
+6. Monitor progress and download results
+
+### API Access
+
+#### Export to JSON
+```bash
+# Export inventory data only
+curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "inventory",
+    "destination": "json",
+    "options": {
+      "include_inactive": true,
+      "batch_size": 1000
+    }
+  }' | jq '.'
+
+# Export materials taxonomy only
+curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "materials",
+    "destination": "json",
+    "options": {
+      "materials_active_only": true,
+      "batch_size": 1000
+    }
+  }' | jq '.'
+
+# Export combined data
+curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "combined",
+    "destination": "json",
+    "options": {
+      "include_inactive": false,
+      "materials_active_only": true,
+      "batch_size": 1000
+    }
+  }' | jq '.'
+```
+
+#### Export to Google Sheets
+```bash
+# Upload inventory data to Google Sheets
+curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "inventory",
+    "destination": "sheets",
+    "options": {
+      "include_inactive": true,
+      "batch_size": 1000,
+      "enable_progress_logging": true
+    }
+  }' | jq '.'
+
+# Upload materials taxonomy to Google Sheets
+curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "materials", 
+    "destination": "sheets",
+    "options": {
+      "materials_active_only": true,
+      "batch_size": 1000
+    }
+  }' | jq '.'
+
+# Upload both datasets to Google Sheets
+curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "combined",
+    "destination": "sheets",
+    "options": {
+      "include_inactive": false,
+      "materials_active_only": true,
+      "batch_size": 1000,
+      "enable_progress_logging": true
+    }
+  }' | jq '.'
+```
+
+#### Data Validation
+```bash
+# Validate export data before uploading
+curl -X POST http://localhost:5000/api/admin/export/validate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "export_data": {
+      "inventory": {
+        "headers": ["Active", "JA ID", "Length", "..."],
+        "rows": [["Yes", "JA000001", "5.5400", "..."]]
+      },
+      "materials": {
+        "headers": ["Name", "Level", "Parent"],
+        "rows": [["Steel", "2", "Metal"]]
+      }
+    }
+  }' | jq '.'
+```
+
+### Export Options
+
+#### Inventory Options
+- **include_inactive**: Include inactive/historical items (default: true)
+- **inventory_sort_order**: Sort order for results (default: "ja_id, active DESC, date_added")
+- **batch_size**: Records per processing batch (default: 1000)
+
+#### Materials Options  
+- **materials_active_only**: Export only active materials (default: true)
+- **materials_sort_order**: Sort order (default: "level, sort_order, name")
+- **batch_size**: Records per processing batch (default: 1000)
+
+#### General Options
+- **enable_progress_logging**: Show detailed progress logs (default: true)
+- **export_generated_by**: Attribution text for export metadata
+
+### Response Format
+
+#### Success Response (JSON)
+```json
+{
+  "success": true,
+  "export_data": {
+    "type": "inventory",
+    "headers": ["Active", "JA ID", "Length", "..."],
+    "rows": [
+      ["Yes", "JA000001", "5.5400", "..."],
+      ["No", "JA000002", "3.2500", "..."]
+    ],
+    "metadata": {
+      "export_type": "inventory",
+      "timestamp": "2025-09-11T17:30:00.000Z",
+      "records_exported": 476,
+      "success": true,
+      "errors": [],
+      "warnings": []
+    }
+  },
+  "export_type": "inventory",
+  "timestamp": "2025-09-11T17:30:00.000Z"
+}
+```
+
+#### Success Response (Google Sheets)
+```json
+{
+  "success": true,
+  "message": "Export to Google Sheets completed successfully",
+  "export_type": "inventory",
+  "upload_details": {
+    "success": true,
+    "rows_uploaded": 476,
+    "sheets_updated": ["Metal_Export"],
+    "upload_type": "inventory"
+  }
+}
+```
+
+#### Error Response
+```json
+{
+  "success": false,
+  "error": "Export operation failed: Invalid export type"
+}
+```
+
+### Automated Backups
+
+#### Scheduled Exports via Cron
+```bash
+# Daily backup at 2 AM - inventory and materials to Google Sheets
+0 2 * * * curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{"type": "combined", "destination": "sheets", "options": {"include_inactive": true}}'
+
+# Weekly backup to JSON files  
+0 3 * * 0 curl -X POST http://localhost:5000/api/admin/export \
+  -H "Content-Type: application/json" \
+  -d '{"type": "combined", "destination": "json"}' \
+  > "/backups/inventory_$(date +%Y%m%d).json"
+```
+
+### Best Practices
+
+#### Performance
+- Use appropriate batch sizes (1000 is optimal for most cases)
+- Schedule large exports during low-usage periods
+- Enable progress logging for monitoring long-running exports
+
+#### Data Quality
+- Validate exports regularly using the validation endpoint
+- Compare record counts between source and destination
+- Review export metadata for errors and warnings
+
+#### Security
+- Restrict admin export access to authorized users only
+- Use HTTPS for all API communications
+- Rotate Google Sheets credentials regularly
+- Monitor export logs for unusual activity
+
+#### Backup Strategy
+- Regular automated backups to Google Sheets for accessibility
+- Periodic JSON exports for long-term archival
+- Test restore procedures using exported data
+- Keep multiple backup versions for point-in-time recovery
+
+### Troubleshooting Export Issues
+
+#### Common Problems
+- **"Google Sheets connection failed"**: Check credentials and sheet permissions
+- **"Sheet not found"**: Ensure target sheets exist in the Google Sheets document
+- **"Rate limit exceeded"**: Reduce batch size or add delays between operations
+- **"Export timeout"**: Break large exports into smaller chunks or increase timeout
+
+#### Performance Tuning
+- Adjust batch_size based on dataset size and performance
+- Use include_inactive=false for faster inventory exports
+- Monitor system resources during large exports
+- Consider off-peak hours for major backup operations
 
 ## Keyboard Shortcuts
 

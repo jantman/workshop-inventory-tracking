@@ -1126,6 +1126,245 @@ def _parse_dimension_value(value):
     except (ValueError, InvalidOperation):
         raise ValueError(f"Cannot parse dimension value: {value}")
 
+# Export Endpoints
+@bp.route('/admin/export')
+def admin_export():
+    """Admin page for data export functionality"""
+    return render_template('admin/export.html', title='Data Export')
+
+@bp.route('/api/admin/export', methods=['POST'])
+@csrf.exempt
+def api_admin_export():
+    """API endpoint for triggering data exports"""
+    try:
+        data = request.get_json() or {}
+        
+        # Parse export options
+        export_type = data.get('type', 'combined')  # 'inventory', 'materials', or 'combined'
+        destination = data.get('destination', 'json')  # 'json' or 'sheets'
+        options_data = data.get('options', {})
+        
+        # Validate export type
+        if export_type not in ['inventory', 'materials', 'combined']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid export type. Must be inventory, materials, or combined.'
+            }), 400
+        
+        # Validate destination
+        if destination not in ['json', 'sheets']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid destination. Must be json or sheets.'
+            }), 400
+        
+        # Import export services
+        from app.export_service import InventoryExportService, MaterialsExportService, CombinedExportService
+        from app.export_schemas import ExportOptions
+        
+        # Configure export options
+        options = ExportOptions()
+        options.batch_size = options_data.get('batch_size', 1000)
+        options.enable_progress_logging = options_data.get('enable_progress_logging', True)
+        
+        # Inventory-specific options
+        options.inventory_include_inactive = options_data.get('include_inactive', True)
+        options.inventory_sort_order = options_data.get('inventory_sort_order', 'ja_id, active DESC, date_added')
+        
+        # Materials-specific options
+        options.materials_active_only = options_data.get('materials_active_only', True)
+        options.materials_sort_order = options_data.get('materials_sort_order', 'level, sort_order, name')
+        
+        # Export metadata
+        options.export_generated_by = options_data.get('export_generated_by', 'Workshop Inventory MariaDB Export')
+        
+        current_app.logger.info(f'Starting {export_type} export to {destination}')
+        
+        # Execute export based on type
+        if export_type == 'inventory':
+            service = InventoryExportService()
+            headers, rows, metadata = service.export_complete_dataset(options)
+            
+            result = {
+                'type': 'inventory',
+                'headers': headers,
+                'rows': rows,
+                'metadata': metadata.to_dict(),
+                'summary': {
+                    'total_records': metadata.records_exported,
+                    'success': len(metadata.errors) == 0,
+                    'errors': metadata.errors,
+                    'warnings': metadata.warnings
+                }
+            }
+            
+        elif export_type == 'materials':
+            service = MaterialsExportService()
+            headers, rows, metadata = service.export_complete_dataset(options)
+            
+            result = {
+                'type': 'materials',
+                'headers': headers,
+                'rows': rows,
+                'metadata': metadata.to_dict(),
+                'summary': {
+                    'total_records': metadata.records_exported,
+                    'success': len(metadata.errors) == 0,
+                    'errors': metadata.errors,
+                    'warnings': metadata.warnings
+                }
+            }
+            
+        else:  # combined
+            service = CombinedExportService()
+            result = service.export_all_data(options)
+        
+        # Handle destination
+        if destination == 'json':
+            # Return JSON data directly
+            return jsonify({
+                'success': True,
+                'export_data': result,
+                'timestamp': result.get('timestamp'),
+                'export_type': export_type
+            })
+            
+        elif destination == 'sheets':
+            # Upload to Google Sheets
+            upload_result = _upload_to_google_sheets(result, export_type)
+            
+            if upload_result['success']:
+                return jsonify({
+                    'success': True,
+                    'message': f'Export to Google Sheets completed successfully',
+                    'export_type': export_type,
+                    'upload_details': upload_result
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Export completed but Google Sheets upload failed: {upload_result["error"]}',
+                    'export_data': result  # Include data for potential retry
+                }), 500
+        
+    except Exception as e:
+        current_app.logger.error(f'Export API error: {e}\n{traceback.format_exc()}')
+        return jsonify({
+            'success': False,
+            'error': f'Export operation failed: {str(e)}'
+        }), 500
+
+@bp.route('/api/admin/export/validate', methods=['POST'])
+@csrf.exempt
+def api_export_validate():
+    """Validate export data before uploading to Google Sheets"""
+    try:
+        data = request.get_json() or {}
+        export_data = data.get('export_data')
+        
+        if not export_data:
+            return jsonify({
+                'success': False,
+                'error': 'No export data provided'
+            }), 400
+        
+        from app.export_service import CombinedExportService
+        service = CombinedExportService()
+        
+        validation_result = service.validate_export_data(export_data)
+        
+        return jsonify({
+            'success': True,
+            'validation': validation_result
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Export validation error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Validation failed: {str(e)}'
+        }), 500
+
+def _upload_to_google_sheets(export_data, export_type):
+    """Upload export data to Google Sheets"""
+    try:
+        from app.google_sheets_export import GoogleSheetsExportService
+        
+        current_app.logger.info(f'Starting Google Sheets upload for {export_type} export')
+        
+        # Initialize export service
+        export_service = GoogleSheetsExportService()
+        
+        # Test connection first
+        connection_test = export_service.test_connection()
+        if not connection_test.success:
+            return {
+                'success': False,
+                'error': f'Google Sheets connection failed: {connection_test.error}'
+            }
+        
+        # Upload data based on export type
+        if export_type == 'combined':
+            # Upload both inventory and materials data
+            result = export_service.upload_combined_export(export_data)
+            
+            return {
+                'success': result['success'],
+                'message': f'Combined upload completed: {result["total_rows_uploaded"]} total rows',
+                'upload_type': export_type,
+                'rows_uploaded': result['total_rows_uploaded'],
+                'sheets_updated': ['Metal_Export', 'Materials_Export'],
+                'details': result['results'],
+                'errors': result['errors']
+            }
+            
+        elif export_type == 'inventory':
+            # Upload inventory data only
+            headers = export_data.get('headers', [])
+            rows = export_data.get('rows', [])
+            
+            result = export_service.upload_inventory_export(headers, rows)
+            
+            return {
+                'success': result.success,
+                'message': f'Inventory upload completed: {result.affected_rows} rows' if result.success else f'Upload failed: {result.error}',
+                'upload_type': export_type,
+                'rows_uploaded': result.affected_rows or 0,
+                'sheets_updated': ['Metal_Export'] if result.success else [],
+                'details': result.data,
+                'error': result.error if not result.success else None
+            }
+            
+        elif export_type == 'materials':
+            # Upload materials data only
+            headers = export_data.get('headers', [])
+            rows = export_data.get('rows', [])
+            
+            result = export_service.upload_materials_export(headers, rows)
+            
+            return {
+                'success': result.success,
+                'message': f'Materials upload completed: {result.affected_rows} rows' if result.success else f'Upload failed: {result.error}',
+                'upload_type': export_type,
+                'rows_uploaded': result.affected_rows or 0,
+                'sheets_updated': ['Materials_Export'] if result.success else [],
+                'details': result.data,
+                'error': result.error if not result.success else None
+            }
+            
+        else:
+            return {
+                'success': False,
+                'error': f'Unknown export type: {export_type}'
+            }
+        
+    except Exception as e:
+        current_app.logger.error(f'Google Sheets upload error: {e}\n{traceback.format_exc()}')
+        return {
+            'success': False,
+            'error': f'Upload failed: {str(e)}'
+        }
+
 # Error handlers for the blueprint
 @bp.errorhandler(404)
 def not_found_error(error):
