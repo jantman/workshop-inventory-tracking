@@ -55,8 +55,7 @@ def upgrade() -> None:
     sa.CheckConstraint('wall_thickness IS NULL OR wall_thickness > 0', name='ck_positive_wall_thickness'),
     sa.CheckConstraint('weight IS NULL OR weight > 0', name='ck_positive_weight'),
     sa.CheckConstraint('width IS NULL OR width > 0', name='ck_positive_width'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('ja_id', 'active', name='uq_ja_id_active')
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_inventory_items_active'), 'inventory_items', ['active'], unique=False)
     op.create_index(op.f('ix_inventory_items_ja_id'), 'inventory_items', ['ja_id'], unique=False)

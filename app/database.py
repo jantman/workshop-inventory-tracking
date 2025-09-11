@@ -72,8 +72,8 @@ class InventoryItem(Base):
     
     # Constraints
     __table_args__ = (
-        # Ensure only one active row per JA ID
-        UniqueConstraint('ja_id', 'active', name='uq_ja_id_active'),
+        # Note: "Only one active row per JA ID" constraint handled at application level
+        # since MariaDB doesn't support partial unique indexes
         
         # Ensure positive dimensions
         CheckConstraint('length IS NULL OR length > 0', name='ck_positive_length'),
