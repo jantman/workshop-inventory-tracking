@@ -71,9 +71,16 @@ class InventoryMoveManager {
     }
     
     handleKeyDown(e) {
-        // Handle Enter key for manual entry mode
-        if (e.key === 'Enter' && this.manualEntryMode) {
+        // Handle Enter key for both manual and automated modes
+        if (e.key === 'Enter') {
             e.preventDefault();
+            
+            // Clear any pending scanner timeout since Enter takes precedence
+            if (this.scannerTimeout) {
+                clearTimeout(this.scannerTimeout);
+                this.scannerTimeout = null;
+            }
+            
             this.processInput();
         }
     }
@@ -88,21 +95,22 @@ class InventoryMoveManager {
             clearTimeout(this.scannerTimeout);
         }
         
-        // Check for >>DONE<< immediately
+        // Check for >>DONE<< immediately (special case for ending scanning session)
         if (this.isDoneCode(value)) {
             this.handleDoneCode();
             return;
         }
         
-        // In manual entry mode, wait for Enter key
-        if (this.manualEntryMode) {
-            return;
+        // For barcode scanners that automatically add newline, set a short timeout
+        // This allows the scanner's newline to be processed by handleKeyDown
+        if (!this.manualEntryMode) {
+            this.scannerTimeout = setTimeout(() => {
+                // If we reach here, the scanner didn't send Enter, so process directly
+                this.processInput();
+            }, this.scannerDelay);
         }
         
-        // Auto-process after scanner delay (for barcode scanners)
-        this.scannerTimeout = setTimeout(() => {
-            this.processInput();
-        }, this.scannerDelay);
+        // In manual entry mode, only process on Enter key (handled in handleKeyDown)
     }
     
     processInput() {
