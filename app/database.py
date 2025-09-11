@@ -6,7 +6,8 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, Decimal, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint
+from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -32,11 +33,11 @@ class InventoryItem(Base):
     active = Column(Boolean, nullable=False, default=True, index=True)
     
     # Physical dimensions
-    length = Column(Decimal(10, 4), nullable=True)  # inches, supports fractions
-    width = Column(Decimal(10, 4), nullable=True)   # inches
-    thickness = Column(Decimal(10, 4), nullable=True)  # inches 
-    wall_thickness = Column(Decimal(10, 4), nullable=True)  # inches
-    weight = Column(Decimal(10, 2), nullable=True)  # pounds
+    length = Column(Numeric(10, 4), nullable=True)  # inches, supports fractions
+    width = Column(Numeric(10, 4), nullable=True)   # inches
+    thickness = Column(Numeric(10, 4), nullable=True)  # inches 
+    wall_thickness = Column(Numeric(10, 4), nullable=True)  # inches
+    weight = Column(Numeric(10, 2), nullable=True)  # pounds
     
     # Item classification
     item_type = Column(String(50), nullable=False)  # Bar, Plate, Sheet, etc.
@@ -55,7 +56,7 @@ class InventoryItem(Base):
     
     # Purchase information
     purchase_date = Column(DateTime, nullable=True)
-    purchase_price = Column(Decimal(10, 2), nullable=True)
+    purchase_price = Column(Numeric(10, 2), nullable=True)
     purchase_location = Column(String(200), nullable=True)
     
     # Additional information
@@ -72,8 +73,7 @@ class InventoryItem(Base):
     # Constraints
     __table_args__ = (
         # Ensure only one active row per JA ID
-        UniqueConstraint('ja_id', 'active', name='uq_ja_id_active', 
-                        sqlite_where="active = 1", mysql_where="active = 1"),
+        UniqueConstraint('ja_id', 'active', name='uq_ja_id_active'),
         
         # Ensure positive dimensions
         CheckConstraint('length IS NULL OR length > 0', name='ck_positive_length'),
@@ -83,7 +83,7 @@ class InventoryItem(Base):
         CheckConstraint('weight IS NULL OR weight > 0', name='ck_positive_weight'),
         CheckConstraint('quantity > 0', name='ck_positive_quantity'),
         
-        # Ensure valid JA ID format
+        # Ensure valid JA ID format (MariaDB/MySQL compatible)
         CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_valid_ja_id_format'),
     )
     
@@ -152,3 +152,76 @@ class ThreadHandedness(enum.Enum):
     """Enumeration of thread handedness"""
     RIGHT_HAND = "RH"
     LEFT_HAND = "LH"
+
+
+class MaterialTaxonomy(Base):
+    """
+    Material taxonomy table.
+    
+    Stores hierarchical material taxonomy with 3 levels:
+    1. Category (level 1)
+    2. Family (level 2) 
+    3. Material (level 3)
+    """
+    __tablename__ = 'material_taxonomy'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Taxonomy fields
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    level = Column(Integer, nullable=False, index=True)  # 1=Category, 2=Family, 3=Material
+    parent = Column(String(100), nullable=True, index=True)  # Parent material name
+    aliases = Column(Text, nullable=True)  # Comma-separated aliases
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    sort_order = Column(Integer, nullable=False, default=0, index=True)
+    notes = Column(Text, nullable=True)
+    
+    # Timestamps
+    date_added = Column(DateTime, nullable=False, default=func.now())
+    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    
+    # Constraints
+    __table_args__ = (
+        # Ensure valid hierarchy levels
+        CheckConstraint('level >= 1 AND level <= 3', name='ck_valid_level'),
+        
+        # Level 1 (categories) should not have parents
+        CheckConstraint('NOT (level = 1 AND parent IS NOT NULL)', name='ck_category_no_parent'),
+        
+        # Levels 2 and 3 should have parents (in most cases)
+        # Note: We'll handle this in business logic rather than DB constraint for flexibility
+    )
+    
+    def __repr__(self):
+        return f"<MaterialTaxonomy(id={self.id}, name='{self.name}', level={self.level}, parent='{self.parent}')>"
+    
+    def to_dict(self):
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'level': self.level,
+            'parent': self.parent,
+            'aliases': self.aliases.split(',') if self.aliases else [],
+            'active': self.active,
+            'sort_order': self.sort_order,
+            'notes': self.notes,
+            'date_added': self.date_added.isoformat() if self.date_added else None,
+            'last_modified': self.last_modified.isoformat() if self.last_modified else None,
+        }
+    
+    @property
+    def aliases_list(self) -> list:
+        """Get aliases as a list"""
+        if not self.aliases:
+            return []
+        return [alias.strip() for alias in self.aliases.split(',') if alias.strip()]
+    
+    @aliases_list.setter
+    def aliases_list(self, value: list):
+        """Set aliases from a list"""
+        if value:
+            self.aliases = ','.join([alias.strip() for alias in value if alias.strip()])
+        else:
+            self.aliases = None

@@ -103,52 +103,60 @@ Migrate from Google Sheets to MariaDB as the primary data store to:
 ### Milestone 2: Data Migration & Verification
 
 #### Task 2.1: Analyze Existing Google Sheets Data
-- Examine actual Google Sheets data structure and content
+- Examine actual inventory data structure and content (Metal sheet)
+- Examine actual materials taxonomy data structure and content (Materials sheet)
 - Identify all JA IDs with multiple rows and their patterns
-- Document any data quality issues or edge cases
+- Document any data quality issues or edge cases in both datasets
 - Create comprehensive inventory of data to be migrated
 
 #### Task 2.2: Build Data Migration Tool
-- Create migration script to read from Google Sheets and write to MariaDB
-- Handle data type conversions and validation
-- Map Google Sheets columns to database schema
+- Create migration script to read from both Google Sheets (Metal and Materials) and write to MariaDB
+- Handle data type conversions and validation for both inventory items and materials taxonomy
+- Map Google Sheets columns to database schema for both tables
 - Add error handling and logging for migration process
+- Support hierarchical materials taxonomy migration with proper parent-child relationships
 
 #### Task 2.3: Execute and Verify Data Migration
-- Run migration process on actual Google Sheets data
-- Implement verification script to compare Google Sheets vs MariaDB data
-- Verify item counts, active/inactive status, and data integrity
+- Run migration process on actual Google Sheets data (both Metal and Materials sheets)
+- Implement verification script to compare Google Sheets vs MariaDB data for both datasets
+- Verify item counts, active/inactive status, and data integrity for inventory items
+- Verify materials taxonomy hierarchy, relationships, and data integrity
 - Generate migration report showing successful transfers and any issues
 - Fix any discrepancies between source and target data
 
-#### Task 2.4: Update Application Configuration
+#### Task 2.4: Update Application Configuration and Services
 - Switch application from Google Sheets to MariaDB backend
-- Update all data access patterns to use new storage backend
-- Ensure all existing functionality works with MariaDB
+- Update inventory service to use new storage backend
+- Update materials service to use MariaDB instead of Google Sheets storage
+- Ensure all existing functionality works with MariaDB (inventory and materials)
 - Remove Google Sheets dependencies from core application logic
 
 ### Milestone 3: Google Sheets Export Functionality
 
 #### Task 3.1: Design Export Data Structure
-- Define export data format that matches original Google Sheets layout
+- Define export data format that matches original Google Sheets layout for both datasets
 - Include row IDs and optimize for human readability
-- Handle both active and inactive rows in export
-- Design export to match current `Metal_Export` sheet structure
+- Handle both active and inactive rows in inventory export
+- Design inventory export to match current `Metal_Export` sheet structure
+- Design materials taxonomy export to match original Materials sheet structure
 
 #### Task 3.2: Implement Export Service Class
-- Create service class to query all data from MariaDB
-- Format data for Google Sheets export (column mapping, data types)
+- Create service class to query all inventory data from MariaDB
+- Create service class to query all materials taxonomy data from MariaDB
+- Format data for Google Sheets export (column mapping, data types) for both datasets
 - Handle large datasets efficiently (batching if necessary)
 - Add error handling and logging for export operations
 
 #### Task 3.3: Create Export Web Endpoint
 - Add admin endpoint for triggering exports (`/admin/export` or similar)
+- Support exporting inventory data, materials taxonomy, or both
 - Support both web UI button and direct API calls (curl-friendly)
 - Return appropriate responses (success/failure, progress updates)
 - Add authentication/authorization as needed
 
 #### Task 3.4: Implement Google Sheets Upload
-- Connect to Google Sheets API to write to `Metal_Export` sheet
+- Connect to Google Sheets API to write to `Metal_Export` sheet for inventory data
+- Connect to Google Sheets API to write to `Materials_Export` sheet for materials taxonomy
 - Clear existing data and replace with fresh export
 - Handle API rate limits and error conditions
 - Add progress indication for large exports
@@ -207,9 +215,14 @@ Migrate from Google Sheets to MariaDB as the primary data store to:
 
 ### Status Tracking
 
-All milestones: **Not Started**
+**Milestone 1**: Database Foundation & Test Infrastructure - **In Progress**
 
-- ⏸️ **Milestone 1**: Database Foundation & Test Infrastructure
+- ✅ **Task 1.1**: Setup MariaDB Support & Schema Design - **COMPLETE** (including materials taxonomy table)
+- ✅ **Task 1.2**: Implement Alembic Migration System - **COMPLETE** (migrations applied)
+- ⏸️ **Task 1.3**: Setup MariaDB Test Infrastructure
+- ⏸️ **Task 1.4**: Create New Storage Backend
+
+Remaining milestones:
 - ⏸️ **Milestone 2**: Data Migration & Verification  
 - ⏸️ **Milestone 3**: Google Sheets Export Functionality
 - ⏸️ **Milestone 4**: Fix Item Data Retrieval Logic

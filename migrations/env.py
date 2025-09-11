@@ -10,6 +10,10 @@ from alembic import context
 # Add the application root to the path so we can import our models
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 from config import Config
 from app.database import Base
 
@@ -18,7 +22,8 @@ from app.database import Base
 config = context.config
 
 # Set the SQLAlchemy URL from our config
-config.set_main_option("sqlalchemy.url", Config.SQLALCHEMY_DATABASE_URI)
+database_url = os.environ.get('SQLALCHEMY_DATABASE_URI') or Config.SQLALCHEMY_DATABASE_URI
+config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
