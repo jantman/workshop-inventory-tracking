@@ -107,8 +107,8 @@ def test_single_item_move_workflow(page, live_server):
     # First add an item to move
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -116,10 +116,10 @@ def test_single_item_move_workflow(page, live_server):
         shape="Round", 
         material="Steel"
     )
-    add_page.fill_dimensions({
-        'length': '1000',
-        'width': '25'
-    })
+    add_page.fill_dimensions(
+        length='1000',
+        width='25'
+    )
     add_page.fill_location_and_notes(
         location="Shop A",
         notes="Test item for moving"
@@ -178,7 +178,7 @@ def test_multiple_items_move_workflow(page, live_server):
     for i in range(2):
         add_page.navigate()
         # Generate JA ID first
-        ja_id_to_use = add_page.get_next_ja_id()
+        ja_id_to_use = f"JA00020{i+1}"
         
         add_page.fill_basic_item_data(
             ja_id=ja_id_to_use,
@@ -186,10 +186,10 @@ def test_multiple_items_move_workflow(page, live_server):
             shape="Round",
             material="Steel"
         )
-        add_page.fill_dimensions({
-            'length': '1000', 
-            'width': '25'
-        })
+        add_page.fill_dimensions(
+            length='1000', 
+            width='25'
+        )
         add_page.fill_location_and_notes(
             location="Shop A",
             notes=f"Test item {i+1} for batch moving"
@@ -257,8 +257,8 @@ def test_manual_entry_mode(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -266,10 +266,10 @@ def test_manual_entry_mode(page, live_server):
         shape="Round",
         material="Steel"
     )
-    add_page.fill_dimensions({
-        'length': '500',
-        'width': '12'
-    })
+    add_page.fill_dimensions(
+        length='500',
+        width='12'
+    )
     add_page.fill_location_and_notes(
         location="Storage A",
         notes="Test item for manual entry"
@@ -308,8 +308,8 @@ def test_clear_queue_functionality(page, live_server):
     # Add test item  
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -317,10 +317,10 @@ def test_clear_queue_functionality(page, live_server):
         shape="Round",
         material="Aluminum"
     )
-    add_page.fill_dimensions({
-        'length': '2000',
-        'width': '50'
-    })
+    add_page.fill_dimensions(
+        length='2000',
+        width='50'
+    )
     add_page.fill_location_and_notes(
         location="Rack 1",
         notes="Test item for queue clearing"
@@ -358,8 +358,8 @@ def test_clear_all_functionality(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -367,11 +367,10 @@ def test_clear_all_functionality(page, live_server):
         shape="Rectangular",
         material="Steel"
     )
-    add_page.fill_dimensions({
-        'length': '500',
-        'width': '300',
-        'thickness': '10'
-    })
+    add_page.fill_dimensions(
+        length='500',
+        width='300'
+    )
     add_page.fill_location_and_notes(
         location="Table 1",
         notes="Test item for clear all"
@@ -403,8 +402,8 @@ def test_move_validation_before_execution(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -412,10 +411,10 @@ def test_move_validation_before_execution(page, live_server):
         shape="Round",
         material="Brass"
     )
-    add_page.fill_dimensions({
-        'length': '750',
-        'width': '20'
-    })
+    add_page.fill_dimensions(
+        length='750',
+        width='20'
+    )
     add_page.fill_location_and_notes(
         location="Bin A",
         notes="Test item for validation"

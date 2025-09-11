@@ -155,8 +155,8 @@ def test_load_item_for_shortening(page, live_server):
     # First add a bar item that can be shortened
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -164,10 +164,10 @@ def test_load_item_for_shortening(page, live_server):
         shape="Round",
         material="Steel"
     )
-    add_page.fill_dimensions({
-        'length': '1200',  # 100 feet, plenty to shorten
-        'width': '25'
-    })
+    add_page.fill_dimensions(
+        length='1200',  # 100 feet, plenty to shorten
+        width='25'
+    )
     add_page.fill_location_and_notes(
         location="Stock Room",
         notes="Test bar for shortening"
@@ -220,8 +220,8 @@ def test_barcode_scan_workflow(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -229,10 +229,10 @@ def test_barcode_scan_workflow(page, live_server):
         shape="Round",
         material="Aluminum"
     )
-    add_page.fill_dimensions({
-        'length': '480',  # 40 feet
-        'width': '12'
-    })
+    add_page.fill_dimensions(
+        length='480',  # 40 feet
+        width='12'
+    )
     add_page.fill_location_and_notes(
         location="Rack A",
         notes="Test rod for scanning"
@@ -260,8 +260,8 @@ def test_complete_shortening_workflow(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -269,11 +269,10 @@ def test_complete_shortening_workflow(page, live_server):
         shape="Rectangular",
         material="Steel"
     )
-    add_page.fill_dimensions({
-        'length': '600',  # 50 feet
-        'width': '50',
-        'thickness': '6'
-    })
+    add_page.fill_dimensions(
+        length='600',  # 50 feet
+        width='50'
+    )
     add_page.fill_location_and_notes(
         location="Storage Bay 1",
         notes="Test bar for complete shortening workflow"
@@ -338,8 +337,8 @@ def test_invalid_length_validation(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -347,10 +346,10 @@ def test_invalid_length_validation(page, live_server):
         shape="Round",
         material="Brass"
     )
-    add_page.fill_dimensions({
-        'length': '120',  # 10 feet
-        'width': '19'
-    })
+    add_page.fill_dimensions(
+        length='120',  # 10 feet
+        width='19'
+    )
     add_page.fill_location_and_notes(
         location="Shelf 1",
         notes="Test item for length validation"
@@ -380,8 +379,8 @@ def test_zero_or_negative_length_validation(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -389,10 +388,10 @@ def test_zero_or_negative_length_validation(page, live_server):
         shape="Round",
         material="Copper"
     )
-    add_page.fill_dimensions({
-        'length': '240',  # 20 feet
-        'width': '38'
-    })
+    add_page.fill_dimensions(
+        length='240',  # 20 feet
+        width='38'
+    )
     add_page.fill_location_and_notes(
         location="Bin 5",
         notes="Test rod for zero length validation"
@@ -427,8 +426,8 @@ def test_generate_ja_id_functionality(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -436,11 +435,10 @@ def test_generate_ja_id_functionality(page, live_server):
         shape="Rectangular",
         material="Steel"
     )
-    add_page.fill_dimensions({
-        'length': '240',
-        'width': '120',
-        'thickness': '12'
-    })
+    add_page.fill_dimensions(
+        length='240',
+        width='120'
+    )
     add_page.fill_location_and_notes(
         location="Table A",
         notes="Test plate for JA ID generation"
@@ -481,8 +479,8 @@ def test_form_reset_functionality(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -490,10 +488,10 @@ def test_form_reset_functionality(page, live_server):
         shape="Round",
         material="Stainless Steel"
     )
-    add_page.fill_dimensions({
-        'length': '360',
-        'width': '25'
-    })
+    add_page.fill_dimensions(
+        length='360',
+        width='25'
+    )
     add_page.fill_location_and_notes(
         location="Rack B",
         notes="Test item for form reset"
@@ -531,8 +529,8 @@ def test_shortening_with_cut_loss(page, live_server):
     # Add test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    # Generate JA ID first
-    ja_id_to_use = add_page.get_next_ja_id()
+    # Use a test JA ID
+    ja_id_to_use = "JA000001"
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
@@ -540,10 +538,10 @@ def test_shortening_with_cut_loss(page, live_server):
         shape="Square",
         material="Aluminum"
     )
-    add_page.fill_dimensions({
-        'length': '480',  # 40 feet
-        'width': '25'
-    })
+    add_page.fill_dimensions(
+        length='480',  # 40 feet
+        width='25'
+    )
     add_page.fill_location_and_notes(
         location="Storage C",
         notes="Test bar for cut loss calculation"
