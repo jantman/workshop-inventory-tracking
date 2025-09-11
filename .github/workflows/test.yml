@@ -152,6 +152,24 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_DATABASE: workshop_inventory_test
+          MYSQL_USER: inventory_test_user
+          MYSQL_PASSWORD: test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_unicode_ci
+    
     steps:
     - uses: actions/checkout@v4
     
@@ -186,11 +204,34 @@ jobs:
           libxss1 \
           libasound2t64
     
+    - name: Wait for MariaDB to be ready
+      run: |
+        for i in {1..30}; do
+          if mysqladmin ping -h127.0.0.1 -P3306 -uinventory_test_user -ptest_password --silent; then
+            echo "MariaDB is ready"
+            break
+          fi
+          echo "Waiting for MariaDB... ($i/30)"
+          sleep 2
+        done
+
+    - name: Set up test database
+      run: |
+        mysql -h127.0.0.1 -P3306 -uinventory_test_user -ptest_password workshop_inventory_test -e "SELECT 1"
+        echo "Database connection verified"
+
     - name: Run E2E tests
       run: nox -s e2e
       env:
         # Ensure tests run in headless mode
         PLAYWRIGHT_HEADLESS: true
+        # Use MariaDB for E2E tests
+        USE_TEST_MARIADB: 1
+        TEST_DB_HOST: 127.0.0.1
+        TEST_DB_PORT: 3306
+        TEST_DB_USER: inventory_test_user
+        TEST_DB_PASSWORD: test_password
+        TEST_DB_NAME: workshop_inventory_test
     
     - name: Upload E2E artifacts on failure
       if: failure()

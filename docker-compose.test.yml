@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  mariadb-test:
+    image: mariadb:10.11
+    container_name: workshop-inventory-test-db
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: workshop_inventory_test
+      MYSQL_USER: inventory_test_user
+      MYSQL_PASSWORD: test_password
+    ports:
+      - "3307:3306"  # Use different port to avoid conflicts
+    volumes:
+      - mariadb_test_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=128M
+      --max-allowed-packet=64M
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mariadb_test_data:
