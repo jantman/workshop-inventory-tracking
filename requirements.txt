@@ -6,3 +6,6 @@ google-auth-httplib2==0.2.0
 google-api-python-client==2.110.0
 Werkzeug==3.0.1
 Flask-WTF==1.2.1
+PyMySQL==1.1.0
+SQLAlchemy==1.4.53
+alembic==1.13.1
