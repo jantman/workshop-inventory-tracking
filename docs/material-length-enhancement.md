@@ -236,8 +236,14 @@ Migrate from Google Sheets to MariaDB as the primary data store to:
 - ✅ **Task 3.3**: Create Export Web Endpoint - **COMPLETE** (admin export API with JSON and Sheets destinations)
 - ✅ **Task 3.4**: Implement Google Sheets Upload - **COMPLETE** (full Google Sheets API integration with batch upload)
 
+✅ **Milestone 4**: Fix Item Data Retrieval Logic - **COMPLETE**
+
+- ✅ **Task 4.1**: Update Item Lookup Logic - **COMPLETE** (MariaDBInventoryService with active-only filtering)
+- ✅ **Task 4.2**: Fix UI Data Display Issues - **COMPLETE** (all views now use active item data)
+- ✅ **Task 4.3**: Add Item History Functionality - **COMPLETE** (API endpoint and service methods)
+- ✅ **Task 4.4**: Update E2E Tests for Multi-Row Scenarios - **COMPLETE** (comprehensive multi-row test coverage)
+
 Remaining milestones:
-- ⏸️ **Milestone 4**: Fix Item Data Retrieval Logic
 - ⏸️ **Milestone 5**: Fix Shortening Workflow
 
 ## Implementation Requirements

@@ -47,6 +47,7 @@ The project uses **Nox** for consistent test execution across environments. All 
 - **Model Tests** (`test_models.py`): Item, Dimensions, Thread classes and enum validation
 - **Storage Tests** (`test_storage.py`): InMemoryStorage (SQLite in-memory) implementation 
 - **Service Tests** (`test_inventory_service.py`): Business logic, search, filtering, batch operations
+- **MariaDB Service Tests** (`test_mariadb_inventory_service.py`): MariaDB-specific active-only filtering logic
 - **Basic Tests** (`test_basic.py`): Infrastructure and integration points
 
 **Runtime**: ~0.3 seconds
@@ -60,6 +61,8 @@ The project uses **Nox** for consistent test execution across environments. All 
 - **Form Submission**: Adding new inventory items via web form
 - **Data Persistence**: Verifying items are saved and retrievable
 - **UI Integration**: Testing Flask routes, templates, and JavaScript interactions
+- **Multi-Row Scenarios**: Testing active item lookup and history functionality
+- **API Endpoints**: Testing item history API and data retrieval logic
 
 **Technology**: Playwright with Chromium browser
 

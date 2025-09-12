@@ -101,10 +101,18 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 - **Active**: Available for use
 - **Inactive**: Used up, cut down, or removed
 
-### Parent-Child Relationships
-- When items are shortened, relationships are tracked
-- Original item becomes inactive
-- New item references parent item
+### Parent-Child Relationships & Item History
+- When items are shortened, complete history is tracked
+- Original item becomes inactive while maintaining full record
+- New item references parent item for traceability
+- **Item History API**: Access complete modification history via `/api/items/{JA_ID}/history`
+  - Returns chronological list of all versions of an item
+  - Shows active/inactive status for each version
+  - Includes dimensions, dates, and modification details
+- **Multi-Row Support**: System properly handles multiple database entries per JA ID
+  - UI always displays current active item data
+  - Historical versions remain accessible via API
+  - Search and filtering only return active items by default
 
 ## Advanced Search
 

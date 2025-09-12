@@ -3,16 +3,18 @@
 [![Tests](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/test.yml/badge.svg)](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/test.yml)
 [![Security](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/security.yml/badge.svg)](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/security.yml)
 
-A production-ready Flask web application for comprehensive workshop materials inventory management with Google Sheets integration, advanced search capabilities, and professional user experience features.
+A production-ready Flask web application for comprehensive workshop materials inventory management with dual storage backend support (Google Sheets/MariaDB), advanced search capabilities, and professional user experience features.
 
 > **Note**: Replace `USERNAME` in the badge URLs above with your actual GitHub username/organization name.
 
 ## Features
 
 - **Complete Inventory Management**: Add, move, shorten, and track materials with parent-child relationships
+- **Dual Storage Backend Support**: MariaDB (production) and Google Sheets (legacy) with automatic service selection
+- **Multi-Row Item History**: Complete shortening history tracking with active/inactive item management
 - **Barcode Scanner Integration**: Keyboard wedge barcode scanner support across all workflows
-- **Google Sheets Backend**: Real-time synchronization with Google Sheets for data persistence
 - **Advanced Search & Filtering**: Range queries, compound filters, CSV export, and URL bookmarking
+- **Item History API**: RESTful endpoints for accessing complete item modification history
 - **Thread System Management**: Standardized thread formats with semantic validation
 - **Professional UI/UX**: Bootstrap 5.3.2 responsive interface with 15+ keyboard shortcuts
 - **Performance Optimization**: Caching, batch operations, and monitoring capabilities

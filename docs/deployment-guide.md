@@ -32,7 +32,14 @@ FLASK_APP=app.py
 FLASK_ENV=production
 SECRET_KEY=your-secret-key-here-change-this
 
-# Google Sheets Configuration
+# Storage Backend Configuration
+STORAGE_BACKEND=mariadb  # Options: mariadb, google_sheets
+
+# MariaDB Configuration (Production - Recommended)
+SQLALCHEMY_DATABASE_URI=mysql+pymysql://user:password@localhost/workshop_inventory
+SQLALCHEMY_TRACK_MODIFICATIONS=False
+
+# Google Sheets Configuration (Legacy Support)
 GOOGLE_SHEET_ID=your-sheet-id-here
 GOOGLE_CREDENTIALS_PATH=credentials/service_account.json
 GOOGLE_TOKEN_PATH=credentials/token.json
@@ -61,7 +68,41 @@ Verify configuration settings:
 - Logging levels
 - Security settings
 
-## Google Sheets Setup
+## Storage Backend Setup
+
+### MariaDB Setup (Recommended for Production)
+
+1. **Install MariaDB**:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt update
+   sudo apt install mariadb-server python3-pymysql
+   
+   # CentOS/RHEL
+   sudo yum install mariadb-server python3-PyMySQL
+   ```
+
+2. **Create Database and User**:
+   ```sql
+   CREATE DATABASE workshop_inventory CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'inventory_user'@'localhost' IDENTIFIED BY 'your_secure_password';
+   GRANT ALL PRIVILEGES ON workshop_inventory.* TO 'inventory_user'@'localhost';
+   FLUSH PRIVILEGES;
+   ```
+
+3. **Initialize Database Schema**:
+   ```bash
+   # Run database migrations
+   python -c "from app.database import Base; from sqlalchemy import create_engine; engine = create_engine('mysql+pymysql://user:password@localhost/workshop_inventory'); Base.metadata.create_all(engine)"
+   ```
+
+4. **Update Environment Variables**:
+   ```bash
+   STORAGE_BACKEND=mariadb
+   SQLALCHEMY_DATABASE_URI=mysql+pymysql://inventory_user:your_secure_password@localhost/workshop_inventory
+   ```
+
+### Google Sheets Setup (Legacy Support)
 
 ### 1. Create Google Cloud Project
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
