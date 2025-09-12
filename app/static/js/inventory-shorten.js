@@ -1,8 +1,8 @@
 /**
  * Inventory Shorten JavaScript - Item Shortening Interface
  * 
- * Handles item selection, length validation, JA ID generation, and shortening workflow
- * for creating new items from shortened materials.
+ * Handles item selection, length validation, and shortening workflow
+ * for shortening items while preserving the same JA ID and maintaining history.
  */
 
 class InventoryShortenManager {
@@ -23,19 +23,13 @@ class InventoryShortenManager {
         // Input elements
         this.sourceJaIdInput = document.getElementById('source-ja-id');
         this.newLengthInput = document.getElementById('new-length');
-        this.cutLossInput = document.getElementById('cut-loss');
         this.cutDateInput = document.getElementById('cut-date');
-        this.operatorInput = document.getElementById('operator');
-        this.newJaIdInput = document.getElementById('new-ja-id');
-        this.newLocationInput = document.getElementById('new-location');
-        this.newSubLocationInput = document.getElementById('new-sub-location');
         this.shorteningNotesTextarea = document.getElementById('shortening-notes');
         this.confirmOperationCheckbox = document.getElementById('confirm-operation');
         
         // Button elements
         this.scanJaIdBtn = document.getElementById('scan-ja-id-btn');
         this.loadItemBtn = document.getElementById('load-item-btn');
-        this.generateJaIdBtn = document.getElementById('generate-ja-id-btn');
         this.clearFormBtn = document.getElementById('clear-form-btn');
         this.executeShorteningBtn = document.getElementById('execute-shortening-btn');
         
@@ -44,9 +38,9 @@ class InventoryShortenManager {
         this.itemDetails = document.getElementById('item-details');
         this.itemNotFound = document.getElementById('item-not-found');
         this.shorteningSection = document.getElementById('shortening-section');
-        this.newItemSection = document.getElementById('new-item-section');
+        this.notesSection = document.getElementById('notes-section');
         this.summarySection = document.getElementById('summary-section');
-        this.relationshipSection = document.getElementById('relationship-section');
+        this.historySection = document.getElementById('history-section');
         this.lengthValidation = document.getElementById('length-validation');
         this.lengthValidationAlert = document.getElementById('length-validation-alert');
         
@@ -61,11 +55,10 @@ class InventoryShortenManager {
         this.itemQuantity = document.getElementById('item-quantity');
         
         // Summary display elements
-        this.summaryOriginalId = document.getElementById('summary-original-id');
-        this.summaryOriginalLength = document.getElementById('summary-original-length');
+        this.summaryJaId = document.getElementById('summary-ja-id');
+        this.summaryCurrentLength = document.getElementById('summary-current-length');
         this.summaryNewLength = document.getElementById('summary-new-length');
         this.summaryRemovedLength = document.getElementById('summary-removed-length');
-        this.summaryNewId = document.getElementById('summary-new-id');
         
         // Alert elements
         this.formAlerts = document.getElementById('form-alerts');
@@ -79,12 +72,10 @@ class InventoryShortenManager {
         // Button events
         this.scanJaIdBtn.addEventListener('click', () => this.focusJaIdInput());
         this.loadItemBtn.addEventListener('click', () => this.loadItem());
-        this.generateJaIdBtn.addEventListener('click', () => this.generateNewJaId());
         this.clearFormBtn.addEventListener('click', () => this.clearForm());
         
         // Length validation
         this.newLengthInput.addEventListener('input', () => this.validateLength());
-        this.cutLossInput.addEventListener('input', () => this.validateLength());
         
         // Form validation
         this.confirmOperationCheckbox.addEventListener('change', () => this.updateExecuteButton());
@@ -226,9 +217,6 @@ class InventoryShortenManager {
         this.itemStatus.textContent = item.active ? 'Active' : 'Inactive';
         this.itemQuantity.textContent = '1'; // Assuming quantity 1 for shortening
         
-        // Pre-populate location fields
-        this.newLocationInput.value = item.location || '';
-        this.newSubLocationInput.value = item.sub_location || '';
         
         // Show item details
         this.itemDetails.classList.remove('d-none');
@@ -244,9 +232,9 @@ class InventoryShortenManager {
     
     showShorteningSections() {
         this.shorteningSection.style.display = 'block';
-        this.newItemSection.style.display = 'block';
+        this.notesSection.style.display = 'block';
         this.summarySection.style.display = 'block';
-        this.relationshipSection.style.display = 'block';
+        this.historySection.style.display = 'block';
         
         // Update summary with initial values
         this.updateSummary();
@@ -257,9 +245,9 @@ class InventoryShortenManager {
     
     hideShorteningSection() {
         this.shorteningSection.style.display = 'none';
-        this.newItemSection.style.display = 'none';
+        this.notesSection.style.display = 'none';
         this.summarySection.style.display = 'none';
-        this.relationshipSection.style.display = 'none';
+        this.historySection.style.display = 'none';
         this.lengthValidation.classList.add('d-none');
     }
     
@@ -269,7 +257,6 @@ class InventoryShortenManager {
         }
         
         const newLengthStr = this.newLengthInput.value.trim();
-        const cutLossStr = this.cutLossInput.value.trim();
         
         if (!newLengthStr) {
             this.lengthValidation.classList.add('d-none');
@@ -279,7 +266,6 @@ class InventoryShortenManager {
         
         try {
             const newLength = this.parseDimensionValue(newLengthStr);
-            const cutLoss = cutLossStr ? this.parseDimensionValue(cutLossStr) : 0;
             
             if (newLength <= 0) {
                 this.showLengthValidation('New length must be greater than 0', 'danger');
@@ -291,20 +277,10 @@ class InventoryShortenManager {
                 return;
             }
             
-            const totalRemoved = this.originalLength - newLength;
-            const materialWasted = cutLoss;
-            const usableRemaining = totalRemoved - materialWasted;
+            const materialRemoved = this.originalLength - newLength;
             
             let validationMessage = `Length validation successful. `;
-            validationMessage += `Material removed: ${totalRemoved.toFixed(3)}"`;
-            
-            if (materialWasted > 0) {
-                validationMessage += ` (${materialWasted.toFixed(3)}" cut loss)`;
-            }
-            
-            if (usableRemaining > 0) {
-                validationMessage += `. Usable remaining material: ${usableRemaining.toFixed(3)}"`;
-            }
+            validationMessage += `Material removed: ${materialRemoved.toFixed(3)}"`;
             
             this.showLengthValidation(validationMessage, 'success');
             this.updateSummary();
@@ -357,11 +333,10 @@ class InventoryShortenManager {
     updateSummary() {
         if (!this.currentItem) return;
         
-        this.summaryOriginalId.textContent = this.currentItem.ja_id;
-        this.summaryOriginalLength.textContent = `${this.originalLength}" (${this.originalLength.toFixed(3)}")`;
+        this.summaryJaId.textContent = this.currentItem.ja_id;
+        this.summaryCurrentLength.textContent = `${this.originalLength.toFixed(3)}"`;
         
         const newLengthStr = this.newLengthInput.value.trim();
-        const newJaId = this.newJaIdInput.value.trim();
         
         if (newLengthStr) {
             try {
@@ -379,48 +354,16 @@ class InventoryShortenManager {
             this.summaryRemovedLength.textContent = '-';
         }
         
-        this.summaryNewId.textContent = newJaId || 'Not generated';
-        
         this.updateExecuteButton();
     }
     
-    async generateNewJaId() {
-        this.generateJaIdBtn.disabled = true;
-        this.generateJaIdBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Generating...';
-        
-        try {
-            const response = await fetch('/api/inventory/next-ja-id');
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (!data.success) {
-                throw new Error(data.error || 'Failed to generate JA ID');
-            }
-            
-            this.newJaIdInput.value = data.next_ja_id;
-            this.updateSummary();
-            this.showAlert(`Generated new JA ID: ${data.next_ja_id}`, 'success');
-            
-        } catch (error) {
-            console.error('Error generating JA ID:', error);
-            this.showAlert(`Failed to generate JA ID: ${error.message}`, 'danger');
-        } finally {
-            this.generateJaIdBtn.disabled = false;
-            this.generateJaIdBtn.innerHTML = '<i class="bi bi-magic"></i> Generate';
-        }
-    }
     
     updateExecuteButton() {
         const hasItem = !!this.currentItem;
         const hasValidLength = this.newLengthInput.value.trim() !== '';
-        const hasNewJaId = this.newJaIdInput.value.trim() !== '';
         const isConfirmed = this.confirmOperationCheckbox.checked;
         
-        const canExecute = hasItem && hasValidLength && hasNewJaId && isConfirmed;
+        const canExecute = hasItem && hasValidLength && isConfirmed;
         this.executeShorteningBtn.disabled = !canExecute;
     }
     
@@ -428,10 +371,6 @@ class InventoryShortenManager {
         // Clear all form inputs
         this.sourceJaIdInput.value = '';
         this.newLengthInput.value = '';
-        this.cutLossInput.value = '';
-        this.newJaIdInput.value = '';
-        this.newLocationInput.value = '';
-        this.newSubLocationInput.value = '';
         this.shorteningNotesTextarea.value = '';
         this.confirmOperationCheckbox.checked = false;
         this.setDefaultDate();

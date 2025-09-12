@@ -243,7 +243,14 @@ def inventory_shorten():
         result = _execute_shortening_operation(form_data)
         
         if result['success']:
-            flash(f"Item successfully shortened! New item {result['new_ja_id']} created, original item {result['source_ja_id']} deactivated.", 'success')
+            original_length = result.get('original_length')
+            new_length = result.get('new_length')
+            ja_id = result.get('ja_id')
+            
+            if original_length and new_length:
+                flash(f"Item {ja_id} successfully shortened from {original_length}\" to {new_length}\"! History preserved.", 'success')
+            else:
+                flash(f"Item {ja_id} successfully shortened! History preserved.", 'success')
             return redirect(url_for('main.inventory_shorten'))
         else:
             flash(f"Shortening failed: {result['error']}", 'error')
@@ -925,24 +932,11 @@ def api_advanced_search():
         }), 500
 
 def _execute_shortening_operation(form_data):
-    """Execute the shortening operation"""
+    """Execute the shortening operation using keep-same-ID approach"""
     try:
         service = _get_inventory_service()
         
         source_ja_id = form_data['source_ja_id'].upper()
-        new_ja_id = form_data['new_ja_id'].upper()
-        
-        # Get the source item
-        source_item = service.get_item(source_ja_id)
-        if not source_item:
-            return {'success': False, 'error': f'Source item {source_ja_id} not found'}
-        
-        if not source_item.active:
-            return {'success': False, 'error': f'Source item {source_ja_id} is not active'}
-        
-        # Check if new JA ID already exists
-        if service.get_item(new_ja_id):
-            return {'success': False, 'error': f'New JA ID {new_ja_id} already exists'}
         
         # Parse new length
         try:
@@ -952,115 +946,30 @@ def _execute_shortening_operation(form_data):
         except Exception:
             return {'success': False, 'error': 'Invalid new length format'}
         
-        # Validate new length is shorter than original
-        if source_item.dimensions and source_item.dimensions.length:
-            original_length = float(source_item.dimensions.length)
-            if float(new_length) >= original_length:
-                return {'success': False, 'error': 'New length must be shorter than original length'}
-        
-        # Create new shortened item
-        new_item = Item(
-            ja_id=new_ja_id,
-            item_type=source_item.item_type,
-            shape=source_item.shape,
-            material=source_item.material,
-            dimensions=Dimensions(
-                length=new_length,
-                width=source_item.dimensions.width if source_item.dimensions else None,
-                thickness=source_item.dimensions.thickness if source_item.dimensions else None,
-                wall_thickness=source_item.dimensions.wall_thickness if source_item.dimensions else None,
-                weight=source_item.dimensions.weight if source_item.dimensions else None
-            ),
-            thread=source_item.thread,
-            quantity=1,  # Shortened items are always quantity 1
-            location=form_data.get('new_location') or source_item.location,
-            sub_location=form_data.get('new_sub_location') or source_item.sub_location,
-            purchase_date=source_item.purchase_date,
-            purchase_price=source_item.purchase_price,
-            purchase_location=source_item.purchase_location,
-            vendor=source_item.vendor,
-            vendor_part_number=source_item.vendor_part_number,
-            notes=_build_shortening_notes(source_item, form_data),
-            active=True,
-            parent_ja_id=source_ja_id  # Set parent relationship
-        )
-        
-        # Add the new item
-        if not service.add_item(new_item):
-            return {'success': False, 'error': 'Failed to create new shortened item'}
-        
-        # Deactivate the original item and add child relationship
-        source_item.active = False
-        source_item.add_child(new_ja_id)
-        
-        # Update notes to indicate shortening
-        original_notes = source_item.notes or ''
-        shortening_note = f"Shortened on {form_data.get('cut_date', 'unknown date')} to create {new_ja_id}"
-        if form_data.get('operator'):
-            shortening_note += f" by {form_data['operator']}"
-        
-        if original_notes:
-            source_item.notes = f"{original_notes}\n\n{shortening_note}"
+        # Check if service has shortening method (MariaDB)
+        if hasattr(service, 'shorten_item'):
+            # Use MariaDB-specific shortening method
+            result = service.shorten_item(
+                ja_id=source_ja_id,
+                new_length=float(new_length),
+                cut_date=form_data.get('cut_date'),
+                notes=form_data.get('shortening_notes')
+            )
+            
+            if result['success']:
+                current_app.logger.info(f'Keep-same-ID shortening completed: {source_ja_id} shortened to {new_length}"')
+            
+            return result
+            
         else:
-            source_item.notes = shortening_note
-        
-        # Update the source item
-        if not service.update_item(source_item):
-            # Try to remove the new item if source update fails
-            current_app.logger.warning(f'Failed to update source item {source_ja_id}, but new item {new_ja_id} was created')
-        
-        current_app.logger.info(f'Shortening operation completed: {source_ja_id} -> {new_ja_id}')
-        
-        return {
-            'success': True,
-            'source_ja_id': source_ja_id,
-            'new_ja_id': new_ja_id,
-            'operation': 'shortening'
-        }
+            # Fallback for other storage backends - this shouldn't happen in production
+            # but provides compatibility for tests
+            return {'success': False, 'error': 'Keep-same-ID shortening only supported with MariaDB backend'}
         
     except Exception as e:
         current_app.logger.error(f'Error in shortening operation: {e}')
         return {'success': False, 'error': str(e)}
 
-def _build_shortening_notes(source_item, form_data):
-    """Build notes for the new shortened item"""
-    notes_parts = []
-    
-    # Add source information
-    notes_parts.append(f"Shortened from {source_item.ja_id}")
-    
-    # Add original length info
-    if source_item.dimensions and source_item.dimensions.length:
-        notes_parts.append(f"Original length: {source_item.dimensions.length}\"")
-    
-    # Add cut information
-    cut_date = form_data.get('cut_date')
-    if cut_date:
-        notes_parts.append(f"Cut date: {cut_date}")
-    
-    operator = form_data.get('operator')
-    if operator:
-        notes_parts.append(f"Operator: {operator}")
-    
-    # Add cut loss if specified
-    cut_loss = form_data.get('cut_loss')
-    if cut_loss:
-        try:
-            loss_value = _parse_dimension_value(cut_loss)
-            notes_parts.append(f"Cut loss: {loss_value}\"")
-        except:
-            pass
-    
-    # Add user notes
-    user_notes = form_data.get('shortening_notes')
-    if user_notes:
-        notes_parts.append(f"Notes: {user_notes}")
-    
-    # Add original item notes if any
-    if source_item.notes:
-        notes_parts.append(f"Original item notes: {source_item.notes}")
-    
-    return '\n'.join(notes_parts)
 
 def _parse_item_from_form(form_data):
     """Parse form data into an Item object"""

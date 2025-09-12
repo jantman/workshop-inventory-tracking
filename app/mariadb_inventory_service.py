@@ -319,6 +319,117 @@ class MariaDBInventoryService(InventoryService):
         
         return item
     
+    def shorten_item(self, ja_id: str, new_length: float, cut_date: str = None, notes: str = None) -> dict:
+        """
+        Shorten an existing item by creating a new active row and deactivating the current one.
+        Keeps the same JA ID throughout the item's lifecycle.
+        
+        Args:
+            ja_id: JA ID of the item to shorten
+            new_length: New length after shortening (in inches)
+            cut_date: Date when shortening occurred (defaults to today)
+            notes: Optional notes about the shortening operation
+            
+        Returns:
+            Dictionary with success status and details
+        """
+        from datetime import datetime, date
+        
+        try:
+            session = self.Session()
+            
+            # Get current active item
+            current_db_item = session.query(InventoryItem).filter(
+                and_(InventoryItem.ja_id == ja_id, InventoryItem.active == True)
+            ).first()
+            
+            if not current_db_item:
+                return {'success': False, 'error': f'Active item {ja_id} not found'}
+            
+            # Validate new length
+            if new_length <= 0:
+                return {'success': False, 'error': 'New length must be greater than 0'}
+            
+            if current_db_item.length and new_length >= float(current_db_item.length):
+                return {'success': False, 'error': 'New length must be shorter than current length'}
+            
+            # Set cut date
+            if cut_date:
+                try:
+                    cut_date_obj = datetime.strptime(cut_date, '%Y-%m-%d').date()
+                except ValueError:
+                    cut_date_obj = date.today()
+            else:
+                cut_date_obj = date.today()
+            
+            # Deactivate current item
+            current_db_item.active = False
+            current_db_item.last_modified = datetime.utcnow()
+            
+            # Build shortening notes
+            shortening_notes = f"Shortened from {current_db_item.length}\" to {new_length}\" on {cut_date_obj}"
+            if notes:
+                shortening_notes += f"\nNotes: {notes}"
+            if current_db_item.notes:
+                shortening_notes += f"\n\nPrevious notes: {current_db_item.notes}"
+            
+            # Create new active item with same JA ID and shortened length
+            new_db_item = InventoryItem(
+                ja_id=ja_id,  # Keep same JA ID
+                item_type=current_db_item.item_type,
+                shape=current_db_item.shape,
+                material=current_db_item.material,
+                length=new_length,
+                width=current_db_item.width,
+                thickness=current_db_item.thickness,
+                wall_thickness=current_db_item.wall_thickness,
+                weight=current_db_item.weight,
+                thread_series=current_db_item.thread_series,
+                thread_handedness=current_db_item.thread_handedness,
+                thread_size=current_db_item.thread_size,
+                thread_form=current_db_item.thread_form,
+                quantity=1,  # Shortened items are always quantity 1
+                location=current_db_item.location,
+                sub_location=current_db_item.sub_location,
+                purchase_date=current_db_item.purchase_date,
+                purchase_price=current_db_item.purchase_price,
+                purchase_location=current_db_item.purchase_location,
+                vendor=current_db_item.vendor,
+                vendor_part=current_db_item.vendor_part,
+                notes=shortening_notes,
+                original_material=current_db_item.original_material,
+                original_thread=current_db_item.original_thread,
+                active=True,
+                date_added=datetime.utcnow(),
+                last_modified=datetime.utcnow()
+            )
+            
+            # Add new item to session
+            session.add(new_db_item)
+            
+            # Commit changes
+            session.commit()
+            
+            logger.info(f"Successfully shortened item {ja_id}: {current_db_item.length}\" -> {new_length}\"")
+            
+            return {
+                'success': True,
+                'ja_id': ja_id,
+                'original_length': float(current_db_item.length) if current_db_item.length else None,
+                'new_length': new_length,
+                'cut_date': str(cut_date_obj),
+                'operation': 'shortening'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error shortening item {ja_id}: {e}")
+            if 'session' in locals():
+                session.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            if 'session' in locals():
+                session.close()
+    
     # Override parent class methods to use active-only logic
     
     def get_item(self, ja_id: str) -> Optional[Item]:

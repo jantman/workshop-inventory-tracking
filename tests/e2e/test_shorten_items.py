@@ -1,12 +1,12 @@
 """
 E2E Tests for Shorten Items Functionality
 
-Tests the complete workflow for shortening inventory items including:
+Tests the complete workflow for shortening inventory items using keep-same-ID approach:
 - Item loading and validation
 - Length calculations and validation
-- JA ID generation for new items  
+- Keep-same-ID shortening workflow
 - Confirmation workflow
-- Actual shortening execution
+- Actual shortening execution with history preservation
 - Error handling and edge cases
 """
 
@@ -46,26 +46,11 @@ class ShortenItemsPage(BasePage):
         """Enter new length for shortened item"""
         self.page.locator("#new-length").fill(str(length))
     
-    def enter_cut_loss(self, cut_loss):
-        """Enter cut loss amount"""
-        self.page.locator("#cut-loss").fill(str(cut_loss))
-    
-    def enter_operator(self, operator):
-        """Enter operator name"""
-        self.page.locator("#operator").fill(operator)
-    
-    def enter_new_location(self, location):
-        """Enter new location for shortened item"""
-        self.page.locator("#new-location").fill(location)
     
     def enter_shortening_notes(self, notes):
         """Enter shortening operation notes"""
         self.page.locator("#shortening-notes").fill(notes)
     
-    def click_generate_ja_id(self):
-        """Click generate JA ID button"""
-        self.page.locator("#generate-ja-id-btn").click()
-        self.page.wait_for_load_state("networkidle")
     
     def check_confirm_operation(self):
         """Check the confirm operation checkbox"""
@@ -88,9 +73,9 @@ class ShortenItemsPage(BasePage):
         """Assert shortening details section is visible"""
         expect(self.page.locator("#shortening-section")).to_be_visible()
     
-    def assert_new_item_section_visible(self):
-        """Assert new item details section is visible"""
-        expect(self.page.locator("#new-item-section")).to_be_visible()
+    def assert_notes_section_visible(self):
+        """Assert shortening notes section is visible"""
+        expect(self.page.locator("#notes-section")).to_be_visible()
     
     def assert_summary_section_visible(self):
         """Assert operation summary section is visible"""
@@ -100,13 +85,14 @@ class ShortenItemsPage(BasePage):
         """Get the current length from item details"""
         return self.page.locator("#current-length").inner_text()
     
-    def get_new_ja_id(self):
-        """Get the generated new JA ID"""
-        return self.page.locator("#new-ja-id").input_value()
     
-    def get_summary_original_length(self):
-        """Get original length from summary"""
-        return self.page.locator("#summary-original-length").inner_text()
+    def get_summary_current_length(self):
+        """Get current length from summary"""
+        return self.page.locator("#summary-current-length").inner_text()
+    
+    def get_summary_ja_id(self):
+        """Get JA ID from summary"""
+        return self.page.locator("#summary-ja-id").inner_text()
     
     def get_summary_new_length(self):
         """Get new length from summary"""
@@ -143,7 +129,7 @@ def test_shorten_page_loads(page, live_server):
     # Sections should be hidden initially
     expect(page.locator("#item-details")).not_to_be_visible()
     expect(page.locator("#shortening-section")).not_to_be_visible()
-    expect(page.locator("#new-item-section")).not_to_be_visible()
+    expect(page.locator("#notes-section")).not_to_be_visible()
     expect(page.locator("#summary-section")).not_to_be_visible()
 
 
@@ -209,7 +195,7 @@ def test_load_nonexistent_item(page, live_server):
     
     # Should not show other sections
     expect(page.locator("#shortening-section")).not_to_be_visible()
-    expect(page.locator("#new-item-section")).not_to_be_visible()
+    expect(page.locator("#notes-section")).not_to_be_visible()
 
 
 @pytest.mark.e2e
@@ -288,35 +274,26 @@ def test_complete_shortening_workflow(page, live_server):
     
     # Enter shortening details
     shorten_page.enter_new_length("240")  # 20 feet (shortened by 30 feet)
-    shorten_page.enter_cut_loss("0.125")  # 1/8 inch kerf
-    shorten_page.enter_operator("Test Operator")
     
-    # Should show new item section after entering new length
-    shorten_page.assert_new_item_section_visible()
+    # Should show notes section after entering new length
+    shorten_page.assert_notes_section_visible()
     
-    # Generate new JA ID
-    shorten_page.click_generate_ja_id()
-    
-    # Should have generated a JA ID
-    new_ja_id = shorten_page.get_new_ja_id()
-    assert new_ja_id.startswith("JA")
-    assert len(new_ja_id) == 8
-    
-    # Enter location and notes
-    shorten_page.enter_new_location("Storage Bay 2")
+    # Enter shortening notes
     shorten_page.enter_shortening_notes("Cut with bandsaw for test project")
     
     # Should show summary section
     shorten_page.assert_summary_section_visible()
     
     # Verify summary information
-    original_length = shorten_page.get_summary_original_length()
+    ja_id_summary = shorten_page.get_summary_ja_id()
+    current_length = shorten_page.get_summary_current_length()
     new_length = shorten_page.get_summary_new_length()
     removed_length = shorten_page.get_summary_removed_length()
     
-    assert "600" in original_length or "50" in original_length
+    assert ja_id == ja_id_summary  # Same JA ID should be preserved
+    assert "600" in current_length or "50" in current_length
     assert "240" in new_length or "20" in new_length
-    assert "360" in removed_length or "30" in removed_length  # 30 feet removed + kerf
+    assert "360" in removed_length or "30" in removed_length  # 30 feet removed
     
     # Confirm and execute
     shorten_page.check_confirm_operation()
@@ -325,8 +302,8 @@ def test_complete_shortening_workflow(page, live_server):
     page.locator('button[type="submit"]').click()
     page.wait_for_load_state("networkidle")
     
-    # Should show success message
-    shorten_page.assert_success_message("successfully shortened")
+    # Should show success message with preserved JA ID
+    shorten_page.assert_success_message("History preserved")
 
 
 @pytest.mark.e2e
@@ -419,8 +396,8 @@ def test_zero_or_negative_length_validation(page, live_server):
 
 
 @pytest.mark.e2e
-def test_generate_ja_id_functionality(page, live_server):
-    """Test JA ID generation for new item"""
+def test_keep_same_id_workflow(page, live_server):
+    """Test that shortening preserves the same JA ID"""
     from tests.e2e.pages.add_item_page import AddItemPage
     
     # Add test item
@@ -441,7 +418,7 @@ def test_generate_ja_id_functionality(page, live_server):
     )
     add_page.fill_location_and_notes(
         location="Table A",
-        notes="Test plate for JA ID generation"
+        notes="Test plate for keep-same-ID workflow"
     )
     add_page.submit_form()
     ja_id = ja_id_to_use
@@ -455,20 +432,13 @@ def test_generate_ja_id_functionality(page, live_server):
     # Enter valid new length
     shorten_page.enter_new_length("120")
     
-    # Should show new item section
-    shorten_page.assert_new_item_section_visible()
+    # Should show notes section
+    shorten_page.assert_notes_section_visible()
     
-    # JA ID field should be empty initially
-    assert shorten_page.get_new_ja_id() == ""
-    
-    # Generate JA ID
-    shorten_page.click_generate_ja_id()
-    
-    # Should have a valid JA ID
-    new_ja_id = shorten_page.get_new_ja_id()
-    assert new_ja_id.startswith("JA")
-    assert len(new_ja_id) == 8
-    assert new_ja_id != ja_id  # Should be different from original
+    # Verify summary shows same JA ID
+    shorten_page.assert_summary_section_visible()
+    ja_id_summary = shorten_page.get_summary_ja_id()
+    assert ja_id == ja_id_summary  # Same JA ID should be preserved throughout
 
 
 @pytest.mark.e2e
@@ -505,7 +475,7 @@ def test_form_reset_functionality(page, live_server):
     shorten_page.enter_source_ja_id(ja_id)
     shorten_page.click_load_item()
     shorten_page.enter_new_length("180")
-    shorten_page.enter_operator("Test User")
+    shorten_page.enter_shortening_notes("Test notes")
     
     # Should have data in form
     shorten_page.assert_item_details_visible()
@@ -518,52 +488,5 @@ def test_form_reset_functionality(page, live_server):
     expect(page.locator("#source-ja-id")).to_have_value("")
     expect(page.locator("#item-details")).not_to_be_visible()
     expect(page.locator("#shortening-section")).not_to_be_visible()
-    expect(page.locator("#new-item-section")).not_to_be_visible()
+    expect(page.locator("#notes-section")).not_to_be_visible()
 
-
-@pytest.mark.e2e
-def test_shortening_with_cut_loss(page, live_server):
-    """Test shortening calculation including cut loss"""
-    from tests.e2e.pages.add_item_page import AddItemPage
-    
-    # Add test item
-    add_page = AddItemPage(page, live_server.url)
-    add_page.navigate()
-    # Use a test JA ID
-    ja_id_to_use = "JA000001"
-    
-    add_page.fill_basic_item_data(
-        ja_id=ja_id_to_use,
-        item_type="Bar",
-        shape="Square",
-        material="Aluminum"
-    )
-    add_page.fill_dimensions(
-        length='480',  # 40 feet
-        width='25'
-    )
-    add_page.fill_location_and_notes(
-        location="Storage C",
-        notes="Test bar for cut loss calculation"
-    )
-    add_page.submit_form()
-    ja_id = ja_id_to_use
-    
-    # Navigate to shorten page and load item  
-    shorten_page = ShortenItemsPage(page, live_server.url)
-    shorten_page.navigate()
-    shorten_page.enter_source_ja_id(ja_id)
-    shorten_page.click_load_item()
-    
-    # Enter shortening details with cut loss
-    shorten_page.enter_new_length("240")  # 20 feet
-    shorten_page.enter_cut_loss("0.25")   # 1/4 inch kerf
-    shorten_page.click_generate_ja_id()
-    
-    # Should show summary section
-    shorten_page.assert_summary_section_visible()
-    
-    # Verify cut loss is accounted for in removed length
-    removed_length = shorten_page.get_summary_removed_length()
-    # Should be ~240.25 inches removed (240 + 0.25 kerf)
-    assert "240" in removed_length

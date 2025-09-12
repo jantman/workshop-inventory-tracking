@@ -120,18 +120,6 @@
                             </div>
                         </div>
                         
-                        <div class="col-md-6 mb-3">
-                            <label for="cut-loss" class="form-label">Cut Loss (Optional)</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control" id="cut-loss" name="cut_loss" 
-                                       placeholder="0.125" pattern="[\d./\s]+"
-                                       title="Material lost during cutting (kerf width)">
-                                <span class="input-group-text">in</span>
-                            </div>
-                            <div class="form-text">
-                                Account for material lost during cutting (kerf width, typically 0.125")
-                            </div>
-                        </div>
                     </div>
                     
                     <!-- Length Validation -->
@@ -152,56 +140,21 @@
                             <div class="form-text">Date when the material was cut (defaults to today)</div>
                         </div>
                         
-                        <div class="col-md-6 mb-3">
-                            <label for="operator" class="form-label">Operator</label>
-                            <input type="text" class="form-control" id="operator" name="operator" 
-                                   placeholder="Who performed the cut?">
-                            <div class="form-text">Person who performed the cutting operation</div>
-                        </div>
                     </div>
                 </div>
             </div>
             
-            <!-- New Item Details -->
-            <div class="card mb-4" id="new-item-section" style="display: none;">
+            <!-- Shortening Notes -->
+            <div class="card mb-4" id="notes-section" style="display: none;">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-plus-circle"></i> New Item Details</h5>
+                    <h5 class="mb-0"><i class="bi bi-pencil-square"></i> Shortening Notes</h5>
                 </div>
                 <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <label for="new-ja-id" class="form-label">New JA ID *</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control" id="new-ja-id" name="new_ja_id" 
-                                       pattern="JA\d{6}" placeholder="JA000001" required readonly
-                                       title="New JA ID will be auto-generated">
-                                <button type="button" class="btn btn-outline-primary" id="generate-ja-id-btn" title="Generate next available JA ID">
-                                    <i class="bi bi-magic"></i> Generate
-                                </button>
-                            </div>
-                            <div class="form-text">New JA ID for the shortened piece</div>
-                        </div>
-                        
-                        <div class="col-md-4 mb-3">
-                            <label for="new-location" class="form-label">New Location</label>
-                            <input type="text" class="form-control" id="new-location" name="new_location" 
-                                   placeholder="Same as original">
-                            <div class="form-text">Location for the new item (defaults to original location)</div>
-                        </div>
-                        
-                        <div class="col-md-4 mb-3">
-                            <label for="new-sub-location" class="form-label">New Sub-Location</label>
-                            <input type="text" class="form-control" id="new-sub-location" name="new_sub_location" 
-                                   placeholder="Same as original">
-                            <div class="form-text">Sub-location for the new item</div>
-                        </div>
-                    </div>
-                    
                     <div class="mb-3">
-                        <label for="shortening-notes" class="form-label">Shortening Notes</label>
+                        <label for="shortening-notes" class="form-label">Shortening Notes (Optional)</label>
                         <textarea class="form-control" id="shortening-notes" name="shortening_notes" rows="3" 
-                                  placeholder="Notes about the shortening operation..."></textarea>
-                        <div class="form-text">Additional notes about the cutting/shortening process</div>
+                                  placeholder="Additional notes about the shortening operation..."></textarea>
+                        <div class="form-text">Optional notes about the cutting/shortening process</div>
                     </div>
                 </div>
             </div>
@@ -211,17 +164,17 @@
             <!-- Operation Summary -->
             <div class="card mb-4" id="summary-section" style="display: none;">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Operation Summary</h5>
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Shortening Summary</h5>
                 </div>
                 <div class="card-body">
                     <div class="list-group list-group-flush">
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <span>Original Item:</span>
-                            <span id="summary-original-id" class="fw-bold">-</span>
+                            <span>Item JA ID:</span>
+                            <span id="summary-ja-id" class="fw-bold">-</span>
                         </div>
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <span>Original Length:</span>
-                            <span id="summary-original-length">-</span>
+                            <span>Current Length:</span>
+                            <span id="summary-current-length">-</span>
                         </div>
                         <div class="list-group-item d-flex justify-content-between align-items-center">
                             <span>New Length:</span>
@@ -230,10 +183,6 @@
                         <div class="list-group-item d-flex justify-content-between align-items-center">
                             <span>Material Removed:</span>
                             <span id="summary-removed-length" class="text-danger">-</span>
-                        </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <span>New Item ID:</span>
-                            <span id="summary-new-id" class="fw-bold text-success">-</span>
                         </div>
                     </div>
                     
@@ -246,40 +195,41 @@
                         </div>
                         <div class="form-text">
                             <i class="bi bi-exclamation-triangle text-warning"></i>
-                            This will deactivate the original item and create a new shortened item.
+                            This will shorten the item and preserve its history. The same JA ID will be maintained.
                         </div>
                     </div>
                 </div>
             </div>
             
-            <!-- Parent-Child Relationship Info -->
-            <div class="card" id="relationship-section" style="display: none;">
+            <!-- History Tracking Info -->
+            <div class="card" id="history-section" style="display: none;">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Relationship Tracking</h5>
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> History Tracking</h5>
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
                         <small class="text-muted">
                             <i class="bi bi-info-circle"></i>
-                            <strong>Parent-Child Relationship:</strong><br>
-                            The original item will be marked as the parent, and the new shortened item will be recorded as its child. 
-                            This maintains a complete history of material usage and transformations.
+                            <strong>Item History:</strong><br>
+                            When you shorten this item, the current version will be preserved in the history, 
+                            and a new active version with the shortened length will be created. 
+                            The same JA ID is maintained throughout the item's lifecycle.
                         </small>
                     </div>
                     
                     <div class="list-group list-group-flush">
                         <div class="list-group-item d-flex align-items-center">
-                            <i class="bi bi-arrow-up-circle text-primary me-2"></i>
+                            <i class="bi bi-archive text-muted me-2"></i>
                             <div>
-                                <div class="fw-bold">Parent Item</div>
-                                <small class="text-muted">Original item (will be deactivated)</small>
+                                <div class="fw-bold">Historical Record</div>
+                                <small class="text-muted">Current item version (will be deactivated)</small>
                             </div>
                         </div>
                         <div class="list-group-item d-flex align-items-center">
-                            <i class="bi bi-arrow-down-circle text-success me-2"></i>
+                            <i class="bi bi-check-circle text-success me-2"></i>
                             <div>
-                                <div class="fw-bold">Child Item</div>
-                                <small class="text-muted">New shortened item (will be active)</small>
+                                <div class="fw-bold">Active Item</div>
+                                <small class="text-muted">New shortened version (will be active)</small>
                             </div>
                         </div>
                     </div>
@@ -297,7 +247,7 @@
                         <div>
                             <small class="text-muted">
                                 <i class="bi bi-info-circle"></i>
-                                Load an item, enter the new length, and confirm to create the shortened item
+                                Load an item, enter the new length, and confirm to shorten the item (JA ID remains the same)
                             </small>
                         </div>
                         
