@@ -124,18 +124,23 @@ def test_shorten_operation_summary_structure(page, live_server):
 
 
 @pytest.mark.e2e
-def test_shorten_ja_id_generation_safety(page, live_server):
-    """Test JA ID generation safety features"""
+def test_shorten_keep_same_id_safety(page, live_server):
+    """Test keep-same-ID safety features in new shortening workflow"""
     shorten_page = ShortenItemsPage(page, live_server.url)
     shorten_page.navigate()
     
-    # New JA ID should be readonly (prevent manual tampering)
+    # Should NOT have new JA ID input (keep-same-ID approach)
     new_ja_id_input = page.locator("#new-ja-id")
-    expect(new_ja_id_input).to_have_attribute("readonly", "")
-    expect(new_ja_id_input).to_have_attribute("pattern", "JA\\d{6}")
+    expect(new_ja_id_input).not_to_be_visible()
     
-    # Generate button should exist (may be hidden until needed)
-    assert page.locator("#generate-ja-id-btn").count() > 0, "Should have generate button"
+    # Should NOT have generate button (no new IDs generated)
+    generate_btn = page.locator("#generate-ja-id-btn")
+    expect(generate_btn).not_to_be_visible()
+    
+    # Should have source JA ID input for item identification
+    source_ja_id_input = page.locator("#source-ja-id")
+    expect(source_ja_id_input).to_be_visible()
+    expect(source_ja_id_input).to_have_attribute("pattern", "JA\\d{6}")
 
 
 @pytest.mark.e2e

@@ -105,7 +105,7 @@ class ShortenItemsPage(BasePage):
     def assert_length_validation_error(self):
         """Assert that length validation shows an error"""
         expect(self.page.locator("#length-validation")).to_be_visible()
-        expect(self.page.locator("#length-validation-alert")).to_have_class("alert-danger")
+        expect(self.page.locator("#length-validation-alert.alert-danger")).to_be_visible()
     
     def assert_success_message(self, message_text=None):
         """Assert success message is shown"""
@@ -211,7 +211,7 @@ def test_barcode_scan_workflow(page, live_server):
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
-        item_type="Rod",
+        item_type="Bar",
         shape="Round",
         material="Aluminum"
     )
@@ -271,6 +271,10 @@ def test_complete_shortening_workflow(page, live_server):
     shorten_page.navigate()
     shorten_page.enter_source_ja_id(ja_id)
     shorten_page.click_load_item()
+    
+    # Wait for item to load and sections to become visible
+    shorten_page.assert_item_details_visible()
+    shorten_page.assert_shortening_section_visible()
     
     # Enter shortening details
     shorten_page.enter_new_length("240")  # 20 feet (shortened by 30 feet)
@@ -361,7 +365,7 @@ def test_zero_or_negative_length_validation(page, live_server):
     
     add_page.fill_basic_item_data(
         ja_id=ja_id_to_use,
-        item_type="Rod",
+        item_type="Bar",
         shape="Round",
         material="Copper"
     )

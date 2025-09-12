@@ -81,13 +81,13 @@ def test_shorten_interface_requires_confirmation(page, live_server):
     page.goto(f"{live_server.url}/inventory/shorten")
     page.wait_for_load_state("networkidle")
     
-    # Should have confirmation checkbox
+    # Should have confirmation checkbox (visible after loading an item)
     confirm_elements = page.locator("input[type='checkbox']").all()
     assert len(confirm_elements) > 0, "Should have confirmation checkbox"
     
-    # Should have JA ID generation (prevents manual tampering - may be hidden until item loaded)
-    generate_btn = page.locator("button").filter(has_text="Generate")
-    assert generate_btn.count() > 0, "Should have Generate button"
+    # Should have execute button that requires confirmation (keep-same-ID approach)
+    execute_btn = page.locator("button").filter(has_text="Execute Shortening")
+    assert execute_btn.count() > 0, "Should have Execute Shortening button"
 
 
 @pytest.mark.e2e
