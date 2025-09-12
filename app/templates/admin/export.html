@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block title %}Data Export - Admin - Workshop Inventory{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="bi bi-download"></i> Data Export</h1>
+                <a href="{{ url_for('admin.materials_overview') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Admin
+                </a>
+            </div>
+
+            <!-- Important Notice -->
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-info-circle-fill"></i>
+                <strong>Data Export:</strong> Export inventory items and materials taxonomy to JSON or Google Sheets. 
+                Use this tool for backups, data analysis, or system migrations.
+            </div>
+
+            <!-- Export Form -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-gear-fill"></i>
+                        Export Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="export-form">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="export-type" class="form-label">Export Type</label>
+                                <select class="form-select" id="export-type" name="type" required>
+                                    <option value="">Select export type...</option>
+                                    <option value="inventory">Inventory Items Only</option>
+                                    <option value="materials">Materials Taxonomy Only</option>
+                                    <option value="combined">Combined (Inventory + Materials)</option>
+                                </select>
+                                <div class="form-text">Choose what data to export</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="destination" class="form-label">Destination</label>
+                                <select class="form-select" id="destination" name="destination" required>
+                                    <option value="">Select destination...</option>
+                                    <option value="json">JSON Download</option>
+                                    <option value="sheets">Google Sheets Upload</option>
+                                </select>
+                                <div class="form-text">Where to export the data</div>
+                            </div>
+                        </div>
+
+                        <!-- Additional Options -->
+                        <div class="row mb-3" id="additional-options">
+                            <!-- Inventory Options -->
+                            <div class="col-md-6" id="inventory-options" style="display: none;">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="include-inactive" name="include_inactive" value="true">
+                                    <label class="form-check-label" for="include-inactive">
+                                        Include Inactive Items
+                                    </label>
+                                    <div class="form-text">Include historical/shortened items in export</div>
+                                </div>
+                            </div>
+
+                            <!-- Processing Options -->
+                            <div class="col-md-6">
+                                <label for="batch-size" class="form-label">Batch Size</label>
+                                <input type="number" class="form-control" id="batch-size" name="batch_size" value="100" min="1" max="1000">
+                                <div class="form-text">Number of items to process at once</div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Options -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="enable-logging" name="enable_logging" value="true" checked>
+                                    <label class="form-check-label" for="enable-logging">
+                                        Enable Progress Logging
+                                    </label>
+                                    <div class="form-text">Show detailed progress information</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Export Button -->
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary" id="export-btn">
+                                <i class="bi bi-play-fill"></i> Start Export
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="validate-btn">
+                                <i class="bi bi-check-circle"></i> Validate Only
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Progress Section -->
+            <div class="card mt-4" id="progress-section" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-activity"></i>
+                        Export Progress
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <div class="progress" style="height: 25px;">
+                            <div class="progress-bar" role="progressbar" style="width: 0%;" id="progress-bar">
+                                0%
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Log Output</label>
+                        <div class="border p-3" style="height: 300px; overflow-y: auto; background-color: #f8f9fa; font-family: monospace;" id="export-log">
+                            Ready to start export...
+                        </div>
+                    </div>
+
+                    <div id="export-results" style="display: none;">
+                        <hr>
+                        <h6>Export Results</h6>
+                        <div id="results-content"></div>
+                        <div class="mt-3" id="download-section" style="display: none;">
+                            <a href="#" class="btn btn-success" id="download-btn">
+                                <i class="bi bi-download"></i> Download Export File
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('export-form');
+    const exportType = document.getElementById('export-type');
+    const destination = document.getElementById('destination');
+    const inventoryOptions = document.getElementById('inventory-options');
+    const progressSection = document.getElementById('progress-section');
+    const exportBtn = document.getElementById('export-btn');
+    const validateBtn = document.getElementById('validate-btn');
+    const progressBar = document.getElementById('progress-bar');
+    const exportLog = document.getElementById('export-log');
+    const exportResults = document.getElementById('export-results');
+    const resultsContent = document.getElementById('results-content');
+    const downloadSection = document.getElementById('download-section');
+    const downloadBtn = document.getElementById('download-btn');
+
+    // Show/hide inventory options based on export type
+    exportType.addEventListener('change', function() {
+        if (this.value === 'inventory' || this.value === 'combined') {
+            inventoryOptions.style.display = 'block';
+        } else {
+            inventoryOptions.style.display = 'none';
+        }
+    });
+
+    // Validate form
+    validateBtn.addEventListener('click', async function() {
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData.entries());
+        
+        try {
+            const response = await fetch('/api/admin/export/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                alert('Export configuration is valid!');
+            } else {
+                alert('Validation failed: ' + result.error);
+            }
+        } catch (error) {
+            alert('Validation error: ' + error.message);
+        }
+    });
+
+    // Handle form submission
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData.entries());
+        
+        // Show progress section
+        progressSection.style.display = 'block';
+        exportBtn.disabled = true;
+        validateBtn.disabled = true;
+        
+        // Reset progress
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+        exportLog.textContent = 'Starting export...\n';
+        exportResults.style.display = 'none';
+        downloadSection.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/admin/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                // Update progress to 100%
+                progressBar.style.width = '100%';
+                progressBar.textContent = '100%';
+                progressBar.classList.remove('bg-danger');
+                progressBar.classList.add('bg-success');
+                
+                // Show results
+                exportResults.style.display = 'block';
+                resultsContent.innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle-fill"></i>
+                        <strong>Export completed successfully!</strong>
+                    </div>
+                    <ul class="list-unstyled">
+                        <li><strong>Export Type:</strong> ${data.type}</li>
+                        <li><strong>Destination:</strong> ${data.destination}</li>
+                        <li><strong>Items Exported:</strong> ${result.stats?.total_items || 'N/A'}</li>
+                        <li><strong>Processing Time:</strong> ${result.stats?.processing_time || 'N/A'}</li>
+                    </ul>
+                `;
+
+                // Show download if JSON export
+                if (data.destination === 'json' && result.download_url) {
+                    downloadSection.style.display = 'block';
+                    downloadBtn.href = result.download_url;
+                }
+
+                // Append final log
+                exportLog.textContent += 'Export completed successfully!\n';
+            } else {
+                // Error state
+                progressBar.classList.remove('bg-success');
+                progressBar.classList.add('bg-danger');
+                progressBar.textContent = 'Error';
+                
+                exportResults.style.display = 'block';
+                resultsContent.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <strong>Export failed:</strong> ${result.error}
+                    </div>
+                `;
+                
+                exportLog.textContent += 'Export failed: ' + result.error + '\n';
+            }
+        } catch (error) {
+            // Network error
+            progressBar.classList.remove('bg-success');
+            progressBar.classList.add('bg-danger');
+            progressBar.textContent = 'Error';
+            
+            exportResults.style.display = 'block';
+            resultsContent.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>Network error:</strong> ${error.message}
+                </div>
+            `;
+            
+            exportLog.textContent += 'Network error: ' + error.message + '\n';
+        } finally {
+            exportBtn.disabled = false;
+            validateBtn.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}

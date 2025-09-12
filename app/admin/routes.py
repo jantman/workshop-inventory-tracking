@@ -184,3 +184,9 @@ def validate_material():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp.route('/export')
+def export():
+    """Admin page for data export functionality"""
+    return render_template('admin/export.html', title='Data Export')

@@ -1136,10 +1136,7 @@ def _parse_dimension_value(value):
         raise ValueError(f"Cannot parse dimension value: {value}")
 
 # Export Endpoints
-@bp.route('/admin/export')
-def admin_export():
-    """Admin page for data export functionality"""
-    return render_template('admin/export.html', title='Data Export')
+# NOTE: /admin/export route moved to admin/routes.py
 
 @bp.route('/api/admin/export', methods=['POST'])
 @csrf.exempt
