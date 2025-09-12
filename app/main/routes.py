@@ -228,7 +228,7 @@ def inventory_shorten():
         form_data = request.form.to_dict()
         
         # Validate required fields
-        required_fields = ['source_ja_id', 'new_length', 'new_ja_id', 'confirm_operation']
+        required_fields = ['source_ja_id', 'new_length', 'confirm_operation']
         missing_fields = [field for field in required_fields if not form_data.get(field)]
         
         if missing_fields:
@@ -946,9 +946,9 @@ def _execute_shortening_operation(form_data):
         except Exception:
             return {'success': False, 'error': 'Invalid new length format'}
         
-        # Check if service has shortening method (MariaDB)
-        if hasattr(service, 'shorten_item'):
-            # Use MariaDB-specific shortening method
+        # Check if this is MariaDB service with keep-same-ID shortening support  
+        if hasattr(service, 'shorten_item') and hasattr(service, 'get_item_history'):
+            # Use MariaDB-specific shortening method with keep-same-ID approach
             result = service.shorten_item(
                 ja_id=source_ja_id,
                 new_length=float(new_length),
@@ -962,9 +962,47 @@ def _execute_shortening_operation(form_data):
             return result
             
         else:
-            # Fallback for other storage backends - this shouldn't happen in production
-            # but provides compatibility for tests
-            return {'success': False, 'error': 'Keep-same-ID shortening only supported with MariaDB backend'}
+            # For non-MariaDB storage (like tests), implement keep-same-ID shortening manually
+            current_app.logger.info(f'Using manual keep-same-ID shortening for non-MariaDB storage')
+            
+            # Get current item
+            current_item = service.get_item(source_ja_id)
+            if not current_item:
+                return {'success': False, 'error': f'Item {source_ja_id} not found'}
+            
+            # Validate new length
+            if current_item.dimensions and current_item.dimensions.length:
+                original_length = float(current_item.dimensions.length)
+                if float(new_length) >= original_length:
+                    return {'success': False, 'error': 'New length must be shorter than current length'}
+            else:
+                return {'success': False, 'error': 'Item has no current length to shorten'}
+            
+            # Create updated dimensions for shortening
+            new_dimensions = Dimensions(
+                length=Decimal(str(new_length)),
+                width=current_item.dimensions.width,
+                thickness=current_item.dimensions.thickness,
+                wall_thickness=current_item.dimensions.wall_thickness,
+                weight=None  # Weight would change after cutting
+            )
+            
+            # Update the current item to the shortened version (keep-same-ID approach)
+            current_item.dimensions = new_dimensions
+            current_item.notes = f"Shortened to {new_length}\" - {form_data.get('shortening_notes', '').strip()}" if form_data.get('shortening_notes', '').strip() else f"Shortened to {new_length}\""
+            current_item.active = True
+            current_item.last_modified = datetime.now()
+            
+            if service.update_item(current_item):
+                return {
+                    'success': True,
+                    'ja_id': source_ja_id,
+                    'original_length': original_length,
+                    'new_length': float(new_length),
+                    'message': f'Item {source_ja_id} successfully shortened using keep-same-ID approach'
+                }
+            else:
+                return {'success': False, 'error': 'Failed to add shortened item'}
         
     except Exception as e:
         current_app.logger.error(f'Error in shortening operation: {e}')
