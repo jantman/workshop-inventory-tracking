@@ -298,17 +298,32 @@ def connection_test():
 def api_stats():
     """API endpoint for dashboard statistics"""
     try:
-        from app.inventory_service import InventoryService
+        from app.mariadb_inventory_service import MariaDBInventoryService
         
         # Get inventory service
         service = _get_inventory_service()
         
-        # Get all items
-        items = service.get_all_items()
-        
-        # Calculate statistics
-        total_items = len(items)
-        active_items = len([item for item in items if item.active])
+        # For MariaDB service, get counts directly from database to include inactive items
+        if isinstance(service, MariaDBInventoryService):
+            from app.database import InventoryItem
+            from sqlalchemy import func
+            
+            session = service.Session()
+            try:
+                # Get total count (active + inactive)
+                total_items = session.query(func.count(InventoryItem.id)).scalar()
+                
+                # Get active count only
+                active_items = session.query(func.count(InventoryItem.id)).filter(
+                    InventoryItem.active == True
+                ).scalar()
+            finally:
+                session.close()
+        else:
+            # Fallback for other service types (e.g., tests)
+            items = service.get_all_items()
+            total_items = len(items)
+            active_items = len([item for item in items if item.active])
         
         return jsonify({
             'success': True,
