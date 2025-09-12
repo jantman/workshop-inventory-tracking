@@ -13,16 +13,6 @@ The following guidelines MUST always be followed:
 * If you become confused or unclear on how to proceed, have to make a significant decision not explicitly included in the implementation plan, or find yourself making changes and then undoing them without a clear and certain path forward, you must stop and ask for human guidance.
 * From time to time we may identify a new, more pressing issue while implementing a feature; we refer to these as "side quests". When beginning a side quest you must update this document to include detailed information on exactly where we're departing from our feature implementation, such that we could use this document to resume from where we left off in a new session, and then commit that. When the side quest is complete, we will resume our feature work.
 
-## Feature: Delete Deprecated Files
-
-Please delete the following deprecated files:
-
-* `docs/feature-enhancements.md`
-* `docs/column-alignment-issue.md`
-* `docs/export-data-structure.md`
-* `docs/hierarchical-materials-design.md`
-* `docs/material-length-enhancement.md`
-
 ## Feature: Item Update Failures
 
 Items JA000181 and JA000182 and maybe others are not populating correctly in the Edit view, but show properly in the list view and item details modal. I also cannot edit them, I just get "Failed to update item. Please try again" and no further details. First fix the population issues for these items and then ask me to try editing them again. If that still fails, I will provide you with server logs so we can fix the issue preventing them from being edited. A server running our code (and reloading whenever the code changes) is available at `http://192.168.0.24:5603/`; this is using production data so you must not make any changes to the data without my explicit approval.
