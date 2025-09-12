@@ -58,22 +58,22 @@ def test_active_item_lookup():
             logger.info(f"Verified: {active_count} are marked as active")
             
             logger.info("✅ MariaDB service tests completed successfully!")
-            return True
             
     except Exception as e:
         logger.error(f"❌ MariaDB service test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def main():
     """Run the test"""
     logger.info("Starting MariaDB inventory service tests...")
     
-    if test_active_item_lookup():
+    try:
+        test_active_item_lookup()
         logger.info("🎉 All tests passed!")
         return 0
-    else:
+    except Exception:
         logger.error("💥 Tests failed!")
         return 1
 

@@ -20,11 +20,11 @@ def tests(session):
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     
-    # Run unit tests only (exclude e2e)
+    # Run unit tests only (exclude e2e and integration)
     session.run(
         "python", "-m", "pytest",
         "-v",
-        "-m", "not e2e",
+        "-m", "not e2e and not integration",
         "--tb=short",
         *session.posargs
     )
