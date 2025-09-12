@@ -21,7 +21,7 @@ def test_add_basic_item_workflow(page, live_server):
     add_page.assert_form_visible()
     
     # Add a minimal item with required fields only
-    add_page.add_minimal_item("JA000001", "Steel")
+    add_page.add_minimal_item("JA000001", "Carbon Steel")
     
     # Verify successful submission
     add_page.assert_form_submitted_successfully()
@@ -69,7 +69,7 @@ def test_add_multiple_items_workflow(page, live_server):
     
     # Add first item
     add_page.navigate()
-    add_page.add_minimal_item("JA000003", "Steel")
+    add_page.add_minimal_item("JA000003", "Carbon Steel")
     add_page.assert_form_submitted_successfully()
     
     # Add second item
@@ -114,7 +114,7 @@ def test_form_navigation_workflow(page, live_server):
     add_page.assert_form_visible()
     
     # Fill some data then cancel
-    add_page.fill_basic_item_data("JA000006", "Bar", "Round", "Steel")
+    add_page.fill_basic_item_data("JA000006", "Bar", "Round", "Carbon Steel")
     add_page.cancel_form()
     
     # Verify we're back to inventory list (or wherever cancel takes us)
@@ -138,7 +138,7 @@ def test_form_field_validation_workflow(page, live_server):
     add_page.assert_form_visible()
     
     # Fill valid data and verify it works
-    add_page.add_minimal_item("JA000007", "Steel")
+    add_page.add_minimal_item("JA000007", "Carbon Steel")
     add_page.assert_form_submitted_successfully()
 
 
@@ -168,7 +168,7 @@ def test_all_item_types_available_in_dropdown(page, live_server):
     assert sorted(type_options) == sorted(expected_types), f"Dropdown options don't match ItemType enum. Expected: {sorted(expected_types)}, Found: {sorted(type_options)}"
     
     # Test that we can actually select 'Threaded Rod' and add an item (since that was the original issue)
-    add_page.fill_basic_item_data("JA000008", "Threaded Rod", "Round", "Steel")
+    add_page.fill_basic_item_data("JA000008", "Threaded Rod", "Round", "Carbon Steel")
     add_page.fill_dimensions(length="36", width="0.25")  # 36" long, 1/4" diameter
     add_page.submit_form()
     
@@ -186,7 +186,7 @@ def test_material_autocomplete_functionality(page, live_server):
             "ja_id": "JA200001",
             "item_type": "Bar", 
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "1000",
             "width": "25"
         },
@@ -194,7 +194,7 @@ def test_material_autocomplete_functionality(page, live_server):
             "ja_id": "JA200002",
             "item_type": "Bar", 
             "shape": "Square",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "500",
             "width": "10"
         },
@@ -202,7 +202,7 @@ def test_material_autocomplete_functionality(page, live_server):
             "ja_id": "JA200003",
             "item_type": "Sheet", 
             "shape": "Rectangular",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "1200",
             "width": "600",
             "thickness": "3"

@@ -51,12 +51,28 @@ def inventory_list():
     """Inventory list view"""
     return render_template('inventory/list.html', title='Inventory')
 
+def _get_valid_materials():
+    """Get list of valid materials from MariaDB taxonomy"""
+    try:
+        from app.mariadb_inventory_service import MariaDBInventoryService
+        
+        # Use MariaDB service to get materials from the database
+        service = MariaDBInventoryService()
+        return service.get_valid_materials()
+        
+    except Exception as e:
+        current_app.logger.error(f'Failed to load materials taxonomy from MariaDB: {e}')
+        # Fallback to some basic materials if database query fails
+        return ['Steel', 'Carbon Steel', 'Stainless Steel', 'Aluminum', 'Brass', 'Copper']
+
 @bp.route('/inventory/add', methods=['GET', 'POST'])
 def inventory_add():
     """Add new inventory item"""
     if request.method == 'GET':
+        valid_materials = _get_valid_materials()
         return render_template('inventory/add.html', title='Add Item', 
-                             ItemType=ItemType, ItemShape=ItemShape)
+                             ItemType=ItemType, ItemShape=ItemShape,
+                             valid_materials=valid_materials)
     
     # Handle POST request for adding item
     try:
@@ -71,6 +87,17 @@ def inventory_add():
             return jsonify({
                 'success': False,
                 'error': f'Missing required fields: {", ".join(missing_fields)}'
+            }), 400
+        
+        # Validate material is in taxonomy
+        material = form_data.get('material', '').strip()
+        valid_materials = _get_valid_materials()
+        valid_materials_lower = [m.lower() for m in valid_materials]
+        
+        if material and material.lower() not in valid_materials_lower:
+            return jsonify({
+                'success': False,
+                'error': f'Material "{material}" is not valid. Please select from materials taxonomy.'
             }), 400
         
         # Parse form data into models
@@ -126,8 +153,10 @@ def inventory_edit(ja_id):
         
         if request.method == 'GET':
             # Populate form with existing item data
+            valid_materials = _get_valid_materials()
             return render_template('inventory/edit.html', title=f'Edit {ja_id}', 
-                                 item=item, ItemType=ItemType, ItemShape=ItemShape)
+                                 item=item, ItemType=ItemType, ItemShape=ItemShape,
+                                 valid_materials=valid_materials)
         
         # Handle POST request for updating item
         form_data = request.form.to_dict()
@@ -138,6 +167,15 @@ def inventory_edit(ja_id):
         
         if missing_fields:
             flash(f'Missing required fields: {", ".join(missing_fields)}', 'error')
+            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+        
+        # Validate material is in taxonomy
+        material = form_data.get('material', '').strip()
+        valid_materials = _get_valid_materials()
+        valid_materials_lower = [m.lower() for m in valid_materials]
+        
+        if material and material.lower() not in valid_materials_lower:
+            flash(f'Material "{material}" is not valid. Please select from materials taxonomy.', 'error')
             return redirect(url_for('main.inventory_edit', ja_id=ja_id))
         
         # Parse form data into updated item
@@ -365,11 +403,9 @@ def check_ja_id_exists(ja_id):
 
 @bp.route('/api/materials/suggestions')
 def material_suggestions():
-    """Get material suggestions from hierarchical taxonomy"""
+    """Get material suggestions from MariaDB taxonomy"""
     query = request.args.get('q', '').strip()
     limit = request.args.get('limit', '10')
-    level = request.args.get('level')  # Filter by hierarchy level (1=Category, 2=Family, 3=Material)
-    parent = request.args.get('parent')  # Filter by parent name
     
     try:
         limit = int(limit)
@@ -378,40 +414,40 @@ def material_suggestions():
         limit = 10
     
     try:
-        level_int = int(level) if level else None
-        if level_int and level_int not in [1, 2, 3]:
-            level_int = None
-    except (ValueError, TypeError):
-        level_int = None
-    
-    try:
-        from app.materials_service import MaterialHierarchyService
+        from app.mariadb_inventory_service import MariaDBInventoryService
         
-        # Get storage backend
-        storage_backend = current_app.config.get('STORAGE_BACKEND')
-        if storage_backend:
-            # Use injected storage backend (for testing)
-            storage = storage_backend
-        else:
-            # Use default Google Sheets storage for production
-            from app.google_sheets_storage import GoogleSheetsStorage
-            from config import Config
-            storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+        # Get all valid materials from MariaDB
+        service = MariaDBInventoryService()
+        all_materials = service.get_valid_materials()
         
-        # Initialize material hierarchy service
-        materials_service = MaterialHierarchyService(storage)
+        if not query:
+            # Return first N materials if no query
+            return jsonify(all_materials[:limit])
         
-        # Get suggestions using the new service
-        suggestions = materials_service.get_suggestions(
-            query=query,
-            level=level_int,
-            parent=parent,
-            limit=limit
-        )
+        # Filter materials based on query (case insensitive)
+        query_lower = query.lower()
+        suggestions = []
         
-        # Return just the material names for backward compatibility with existing autocomplete
-        material_names = [suggestion['name'] for suggestion in suggestions]
-        return jsonify(material_names)
+        # Exact matches first
+        for material in all_materials:
+            if material.lower() == query_lower:
+                suggestions.insert(0, material)
+                break
+        
+        # Starts with matches
+        for material in all_materials:
+            if (material.lower().startswith(query_lower) and 
+                material not in suggestions):
+                suggestions.append(material)
+        
+        # Contains matches
+        for material in all_materials:
+            if (query_lower in material.lower() and 
+                material not in suggestions):
+                suggestions.append(material)
+        
+        # Return limited results
+        return jsonify(suggestions[:limit])
         
     except Exception as e:
         current_app.logger.error(f'Error getting material suggestions for "{query}": {e}')

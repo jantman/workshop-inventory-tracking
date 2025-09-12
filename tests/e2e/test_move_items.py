@@ -117,7 +117,7 @@ def test_single_item_move_workflow(page, live_server):
         ja_id_to_use,
         "Bar",
         "Round", 
-        "Steel"
+        "Carbon Steel"
     )
     add_page.fill_dimensions(
         length='1000',
@@ -236,7 +236,7 @@ def test_multiple_items_move_workflow(page, live_server):
             ja_id_to_use,
             "Bar",
             "Round",
-            "Steel"
+            "Carbon Steel"
         )
         add_page.fill_dimensions(
             length='1000', 

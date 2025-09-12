@@ -168,10 +168,10 @@ def test_edit_item_workflow(page, live_server):
     expect(notes_field).to_have_value('Original aluminum plate')
     
     # Make some changes to the item
-    material_field.fill('6061 Aluminum')
+    material_field.fill('6000 Series Aluminum')
     width_field.fill('6')
     location_field.fill('Workshop C')
-    notes_field.fill('Updated aluminum plate - now 6061 alloy')
+    notes_field.fill('Updated aluminum plate - now 6000 series alloy')
     
     # Submit the changes
     submit_button = page.locator('button[type="submit"]')
@@ -196,7 +196,7 @@ def test_edit_item_workflow(page, live_server):
             break
     
     assert updated_item is not None, "Updated item not found in list"
-    assert '6061 Aluminum' in updated_item['material']
+    assert '6000 Series Aluminum' in updated_item['material']
     
     # Verify changes by viewing the item details
     view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102002\')"]')
@@ -204,10 +204,10 @@ def test_edit_item_workflow(page, live_server):
     
     # Wait for modal and verify updated details
     modal_body = page.locator('#item-details-modal .modal-body')
-    expect(modal_body).to_contain_text('6061 Aluminum')
+    expect(modal_body).to_contain_text('6000 Series Aluminum')
     expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
-    expect(modal_body).to_contain_text('Updated aluminum plate - now 6061 alloy')
+    expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
 
 
 @pytest.mark.e2e
@@ -235,7 +235,7 @@ def test_edit_form_loads_without_validation_errors(page, live_server):
         "ja_id": "JA102003", 
         "item_type": "Bar",
         "shape": "Round",
-        "material": "Steel",
+        "material": "Carbon Steel",
         "length": "12",
         "width": "1", 
         "location": "Workshop",

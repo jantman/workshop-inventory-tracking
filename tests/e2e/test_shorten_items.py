@@ -148,7 +148,7 @@ def test_load_item_for_shortening(page, live_server):
         ja_id=ja_id_to_use,
         item_type="Bar",
         shape="Round",
-        material="Steel"
+        material="Carbon Steel"
     )
     add_page.fill_dimensions(
         length='1200',  # 100 feet, plenty to shorten
@@ -251,7 +251,7 @@ def test_complete_shortening_workflow(page, live_server):
         ja_id=ja_id_to_use,
         item_type=ItemType.BAR,
         shape=ItemShape.RECTANGULAR,
-        material="Steel",
+        material="Carbon Steel",
         dimensions=Dimensions(length=Decimal('600'), width=Decimal('50'), thickness=Decimal('1')),  # 50 feet x 50" x 1"
         location="Storage Bay 1",
         notes="Test bar for complete shortening workflow",
@@ -425,7 +425,7 @@ def test_keep_same_id_workflow(page, live_server):
         ja_id=ja_id_to_use,
         item_type=ItemType.PLATE,
         shape=ItemShape.RECTANGULAR,
-        material="Steel",
+        material="Carbon Steel",
         dimensions=Dimensions(length=Decimal('240'), width=Decimal('120'), thickness=Decimal('0.25')),  # 20 feet x 10 feet x 1/4"
         location="Table A",
         notes="Test plate for keep-same-ID workflow",

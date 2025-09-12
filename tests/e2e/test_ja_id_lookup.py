@@ -20,7 +20,7 @@ def test_ja_id_lookup_with_existing_item(page, live_server):
         "ja_id": "JA200001",
         "item_type": "Bar",
         "shape": "Round",
-        "material": "Steel",
+        "material": "Carbon Steel",
         "length": "12",
         "width": "1",
         "location": "Workshop"

@@ -167,7 +167,7 @@ def test_ja_id_auto_population_with_existing_items(page, live_server):
     test_item = {
         "item_type": "Bar", 
         "shape": "Round",
-        "material": "Test Steel",
+        "material": "Carbon Steel",
         "length": "10",
         "width": "1"
     }

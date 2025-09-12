@@ -18,7 +18,7 @@ def test_search_by_material_workflow(page, live_server):
             "ja_id": "JA001001", 
             "item_type": "Bar", 
             "shape": "Round", 
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "300",
             "width": "12",
             "location": "Storage A",
@@ -38,7 +38,7 @@ def test_search_by_material_workflow(page, live_server):
             "ja_id": "JA001003",
             "item_type": "Bar", 
             "shape": "Round", 
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "400",
             "width": "15",
             "location": "Storage C",
@@ -55,13 +55,13 @@ def test_search_by_material_workflow(page, live_server):
     search_page.assert_search_form_visible()
     
     # Search for steel items
-    search_page.search_by_material("Steel")
+    search_page.search_by_material("Carbon Steel")
     
     # Verify results
     search_page.assert_results_found(2)  # Should find 2 steel items
     search_page.assert_result_contains_item("JA001001")
     search_page.assert_result_contains_item("JA001003")
-    search_page.assert_all_results_match_criteria(material="Steel")
+    search_page.assert_all_results_match_criteria(material="Carbon Steel")
 
 
 @pytest.mark.e2e
@@ -73,7 +73,7 @@ def test_search_by_location_workflow(page, live_server):
             "ja_id": "JA002001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "200",
             "width": "8",
             "location": "Storage A",
@@ -125,7 +125,7 @@ def test_search_by_ja_id_workflow(page, live_server):
             "ja_id": "JA003002", 
             "item_type": "Tube",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "300",
             "width": "25",
             "wall_thickness": "2",
@@ -156,7 +156,7 @@ def test_search_multiple_criteria_workflow(page, live_server):
             "ja_id": "JA004001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "250",
             "width": "10",
             "location": "Storage A", 
@@ -166,7 +166,7 @@ def test_search_multiple_criteria_workflow(page, live_server):
             "ja_id": "JA004002",
             "item_type": "Bar",
             "shape": "Round", 
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "300",
             "width": "12",
             "location": "Storage B",
@@ -191,12 +191,12 @@ def test_search_multiple_criteria_workflow(page, live_server):
     search_page.navigate()
     
     # Search with multiple criteria: Steel items in Storage A
-    search_page.search_multiple_criteria(material="Steel", location="Storage A")
+    search_page.search_multiple_criteria(material="Carbon Steel", location="Storage A")
     
     # Verify results
     search_page.assert_results_found(1)
     search_page.assert_result_contains_item("JA004001")
-    search_page.assert_all_results_match_criteria(material="Steel", location="Storage A")
+    search_page.assert_all_results_match_criteria(material="Carbon Steel", location="Storage A")
 
 
 @pytest.mark.e2e
@@ -208,7 +208,7 @@ def test_search_no_results_workflow(page, live_server):
             "ja_id": "JA005001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "200",
             "width": "8",
             "location": "Storage A",
@@ -237,7 +237,7 @@ def test_search_clear_form_workflow(page, live_server):
             "ja_id": "JA006001",
             "item_type": "Bar", 
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "180",
             "width": "7",
             "location": "Storage A",
@@ -251,7 +251,7 @@ def test_search_clear_form_workflow(page, live_server):
     search_page.navigate()
     
     # Perform search
-    search_page.search_by_material("Steel")
+    search_page.search_by_material("Carbon Steel")
     search_page.assert_results_found()
     
     # Clear search form
@@ -273,7 +273,7 @@ def test_search_notes_content_workflow(page, live_server):
             "ja_id": "JA007001",
             "item_type": "Bar",
             "shape": "Round", 
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "350",
             "width": "14",
             "location": "Storage A",

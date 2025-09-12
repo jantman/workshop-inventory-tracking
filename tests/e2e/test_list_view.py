@@ -28,7 +28,7 @@ def test_basic_inventory_list_workflow(page, live_server):
             "ja_id": "JA101001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel", 
+            "material": "Carbon Steel", 
             "length": "500",
             "width": "12",
             "location": "Storage A",
@@ -79,7 +79,7 @@ def test_list_search_functionality(page, live_server):
             "ja_id": "JA102001",
             "item_type": "Bar", 
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "300",
             "width": "15",
             "location": "Storage A",
@@ -99,7 +99,7 @@ def test_list_search_functionality(page, live_server):
             "ja_id": "JA102003",
             "item_type": "Sheet",
             "shape": "Rectangular",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "500",
             "width": "400",
             "thickness": "2",
@@ -117,7 +117,7 @@ def test_list_search_functionality(page, live_server):
     list_page.assert_items_displayed(3)
     
     # Search for steel items
-    list_page.search_items("Steel")
+    list_page.search_items("Carbon Steel")
     
     # Verify search results
     search_results = list_page.assert_search_results_contain("Steel")
@@ -133,7 +133,7 @@ def test_list_material_filter(page, live_server):
             "ja_id": "JA103001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "200",
             "width": "8",
             "location": "Storage A", 
@@ -153,7 +153,7 @@ def test_list_material_filter(page, live_server):
             "ja_id": "JA103003",
             "item_type": "Bar", 
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "300",
             "width": "10",
             "location": "Storage C",
@@ -167,7 +167,7 @@ def test_list_material_filter(page, live_server):
     list_page.navigate()
     
     # Apply material filter
-    list_page.filter_by_material("Steel")
+    list_page.filter_by_material("Carbon Steel")
     
     # Verify filtered results
     items = list_page.get_inventory_items()
@@ -184,7 +184,7 @@ def test_list_location_filter(page, live_server):
             "ja_id": "JA104001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "400",
             "width": "12",
             "location": "Storage A",
@@ -194,7 +194,7 @@ def test_list_location_filter(page, live_server):
             "ja_id": "JA104002", 
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Steel",
+            "material": "Carbon Steel",
             "length": "350",
             "width": "10",
             "location": "Storage B",

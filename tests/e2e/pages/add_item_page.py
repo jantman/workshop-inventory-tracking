@@ -80,7 +80,7 @@ class AddItemPage(BasePage):
         self.fill_location_and_notes(location=location, notes=notes)
         self.submit_form()
     
-    def add_minimal_item(self, ja_id: str, material: str = "Steel"):
+    def add_minimal_item(self, ja_id: str, material: str = "Carbon Steel"):
         """Add an item with only required fields"""
         self.fill_basic_item_data(ja_id, "Bar", "Round", material)
         # Bar + Round requires length and width dimensions

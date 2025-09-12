@@ -17,8 +17,9 @@ def _get_storage_backend():
     if 'STORAGE_BACKEND' in current_app.config:
         return current_app.config['STORAGE_BACKEND']
     
-    # Default to Google Sheets storage
-    return GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+    # Use MariaDB storage for consistency with autocomplete
+    from app.mariadb_storage import MariaDBStorage
+    return MariaDBStorage()
 
 
 @bp.route('/materials')

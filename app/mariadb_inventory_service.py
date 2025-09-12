@@ -439,3 +439,54 @@ class MariaDBInventoryService(InventoryService):
     def get_all_items(self, force_refresh: bool = False) -> List[Item]:
         """Override to return active items only"""
         return self.get_all_active_items()
+    
+    def get_valid_materials(self) -> List[str]:
+        """
+        Get list of all valid material names from the materials taxonomy.
+        Returns both primary names and aliases.
+        
+        Returns:
+            List of valid material names sorted alphabetically
+        """
+        try:
+            from .database import MaterialTaxonomy
+            
+            session = self.Session()
+            
+            # Get all active materials from taxonomy
+            materials = session.query(MaterialTaxonomy).filter(
+                MaterialTaxonomy.active == True
+            ).all()
+            
+            # Collect all valid names (primary names + aliases)
+            valid_names = set()
+            
+            for material in materials:
+                if material.name:
+                    valid_names.add(material.name.strip())
+                
+                # Add aliases if they exist
+                if material.aliases:
+                    # Handle both string and list formats for aliases
+                    if isinstance(material.aliases, str):
+                        aliases = [a.strip() for a in material.aliases.split(',') if a.strip()]
+                    else:
+                        aliases = material.aliases
+                    
+                    for alias in aliases:
+                        if alias and alias.strip():
+                            valid_names.add(alias.strip())
+            
+            # Convert to sorted list, removing empty strings
+            result = sorted([name for name in valid_names if name])
+            
+            logger.info(f"Retrieved {len(result)} valid materials from taxonomy")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting valid materials from MariaDB: {e}")
+            # Return fallback materials if database query fails
+            return ['Steel', 'Carbon Steel', 'Stainless Steel', 'Aluminum', 'Brass', 'Copper']
+        finally:
+            if 'session' in locals():
+                session.close()

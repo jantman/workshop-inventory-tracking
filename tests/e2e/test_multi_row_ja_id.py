@@ -30,7 +30,7 @@ def test_item_lookup_returns_correct_data(page, live_server):
         "ja_id": ja_id,
         "item_type": "Bar",
         "shape": "Round",
-        "material": "Steel",
+        "material": "Carbon Steel",
         "length": "24.5",
         "width": "1.0",
         "location": "Workshop"
