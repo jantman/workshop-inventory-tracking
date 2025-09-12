@@ -1227,12 +1227,26 @@ def api_admin_export():
         
         # Handle destination
         if destination == 'json':
+            # Calculate stats for UI display
+            total_items = 0
+            if export_type == 'combined':
+                if 'inventory' in result and 'rows' in result['inventory']:
+                    total_items += len(result['inventory']['rows'])
+                if 'materials' in result and 'rows' in result['materials']:
+                    total_items += len(result['materials']['rows'])
+            else:
+                total_items = len(result.get('rows', []))
+            
             # Return JSON data directly
             return jsonify({
                 'success': True,
                 'export_data': result,
                 'timestamp': result.get('timestamp'),
-                'export_type': export_type
+                'export_type': export_type,
+                'stats': {
+                    'total_items': total_items,
+                    'processing_time': 'Complete'
+                }
             })
             
         elif destination == 'sheets':
@@ -1246,11 +1260,20 @@ def api_admin_export():
             upload_success = upload_result.get('success', False)
             
             if upload_success:
+                # Calculate stats for UI display
+                total_items = upload_result.get('rows_uploaded', 0)
+                if export_type == 'combined' and 'results' in upload_result:
+                    total_items = sum(r.get('affected_rows', 0) for r in upload_result['results'].values())
+                
                 return jsonify({
                     'success': True,
                     'message': f'Export to Google Sheets completed successfully',
                     'export_type': export_type,
-                    'upload_details': upload_result
+                    'upload_details': upload_result,
+                    'stats': {
+                        'total_items': total_items,
+                        'processing_time': 'Complete'
+                    }
                 })
             else:
                 # For combined exports, check if individual uploads succeeded even if overall failed
@@ -1266,12 +1289,20 @@ def api_admin_export():
                     if individual_successes and not individual_errors:
                         # All individual uploads succeeded, treat as success despite overall failure
                         current_app.logger.warning(f'Combined export marked as failed but all individual uploads succeeded: {individual_successes}')
+                        
+                        # Calculate total items for stats
+                        total_items = sum(r.get('affected_rows', 0) for r in upload_result['results'].values())
+                        
                         return jsonify({
                             'success': True,
                             'message': f'Export to Google Sheets completed successfully (partial success recovered)',
                             'export_type': export_type,
                             'upload_details': upload_result,
-                            'individual_results': individual_successes
+                            'individual_results': individual_successes,
+                            'stats': {
+                                'total_items': total_items,
+                                'processing_time': 'Complete'
+                            }
                         })
                 
                 # Handle failure case
