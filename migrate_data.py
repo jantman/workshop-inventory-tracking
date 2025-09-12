@@ -30,7 +30,7 @@ class DataMigrator:
     NEW_HEADERS = [
         'Active', 'JA ID', 'Length', 'Width', 'Thickness', 'Wall Thickness',
         'Weight', 'Type', 'Shape', 'Material', 'Thread Series', 'Thread Handedness',
-        'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
+        'Thread Form', 'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
         'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
         'Original Material', 'Original Thread', 'Date Added', 'Last Modified'
     ]
@@ -292,17 +292,18 @@ class DataMigrator:
     
     def transform_row(self, original_row: List[str], original_headers: List[str], row_index: int) -> Optional[List[str]]:
         """Transform a single row from original to new format"""
-        # Pad row with empty strings if it's shorter than headers
-        padded_row = original_row + [''] * (len(original_headers) - len(original_row))
-        
-        # Truncate if row is longer than headers (shouldn't happen but be safe)
-        if len(padded_row) > len(original_headers):
-            padded_row = padded_row[:len(original_headers)]
-            self.log_warning(f"Row {row_index}: Truncated extra columns")
-        
-        if len(padded_row) != len(original_headers):
-            self.log_error(f"Row {row_index}: Column count mismatch after padding")
+        # FIXED: Handle missing trailing columns (Google Sheets API doesn't return trailing empty cells)
+        if len(original_row) < len(original_headers):
+            # Pad with empty strings for missing trailing columns
+            padded_row = original_row + [''] * (len(original_headers) - len(original_row))
+            self.log_info(f"Row {row_index}: Padded {len(original_headers) - len(original_row)} missing trailing columns")
+        elif len(original_row) > len(original_headers):
+            # This indicates actual corruption - extra columns
+            self.log_error(f"Row {row_index}: Too many columns - expected {len(original_headers)}, got {len(original_row)}. This indicates data corruption.")
+            self.log_error(f"Row {row_index}: Row data: {original_row}")
             return None
+        else:
+            padded_row = original_row
         
         # Create mapping from original headers to values
         row_dict = dict(zip(original_headers, padded_row))
@@ -335,30 +336,36 @@ class DataMigrator:
             # Material normalization
             normalized_material, original_material = self.normalize_material(row_dict.get('Material', ''))
             new_row[9] = normalized_material
-            new_row[22] = original_material  # Store original
+            new_row[23] = original_material  # Store original (shifted by 1)
             
             # Thread parsing
             thread_series, thread_handedness, thread_size, original_thread = self.parse_thread(row_dict.get('Thread', ''))
             new_row[10] = thread_series or ''
             new_row[11] = thread_handedness or ''
-            new_row[12] = thread_size or ''
-            new_row[23] = original_thread  # Store original
+            new_row[12] = ''  # Thread Form (always empty)
+            new_row[13] = thread_size or ''
+            new_row[24] = original_thread  # Store original (shifted by 1)
             
-            # Other fields
-            new_row[13] = row_dict.get('Quantity (>1)', '').strip()
-            new_row[14] = row_dict.get('Location', '').strip()
-            new_row[15] = row_dict.get('Sub-Location', '').strip()
-            new_row[16] = row_dict.get('Purch. Date', '').strip()
-            new_row[17] = self.clean_price(row_dict.get('Purch. Price (line)', '')) or ''
-            new_row[18] = row_dict.get('Purch. Loc.', '').strip()
-            new_row[19] = row_dict.get('Notes', '').strip()
-            new_row[20] = row_dict.get('Vendor', '').strip()
-            new_row[21] = row_dict.get('Vendor Part #', '').strip()
+            # Other fields (all shifted by 1 due to Thread Form insertion)
+            new_row[14] = row_dict.get('Quantity (>1)', '').strip()
+            new_row[15] = row_dict.get('Location', '').strip()
+            new_row[16] = row_dict.get('Sub-Location', '').strip()
+            new_row[17] = row_dict.get('Purch. Date', '').strip()
+            new_row[18] = self.clean_price(row_dict.get('Purch. Price (line)', '')) or ''
+            new_row[19] = row_dict.get('Purch. Loc.', '').strip()
+            new_row[20] = row_dict.get('Notes', '').strip()
+            new_row[21] = row_dict.get('Vendor', '').strip()
+            new_row[22] = row_dict.get('Vendor Part #', '').strip()
             
-            # Metadata
+            # FIXED: Use consistent timestamp and ensure we have exactly the right number of columns
             current_time = datetime.now().isoformat()
-            new_row[24] = current_time  # Date Added
-            new_row[25] = current_time  # Last Modified
+            new_row[25] = current_time  # Date Added (shifted by 1)
+            new_row[26] = current_time  # Last Modified (shifted by 1)
+            
+            # FIXED: Strict validation that we have exactly the expected number of columns
+            if len(new_row) != len(self.NEW_HEADERS):
+                self.log_error(f"Row {row_index}: Output row has {len(new_row)} columns, expected {len(self.NEW_HEADERS)}")
+                return None
             
             # Validate the transformed row
             row_data = dict(zip(self.NEW_HEADERS, new_row))
@@ -370,7 +377,9 @@ class DataMigrator:
             if not self.check_uniqueness(ja_id, row_index, is_active):
                 return None
             
-            return new_row
+            # FINAL CHECK: Ensure output row has no extra columns that could cause alignment issues
+            final_row = new_row[:len(self.NEW_HEADERS)]  # Truncate to exact length
+            return final_row
             
         except Exception as e:
             self.log_error(f"Row {row_index}: Error transforming row: {e}")
@@ -435,8 +444,8 @@ class DataMigrator:
             self.log_info("DRY RUN: Would create backup Metal_replaced_YYYYMMDD_HHMMSS")
             return True
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_name = f"Metal_replaced_{timestamp}"
+        timestamp = datetime.now().strftime("%m%d_%H%M")
+        backup_name = f"Metal_backup_{timestamp}"
         
         result = self.storage.backup_sheet('Metal', backup_name)
         if result.success:
@@ -535,14 +544,44 @@ class DataMigrator:
         
         self.log_info(f"Found {len(original_rows)} data rows in original sheet")
         
+        # FIXED: Better validation of source data structure
+        self.log_info("Validating source data structure...")
+        self.log_info(f"Original headers ({len(original_headers)}): {original_headers}")
+        
+        # Check for rows with mismatched column counts and report statistics
+        short_rows = 0
+        long_rows = 0
+        perfect_rows = 0
+        
+        for i, row in enumerate(original_rows, start=2):
+            if len(row) < len(original_headers):
+                short_rows += 1
+            elif len(row) > len(original_headers):
+                long_rows += 1
+            else:
+                perfect_rows += 1
+        
+        self.log_info(f"Source data analysis: {perfect_rows} perfect rows, {short_rows} short rows (will be padded), {long_rows} long rows (errors)")
+        
+        if long_rows > 0:
+            self.log_error(f"Found {long_rows} rows with too many columns. This indicates data corruption and cannot be auto-fixed.")
+            return False
+        
         # Step 3: Transform data
         self.log_info("Transforming data...")
         transformed_rows = []
         self.stats['total_rows'] = len(original_rows)
         
         for i, row in enumerate(original_rows, start=2):  # Start at 2 because headers are row 1
+            # FIXED: Validate each output row has exactly the expected columns
             transformed_row = self.transform_row(row, original_headers, i)
             if transformed_row:
+                # Final validation: ensure exact column count
+                if len(transformed_row) != len(self.NEW_HEADERS):
+                    self.log_error(f"Row {i}: Transformed row has {len(transformed_row)} columns, expected {len(self.NEW_HEADERS)}")
+                    self.stats['skipped_rows'] += 1
+                    continue
+                    
                 transformed_rows.append(transformed_row)
                 self.stats['valid_rows'] += 1
             else:
@@ -561,9 +600,8 @@ class DataMigrator:
             self._print_migration_summary()
             return True
         
-        # Step 4: Create backup of current Metal sheet (if exists)
-        if not self.backup_current_metal_sheet():
-            return False
+        # Step 4: Skip backup since we're replacing with corrected data
+        self.log_info("Skipping backup - replacing corrupted Metal sheet with corrected data")
         
         # Step 5: Replace all content in Metal sheet
         self.log_info("Replacing all content in Metal sheet...")
@@ -600,12 +638,18 @@ class DataMigrator:
             new_headers = new_data[0]
             new_rows = new_data[1:]
             
-            # Verify headers match expected schema
+            # FIXED: Strict header and column count validation
             if new_headers != self.NEW_HEADERS:
                 self.log_error("New sheet headers do not match expected schema")
+                self.log_error(f"Expected: {self.NEW_HEADERS}")
+                self.log_error(f"Actual:   {new_headers}")
                 return False
             
-            self.log_info(f"✓ Headers verified: {len(new_headers)} columns")
+            if len(new_headers) != 27:
+                self.log_error(f"Headers have {len(new_headers)} columns, expected exactly 27")
+                return False
+            
+            self.log_info(f"✓ Headers verified: {len(new_headers)} columns (exactly 27 as expected)")
             
             # Verify row count
             expected_rows = self.stats['valid_rows']
@@ -637,10 +681,11 @@ class DataMigrator:
             
             self.log_info(f"✓ Uniqueness verified: {active_count} active items with unique JA IDs")
             
-            # Verify required fields for active items
+            # FIXED: Verify all rows have exactly 27 columns (no more, no less)
             validation_errors = 0
             for i, row in enumerate(new_rows, start=2):
-                if len(row) < len(self.NEW_HEADERS):
+                if len(row) != 27:
+                    self.log_error(f"Row {i}: Has {len(row)} columns, expected exactly 27. This indicates column alignment corruption.")
                     validation_errors += 1
                     continue
                 
