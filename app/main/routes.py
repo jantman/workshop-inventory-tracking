@@ -1239,7 +1239,13 @@ def api_admin_export():
             # Upload to Google Sheets
             upload_result = _upload_to_google_sheets(result, export_type)
             
-            if upload_result['success']:
+            # Debug logging to understand the upload_result structure
+            current_app.logger.info(f'Upload result: {upload_result}')
+            
+            # Check if upload was successful
+            upload_success = upload_result.get('success', False)
+            
+            if upload_success:
                 return jsonify({
                     'success': True,
                     'message': f'Export to Google Sheets completed successfully',
@@ -1247,9 +1253,35 @@ def api_admin_export():
                     'upload_details': upload_result
                 })
             else:
+                # For combined exports, check if individual uploads succeeded even if overall failed
+                if export_type == 'combined' and 'results' in upload_result:
+                    individual_successes = []
+                    individual_errors = []
+                    for sheet_name, sheet_result in upload_result['results'].items():
+                        if sheet_result.get('success', False):
+                            individual_successes.append(f"{sheet_name}: {sheet_result.get('affected_rows', 0)} rows")
+                        else:
+                            individual_errors.append(f"{sheet_name}: {sheet_result.get('error', 'Unknown error')}")
+                    
+                    if individual_successes and not individual_errors:
+                        # All individual uploads succeeded, treat as success despite overall failure
+                        current_app.logger.warning(f'Combined export marked as failed but all individual uploads succeeded: {individual_successes}')
+                        return jsonify({
+                            'success': True,
+                            'message': f'Export to Google Sheets completed successfully (partial success recovered)',
+                            'export_type': export_type,
+                            'upload_details': upload_result,
+                            'individual_results': individual_successes
+                        })
+                
+                # Handle failure case
+                errors = upload_result.get('errors', [])
+                error_msg = '; '.join(filter(None, errors)) if errors else upload_result.get('error', 'Unknown upload error')
+                
                 return jsonify({
                     'success': False,
-                    'error': f'Export completed but Google Sheets upload failed: {upload_result["error"]}',
+                    'error': f'Export completed but Google Sheets upload failed: {error_msg}',
+                    'upload_details': upload_result,
                     'export_data': result  # Include data for potential retry
                 }), 500
         
