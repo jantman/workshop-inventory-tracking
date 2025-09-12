@@ -3,7 +3,9 @@ from datetime import datetime
 from app.main import bp
 from app import csrf
 from app.google_sheets_storage import GoogleSheetsStorage
+from app.mariadb_storage import MariaDBStorage
 from app.inventory_service import InventoryService
+from app.mariadb_inventory_service import MariaDBInventoryService
 from app.performance import batch_manager
 from app.taxonomy import type_shape_validator
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
@@ -19,8 +21,19 @@ def _get_storage_backend():
     if 'STORAGE_BACKEND' in current_app.config:
         return current_app.config['STORAGE_BACKEND']
     
-    # Default to Google Sheets storage
-    return GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+    # Use MariaDB storage (switched from Google Sheets in Milestone 2)
+    return MariaDBStorage()
+
+def _get_inventory_service():
+    """Get the appropriate inventory service for the current storage backend"""
+    storage = _get_storage_backend()
+    
+    # Use MariaDB-specific service for MariaDB storage
+    if isinstance(storage, MariaDBStorage):
+        return MariaDBInventoryService(storage)
+    else:
+        # Fallback to generic service for other storage types (e.g., tests)
+        return InventoryService(storage)
 
 @bp.route('/')
 @bp.route('/index')
@@ -64,8 +77,8 @@ def inventory_add():
         item = _parse_item_from_form(form_data)
         
         # Save to storage
+        service = _get_inventory_service()
         storage = _get_storage_backend()
-        service = InventoryService(storage)
         
         result = service.add_item(item)
         
@@ -103,8 +116,7 @@ def inventory_add():
 def inventory_edit(ja_id):
     """Edit inventory item"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         # Get the item
         item = service.get_item(ja_id)
@@ -156,8 +168,7 @@ def inventory_edit(ja_id):
 def inventory_view(ja_id):
     """View inventory item details (JSON API for modal)"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         item = service.get_item(ja_id)
         if not item:
@@ -282,17 +293,8 @@ def api_stats():
     try:
         from app.inventory_service import InventoryService
         
-        # Get storage backend
-        storage_backend = current_app.config.get('STORAGE_BACKEND')
-        if storage_backend:
-            # Use injected storage backend (for testing)
-            service = InventoryService(storage_backend)
-        else:
-            # Use default Google Sheets storage for production
-            from app.google_sheets_storage import GoogleSheetsStorage
-            from config import Config
-            storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
-            service = InventoryService(storage)
+        # Get inventory service
+        service = _get_inventory_service()
         
         # Get all items
         items = service.get_all_items()
@@ -321,8 +323,7 @@ def api_stats():
 def check_ja_id_exists(ja_id):
     """Check if a JA ID already exists"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         item = service.get_item(ja_id)
         exists = item is not None
@@ -513,8 +514,7 @@ def validate_type_shape():
 def get_item_details(ja_id):
     """Get detailed information about an item"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         item = service.get_item(ja_id)
         
@@ -546,6 +546,58 @@ def get_item_details(ja_id):
             'error': 'Failed to get item details'
         }), 500
 
+@bp.route('/api/items/<ja_id>/history')
+def get_item_history(ja_id):
+    """Get historical versions of an item (for multi-row JA IDs)"""
+    try:
+        service = _get_inventory_service()
+        
+        # Check if MariaDB service to use history functionality
+        if hasattr(service, 'get_item_history'):
+            items = service.get_item_history(ja_id)
+        else:
+            # Fallback for non-MariaDB storage
+            item = service.get_item(ja_id)
+            items = [item] if item else []
+        
+        if not items:
+            return jsonify({
+                'success': False,
+                'error': 'No items found for this JA ID'
+            }), 404
+        
+        history_data = []
+        for item in items:
+            history_data.append({
+                'ja_id': item.ja_id,
+                'active': item.active,
+                'display_name': item.display_name,
+                'item_type': item.item_type.value if item.item_type else None,
+                'shape': item.shape.value if item.shape else None,
+                'material': item.material,
+                'location': item.location or '',
+                'sub_location': item.sub_location or '',
+                'dimensions': item.dimensions.to_dict() if item.dimensions else None,
+                'date_added': item.date_added.isoformat() if item.date_added else None,
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None,
+                'notes': item.notes or ''
+            })
+        
+        return jsonify({
+            'success': True,
+            'ja_id': ja_id,
+            'total_items': len(items),
+            'active_item_count': sum(1 for item in items if item.active),
+            'history': history_data
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting item history for {ja_id}: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get item history'
+        }), 500
+
 @bp.route('/api/inventory/batch-move', methods=['POST'])
 @csrf.exempt
 def batch_move_items():
@@ -565,8 +617,7 @@ def batch_move_items():
                 'error': 'No moves provided'
             }), 400
         
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         successful_moves = 0
         failed_moves = []
@@ -637,8 +688,7 @@ def batch_move_items():
 def get_next_ja_id():
     """Get the next available JA ID"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         # Get all items to find the highest JA ID
         all_items = service.get_all_items()
@@ -678,8 +728,7 @@ def get_next_ja_id():
 def api_inventory_list():
     """Get inventory list data for the frontend"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         # Get all items
         items = service.get_all_items()
@@ -733,8 +782,7 @@ def api_advanced_search():
     try:
         data = request.get_json() or {}
         
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         # Import SearchFilter here to avoid circular import
         from app.inventory_service import SearchFilter
@@ -879,8 +927,7 @@ def api_advanced_search():
 def _execute_shortening_operation(form_data):
     """Execute the shortening operation"""
     try:
-        storage = _get_storage_backend()
-        service = InventoryService(storage)
+        service = _get_inventory_service()
         
         source_ja_id = form_data['source_ja_id'].upper()
         new_ja_id = form_data['new_ja_id'].upper()
