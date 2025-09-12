@@ -1,11 +1,9 @@
 # Workshop Inventory Tracking
 
-[![Tests](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/test.yml/badge.svg)](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/test.yml)
-[![Security](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/security.yml/badge.svg)](https://github.com/USERNAME/workshop-inventory-tracking/actions/workflows/security.yml)
+[![Tests](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/test.yml/badge.svg)](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/test.yml)
+[![Security](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/security.yml/badge.svg)](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/security.yml)
 
-A production-ready Flask web application for comprehensive workshop materials inventory management with dual storage backend support (Google Sheets/MariaDB), advanced search capabilities, and professional user experience features.
-
-> **Note**: Replace `USERNAME` in the badge URLs above with your actual GitHub username/organization name.
+A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed ⚠️☠️🚨 Flask web application for comprehensive workshop materials inventory management with dual storage backend support (Google Sheets/MariaDB), advanced search capabilities, and professional user experience features.
 
 ## Features
 
