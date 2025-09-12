@@ -13,13 +13,13 @@ The following guidelines MUST always be followed:
 * If you become confused or unclear on how to proceed, have to make a significant decision not explicitly included in the implementation plan, or find yourself making changes and then undoing them without a clear and certain path forward, you must stop and ask for human guidance.
 * From time to time we may identify a new, more pressing issue while implementing a feature; we refer to these as "side quests". When beginning a side quest you must update this document to include detailed information on exactly where we're departing from our feature implementation, such that we could use this document to resume from where we left off in a new session, and then commit that. When the side quest is complete, we will resume our feature work.
 
-## Feature: Item Update Failures
-
-Items JA000181 and JA000182 and maybe others are not populating correctly in the Edit view, but show properly in the list view and item details modal. I also cannot edit them, I just get "Failed to update item. Please try again" and no further details. First fix the population issues for these items and then ask me to try editing them again. If that still fails, I will provide you with server logs so we can fix the issue preventing them from being edited. A server running our code (and reloading whenever the code changes) is available at `http://192.168.0.24:5603/`; this is using production data so you must not make any changes to the data without my explicit approval.
-
 ## Feature: Google Sheets Cleanup
 
 We have migrated from using Google Sheets for our backend storage to using MySQL/MariaDB; Google Sheets should now only be used for export functionality. We need to identify any code aside from the export functionality that still supports Google Sheets and remove it, making sure that anything that calls this code is migrated to use MariaDB instead. When this is complete, all E2E tests must pass. The Google Sheets export functionality cannot be covered by automated tests, so when you believe that this Feature is complete, we will need human assistance to manually trigger and verify the Google Sheets export.
+
+## Feature: Item Update Failures
+
+Items JA000181 and JA000182 and maybe others are not populating correctly in the Edit view, but show properly in the list view and item details modal. I also cannot edit them, I just get "Failed to update item. Please try again" and no further details. First fix the population issues for these items and then ask me to try editing them again. If that still fails, I will provide you with server logs so we can fix the issue preventing them from being edited. A server running our code (and reloading whenever the code changes) is available at `http://192.168.0.24:5603/`; this is using production data so you must not make any changes to the data without my explicit approval.
 
 ## Feature: Remove Some Placeholders
 
