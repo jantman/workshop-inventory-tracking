@@ -190,6 +190,54 @@ While we're doing this, please also remove the Google Sheets connection test fun
 
 In addition, we should remove all in-memory storage (InMemoryStorage) used by the end-to-end (e2e) tests; we want everything, both production and e2e tests, to ONLY use MariaDB for storage; we should already have a setup for using MariaDB for tests. As such, we should also identify and simplify/remove any layers of abstraction that are no longer needed now that ALL storage (even test) is using MariaDB.
 
+### Implementation Plan
+
+**Analysis Results**: Comprehensive audit reveals multiple layers of Google Sheets abstraction that can be eliminated now that MariaDB is the sole storage backend:
+
+**🔍 Current Architecture Issues:**
+- **Complex Storage Abstraction**: 4-layer storage architecture (Storage interface → InMemoryStorage/MariaDBStorage → Service Layer → Routes)
+- **Google Sheets Legacy**: Base InventoryService contains Google Sheets operations, System Status shows connection tests
+- **Dual Test Architecture**: E2E tests use InMemoryStorage while MariaDB test infrastructure exists but unused
+
+**🎯 Architectural Simplification Goals:**
+- **Eliminate Storage Abstraction**: Remove Storage interface, use MariaDBInventoryService directly
+- **Unify Test Architecture**: Convert all tests (unit + E2E) to use MariaDB with database fixtures
+- **Remove Google Sheets UI Elements**: Clean System Status box, connection tests, legacy service code
+
+**Milestone 1: Remove Google Sheets UI Components (GSR-1)**
+- GSR-1.1: Remove Google Sheets connection status from `/index` System Status box
+- GSR-1.2: Remove `/api/connection-test` endpoint and related JavaScript functionality
+- GSR-1.3: Update System Status to show only MariaDB-relevant information
+- GSR-1.4: Clean up any other UI references to Google Sheets storage
+
+**Milestone 2: Convert E2E Tests to MariaDB (GSR-2)**  
+- GSR-2.1: Update E2E test configuration to use MariaDB test database
+- GSR-2.2: Modify E2E test server setup to use MariaDBInventoryService directly
+- GSR-2.3: Update test fixtures and data setup for MariaDB-only operations
+- GSR-2.4: Verify all E2E tests pass with MariaDB backend
+- GSR-2.5: Remove InMemoryStorage and test_storage.py
+
+**Milestone 3: Simplify Storage Architecture (GSR-3)**
+- GSR-3.1: Remove abstract Storage interface and StorageResult classes
+- GSR-3.2: Update service factories to return MariaDBInventoryService directly  
+- GSR-3.3: Remove storage compatibility layers in MariaDBStorage (sheet name translations)
+- GSR-3.4: Update services to use MariaDB operations directly instead of storage abstraction
+- GSR-3.5: Remove storage_factory.py and simplify service instantiation
+
+**Milestone 4: Remove Legacy Service Code (GSR-4)**
+- GSR-4.1: Remove base InventoryService class with Google Sheets operations
+- GSR-4.2: Rename MariaDBInventoryService to InventoryService (primary implementation)
+- GSR-4.3: Update MaterialHierarchyService and MaterialsAdminService to use MariaDB directly
+- GSR-4.4: Remove batch processing code and performance optimization layers designed for Google Sheets
+- GSR-4.5: Update imports and references throughout codebase
+
+**Milestone 5: Testing and Documentation (GSR-5)**
+- GSR-5.1: Run complete unit and E2E test suites with simplified architecture
+- GSR-5.2: Update development and testing documentation for MariaDB-only workflow
+- GSR-5.3: Update troubleshooting guide to remove Google Sheets references
+- GSR-5.4: Verify export functionality still works correctly (only legitimate Google Sheets usage)
+- GSR-5.5: Confirm production functionality maintains compatibility
+
 ## Feature: Fix Material Autocomplete Issues
 
 The Material autocomplete field is not populating correctly. This affects the user experience when trying to enter or edit material information for inventory items.
