@@ -724,3 +724,87 @@ class MariaDBInventoryService(InventoryService):
         finally:
             if 'session' in locals():
                 session.close()
+
+    def add_item(self, item: Item) -> bool:
+        """Add a new item to MariaDB"""
+        from .logging_config import log_audit_operation
+        
+        try:
+            session = self.Session()
+            
+            # Check if an active item with this JA ID already exists
+            existing_item = session.query(InventoryItem).filter(
+                and_(InventoryItem.ja_id == item.ja_id, InventoryItem.active == True)
+            ).first()
+            
+            if existing_item:
+                error_msg = f'Active item {item.ja_id} already exists'
+                log_audit_operation('add_item_service', 'error',
+                                  item_id=item.ja_id,
+                                  error_details=error_msg,
+                                  logger_name='mariadb_inventory_service')
+                logger.error(error_msg)
+                return False
+            
+            # Convert enum values for database storage
+            category_str = item.category.value if item.category else None
+            condition_str = item.condition.value if item.condition else None
+            location_str = item.location.value if item.location else None
+            
+            # Create new database item
+            new_db_item = InventoryItem(
+                ja_id=item.ja_id,
+                category=category_str,
+                subcategory=item.subcategory,
+                description=item.description,
+                brand=item.brand,
+                model=item.model,
+                serial_number=item.serial_number,
+                condition=condition_str,
+                location=location_str,
+                purchase_date=item.purchase_date,
+                purchase_price=float(item.purchase_price) if item.purchase_price else None,
+                notes=item.notes,
+                active=True
+            )
+            
+            session.add(new_db_item)
+            session.commit()
+            
+            # Log successful operation
+            log_audit_operation('add_item_service', 'success',
+                              item_id=item.ja_id,
+                              item_after={
+                                  'ja_id': item.ja_id,
+                                  'category': category_str,
+                                  'subcategory': item.subcategory,
+                                  'description': item.description,
+                                  'brand': item.brand,
+                                  'model': item.model,
+                                  'serial_number': item.serial_number,
+                                  'condition': condition_str,
+                                  'location': location_str,
+                                  'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
+                                  'purchase_price': float(item.purchase_price) if item.purchase_price else None,
+                                  'notes': item.notes,
+                                  'active': True
+                              },
+                              logger_name='mariadb_inventory_service')
+            
+            logger.info(f'Successfully added item {item.ja_id} to database')
+            return True
+            
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            
+            error_msg = f'Failed to add item {item.ja_id}: {str(e)}'
+            log_audit_operation('add_item_service', 'error',
+                              item_id=item.ja_id,
+                              error_details=error_msg,
+                              logger_name='mariadb_inventory_service')
+            logger.error(error_msg)
+            return False
+        finally:
+            if 'session' in locals():
+                session.close()
