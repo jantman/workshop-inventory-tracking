@@ -113,7 +113,13 @@ In the case of data corruption, we need to be able to reconstruct user actions (
 - 98 of 99 E2E tests pass (1 minor UI validation test failure unrelated to core fixes)
 - Production application fully functional with all 472 active items accessible
 
-Items JA000181 and JA000182 and maybe others are not populating correctly in the Edit view, but show properly in the list view and item details modal. I also cannot edit them, I just get "Failed to update item. Please try again" and no further details. First fix the population issues for these items and then ask me to try editing them again. If that still fails, I will provide you with server logs so we can fix the issue preventing them from being edited. A server running our code (and reloading whenever the code changes) is available at `http://192.168.0.24:5603/`; this is using production data so you must not make any changes to the data without my explicit approval.
+## Feature: Fix Edit Item Submit Failures
+
+Item JA000181 (and possibly other items) can be found in the items list, the view item modal works, and the edit item page loads successfully (e.g., http://192.168.0.24:5603/inventory/edit/JA000181), but when the submit button is clicked (even after making changes), it shows an error message "Failed to update item. Please try again." in the UI. The application logs (app.inventory_service) show "Item JA000181 not found for update". The production server is available at `http://192.168.0.24:5603/` and uses production data, so no changes to the data should be made without explicit approval.
+
+## Feature: Fix Material Autocomplete Issues
+
+The Material autocomplete field is not populating correctly. This affects the user experience when trying to enter or edit material information for inventory items.
 
 ## Feature: Remove Some Placeholders
 
