@@ -169,7 +169,7 @@ There still seem to be some vestiges of Google Sheets leftover in our storage co
 
 While we're doing this, please also remove the Google Sheets connection test functionality and other Google Sheets related functionality from the "System Status" box on the `/index` view - we want to remove EVERYTHING related to Google Sheets other than the export functionality, and also identify any areas that should be simplified now that Google Sheets is no longer relevant to them.
 
-In addition, we should remove all in-memory storage (InMemoryStorage) used by the end-to-end (e2e) tests; we want everything, both production and e2e tests, to ONLY use MariaDB for storage. As such, we should also identify and simplify/remove any layers of abstraction that are no longer needed now that ALL storage (even test) is using MariaDB.
+In addition, we should remove all in-memory storage (InMemoryStorage) used by the end-to-end (e2e) tests; we want everything, both production and e2e tests, to ONLY use MariaDB for storage; we should already have a setup for using MariaDB for tests. As such, we should also identify and simplify/remove any layers of abstraction that are no longer needed now that ALL storage (even test) is using MariaDB.
 
 ## Feature: Fix Material Autocomplete Issues
 
