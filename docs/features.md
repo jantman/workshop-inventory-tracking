@@ -25,25 +25,25 @@ We have migrated from using Google Sheets for our backend storage to using MySQL
 - **KEEP:** `app/google_sheets_export.py`, `app/export_service.py`, `app/export_schemas.py`, export routes in `app/main/routes.py`, `app/templates/admin/export.html`, Google Sheets config in `config.py`
 - **REMOVE:** `app/google_sheets_storage.py`, migration scripts, Google Sheets storage factory code, unused imports throughout codebase
 
-**Milestone 1: Remove Core Google Sheets Storage Infrastructure**
-- GSC-1.1: Remove `app/google_sheets_storage.py` file
-- GSC-1.2: Remove Google Sheets storage factory methods from `app/storage_factory.py`
-- GSC-1.3: Update imports and remove Google Sheets fallback code in `app/inventory_service.py`
-- GSC-1.4: Update imports and constructor in `app/materials_service.py`
-- GSC-1.5: Update imports and constructor in `app/materials_admin_service.py`
+**Milestone 1: Remove Core Google Sheets Storage Infrastructure** ✅ COMPLETED
+- GSC-1.1: Remove `app/google_sheets_storage.py` file ✅
+- GSC-1.2: Remove Google Sheets storage factory methods from `app/storage_factory.py` ✅
+- GSC-1.3: Update imports and remove Google Sheets fallback code in `app/inventory_service.py` ✅
+- GSC-1.4: Update imports and constructor in `app/materials_service.py` ✅
+- GSC-1.5: Update imports and constructor in `app/materials_admin_service.py` ✅
 
-**Milestone 2: Remove Migration Scripts and Legacy Code**
-- GSC-2.1: Remove `scripts/migrate_from_sheets.py`
-- GSC-2.2: Remove `scripts/analyze_sheets_data.py`
-- GSC-2.3: Remove `migrate_data.py`
-- GSC-2.4: Clean up unused Google Sheets imports in `app/admin/routes.py`
-- GSC-2.5: Remove Google Sheets references from test files if any
+**Milestone 2: Remove Migration Scripts and Legacy Code** ✅ COMPLETED
+- GSC-2.1: Remove `scripts/migrate_from_sheets.py` ✅
+- GSC-2.2: Remove `scripts/analyze_sheets_data.py` ✅
+- GSC-2.3: Remove `migrate_data.py` ✅
+- GSC-2.4: Clean up unused Google Sheets imports in `app/admin/routes.py` ✅
+- GSC-2.5: Remove Google Sheets references from test files if any ✅
 
-**Milestone 3: Verify Export Functionality and Tests**
-- GSC-3.1: Run full unit test suite and fix any import/reference issues
-- GSC-3.2: Run full E2E test suite and ensure all tests pass
-- GSC-3.3: Manual verification that Google Sheets export still works
-- GSC-3.4: Update documentation to reflect changes
+**Milestone 3: Verify Export Functionality and Tests** 🔄 IN PROGRESS
+- GSC-3.1: Run full unit test suite and fix any import/reference issues ✅
+- GSC-3.2: Run full E2E test suite and ensure all tests pass ✅
+- GSC-3.3: Manual verification that Google Sheets export still works ⏳ (Requires human verification)
+- GSC-3.4: Update documentation to reflect changes ✅
 
 ## Feature: Item Update Failures
 

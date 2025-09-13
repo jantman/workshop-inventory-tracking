@@ -33,14 +33,14 @@ FLASK_ENV=production
 SECRET_KEY=your-secret-key-here-change-this
 
 # Storage Backend Configuration
-STORAGE_BACKEND=mariadb  # Options: mariadb, google_sheets
+STORAGE_BACKEND=mariadb  # MariaDB is the only supported storage backend
 
-# MariaDB Configuration (Production - Recommended)
+# MariaDB Configuration (Production)
 SQLALCHEMY_DATABASE_URI=mysql+pymysql://user:password@localhost/workshop_inventory
 SQLALCHEMY_TRACK_MODIFICATIONS=False
 
-# Google Sheets Configuration (Legacy Support)
-GOOGLE_SHEET_ID=your-sheet-id-here
+# Google Sheets Configuration (Export Only)
+GOOGLE_SHEET_ID=your-sheet-id-here  # Only needed for export functionality
 GOOGLE_CREDENTIALS_PATH=credentials/service_account.json
 GOOGLE_TOKEN_PATH=credentials/token.json
 
@@ -102,7 +102,7 @@ Verify configuration settings:
    SQLALCHEMY_DATABASE_URI=mysql+pymysql://inventory_user:your_secure_password@localhost/workshop_inventory
    ```
 
-### Google Sheets Setup (Legacy Support)
+### Google Sheets Setup (Export Only)
 
 ### 1. Create Google Cloud Project
 1. Go to [Google Cloud Console](https://console.cloud.google.com)

@@ -365,15 +365,14 @@ sudo journalctl -u workshop-inventory -n 50
 #!/usr/bin/env python3
 import sys
 sys.path.append('.')
-from app.google_sheets_storage import GoogleSheetsStorage
-from config import Config
+from app.storage_factory import get_storage_backend
 
 try:
-    storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+    storage = get_storage_backend()
     result = storage.connect()
     if result.success:
-        print("✅ Connection successful")
-        print(f"Sheet: {result.data.get('title')}")
+        print("✅ MariaDB connection successful")
+        print(f"Database connected")
     else:
         print("❌ Connection failed")
         print(f"Error: {result.error}")

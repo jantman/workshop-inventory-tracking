@@ -108,7 +108,7 @@ nox -l
 
 ### Unit Test Structure
 
-**InMemoryStorage**: SQLite in-memory database that implements the Storage interface for fast, isolated testing. Mimics Google Sheets behavior for compatibility.
+**InMemoryStorage**: SQLite in-memory database that implements the Storage interface for fast, isolated testing. Provides storage interface compatibility for testing.
 
 **Fixtures**: 
 - `app`: Flask application context for service tests
@@ -118,7 +118,7 @@ nox -l
 
 ### E2E Test Structure
 
-**Test Server**: Dedicated Flask server with test configuration that uses InMemoryStorage instead of Google Sheets. Includes automatic batch processing flush to ensure test data is immediately available.
+**Test Server**: Dedicated Flask server with test configuration that uses InMemoryStorage for testing. Includes automatic batch processing flush to ensure test data is immediately available.
 
 **Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
 
@@ -173,7 +173,7 @@ python app.py  # Configured for 127.0.0.1:5000
 - Static file serving with cache disabled
 - Detailed error pages with interactive debugger
 
-**Note**: The development server uses Google Sheets for data storage (production setup). For testing with local data, use the E2E test server instead (`nox -s e2e`).
+**Note**: The development server uses MariaDB for data storage (production setup). For testing with local data, use the E2E test server instead (`nox -s e2e`).
 
 ## Development Workflow
 
