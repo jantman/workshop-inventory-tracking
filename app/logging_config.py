@@ -224,3 +224,110 @@ def log_performance(operation: str, start_time: float, end_time: float,
         message += f" (processed {context['item_count']} items)"
     
     logger.info(message, extra=extra_data)
+
+def log_audit_operation(operation_name: str, phase: str, item_id: str = None, 
+                       form_data: dict = None, item_before: dict = None, 
+                       item_after: dict = None, changes: dict = None, 
+                       error_details: str = None, logger_name: str = 'inventory'):
+    """
+    Log comprehensive audit trail for inventory operations to enable data reconstruction
+    
+    Args:
+        operation_name: Name of the operation (add_item, edit_item, move_items, shorten_item)
+        phase: Phase of operation (input, success, error)
+        item_id: JA ID of item being operated on
+        form_data: Complete form data submitted by user
+        item_before: Item state before operation (for edits/updates)
+        item_after: Item state after operation
+        changes: Dictionary of changed fields (for edits)
+        error_details: Error information if operation failed
+        logger_name: Logger to use (defaults to 'inventory')
+    """
+    logger = logging.getLogger(logger_name)
+    
+    # Build audit data structure
+    audit_data = {
+        'audit_operation': operation_name,
+        'audit_phase': phase,
+        'audit_timestamp': datetime.now().isoformat()
+    }
+    
+    if item_id:
+        audit_data['item_id'] = item_id
+    
+    # Add data based on phase and available information
+    data_section = {}
+    
+    if form_data:
+        data_section['form_data'] = form_data
+    
+    if item_before:
+        data_section['item_before'] = item_before
+    
+    if item_after:
+        data_section['item_after'] = item_after
+        
+    if changes:
+        data_section['changes'] = changes
+        
+    if error_details:
+        data_section['error_details'] = error_details
+    
+    if data_section:
+        audit_data['audit_data'] = data_section
+    
+    # Create human-readable message
+    message_parts = [f"AUDIT: {operation_name}"]
+    if item_id:
+        message_parts.append(f"item={item_id}")
+    message_parts.append(f"phase={phase}")
+    
+    if phase == 'input':
+        message_parts.append("capturing user input for reconstruction")
+    elif phase == 'success':
+        message_parts.append("operation completed successfully")
+    elif phase == 'error':
+        message_parts.append("operation failed")
+    
+    message = " ".join(message_parts)
+    
+    # Log with audit data as extra fields for JSON formatter
+    logger.info(message, extra=audit_data)
+
+def log_audit_batch_operation(operation_name: str, phase: str, batch_data: dict = None,
+                             results: dict = None, error_details: str = None):
+    """
+    Log audit trail for batch operations (like batch move)
+    
+    Args:
+        operation_name: Name of batch operation
+        phase: Phase of operation (input, success, error)
+        batch_data: Complete batch input data
+        results: Batch operation results
+        error_details: Error information if operation failed
+    """
+    logger = logging.getLogger('inventory')
+    
+    audit_data = {
+        'audit_operation': operation_name,
+        'audit_phase': phase,
+        'audit_timestamp': datetime.now().isoformat(),
+        'audit_batch': True
+    }
+    
+    data_section = {}
+    if batch_data:
+        data_section['batch_input'] = batch_data
+    if results:
+        data_section['batch_results'] = results
+    if error_details:
+        data_section['error_details'] = error_details
+        
+    if data_section:
+        audit_data['audit_data'] = data_section
+    
+    message = f"AUDIT: {operation_name} batch_phase={phase}"
+    if results and 'successful_count' in results:
+        message += f" processed={results['successful_count']}"
+    
+    logger.info(message, extra=audit_data)

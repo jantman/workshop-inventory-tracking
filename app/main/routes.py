@@ -10,6 +10,7 @@ from app.taxonomy import type_shape_validator
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
+from app.logging_config import log_audit_operation, log_audit_batch_operation
 from decimal import Decimal, InvalidOperation
 import traceback
 from config import Config
@@ -23,6 +24,49 @@ def _get_storage_backend():
     # Use MariaDB storage (switched from Google Sheets in Milestone 2)
     from app.mariadb_storage import MariaDBStorage
     return MariaDBStorage()
+
+def _item_to_audit_dict(item):
+    """Convert Item object to dictionary for audit logging"""
+    if not item:
+        return None
+    return {
+        'ja_id': item.ja_id,
+        'item_type': item.item_type.value if item.item_type else None,
+        'shape': item.shape.value if item.shape else None,
+        'material': item.material,
+        'dimensions': item.dimensions.to_dict() if item.dimensions else None,
+        'thread': item.thread.to_dict() if item.thread else None,
+        'quantity': item.quantity,
+        'location': item.location,
+        'sub_location': item.sub_location,
+        'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
+        'purchase_price': str(item.purchase_price) if item.purchase_price else None,
+        'purchase_location': item.purchase_location,
+        'notes': item.notes,
+        'vendor': item.vendor,
+        'vendor_part': item.vendor_part,
+        'original_material': item.original_material,
+        'original_thread': item.original_thread.to_dict() if item.original_thread else None,
+        'active': item.active,
+        'date_added': item.date_added.isoformat() if item.date_added else None,
+        'last_modified': item.last_modified.isoformat() if item.last_modified else None
+    }
+
+def _detect_item_changes(item_before, item_after):
+    """Detect changes between two Item objects for audit logging"""
+    if not item_before or not item_after:
+        return {}
+    
+    before_dict = _item_to_audit_dict(item_before)
+    after_dict = _item_to_audit_dict(item_after)
+    
+    changes = {}
+    for key, after_value in after_dict.items():
+        before_value = before_dict.get(key)
+        if before_value != after_value:
+            changes[key] = {'before': before_value, 'after': after_value}
+    
+    return changes
 
 def _get_inventory_service():
     """Get the appropriate inventory service for the current storage backend"""
@@ -92,14 +136,24 @@ def inventory_add():
         # Get form data
         form_data = request.form.to_dict()
         
+        # AUDIT: Log input phase with complete form data
+        log_audit_operation('add_item', 'input', 
+                          item_id=form_data.get('ja_id'), 
+                          form_data=form_data)
+        
         # Validate required fields
         required_fields = ['ja_id', 'item_type', 'shape', 'material']
         missing_fields = [field for field in required_fields if not form_data.get(field)]
         
         if missing_fields:
+            error_msg = f'Missing required fields: {", ".join(missing_fields)}'
+            # AUDIT: Log validation error
+            log_audit_operation('add_item', 'error', 
+                              item_id=form_data.get('ja_id'), 
+                              error_details=error_msg)
             return jsonify({
                 'success': False,
-                'error': f'Missing required fields: {", ".join(missing_fields)}'
+                'error': error_msg
             }), 400
         
         # Validate material is in taxonomy
@@ -108,9 +162,14 @@ def inventory_add():
         valid_materials_lower = [m.lower() for m in valid_materials]
         
         if material and material.lower() not in valid_materials_lower:
+            error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
+            # AUDIT: Log validation error
+            log_audit_operation('add_item', 'error', 
+                              item_id=form_data.get('ja_id'), 
+                              error_details=error_msg)
             return jsonify({
                 'success': False,
-                'error': f'Material "{material}" is not valid. Please select from materials taxonomy.'
+                'error': error_msg
             }), 400
         
         # Parse form data into models
@@ -123,6 +182,11 @@ def inventory_add():
         result = service.add_item(item)
         
         if result:
+            # AUDIT: Log successful add operation with item data
+            log_audit_operation('add_item', 'success', 
+                              item_id=item.ja_id, 
+                              item_after=_item_to_audit_dict(item))
+            
             # Force flush pending add_items batch to ensure item is immediately available for E2E tests
             pending_items = batch_manager.get_batch('add_items')
             if pending_items:
@@ -140,14 +204,26 @@ def inventory_add():
             else:
                 return redirect(url_for('main.inventory_list'))
         else:
+            # AUDIT: Log failed add operation
+            log_audit_operation('add_item', 'error', 
+                              item_id=form_data.get('ja_id'), 
+                              error_details='Service add_item returned False')
             flash('Failed to add item. Please try again.', 'error')
             return redirect(url_for('main.inventory_add'))
             
     except ValueError as e:
+        # AUDIT: Log validation exception
+        log_audit_operation('add_item', 'error', 
+                          item_id=form_data.get('ja_id') if 'form_data' in locals() else None, 
+                          error_details=f'Validation error: {str(e)}')
         current_app.logger.error(f'Validation error adding item: {e}')
         flash(f'Validation error: {str(e)}', 'error')
         return redirect(url_for('main.inventory_add'))
     except Exception as e:
+        # AUDIT: Log general exception
+        log_audit_operation('add_item', 'error', 
+                          item_id=form_data.get('ja_id') if 'form_data' in locals() else None, 
+                          error_details=f'Exception: {str(e)}')
         current_app.logger.error(f'Error adding item: {e}\n{traceback.format_exc()}')
         flash('An error occurred while adding the item. Please try again.', 'error')
         return redirect(url_for('main.inventory_add'))
@@ -174,12 +250,23 @@ def inventory_edit(ja_id):
         # Handle POST request for updating item
         form_data = request.form.to_dict()
         
+        # AUDIT: Log input phase with original item and form data
+        log_audit_operation('edit_item', 'input', 
+                          item_id=ja_id, 
+                          form_data=form_data,
+                          item_before=_item_to_audit_dict(item))
+        
         # Validate required fields
         required_fields = ['ja_id', 'item_type', 'shape', 'material']
         missing_fields = [field for field in required_fields if not form_data.get(field)]
         
         if missing_fields:
-            flash(f'Missing required fields: {", ".join(missing_fields)}', 'error')
+            error_msg = f'Missing required fields: {", ".join(missing_fields)}'
+            # AUDIT: Log validation error
+            log_audit_operation('edit_item', 'error', 
+                              item_id=ja_id, 
+                              error_details=error_msg)
+            flash(error_msg, 'error')
             return redirect(url_for('main.inventory_edit', ja_id=ja_id))
         
         # Validate material is in taxonomy
@@ -188,7 +275,12 @@ def inventory_edit(ja_id):
         valid_materials_lower = [m.lower() for m in valid_materials]
         
         if material and material.lower() not in valid_materials_lower:
-            flash(f'Material "{material}" is not valid. Please select from materials taxonomy.', 'error')
+            error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
+            # AUDIT: Log validation error
+            log_audit_operation('edit_item', 'error', 
+                              item_id=ja_id, 
+                              error_details=error_msg)
+            flash(error_msg, 'error')
             return redirect(url_for('main.inventory_edit', ja_id=ja_id))
         
         # Parse form data into updated item
@@ -200,17 +292,36 @@ def inventory_edit(ja_id):
         result = service.update_item(updated_item)
         
         if result:
+            # AUDIT: Log successful edit operation with changes
+            changes = _detect_item_changes(item, updated_item)
+            log_audit_operation('edit_item', 'success', 
+                              item_id=ja_id,
+                              item_before=_item_to_audit_dict(item),
+                              item_after=_item_to_audit_dict(updated_item),
+                              changes=changes)
             flash('Item updated successfully!', 'success')
             return redirect(url_for('main.inventory_list'))
         else:
+            # AUDIT: Log failed edit operation
+            log_audit_operation('edit_item', 'error', 
+                              item_id=ja_id, 
+                              error_details='Service update_item returned False')
             flash('Failed to update item. Please try again.', 'error')
             return redirect(url_for('main.inventory_edit', ja_id=ja_id))
             
     except ValueError as e:
+        # AUDIT: Log validation exception
+        log_audit_operation('edit_item', 'error', 
+                          item_id=ja_id, 
+                          error_details=f'Validation error: {str(e)}')
         current_app.logger.error(f'Validation error updating item {ja_id}: {e}')
         flash(f'Validation error: {str(e)}', 'error')
         return redirect(url_for('main.inventory_edit', ja_id=ja_id))
     except Exception as e:
+        # AUDIT: Log general exception
+        log_audit_operation('edit_item', 'error', 
+                          item_id=ja_id, 
+                          error_details=f'Exception: {str(e)}')
         current_app.logger.error(f'Error updating item {ja_id}: {e}\n{traceback.format_exc()}')
         flash('An error occurred while updating the item. Please try again.', 'error')
         return redirect(url_for('main.inventory_list'))
