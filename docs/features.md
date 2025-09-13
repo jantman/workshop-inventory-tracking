@@ -51,6 +51,32 @@ We have migrated from using Google Sheets for our backend storage to using MySQL
 
 In the case of data corruption, we need to be able to reconstruct user actions (item add, edit, move, shorten) from the logs. This requires that each of these actions log the complete user input, such that it could be used to reconstruct user actions if the database is rolled back to an earlier version. Such data reconstruction would be accomplished manually; our task is to (1) ensure that sufficient data is logged in a clear format for add/edit/move/shorten operations that they can be reconstructed (this may already be happening, you must check), and (2) clearly document in `docs/troubleshooting-guide.md` how to identify each of these log messages.
 
+### Implementation Plan
+
+**Analysis Results**: Current logging infrastructure is excellent (structured JSON with user context) but has critical gaps in data reconstruction capability:
+- ✅ **Good**: User context, errors, structured logging
+- ❌ **Missing**: Complete form data, before/after states, operation details
+
+**Overview**: Implement comprehensive audit logging for all user data modification operations (add, edit, move, shorten) such that any operation can be manually reconstructed from log data during data corruption recovery.
+
+**Milestone 1: Enhance Add/Edit Operations Audit Logging (AL-1)**
+- AL-1.1: Create enhanced audit logging functions for capturing complete form data
+- AL-1.2: Add comprehensive audit logging to `inventory_add()` route - log complete item data before storage
+- AL-1.3: Add comprehensive audit logging to `inventory_edit()` route - log original state and all changes
+- AL-1.4: Update MariaDB service layer to log successful storage operations with item data  
+- AL-1.5: Test and verify add/edit audit logs contain sufficient data for reconstruction
+
+**Milestone 2: Enhance Move/Shorten Operations Audit Logging (AL-2)**
+- AL-2.1: Enhance move operation audit logging in `batch-move` API - log complete batch details
+- AL-2.2: Enhance shorten operation audit logging - log complete form data and operation details
+- AL-2.3: Update MariaDB shortening service to log detailed operation state
+- AL-2.4: Test and verify move/shorten audit logs contain sufficient data for reconstruction
+
+**Milestone 3: Documentation and Testing (AL-3)**
+- AL-3.1: Document audit log message formats in `docs/troubleshooting-guide.md` with grep patterns for finding operation logs
+- AL-3.3: Create test scenarios to validate complete audit trail
+- AL-3.4: Run complete test suites to ensure no regressions
+
 ## Feature: Item Update Failures
 
 Items JA000181 and JA000182 and maybe others are not populating correctly in the Edit view, but show properly in the list view and item details modal. I also cannot edit them, I just get "Failed to update item. Please try again" and no further details. First fix the population issues for these items and then ask me to try editing them again. If that still fails, I will provide you with server logs so we can fix the issue preventing them from being edited. A server running our code (and reloading whenever the code changes) is available at `http://192.168.0.24:5603/`; this is using production data so you must not make any changes to the data without my explicit approval.
