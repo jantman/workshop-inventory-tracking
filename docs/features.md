@@ -117,6 +117,34 @@ In the case of data corruption, we need to be able to reconstruct user actions (
 
 Item JA000181 (and possibly other items) can be found in the items list, the view item modal works, and the edit item page loads successfully (e.g., http://192.168.0.24:5603/inventory/edit/JA000181), but when the submit button is clicked (even after making changes), it shows an error message "Failed to update item. Please try again." in the UI. The application logs (app.inventory_service) show "Item JA000181 not found for update". The production server is available at `http://192.168.0.24:5603/` and uses production data, so no changes to the data should be made without explicit approval.
 
+### Implementation Plan
+
+**Root Cause Identified**: MariaDBInventoryService inherits the `update_item()` method from the base InventoryService class, which was designed for Google Sheets. This method attempts to read from a 'Metal' sheet that doesn't exist in MariaDB, causing all edit operations to fail.
+
+**Overview**: Implement proper MariaDB-based `update_item()` method that handles the multi-row JA ID architecture with proper active/inactive item management.
+
+**Milestone 1: Implement MariaDB Update Item Method (EFISF-1)**
+- EFISF-1.1: Implement `update_item()` method in MariaDBInventoryService using proper database operations
+- EFISF-1.2: Handle multi-row JA ID scenario - update the active item and preserve history
+- EFISF-1.3: Add proper error handling and logging for database operations
+- EFISF-1.4: Ensure consistent enum handling during updates
+- EFISF-1.5: Add audit logging for update operations
+
+**Milestone 2: Complete Google Sheets Migration Audit (EFISF-2)**
+- EFISF-2.1: Conduct comprehensive audit of entire codebase for Google Sheets dependencies
+- EFISF-2.2: Identify any methods in base InventoryService class that still use Google Sheets logic
+- EFISF-2.3: Override all Google Sheets methods in MariaDBInventoryService with proper MariaDB implementations
+- EFISF-2.4: Search for any remaining references to sheet names ('Metal', etc.) or Google Sheets operations
+- EFISF-2.5: Verify that ONLY export functionality (`app/google_sheets_export.py`, `app/export_service.py`) uses Google Sheets
+- EFISF-2.6: Update any remaining Google Sheets code to use MariaDB instead
+
+**Milestone 3: Testing and Validation (EFISF-3)**
+- EFISF-3.1: Test update operations on JA000181 and other problematic items
+- EFISF-3.2: Verify that edit operations work correctly in production environment (ALL production testing/validation performed by human user)
+- EFISF-3.3: Run complete unit and E2E test suites to ensure no regressions
+- EFISF-3.4: Update documentation if needed
+- EFISF-3.5: Confirm with human user that production functionality is working as expected
+
 ## Feature: Fix Material Autocomplete Issues
 
 The Material autocomplete field is not populating correctly. This affects the user experience when trying to enter or edit material information for inventory items.
