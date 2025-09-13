@@ -8,7 +8,7 @@ Handles multi-row JA ID scenarios with proper active/inactive item logic.
 import logging
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, and_, desc, asc
+from sqlalchemy import create_engine, and_, desc, asc, func
 
 from .inventory_service import InventoryService
 from .mariadb_storage import MariaDBStorage
@@ -584,6 +584,143 @@ class MariaDBInventoryService(InventoryService):
             logger.error(f"Error getting valid materials from MariaDB: {e}")
             # Return fallback materials if database query fails
             return ['Steel', 'Carbon Steel', 'Stainless Steel', 'Aluminum', 'Brass', 'Copper']
+        finally:
+            if 'session' in locals():
+                session.close()
+    
+    def update_item(self, item: Item) -> bool:
+        """
+        Update an existing item in MariaDB
+        
+        For multi-row JA ID scenarios, this updates only the currently active item.
+        The update preserves the item's history by modifying the existing active row
+        rather than creating a new row (which is what shortening does).
+        
+        Args:
+            item: Item model object with updated data
+            
+        Returns:
+            True if update was successful, False otherwise
+        """
+        from .logging_config import log_audit_operation
+        
+        try:
+            session = self.Session()
+            
+            # Get the current active item for this JA ID
+            current_db_item = session.query(InventoryItem).filter(
+                and_(InventoryItem.ja_id == item.ja_id, InventoryItem.active == True)
+            ).first()
+            
+            if not current_db_item:
+                error_msg = f'Active item {item.ja_id} not found for update'
+                log_audit_operation('update_item_service', 'error',
+                                  item_id=item.ja_id,
+                                  error_details=error_msg,
+                                  logger_name='mariadb_inventory_service')
+                logger.error(error_msg)
+                return False
+            
+            # Log the before state for audit purposes
+            before_state = {
+                'ja_id': current_db_item.ja_id,
+                'item_type': current_db_item.item_type,
+                'shape': current_db_item.shape,
+                'material': current_db_item.material,
+                'length': float(current_db_item.length) if current_db_item.length else None,
+                'width': float(current_db_item.width) if current_db_item.width else None,
+                'thickness': float(current_db_item.thickness) if current_db_item.thickness else None,
+                'wall_thickness': float(current_db_item.wall_thickness) if current_db_item.wall_thickness else None,
+                'weight': float(current_db_item.weight) if current_db_item.weight else None,
+                'quantity': current_db_item.quantity,
+                'location': current_db_item.location,
+                'sub_location': current_db_item.sub_location,
+                'thread_series': current_db_item.thread_series,
+                'thread_handedness': current_db_item.thread_handedness,
+                'thread_size': current_db_item.thread_size,
+                'notes': current_db_item.notes,
+                'vendor': current_db_item.vendor,
+                'vendor_part': current_db_item.vendor_part
+            }
+            
+            # Convert Item model back to database fields
+            # Handle enum values - convert enum objects back to string values
+            item_type_value = item.item_type.value if item.item_type else None
+            shape_value = item.shape.value if item.shape else None
+            thread_series_value = item.thread.series.value if (item.thread and item.thread.series) else ''
+            thread_handedness_value = item.thread.handedness.value if (item.thread and item.thread.handedness) else ''
+            thread_size_value = item.thread.size if (item.thread and item.thread.size) else ''
+            
+            # Update the database fields
+            current_db_item.item_type = item_type_value
+            current_db_item.shape = shape_value
+            current_db_item.material = item.material
+            current_db_item.length = item.dimensions.length
+            current_db_item.width = item.dimensions.width
+            current_db_item.thickness = item.dimensions.thickness
+            current_db_item.wall_thickness = item.dimensions.wall_thickness
+            current_db_item.weight = item.dimensions.weight
+            current_db_item.quantity = item.quantity
+            current_db_item.location = item.location
+            current_db_item.sub_location = item.sub_location
+            current_db_item.thread_series = thread_series_value
+            current_db_item.thread_handedness = thread_handedness_value
+            current_db_item.thread_size = thread_size_value
+            current_db_item.notes = item.notes
+            current_db_item.vendor = item.vendor
+            current_db_item.vendor_part = item.vendor_part_number
+            current_db_item.purchase_date = item.purchase_date
+            current_db_item.purchase_price = item.purchase_price
+            current_db_item.purchase_location = item.purchase_location
+            # Update timestamp
+            current_db_item.last_modified = func.now()
+            
+            # Commit the changes
+            session.commit()
+            
+            # Log the after state for audit purposes
+            after_state = {
+                'ja_id': item.ja_id,
+                'item_type': item_type_value,
+                'shape': shape_value,
+                'material': item.material,
+                'length': float(item.dimensions.length) if item.dimensions.length else None,
+                'width': float(item.dimensions.width) if item.dimensions.width else None,
+                'thickness': float(item.dimensions.thickness) if item.dimensions.thickness else None,
+                'wall_thickness': float(item.dimensions.wall_thickness) if item.dimensions.wall_thickness else None,
+                'weight': float(item.dimensions.weight) if item.dimensions.weight else None,
+                'quantity': item.quantity,
+                'location': item.location,
+                'sub_location': item.sub_location,
+                'thread_series': thread_series_value,
+                'thread_handedness': thread_handedness_value,
+                'thread_size': thread_size_value,
+                'notes': item.notes,
+                'vendor': item.vendor,
+                'vendor_part': item.vendor_part_number
+            }
+            
+            # Log successful update with full audit trail
+            log_audit_operation('update_item_service', 'success',
+                              item_id=item.ja_id,
+                              item_before=before_state,
+                              item_after=after_state,
+                              logger_name='mariadb_inventory_service')
+            
+            logger.info(f"Successfully updated item {item.ja_id}")
+            return True
+            
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            
+            error_msg = f"Failed to update item {item.ja_id}: {e}"
+            log_audit_operation('update_item_service', 'error',
+                              item_id=item.ja_id,
+                              error_details=error_msg,
+                              logger_name='mariadb_inventory_service')
+            logger.error(error_msg)
+            return False
         finally:
             if 'session' in locals():
                 session.close()
