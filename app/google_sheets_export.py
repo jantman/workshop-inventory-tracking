@@ -11,7 +11,6 @@ from googleapiclient.errors import HttpError
 import logging
 import time
 
-from .google_sheets_storage import GoogleSheetsStorage
 from .storage import StorageResult
 from .auth import GoogleAuth
 from .exceptions import GoogleSheetsError, RateLimitError, TemporaryError, AuthenticationError
@@ -38,7 +37,6 @@ class GoogleSheetsExportService:
         
         self.auth = GoogleAuth()
         self.service = None
-        self.storage = GoogleSheetsStorage(self.spreadsheet_id)
     
     def _get_service(self):
         """Get the Google Sheets service, initializing if needed"""
@@ -61,12 +59,29 @@ class GoogleSheetsExportService:
             service = self._get_service()
             
             # Get sheet info to determine range to clear
-            sheet_info = self.storage.get_sheet_info(sheet_name)
-            if not sheet_info.success:
-                return sheet_info
-            
-            rows = sheet_info.data.get('rows', 1000)  # Default to reasonable range
-            columns = sheet_info.data.get('columns', 30)
+            try:
+                sheet_metadata = service.spreadsheets().get(
+                    spreadsheetId=self.spreadsheet_id
+                ).execute()
+                
+                # Find the sheet by name
+                sheet_properties = None
+                for sheet in sheet_metadata.get('sheets', []):
+                    if sheet['properties']['title'] == sheet_name:
+                        sheet_properties = sheet['properties']
+                        break
+                
+                if not sheet_properties:
+                    return StorageResult(success=False, error=f'Sheet {sheet_name} not found')
+                
+                grid_properties = sheet_properties.get('gridProperties', {})
+                rows = grid_properties.get('rowCount', 1000)  # Default to reasonable range
+                columns = grid_properties.get('columnCount', 30)
+                
+            except HttpError as e:
+                error_msg = f'Failed to get sheet info for {sheet_name}: {e}'
+                logger.error(error_msg)
+                return StorageResult(success=False, error=error_msg)
             
             # Convert column count to letter (A, B, C, ..., Z, AA, AB, etc.)
             def num_to_col_letter(n):
@@ -330,4 +345,24 @@ class GoogleSheetsExportService:
     
     def test_connection(self) -> StorageResult:
         """Test connection to Google Sheets"""
-        return self.storage.connect()
+        try:
+            service = self._get_service()
+            sheet_metadata = service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            title = sheet_metadata.get("properties", {}).get("title", "Unknown")
+            logger.info(f'Connected to spreadsheet: {title}')
+            
+            return StorageResult(
+                success=True,
+                data={
+                    'title': title,
+                    'sheets': [sheet['properties']['title'] for sheet in sheet_metadata.get('sheets', [])]
+                }
+            )
+            
+        except Exception as e:
+            error_msg = f'Failed to connect to Google Sheets: {e}'
+            logger.error(error_msg)
+            return StorageResult(success=False, error=error_msg)
