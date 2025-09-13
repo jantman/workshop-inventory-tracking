@@ -122,36 +122,9 @@ class InventoryItem(Base):
             'last_modified': self.last_modified.isoformat() if self.last_modified else None,
         }
 
-# For backwards compatibility with existing models.py enums
-class ItemType(enum.Enum):
-    """Enumeration of valid item types"""
-    BAR = "Bar"
-    PLATE = "Plate"
-    SHEET = "Sheet" 
-    TUBE = "Tube"
-    THREADED_ROD = "Threaded Rod"
-    ANGLE = "Angle"
-
-class ItemShape(enum.Enum):
-    """Enumeration of valid item shapes"""
-    RECTANGULAR = "Rectangular"
-    ROUND = "Round"
-    SQUARE = "Square"
-    HEX = "Hex"
-
-class ThreadSeries(enum.Enum):
-    """Enumeration of thread series types"""
-    UNC = "UNC"  # Unified National Coarse
-    UNF = "UNF"  # Unified National Fine
-    UNEF = "UNEF"  # Unified National Extra Fine
-    METRIC = "Metric"
-    BSW = "BSW"  # British Standard Whitworth
-    BSF = "BSF"  # British Standard Fine
-
-class ThreadHandedness(enum.Enum):
-    """Enumeration of thread handedness"""
-    RIGHT_HAND = "RH"
-    LEFT_HAND = "LH"
+# Note: Enum definitions moved to app.models to maintain single source of truth
+# All enums (ItemType, ItemShape, ThreadSeries, ThreadHandedness) are now
+# centrally defined in app.models and imported from there throughout the application.
 
 
 class MaterialTaxonomy(Base):

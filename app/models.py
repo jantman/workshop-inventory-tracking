@@ -416,7 +416,7 @@ class Item:
             if not self.dimensions.length:
                 errors.append("Length is required for threaded rods")
             if not self.thread or not self.thread.size:
-                errors.append("Thread specification is required for threaded rods")
+                errors.append("Thread size is required for threaded rods")
         elif self.shape == ItemShape.RECTANGULAR:
             if not self.dimensions.length:
                 errors.append("Length is required for rectangular items")

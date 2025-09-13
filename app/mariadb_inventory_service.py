@@ -136,11 +136,19 @@ class MariaDBInventoryService(InventoryService):
             ).order_by(asc(InventoryItem.ja_id)).all()
             
             items = []
+            failed_items = []
             for db_item in db_items:
-                item = self._db_item_to_model(db_item)
-                items.append(item)
+                try:
+                    item = self._db_item_to_model(db_item)
+                    items.append(item)
+                except Exception as e:
+                    failed_items.append(db_item.ja_id)
+                    logger.warning(f"Failed to convert item {db_item.ja_id} to model: {e}")
             
-            logger.info(f"Retrieved {len(items)} active inventory items")
+            if failed_items:
+                logger.error(f"Failed to convert {len(failed_items)} items: {failed_items}")
+            
+            logger.info(f"Retrieved {len(items)} active inventory items ({len(failed_items)} failed conversions)")
             return items
             
         except Exception as e:
