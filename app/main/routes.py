@@ -2,7 +2,6 @@ from flask import render_template, current_app, jsonify, abort, request, flash, 
 from datetime import datetime
 from app.main import bp
 from app import csrf
-from app.google_sheets_storage import GoogleSheetsStorage
 from app.mariadb_storage import MariaDBStorage
 from app.inventory_service import InventoryService
 from app.mariadb_inventory_service import MariaDBInventoryService
@@ -474,14 +473,13 @@ def materials_hierarchy():
     try:
         from app.materials_service import MaterialHierarchyService
         
-        # Get storage backend
+        # Get storage backend (now MariaDB only)
         storage_backend = current_app.config.get('STORAGE_BACKEND')
         if storage_backend:
             storage = storage_backend
         else:
-            from app.google_sheets_storage import GoogleSheetsStorage
-            from config import Config
-            storage = GoogleSheetsStorage(Config.GOOGLE_SHEET_ID)
+            from app.storage_factory import get_storage_backend
+            storage = get_storage_backend()
         
         materials_service = MaterialHierarchyService(storage)
         

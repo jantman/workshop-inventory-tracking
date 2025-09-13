@@ -14,7 +14,6 @@ import logging
 
 from app.models import Item, ItemType, ItemShape, Thread, Dimensions
 from app.storage import Storage, StorageResult
-from app.google_sheets_storage import GoogleSheetsStorage
 from app.performance import cached, timed, performance_monitor, batch_manager
 from app.logging_config import log_operation, log_performance
 
@@ -96,11 +95,6 @@ class InventoryService:
         self._cache_timestamp = None
         self._cache_duration = 300  # 5 minutes
     
-    @classmethod
-    def create_default(cls, spreadsheet_id: str) -> 'InventoryService':
-        """Create service with default Google Sheets storage"""
-        storage = GoogleSheetsStorage(spreadsheet_id)
-        return cls(storage)
     
     # Basic CRUD Operations
     

@@ -7,7 +7,7 @@ Supports browsing by category/family/material levels and search functionality.
 
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from .google_sheets_storage import GoogleSheetsStorage
+from .storage import Storage
 
 
 def _parse_bool(value: Any) -> bool:
@@ -49,7 +49,7 @@ class MaterialTaxonomy:
 class MaterialHierarchyService:
     """Service for accessing hierarchical material taxonomy."""
     
-    def __init__(self, storage: GoogleSheetsStorage):
+    def __init__(self, storage: Storage):
         self.storage = storage
         self._taxonomy_cache: Optional[List[MaterialTaxonomy]] = None
         self._name_to_taxonomy: Optional[Dict[str, MaterialTaxonomy]] = None

@@ -9,7 +9,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime
 from dataclasses import dataclass
 
-from .google_sheets_storage import GoogleSheetsStorage
+from .storage import Storage
 from .materials_service import MaterialHierarchyService, MaterialTaxonomy
 from .exceptions import ValidationError
 
@@ -28,7 +28,7 @@ class TaxonomyAddRequest:
 class MaterialsAdminService:
     """Service for managing materials taxonomy through admin interface"""
     
-    def __init__(self, storage: GoogleSheetsStorage):
+    def __init__(self, storage: Storage):
         self.storage = storage
         self.hierarchy_service = MaterialHierarchyService(storage)
     

@@ -26,7 +26,7 @@ class StorageFactory:
         Create a storage backend instance.
         
         Args:
-            backend_type: Type of backend ('mariadb', 'google_sheets', or 'auto')
+            backend_type: Type of backend ('mariadb' or 'auto')
             **kwargs: Additional arguments for backend initialization
             
         Returns:
@@ -37,8 +37,6 @@ class StorageFactory:
         
         if backend_type == 'mariadb':
             return StorageFactory._create_mariadb_storage(**kwargs)
-        elif backend_type == 'google_sheets':
-            return StorageFactory._create_google_sheets_storage(**kwargs)
         elif backend_type == 'auto':
             # Auto-detect based on available configuration
             return StorageFactory._auto_detect_storage(**kwargs)
@@ -51,26 +49,12 @@ class StorageFactory:
         database_url = kwargs.get('database_url')
         return MariaDBStorage(database_url=database_url)
     
-    @staticmethod
-    def _create_google_sheets_storage(**kwargs):
-        """Create Google Sheets storage instance"""
-        # Import here to avoid circular imports and optional dependency
-        try:
-            from .google_sheets_storage import GoogleSheetsStorage
-            return GoogleSheetsStorage()
-        except ImportError as e:
-            logger.error("Google Sheets storage not available: %s", e)
-            raise RuntimeError("Google Sheets storage dependencies not installed")
     
     @staticmethod
     def _auto_detect_storage(**kwargs) -> Storage:
         """
         Auto-detect storage backend based on available configuration.
-        
-        Priority:
-        1. MariaDB if database URL is configured
-        2. Google Sheets if credentials are available
-        3. Raise error if neither is available
+        Always returns MariaDB storage as it's the only supported backend.
         """
         # Check for database configuration
         db_url = os.environ.get('SQLALCHEMY_DATABASE_URI')
@@ -78,18 +62,9 @@ class StorageFactory:
         
         if db_url or db_password:
             logger.info("Auto-detected MariaDB storage backend")
-            return StorageFactory._create_mariadb_storage(**kwargs)
+        else:
+            logger.warning("No database configuration detected, defaulting to MariaDB")
         
-        # Check for Google Sheets configuration
-        sheets_id = os.environ.get('GOOGLE_SHEET_ID')
-        creds_file = Config.GOOGLE_CREDENTIALS_FILE
-        
-        if sheets_id and os.path.exists(creds_file):
-            logger.info("Auto-detected Google Sheets storage backend")
-            return StorageFactory._create_google_sheets_storage(**kwargs)
-        
-        # Default to MariaDB for development/testing
-        logger.warning("No storage configuration detected, defaulting to MariaDB")
         return StorageFactory._create_mariadb_storage(**kwargs)
 
 

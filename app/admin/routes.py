@@ -6,7 +6,6 @@ Provides web interface for adding new taxonomy entries and managing status.
 
 from flask import render_template, request, jsonify, flash, redirect, url_for, current_app
 from app.admin import bp
-from app.google_sheets_storage import GoogleSheetsStorage
 from app.mariadb_materials_admin_service import MariaDBMaterialsAdminService, TaxonomyAddRequest
 from config import Config
 
