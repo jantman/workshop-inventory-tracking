@@ -249,16 +249,51 @@ class MariaDBInventoryService(InventoryService):
         Returns:
             Item model object
         """
-        from .models import Item, Dimensions, Thread
-        from .database import ThreadSeries, ThreadHandedness, ItemType, ItemShape
+        from .models import Item, Dimensions, Thread, ItemType, ItemShape, ThreadSeries, ThreadHandedness
         
         # Helper function to find enum by value
         def find_enum_by_value(enum_class, value):
             if not value:
                 return None
+            
+            # First try direct value match (normal case)
             for enum_item in enum_class:
                 if enum_item.value == value:
                     return enum_item
+            
+            # Handle legacy enum class name format (e.g., 'ItemType.PLATE' -> 'Plate')
+            # This handles cases where database contains enum class names instead of values
+            if '.' in value:
+                try:
+                    # Extract the enum name part after the dot
+                    enum_name = value.split('.')[-1]  # 'ItemType.PLATE' -> 'PLATE'
+                    
+                    # Try to find enum by name attribute
+                    for enum_item in enum_class:
+                        if enum_item.name == enum_name:
+                            logger.warning(f"Found enum using legacy name format: {value} -> {enum_item.value}")
+                            return enum_item
+                    
+                    # If name match fails, try value match with the extracted part
+                    # Handle common case transformations
+                    potential_values = [
+                        enum_name,  # Direct match
+                        enum_name.capitalize(),  # 'PLATE' -> 'Plate'
+                        enum_name.lower(),  # 'PLATE' -> 'plate'
+                        enum_name.title()   # 'RECTANGULAR' -> 'Rectangular'
+                    ]
+                    
+                    for potential_value in potential_values:
+                        for enum_item in enum_class:
+                            if enum_item.value == potential_value:
+                                logger.warning(f"Found enum using legacy format with conversion: {value} -> {enum_item.value}")
+                                return enum_item
+                        
+                except Exception as e:
+                    logger.error(f"Error parsing legacy enum format '{value}': {e}")
+            
+            # If no match found, log the issue
+            logger.warning(f"Could not find enum value '{value}' in {enum_class.__name__}")
             return None
         
         # Map thread series
