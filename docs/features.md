@@ -149,6 +149,10 @@ Item JA000181 (and possibly other items) can be found in the items list, the vie
 
 The Material autocomplete field is not populating correctly. This affects the user experience when trying to enter or edit material information for inventory items.
 
+## Feature: Google Sheets Storage Removal
+
+There still seem to be some vestiges of Google Sheets leftover in our storage code, such as in the `InventoryService` class. At this point Google Sheets should NOT be used for anything except the export functionality. Develop a plan to remove any remaining traces of Google Sheets from anything other than the data export functionality. Examine the remaining class/inheritance hierarchy, how the MariaDB storage code is being called, etc. as well as any test code that relies on this, and suggest any improvements that should be made for long-term readability, maintainability, and simplicity now that Google Sheets is no longer being used for storage.
+
 ## Feature: Remove Some Placeholders
 
 Please get rid of the placeholder values in the Purchase Information and Location fields on the add and edit views; I find them confusing.
