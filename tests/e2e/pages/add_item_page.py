@@ -70,7 +70,7 @@ class AddItemPage(BasePage):
             self.click_and_wait(self.CANCEL_BUTTON)
     
     def add_complete_item(self, ja_id: str, item_type: str = "Bar", shape: str = "Round", 
-                         material: str = "Steel", length: str = "1000", 
+                         material: str = "Carbon Steel", length: str = "1000", 
                          diameter: str = "25", location: str = "Storage A", 
                          notes: str = "Test item"):
         """Add a complete item with all common fields filled"""

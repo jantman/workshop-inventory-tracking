@@ -22,6 +22,7 @@ def _get_storage_backend():
         return current_app.config['STORAGE_BACKEND']
     
     # Use MariaDB storage (switched from Google Sheets in Milestone 2)
+    from app.mariadb_storage import MariaDBStorage
     return MariaDBStorage()
 
 def _get_inventory_service():
@@ -52,16 +53,29 @@ def inventory_list():
     return render_template('inventory/list.html', title='Inventory')
 
 def _get_valid_materials():
-    """Get list of valid materials from MariaDB taxonomy"""
+    """Get list of valid materials from the appropriate storage backend"""
     try:
-        from app.mariadb_inventory_service import MariaDBInventoryService
+        storage = _get_storage_backend()
         
-        # Use MariaDB service to get materials from the database
-        service = MariaDBInventoryService()
+        # For InMemoryStorage (tests), use the materials taxonomy service
+        from app.test_storage import InMemoryStorage
+        if isinstance(storage, InMemoryStorage):
+            from app.materials_service import MaterialHierarchyService
+            hierarchy_service = MaterialHierarchyService(storage)
+            # Get materials from ALL levels (1, 2, 3) - any level is valid
+            all_materials = []
+            for level in [1, 2, 3]:
+                materials = hierarchy_service.get_by_level(level, active_only=True)
+                all_materials.extend([m.name for m in materials])
+            return all_materials
+        
+        # For MariaDB, use the inventory service
+        from app.mariadb_inventory_service import MariaDBInventoryService
+        service = MariaDBInventoryService(storage)
         return service.get_valid_materials()
         
     except Exception as e:
-        current_app.logger.error(f'Failed to load materials taxonomy from MariaDB: {e}')
+        current_app.logger.error(f'Failed to load materials taxonomy: {e}')
         # Fallback to some basic materials if database query fails
         return ['Steel', 'Carbon Steel', 'Stainless Steel', 'Aluminum', 'Brass', 'Copper']
 
@@ -414,11 +428,8 @@ def material_suggestions():
         limit = 10
     
     try:
-        from app.mariadb_inventory_service import MariaDBInventoryService
-        
-        # Get all valid materials from MariaDB
-        service = MariaDBInventoryService()
-        all_materials = service.get_valid_materials()
+        # Get all valid materials using the appropriate storage backend
+        all_materials = _get_valid_materials()
         
         if not query:
             # Return first N materials if no query

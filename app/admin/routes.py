@@ -7,7 +7,7 @@ Provides web interface for adding new taxonomy entries and managing status.
 from flask import render_template, request, jsonify, flash, redirect, url_for, current_app
 from app.admin import bp
 from app.google_sheets_storage import GoogleSheetsStorage
-from app.materials_admin_service import MaterialsAdminService, TaxonomyAddRequest
+from app.mariadb_materials_admin_service import MariaDBMaterialsAdminService, TaxonomyAddRequest
 from config import Config
 
 
@@ -22,11 +22,24 @@ def _get_storage_backend():
     return MariaDBStorage()
 
 
+def _get_admin_service(storage):
+    """Get the appropriate admin service for the storage backend"""
+    from app.test_storage import InMemoryStorage
+    
+    # For test storage, use the original MaterialsAdminService
+    if isinstance(storage, InMemoryStorage):
+        from app.materials_admin_service import MaterialsAdminService
+        return MaterialsAdminService(storage)
+    
+    # For MariaDB storage, use the new MariaDBMaterialsAdminService
+    return MariaDBMaterialsAdminService(storage)
+
+
 @bp.route('/materials')
 def materials_overview():
     """Main materials taxonomy management page"""
     storage = _get_storage_backend()
-    admin_service = MaterialsAdminService(storage)
+    admin_service = _get_admin_service(storage)
     
     # Get taxonomy overview
     include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
@@ -45,7 +58,7 @@ def materials_overview():
 def add_material():
     """Add new taxonomy entry form and handler"""
     storage = _get_storage_backend()
-    admin_service = MaterialsAdminService(storage)
+    admin_service = _get_admin_service(storage)
     
     if request.method == 'GET':
         # Get level from query param, default to 3 (Material)
@@ -107,7 +120,7 @@ def add_material():
 def update_material_status():
     """Update the active status of a material (AJAX endpoint)"""
     storage = _get_storage_backend()
-    admin_service = MaterialsAdminService(storage)
+    admin_service = _get_admin_service(storage)
     
     try:
         data = request.get_json()
@@ -132,7 +145,7 @@ def update_material_status():
 def get_available_parents(level):
     """Get available parent materials for a given level (AJAX endpoint)"""
     storage = _get_storage_backend()
-    admin_service = MaterialsAdminService(storage)
+    admin_service = _get_admin_service(storage)
     
     try:
         parents = admin_service.get_available_parents(level)
@@ -156,7 +169,7 @@ def get_available_parents(level):
 def validate_material():
     """Validate a taxonomy add request (AJAX endpoint)"""
     storage = _get_storage_backend()
-    admin_service = MaterialsAdminService(storage)
+    admin_service = _get_admin_service(storage)
     
     try:
         data = request.get_json()

@@ -168,7 +168,7 @@ def test_edit_item_workflow(page, live_server):
     expect(notes_field).to_have_value('Original aluminum plate')
     
     # Make some changes to the item
-    material_field.fill('6000 Series Aluminum')
+    material_field.fill('6000 Series')
     width_field.fill('6')
     location_field.fill('Workshop C')
     notes_field.fill('Updated aluminum plate - now 6000 series alloy')
@@ -196,7 +196,7 @@ def test_edit_item_workflow(page, live_server):
             break
     
     assert updated_item is not None, "Updated item not found in list"
-    assert '6000 Series Aluminum' in updated_item['material']
+    assert '6000 Series' in updated_item['material']
     
     # Verify changes by viewing the item details
     view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102002\')"]')
@@ -204,7 +204,7 @@ def test_edit_item_workflow(page, live_server):
     
     # Wait for modal and verify updated details
     modal_body = page.locator('#item-details-modal .modal-body')
-    expect(modal_body).to_contain_text('6000 Series Aluminum')
+    expect(modal_body).to_contain_text('6000 Series')
     expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
@@ -278,7 +278,7 @@ def test_edit_form_loads_without_validation_errors(page, live_server):
     expect(shape_field).not_to_have_class('is-invalid')
     
     material_field = page.locator('#material')
-    expect(material_field).to_have_value('Steel')
+    expect(material_field).to_have_value('Carbon Steel')
     expect(material_field).not_to_have_class('is-invalid')
     
     length_field = page.locator('#length')

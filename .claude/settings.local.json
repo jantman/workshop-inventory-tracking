@@ -23,7 +23,8 @@
       "Bash(FLASK_RUN_PORT=5001 python app.py)",
       "Bash(docker-compose:*)",
       "Bash(docker exec:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(timeout 600 python -m pytest tests/e2e/ --tb=short)"
     ],
     "deny": [],
     "ask": []

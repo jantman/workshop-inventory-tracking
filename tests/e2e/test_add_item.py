@@ -81,7 +81,7 @@ def test_add_multiple_items_workflow(page, live_server):
     add_page.navigate()
     add_page.add_complete_item(
         ja_id="JA000005",
-        material="Brass",
+        material="360 Brass",
         length="750",
         diameter="20",
         location="Storage C"
