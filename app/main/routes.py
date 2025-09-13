@@ -460,37 +460,6 @@ def inventory_shorten():
         return redirect(url_for('main.inventory_shorten'))
 
 # API Routes
-@bp.route('/api/connection-test')
-def connection_test():
-    """Test API endpoint for Google Sheets connection"""
-    try:
-        if not Config.GOOGLE_SHEET_ID:
-            return jsonify({
-                'success': False,
-                'error': 'GOOGLE_SHEET_ID not configured'
-            }), 500
-        
-        storage = _get_storage_backend()
-        result = storage.connect()
-        
-        if result.success:
-            return jsonify({
-                'success': True,
-                'message': 'Connected to Google Sheets successfully',
-                'data': result.data
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': result.error
-            }), 500
-            
-    except Exception as e:
-        current_app.logger.error(f'Connection test failed: {e}')
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @bp.route('/api/stats')
 def api_stats():

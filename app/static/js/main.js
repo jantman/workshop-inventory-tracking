@@ -7,23 +7,12 @@ const WorkshopInventory = {
     
     // Configuration
     config: {
-        connectionCheckInterval: 30000, // 30 seconds
-        apiEndpoints: {
-            connectionTest: '/api/connection-test'
-        }
+        // Application configuration
     },
     
     // Initialize application
     init: function() {
         console.log('Initializing Workshop Inventory application...');
-        
-        // Check initial connection status
-        this.checkConnectionStatus();
-        
-        // Set up periodic connection checks
-        setInterval(() => {
-            this.checkConnectionStatus();
-        }, this.config.connectionCheckInterval);
         
         // Set up event listeners
         this.setupEventListeners();
@@ -281,40 +270,6 @@ const WorkshopInventory = {
         };
     },
     
-    // Check Google Sheets connection status
-    checkConnectionStatus: function(showLoading = false) {
-        const statusElement = document.getElementById('connection-status');
-        if (!statusElement) return;
-        
-        const icon = statusElement.querySelector('i');
-        const text = statusElement.querySelector('.connection-text') || 
-                    document.createElement('span');
-        
-        if (showLoading) {
-            icon.className = 'bi bi-arrow-clockwise text-checking';
-            icon.style.animation = 'spin 1s linear infinite';
-        }
-        
-        fetch(this.config.apiEndpoints.connectionTest)
-            .then(response => response.json())
-            .then(data => {
-                icon.style.animation = '';
-                
-                if (data.success) {
-                    icon.className = 'bi bi-check-circle text-connected';
-                    statusElement.title = `Connected to: ${data.data?.title || 'Google Sheets'}`;
-                } else {
-                    icon.className = 'bi bi-x-circle text-disconnected';
-                    statusElement.title = `Connection failed: ${data.error}`;
-                }
-            })
-            .catch(error => {
-                console.error('Connection check failed:', error);
-                icon.style.animation = '';
-                icon.className = 'bi bi-exclamation-triangle text-disconnected';
-                statusElement.title = 'Connection check failed';
-            });
-    },
     
     // Set up form validation
     // Set up JA ID quick lookup functionality
