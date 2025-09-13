@@ -274,6 +274,10 @@ LABEL_TYPES: Dict[str, dict] = {
 }
 ```
 
+## Feature: JA ID Lookup Improvement
+
+The `ja-id-lookup` input field in the header of our pages seems to automatically add a `JA` prefix when anything is entered in the field. We must stop doing this as it breaks barcode input. Remove this functionality and any code that is rendered unused after doing so.
+
 ## Feature: Improved Materials Input
 
 On both the Add Item and Edit Item pages, we have a text input for Material with an autocomplete. It only accepts values from our three-tiered hierarchical materials taxonomy. While the current autocomplete is good for a user who knows the exact name in our taxonomy that they want to enter, it doesn't help someone discover the taxonomy. Can you suggest how we can handle this input that both allows a user to quickly type in (with autocomplete) a known string, but also can help a user navigate to the desired entry via the tiered hierarchy?
