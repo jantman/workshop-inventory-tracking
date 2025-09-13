@@ -334,6 +334,7 @@ class MariaDBInventoryService(InventoryService):
             Dictionary with success status and details
         """
         from datetime import datetime, date
+        from .logging_config import log_audit_operation
         
         try:
             session = self.Session()
@@ -344,14 +345,47 @@ class MariaDBInventoryService(InventoryService):
             ).first()
             
             if not current_db_item:
-                return {'success': False, 'error': f'Active item {ja_id} not found'}
+                error_msg = f'Active item {ja_id} not found'
+                log_audit_operation('shorten_item_service', 'error',
+                                  item_id=ja_id,
+                                  error_details=error_msg,
+                                  logger_name='mariadb_inventory_service')
+                return {'success': False, 'error': error_msg}
+            
+            # AUDIT: Log the before state with complete item data
+            item_before = current_db_item.to_dict()
+            operation_data = {
+                'ja_id': ja_id,
+                'new_length': new_length,
+                'cut_date': cut_date,
+                'notes': notes,
+                'original_length': float(current_db_item.length) if current_db_item.length else None
+            }
+            
+            log_audit_operation('shorten_item_service', 'input',
+                              item_id=ja_id,
+                              form_data=operation_data,
+                              item_before=item_before,
+                              logger_name='mariadb_inventory_service')
             
             # Validate new length
             if new_length <= 0:
-                return {'success': False, 'error': 'New length must be greater than 0'}
+                error_msg = 'New length must be greater than 0'
+                log_audit_operation('shorten_item_service', 'error',
+                                  item_id=ja_id,
+                                  form_data=operation_data,
+                                  error_details=error_msg,
+                                  logger_name='mariadb_inventory_service')
+                return {'success': False, 'error': error_msg}
             
             if current_db_item.length and new_length >= float(current_db_item.length):
-                return {'success': False, 'error': 'New length must be shorter than current length'}
+                error_msg = 'New length must be shorter than current length'
+                log_audit_operation('shorten_item_service', 'error',
+                                  item_id=ja_id,
+                                  form_data=operation_data,
+                                  error_details=error_msg,
+                                  logger_name='mariadb_inventory_service')
+                return {'success': False, 'error': error_msg}
             
             # Set cut date
             if cut_date:
@@ -387,7 +421,6 @@ class MariaDBInventoryService(InventoryService):
                 thread_series=current_db_item.thread_series,
                 thread_handedness=current_db_item.thread_handedness,
                 thread_size=current_db_item.thread_size,
-                thread_form=current_db_item.thread_form,
                 quantity=1,  # Shortened items are always quantity 1
                 location=current_db_item.location,
                 sub_location=current_db_item.sub_location,
@@ -410,22 +443,43 @@ class MariaDBInventoryService(InventoryService):
             # Commit changes
             session.commit()
             
-            logger.info(f"Successfully shortened item {ja_id}: {current_db_item.length}\" -> {new_length}\"")
-            
-            return {
+            # AUDIT: Log successful completion with before/after state
+            item_after = new_db_item.to_dict()
+            success_result = {
                 'success': True,
                 'ja_id': ja_id,
                 'original_length': float(current_db_item.length) if current_db_item.length else None,
                 'new_length': new_length,
                 'cut_date': str(cut_date_obj),
-                'operation': 'shortening'
+                'operation': 'shortening',
+                'deactivated_item_id': current_db_item.id,
+                'new_item_id': new_db_item.id
             }
             
+            log_audit_operation('shorten_item_service', 'success',
+                              item_id=ja_id,
+                              form_data=operation_data,
+                              item_before=item_before,
+                              item_after=item_after,
+                              changes=success_result,
+                              logger_name='mariadb_inventory_service')
+            
+            logger.info(f"Successfully shortened item {ja_id}: {current_db_item.length}\" -> {new_length}\"")
+            
+            return success_result
+            
         except Exception as e:
+            error_msg = str(e)
+            log_audit_operation('shorten_item_service', 'error',
+                              item_id=ja_id,
+                              form_data=operation_data if 'operation_data' in locals() else {'ja_id': ja_id, 'new_length': new_length},
+                              item_before=item_before if 'item_before' in locals() else None,
+                              error_details=error_msg,
+                              logger_name='mariadb_inventory_service')
             logger.error(f"Error shortening item {ja_id}: {e}")
             if 'session' in locals():
                 session.rollback()
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': error_msg}
         finally:
             if 'session' in locals():
                 session.close()

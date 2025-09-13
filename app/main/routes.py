@@ -44,7 +44,7 @@ def _item_to_audit_dict(item):
         'purchase_location': item.purchase_location,
         'notes': item.notes,
         'vendor': item.vendor,
-        'vendor_part': item.vendor_part,
+        'vendor_part': item.vendor_part_number,
         'original_material': item.original_material,
         'original_thread': item.original_thread.to_dict() if item.original_thread else None,
         'active': item.active,
@@ -389,16 +389,31 @@ def inventory_shorten():
         # Get form data
         form_data = request.form.to_dict()
         
+        # AUDIT: Log shorten operation input
+        log_audit_operation('shorten_item', 'input',
+                          item_id=form_data.get('source_ja_id'),
+                          form_data=form_data)
+        
         # Validate required fields
         required_fields = ['source_ja_id', 'new_length', 'confirm_operation']
         missing_fields = [field for field in required_fields if not form_data.get(field)]
         
         if missing_fields:
-            flash(f'Missing required fields: {", ".join(missing_fields)}', 'error')
+            error_msg = f'Missing required fields: {", ".join(missing_fields)}'
+            # AUDIT: Log validation error
+            log_audit_operation('shorten_item', 'error',
+                              item_id=form_data.get('source_ja_id'),
+                              error_details=error_msg)
+            flash(error_msg, 'error')
             return redirect(url_for('main.inventory_shorten'))
         
         if form_data.get('confirm_operation') != 'on':
-            flash('You must confirm the shortening operation', 'error')
+            error_msg = 'You must confirm the shortening operation'
+            # AUDIT: Log validation error
+            log_audit_operation('shorten_item', 'error',
+                              item_id=form_data.get('source_ja_id'),
+                              error_details=error_msg)
+            flash(error_msg, 'error')
             return redirect(url_for('main.inventory_shorten'))
         
         # Execute shortening operation
@@ -409,16 +424,35 @@ def inventory_shorten():
             new_length = result.get('new_length')
             ja_id = result.get('ja_id')
             
+            # AUDIT: Log successful shortening operation
+            changes = {
+                'length': {'before': original_length, 'after': new_length},
+                'operation_type': 'shorten',
+                'notes': form_data.get('shortening_notes', ''),
+                'cut_date': form_data.get('cut_date', '')
+            }
+            log_audit_operation('shorten_item', 'success',
+                              item_id=ja_id or form_data.get('source_ja_id'),
+                              changes=changes)
+            
             if original_length and new_length:
                 flash(f"Item {ja_id} successfully shortened from {original_length}\" to {new_length}\"! History preserved.", 'success')
             else:
                 flash(f"Item {ja_id} successfully shortened! History preserved.", 'success')
             return redirect(url_for('main.inventory_shorten'))
         else:
+            # AUDIT: Log failed shortening operation
+            log_audit_operation('shorten_item', 'error',
+                              item_id=form_data.get('source_ja_id'),
+                              error_details=f"Shortening operation failed: {result['error']}")
             flash(f"Shortening failed: {result['error']}", 'error')
             return redirect(url_for('main.inventory_shorten'))
             
     except Exception as e:
+        # AUDIT: Log shortening operation exception
+        log_audit_operation('shorten_item', 'error',
+                          item_id=form_data.get('source_ja_id') if 'form_data' in locals() else None,
+                          error_details=f'Exception during shortening: {str(e)}')
         current_app.logger.error(f'Error in shortening operation: {e}\n{traceback.format_exc()}')
         flash('An error occurred during the shortening operation. Please try again.', 'error')
         return redirect(url_for('main.inventory_shorten'))
@@ -783,17 +817,32 @@ def batch_move_items():
     try:
         data = request.get_json()
         if not data or 'moves' not in data:
+            error_msg = 'Invalid request data'
+            # AUDIT: Log input validation error for batch move
+            log_audit_batch_operation('batch_move_items', 'error', 
+                                    error_details=error_msg)
             return jsonify({
                 'success': False,
-                'error': 'Invalid request data'
+                'error': error_msg
             }), 400
         
         moves = data['moves']
         if not moves or not isinstance(moves, list):
+            error_msg = 'No moves provided'
+            # AUDIT: Log input validation error for batch move
+            log_audit_batch_operation('batch_move_items', 'error', 
+                                    error_details=error_msg)
             return jsonify({
                 'success': False,
-                'error': 'No moves provided'
+                'error': error_msg
             }), 400
+        
+        # AUDIT: Log batch move input phase
+        log_audit_batch_operation('batch_move_items', 'input', 
+                                batch_data={
+                                    'move_count': len(moves),
+                                    'moves': moves
+                                })
         
         service = _get_inventory_service()
         
@@ -825,17 +874,35 @@ def batch_move_items():
                 old_location = item.location
                 item.location = new_location.strip()
                 
+                # AUDIT: Log individual move operation input
+                log_audit_operation('move_item', 'input',
+                                  item_id=ja_id,
+                                  form_data={'ja_id': ja_id, 'new_location': new_location, 'old_location': old_location},
+                                  item_before=_item_to_audit_dict(item))
+                
                 # Save the updated item
                 if service.update_item(item):
                     successful_moves += 1
+                    # AUDIT: Log successful individual move
+                    log_audit_operation('move_item', 'success',
+                                      item_id=ja_id,
+                                      changes={'location': {'before': old_location, 'after': new_location}})
                     current_app.logger.info(f'Moved {ja_id} from "{old_location}" to "{new_location}"')
                 else:
+                    # AUDIT: Log failed individual move
+                    log_audit_operation('move_item', 'error',
+                                      item_id=ja_id,
+                                      error_details='Service update_item returned False')
                     failed_moves.append({
                         'ja_id': ja_id,
                         'error': 'Failed to update item'
                     })
                     
             except Exception as e:
+                # AUDIT: Log individual move exception
+                log_audit_operation('move_item', 'error',
+                                  item_id=ja_id,
+                                  error_details=f'Exception during move: {str(e)}')
                 current_app.logger.error(f'Error moving item {ja_id}: {e}')
                 failed_moves.append({
                     'ja_id': ja_id,
@@ -853,9 +920,23 @@ def batch_move_items():
         if len(failed_moves) > 0:
             response_data['error'] = f'{len(failed_moves)} items failed to move'
         
+        # AUDIT: Log batch move completion with results
+        batch_results = {
+            'successful_count': successful_moves,
+            'failed_count': len(failed_moves),
+            'total_count': len(moves),
+            'failed_items': [fm['ja_id'] for fm in failed_moves],
+            'overall_success': len(failed_moves) == 0
+        }
+        log_audit_batch_operation('batch_move_items', 'success', 
+                                results=batch_results)
+        
         return jsonify(response_data)
         
     except Exception as e:
+        # AUDIT: Log batch move exception
+        log_audit_batch_operation('batch_move_items', 'error',
+                                error_details=f'Batch move exception: {str(e)}')
         current_app.logger.error(f'Batch move error: {e}\n{traceback.format_exc()}')
         return jsonify({
             'success': False,
