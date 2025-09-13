@@ -163,10 +163,6 @@ Item JA000181 (and possibly other items) can be found in the items list, the vie
 - EFISF-3.4: Update documentation if needed
 - EFISF-3.5: Confirm with human user that production functionality is working as expected
 
-## Feature: Fix Material Autocomplete Issues
-
-The Material autocomplete field is not populating correctly. This affects the user experience when trying to enter or edit material information for inventory items.
-
 ## Feature: Google Sheets Storage Removal
 
 There still seem to be some vestiges of Google Sheets leftover in our storage code, such as in the `InventoryService` class. At this point Google Sheets should NOT be used for anything except the export functionality. Develop a plan to remove any remaining traces of Google Sheets from anything other than the data export functionality. Examine the remaining class/inheritance hierarchy, how the MariaDB storage code is being called, etc. as well as any test code that relies on this, and suggest any improvements that should be made for long-term readability, maintainability, and simplicity now that Google Sheets is no longer being used for storage.
@@ -174,6 +170,14 @@ There still seem to be some vestiges of Google Sheets leftover in our storage co
 While we're doing this, please also remove the Google Sheets connection test functionality and other Google Sheets related functionality from the "System Status" box on the `/index` view - we want to remove EVERYTHING related to Google Sheets other than the export functionality, and also identify any areas that should be simplified now that Google Sheets is no longer relevant to them.
 
 In addition, we should remove all in-memory storage (InMemoryStorage) used by the end-to-end (e2e) tests; we want everything, both production and e2e tests, to ONLY use MariaDB for storage. As such, we should also identify and simplify/remove any layers of abstraction that are no longer needed now that ALL storage (even test) is using MariaDB.
+
+## Feature: Fix Material Autocomplete Issues
+
+The Material autocomplete field is not populating correctly. This affects the user experience when trying to enter or edit material information for inventory items.
+
+In addition, on both the Add Item and Edit Item pages, we have a text input for Material with an autocomplete. It only accepts values from our three-tiered hierarchical materials taxonomy. While the current autocomplete is good for a user who knows the exact name in our taxonomy that they want to enter, it doesn't help someone discover the taxonomy. Can you suggest how we can handle this input that both allows a user to quickly type in (with autocomplete) a known string, but also can help a user navigate to the desired entry via the tiered hierarchy?
+
+So the goal for this feature is to both fix and improve the Materials autocomplete.
 
 ## Feature: Remove Some Placeholders
 
@@ -299,10 +303,6 @@ LABEL_TYPES: Dict[str, dict] = {
 ## Feature: JA ID Lookup Improvement
 
 The `ja-id-lookup` input field in the header of our pages seems to automatically add a `JA` prefix when anything is entered in the field. We must stop doing this as it breaks barcode input. Remove this functionality and any code that is rendered unused after doing so.
-
-## Feature: Improved Materials Input
-
-On both the Add Item and Edit Item pages, we have a text input for Material with an autocomplete. It only accepts values from our three-tiered hierarchical materials taxonomy. While the current autocomplete is good for a user who knows the exact name in our taxonomy that they want to enter, it doesn't help someone discover the taxonomy. Can you suggest how we can handle this input that both allows a user to quickly type in (with autocomplete) a known string, but also can help a user navigate to the desired entry via the tiered hierarchy?
 
 ## Feature: View Item History
 
