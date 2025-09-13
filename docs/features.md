@@ -13,7 +13,9 @@ The following guidelines MUST always be followed:
 * If you become confused or unclear on how to proceed, have to make a significant decision not explicitly included in the implementation plan, or find yourself making changes and then undoing them without a clear and certain path forward, you must stop and ask for human guidance.
 * From time to time we may identify a new, more pressing issue while implementing a feature; we refer to these as "side quests". When beginning a side quest you must update this document to include detailed information on exactly where we're departing from our feature implementation, such that we could use this document to resume from where we left off in a new session, and then commit that. When the side quest is complete, we will resume our feature work.
 
-## Feature: Google Sheets Cleanup
+## ✅ FEATURE COMPLETE: Google Sheets Cleanup
+
+**Summary**: Successfully migrated from Google Sheets storage to MariaDB-only architecture while preserving export functionality. Removed 2,150+ lines of legacy code, updated all services, fixed export functionality, and verified all tests pass. Google Sheets now serves export-only purpose as intended.
 
 We have migrated from using Google Sheets for our backend storage to using MySQL/MariaDB; Google Sheets should now only be used for export functionality. We need to identify any code aside from the export functionality that still supports Google Sheets and remove it, making sure that anything that calls this code is migrated to use MariaDB instead. When this is complete, all E2E tests must pass. The Google Sheets export functionality cannot be covered by automated tests, so when you believe that this Feature is complete, we will need human assistance to manually trigger and verify the Google Sheets export.
 
@@ -45,9 +47,9 @@ We have migrated from using Google Sheets for our backend storage to using MySQL
 - GSC-3.3: Manual verification that Google Sheets export still works ✅ (Export succeeded!)
 - GSC-3.4: Update documentation to reflect changes ✅
 
-## ✅ FEATURE COMPLETE: Google Sheets Cleanup
+## Feature: Audit Logging
 
-**Summary**: Successfully migrated from Google Sheets storage to MariaDB-only architecture while preserving export functionality. Removed 2,150+ lines of legacy code, updated all services, fixed export functionality, and verified all tests pass. Google Sheets now serves export-only purpose as intended.
+In the case of data corruption, we need to be able to reconstruct user actions (item add, edit, move, shorten) from the logs. This requires that each of these actions log the complete user input, such that it could be used to reconstruct user actions if the database is rolled back to an earlier version. Such data reconstruction would be accomplished manually; our task is to (1) ensure that sufficient data is logged in a clear format for add/edit/move/shorten operations that they can be reconstructed, and (2) clearly document in `docs/troubleshooting-guide.md` how to identify each of these log messages.
 
 ## Feature: Item Update Failures
 

@@ -24,7 +24,8 @@
       "Bash(docker-compose:*)",
       "Bash(docker exec:*)",
       "Bash(curl:*)",
-      "Bash(timeout 600 python -m pytest tests/e2e/ --tb=short)"
+      "Bash(timeout 600 python -m pytest tests/e2e/ --tb=short)",
+      "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short -v)"
     ],
     "deny": [],
     "ask": []
