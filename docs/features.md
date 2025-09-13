@@ -49,7 +49,7 @@ We have migrated from using Google Sheets for our backend storage to using MySQL
 
 ## Feature: Audit Logging
 
-In the case of data corruption, we need to be able to reconstruct user actions (item add, edit, move, shorten) from the logs. This requires that each of these actions log the complete user input, such that it could be used to reconstruct user actions if the database is rolled back to an earlier version. Such data reconstruction would be accomplished manually; our task is to (1) ensure that sufficient data is logged in a clear format for add/edit/move/shorten operations that they can be reconstructed, and (2) clearly document in `docs/troubleshooting-guide.md` how to identify each of these log messages.
+In the case of data corruption, we need to be able to reconstruct user actions (item add, edit, move, shorten) from the logs. This requires that each of these actions log the complete user input, such that it could be used to reconstruct user actions if the database is rolled back to an earlier version. Such data reconstruction would be accomplished manually; our task is to (1) ensure that sufficient data is logged in a clear format for add/edit/move/shorten operations that they can be reconstructed (this may already be happening, you must check), and (2) clearly document in `docs/troubleshooting-guide.md` how to identify each of these log messages.
 
 ## Feature: Item Update Failures
 
