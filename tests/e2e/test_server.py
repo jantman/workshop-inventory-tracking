@@ -8,11 +8,17 @@ import threading
 import time
 import requests
 import socket
+import tempfile
+import os
 from contextlib import closing
 from werkzeug.serving import make_server
 from app import create_app
-from app.test_storage import InMemoryStorage
+from app.mariadb_storage import MariaDBStorage
 from tests.test_config import TestConfig
+from tests.test_database import DatabaseTestConfig
+from app.database import Base, InventoryItem, MaterialTaxonomy
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 class E2ETestServer:
@@ -39,20 +45,22 @@ class E2ETestServer:
         if self.thread and self.thread.is_alive():
             return  # Already running
             
-        # Create test storage
-        self.storage = InMemoryStorage()
+        # Create temporary SQLite database for E2E tests
+        self.temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+        self.temp_db.close()  # Close the file handle, keep the path
+        
+        # Set up test database URI
+        test_db_uri = f'sqlite:///{self.temp_db.name}?check_same_thread=false'
+        
+        # Create test engine and initialize database
+        self.engine = create_engine(test_db_uri)
+        Base.metadata.create_all(self.engine)
+        
+        # Create MariaDB storage instance with test database
+        self.storage = MariaDBStorage(database_url=test_db_uri)
         self.storage.connect()
         
-        # Set up test inventory sheet (using 'Metal' to match inventory service)
-        # Import headers from InventoryService to ensure consistency
-        from app.inventory_service import InventoryService
-        headers = InventoryService.SHEET_HEADERS
-        result = self.storage.create_sheet('Metal', headers)
-        print(f"DEBUG: Created Metal sheet with result: {result}")
-        
-        # Verify the sheet was created
-        info_result = self.storage.get_sheet_info('Metal')
-        print(f"DEBUG: Sheet info after creation: {info_result}")
+        print(f"✅ E2E test database initialized at: {test_db_uri}")
         
         # Create Flask app with test storage
         self.app = create_app(TestConfig, storage_backend=self.storage)
@@ -91,6 +99,15 @@ class E2ETestServer:
         if self.storage:
             self.storage.close()
             self.storage = None
+            
+        # Clean up temporary database file
+        if hasattr(self, 'temp_db') and self.temp_db and os.path.exists(self.temp_db.name):
+            try:
+                os.unlink(self.temp_db.name)
+                print(f"🧹 Cleaned up test database: {self.temp_db.name}")
+            except OSError as e:
+                print(f"⚠️ Failed to clean up test database {self.temp_db.name}: {e}")
+            self.temp_db = None
     
     def _wait_for_server(self, timeout=10):
         """Wait for the server to be ready to accept requests"""
@@ -115,9 +132,9 @@ class E2ETestServer:
         if not self.storage:
             raise RuntimeError("Server not started")
             
-        # Use the InventoryService to add items properly
-        from app.inventory_service import InventoryService
-        service = InventoryService(self.storage)
+        # Use the MariaDBInventoryService to add items directly to database
+        from app.mariadb_inventory_service import MariaDBInventoryService
+        service = MariaDBInventoryService(self.storage)
         
         # Convert items to Item objects and add via service
         for item_data in items_data:
@@ -223,14 +240,24 @@ class E2ETestServer:
         print(f"✅ Materials taxonomy initialized with {len(taxonomy_data)} entries")
 
     def clear_test_data(self):
-        """Clear all test data from storage"""
-        if self.storage:
-            self.storage.clear_all_data()
-            # Recreate the inventory sheet with current headers
-            from app.inventory_service import InventoryService
-            headers = InventoryService.SHEET_HEADERS
-            self.storage.create_sheet('Metal', headers)
-            # Also setup materials taxonomy for hierarchical system
+        """Clear all test data from database"""
+        if self.storage and hasattr(self, 'engine'):
+            # Clear all data from database tables
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+            try:
+                # Delete all inventory items and materials taxonomy
+                session.query(InventoryItem).delete()
+                session.query(MaterialTaxonomy).delete()
+                session.commit()
+                print("🧹 Cleared all test data from database")
+            except Exception as e:
+                session.rollback()
+                print(f"⚠️ Error clearing test data: {e}")
+            finally:
+                session.close()
+            
+            # Re-setup materials taxonomy for tests
             self.setup_materials_taxonomy()
     
     def __enter__(self):

@@ -34,9 +34,19 @@ class MariaDBStorage(Storage):
     def connect(self) -> StorageResult:
         """Establish connection to MariaDB database"""
         try:
+            # Use different engine options for SQLite vs MariaDB
+            if self.database_url.startswith('sqlite://'):
+                # SQLite-specific options
+                engine_options = {
+                    'connect_args': {'check_same_thread': False}
+                }
+            else:
+                # MariaDB-specific options from config
+                engine_options = Config.SQLALCHEMY_ENGINE_OPTIONS
+                
             self.engine = create_engine(
                 self.database_url,
-                **Config.SQLALCHEMY_ENGINE_OPTIONS
+                **engine_options
             )
             
             # Test connection

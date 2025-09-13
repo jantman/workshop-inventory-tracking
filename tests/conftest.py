@@ -9,7 +9,7 @@ import tempfile
 import os
 from flask import Flask
 from app import create_app
-from app.test_storage import InMemoryStorage
+# InMemoryStorage removed - E2E tests now use MariaDB with SQLite backend
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from tests.test_config import TestConfig
 from decimal import Decimal
@@ -21,19 +21,34 @@ from tests.e2e.debug_utils import E2EDebugCapture, create_debug_summary
 
 @pytest.fixture
 def test_storage():
-    """Create a fresh InMemoryStorage instance for each test"""
-    storage = InMemoryStorage()
-    storage.connect()
+    """Create a fresh MariaDB-based storage instance for each test using SQLite"""
+    import tempfile
+    from app.mariadb_storage import MariaDBStorage
+    from app.database import Base
+    from sqlalchemy import create_engine
     
-    # Create basic inventory sheet structure matching InventoryService format
-    from app.inventory_service import InventoryService
-    headers = InventoryService.SHEET_HEADERS
-    storage.create_sheet('Metal', headers)
+    # Create temporary SQLite database
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+    temp_db.close()
+    
+    test_db_uri = f'sqlite:///{temp_db.name}?check_same_thread=false'
+    
+    # Initialize database
+    engine = create_engine(test_db_uri)
+    Base.metadata.create_all(engine)
+    
+    # Create storage instance
+    storage = MariaDBStorage(database_url=test_db_uri)
+    storage.connect()
     
     yield storage
     
     # Cleanup
     storage.close()
+    try:
+        os.unlink(temp_db.name)
+    except OSError:
+        pass
 
 
 @pytest.fixture

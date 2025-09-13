@@ -204,11 +204,11 @@ In addition, we should remove all in-memory storage (InMemoryStorage) used by th
 - **Unify Test Architecture**: Convert all tests (unit + E2E) to use MariaDB with database fixtures
 - **Remove Google Sheets UI Elements**: Clean System Status box, connection tests, legacy service code
 
-**Milestone 1: Remove Google Sheets UI Components (GSR-1)**
-- GSR-1.1: Remove Google Sheets connection status from `/index` System Status box
-- GSR-1.2: Remove `/api/connection-test` endpoint and related JavaScript functionality
-- GSR-1.3: Update System Status to show only MariaDB-relevant information
-- GSR-1.4: Clean up any other UI references to Google Sheets storage
+**Milestone 1: Remove Google Sheets UI Components (GSR-1)** ✅ COMPLETED
+- GSR-1.1: Remove Google Sheets connection status from `/index` System Status box ✅
+- GSR-1.2: Remove `/api/connection-test` endpoint and related JavaScript functionality ✅
+- GSR-1.3: Update System Status to show only MariaDB-relevant information ✅
+- GSR-1.4: Clean up any other UI references to Google Sheets storage ✅
 
 **Milestone 2: Convert E2E Tests to MariaDB (GSR-2)**  
 - GSR-2.1: Update E2E test configuration to use MariaDB test database

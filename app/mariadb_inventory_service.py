@@ -746,25 +746,45 @@ class MariaDBInventoryService(InventoryService):
                 logger.error(error_msg)
                 return False
             
-            # Convert enum values for database storage
-            category_str = item.category.value if item.category else None
-            condition_str = item.condition.value if item.condition else None
-            location_str = item.location.value if item.location else None
+            # Convert Item model to database fields
+            item_type_str = item.item_type.value if item.item_type else None
+            shape_str = item.shape.value if item.shape else None
+            
+            # Extract dimensions
+            length = item.dimensions.length if item.dimensions else None
+            width = item.dimensions.width if item.dimensions else None
+            thickness = item.dimensions.thickness if item.dimensions else None
+            wall_thickness = item.dimensions.wall_thickness if item.dimensions else None
+            weight = item.dimensions.weight if item.dimensions else None
+            
+            # Extract threading info
+            thread_series_str = item.thread.series.value if item.thread and item.thread.series else None
+            thread_handedness_str = item.thread.handedness.value if item.thread and item.thread.handedness else None
+            thread_size = item.thread.size if item.thread else None
             
             # Create new database item
             new_db_item = InventoryItem(
                 ja_id=item.ja_id,
-                category=category_str,
-                subcategory=item.subcategory,
-                description=item.description,
-                brand=item.brand,
-                model=item.model,
-                serial_number=item.serial_number,
-                condition=condition_str,
-                location=location_str,
-                purchase_date=item.purchase_date,
-                purchase_price=float(item.purchase_price) if item.purchase_price else None,
-                notes=item.notes,
+                item_type=item_type_str,
+                shape=shape_str,
+                material=item.material,
+                length=length,
+                width=width,
+                thickness=thickness,
+                wall_thickness=wall_thickness,
+                weight=weight,
+                thread_series=thread_series_str,
+                thread_handedness=thread_handedness_str,
+                thread_size=thread_size,
+                quantity=getattr(item, 'quantity', 1),
+                location=getattr(item, 'location', None),
+                sub_location=getattr(item, 'sub_location', None),
+                purchase_date=getattr(item, 'purchase_date', None),
+                purchase_price=float(getattr(item, 'purchase_price', 0)) if getattr(item, 'purchase_price', None) else None,
+                purchase_location=getattr(item, 'purchase_location', None),
+                notes=getattr(item, 'notes', None),
+                vendor=getattr(item, 'vendor', None),
+                vendor_part=getattr(item, 'vendor_part', None),
                 active=True
             )
             
@@ -776,17 +796,22 @@ class MariaDBInventoryService(InventoryService):
                               item_id=item.ja_id,
                               item_after={
                                   'ja_id': item.ja_id,
-                                  'category': category_str,
-                                  'subcategory': item.subcategory,
-                                  'description': item.description,
-                                  'brand': item.brand,
-                                  'model': item.model,
-                                  'serial_number': item.serial_number,
-                                  'condition': condition_str,
-                                  'location': location_str,
-                                  'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
-                                  'purchase_price': float(item.purchase_price) if item.purchase_price else None,
-                                  'notes': item.notes,
+                                  'item_type': item_type_str,
+                                  'shape': shape_str,
+                                  'material': item.material,
+                                  'length': length,
+                                  'width': width,
+                                  'thickness': thickness,
+                                  'wall_thickness': wall_thickness,
+                                  'weight': weight,
+                                  'thread_series': thread_series_str,
+                                  'thread_handedness': thread_handedness_str,
+                                  'thread_size': thread_size,
+                                  'quantity': getattr(item, 'quantity', 1),
+                                  'location': getattr(item, 'location', None),
+                                  'purchase_date': getattr(item, 'purchase_date', None).isoformat() if getattr(item, 'purchase_date', None) else None,
+                                  'purchase_price': float(getattr(item, 'purchase_price', 0)) if getattr(item, 'purchase_price', None) else None,
+                                  'notes': getattr(item, 'notes', None),
                                   'active': True
                               },
                               logger_name='mariadb_inventory_service')
