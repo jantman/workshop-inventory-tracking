@@ -187,6 +187,19 @@ def inventory_add():
                               item_id=item.ja_id, 
                               item_after=_item_to_audit_dict(item))
             
+            # Force flush pending add_items batch for non-MariaDB storage (e.g., E2E tests with InMemoryStorage)
+            # MariaDBInventoryService writes directly to database and doesn't use batching
+            if not isinstance(storage, MariaDBStorage):
+                pending_items = batch_manager.get_batch('add_items')
+                if pending_items:
+                    # Process any remaining items in the batch
+                    rows_to_add = [entry['row'] for entry in pending_items]
+                    batch_result = storage.write_rows('Metal', rows_to_add)
+                    if batch_result.success:
+                        # Clear cache since we added items
+                        service.get_all_items.cache_clear()
+                        current_app.logger.info(f"Force-flushed batch of {len(pending_items)} items after form submission")
+            
             flash('Item added successfully!', 'success')
             if request.form.get('submit_type') == 'continue':
                 return redirect(url_for('main.inventory_add'))
