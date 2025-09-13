@@ -1324,7 +1324,7 @@ def _parse_item_from_form(form_data):
         quantity=quantity,
         location=form_data.get('location', '').strip() or None,
         sub_location=form_data.get('sub_location', '').strip() or None,
-        purchase_date=form_data.get('purchase_date') or None,
+        purchase_date=_parse_date_from_form(form_data.get('purchase_date')),
         purchase_price=form_data.get('purchase_price', '').strip() or None,
         purchase_location=form_data.get('purchase_location', '').strip() or None,
         vendor=form_data.get('vendor', '').strip() or None,
@@ -1371,6 +1371,35 @@ def _parse_dimension_value(value):
         return str(Decimal(value))
     except (ValueError, InvalidOperation):
         raise ValueError(f"Cannot parse dimension value: {value}")
+
+def _parse_date_from_form(date_str):
+    """Parse date string from form into datetime object"""
+    if not date_str or not date_str.strip():
+        return None
+    
+    date_str = date_str.strip()
+    
+    try:
+        # Try parsing common date formats
+        from datetime import datetime
+        
+        # Try ISO format first (YYYY-MM-DD)
+        if '-' in date_str and len(date_str.split('-')) == 3:
+            return datetime.strptime(date_str, '%Y-%m-%d')
+        
+        # Try US format (MM/DD/YYYY)
+        elif '/' in date_str and len(date_str.split('/')) == 3:
+            return datetime.strptime(date_str, '%m/%d/%Y')
+        
+        # Try other common formats
+        elif '.' in date_str and len(date_str.split('.')) == 3:
+            return datetime.strptime(date_str, '%m.%d.%Y')
+        
+    except ValueError:
+        pass
+    
+    # If all parsing attempts fail, return None
+    return None
 
 # Export Endpoints
 # NOTE: /admin/export route moved to admin/routes.py
