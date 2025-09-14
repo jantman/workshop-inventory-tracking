@@ -280,14 +280,14 @@ def test_material_autocomplete_functionality(page, live_server):
     
     # Test material autocomplete functionality
     material_input = page.locator('#material')
-    suggestions_div = page.locator('#material-suggestions')
+    suggestions_div = page.locator('.material-suggestions')
     
     # Test 1: Typing "Ste" should show Steel and Stainless materials
     material_input.fill('Ste')
     page.wait_for_timeout(300)  # Wait for debounce and API call
     
     expect(suggestions_div).to_be_visible()
-    suggestion_items = page.locator('#material-suggestions .dropdown-item')
+    suggestion_items = page.locator('.material-suggestions .suggestion-item')
     expect(suggestion_items.first).to_be_visible()  # At least one suggestion visible
     
     # Should show steel categories and materials (hierarchical system)
@@ -307,7 +307,7 @@ def test_material_autocomplete_functionality(page, live_server):
     page.wait_for_timeout(300)
     
     expect(suggestions_div).to_be_visible() 
-    suggestion_items = page.locator('#material-suggestions .dropdown-item')
+    suggestion_items = page.locator('.material-suggestions .suggestion-item')
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
     
     assert any('Brass' in s for s in suggestions_text), f"Expected brass material in suggestions: {suggestions_text}"
@@ -320,7 +320,7 @@ def test_material_autocomplete_functionality(page, live_server):
     page.wait_for_timeout(300)
     
     expect(suggestions_div).to_be_visible()
-    suggestion_items = page.locator('#material-suggestions .dropdown-item')
+    suggestion_items = page.locator('.material-suggestions .suggestion-item')
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
     assert '12L14' in suggestions_text, f"Expected '12L14' in suggestions: {suggestions_text}"
     

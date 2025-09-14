@@ -55,7 +55,7 @@ def test_material_selector_category_navigation(page, live_server):
     expect(suggestions_container).to_be_visible(timeout=3000)
     
     # Click on "Aluminum" category
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first()
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
     aluminum_category.click()
     
     # Should now show families within Aluminum
@@ -94,7 +94,7 @@ def test_material_selector_family_navigation(page, live_server):
     expect(suggestions_container).to_be_visible(timeout=3000)
     
     # Click Aluminum category
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable', has_text='Aluminum').first()
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
     aluminum_category.click()
     
     # Wait for families to load
@@ -135,7 +135,7 @@ def test_material_selector_back_navigation(page, live_server):
     expect(suggestions_container).to_be_visible(timeout=3000)
     
     # Click Aluminum category
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable', has_text='Aluminum').first()
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
     aluminum_category.click()
     
     # Should now be in families view
@@ -175,7 +175,7 @@ def test_material_selector_material_selection(page, live_server):
     
     if material_items.count() > 0:
         # Get the first selectable material
-        first_material = material_items.first()
+        first_material = material_items.first
         material_name = first_material.locator('.fw-medium').text_content()
         
         # Click to select it
@@ -406,7 +406,7 @@ def test_material_selector_works_on_edit_form(page, live_server):
     expect(suggestions_container).to_contain_text('📁')
     
     # Navigation should work on edit form too
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable', has_text='Aluminum').first()
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
     aluminum_category.click()
     
     # Should navigate to families
@@ -441,7 +441,7 @@ def test_material_selector_validation_integration(page, live_server):
     
     if selectable_items.count() > 0:
         # Select first available material
-        first_material = selectable_items.first()
+        first_material = selectable_items.first
         first_material.click()
         
         # Input should have the material and not show validation error
