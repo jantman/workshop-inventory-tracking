@@ -129,8 +129,8 @@ class MaterialSelector {
         
         // Click outside to close
         document.addEventListener('click', (e) => {
-            if (!this.inputElement.contains(e.target) && 
-                !this.suggestionsContainer.contains(e.target)) {
+            if (!e.target.closest('#' + this.inputElement.id) && 
+                !e.target.closest('.material-suggestions')) {
                 this.hideSuggestions();
             }
         });
@@ -469,6 +469,7 @@ class MaterialSelector {
         items.forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
+                e.stopPropagation(); // Prevent event from bubbling to document click handler
                 this.handleItemClick(item);
             });
         });
@@ -479,6 +480,8 @@ class MaterialSelector {
         const type = item.dataset.type;
         const name = item.dataset.name;
         const level = parseInt(item.dataset.level);
+        
+        console.log('MaterialSelector: Click handler - action:', action, 'type:', type, 'name:', name, 'level:', level);
         
         if (action === 'back') {
             this.navigateBack();
@@ -630,6 +633,7 @@ document.addEventListener('DOMContentLoaded', function() {
     materialInputs.forEach(input => {
         // Check if not already enhanced
         if (!input.classList.contains('material-selector-enhanced')) {
+            console.log('MaterialSelector: Initializing for input', input.id);
             new MaterialSelector(input.id);
             input.classList.add('material-selector-enhanced');
         }
