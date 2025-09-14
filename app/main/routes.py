@@ -857,10 +857,17 @@ def batch_move_items():
                     
             except Exception as e:
                 # AUDIT: Log individual move exception
+                import traceback
+                tb_str = traceback.format_exc()
+                exc_info = traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
+                if exc_info:
+                    error_details = f'Exception during move: {type(e).__name__}: {str(e)} at {exc_info.filename}:{exc_info.lineno} in {exc_info.name}(). Traceback: {tb_str}'
+                else:
+                    error_details = f'Exception during move: {type(e).__name__}: {str(e)}. Traceback: {tb_str}'
                 log_audit_operation('move_item', 'error',
                                   item_id=ja_id,
-                                  error_details=f'Exception during move: {str(e)}')
-                current_app.logger.error(f'Error moving item {ja_id}: {e}')
+                                  error_details=error_details)
+                current_app.logger.error(f'Error moving item {ja_id}: {error_details}')
                 failed_moves.append({
                     'ja_id': ja_id,
                     'error': str(e)
@@ -892,9 +899,17 @@ def batch_move_items():
         
     except Exception as e:
         # AUDIT: Log batch move exception
+        import traceback
+        tb_str = traceback.format_exc()
+        exc_info = traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
+        if exc_info:
+            error_details = f'Exception during move: {type(e).__name__}: {str(e)} at {exc_info.filename}:{exc_info.lineno} in {exc_info.name}(). Traceback: {tb_str}'
+        else:
+            error_details = f'Exception during move: {type(e).__name__}: {str(e)}. Traceback: {tb_str}'
+        current_app.logger.error(f'Error moving item {ja_id}: {error_details}')
         log_audit_batch_operation('batch_move_items', 'error',
-                                error_details=f'Batch move exception: {str(e)}')
-        current_app.logger.error(f'Batch move error: {e}\n{traceback.format_exc()}')
+                                error_details=f'Batch move exception: {error_details}')
+        current_app.logger.error(f'Batch move error: {error_details}\n{traceback.format_exc()}')
         return jsonify({
             'success': False,
             'error': 'Batch move operation failed'
