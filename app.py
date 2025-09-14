@@ -2,6 +2,7 @@ from flask import Flask
 from config import Config
 import logging
 import os
+from app.logging_config import JSONFormatter
 
 def create_app(config_class=Config, storage_backend=None):
     """
@@ -27,19 +28,9 @@ def create_app(config_class=Config, storage_backend=None):
             app.config['STORAGE_BACKEND'] = get_storage_backend()
     
     # Configure logging
-    if not app.debug:
-        if not os.path.exists('logs'):
-            os.mkdir('logs')
-        
-        file_handler = logging.FileHandler('logs/workshop_inventory.log')
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        file_handler.setLevel(logging.INFO)
-        app.logger.addHandler(file_handler)
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Workshop Inventory startup')
-    
+    if app.debug:
+        app.logger.setLevel(logging.DEBUG)
+
     # Register blueprints
     from app.main import bp as main_bp
     app.register_blueprint(main_bp)

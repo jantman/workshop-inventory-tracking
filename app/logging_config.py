@@ -74,7 +74,19 @@ def setup_logging(app):
     
     # Configure root logger
     log_level = getattr(logging, app.config.get('LOG_LEVEL', 'INFO').upper())
-    
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    # Clear any existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    # Create console handler with JSON formatter
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(JSONFormatter())
+    console_handler.setLevel(log_level)
+    root_logger.addHandler(console_handler)
+
     # Create audit filter
     audit_filter = AuditLogFilter()
     
