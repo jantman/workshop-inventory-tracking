@@ -1,13 +1,13 @@
 """
-Unit tests for MariaDBInventoryService class.
+Unit tests for InventoryService class.
 
 Tests the database-backed inventory service implementation.
 """
 
 import pytest
 from decimal import Decimal
-from app.inventory_service import SearchFilter
-from app.mariadb_inventory_service import MariaDBInventoryService
+from app.mariadb_inventory_service import SearchFilter
+from app.mariadb_inventory_service import InventoryService
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 
 
@@ -76,23 +76,15 @@ class TestSearchFilter:
 
 
 class TestInventoryService:
-    """Tests for MariaDBInventoryService class"""
+    """Tests for InventoryService class"""
     
     @pytest.fixture
     def service(self, test_storage, app):
         """Create inventory service with test storage (app provides Flask context)"""
-        # Configure batch manager for immediate flushing in tests
-        from app.performance import batch_manager
-        original_batch_size = batch_manager.max_batch_size
-        batch_manager.max_batch_size = 1
-        
-        service = MariaDBInventoryService(test_storage)
-        # MariaDBInventoryService doesn't use caching, reads directly from database
+        # InventoryService doesn't use batching or caching, reads directly from database
+        service = InventoryService(test_storage)
         
         yield service
-        
-        # Restore original batch size
-        batch_manager.max_batch_size = original_batch_size
     
     @pytest.fixture
     def sample_item(self):
@@ -130,7 +122,7 @@ class TestInventoryService:
     @pytest.mark.unit
     def test_service_creation(self, test_storage):
         """Test inventory service creation"""
-        service = MariaDBInventoryService(test_storage)
+        service = InventoryService(test_storage)
         
         assert service.storage is test_storage
         assert service._cache == {}

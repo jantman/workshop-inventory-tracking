@@ -8,28 +8,119 @@ Handles multi-row JA ID scenarios with proper active/inactive item logic.
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_, desc, asc, func
 
-from .inventory_service import InventoryService
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
-from .models import Item
+from .models import Item, ItemType, ItemShape
 from .storage import StorageResult
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 
-class MariaDBInventoryService(InventoryService):
-    """MariaDB-specific inventory service with multi-row JA ID support"""
+class SearchFilter:
+    """Search filter specification"""
+    
+    def __init__(self):
+        self.filters = {}
+        self.ranges = {}
+        self.text_searches = {}
+    
+    def add_exact_match(self, field: str, value: Any) -> 'SearchFilter':
+        """Add exact match filter"""
+        self.filters[field] = value
+        return self
+    
+    def add_range(self, field: str, min_value: Optional[Decimal] = None, 
+                  max_value: Optional[Decimal] = None) -> 'SearchFilter':
+        """Add numeric range filter"""
+        self.ranges[field] = {'min': min_value, 'max': max_value}
+        return self
+    
+    def add_text_search(self, field: str, query: str, exact: bool = False) -> 'SearchFilter':
+        """Add text search filter"""
+        self.text_searches[field] = {'query': query, 'exact': exact}
+        return self
+    
+    def active_only(self) -> 'SearchFilter':
+        """Filter for active items only"""
+        return self.add_exact_match('active', True)
+    
+    def material(self, material: str) -> 'SearchFilter':
+        """Filter by material"""
+        return self.add_exact_match('material', material)
+    
+    def item_type(self, item_type) -> 'SearchFilter':
+        """Filter by item type"""
+        if hasattr(item_type, 'value'):
+            return self.add_exact_match('item_type', item_type.value)
+        else:
+            return self.add_exact_match('item_type', item_type)
+    
+    def notes_contain(self, text: str) -> 'SearchFilter':
+        """Filter by notes containing text"""
+        return self.add_text_search('notes', text)
+    
+    def length_range(self, min_length=None, max_length=None) -> 'SearchFilter':
+        """Filter by length range"""
+        return self.add_range('length', min_length, max_length)
+    
+    def to_dict(self) -> dict:
+        """Convert SearchFilter to dictionary for compatibility"""
+        result = {}
+        result.update(self.filters)
+        
+        # Handle range filters - convert to min/max format
+        for field, range_vals in self.ranges.items():
+            if range_vals['min'] is not None:
+                result[f'min_{field}'] = range_vals['min']
+            if range_vals['max'] is not None:
+                result[f'max_{field}'] = range_vals['max']
+        
+        # Handle text searches - add the search text directly to the field for LIKE searches
+        for field, search_vals in self.text_searches.items():
+            result[field] = search_vals['query']
+            
+        return result
+    
+    
+    def shape(self, shape: ItemShape) -> 'SearchFilter':
+        """Filter by shape"""
+        return self.add_exact_match('shape', shape.value)
+    
+    def location(self, location: str) -> 'SearchFilter':
+        """Filter by location"""
+        return self.add_exact_match('location', location)
+    
+    def length_range(self, min_length: Optional[Decimal] = None, 
+                    max_length: Optional[Decimal] = None) -> 'SearchFilter':
+        """Filter by length range"""
+        return self.add_range('length', min_length, max_length)
+    
+    def width_range(self, min_width: Optional[Decimal] = None, 
+                   max_width: Optional[Decimal] = None) -> 'SearchFilter':
+        """Filter by width range"""
+        return self.add_range('width', min_width, max_width)
+    
+    def notes_contain(self, text: str) -> 'SearchFilter':
+        """Filter by notes containing text"""
+        return self.add_text_search('notes', text, exact=False)
+
+
+class InventoryService:
+    """MariaDB inventory service with multi-row JA ID support"""
     
     def __init__(self, storage: MariaDBStorage = None):
         """Initialize with MariaDB storage backend"""
         if storage is None:
             storage = MariaDBStorage()
         
-        super().__init__(storage)
+        self.storage = storage
+        self._cache = {}  # For test compatibility
+        self._cache_timestamp = None  # For test compatibility
         
         # Direct database access for complex queries
         self.engine = storage.engine or self._create_engine()
@@ -183,7 +274,7 @@ class MariaDBInventoryService(InventoryService):
                 query = query.filter(InventoryItem.ja_id.ilike(f"%{filters['ja_id']}%"))
             
             if 'material' in filters and filters['material']:
-                query = query.filter(InventoryItem.material.ilike(f"%{filters['material']}%"))
+                query = query.filter(InventoryItem.material == filters['material'])
             
             if 'item_type' in filters and filters['item_type']:
                 query = query.filter(InventoryItem.item_type == filters['item_type'])
@@ -200,6 +291,10 @@ class MariaDBInventoryService(InventoryService):
             
             if 'max_length' in filters and filters['max_length']:
                 query = query.filter(InventoryItem.length <= filters['max_length'])
+            
+            # Notes filtering
+            if 'notes' in filters and filters['notes']:
+                query = query.filter(InventoryItem.notes.ilike(f"%{filters['notes']}%"))
             
             # Execute query
             db_items = query.order_by(asc(InventoryItem.ja_id)).all()
@@ -900,3 +995,72 @@ class MariaDBInventoryService(InventoryService):
         finally:
             if 'session' in locals():
                 session.close()
+    
+    def search_items(self, search_filter: 'SearchFilter') -> List[Item]:
+        """
+        Search for items using a SearchFilter object.
+        This method provides compatibility with the original InventoryService API.
+        """
+        return self.search_active_items(search_filter.to_dict())
+    
+    def batch_move_items(self, item_ids: List[str], location_id: str, notes: str = None) -> tuple[int, List[str]]:
+        """
+        Move multiple items to a new location.
+        Returns (count_moved, failed_ids)
+        """
+        moved_count = 0
+        failed_ids = []
+        
+        for item_id in item_ids:
+            try:
+                # Get current item
+                item = self.get_item(item_id)
+                if not item:
+                    failed_ids.append(item_id)
+                    continue
+                
+                # Update location and optionally notes
+                updated_item = Item(
+                    ja_id=item.ja_id,
+                    item_type=item.item_type,
+                    shape=item.shape,
+                    material=item.material,
+                    location=location_id,
+                    dimensions=item.dimensions,
+                    thread=item.thread,  # Include thread info for threaded items
+                    notes=notes if notes else item.notes,  # Update notes if provided
+                    active=item.active,
+                    date_added=item.date_added,
+                    last_modified=item.last_modified,
+                    parent_ja_id=item.parent_ja_id,
+                    child_ja_ids=item.child_ja_ids
+                )
+                
+                if self.update_item(updated_item):
+                    moved_count += 1
+                else:
+                    failed_ids.append(item_id)
+                    
+            except Exception:
+                failed_ids.append(item_id)
+                
+        return moved_count, failed_ids
+    
+    def batch_deactivate_items(self, item_ids: List[str]) -> tuple[int, List[str]]:
+        """
+        Deactivate multiple items.
+        Returns (count_deactivated, failed_ids)
+        """
+        deactivated_count = 0
+        failed_ids = []
+        
+        for item_id in item_ids:
+            try:
+                if self.deactivate_item(item_id):
+                    deactivated_count += 1
+                else:
+                    failed_ids.append(item_id)
+            except Exception:
+                failed_ids.append(item_id)
+                
+        return deactivated_count, failed_ids

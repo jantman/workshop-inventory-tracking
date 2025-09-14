@@ -10,7 +10,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
-from app.mariadb_inventory_service import MariaDBInventoryService
+from app.mariadb_inventory_service import InventoryService
 import logging
 
 # Setup logging
@@ -24,7 +24,7 @@ def test_active_item_lookup():
     try:
         app = create_app()
         with app.app_context():
-            service = MariaDBInventoryService()
+            service = InventoryService()
             
             # Test getting active items - these should work now
             test_ja_ids = ['JA000001', 'JA000002', 'JA000211']  # JA000211 is known multi-row item

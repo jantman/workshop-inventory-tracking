@@ -1,5 +1,5 @@
 """
-Unit Tests for MariaDBInventoryService
+Unit Tests for InventoryService
 
 Tests the MariaDB-specific functionality for handling multi-row JA ID scenarios.
 This validates the fix for Milestone 4: Fix Item Data Retrieval Logic.
@@ -10,12 +10,12 @@ from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime
 from decimal import Decimal
 
-from app.mariadb_inventory_service import MariaDBInventoryService
+from app.mariadb_inventory_service import InventoryService
 from app.database import InventoryItem
 from app.models import Item, ItemType, ItemShape, Dimensions
 
 
-class TestMariaDBInventoryService:
+class TestInventoryService:
     """Test class for MariaDB inventory service"""
     
     @pytest.fixture
@@ -28,7 +28,7 @@ class TestMariaDBInventoryService:
     @pytest.fixture
     def service(self, mock_storage):
         """Create service instance with mock storage"""
-        return MariaDBInventoryService(mock_storage)
+        return InventoryService(mock_storage)
     
     @pytest.fixture
     def sample_db_item(self):

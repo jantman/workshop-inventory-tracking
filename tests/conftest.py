@@ -131,7 +131,7 @@ def sample_threaded_item(sample_threaded_item_data):
 def populated_storage(test_storage, sample_item_data, sample_threaded_item_data):
     """Create storage with sample data pre-populated"""
     # Add sample items using InventoryService for proper formatting
-    from app.inventory_service import InventoryService
+    from app.mariadb_inventory_service import InventoryService
     
     service = InventoryService(test_storage)
     item1 = Item(**sample_item_data)

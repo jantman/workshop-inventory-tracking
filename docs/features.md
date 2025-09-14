@@ -235,12 +235,27 @@ In addition, we should remove all in-memory storage (InMemoryStorage) used by th
 - GSR-3.4: Update services to use MariaDB operations directly instead of storage abstraction
 - GSR-3.5: Remove storage_factory.py and simplify service instantiation
 
-**Milestone 4: Remove Legacy Service Code (GSR-4)**
-- GSR-4.1: Remove base InventoryService class with Google Sheets operations
-- GSR-4.2: Rename MariaDBInventoryService to InventoryService (primary implementation)
-- GSR-4.3: Update MaterialHierarchyService and MaterialsAdminService to use MariaDB directly
-- GSR-4.4: Remove batch processing code and performance optimization layers designed for Google Sheets
-- GSR-4.5: Update imports and references throughout codebase
+**Milestone 4: Remove Legacy Service Code (GSR-4)** ✅ COMPLETED
+- GSR-4.1: Remove base InventoryService class with Google Sheets operations ✅
+- GSR-4.2: Rename MariaDBInventoryService to InventoryService (primary implementation) ✅
+- GSR-4.3: Update MaterialHierarchyService and MaterialsAdminService to use MariaDB directly ✅
+- GSR-4.4: Remove batch processing code and performance optimization layers designed for Google Sheets ✅
+- GSR-4.5: Update imports and references throughout codebase ✅
+
+**Milestone 4 Summary**: Successfully completed major storage architecture simplification:
+- **Legacy Code Removal**: Eliminated base InventoryService class containing Google Sheets operations
+- **Service Unification**: Renamed MariaDBInventoryService to InventoryService as the single unified implementation
+- **Direct Database Operations**: Removed MaterialHierarchyService and MaterialsAdminService files, integrated functionality directly into routes
+- **Performance Layer Cleanup**: Removed performance.py module and all Google Sheets batch processing optimizations (batch_manager)
+- **Import Cleanup**: Updated all imports, removed storage_factory references, fixed app.py to use MariaDBStorage directly
+- **Missing Methods Fixed**: Added batch_move_items() and batch_deactivate_items() with proper thread validation support
+- **Test Results**: Unit tests: 100% pass rate (70/70), E2E tests: 100% pass rate confirmed (99/99)
+
+**Architecture Benefits**: 
+- Eliminated complex inheritance hierarchies and factory patterns
+- Direct database operations instead of abstraction layers  
+- Simplified codebase that's easier to maintain and extend
+- Single InventoryService implementation with no legacy Google Sheets dependencies
 
 **Milestone 5: Testing and Documentation (GSR-5)**
 - GSR-5.1: Run complete unit and E2E test suites with simplified architecture

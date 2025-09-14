@@ -3,9 +3,9 @@ from datetime import datetime
 from app.main import bp
 from app import csrf
 from app.mariadb_storage import MariaDBStorage
-# InventoryService no longer needed - using MariaDBInventoryService directly
-from app.mariadb_inventory_service import MariaDBInventoryService
-from app.performance import batch_manager
+# Using unified InventoryService (MariaDB-based implementation)
+from app.mariadb_inventory_service import InventoryService
+# Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.error_handlers import with_error_handling, ErrorHandler
@@ -73,7 +73,7 @@ def _get_inventory_service():
     storage = _get_storage_backend()
     
     # All storage now uses MariaDB backend
-    return MariaDBInventoryService(storage)
+    return InventoryService(storage)
 
 @bp.route('/')
 @bp.route('/index')
@@ -99,8 +99,8 @@ def _get_valid_materials():
         # All storage now uses MariaDB backend
         
         # For MariaDB, use the inventory service
-        from app.mariadb_inventory_service import MariaDBInventoryService
-        service = MariaDBInventoryService(storage)
+        from app.mariadb_inventory_service import InventoryService
+        service = InventoryService(storage)
         return service.get_valid_materials()
         
     except Exception as e:
@@ -174,7 +174,7 @@ def inventory_add():
                               item_after=_item_to_audit_dict(item))
             
             # All storage now uses MariaDB backend which writes directly to database
-            # No batching needed - MariaDBInventoryService handles this internally
+            # No batching needed - InventoryService handles this internally
             
             flash('Item added successfully!', 'success')
             if request.form.get('submit_type') == 'continue':
@@ -441,13 +441,13 @@ def inventory_shorten():
 def api_stats():
     """API endpoint for dashboard statistics"""
     try:
-        from app.mariadb_inventory_service import MariaDBInventoryService
+        from app.mariadb_inventory_service import InventoryService
         
         # Get inventory service
         service = _get_inventory_service()
         
         # For MariaDB service, get counts directly from database to include inactive items
-        if isinstance(service, MariaDBInventoryService):
+        if isinstance(service, InventoryService):
             from app.database import InventoryItem
             from sqlalchemy import func
             
@@ -1001,7 +1001,7 @@ def api_advanced_search():
         service = _get_inventory_service()
         
         # Import SearchFilter here to avoid circular import
-        from app.inventory_service import SearchFilter
+        from app.mariadb_inventory_service import SearchFilter
         
         # Build search filter from request data
         search_filter = SearchFilter()

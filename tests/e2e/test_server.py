@@ -132,9 +132,9 @@ class E2ETestServer:
         if not self.storage:
             raise RuntimeError("Server not started")
             
-        # Use the MariaDBInventoryService to add items directly to database
-        from app.mariadb_inventory_service import MariaDBInventoryService
-        service = MariaDBInventoryService(self.storage)
+        # Use the InventoryService to add items directly to database
+        from app.mariadb_inventory_service import InventoryService
+        service = InventoryService(self.storage)
         
         # Convert items to Item objects and add via service
         for item_data in items_data:
@@ -173,21 +173,8 @@ class E2ETestServer:
                 )
                 service.add_item(item)
         
-        # Force flush any batched operations to ensure items are immediately available
-        from app.performance import batch_manager
-        pending_batches = batch_manager.flush_all()
-        
-        # Process any pending add_items batch
-        if 'add_items' in pending_batches and pending_batches['add_items']:
-            batch = pending_batches['add_items']
-            rows_to_add = [entry['row'] for entry in batch]
-            result = self.storage.write_rows('Metal', rows_to_add)
-            if result.success:
-                # Clear cache to ensure fresh data
-                service.get_all_items.cache_clear()
-                print(f"Force-flushed {len(batch)} items to storage")
-            else:
-                print(f"Error force-flushing items: {result.error}")
+        # InventoryService writes directly to database - no batching or flushing needed
+        print(f"Added {len(items_data)} test items directly to database")
     
     def setup_materials_taxonomy(self):
         """Setup Materials sheet with hierarchical taxonomy for testing"""

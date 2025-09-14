@@ -19,13 +19,9 @@ def create_app(config_class=Config, storage_backend=None):
     if storage_backend:
         app.config['STORAGE_BACKEND'] = storage_backend
     else:
-        # Create storage backend using factory
-        from app.storage_factory import get_storage_backend, get_test_storage_backend
-        
-        if app.config.get('TESTING'):
-            app.config['STORAGE_BACKEND'] = get_test_storage_backend()
-        else:
-            app.config['STORAGE_BACKEND'] = get_storage_backend()
+        # Use MariaDB storage directly (storage factory removed after Google Sheets migration)
+        from app.mariadb_storage import MariaDBStorage
+        app.config['STORAGE_BACKEND'] = MariaDBStorage()
     
     # Configure logging
     if app.debug:
