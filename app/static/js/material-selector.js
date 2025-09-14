@@ -28,6 +28,7 @@ class MaterialSelector {
         this.currentPath = []; // Navigation breadcrumb path
         this.selectedIndex = -1; // For keyboard navigation
         this.isNavigationMode = false; // true when browsing hierarchy, false when searching
+        this.isNavigating = false; // Flag to prevent blur from hiding during navigation
         
         // Icons for different levels
         this.icons = {
@@ -167,9 +168,14 @@ class MaterialSelector {
     }
     
     handleBlur(e) {
-        // Only hide if not clicking on suggestions
-        if (!this.suggestionsContainer.contains(e.relatedTarget)) {
+        console.log('MaterialSelector: handleBlur called, relatedTarget:', e.relatedTarget);
+        // Only hide if not clicking on suggestions and not during navigation
+        if (!this.suggestionsContainer.contains(e.relatedTarget) && 
+            !this.isNavigating) {
+            console.log('MaterialSelector: Hiding suggestions due to blur');
             this.hideSuggestions();
+        } else {
+            console.log('MaterialSelector: Not hiding suggestions - clicking on suggestions or navigating');
         }
     }
     
@@ -495,17 +501,38 @@ class MaterialSelector {
     
     navigateBack() {
         if (this.currentPath.length > 0) {
+            console.log('MaterialSelector: Navigating back');
+            
+            // Set navigation flag to prevent blur from hiding
+            this.isNavigating = true;
+            
             this.currentPath.pop();
             this.showCategories();
+            
+            // Clear navigation flag after a short delay
+            setTimeout(() => {
+                this.isNavigating = false;
+                console.log('MaterialSelector: Back navigation flag cleared');
+            }, 100);
         }
     }
     
     navigateToItem(name, level) {
         console.log('MaterialSelector: Navigating to', name, 'level', level);
         console.log('MaterialSelector: Current path before navigation:', this.currentPath);
+        
+        // Set navigation flag to prevent blur from hiding
+        this.isNavigating = true;
+        
         this.currentPath.push({ name, level });
         console.log('MaterialSelector: Current path after navigation:', this.currentPath);
         this.showCategories();
+        
+        // Clear navigation flag after a short delay
+        setTimeout(() => {
+            this.isNavigating = false;
+            console.log('MaterialSelector: Navigation flag cleared');
+        }, 100);
     }
     
     selectMaterial(materialName) {
