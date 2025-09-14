@@ -67,10 +67,11 @@ class MaterialSelector {
             this.suggestionsContainer = document.createElement('div');
             this.suggestionsContainer.className = 'material-suggestions dropdown-menu position-absolute w-100';
             this.suggestionsContainer.style.cssText = `
-                max-height: 300px;
+                max-height: min(300px, 50vh);
                 overflow-y: auto;
                 z-index: 1000;
                 display: none;
+                -webkit-overflow-scrolling: touch;
             `;
             
             // Insert after the input element
@@ -571,6 +572,55 @@ class MaterialSelector {
         console.log('MaterialSelector destroyed');
     }
 }
+
+// Add mobile-responsive CSS for MaterialSelector
+const materialSelectorCSS = document.createElement('style');
+materialSelectorCSS.textContent = `
+/* MaterialSelector mobile enhancements */
+@media (max-width: 768px) {
+    .material-suggestions.dropdown-menu {
+        max-height: min(250px, 40vh) !important;
+        font-size: 16px; /* Prevent zoom on iOS */
+    }
+    
+    .material-suggestions .dropdown-item {
+        padding: 0.75rem 1rem !important;
+        min-height: 44px; /* Touch-friendly minimum target size */
+        display: flex !important;
+        align-items: center !important;
+    }
+    
+    .material-breadcrumbs {
+        padding: 0.75rem 1rem !important;
+        font-size: 0.875rem !important;
+    }
+}
+
+/* Enhanced touch targets for all devices */
+.material-suggestions .dropdown-item {
+    transition: background-color 0.15s ease-in-out;
+}
+
+.material-suggestions .dropdown-item:hover,
+.material-suggestions .dropdown-item:focus {
+    background-color: var(--bs-dropdown-link-hover-bg, #f8f9fa);
+}
+
+.material-suggestions .dropdown-item.active {
+    background-color: var(--bs-primary, #0d6efd);
+    color: white;
+}
+
+/* Visual hierarchy enhancements */
+.material-suggestions .dropdown-item .fw-medium {
+    line-height: 1.2;
+}
+
+.material-suggestions .dropdown-item small {
+    line-height: 1;
+}
+`;
+document.head.appendChild(materialSelectorCSS);
 
 // Auto-initialize MaterialSelector for material inputs if available
 document.addEventListener('DOMContentLoaded', function() {
