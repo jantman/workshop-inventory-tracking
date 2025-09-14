@@ -375,6 +375,11 @@ class InventoryAddForm {
                     const materialInput = document.getElementById('material');
                     materialInput.value = item.dataset.material;
                     suggestionsDiv.style.display = 'none';
+                    
+                    // Trigger validation events to clear validation state
+                    materialInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    materialInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    materialInput.dispatchEvent(new Event('blur', { bubbles: true }));
                 });
             });
             
