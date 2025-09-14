@@ -26,7 +26,8 @@
       "Bash(curl:*)",
       "Bash(timeout 600 python -m pytest tests/e2e/ --tb=short)",
       "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short -v)",
-      "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short)"
+      "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short)",
+      "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short -x)"
     ],
     "deny": [],
     "ask": []

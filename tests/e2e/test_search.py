@@ -303,3 +303,128 @@ def test_search_notes_content_workflow(page, live_server):
     # Verify results
     search_page.assert_results_found(1)
     search_page.assert_result_contains_item("JA007001")
+
+
+@pytest.mark.e2e 
+def test_search_by_shape_workflow(page, live_server):
+    """Test searching for items by shape - this test should FAIL initially due to enum conversion bug"""
+    # Add test data with round items
+    test_items = [
+        {
+            "ja_id": "JA008001",
+            "item_type": "Bar",
+            "shape": "Round", 
+            "material": "Carbon Steel",
+            "length": "200",
+            "width": "1.0",
+            "location": "Storage A",
+            "notes": "Round bar for testing shape search"
+        },
+        {
+            "ja_id": "JA008002",
+            "item_type": "Bar",
+            "shape": "Square",
+            "material": "Aluminum", 
+            "length": "150",
+            "width": "0.75",
+            "location": "Storage B",
+            "notes": "Square bar for testing shape search"
+        },
+        {
+            "ja_id": "JA008003", 
+            "item_type": "Bar",
+            "shape": "Round",
+            "material": "Brass",
+            "length": "180",
+            "width": "0.5",
+            "location": "Storage C",
+            "notes": "Another round bar"
+        }
+    ]
+    live_server.add_test_data(test_items)
+    
+    # Navigate to search page
+    search_page = SearchPage(page, live_server.url)
+    search_page.navigate()
+    
+    # Search for round items
+    search_page.search_by_shape("Round")
+    
+    # Verify results - should find 2 round items
+    search_page.assert_results_found(2)
+    search_page.assert_result_contains_item("JA008001")
+    search_page.assert_result_contains_item("JA008003")
+    search_page.assert_all_results_match_criteria(shape="Round")
+
+
+@pytest.mark.e2e
+def test_search_by_shape_and_width_range_workflow(page, live_server):
+    """Test searching for items by shape and width range - reproduces the specific bug scenario"""
+    # Add test data matching the bug report scenario: shape=Round, width between 0.62-1.3
+    test_items = [
+        {
+            "ja_id": "JA009001",
+            "item_type": "Bar",
+            "shape": "Round",
+            "material": "Carbon Steel", 
+            "length": "300",
+            "width": "0.75",  # Within range 0.62-1.3
+            "location": "Storage A",
+            "notes": "Round bar within width range"
+        },
+        {
+            "ja_id": "JA009002",
+            "item_type": "Bar",
+            "shape": "Round",
+            "material": "Aluminum",
+            "length": "250", 
+            "width": "1.0",   # Within range 0.62-1.3
+            "location": "Storage B",
+            "notes": "Another round bar in range"
+        },
+        {
+            "ja_id": "JA009003",
+            "item_type": "Bar", 
+            "shape": "Round",
+            "material": "Stainless Steel",
+            "length": "200",
+            "width": "0.5",   # Below range (should not match)
+            "location": "Storage C",
+            "notes": "Round bar too small"
+        },
+        {
+            "ja_id": "JA009004",
+            "item_type": "Bar",
+            "shape": "Square",
+            "material": "Carbon Steel",
+            "length": "180",
+            "width": "0.8",   # Within range but wrong shape
+            "location": "Storage D", 
+            "notes": "Square bar in width range"
+        },
+        {
+            "ja_id": "JA009005",
+            "item_type": "Bar",
+            "shape": "Round",
+            "material": "Brass",
+            "length": "350",
+            "width": "1.5",   # Above range (should not match)
+            "location": "Storage E",
+            "notes": "Round bar too big"
+        }
+    ]
+    live_server.add_test_data(test_items)
+    
+    # Navigate to search page
+    search_page = SearchPage(page, live_server.url)
+    search_page.navigate()
+    
+    # Search for active items with shape round and width between 0.62 and 1.3
+    # This reproduces the exact scenario from the bug report
+    search_page.search_by_shape_and_width_range("Round", "0.62", "1.3")
+    
+    # Verify results - should find 2 items (JA009001 and JA009002)
+    search_page.assert_results_found(2)
+    search_page.assert_result_contains_item("JA009001")
+    search_page.assert_result_contains_item("JA009002")
+    search_page.assert_all_results_match_criteria(shape="Round")

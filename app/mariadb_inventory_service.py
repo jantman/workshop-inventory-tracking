@@ -71,7 +71,14 @@ class SearchFilter:
     def to_dict(self) -> dict:
         """Convert SearchFilter to dictionary for compatibility"""
         result = {}
-        result.update(self.filters)
+        
+        # Copy filters, converting enum objects to their string values
+        for key, value in self.filters.items():
+            if hasattr(value, 'value'):
+                # Convert enum to its string value
+                result[key] = value.value
+            else:
+                result[key] = value
         
         # Handle range filters - convert to min/max format
         for field, range_vals in self.ranges.items():
@@ -291,6 +298,13 @@ class InventoryService:
             
             if 'max_length' in filters and filters['max_length']:
                 query = query.filter(InventoryItem.length <= filters['max_length'])
+            
+            # Width range filters
+            if 'min_width' in filters and filters['min_width']:
+                query = query.filter(InventoryItem.width >= filters['min_width'])
+            
+            if 'max_width' in filters and filters['max_width']:
+                query = query.filter(InventoryItem.width <= filters['max_width'])
             
             # Notes filtering
             if 'notes' in filters and filters['notes']:

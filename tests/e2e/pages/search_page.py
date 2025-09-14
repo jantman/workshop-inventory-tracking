@@ -16,6 +16,7 @@ class SearchPage(BasePage):
     SEARCH_FORM = "#advanced-search-form"
     MATERIAL_SEARCH = "#material"
     ITEM_TYPE_SEARCH = "#item_type"
+    SHAPE_SEARCH = "#shape"
     LOCATION_SEARCH = "#location"
     JA_ID_SEARCH = "#ja_id"
     NOTES_SEARCH = "#notes"
@@ -23,6 +24,8 @@ class SearchPage(BasePage):
     LENGTH_MAX = "#length_max"
     DIAMETER_MIN = "#width_min"  # Using width as diameter equivalent
     DIAMETER_MAX = "#width_max"
+    WIDTH_MIN = "#width_min"
+    WIDTH_MAX = "#width_max"
     
     # Search controls
     SEARCH_BUTTON = "button[type='submit']"
@@ -48,6 +51,12 @@ class SearchPage(BasePage):
         """Search for items by type"""
         if self.is_visible(self.ITEM_TYPE_SEARCH):
             self.page.select_option(self.ITEM_TYPE_SEARCH, item_type)
+        self.click_search()
+    
+    def search_by_shape(self, shape: str):
+        """Search for items by shape"""
+        if self.is_visible(self.SHAPE_SEARCH):
+            self.page.select_option(self.SHAPE_SEARCH, shape)
         self.click_search()
     
     def search_by_location(self, location: str):
@@ -86,7 +95,7 @@ class SearchPage(BasePage):
         self.click_search()
     
     def search_multiple_criteria(self, material: str = None, location: str = None,
-                                item_type: str = None, notes: str = None):
+                                item_type: str = None, shape: str = None, notes: str = None):
         """Search using multiple criteria"""
         if material:
             self.fill_and_wait(self.MATERIAL_SEARCH, material)
@@ -97,8 +106,24 @@ class SearchPage(BasePage):
         if item_type and self.is_visible(self.ITEM_TYPE_SEARCH):
             self.page.select_option(self.ITEM_TYPE_SEARCH, item_type)
         
+        if shape and self.is_visible(self.SHAPE_SEARCH):
+            self.page.select_option(self.SHAPE_SEARCH, shape)
+        
         if notes:
             self.fill_and_wait(self.NOTES_SEARCH, notes)
+        
+        self.click_search()
+    
+    def search_by_shape_and_width_range(self, shape: str, width_min: str = None, width_max: str = None):
+        """Search for items by shape and width range"""
+        if shape and self.is_visible(self.SHAPE_SEARCH):
+            self.page.select_option(self.SHAPE_SEARCH, shape)
+        
+        if width_min and self.is_visible(self.WIDTH_MIN):
+            self.fill_and_wait(self.WIDTH_MIN, width_min)
+        
+        if width_max and self.is_visible(self.WIDTH_MAX):
+            self.fill_and_wait(self.WIDTH_MAX, width_max)
         
         self.click_search()
     
@@ -137,10 +162,11 @@ class SearchPage(BasePage):
             row = rows.nth(i)
             cells = row.locator("td")
             
-            if cells.count() >= 7:  # Ensure minimum expected columns (JA ID, Item, Type, Material, Dimensions, Thread, Location)
+            if cells.count() >= 7:  # Ensure minimum expected columns (JA ID, Type, Shape, Material, Dimensions, Length, Location, Status, Actions)
                 result = {
                     "ja_id": (cells.nth(0).text_content() or "").strip(),      # JA ID - column 0
-                    "type": (cells.nth(2).text_content() or "").strip(),       # Type - column 2  
+                    "type": (cells.nth(1).text_content() or "").strip(),       # Type - column 1  
+                    "shape": (cells.nth(2).text_content() or "").strip(),      # Shape - column 2
                     "material": (cells.nth(3).text_content() or "").strip(),   # Material - column 3
                     "location": (cells.nth(6).text_content() or "").strip()    # Location - column 6
                 }
@@ -180,7 +206,7 @@ class SearchPage(BasePage):
         ja_ids = [result["ja_id"] for result in results]
         assert ja_id in ja_ids, f"Item {ja_id} not found in search results. Found: {ja_ids}"
     
-    def assert_all_results_match_criteria(self, material: str = None, location: str = None):
+    def assert_all_results_match_criteria(self, material: str = None, location: str = None, shape: str = None):
         """Assert all search results match the given criteria"""
         results = self.get_search_results()
         
@@ -192,3 +218,7 @@ class SearchPage(BasePage):
             if location:
                 assert location.lower() in result["location"].lower(), \
                     f"Result {result['ja_id']} location '{result['location']}' doesn't contain '{location}'"
+            
+            if shape:
+                assert shape.lower() == result["shape"].lower(), \
+                    f"Result {result['ja_id']} shape '{result['shape']}' doesn't match '{shape}'"
