@@ -3,7 +3,7 @@ from datetime import datetime
 from app.main import bp
 from app import csrf
 from app.mariadb_storage import MariaDBStorage
-from app.inventory_service import InventoryService
+# InventoryService no longer needed - using MariaDBInventoryService directly
 from app.mariadb_inventory_service import MariaDBInventoryService
 from app.performance import batch_manager
 from app.taxonomy import type_shape_validator
@@ -69,15 +69,11 @@ def _detect_item_changes(item_before, item_after):
     return changes
 
 def _get_inventory_service():
-    """Get the appropriate inventory service for the current storage backend"""
+    """Get the MariaDB inventory service (only supported backend)"""
     storage = _get_storage_backend()
     
-    # Use MariaDB-specific service for MariaDB storage
-    if isinstance(storage, MariaDBStorage):
-        return MariaDBInventoryService(storage)
-    else:
-        # Fallback to generic service for other storage types (e.g., tests)
-        return InventoryService(storage)
+    # All storage now uses MariaDB backend
+    return MariaDBInventoryService(storage)
 
 @bp.route('/')
 @bp.route('/index')
@@ -177,18 +173,8 @@ def inventory_add():
                               item_id=item.ja_id, 
                               item_after=_item_to_audit_dict(item))
             
-            # Force flush pending add_items batch for non-MariaDBInventoryService storage
-            # MariaDBInventoryService writes directly to database and doesn't use batching
-            if not isinstance(storage, MariaDBStorage):
-                pending_items = batch_manager.get_batch('add_items')
-                if pending_items:
-                    # Process any remaining items in the batch
-                    rows_to_add = [entry['row'] for entry in pending_items]
-                    batch_result = storage.write_rows('Metal', rows_to_add)
-                    if batch_result.success:
-                        # Clear cache since we added items
-                        service.get_all_items.cache_clear()
-                        current_app.logger.info(f"Force-flushed batch of {len(pending_items)} items after form submission")
+            # All storage now uses MariaDB backend which writes directly to database
+            # No batching needed - MariaDBInventoryService handles this internally
             
             flash('Item added successfully!', 'success')
             if request.form.get('submit_type') == 'continue':
@@ -577,24 +563,32 @@ def material_suggestions():
 def materials_hierarchy():
     """Get hierarchical materials taxonomy (for testing)"""
     try:
-        from app.materials_service import MaterialHierarchyService
+        from app.database import MaterialTaxonomy
+        from app.mariadb_storage import MariaDBStorage
+        from sqlalchemy.orm import sessionmaker
         
-        # Get storage backend (now MariaDB only)
-        storage_backend = current_app.config.get('STORAGE_BACKEND')
-        if storage_backend:
-            storage = storage_backend
-        else:
-            from app.storage_factory import get_storage_backend
-            storage = get_storage_backend()
+        # Create MariaDB storage and session directly
+        storage = MariaDBStorage()
+        storage.connect()
+        engine = storage.engine
+        Session = sessionmaker(bind=engine)
+        session = Session()
         
-        materials_service = MaterialHierarchyService(storage)
+        # Get all active materials ordered by level and sort order
+        all_materials = session.query(MaterialTaxonomy).filter(
+            MaterialTaxonomy.active == True
+        ).order_by(MaterialTaxonomy.level, MaterialTaxonomy.sort_order, MaterialTaxonomy.name).all()
         
-        # Get categories and their children
-        categories = materials_service.get_categories()
+        # Group materials by level
+        categories = [m for m in all_materials if m.level == 1]
+        families = [m for m in all_materials if m.level == 2]  
+        materials = [m for m in all_materials if m.level == 3]
+        
+        # Build hierarchical structure
         hierarchy = []
         
         for category in categories:
-            families = materials_service.get_children(category.name)
+            category_families = [f for f in families if f.parent == category.name]
             category_data = {
                 'name': category.name,
                 'level': category.level,
@@ -602,18 +596,20 @@ def materials_hierarchy():
                 'families': []
             }
             
-            for family in families:
-                materials = materials_service.get_children(family.name)
+            for family in category_families:
+                family_materials = [m for m in materials if m.parent == family.name]
                 family_data = {
                     'name': family.name,
                     'level': family.level,
                     'parent': family.parent,
                     'notes': family.notes,
-                    'materials': [{'name': m.name, 'level': m.level, 'parent': m.parent, 'aliases': m.aliases, 'notes': m.notes} for m in materials]
+                    'materials': [{'name': m.name, 'level': m.level, 'parent': m.parent, 'aliases': m.aliases, 'notes': m.notes} for m in family_materials]
                 }
                 category_data['families'].append(family_data)
             
             hierarchy.append(category_data)
+        
+        session.close()
         
         return jsonify({
             'success': True,
