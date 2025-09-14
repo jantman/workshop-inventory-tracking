@@ -23,14 +23,7 @@ def _get_storage_backend():
 
 def _get_admin_service(storage):
     """Get the appropriate admin service for the storage backend"""
-    from app.test_storage import InMemoryStorage
-    
-    # For test storage, use the original MaterialsAdminService
-    if isinstance(storage, InMemoryStorage):
-        from app.materials_admin_service import MaterialsAdminService
-        return MaterialsAdminService(storage)
-    
-    # For MariaDB storage, use the new MariaDBMaterialsAdminService
+    # All storage now uses MariaDB backend
     return MariaDBMaterialsAdminService(storage)
 
 

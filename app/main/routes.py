@@ -100,17 +100,7 @@ def _get_valid_materials():
     try:
         storage = _get_storage_backend()
         
-        # For InMemoryStorage (tests), use the materials taxonomy service
-        from app.test_storage import InMemoryStorage
-        if isinstance(storage, InMemoryStorage):
-            from app.materials_service import MaterialHierarchyService
-            hierarchy_service = MaterialHierarchyService(storage)
-            # Get materials from ALL levels (1, 2, 3) - any level is valid
-            all_materials = []
-            for level in [1, 2, 3]:
-                materials = hierarchy_service.get_by_level(level, active_only=True)
-                all_materials.extend([m.name for m in materials])
-            return all_materials
+        # All storage now uses MariaDB backend
         
         # For MariaDB, use the inventory service
         from app.mariadb_inventory_service import MariaDBInventoryService
@@ -187,7 +177,7 @@ def inventory_add():
                               item_id=item.ja_id, 
                               item_after=_item_to_audit_dict(item))
             
-            # Force flush pending add_items batch for non-MariaDB storage (e.g., E2E tests with InMemoryStorage)
+            # Force flush pending add_items batch for non-MariaDBInventoryService storage
             # MariaDBInventoryService writes directly to database and doesn't use batching
             if not isinstance(storage, MariaDBStorage):
                 pending_items = batch_manager.get_batch('add_items')

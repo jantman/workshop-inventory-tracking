@@ -6,6 +6,7 @@ Handles multi-row JA ID scenarios with proper active/inactive item logic.
 """
 
 import logging
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_, desc, asc, func
@@ -829,6 +830,72 @@ class MariaDBInventoryService(InventoryService):
                               error_details=error_msg,
                               logger_name='mariadb_inventory_service')
             logger.error(error_msg)
+            return False
+        finally:
+            if 'session' in locals():
+                session.close()
+    
+    def deactivate_item(self, ja_id: str) -> bool:
+        """Deactivate an item (set active = False) - override to work with database directly"""
+        try:
+            session = self.Session()
+            
+            # Find the active item in the database
+            db_item = session.query(InventoryItem).filter(
+                and_(
+                    InventoryItem.ja_id == ja_id,
+                    InventoryItem.active == True
+                )
+            ).first()
+            
+            if not db_item:
+                return False
+            
+            # Deactivate the item
+            db_item.active = False
+            db_item.last_modified = datetime.utcnow()
+            
+            session.commit()
+            logger.info(f'Successfully deactivated item {ja_id}')
+            return True
+            
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            logger.error(f'Error deactivating item {ja_id}: {e}')
+            return False
+        finally:
+            if 'session' in locals():
+                session.close()
+    
+    def activate_item(self, ja_id: str) -> bool:
+        """Activate an item (set active = True) - override to work with database directly"""
+        try:
+            session = self.Session()
+            
+            # Find the most recent inactive item in the database
+            db_item = session.query(InventoryItem).filter(
+                and_(
+                    InventoryItem.ja_id == ja_id,
+                    InventoryItem.active == False
+                )
+            ).order_by(InventoryItem.date_added.desc()).first()
+            
+            if not db_item:
+                return False
+            
+            # Activate the item
+            db_item.active = True
+            db_item.last_modified = datetime.utcnow()
+            
+            session.commit()
+            logger.info(f'Successfully activated item {ja_id}')
+            return True
+            
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            logger.error(f'Error activating item {ja_id}: {e}')
             return False
         finally:
             if 'session' in locals():

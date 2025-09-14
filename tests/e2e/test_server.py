@@ -194,12 +194,7 @@ class E2ETestServer:
         if not self.storage:
             raise RuntimeError("Server not started")
         
-        # Create Materials sheet with proper headers
-        materials_headers = ['name', 'level', 'parent', 'aliases', 'active', 'sort_order', 'created_date', 'notes']
-        result = self.storage.create_sheet('Materials', materials_headers)
-        if not result.success:
-            print(f"Warning: Could not create Materials sheet: {result.error}")
-            return
+        # Materials sheet already exists in MariaDBStorage, just populate it
         
         # Add basic taxonomy data for testing
         taxonomy_data = [
@@ -231,13 +226,41 @@ class E2ETestServer:
             ['C10100', 3, 'Copper', 'Pure Copper', True, 1, '2025-01-01', 'Oxygen-free copper']
         ]
         
-        # Add taxonomy data to Materials sheet
-        for row_data in taxonomy_data:
-            result = self.storage.write_row('Materials', row_data)
-            if not result.success:
-                print(f"Warning: Could not add taxonomy row {row_data[0]}: {result.error}")
+        # Add taxonomy data to Materials sheet using database directly
+        from app.database import MaterialTaxonomy
+        from sqlalchemy.orm import sessionmaker
+        Session = sessionmaker(bind=self.engine)
+        session = Session()
         
-        print(f"✅ Materials taxonomy initialized with {len(taxonomy_data)} entries")
+        try:
+            # Clear existing materials first
+            session.query(MaterialTaxonomy).delete()
+            
+            # Add taxonomy data
+            for row_data in taxonomy_data:
+                name, level, parent, aliases, active, sort_order, created_date, notes = row_data
+                material = MaterialTaxonomy(
+                    name=name,
+                    level=level, 
+                    parent=parent if parent else None,
+                    aliases=aliases if aliases else None,
+                    active=active,
+                    sort_order=sort_order,
+                    notes=notes
+                    # date_added and last_modified will be set automatically by default/func.now()
+                )
+                session.add(material)
+            
+            session.commit()
+            print(f"✅ Materials taxonomy initialized with {len(taxonomy_data)} entries")
+            
+        except Exception as e:
+            session.rollback()
+            print(f"Error initializing materials taxonomy: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            session.close()
 
     def clear_test_data(self):
         """Clear all test data from database"""

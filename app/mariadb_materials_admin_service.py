@@ -143,9 +143,9 @@ class MariaDBMaterialsAdminService:
             materials_count = session.query(MaterialTaxonomy).filter(MaterialTaxonomy.level == 3).count()
             
             return {
-                'total': total_count,
-                'active': active_count,
-                'inactive': total_count - active_count,
+                'total_entries': total_count,
+                'active_entries': active_count,
+                'inactive_entries': total_count - active_count,
                 'categories': categories_count,
                 'families': families_count,
                 'materials': materials_count

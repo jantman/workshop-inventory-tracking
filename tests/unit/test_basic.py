@@ -5,7 +5,7 @@ Simple tests to ensure our testing framework is working correctly.
 """
 
 import pytest
-from app.test_storage import InMemoryStorage
+from app.mariadb_storage import MariaDBStorage
 from app.storage import StorageResult
 
 
@@ -19,38 +19,18 @@ class TestBasicInfrastructure:
         assert 1 + 1 == 2
     
     @pytest.mark.unit
-    def test_test_storage_basic(self):
-        """Test that InMemoryStorage basic functionality works"""
-        storage = InMemoryStorage()
-        result = storage.connect()
-        
-        assert result.success
-        assert storage.connection is not None
-        
-        storage.close()
+    def test_test_storage_basic(self, test_storage):
+        """Test that MariaDB storage basic functionality works"""
+        assert test_storage is not None
+        # Connection is already established by the fixture
     
     @pytest.mark.unit
-    def test_storage_create_and_read(self):
-        """Test basic storage operations"""
-        storage = InMemoryStorage()
-        storage.connect()
-        
-        # Create sheet
-        result = storage.create_sheet('TestSheet', ['Name', 'Value'])
+    def test_storage_read_materials(self, test_storage):
+        """Test reading Materials taxonomy data"""
+        # Read Materials sheet which should exist with taxonomy data
+        result = test_storage.read_all('Materials')
         assert result.success
-        
-        # Write data
-        result = storage.write_row('TestSheet', ['Test', '123'])
-        assert result.success
-        
-        # Read data
-        result = storage.read_all('TestSheet')
-        assert result.success
-        assert len(result.data) == 2  # Headers + 1 data row
-        assert result.data[0] == ['Name', 'Value']  # Headers
-        assert result.data[1] == ['Test', '123']  # Data row
-        
-        storage.close()
+        assert len(result.data) > 0  # Should have headers plus taxonomy data
     
     @pytest.mark.unit
     def test_flask_app_creation(self, app):

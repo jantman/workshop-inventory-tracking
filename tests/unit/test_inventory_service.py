@@ -1,14 +1,14 @@
 """
-Unit tests for InventoryService class.
+Unit tests for MariaDBInventoryService class.
 
-Tests the business logic layer of inventory management.
+Tests the database-backed inventory service implementation.
 """
 
 import pytest
 from decimal import Decimal
-from app.inventory_service import InventoryService, SearchFilter
+from app.inventory_service import SearchFilter
+from app.mariadb_inventory_service import MariaDBInventoryService
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
-from app.test_storage import InMemoryStorage
 
 
 class TestSearchFilter:
@@ -76,51 +76,18 @@ class TestSearchFilter:
 
 
 class TestInventoryService:
-    """Tests for InventoryService class"""
+    """Tests for MariaDBInventoryService class"""
     
     @pytest.fixture
-    def storage(self):
-        """Create test storage with inventory sheet"""
-        storage = InMemoryStorage()
-        storage.connect()
-        
-        # Create inventory sheet with proper headers (matching InventoryService.SHEET_HEADERS)
-        headers = [
-            'Active', 'JA ID', 'Length', 'Width', 'Thickness', 'Wall Thickness',
-            'Weight', 'Type', 'Shape', 'Material', 'Thread Series', 'Thread Handedness',
-            'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
-            'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
-            'Original Material', 'Original Thread', 'Date Added', 'Last Modified'
-        ]
-        storage.create_sheet('Metal', headers)  # Use 'Metal' to match inventory service expectations
-        
-        yield storage
-        storage.close()
-    
-    @pytest.fixture
-    def service(self, storage, app):
+    def service(self, test_storage, app):
         """Create inventory service with test storage (app provides Flask context)"""
         # Configure batch manager for immediate flushing in tests
         from app.performance import batch_manager
         original_batch_size = batch_manager.max_batch_size
         batch_manager.max_batch_size = 1
         
-        # Clear any existing data from previous tests
-        storage.clear_all_data()
-        
-        # Recreate the inventory sheet with proper headers
-        headers = [
-            'Active', 'JA ID', 'Length', 'Width', 'Thickness', 'Wall Thickness',
-            'Weight', 'Type', 'Shape', 'Material', 'Thread Series', 'Thread Handedness',
-            'Thread Size', 'Quantity', 'Location', 'Sub-Location', 'Purchase Date',
-            'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
-            'Original Material', 'Original Thread', 'Date Added', 'Last Modified'
-        ]
-        storage.create_sheet('Metal', headers)
-        
-        service = InventoryService(storage)
-        # Clear cache to ensure clean state
-        service.get_all_items.cache_clear()
+        service = MariaDBInventoryService(test_storage)
+        # MariaDBInventoryService doesn't use caching, reads directly from database
         
         yield service
         
@@ -161,11 +128,11 @@ class TestInventoryService:
         )
     
     @pytest.mark.unit
-    def test_service_creation(self, storage):
+    def test_service_creation(self, test_storage):
         """Test inventory service creation"""
-        service = InventoryService(storage)
+        service = MariaDBInventoryService(test_storage)
         
-        assert service.storage is storage
+        assert service.storage is test_storage
         assert service._cache == {}
         assert service._cache_timestamp is None
     
@@ -182,10 +149,10 @@ class TestInventoryService:
         
         # Verify data format (data[0] is headers, data[1] is first item)
         row = storage_result.data[1]
-        assert row[1] == 'JA000001'  # JA ID (column 1)
-        assert row[7] == 'Bar'      # Type (column 7) 
-        assert row[8] == 'Round'    # Shape (column 8)
-        assert row[9] == 'Steel'    # Material (column 9)
+        assert row[0] == 'JA000001'  # JA ID (column 0)
+        assert row[1] == 'Bar'      # Type (column 1) 
+        assert row[2] == 'Round'    # Shape (column 2)
+        assert row[3] == 'Steel'    # Material (column 3)
     
     @pytest.mark.unit
     def test_get_item(self, service, sample_item):
@@ -253,9 +220,15 @@ class TestInventoryService:
         
         assert result is True
         
-        # Verify deactivation
+        # Verify deactivation - get_item returns None for inactive items
         item = service.get_item('JA000001')
-        assert item.active is False
+        assert item is None
+        
+        # Verify item exists but is inactive in history
+        history = service.get_item_history('JA000001')
+        assert len(history) >= 1
+        most_recent = history[-1]  # Last item in history should be the deactivated one
+        assert most_recent.active is False
     
     @pytest.mark.unit
     def test_activate_item(self, service, sample_item):
@@ -399,11 +372,19 @@ class TestInventoryService:
         assert deactivated_count == 2
         assert len(failed_ids) == 0
         
-        # Verify items were deactivated
+        # Verify items were deactivated - get_item returns None for inactive items
         item1 = service.get_item('JA000001')
         item2 = service.get_item('JA000002')
-        assert item1.active is False
-        assert item2.active is False
+        assert item1 is None
+        assert item2 is None
+        
+        # Verify items exist but are inactive in history
+        history1 = service.get_item_history('JA000001')
+        history2 = service.get_item_history('JA000002')
+        assert len(history1) >= 1
+        assert len(history2) >= 1
+        assert history1[-1].active is False  # Most recent should be inactive
+        assert history2[-1].active is False  # Most recent should be inactive
     
     @pytest.mark.unit
     def test_cache_invalidation(self, service, sample_item):
