@@ -166,11 +166,14 @@ class MariaDBMaterialsAdminService:
             self._validate_add_request(request, session)
             
             # Create new material taxonomy entry
+            # Convert aliases list to comma-separated string for database
+            aliases_str = ', '.join(request.aliases) if request.aliases else None
+            
             new_material = MaterialTaxonomy(
                 name=request.name,
                 level=request.level,
                 parent=request.parent if request.parent else None,
-                aliases=request.aliases or [],
+                aliases=aliases_str,
                 notes=request.notes,
                 sort_order=request.sort_order,
                 active=True,
@@ -203,15 +206,17 @@ class MariaDBMaterialsAdminService:
         if existing:
             raise ValidationError(f'Material "{request.name}" already exists')
         
-        # Check aliases for conflicts
+        # Check aliases for conflicts  
         if request.aliases:
             for alias in request.aliases:
-                existing_alias = session.query(MaterialTaxonomy).filter(
-                    MaterialTaxonomy.aliases.contains([alias])
-                ).first()
-                
+                # Check if alias matches any existing material name
                 existing_name = session.query(MaterialTaxonomy).filter(
                     MaterialTaxonomy.name == alias
+                ).first()
+                
+                # Check if alias exists in any aliases field (comma-separated strings)
+                existing_alias = session.query(MaterialTaxonomy).filter(
+                    MaterialTaxonomy.aliases.like(f'%{alias}%')
                 ).first()
                 
                 if existing_alias or existing_name:
