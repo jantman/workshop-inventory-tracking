@@ -27,11 +27,11 @@
 - Clear browser cache and cookies
 - Disable browser extensions
 - Try a different browser
-- Check if Google Sheets is accessible directly
+- Check database connectivity
 
 ## Connection Issues
 
-### "Cannot connect to Google Sheets"
+### "Cannot connect to database"
 
 #### Symptoms
 - Error message on page load
@@ -40,30 +40,23 @@
 
 #### Causes & Solutions
 
-**Internet Connection**
+**Database Connection**
 ```bash
-# Test connectivity
-ping google.com
-curl -I https://sheets.googleapis.com
+# Test MariaDB connectivity
+mysql -h [host] -u [username] -p [database_name]
+# Or check local MariaDB service
+sudo systemctl status mariadb
 ```
 
-**Google Sheets API Issues**
-- Check [Google Cloud Status](https://status.cloud.google.com)
-- Verify API quotas in Google Cloud Console
-- Check service account permissions
-
-**Credentials Problems**
-```bash
-# Verify credentials file exists
-ls -la credentials/
-# Check file permissions
-chmod 600 credentials/service_account.json
-```
+**Database Configuration Issues**
+- Verify database connection string in environment variables
+- Check database credentials and permissions
+- Ensure database exists and is accessible
 
 **Network/Firewall Issues**
-- Ensure ports 80/443 are open
-- Check corporate firewall settings
-- Verify proxy configuration if applicable
+- Ensure database port (3306 for MariaDB) is open
+- Check firewall settings for database access
+- Verify network connectivity between app and database server
 
 ### "Service Temporarily Unavailable"
 
@@ -90,52 +83,59 @@ chmod 600 credentials/service_account.json
 - Service crashed or stopped
 - Out of disk space
 - Memory exhaustion
-- Google API rate limiting
+- Database connection limits exceeded
 
-## Authentication Problems
+## Database Authentication Problems
 
-### "Authentication Failed"
+### "Database Authentication Failed"
 
-#### Check Service Account
-1. **Verify service account email** in Google Cloud Console
-2. **Check sheet sharing** - ensure service account has Editor access
-3. **Regenerate credentials** if necessary
+#### Check Database Credentials
+1. **Verify database username/password** in environment variables
+2. **Check database user permissions** - ensure user has necessary privileges
+3. **Test database connection** directly with mysql client
 
-#### Credential File Issues
+#### Database Configuration Issues
 ```bash
-# Verify JSON format
-python3 -m json.tool credentials/service_account.json
+# Test database connection
+mysql -h [host] -u [username] -p [database_name] -e "SELECT 1;"
 
-# Check file accessibility
-sudo -u workshop-app cat credentials/service_account.json
+# Check database user privileges
+mysql -h [host] -u [username] -p -e "SHOW GRANTS;"
 ```
 
-### "Access Denied" on Google Sheets
+### "Access Denied" to Database Tables
 
 #### Solutions
-1. **Re-share the sheet** with service account email
-2. **Check Google Drive permissions** if sheet is in shared drive
-3. **Verify sheet ID** in configuration
-4. **Test with a new sheet** to isolate permission issues
+1. **Grant necessary privileges** to database user:
+   ```sql
+   GRANT SELECT, INSERT, UPDATE, DELETE ON workshop_inventory.* TO 'app_user'@'%';
+   FLUSH PRIVILEGES;
+   ```
+2. **Check database exists** and tables are created
+3. **Verify connection string** in application configuration
+4. **Test with database admin user** to isolate permission issues
 
 ## Data and Search Issues
 
 ### "No items found" when inventory exists
 
 #### Diagnostic Steps
-1. **Check Google Sheet directly** - verify data exists
-2. **Test raw API connection**:
+1. **Check database directly** - verify data exists:
    ```bash
-   python3 test_connection.py
+   mysql -h [host] -u [username] -p [database] -e "SELECT COUNT(*) FROM inventory_items WHERE active = 1;"
    ```
-3. **Clear application cache**
-4. **Check sheet name** - must be "Metal" (case-sensitive)
+2. **Test database connection**:
+   ```bash
+   python3 -c "from app.mariadb_storage import MariaDBStorage; s = MariaDBStorage(); print('Connected' if s.engine else 'Failed')"
+   ```
+3. **Check for database table issues**
+4. **Verify active/inactive filtering**
 
-#### Data Format Issues
-- **Headers mismatch** - ensure first row matches expected headers
-- **Empty rows** - remove blank rows between header and data
-- **Character encoding** - ensure UTF-8 encoding
-- **Date formats** - use consistent date formatting
+#### Database Issues
+- **Missing tables** - ensure database migration has run
+- **Incorrect data types** - verify schema matches expectations  
+- **Character encoding** - ensure UTF-8 encoding in database
+- **Active/inactive status** - check if items are marked as inactive
 
 ### Search Returns Wrong Results
 
@@ -143,7 +143,7 @@ sudo -u workshop-app cat credentials/service_account.json
 1. **Case sensitivity** in text searches
 2. **Numeric format mismatch** (fractions vs decimals)
 3. **Thread format variations**
-4. **Cached results** showing old data
+4. **Database indexing issues** affecting search performance
 
 #### Solutions
 ```bash
@@ -740,21 +740,21 @@ This audit logging system provides comprehensive data recovery capabilities. All
 
 ### Application Error Codes
 - **VALIDATION_ERROR**: Input validation failed
-- **STORAGE_ERROR**: Google Sheets operation failed
-- **GOOGLE_SHEETS_ERROR**: Specific Google API error
-- **AUTHENTICATION_ERROR**: Credential or permission issue
+- **STORAGE_ERROR**: Database operation failed
+- **DATABASE_ERROR**: Specific database connection or query error
+- **AUTHENTICATION_ERROR**: Database credential or permission issue
 - **ITEM_NOT_FOUND**: Requested item doesn't exist
 - **DUPLICATE_ITEM**: Item with same ID already exists
 - **BUSINESS_LOGIC_ERROR**: Operation violates business rules
-- **RATE_LIMIT_ERROR**: API quota exceeded
+- **CONNECTION_ERROR**: Database connection failed
 - **TEMPORARY_ERROR**: Transient error, retry recommended
 
-### Google Sheets API Errors
-- **quotaExceeded**: API quota exceeded, wait or request increase
-- **rateLimitExceeded**: Too many requests, implement backoff
-- **userRateLimitExceeded**: Per-user rate limit exceeded
-- **dailyLimitExceeded**: Daily quota exceeded
-- **forbidden**: Access denied to sheet or API
+### Database Error Codes
+- **1045**: Access denied - check username/password
+- **1049**: Unknown database - database doesn't exist
+- **1146**: Table doesn't exist - run database migrations
+- **2003**: Can't connect to MySQL server - check connection settings
+- **1062**: Duplicate entry - unique constraint violation
 
 ## Diagnostic Tools
 

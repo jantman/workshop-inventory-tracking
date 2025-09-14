@@ -45,10 +45,10 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Coverage**:
 - **Model Tests** (`test_models.py`): Item, Dimensions, Thread classes and enum validation
-- **Storage Tests** (`test_storage.py`): InMemoryStorage (SQLite in-memory) implementation 
-- **Service Tests** (`test_inventory_service.py`): Business logic, search, filtering, batch operations
-- **MariaDB Service Tests** (`test_mariadb_inventory_service.py`): MariaDB-specific active-only filtering logic
+- **Service Tests** (`test_inventory_service.py`): Business logic, search, filtering, batch operations using SQLite backend
+- **InventoryService Tests** (`test_mariadb_inventory_service.py`): MariaDB-specific active-only filtering logic
 - **Basic Tests** (`test_basic.py`): Infrastructure and integration points
+- **Audit Tests** (`test_audit_logging.py`): Audit logging functionality
 
 **Runtime**: ~0.3 seconds
 
@@ -108,17 +108,17 @@ nox -l
 
 ### Unit Test Structure
 
-**InMemoryStorage**: SQLite in-memory database that implements the Storage interface for fast, isolated testing. Provides storage interface compatibility for testing.
+**MariaDB with SQLite Backend**: Unit tests use MariaDBStorage with SQLite in-memory database for fast, isolated testing. This provides MariaDB interface compatibility while using SQLite for speed.
 
 **Fixtures**: 
 - `app`: Flask application context for service tests
-- `storage`: Fresh InMemoryStorage instance per test
-- `service`: InventoryService with test storage and optimized batch settings
-- `sample_item`/`sample_threaded_item`: Pre-configured test data
+- `test_storage`: Fresh MariaDBStorage instance with SQLite backend per test
+- `service`: InventoryService with test storage (no batching or caching)
+- `sample_item`/`sample_threaded_item`: Pre-configured test data with full validation
 
 ### E2E Test Structure
 
-**Test Server**: Dedicated Flask server with test configuration that uses InMemoryStorage for testing. Includes automatic batch processing flush to ensure test data is immediately available.
+**Test Server**: Dedicated Flask server with test configuration that uses MariaDBStorage with SQLite backend for testing. Direct database writes ensure test data is immediately available.
 
 **Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
 
@@ -173,7 +173,7 @@ python app.py  # Configured for 127.0.0.1:5000
 - Static file serving with cache disabled
 - Detailed error pages with interactive debugger
 
-**Note**: The development server uses MariaDB for data storage (production setup). For testing with local data, use the E2E test server instead (`nox -s e2e`).
+**Note**: The development server uses MariaDB for data storage (production setup). Both development and testing now use MariaDB interface - only the backend database differs (MariaDB vs SQLite).
 
 ## Development Workflow
 
@@ -244,10 +244,10 @@ def test_workflow(page):
 
 ## Performance Notes
 
-- **Unit tests**: Optimized for speed with in-memory storage
-- **Batch operations**: Test fixtures configured for immediate flushing via force flush mechanism
-- **Caching**: Service-level caching disabled in test environment for predictable results
-- **E2E data persistence**: E2ETestServer includes automatic batch processing flush to ensure test data is immediately available for API queries
+- **Unit tests**: Optimized for speed with SQLite in-memory database via MariaDB interface
+- **Direct Database Operations**: No batching or caching layers - all operations write directly to database
+- **Test Isolation**: Each test uses fresh SQLite database with MariaDB interface
+- **E2E data persistence**: Direct database writes ensure test data is immediately available
 
 ## Continuous Integration
 
