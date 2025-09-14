@@ -272,6 +272,14 @@ In addition, on both the Add Item and Edit Item pages, we have a text input for 
 
 So the goal for this feature is to both fix and improve the Materials autocomplete.
 
+## Feature: Model and Search Fixes
+
+It appears that item search functionality has been broken since at least commit b05caa7. For example, I use the Item Search page/view to try to search for active items with shape round and width between 0.62 and 1.3. This results in the browser POSTing to `/api/inventory/search` with a payload of `{shape: "Round", active: true, material_exact: false, width_min: 0.62, width_max: 1.3}`. The response payload confirms the same search criteria but reports a total_count of 0 and an empty items list.
+
+I did some research into this and realized that we STILL (even after I explicitly asked you to resolve this in the past) have duplicate models in `database.py` and `models.py`; we have an `InventoryItem` model that's being used for the database query, which has a `shape` column of type String, in `database.py` but we have an `Item` model in `models.py` whose shape property is an `ItemShape` enum. I thought we were supposed to have fixed this legacy disparity.
+
+Even as upset as I am that this has been broken for so long, I'm even more upset that our e2e tests did not catch this problem. Your implementation plan should include FIRST adding an e2e test that exercises item search functionality and reproduces this problem (i.e. fails) and THEN fix the bug, and confirm that because the test should pass once the bug is fixed.
+
 ## Feature: Remove Some Placeholders
 
 Please get rid of the placeholder values in the Purchase Information and Location fields on the add and edit views; I find them confusing.
