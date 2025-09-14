@@ -407,7 +407,7 @@ def test_admin_integration_with_autocomplete(page, live_server):
     page.wait_for_timeout(500)  # Wait for autocomplete
     
     # Should show the new material in suggestions
-    suggestions = page.locator('#material-suggestions .dropdown-item')
+    suggestions = page.locator('.material-suggestions .suggestion-item')
     expect(suggestions.first).to_be_visible()
     
     # Should find our new material

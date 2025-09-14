@@ -296,7 +296,7 @@ def test_material_autocomplete_functionality(page, live_server):
     assert any('Stainless' in s for s in suggestions_text), f"Expected stainless material in: {suggestions_text}"
     
     # Test 2: Clicking suggestion populates the field
-    steel_suggestion = page.locator('#material-suggestions .dropdown-item').filter(has_text='Carbon Steel').first
+    steel_suggestion = page.locator('.material-suggestions .suggestion-item').filter(has_text='Steel').first
     steel_suggestion.click()
     
     expect(material_input).to_have_value('Carbon Steel')
@@ -332,7 +332,7 @@ def test_material_autocomplete_functionality(page, live_server):
     material_input.fill('Copp')
     page.wait_for_timeout(300)
     
-    copper_suggestion = page.locator('#material-suggestions .dropdown-item').filter(has_text='Copper').first
+    copper_suggestion = page.locator('.material-suggestions .suggestion-item').filter(has_text='Copper').first
     copper_suggestion.click()
     
     # Complete the form and verify submission works
