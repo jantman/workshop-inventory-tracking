@@ -531,9 +531,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Only set up old autocomplete if MaterialSelector is not available
-    if (typeof MaterialSelector === 'undefined') {
+    // Only set up old autocomplete if MaterialSelector is not active
+    if (!window.MATERIAL_SELECTOR_ACTIVE) {
+        console.log('EditForm: Setting up old autocomplete');
         setupMaterialAutocomplete();
+    } else {
+        console.log('EditForm: MaterialSelector is active, skipping old autocomplete');
     }
     
     // Handle form submission with validation

@@ -53,9 +53,12 @@ class InventoryAddForm {
     init() {
         this.setupEventListeners();
         this.setupBarcodeScanning();
-        // Only set up old autocomplete if MaterialSelector is not available
-        if (typeof MaterialSelector === 'undefined') {
+        // Only set up old autocomplete if MaterialSelector is not active
+        if (!window.MATERIAL_SELECTOR_ACTIVE) {
+            console.log('InventoryAdd: Setting up old autocomplete');
             this.setupMaterialAutocomplete();
+        } else {
+            console.log('InventoryAdd: MaterialSelector is active, skipping old autocomplete');
         }
         this.updateDimensionRequirements();
         this.autoPopulateJaId();

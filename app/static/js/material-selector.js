@@ -213,6 +213,7 @@ class MaterialSelector {
     }
     
     async showCategories() {
+        console.log('MaterialSelector: showCategories() called, currentPath:', this.currentPath);
         if (!this.taxonomyData) {
             console.warn('MaterialSelector: No taxonomy data available');
             return;
@@ -500,7 +501,10 @@ class MaterialSelector {
     }
     
     navigateToItem(name, level) {
+        console.log('MaterialSelector: Navigating to', name, 'level', level);
+        console.log('MaterialSelector: Current path before navigation:', this.currentPath);
         this.currentPath.push({ name, level });
+        console.log('MaterialSelector: Current path after navigation:', this.currentPath);
         this.showCategories();
     }
     
@@ -524,11 +528,14 @@ class MaterialSelector {
     }
     
     showSuggestions() {
+        console.log('MaterialSelector: showSuggestions() called');
         this.suggestionsContainer.style.display = 'block';
         this.selectedIndex = -1; // Reset keyboard selection
     }
     
     hideSuggestions() {
+        console.log('MaterialSelector: hideSuggestions() called');
+        console.trace('Hide suggestions call stack');
         if (this.suggestionsContainer) {
             this.suggestionsContainer.style.display = 'none';
         }
@@ -634,6 +641,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Check if not already enhanced
         if (!input.classList.contains('material-selector-enhanced')) {
             console.log('MaterialSelector: Initializing for input', input.id);
+            
+            // Set global flag to disable old autocomplete
+            window.MATERIAL_SELECTOR_ACTIVE = true;
+            
             new MaterialSelector(input.id);
             input.classList.add('material-selector-enhanced');
         }
