@@ -85,15 +85,17 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="material" class="form-label">Material *</label>
-                            <input type="text" class="form-control" id="material" name="material" 
-                                   value="{{ item.material }}" required list="materials-list" 
-                                   placeholder="e.g., Steel, Aluminum, Stainless">
-                            <datalist id="materials-list">
-                                <!-- Populated by JavaScript -->
-                            </datalist>
+                            <div class="position-relative">
+                                <input type="text" class="form-control" id="material" name="material" 
+                                       value="{{ item.material }}" required autocomplete="off"
+                                       placeholder="Start typing material name...">
+                                <div id="material-suggestions" class="dropdown-menu position-absolute w-100" 
+                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            </div>
                             <div class="invalid-feedback">
                                 Please specify the material.
                             </div>
+                            <small class="form-text text-muted">Start typing to see suggestions from your inventory</small>
                         </div>
                         
                         <div class="col-md-3 mb-3">
@@ -437,6 +439,93 @@ document.addEventListener('DOMContentLoaded', function() {
         // Now enable Bootstrap validation for future interactions
         form.classList.add('needs-validation');
     }, 100);
+    
+    // Set up material autocomplete (same as Add form)
+    function setupMaterialAutocomplete() {
+        const materialInput = document.getElementById('material');
+        const suggestionsDiv = document.getElementById('material-suggestions');
+        
+        if (!materialInput || !suggestionsDiv) {
+            console.warn('Material autocomplete elements not found');
+            return;
+        }
+        
+        materialInput.addEventListener('input', WorkshopInventory.utils.debounce(async (e) => {
+            const query = e.target.value.trim();
+            if (query.length >= 1) {
+                await showMaterialMatches(query);
+            } else {
+                suggestionsDiv.style.display = 'none';
+            }
+        }, 200));
+        
+        // Show initial suggestions when field is focused
+        materialInput.addEventListener('focus', async () => {
+            const query = materialInput.value.trim();
+            if (query.length >= 1) {
+                await showMaterialMatches(query);
+            } else {
+                // Show categories when no query
+                await showMaterialMatches('');
+            }
+        });
+        
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#material') && !e.target.closest('#material-suggestions')) {
+                suggestionsDiv.style.display = 'none';
+            }
+        });
+    }
+    
+    async function showMaterialMatches(query) {
+        const suggestionsDiv = document.getElementById('material-suggestions');
+        
+        try {
+            // Build API query
+            const params = new URLSearchParams();
+            if (query) {
+                params.append('q', query);
+            }
+            params.append('limit', '10');
+            
+            const response = await fetch(`/api/materials/suggestions?${params}`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch suggestions');
+            }
+            
+            const matches = await response.json();
+            
+            if (matches.length === 0) {
+                suggestionsDiv.style.display = 'none';
+                return;
+            }
+            
+            const html = matches.map(material => 
+                `<a class="dropdown-item" href="#" data-material="${material}">${material}</a>`
+            ).join('');
+            
+            suggestionsDiv.innerHTML = html;
+            suggestionsDiv.style.display = 'block';
+            
+            // Add click handlers
+            suggestionsDiv.querySelectorAll('.dropdown-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const materialInput = document.getElementById('material');
+                    materialInput.value = item.dataset.material;
+                    suggestionsDiv.style.display = 'none';
+                });
+            });
+            
+        } catch (error) {
+            console.warn('Failed to fetch material suggestions:', error);
+            // Fallback to hiding suggestions
+            suggestionsDiv.style.display = 'none';
+        }
+    }
+    
+    setupMaterialAutocomplete();
     
     // Handle form submission with validation
     form.addEventListener('submit', function(event) {

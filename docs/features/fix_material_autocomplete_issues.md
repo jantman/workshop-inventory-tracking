@@ -30,12 +30,19 @@ Implement a **smart progressive disclosure** interface that combines both experi
 3. **Navigation + Search**: Click to navigate taxonomy levels OR type to filter across all levels
 4. **No Mode Switching**: Single interface that adapts to user behavior automatically
 
-**Milestone 1: Analyze and Fix Current Autocomplete (FMAI-1)**
-- FMAI-1.1: Investigate current autocomplete functionality - verify API responses and frontend behavior
-- FMAI-1.2: Identify any bugs in `/api/materials/suggestions` endpoint or `material-validation.js`
-- FMAI-1.3: Test material validation and ensure all taxonomy entries are properly returned
-- FMAI-1.4: Fix any identified issues with current autocomplete population
-- FMAI-1.5: Ensure current autocomplete works correctly before enhancing it
+**Milestone 1: Analyze and Fix Current Autocomplete (FMAI-1)** ✅ **COMPLETED**
+- ✅ FMAI-1.1: Investigate current autocomplete functionality - verify API responses and frontend behavior
+- ✅ FMAI-1.2: Identify any bugs in `/api/materials/suggestions` endpoint or `material-validation.js`
+- ✅ FMAI-1.3: Test material validation and ensure all taxonomy entries are properly returned
+- ✅ FMAI-1.4: Fix any identified issues with current autocomplete population
+- ✅ FMAI-1.5: Ensure current autocomplete works correctly before enhancing it
+
+**MILESTONE 1 RESULTS:**
+- **Issue Found**: Edit form had broken autocomplete (empty datalist never populated) while Add form had working autocomplete
+- **Fix Applied**: Updated Edit form to use same working implementation as Add form
+- **Files Modified**: `app/templates/inventory/edit.html` (lines 87-99 and 444-528)
+- **Testing**: All 24 material-related tests pass, both forms now have consistent autocomplete functionality
+- **API Status**: `/api/materials/suggestions` working correctly (74 materials from taxonomy)
 
 **Milestone 2: Create Enhanced Material Selector Component (FMAI-2)**
 - FMAI-2.1: Create new `/api/materials/hierarchy` endpoint returning properly structured taxonomy tree
