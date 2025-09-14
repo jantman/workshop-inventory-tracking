@@ -53,7 +53,10 @@ class InventoryAddForm {
     init() {
         this.setupEventListeners();
         this.setupBarcodeScanning();
-        this.setupMaterialAutocomplete();
+        // Only set up old autocomplete if MaterialSelector is not available
+        if (typeof MaterialSelector === 'undefined') {
+            this.setupMaterialAutocomplete();
+        }
         this.updateDimensionRequirements();
         this.autoPopulateJaId();
     }

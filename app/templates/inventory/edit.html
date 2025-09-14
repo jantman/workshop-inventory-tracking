@@ -335,6 +335,7 @@
 window.validMaterials = {{ valid_materials | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
+<script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
 <script>
 // Edit form functionality (simplified version without complex add form features)
 document.addEventListener('DOMContentLoaded', function() {
@@ -530,7 +531,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    setupMaterialAutocomplete();
+    // Only set up old autocomplete if MaterialSelector is not available
+    if (typeof MaterialSelector === 'undefined') {
+        setupMaterialAutocomplete();
+    }
     
     // Handle form submission with validation
     form.addEventListener('submit', function(event) {
