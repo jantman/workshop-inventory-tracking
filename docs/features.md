@@ -356,6 +356,38 @@ I did some research into this and realized that we STILL (even after I explicitl
 
 Even as upset as I am that this has been broken for so long, I'm even more upset that our e2e tests did not catch this problem. Your implementation plan should include FIRST adding an e2e test that exercises item search functionality and reproduces this problem (i.e. fails) and THEN fix the bug, and confirm that because the test should pass once the bug is fixed.
 
+### Implementation Plan
+
+**Root Cause Analysis:**
+The search functionality is broken because there's a type mismatch between the API layer and database layer:
+1. The search API in `routes.py:1032` converts string "Round" to `ItemShape.ROUND` enum
+2. This enum gets passed through `SearchFilter.to_dict()` and used in `search_active_items()` 
+3. The database query at `mariadb_inventory_service.py:283` directly compares the enum against the `InventoryItem.shape` String column
+4. This comparison fails because we're comparing an enum object against a string value
+
+**Milestone 1: Add Failing E2E Test** `MSAF-1`
+- MSAF-1.1: Add e2e test for shape-based search that reproduces the bug (should fail initially)
+- MSAF-1.2: Add e2e test for combined shape + dimension range search (the specific example from the issue)
+- MSAF-1.3: Run e2e tests to confirm the new tests fail, demonstrating the bug
+
+**Milestone 2: Fix Model Consistency** `MSAF-2`  
+- MSAF-2.1: Update `search_active_items()` method to properly handle enum-to-string conversion for shape field
+- MSAF-2.2: Ensure `item_type` field has the same fix applied (likely has same issue)
+- MSAF-2.3: Add proper enum-to-string conversion in SearchFilter or search method
+- MSAF-2.4: Verify that other enum fields (thread_series, thread_handedness) are handled correctly
+
+**Milestone 3: Verification and Testing** `MSAF-3`
+- MSAF-3.1: Run the new e2e tests to confirm they now pass
+- MSAF-3.2: Run full unit test suite to ensure no regressions
+- MSAF-3.3: Run full e2e test suite to ensure no regressions  
+- MSAF-3.4: Manual verification of the specific search scenario (shape=Round, width 0.62-1.3)
+
+**Implementation Strategy:**
+Rather than changing the database schema (which would require migrations and risk data integrity), the fix will ensure proper type conversion in the search logic. When enum values are passed to the database queries, they will be converted to their string representations (.value) before comparison.
+
+**Architectural Decision:**
+This fix maintains the current dual-model architecture (`Item` business model + `InventoryItem` ORM model) while addressing the immediate search functionality bug. A future feature will consolidate these models to eliminate the maintenance burden of having duplicate field definitions.
+
 ## Feature: Remove Some Placeholders
 
 Please get rid of the placeholder values in the Purchase Information and Location fields on the add and edit views; I find them confusing.
@@ -498,3 +530,31 @@ Be sure to review all `/*.py` and `/scripts/` files and any other utilities, and
 ## Feature: Cleanup
 
 Review all `.py` files in the repository and identify any that are no longer needed for proper functioning of the application, such as data migration scripts. Remove them.
+
+## Feature: Model Architecture Consolidation
+
+Consolidate the duplicate `Item` and `InventoryItem` models into a single model architecture to eliminate maintenance burden and prevent type mismatch bugs.
+
+**Problem Statement:**
+Currently we have two models representing the same domain concept:
+- `InventoryItem` (database.py): SQLAlchemy ORM model with simple types (String, Boolean, Numeric)
+- `Item` (models.py): Business logic dataclass with rich types, enums, and validation
+
+This creates maintenance overhead, requires complex conversion logic, and is prone to bugs like the search functionality issue where enum values are compared against database string columns.
+
+**Goal:**
+Create a single model architecture that provides both database persistence and business logic capabilities while maintaining the current design principle of enum-without-migration (adding enum values without database schema changes).
+
+**Proposed Approach:**
+Convert to a single `InventoryItem` SQLAlchemy model with:
+- String columns in the database (no schema changes required)
+- Enum properties that convert to/from database string values automatically
+- Validation and business logic methods integrated into the model
+- Elimination of the separate `Item` dataclass and all conversion logic
+
+**Success Criteria:**
+- Single source of truth for field definitions
+- No complex conversion layer between models
+- Maintains enum-without-migration capability
+- All existing functionality preserved
+- Significant reduction in code complexity
