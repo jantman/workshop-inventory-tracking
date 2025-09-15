@@ -181,7 +181,45 @@ This feature will be implemented in two milestones with human approval required 
 - Update this feature document with test results
 - Commit all test additions
 
-**Expected Outcome:** Comprehensive test coverage that properly identifies all enum lookup bugs
+## Milestone 2 Results
+
+### Task 2.1: Unit Tests for Enum Lookup Functions - COMPLETED
+
+**Added comprehensive unit tests** in `tests/unit/test_routes.py`:
+- ✅ **13 unit tests** covering all enum lookup patterns
+- ✅ **Tests document current broken behavior**: `test_parse_threaded_rod_fails_current_implementation()` properly catches `KeyError: 'THREADED ROD'`
+- ✅ **Tests document correct behavior**: `test_parse_threaded_rod_correct_approach()` shows `ItemType(value)` works
+- ✅ **Comprehensive coverage**: Tests all ItemType and ItemShape enum values with both approaches
+
+### Task 2.2: E2E Tests for Search Functionality - COMPLETED
+
+**Added missing search E2E tests** in `tests/e2e/test_search.py`:
+- ✅ **3 new E2E tests** for search functionality with "Threaded Rod"
+- ✅ **`test_search_by_threaded_rod_type_workflow()`**: Shows "EXPECTED FAILURE" with search error
+- ✅ **Tests properly handle thread validation**: Created proper Item objects with thread specifications
+- ✅ **Multi-criteria search tests**: Verify combined search filters fail correctly
+
+### Task 2.3: Test Infrastructure Issues - COMPLETED
+
+**Fixed critical test assertion bug** in `tests/e2e/pages/add_item_page.py`:
+- ✅ **Fixed `assert_form_submitted_successfully()`**: Now properly distinguishes between success redirect (`/inventory`) vs failure (staying on `/inventory/add`)
+- ✅ **Previously hidden bug now exposed**: `test_all_item_types_available_in_dropdown` now properly fails with `KeyError: 'THREADED ROD'`
+- ✅ **Improved error messages**: Clear indication when form submission fails
+
+### Task 2.4: Test Results Verification - COMPLETED
+
+**All tests properly identify the enum lookup bugs**:
+
+**Unit Tests**: ✅ Pass (documenting current behavior)
+- `test_parse_threaded_rod_fails_current_implementation()` ✅ 
+- `test_search_enum_lookup_threaded_rod_fails()` ✅
+
+**E2E Tests**: ❌ Properly fail (exposing bugs)
+- `test_all_item_types_available_in_dropdown()` ❌ Now correctly fails
+- `test_search_by_threaded_rod_type_workflow()` ❌ Shows "EXPECTED FAILURE"
+- `test_add_threaded_rod_with_proper_validation()` ❌ Shows "EXPECTED FAILURE"
+
+**Expected Outcome:** ✅ **Comprehensive test coverage that properly identifies all enum lookup bugs**
 
 **STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 3**
 

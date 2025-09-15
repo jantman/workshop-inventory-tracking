@@ -109,8 +109,17 @@ class AddItemPage(BasePage):
         try:
             self.assert_flash_success()
         except:
-            # If no flash message, check if we were redirected to inventory list
-            self.assert_url_contains("/inventory")
+            # If no flash message, check if we were redirected to inventory list (not add form)
+            current_url = self.page.url
+            if "/inventory/add" in current_url:
+                # Still on add form - submission likely failed
+                raise AssertionError(f"Form submission failed - still on add form at URL: {current_url}")
+            elif "/inventory" in current_url:
+                # Successfully redirected to inventory list page
+                pass
+            else:
+                # Unexpected redirect location
+                raise AssertionError(f"Form submission had unexpected redirect to: {current_url}")
     
     def get_field_value(self, selector: str) -> str:
         """Get the current value of a form field"""
