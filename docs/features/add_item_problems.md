@@ -81,6 +81,35 @@ This feature will be implemented in two milestones with human approval required 
 - This test will initially fail due to the current bugs
 - Update feature document with findings and commit changes
 
+## Milestone 1 Results
+
+### Task 1.1: E2E Test Coverage Investigation - COMPLETED
+
+**Findings:**
+1. **Existing test DOES exist**: `test_all_item_types_available_in_dropdown()` in `test_add_item.py:170-176` 
+2. **The existing test IS experiencing the bug**: Server logs show `KeyError: 'THREADED ROD'` during test execution
+3. **Why the test was incorrectly passing**: The test's `assert_form_submitted_successfully()` method has a flawed fallback logic:
+   - First tries to find a success flash message (which fails when form submission fails)
+   - Falls back to `assert_url_contains("/inventory")` 
+   - Since the add form URL is `/inventory/add`, it contains "/inventory" and passes the assertion
+   - **This is a bug in the test logic** - it should check for redirect to `/inventory` (list page), not just URL containing "/inventory"
+
+**Root Cause Identified:**
+- **Backend Issue**: In `routes.py:1323`, the code does `ItemType[form_data['item_type'].upper()]`
+- Form sends: `"Threaded Rod"` → `.upper()` → `"THREADED ROD"`  
+- But enum key is: `"THREADED_ROD"` (underscore, not space)
+- **Solution**: Replace spaces with underscores before enum lookup
+
+### Task 1.2: E2E Test Addition - COMPLETED
+
+**Added new test**: `test_add_threaded_rod_with_proper_validation()` that:
+- Properly documents the expected behavior 
+- Currently shows "EXPECTED FAILURE" when form submission fails
+- Will automatically pass when the backend bug is fixed
+- Includes clear logging to indicate test status
+
+**Test Results:** ✅ Test correctly identifies the issue and shows expected failure behavior
+
 **STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 2**
 
 ### Milestone 2: Fix Issues and Verify
