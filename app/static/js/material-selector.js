@@ -249,17 +249,35 @@ class MaterialSelector {
             const icon = this.getItemIcon(item);
             const hasChildren = this.hasChildren(item);
             
-            html += `
-                <a href="#" class="suggestion-item dropdown-item d-flex align-items-center ${hasChildren ? 'navigable' : 'selectable'}" 
-                   data-name="${item.name}" data-level="${item.level}" data-type="${hasChildren ? 'navigate' : 'select'}">
-                    <span class="me-2">${icon}</span>
-                    <div class="flex-grow-1">
-                        <div class="fw-medium">${item.name}</div>
-                        ${hasChildren ? `<small class="text-muted">Click to explore</small>` : ''}
+            if (hasChildren) {
+                // Items with children are both selectable and navigable
+                html += `
+                    <div class="suggestion-item-container">
+                        <a href="#" class="suggestion-item dropdown-item d-flex align-items-center selectable navigable" 
+                           data-name="${item.name}" data-level="${item.level}" data-type="dual">
+                            <span class="me-2">${icon}</span>
+                            <div class="flex-grow-1" data-action="select">
+                                <div class="fw-medium">${item.name}</div>
+                                <small class="text-muted">Click to select, or click arrow to explore</small>
+                            </div>
+                            <button type="button" class="btn btn-link p-0 ms-2 navigate-btn" data-action="navigate" title="Explore ${item.name}">
+                                <span class="text-muted">›</span>
+                            </button>
+                        </a>
                     </div>
-                    ${hasChildren ? '<span class="text-muted">›</span>' : ''}
-                </a>
-            `;
+                `;
+            } else {
+                // Leaf items are only selectable
+                html += `
+                    <a href="#" class="suggestion-item dropdown-item d-flex align-items-center selectable" 
+                       data-name="${item.name}" data-level="${item.level}" data-type="select">
+                        <span class="me-2">${icon}</span>
+                        <div class="flex-grow-1">
+                            <div class="fw-medium">${item.name}</div>
+                        </div>
+                    </a>
+                `;
+            }
         });
         
         if (currentItems.length === 0) {
@@ -477,12 +495,23 @@ class MaterialSelector {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation(); // Prevent event from bubbling to document click handler
-                this.handleItemClick(item);
+                this.handleItemClick(item, e);
+            });
+        });
+        
+        // Handle navigate button clicks specifically
+        const navigateButtons = this.suggestionsContainer.querySelectorAll('.navigate-btn');
+        navigateButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // Prevent the parent click handler from firing
+                const item = btn.closest('.suggestion-item');
+                this.handleNavigateClick(item);
             });
         });
     }
     
-    handleItemClick(item) {
+    handleItemClick(item, e) {
         const action = item.dataset.action;
         const type = item.dataset.type;
         const name = item.dataset.name;
@@ -496,7 +525,27 @@ class MaterialSelector {
             this.navigateToItem(name, level);
         } else if (type === 'select') {
             this.selectMaterial(name);
+        } else if (type === 'dual') {
+            // For dual-action items, check if click was on navigate button
+            const clickedElement = e.target;
+            const isNavigateClick = clickedElement.closest('.navigate-btn');
+            
+            if (isNavigateClick) {
+                // This should be handled by handleNavigateClick, but just in case
+                this.navigateToItem(name, level);
+            } else {
+                // Default action for dual items is to select
+                this.selectMaterial(name);
+            }
         }
+    }
+    
+    handleNavigateClick(item) {
+        const name = item.dataset.name;
+        const level = parseInt(item.dataset.level);
+        
+        console.log('MaterialSelector: Navigate button clicked - name:', name, 'level:', level);
+        this.navigateToItem(name, level);
     }
     
     navigateBack() {
@@ -655,6 +704,35 @@ materialSelectorCSS.textContent = `
 
 .material-suggestions .dropdown-item small {
     line-height: 1;
+}
+
+/* Navigate button styling */
+.material-suggestions .navigate-btn {
+    border: none !important;
+    background: none !important;
+    padding: 0.25rem 0.5rem !important;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 4px;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.material-suggestions .navigate-btn:hover {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.material-suggestions .navigate-btn:focus {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 2px;
+}
+
+/* Dual-action item styling */
+.material-suggestions .suggestion-item.selectable.navigable {
+    cursor: pointer;
+}
+
+.material-suggestions .suggestion-item.selectable.navigable:hover .navigate-btn {
+    background-color: rgba(0, 0, 0, 0.1) !important;
 }
 `;
 document.head.appendChild(materialSelectorCSS);

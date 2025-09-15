@@ -55,9 +55,10 @@ def test_material_selector_category_navigation(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Click on "Aluminum" category
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
-    aluminum_category.click()
+    # Click on "Aluminum" category navigate button to navigate
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    navigate_button = aluminum_category.locator('.navigate-btn')
+    navigate_button.click()
     
     # Should now show families within Aluminum
     expect(suggestions_container).to_be_visible()
@@ -94,17 +95,19 @@ def test_material_selector_family_navigation(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Click Aluminum category
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
-    aluminum_category.click()
+    # Click Aluminum category navigate button to navigate
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    navigate_button = aluminum_category.locator('.navigate-btn')
+    navigate_button.click()
     
     # Wait for families to load
     expect(suggestions_container).to_be_visible()
     
-    # Click on "6000 Series Aluminum" family (if it exists)
-    family_6000 = page.locator('.material-suggestions .suggestion-item.navigable', has_text='6000 Series Aluminum')
+    # Click on "6000 Series Aluminum" family navigate button (if it exists)
+    family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable', has_text='6000 Series Aluminum')
     if family_6000.count() > 0:
-        family_6000.click()
+        navigate_button = family_6000.locator('.navigate-btn')
+        navigate_button.click()
         
         # Should show materials within this family
         expect(suggestions_container).to_be_visible()
@@ -135,9 +138,10 @@ def test_material_selector_back_navigation(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Click Aluminum category
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
-    aluminum_category.click()
+    # Click Aluminum category navigate button to navigate
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    navigate_button = aluminum_category.locator('.navigate-btn')
+    navigate_button.click()
     
     # Should now be in families view
     expect(suggestions_container).to_be_visible()
@@ -187,6 +191,105 @@ def test_material_selector_material_selection(page, live_server):
         
         # Suggestions should be hidden
         expect(suggestions_container).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_material_selector_category_selection(page, live_server):
+    """Test that Categories can be selected directly as valid materials"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.assert_form_visible()
+    
+    # Focus on material input to show categories
+    material_input = page.locator('#material')
+    material_input.click()
+    
+    suggestions_container = page.locator('.material-suggestions')
+    expect(suggestions_container).to_be_visible(timeout=3000)
+    
+    # Find a category that should be both selectable and navigable (e.g., "Aluminum")
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    expect(aluminum_category).to_be_visible()
+    
+    # Click on the main area (not the navigate button) to select the category
+    aluminum_text = aluminum_category.locator('.fw-medium')
+    aluminum_text.click()
+    
+    # Input should now contain the selected category
+    expect(material_input).to_have_value('Aluminum')
+    
+    # Suggestions should be hidden after selection
+    expect(suggestions_container).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_material_selector_family_selection(page, live_server):
+    """Test that Families can be selected directly as valid materials"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.assert_form_visible()
+    
+    # Navigate to a family level first
+    material_input = page.locator('#material')
+    material_input.click()
+    
+    suggestions_container = page.locator('.material-suggestions')
+    expect(suggestions_container).to_be_visible(timeout=3000)
+    
+    # Click on the navigate button for Aluminum category to navigate to families
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    navigate_button = aluminum_category.locator('.navigate-btn')
+    navigate_button.click()
+    
+    # Should now show families within Aluminum
+    expect(suggestions_container).to_be_visible()
+    
+    # Find a family that should be both selectable and navigable (e.g., "6000 Series Aluminum")
+    family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='6000 Series Aluminum')
+    if family_6000.count() > 0:
+        # Click on the main area (not the navigate button) to select the family
+        family_text = family_6000.locator('.fw-medium')
+        family_text.click()
+        
+        # Input should now contain the selected family
+        expect(material_input).to_have_value('6000 Series Aluminum')
+        
+        # Suggestions should be hidden after selection
+        expect(suggestions_container).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_material_selector_dual_action_navigation(page, live_server):
+    """Test that clicking the navigate button on dual-action items navigates instead of selecting"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.assert_form_visible()
+    
+    # Focus on material input to show categories
+    material_input = page.locator('#material')
+    material_input.click()
+    
+    suggestions_container = page.locator('.material-suggestions')
+    expect(suggestions_container).to_be_visible(timeout=3000)
+    
+    # Find Aluminum category
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    expect(aluminum_category).to_be_visible()
+    
+    # Click specifically on the navigate button (arrow)
+    navigate_button = aluminum_category.locator('.navigate-btn')
+    navigate_button.click()
+    
+    # Should navigate to families view, not select Aluminum
+    expect(suggestions_container).to_be_visible()
+    expect(suggestions_container).to_contain_text('6000 Series Aluminum')  # Should show families
+    
+    # Input should still be empty (navigation doesn't select)
+    expect(material_input).to_have_value('')
+    
+    # Should show back button
+    back_button = page.locator('.material-suggestions .suggestion-item.back-button')
+    expect(back_button).to_be_visible()
 
 
 @pytest.mark.e2e
@@ -407,8 +510,9 @@ def test_material_selector_works_on_edit_form(page, live_server):
     expect(suggestions_container).to_contain_text('📁')
     
     # Navigation should work on edit form too
-    aluminum_category = page.locator('.material-suggestions .suggestion-item.navigable').filter(has_text='Aluminum').first
-    aluminum_category.click()
+    aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    navigate_button = aluminum_category.locator('.navigate-btn')
+    navigate_button.click()
     
     # Should navigate to families
     expect(suggestions_container).to_be_visible()
