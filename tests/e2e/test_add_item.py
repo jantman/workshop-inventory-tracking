@@ -375,26 +375,13 @@ def test_add_threaded_rod_with_proper_validation(page, live_server):
     # TODO: Update frontend to not require Width for Threaded Rod
     add_page.fill_dimensions(length="36", width="0.25")  # Temporary workaround
     
-    # Submit form
+    # Submit form - this should succeed once the enum bug is fixed
     add_page.submit_form()
     
-    # The key test: form submission should succeed without backend KeyError
-    # Check current URL to determine if submission succeeded
-    current_url = page.url
+    # Verify successful submission (this will fail until bug is fixed)
+    add_page.assert_form_submitted_successfully()
     
-    if "/inventory/add" in current_url:
-        # Still on add form - submission likely failed
-        # This indicates the backend KeyError is still occurring
-        print("EXPECTED FAILURE: Form submission failed - likely due to KeyError: 'THREADED ROD'")
-        # This is the expected behavior until the bug is fixed
-        
-    else:
-        # Successfully redirected away from add form
-        print("SUCCESS: Form submission succeeded - backend bug may be fixed")
-        # Verify we can navigate to inventory list and see items
-        list_page = InventoryListPage(page, live_server.url)
-        list_page.navigate()
-        
-        # Note: We don't assert the specific item exists since the inventory table
-        # might be empty or have display issues, but successful form submission
-        # is the main indicator that the backend bug is resolved
+    # Verify item appears in inventory list
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    list_page.assert_item_in_list("JA000100")

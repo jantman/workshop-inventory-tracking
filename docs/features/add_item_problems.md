@@ -206,20 +206,26 @@ This feature will be implemented in two milestones with human approval required 
 - ✅ **Previously hidden bug now exposed**: `test_all_item_types_available_in_dropdown` now properly fails with `KeyError: 'THREADED ROD'`
 - ✅ **Improved error messages**: Clear indication when form submission fails
 
-### Task 2.4: Test Results Verification - COMPLETED
+### Task 2.4: Test Results Verification - CORRECTED
 
-**All tests properly identify the enum lookup bugs**:
+**CORRECTED APPROACH**: All tests now expect CORRECT behavior and fail until bug is fixed
 
-**Unit Tests**: ✅ Pass (documenting current behavior)
-- `test_parse_threaded_rod_fails_current_implementation()` ✅ 
-- `test_search_enum_lookup_threaded_rod_fails()` ✅
+**Unit Tests**: 1 failing, 7 passing  
+- ❌ `test_parse_threaded_rod_should_work()` - Tests actual broken `_parse_item_from_form` function
+- ✅ 7 others - Test correct enum constructor approach `ItemType(value)` (which works)
 
-**E2E Tests**: ❌ Properly fail (exposing bugs)
-- `test_all_item_types_available_in_dropdown()` ❌ Now correctly fails
-- `test_search_by_threaded_rod_type_workflow()` ❌ Shows "EXPECTED FAILURE"
-- `test_add_threaded_rod_with_proper_validation()` ❌ Shows "EXPECTED FAILURE"
+**E2E Tests**: ❌ All properly fail (testing broken functionality)
+- ❌ `test_all_item_types_available_in_dropdown()` - Add item functionality fails
+- ❌ `test_search_by_threaded_rod_type_workflow()` - Search functionality fails  
+- ❌ `test_add_threaded_rod_with_proper_validation()` - Add item functionality fails
+- ❌ `test_search_by_multiple_criteria_with_threaded_rod_workflow()` - Search functionality fails
 
-**Expected Outcome:** ✅ **Comprehensive test coverage that properly identifies all enum lookup bugs**
+**CORRECTED STRATEGY**: 
+- ❌ **Tests that call broken functions**: Currently fail, will pass after bug fix
+- ✅ **Tests that verify correct approach**: Pass now, will continue to pass after bug fix
+- 🚫 **Removed**: All tests that expected or validated broken behavior
+
+**Expected Outcome:** ✅ **Proper TDD test coverage - tests fail now, will pass after bug fix**
 
 **STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 3**
 

@@ -530,23 +530,13 @@ def test_search_by_threaded_rod_type_workflow(page, live_server):
     search_page = SearchPage(page, live_server.url)
     search_page.navigate()
     
-    # Try to search for Threaded Rod items
-    # This will fail due to the enum lookup bug until fixed
-    try:
-        search_page.search_by_item_type("Threaded Rod")
-        
-        # If search succeeds, verify results
-        search_page.assert_results_found(2)
-        search_page.assert_result_contains_item("JA011001")
-        search_page.assert_result_contains_item("JA011002")
-        
-        print("SUCCESS: Threaded Rod search worked - enum bug may be fixed!")
-        
-    except Exception as e:
-        # Expected to fail with current implementation
-        print(f"EXPECTED FAILURE: Threaded Rod search failed - {str(e)}")
-        # This documents the bug behavior
-        # The search should work once the enum lookup is fixed
+    # Search for Threaded Rod items - this should work once bug is fixed
+    search_page.search_by_item_type("Threaded Rod")
+    
+    # Verify results - this will fail until the enum bug is fixed
+    search_page.assert_results_found(2)
+    search_page.assert_result_contains_item("JA011001")
+    search_page.assert_result_contains_item("JA011002")
 
 
 @pytest.mark.e2e
@@ -596,19 +586,13 @@ def test_search_by_multiple_criteria_with_threaded_rod_workflow(page, live_serve
     search_page = SearchPage(page, live_server.url)
     search_page.navigate()
     
-    # Try to search for Threaded Rod + Carbon Steel combination
-    try:
-        search_page.search_multiple_criteria(
-            item_type="Threaded Rod",
-            material="Carbon Steel"
-        )
-        
-        # Should find only JA012001 (Threaded Rod + Carbon Steel)
-        search_page.assert_results_found(1)
-        search_page.assert_result_contains_item("JA012001")
-        
-        print("SUCCESS: Multi-criteria search with Threaded Rod worked!")
-        
-    except Exception as e:
-        print(f"EXPECTED FAILURE: Multi-criteria search with Threaded Rod failed - {str(e)}")
-        # This should work once the enum lookup bug is fixed
+    # Search for Threaded Rod + Carbon Steel combination
+    search_page.search_multiple_criteria(
+        item_type="Threaded Rod",
+        material="Carbon Steel"
+    )
+    
+    # Should find only JA012001 (Threaded Rod + Carbon Steel)
+    # This will fail until the enum lookup bug is fixed
+    search_page.assert_results_found(1)
+    search_page.assert_result_contains_item("JA012001")
