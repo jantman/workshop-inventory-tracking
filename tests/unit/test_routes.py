@@ -41,7 +41,9 @@ class TestParseItemFromForm:
             'shape': 'Round', 
             'material': 'Carbon Steel',
             'length': '36',
-            'width': '0.25'
+            # No width for threaded rods
+            'thread_series': 'UNC',
+            'thread_size': '1/4-20'
         }
         
         # This should work but will fail until enum bug is fixed

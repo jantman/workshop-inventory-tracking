@@ -169,7 +169,8 @@ def test_all_item_types_available_in_dropdown(page, live_server):
     
     # Test that we can actually select 'Threaded Rod' and add an item (since that was the original issue)
     add_page.fill_basic_item_data("JA000008", "Threaded Rod", "Round", "Carbon Steel")
-    add_page.fill_dimensions(length="36", width="0.25")  # 36" long, 1/4" diameter
+    add_page.fill_dimensions(length="36")  # 36" long, no width for threaded rods
+    add_page.fill_thread_information(thread_series="UNC", thread_size="1/4-20")
     add_page.submit_form()
     
     # Verify successful submission
@@ -371,9 +372,9 @@ def test_add_threaded_rod_with_proper_validation(page, live_server):
     add_page.fill_basic_item_data("JA000100", "Threaded Rod", "Round", "Carbon Steel")
     
     # For Threaded Rod: Length is required, Width should NOT be required
-    # Note: Current UI may still require Width due to frontend validation
-    # TODO: Update frontend to not require Width for Threaded Rod
-    add_page.fill_dimensions(length="36", width="0.25")  # Temporary workaround
+    # Thread Series and Thread Size should be required
+    add_page.fill_dimensions(length="36")  # 36" long, no width for threaded rods
+    add_page.fill_thread_information(thread_series="UNC", thread_size="1/4-20")
     
     # Submit form - this should succeed once the enum bug is fixed
     add_page.submit_form()

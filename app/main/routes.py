@@ -1118,7 +1118,7 @@ def api_advanced_search():
         # Type and shape filters
         if data.get('item_type'):
             try:
-                item_type = ItemType[data['item_type'].upper()]
+                item_type = ItemType(data['item_type'])
                 search_filter.add_exact_match('item_type', item_type)
             except KeyError:
                 return jsonify({
@@ -1128,7 +1128,7 @@ def api_advanced_search():
         
         if data.get('shape'):
             try:
-                shape = ItemShape[data['shape'].upper()]
+                shape = ItemShape(data['shape'])
                 search_filter.add_exact_match('shape', shape)
             except KeyError:
                 return jsonify({
@@ -1320,8 +1320,8 @@ def _execute_shortening_operation(form_data):
 def _parse_item_from_form(form_data):
     """Parse form data into an Item object"""
     # Parse enums
-    item_type = ItemType[form_data['item_type'].upper()]
-    shape = ItemShape[form_data['shape'].upper()]
+    item_type = ItemType(form_data['item_type'])
+    shape = ItemShape(form_data['shape'])
     
     # Parse dimensions
     dimensions_data = {}

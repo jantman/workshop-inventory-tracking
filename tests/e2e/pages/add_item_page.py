@@ -19,6 +19,9 @@ class AddItemPage(BasePage):
     LENGTH_INPUT = "#length"
     WIDTH_INPUT = "#width"
     DIAMETER_INPUT = "#diameter"
+    THREAD_SERIES_SELECT = "#thread_series"
+    THREAD_SIZE_INPUT = "#thread_size"
+    THREAD_HANDEDNESS_SELECT = "#thread_handedness"
     LOCATION_INPUT = "#location"
     NOTES_INPUT = "#notes"
     SUBMIT_BUTTON = "#submit-btn"  # Primary add button
@@ -49,6 +52,17 @@ class AddItemPage(BasePage):
         
         if diameter and self.is_visible(self.DIAMETER_INPUT):
             self.fill_and_wait(self.DIAMETER_INPUT, diameter)
+    
+    def fill_thread_information(self, thread_series: str = None, thread_size: str = None, thread_handedness: str = None):
+        """Fill thread information fields"""
+        if thread_series and self.is_visible(self.THREAD_SERIES_SELECT):
+            self.page.select_option(self.THREAD_SERIES_SELECT, thread_series)
+        
+        if thread_size and self.is_visible(self.THREAD_SIZE_INPUT):
+            self.fill_and_wait(self.THREAD_SIZE_INPUT, thread_size)
+        
+        if thread_handedness and self.is_visible(self.THREAD_HANDEDNESS_SELECT):
+            self.page.select_option(self.THREAD_HANDEDNESS_SELECT, thread_handedness)
     
     def fill_location_and_notes(self, location: str = None, notes: str = None):
         """Fill location and notes fields"""
