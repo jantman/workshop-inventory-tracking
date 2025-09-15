@@ -1,37 +1,12 @@
-from flask import Flask
-from config import Config
-import logging
-import os
-from app.logging_config import JSONFormatter
+#!/usr/bin/env python3
+"""
+Production entry point for Workshop Inventory Tracking application.
 
-def create_app(config_class=Config, storage_backend=None):
-    """
-    Create Flask application factory with optional storage backend injection.
-    
-    Args:
-        config_class: Configuration class to use (defaults to Config)
-        storage_backend: Optional storage backend instance for testing
-    """
-    app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
-    app.config.from_object(config_class)
-    
-    # Store the storage backend in app config for access by routes
-    if storage_backend:
-        app.config['STORAGE_BACKEND'] = storage_backend
-    else:
-        # Use MariaDB storage directly (storage factory removed after Google Sheets migration)
-        from app.mariadb_storage import MariaDBStorage
-        app.config['STORAGE_BACKEND'] = MariaDBStorage()
-    
-    # Configure logging
-    if app.debug:
-        app.logger.setLevel(logging.DEBUG)
+This script uses the centralized create_app factory from the app module
+to ensure consistency between test and production environments.
+"""
 
-    # Register blueprints
-    from app.main import bp as main_bp
-    app.register_blueprint(main_bp)
-    
-    return app
+from app import create_app
 
 if __name__ == '__main__':
     app = create_app()

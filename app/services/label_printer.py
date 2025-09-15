@@ -88,8 +88,8 @@ def generate_and_print_label(
         lp_dpi: DPI for LP printing (default: 305)
         num_copies: Number of copies to print (default: 1)
     """
-    # Test mode short-circuit - prevents actual printing during tests
-    if current_app and current_app.config.get('TESTING', False):
+    # Test mode short-circuit - prevents actual printing during tests or if disabled
+    if current_app and (current_app.config.get('TESTING', False) or current_app.config.get('DISABLE_LABEL_PRINTING', False)):
         logger.info(
             f"Test mode detected - short-circuiting label print. "
             f"Would have printed: barcode_value='{barcode_value}', "
@@ -125,9 +125,50 @@ def generate_and_print_label(
             )
         
         # Print using lp
-        printer: LpPrinter = LpPrinter(lp_options)
-        images: List[BytesIO] = [generator.file_obj] * num_copies if num_copies > 1 else [generator.file_obj]
-        printer.print_images(images)
+        try:
+            printer: LpPrinter = LpPrinter(lp_options)
+            images: List[BytesIO] = [generator.file_obj] * num_copies if num_copies > 1 else [generator.file_obj]
+            printer.print_images(images)
+        except Exception as print_error:
+            import traceback
+            import shutil
+            import os
+            
+            logger.error(f"Error in LpPrinter.print_images(): {print_error}")
+            
+            # Check if this is the common PATH issue
+            lp_path = shutil.which('lp')
+            current_path = os.environ.get('PATH', 'PATH not set')
+            
+            if lp_path is None and '$PATH' in current_path:
+                logger.error("ROOT CAUSE: PATH variable contains unexpanded $PATH")
+                logger.info("Attempting to fix malformed PATH by expanding $PATH...")
+                
+                # Get a reasonable default PATH
+                default_path = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+                fixed_path = current_path.replace('$PATH', default_path)
+                os.environ['PATH'] = fixed_path
+                logger.info(f"Fixed PATH set to: {fixed_path}")
+                
+                # Try to find lp again with fixed PATH
+                lp_path = shutil.which('lp')
+                
+                if lp_path:
+                    logger.info("SUCCESS: Found lp command after fixing PATH. Retrying print...")
+                    # Retry the print operation
+                    printer = LpPrinter(lp_options)
+                    printer.print_images(images)
+                    logger.info(f"Successfully printed {num_copies} label(s) for {barcode_value}")
+                    return  # Success, exit the function
+            
+            # If we can't fix it, provide helpful error info
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            if lp_path is None:
+                logger.error(f"'lp' command not found in PATH: {current_path}")
+                raise Exception("'lp' command not found. Please install CUPS (sudo apt install cups) or check your system PATH.")
+            else:
+                logger.error(f"'lp' command found at {lp_path}, but printing failed.")
+                raise print_error
         
         logger.info(f"Successfully printed {num_copies} label(s) for {barcode_value}")
         

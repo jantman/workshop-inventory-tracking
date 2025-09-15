@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .storage import Storage, StorageResult
 from .database import Base, InventoryItem, MaterialTaxonomy
@@ -464,7 +464,7 @@ class MariaDBStorage(Storage):
         if len(row) > 3:
             item.material = str(row[3])
         # ... additional field updates as needed
-        item.last_modified = datetime.now(datetime.UTC)
+        item.last_modified = datetime.now(timezone.utc)
     
     def _update_material_taxonomy_from_row(self, material: MaterialTaxonomy, row: List[Any]):
         """Update MaterialTaxonomy from row data"""
@@ -476,4 +476,4 @@ class MariaDBStorage(Storage):
         if len(row) > 3:
             material.aliases = str(row[3]) if row[3] else None
         # ... additional field updates as needed
-        material.last_modified = datetime.now(datetime.UTC)
+        material.last_modified = datetime.now(timezone.utc)

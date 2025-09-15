@@ -9,7 +9,7 @@ import logging
 import warnings
 # Suppress SQLAlchemy warnings about Decimal support in SQLite (used in tests)
 warnings.filterwarnings("ignore", message=".*does.*not.*support Decimal objects natively.*")
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
@@ -489,7 +489,7 @@ class InventoryService:
         Returns:
             Dictionary with success status and details
         """
-        from datetime import datetime, date
+        from datetime import datetime, timezone, date
         from .logging_config import log_audit_operation
         
         try:
@@ -554,7 +554,7 @@ class InventoryService:
             
             # Deactivate current item
             current_db_item.active = False
-            current_db_item.last_modified = datetime.now(datetime.UTC)
+            current_db_item.last_modified = datetime.now(timezone.utc)
             
             # Build shortening notes
             shortening_notes = f"Shortened from {current_db_item.length}\" to {new_length}\" on {cut_date_obj}"
@@ -589,8 +589,8 @@ class InventoryService:
                 original_material=current_db_item.original_material,
                 original_thread=current_db_item.original_thread,
                 active=True,
-                date_added=datetime.now(datetime.UTC),
-                last_modified=datetime.now(datetime.UTC)
+                date_added=datetime.now(timezone.utc),
+                last_modified=datetime.now(timezone.utc)
             )
             
             # Add new item to session
@@ -965,7 +965,7 @@ class InventoryService:
             
             # Deactivate the item
             db_item.active = False
-            db_item.last_modified = datetime.now(datetime.UTC)
+            db_item.last_modified = datetime.now(timezone.utc)
             
             session.commit()
             logger.info(f'Successfully deactivated item {ja_id}')
@@ -998,7 +998,7 @@ class InventoryService:
             
             # Activate the item
             db_item.active = True
-            db_item.last_modified = datetime.now(datetime.UTC)
+            db_item.last_modified = datetime.now(timezone.utc)
             
             session.commit()
             logger.info(f'Successfully activated item {ja_id}')

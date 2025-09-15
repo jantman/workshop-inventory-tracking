@@ -956,6 +956,7 @@ def get_next_ja_id():
         }), 500
 
 @bp.route('/api/labels/print', methods=['POST'])
+@csrf.exempt
 def print_label():
     """Print a barcode label for a JA ID"""
     try:
