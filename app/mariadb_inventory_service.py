@@ -6,6 +6,9 @@ Handles multi-row JA ID scenarios with proper active/inactive item logic.
 """
 
 import logging
+import warnings
+# Suppress SQLAlchemy warnings about Decimal support in SQLite (used in tests)
+warnings.filterwarnings("ignore", message=".*does.*not.*support Decimal objects natively.*")
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
@@ -551,7 +554,7 @@ class InventoryService:
             
             # Deactivate current item
             current_db_item.active = False
-            current_db_item.last_modified = datetime.utcnow()
+            current_db_item.last_modified = datetime.now(datetime.UTC)
             
             # Build shortening notes
             shortening_notes = f"Shortened from {current_db_item.length}\" to {new_length}\" on {cut_date_obj}"
@@ -586,8 +589,8 @@ class InventoryService:
                 original_material=current_db_item.original_material,
                 original_thread=current_db_item.original_thread,
                 active=True,
-                date_added=datetime.utcnow(),
-                last_modified=datetime.utcnow()
+                date_added=datetime.now(datetime.UTC),
+                last_modified=datetime.now(datetime.UTC)
             )
             
             # Add new item to session
@@ -962,7 +965,7 @@ class InventoryService:
             
             # Deactivate the item
             db_item.active = False
-            db_item.last_modified = datetime.utcnow()
+            db_item.last_modified = datetime.now(datetime.UTC)
             
             session.commit()
             logger.info(f'Successfully deactivated item {ja_id}')
@@ -995,7 +998,7 @@ class InventoryService:
             
             # Activate the item
             db_item.active = True
-            db_item.last_modified = datetime.utcnow()
+            db_item.last_modified = datetime.now(datetime.UTC)
             
             session.commit()
             logger.info(f'Successfully activated item {ja_id}')

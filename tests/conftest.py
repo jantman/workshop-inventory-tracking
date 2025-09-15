@@ -7,7 +7,16 @@ This file contains fixtures that are available to all test modules.
 import pytest
 import tempfile
 import os
+import warnings
 from flask import Flask
+
+# Suppress SQLAlchemy warnings during tests
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="sqlalchemy")
+warnings.filterwarnings("ignore", message=".*Decimal objects natively.*")
+warnings.filterwarnings("ignore", message=".*Deprecated API features detected.*")
+# Suppress specific SAWarning from SQLAlchemy about SQLite Decimal support
+import sqlalchemy.exc
+warnings.filterwarnings("ignore", category=sqlalchemy.exc.SAWarning)
 from app import create_app
 # InMemoryStorage removed - E2E tests now use MariaDB with SQLite backend
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
