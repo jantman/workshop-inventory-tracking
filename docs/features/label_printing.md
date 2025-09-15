@@ -122,3 +122,69 @@ LABEL_TYPES: Dict[str, dict] = {
 ```
 
 When complete, please update `docs/user-manual.md` with user instructions for printing labels.
+
+## Implementation Plan
+
+This feature will be implemented in two milestones:
+
+### Milestone 1: Backend Infrastructure and Core Printing Service
+
+**Label Printing - 1.1: Install Dependencies and Create Core Service**
+- Install pt-p710bt-label-maker dependency from jantman branch
+- Create backend label printing service (`app/services/label_printer.py`) with:
+  - `LABEL_TYPES` dictionary defining all supported label configurations
+  - `generate_and_print_label()` function implementation
+  - Test mode detection and short-circuit logic for e2e tests
+  - Proper error handling and logging
+
+**Label Printing - 1.2: Add API Endpoint and Backend Integration**
+- Create `/api/labels/print` POST endpoint in Flask routes
+- Implement request validation for JA ID and label type
+- Add proper error responses and JSON formatting
+- Write comprehensive unit tests for the label printing service
+- Write unit tests for the API endpoint
+
+### Milestone 2: Frontend Implementation and Integration
+
+**Label Printing - 2.1: Create Reusable Modal Component**
+- Implement shared label printing modal component (`static/js/label-printing-modal.js`)
+- Modal includes label type dropdown populated from backend
+- Implement API integration for print requests
+- Add proper error handling and user feedback
+- Include loading states and success/error messages
+
+**Label Printing - 2.2: Integrate UI Components**
+- Add printer button to Add Item view JA ID input group
+- Add printer button to Edit Item view JA ID input group
+- Implement label type persistence in localStorage for Add Item form
+- Ensure buttons are properly disabled/enabled based on JA ID validity
+- Add tooltips and proper accessibility attributes
+
+**Label Printing - 2.3: Testing and Documentation**
+- Write comprehensive e2e tests for label printing workflow
+- Verify test mode functionality prevents actual printing during tests
+- Test label type persistence on Add Item form
+- Test error handling scenarios (invalid JA ID, print failures)
+- Update `docs/user-manual.md` with user instructions
+- Run complete unit and e2e test suites with 10-minute timeout for e2e tests
+- **CRITICAL**: ALL (100%) unit and e2e tests MUST pass - no exceptions
+- Disabling or deleting any failing tests requires explicit human approval
+
+## UI Design Summary
+
+### Button Placement
+- **Add Item View**: Printer button added to JA ID input group (alongside existing barcode scan button)
+- **Edit Item View**: Printer button added to JA ID input group (alongside existing generate JA ID button)
+
+### Modal Design
+- **Title**: "Print Label for [JA_ID]"
+- **Content**: Dropdown selector populated dynamically from the single LABEL_TYPES dictionary in Python (no hard-coding in UI)
+- **Actions**: Cancel and Print Label buttons
+- **Persistence**: Label type selection persists in Add Item form using localStorage
+
+### Technical Requirements
+- All label types defined in single location (`LABEL_TYPES` dictionary)
+- Test mode short-circuit to prevent actual printing during tests
+- Proper error handling and user feedback
+- API endpoint accessible without CSRF protection for script/curl usage
+- Comprehensive unit and e2e test coverage
