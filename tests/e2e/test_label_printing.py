@@ -126,13 +126,16 @@ def test_label_printing_edit_item_form(page, live_server):
     list_page = InventoryListPage(page, live_server.url)
     list_page.navigate()
     
-    # Find the item and click edit (assuming edit button or link exists)
-    # This may need to be adjusted based on how edit is accessed in the list view
-    page.locator(f"[data-ja-id='JA654321']").hover()
-    page.locator(f"[data-ja-id='JA654321'] .edit-link, [data-ja-id='JA654321'] a[href*='edit']").first.click()
+    # Wait for items to load
+    list_page.wait_for_items_loaded()
+    
+    # Find and click the edit link for our item
+    edit_link = page.locator(f'a[href="/inventory/edit/JA654321"]')
+    expect(edit_link).to_be_visible()
+    edit_link.click()
     
     # Should now be on edit page
-    expect(page).to_have_url(lambda url: "edit" in url and "JA654321" in url)
+    expect(page).to_have_url(f'{live_server.url}/inventory/edit/JA654321')
     
     # Verify print button is enabled (since JA ID already exists)
     print_btn = page.locator("#print-label-btn")
@@ -146,9 +149,12 @@ def test_label_printing_edit_item_form(page, live_server):
     expect(modal).to_be_visible()
     expect(page.locator("#label-ja-id-display")).to_contain_text("JA654321")
     
+    # Wait for modal to load
+    page.wait_for_timeout(2000)
+    
     # Select label type and print
     page.locator("#label-type-select").select_option("Sato 4x6 Flag")
-    page.locator("#print-label-btn", has_text="Print Label").click()
+    page.locator("#modal-print-label-btn").click()
     
     # Verify success
     page.wait_for_timeout(2000)
@@ -181,12 +187,16 @@ def test_label_printing_modal_validation(page, live_server):
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
     
-    # Enter valid JA ID and open modal
+    # Clear auto-populated JA ID and enter valid JA ID
+    page.locator("#ja_id").fill("")
     page.locator("#ja_id").fill("JA999999")
     page.locator("#print-label-btn").click()
     
+    # Wait for modal to load
+    page.wait_for_timeout(2000)
+    
     # Try to print without selecting label type
-    modal_print_btn = page.locator("#print-label-btn", has_text="Print Label")
+    modal_print_btn = page.locator("#modal-print-label-btn")
     modal_print_btn.click()
     
     # Should show error message
@@ -215,10 +225,15 @@ def test_label_printing_test_mode_verification(page, live_server):
     page.on("request", handle_request)
     
     # Print a label
+    page.locator("#ja_id").fill("")
     page.locator("#ja_id").fill("JA888888")
     page.locator("#print-label-btn").click()
+    
+    # Wait for modal to load
+    page.wait_for_timeout(2000)
+    
     page.locator("#label-type-select").select_option("Sato 1x2")
-    page.locator("#print-label-btn", has_text="Print Label").click()
+    page.locator("#modal-print-label-btn").click()
     
     # Wait for request to complete
     page.wait_for_timeout(2000)
@@ -238,29 +253,36 @@ def test_label_printing_modal_close_behaviors(page, live_server):
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
     
-    # Enter JA ID
+    # Clear auto-populated JA ID and enter test JA ID
+    page.locator("#ja_id").fill("")
     page.locator("#ja_id").fill("JA777777")
     
     # Test close button (X)
     page.locator("#print-label-btn").click()
     modal = page.locator("#label-printing-modal")
     expect(modal).to_be_visible()
+    page.wait_for_timeout(1000)  # Wait for modal to fully load
     
     page.locator("#label-printing-modal .btn-close").click()
+    page.wait_for_timeout(500)  # Wait for close animation
     expect(modal).not_to_be_visible()
     
     # Test cancel button
     page.locator("#print-label-btn").click()
     expect(modal).to_be_visible()
+    page.wait_for_timeout(1000)  # Wait for modal to fully load
     
     page.locator("#label-printing-modal .btn-secondary").click()
+    page.wait_for_timeout(500)  # Wait for close animation
     expect(modal).not_to_be_visible()
     
     # Test ESC key
     page.locator("#print-label-btn").click()
     expect(modal).to_be_visible()
+    page.wait_for_timeout(1000)  # Wait for modal to fully load
     
     page.keyboard.press("Escape")
+    page.wait_for_timeout(500)  # Wait for close animation
     expect(modal).not_to_be_visible()
 
 
@@ -278,10 +300,15 @@ def test_label_printing_api_error_handling(page, live_server):
     ))
     
     # Try to print a label
+    page.locator("#ja_id").fill("")
     page.locator("#ja_id").fill("JA555555")
     page.locator("#print-label-btn").click()
+    
+    # Wait for modal to load
+    page.wait_for_timeout(2000)
+    
     page.locator("#label-type-select").select_option("Sato 1x2")
-    page.locator("#print-label-btn", has_text="Print Label").click()
+    page.locator("#modal-print-label-btn").click()
     
     # Wait for error handling
     page.wait_for_timeout(2000)
@@ -312,6 +339,7 @@ def test_label_types_api_loading(page, live_server):
     page.on("request", handle_request)
     
     # Open modal which should trigger label types loading
+    page.locator("#ja_id").fill("")
     page.locator("#ja_id").fill("JA333333")
     page.locator("#print-label-btn").click()
     
@@ -333,6 +361,7 @@ def test_label_printing_different_label_types(page, live_server):
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
     
+    page.locator("#ja_id").fill("")
     page.locator("#ja_id").fill("JA111111")
     
     label_types_to_test = ["Sato 1x2", "Sato 1x2 Flag", "Sato 2x4", "Sato 4x6 Flag"]
@@ -341,9 +370,12 @@ def test_label_printing_different_label_types(page, live_server):
         # Open modal
         page.locator("#print-label-btn").click()
         
+        # Wait for modal to load
+        page.wait_for_timeout(2000)
+        
         # Select label type and print
         page.locator("#label-type-select").select_option(label_type)
-        page.locator("#print-label-btn", has_text="Print Label").click()
+        page.locator("#modal-print-label-btn").click()
         
         # Wait for completion
         page.wait_for_timeout(2000)
