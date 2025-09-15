@@ -358,3 +358,75 @@ def test_clear_queue_functionality(page, live_server):
     expect(page.locator("#execute-moves-btn")).to_be_disabled()
 
 
+@pytest.mark.e2e
+def test_move_item_with_original_thread_regression_test(page, live_server):
+    """Regression test: Move item with original_thread value to prevent AttributeError bug"""
+    from sqlalchemy.orm import sessionmaker
+    from app.database import InventoryItem
+    
+    # Add item directly to database with original_thread value (simulates legacy/migrated data)
+    ja_id = "JA000107"
+    Session = sessionmaker(bind=live_server.engine)
+    session = Session()
+    
+    try:
+        db_item = InventoryItem(
+            ja_id=ja_id,
+            item_type="Bar",
+            shape="Round", 
+            material="Steel",
+            length=1500.0,
+            width=30.0,
+            quantity=1,
+            location="Storage Room A",
+            notes="Regression test item with original_thread",
+            original_thread="5/16-18",  # This would have caused the AttributeError bug
+            active=True
+        )
+        
+        session.add(db_item)
+        session.commit()
+        print(f"✅ Added regression test item {ja_id} with original_thread='5/16-18'")
+        
+    except Exception as e:
+        session.rollback()
+        print(f"❌ Error adding regression test item: {e}")
+        raise
+    finally:
+        session.close()
+    
+    # Navigate to move page
+    move_page = MoveItemsPage(page, live_server.url)
+    move_page.navigate()
+    
+    # This workflow would have failed with "AttributeError: 'str' object has no attribute 'to_dict'"
+    # before the bug was fixed
+    move_page.simulate_barcode_scan(ja_id)
+    
+    # Check for any error alerts that would indicate the bug is still present
+    error_alerts = page.locator(".alert-danger")
+    if error_alerts.count() > 0:
+        for i in range(error_alerts.count()):
+            error_text = error_alerts.nth(i).inner_text()
+            print(f"❌ Error alert {i+1}: {error_text}")
+            # If we see an AttributeError about to_dict, the bug is not fixed
+            if "AttributeError" in error_text and "to_dict" in error_text:
+                pytest.fail(f"Bug regression detected: {error_text}")
+    
+    # Scan new location
+    move_page.simulate_barcode_scan("Storage Room B")
+    
+    # Should have successfully added item to queue
+    assert move_page.get_queue_count() == 1
+    move_page.assert_queue_item_visible(ja_id, "Storage Room B")
+    
+    # Complete the move workflow
+    move_page.simulate_barcode_scan(">>DONE<<")
+    move_page.click_validate_moves()
+    move_page.click_execute_moves()
+    
+    # Should complete successfully without AttributeError
+    move_page.assert_success_message("successfully")
+    print(f"✅ Regression test passed: Item with original_thread moved successfully")
+
+

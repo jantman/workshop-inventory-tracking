@@ -54,17 +54,23 @@ Please help me debug and fix this problem. Just as important as fixing this prob
 - ✅ Ran specific new tests to verify fix works for both string and None values
 - ✅ Created and tested manual verification script confirming the bug is fixed
 
-### Milestone 2: Fix E2E Test Coverage 
+### Milestone 2: Fix E2E Test Coverage ✅ COMPLETE
 **Prefix: `Move Item Error - 2.1`**
 
-#### Task 2.1: Add E2E test with items that have original_thread values
-- Create a new E2E test that adds items with `original_thread` set to a string value
-- Test moving these items to verify the bug would have been caught
-- Ensure the test covers the specific code path that was failing
+#### Task 2.1: Add E2E test with items that have original_thread values ✅ COMPLETE
+- ✅ Created new E2E test file `test_move_items_with_original_thread.py` with comprehensive coverage
+- ✅ Added `test_move_item_with_original_thread_string()` test that directly creates items with original_thread='1/4-20'
+- ✅ Added `test_move_item_with_original_thread_none()` test for None values
+- ✅ Added `test_move_multiple_items_with_mixed_original_thread()` test for mixed scenarios
+- ✅ Added `test_move_item_with_original_thread_empty_string()` test for edge cases
+- ✅ All tests use direct database manipulation to create items with original_thread values
+- ✅ Tests cover the exact code path that was failing (move operations with audit logging)
 
-#### Task 2.2: Enhance existing E2E tests 
-- Update at least one existing move test to use items with populated `original_thread` fields
-- Verify the move functionality works end-to-end with these items
+#### Task 2.2: Enhance existing E2E tests ✅ COMPLETE
+- ✅ Added `test_move_item_with_original_thread_regression_test()` to existing `test_move_items.py`
+- ✅ This test specifically creates an item with original_thread='5/16-18' and moves it
+- ✅ Test includes explicit checks for AttributeError messages to catch regressions
+- ✅ Verified all new tests pass with the fix in place
 
 ### Milestone 3: Documentation and Final Validation
 **Prefix: `Move Item Error - 3.1`**
