@@ -441,7 +441,18 @@ class MaterialSelector {
                     currentLevel = found.families;
                 } else if (pathItem.level === 2 && found.materials) {
                     currentLevel = found.materials;
+                } else {
+                    // If we can't find children, we might be at a leaf node
+                    // Return empty array to show no further navigation possible
+                    console.warn('MaterialSelector: No children found for', pathItem.name, 'at level', pathItem.level);
+                    return [];
                 }
+            } else {
+                // If we can't find the path item, we have a navigation issue
+                console.error('MaterialSelector: Path item not found:', pathItem.name, 'in current level');
+                // Reset to root level to recover from bad state
+                this.currentPath = [];
+                return this.taxonomyData;
             }
         }
         
