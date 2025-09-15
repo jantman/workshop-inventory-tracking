@@ -37,7 +37,7 @@ class InventoryAddForm {
                 'Rectangular': ['length', 'width', 'wall_thickness']
             },
             'Threaded Rod': {
-                'Round': ['length', 'width']
+                'Round': ['length', 'thread_series', 'thread_size']
             },
             'Angle': {
                 'Rectangular': ['length', 'width', 'thickness']
@@ -239,15 +239,20 @@ class InventoryAddForm {
         const selectedType = typeSelect.value;
         const selectedShape = shapeSelect.value;
         
-        // Reset all dimension requirements
-        const dimensionFields = ['length', 'width', 'thickness', 'wall_thickness'];
-        dimensionFields.forEach(field => {
+        // Reset all dimension and thread requirements
+        const allFields = ['length', 'width', 'thickness', 'wall_thickness', 'thread_series', 'thread_size'];
+        allFields.forEach(field => {
             const input = document.getElementById(field);
-            const indicator = input.closest('.mb-3').querySelector('.dimension-required');
-            
-            input.removeAttribute('required');
-            indicator.style.display = 'none';
-            input.classList.remove('is-invalid');
+            if (input) {
+                input.removeAttribute('required');
+                input.classList.remove('is-invalid');
+                
+                // Find and hide requirement indicators
+                const indicator = input.closest('.mb-3')?.querySelector('.dimension-required');
+                if (indicator) {
+                    indicator.style.display = 'none';
+                }
+            }
         });
         
         // Apply requirements based on type/shape combination
@@ -257,10 +262,15 @@ class InventoryAddForm {
             if (requirements) {
                 requirements.forEach(field => {
                     const input = document.getElementById(field);
-                    const indicator = input.closest('.mb-3').querySelector('.dimension-required');
-                    
-                    input.setAttribute('required', 'required');
-                    indicator.style.display = 'inline';
+                    if (input) {
+                        input.setAttribute('required', 'required');
+                        
+                        // Find and show requirement indicators for dimension fields
+                        const indicator = input.closest('.mb-3')?.querySelector('.dimension-required');
+                        if (indicator) {
+                            indicator.style.display = 'inline';
+                        }
+                    }
                 });
             }
         }
