@@ -24,6 +24,7 @@ def tests(session):
     session.run(
         "python", "-m", "pytest",
         "-v",
+        "--blockage",
         "-m", "not e2e and not integration",
         "--tb=short",
         *session.posargs
@@ -47,6 +48,7 @@ def e2e(session):
     session.run(
         "python", "-m", "pytest",
         "-v", 
+        "--durations=20",
         "-m", "e2e",
         "--tb=short",
         *session.posargs
