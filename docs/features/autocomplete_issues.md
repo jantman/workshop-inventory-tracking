@@ -6,4 +6,4 @@ There is something wrong with our Material autocomplete menus (on the Add and Ed
 
 I think that we need to write e2e tests to validate navigation to, display of, and selection at every level of the hierarchy, and then use those (presumably failing) tests to guide our identification of the bug(s) and fixing them.
 
-See `fix_material_autocomplete_issues.md` in this directory for history of the original feature implementation.
+See `docs/features/complete/fix_material_autocomplete_issues.md` for history of the original feature implementation.
