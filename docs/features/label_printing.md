@@ -6,6 +6,10 @@ We would like to add the ability to print a barcode label for the JA ID of an it
 
 Code for printing labels is already written; it exists in the `jantman` branch of `https://github.com/jantman/pt-p710bt-label-maker` - this is not available as a Python package, but must be installed directly from that branch of that git repository.
 
+**VERY IMPORTANT:** Running the code snippets below (and specifically, calling `LpPrinter().print_images()`) WILL cause an actual printer to actually print labels, so it must NEVER be done by any tests. You will need to implement some sort of short-circuit pattern where, if the application is running in test mode (i.e. e2e tests), the `generate_and_print_label()` function exits right after being called, and somehow indicates what parameters it was called with, so that the e2e tests can verify it was called without actually printing labels. The implementation of `generate_and_print_label()` can be verified via unit tests.
+
+As part of your planning process, please explain to me what the UI for label printing (on both Add Item and Edit Item) will look like, so that I can suggest changes prior to implementation.
+
 Here is a code snippet with a reusable function that can be called to print labels:
 
 ```python
