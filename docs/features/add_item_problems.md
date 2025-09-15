@@ -62,3 +62,49 @@ Your goal is twofold:
 
 1. First, we are supposed to have comprehensive e2e tests, but such a basic failure should be caught by them. Examine the e2e tests and determine if any are adding an item of type Threaded Rod. If there is one, then tell me why it is not catching this problem. If there is not one, then please add one and be sure to NOT specify a Width, only a Length, Thread Series, and Thread Size. The test should be failing because of the same issue that I'm experiencing. When you get to this point, stop and ask for my approval before proceeding.
 2. Second, fix the bugs that I am experiencing. This should also cause the relevent e2e test(s) to pass.
+
+## Implementation Plan
+
+This feature will be implemented in two milestones with human approval required between them:
+
+### Milestone 1: E2E Test Investigation and Addition
+**Prefix:** `Item Problems - 1.`
+
+#### Task 1.1: Investigate E2E Test Coverage
+- Examine existing e2e tests to find item addition tests
+- Check if any tests currently add Threaded Rod items
+- Analyze why current tests don't catch this issue
+
+#### Task 1.2: Add E2E Test for Threaded Rod (should fail initially)
+- Create e2e test that adds a Threaded Rod item
+- Test should specify Length, Thread Series, and Thread Size but NO Width
+- This test will initially fail due to the current bugs
+- Update feature document with findings and commit changes
+
+**STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 2**
+
+### Milestone 2: Fix Issues and Verify
+**Prefix:** `Item Problems - 2.`
+
+#### Task 2.1: Investigate and Fix Backend Issues
+- Investigate why the Add Item form/process is causing `KeyError: 'THREADED ROD'` when other forms work fine
+- Examine the `_parse_item_from_form` function in routes.py:1323 and how it handles item_type values
+- Compare with other working forms to understand the difference
+- Fix the Add Item form/process (likely NOT the enum itself since other forms work)
+
+#### Task 2.2: Fix Form Validation Rules
+- Update frontend/backend validation to:
+  - NOT require Width for Threaded Rod items
+  - Require Thread Series and Thread Size for Threaded Rod items
+  - Maintain existing validation for other item types
+
+#### Task 2.3: Verify and Test
+- Run the new e2e test to ensure it now passes
+- Run full e2e test suite to ensure no regressions
+- Manual testing of the Add Item form with Threaded Rod
+
+#### Task 2.4: Documentation and Cleanup
+- Update relevant documentation if needed
+- Commit all changes with appropriate commit message
+
+**Expected Outcome:** Users can successfully add Threaded Rod items through the Add Item form with proper validation (no Width required, Thread Series and Thread Size required).
