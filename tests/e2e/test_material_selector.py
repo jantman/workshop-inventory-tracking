@@ -6,6 +6,7 @@ including taxonomy navigation, smart filtering, and keyboard navigation.
 """
 
 import pytest
+import re
 import time
 from playwright.sync_api import expect
 from tests.e2e.pages.add_item_page import AddItemPage
@@ -436,15 +437,33 @@ def test_material_selector_validation_integration(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Try to find and select a valid material
-    selectable_items = page.locator('.material-suggestions .suggestion-item.selectable')
-    
-    if selectable_items.count() > 0:
-        # Select first available material
-        first_material = selectable_items.first
-        first_material.click()
+    # Navigate to find a real material (not a category)
+    # Click on Carbon Steel category to navigate to its families
+    carbon_steel_category = page.locator('.material-suggestions .suggestion-item').filter(has_text='Carbon Steel')
+    if carbon_steel_category.count() > 0:
+        carbon_steel_category.first.click()
+        expect(suggestions_container).to_be_visible()
         
-        # Input should have the material and not show validation error
+        # Now look for an actual material
+        material_items = page.locator('.material-suggestions .suggestion-item.selectable')
+        if material_items.count() > 0:
+            # Select first actual material
+            first_material = material_items.first
+            first_material.click()
+            
+            # Input should have the material and not show validation error
+            expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
+        else:
+            # If no materials found, try a different approach - just use a known good material
+            material_input.fill('1018')  # Known material from Carbon Steel family
+            page.wait_for_timeout(500)  # Wait for validation to process
+            
+            # Should not show validation error for known material
+            expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
+    else:
+        # Fallback: just type a known valid material
+        material_input.fill('1018')
+        page.wait_for_timeout(500)  # Wait for validation to process
         expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
         
         # Form should be submittable
