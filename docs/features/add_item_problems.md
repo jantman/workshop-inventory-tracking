@@ -94,11 +94,31 @@ This feature will be implemented in two milestones with human approval required 
    - Since the add form URL is `/inventory/add`, it contains "/inventory" and passes the assertion
    - **This is a bug in the test logic** - it should check for redirect to `/inventory` (list page), not just URL containing "/inventory"
 
-**Root Cause Identified:**
-- **Backend Issue**: In `routes.py:1323`, the code does `ItemType[form_data['item_type'].upper()]`
-- Form sends: `"Threaded Rod"` → `.upper()` → `"THREADED ROD"`  
-- But enum key is: `"THREADED_ROD"` (underscore, not space)
-- **Solution**: Replace spaces with underscores before enum lookup
+**Root Cause Identified - DEEPER ANALYSIS:**
+
+**The Architecture is Correct:**
+1. ✅ **Frontend**: UI dropdown correctly populated from `ItemType` enum using `{{ item_type.value }}`
+2. ✅ **Form submission**: Correctly sends enum values like "Threaded Rod"  
+3. ❌ **Backend**: **Incorrectly** tries to look up enum by name instead of by value
+
+**The Core Problem**: Backend has **inconsistent enum lookup patterns**:
+- ✅ **Correct approach** (used in `models.py:524`): `ItemType(data['item_type'])` - lookup by value
+- ❌ **Incorrect approach** (used in 4 locations): `ItemType[value.upper()]` - lookup by name
+
+**Why it fails for "Threaded Rod"**:
+- Enum: `THREADED_ROD = "Threaded Rod"`
+- Form sends: `"Threaded Rod"`
+- Current code: `ItemType["Threaded Rod".upper()]` = `ItemType["THREADED ROD"]` 
+- But enum name is: `"THREADED_ROD"` (underscore, not space)
+
+**All Affected Locations:**
+1. `routes.py:1121` - Search: `ItemType[data['item_type'].upper()]`
+2. `routes.py:1131` - Search: `ItemShape[data['shape'].upper()]` 
+3. `routes.py:1323` - Add item: `ItemType[form_data['item_type'].upper()]` (reported issue)
+4. `routes.py:1324` - Add item: `ItemShape[form_data['shape'].upper()]`
+
+**Impact**: This bug affects both **Add Item AND Search functionality** for "Threaded Rod" items
+**Solution**: Use enum constructor `EnumType(value)` instead of `EnumType[value.upper()]` in all 4 locations
 
 ### Task 1.2: E2E Test Addition - COMPLETED
 
@@ -109,6 +129,32 @@ This feature will be implemented in two milestones with human approval required 
 - Includes clear logging to indicate test status
 
 **Test Results:** ✅ Test correctly identifies the issue and shows expected failure behavior
+
+## Additional Testing Requirements
+
+**Current Test Coverage Gaps Identified:**
+
+1. **❌ No unit tests** for `_parse_item_from_form()` function
+2. **❌ No search tests** for "Threaded Rod" item type filtering  
+3. **❌ No tests** for search enum lookup functions (routes.py:1121, 1131)
+4. **✅ Existing test** for add item with Threaded Rod (but was incorrectly passing)
+
+**Recommended Additional Tests for Milestone 2:**
+
+### Unit Tests Needed:
+1. **Test `_parse_item_from_form()`** with all ItemType values, especially "Threaded Rod"
+2. **Test enum lookup functions** in search functionality
+3. **Test ItemType/ItemShape enum constructors** vs bracket notation
+
+### E2E Tests Needed:
+1. **Search by item type = "Threaded Rod"** (currently missing)
+2. **Search with multiple filters including "Threaded Rod"**
+3. **Fix existing test assertion logic** in `assert_form_submitted_successfully()`
+
+**Test Strategy:**
+- Add tests that verify the **correct behavior** (using enum constructors)
+- Add tests that document **current broken behavior** will fail until fixed
+- Ensure tests cover both **Add Item AND Search** functionality
 
 **STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 2**
 
