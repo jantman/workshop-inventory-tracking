@@ -955,6 +955,89 @@ def get_next_ja_id():
             'error': 'Failed to generate next JA ID'
         }), 500
 
+@bp.route('/api/labels/print', methods=['POST'])
+def print_label():
+    """Print a barcode label for a JA ID"""
+    try:
+        from app.services.label_printer import print_label_for_ja_id, get_available_label_types
+        
+        data = request.get_json() or {}
+        ja_id = data.get('ja_id', '').strip()
+        label_type = data.get('label_type', '').strip()
+        
+        if not ja_id:
+            return jsonify({
+                'success': False,
+                'error': 'ja_id is required'
+            }), 400
+            
+        if not label_type:
+            return jsonify({
+                'success': False,
+                'error': 'label_type is required'
+            }), 400
+        
+        # Validate JA ID format
+        if not (ja_id.startswith('JA') and len(ja_id) == 8 and ja_id[2:].isdigit()):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid JA ID format. Expected format: JA######'
+            }), 400
+        
+        # Validate label type
+        available_types = get_available_label_types()
+        if label_type not in available_types:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid label type. Available types: {available_types}'
+            }), 400
+        
+        # Print the label
+        print_label_for_ja_id(ja_id, label_type)
+        
+        current_app.logger.info(f'Successfully printed {label_type} label for {ja_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Label printed successfully for {ja_id}',
+            'ja_id': ja_id,
+            'label_type': label_type
+        })
+        
+    except ValueError as e:
+        current_app.logger.warning(f'Validation error printing label: {e}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+        
+    except Exception as e:
+        current_app.logger.error(f'Error printing label: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to print label'
+        }), 500
+
+@bp.route('/api/labels/types')
+def get_label_types():
+    """Get available label types for the UI"""
+    try:
+        from app.services.label_printer import get_available_label_types
+        
+        available_types = get_available_label_types()
+        
+        return jsonify({
+            'success': True,
+            'label_types': available_types
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting label types: {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get label types'
+        }), 500
+
 @bp.route('/api/inventory/list')
 def api_inventory_list():
     """Get inventory list data for the frontend"""
