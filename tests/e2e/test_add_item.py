@@ -330,7 +330,8 @@ def test_material_autocomplete_functionality(page, live_server):
     expect(suggestions_div).to_be_visible()
     suggestion_items = page.locator('.material-suggestions .suggestion-item')
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
-    assert '12L14' in suggestions_text, f"Expected '12L14' in suggestions: {suggestions_text}"
+    # MaterialSelector includes icons and formatting, so check for material name within text
+    assert any('12L14' in text for text in suggestions_text), f"Expected '12L14' in suggestions: {suggestions_text}"
     
     # Test 5: Clicking outside hides suggestions
     page.locator('#ja_id').click()

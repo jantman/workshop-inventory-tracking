@@ -116,8 +116,8 @@ def test_material_selector_family_navigation(page, live_server):
         # Check for specific materials like "6061-T6"
         expect(suggestions_container).to_contain_text('6061-T6')
         
-        # Check for material icons
-        material_item = page.locator('.material-suggestions .suggestion-item', has_text='6061-T6')
+        # Check for material icons - use exact match with data attribute to avoid strict mode violation
+        material_item = page.locator('.material-suggestions .suggestion-item[data-name="6061-T6"]')
         expect(material_item).to_contain_text('🔧')
 
 
@@ -382,11 +382,11 @@ def test_material_selector_works_on_edit_form(page, live_server):
     page.locator('#length').fill('12')
     page.locator('#width').fill('1')
     
-    # Submit form
-    page.locator('button[type="submit"]').click()
+    # Submit form - use specific submit button to avoid strict mode violation
+    page.locator('#submit-btn').click()
     
-    # Should redirect to success or list page
-    expect(page).to_have_url_regex(r'.*/inventory/.*')
+    # Should redirect to success or list page (inventory list)
+    expect(page).to_have_url(re.compile(r'.*/inventory$'))
     
     # Navigate to edit the item we just created
     page.goto(f'{live_server.url}/inventory/edit/JA999998')
@@ -451,23 +451,37 @@ def test_material_selector_validation_integration(page, live_server):
             first_material = material_items.first
             first_material.click()
             
+            # Trigger validation events after material selection
+            material_input.dispatch_event('input')
+            material_input.dispatch_event('change')
+            material_input.dispatch_event('blur')
+            page.wait_for_timeout(300)  # Wait for validation to process
+            
             # Input should have the material and not show validation error
             expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
         else:
             # If no materials found, try a different approach - just use a known good material
-            material_input.fill('1018')  # Known material from Carbon Steel family
+            material_input.fill('Carbon Steel')  # Use a known category/material that should validate
+            # Trigger validation events
+            material_input.dispatch_event('input')
+            material_input.dispatch_event('change')
+            material_input.dispatch_event('blur')
             page.wait_for_timeout(500)  # Wait for validation to process
             
             # Should not show validation error for known material
             expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
     else:
         # Fallback: just type a known valid material
-        material_input.fill('1018')
+        material_input.fill('Carbon Steel')
+        # Trigger validation events
+        material_input.dispatch_event('input')
+        material_input.dispatch_event('change')
+        material_input.dispatch_event('blur')
         page.wait_for_timeout(500)  # Wait for validation to process
         expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
         
         # Form should be submittable
-        submit_button = page.locator('button[type="submit"]')
+        submit_button = page.locator('#submit-btn')
         expect(submit_button).to_be_enabled()
         
         # Submit should work (will redirect or show success)
