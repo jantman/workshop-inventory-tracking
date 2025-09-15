@@ -131,47 +131,14 @@ def generate_and_print_label(
             printer.print_images(images)
         except Exception as print_error:
             import traceback
-            import shutil
-            import os
-            
-            logger.error(f"Error in LpPrinter.print_images(): {print_error}")
-            
-            # Check if this is the common PATH issue
-            lp_path = shutil.which('lp')
-            current_path = os.environ.get('PATH', 'PATH not set')
-            
-            if lp_path is None and '$PATH' in current_path:
-                logger.error("ROOT CAUSE: PATH variable contains unexpanded $PATH")
-                logger.info("Attempting to fix malformed PATH by expanding $PATH...")
-                
-                # Get a reasonable default PATH
-                default_path = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-                fixed_path = current_path.replace('$PATH', default_path)
-                os.environ['PATH'] = fixed_path
-                logger.info(f"Fixed PATH set to: {fixed_path}")
-                
-                # Try to find lp again with fixed PATH
-                lp_path = shutil.which('lp')
-                
-                if lp_path:
-                    logger.info("SUCCESS: Found lp command after fixing PATH. Retrying print...")
-                    # Retry the print operation
-                    printer = LpPrinter(lp_options)
-                    printer.print_images(images)
-                    logger.info(f"Successfully printed {num_copies} label(s) for {barcode_value}")
-                    return  # Success, exit the function
             
             # If we can't fix it, provide helpful error info
+            logger.error('Label printing failed: ' + str(print_error))
             logger.error(f"Full traceback: {traceback.format_exc()}")
-            if lp_path is None:
-                logger.error(f"'lp' command not found in PATH: {current_path}")
-                raise Exception("'lp' command not found. Please install CUPS (sudo apt install cups) or check your system PATH.")
-            else:
-                logger.error(f"'lp' command found at {lp_path}, but printing failed.")
-                raise print_error
-        
+            raise print_error
+
         logger.info(f"Successfully printed {num_copies} label(s) for {barcode_value}")
-        
+
     except Exception as e:
         logger.error(f"Error printing label for {barcode_value}: {str(e)}")
         raise
