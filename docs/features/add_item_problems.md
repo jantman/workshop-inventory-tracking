@@ -158,28 +158,58 @@ This feature will be implemented in two milestones with human approval required 
 
 **STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 2**
 
-### Milestone 2: Fix Issues and Verify
+### Milestone 2: Implement Comprehensive Test Coverage  
 **Prefix:** `Item Problems - 2.`
 
-#### Task 2.1: Investigate and Fix Backend Issues
-- Investigate why the Add Item form/process is causing `KeyError: 'THREADED ROD'` when other forms work fine
-- Examine the `_parse_item_from_form` function in routes.py:1323 and how it handles item_type values
-- Compare with other working forms to understand the difference
-- Fix the Add Item form/process (likely NOT the enum itself since other forms work)
+#### Task 2.1: Add Unit Tests for Enum Lookup Functions
+- Create unit tests for `_parse_item_from_form()` with all ItemType values, especially "Threaded Rod"
+- Add unit tests for search enum lookup functions (routes.py:1121, 1131)
+- Test both current broken behavior and expected correct behavior
+- Verify that "Threaded Rod" tests fail with current implementation
 
-#### Task 2.2: Fix Form Validation Rules
-- Update frontend/backend validation to:
+#### Task 2.2: Add E2E Tests for Search Functionality
+- Add E2E test for search by item type = "Threaded Rod" (currently missing)
+- Add E2E test for search with multiple filters including "Threaded Rod"
+- Verify these tests fail with current search implementation
+
+#### Task 2.3: Fix Test Infrastructure Issues
+- Fix assertion logic in `assert_form_submitted_successfully()` helper
+- Ensure test properly distinguishes between success (redirect to /inventory) vs failure (stay on /inventory/add)
+
+#### Task 2.4: Verify Test Failures and Update Documentation
+- Run all new tests to confirm appropriate ones fail (reproducing the issues)
+- Update this feature document with test results
+- Commit all test additions
+
+**Expected Outcome:** Comprehensive test coverage that properly identifies all enum lookup bugs
+
+**STOP HERE FOR HUMAN APPROVAL BEFORE PROCEEDING TO MILESTONE 3**
+
+### Milestone 3: Implement Fixes and Verify
+**Prefix:** `Item Problems - 3.`
+
+#### Task 3.1: Fix Backend Enum Lookup Issues
+- Fix all 4 locations to use enum constructor approach: `EnumType(value)` instead of `EnumType[value.upper()]`
+- Routes.py:1121 - Search: `ItemType(data['item_type'])`
+- Routes.py:1131 - Search: `ItemShape(data['shape'])`  
+- Routes.py:1323 - Add item: `ItemType(form_data['item_type'])`
+- Routes.py:1324 - Add item: `ItemShape(form_data['shape'])`
+
+#### Task 3.2: Fix Form Validation Rules (if needed)
+- Assess if frontend/backend validation needs updates for Threaded Rod:
   - NOT require Width for Threaded Rod items
   - Require Thread Series and Thread Size for Threaded Rod items
   - Maintain existing validation for other item types
 
-#### Task 2.3: Verify and Test
-- Run the new e2e test to ensure it now passes
+#### Task 3.3: Verify All Tests Pass
+- Run all unit tests to ensure enum fixes work
+- Run new E2E tests to ensure both Add and Search functionality work for "Threaded Rod"
 - Run full e2e test suite to ensure no regressions
-- Manual testing of the Add Item form with Threaded Rod
 
-#### Task 2.4: Documentation and Cleanup
-- Update relevant documentation if needed
-- Commit all changes with appropriate commit message
+#### Task 3.4: Final Verification and Documentation
+- Manual testing of Add Item form with Threaded Rod
+- Manual testing of Search functionality with Threaded Rod
+- Update documentation if needed
+- Commit all fixes with appropriate commit message
 
 **Expected Outcome:** Users can successfully add Threaded Rod items through the Add Item form with proper validation (no Width required, Thread Series and Thread Size required).
