@@ -13,6 +13,7 @@ class MaterialSelector {
         this.inputElement = document.getElementById(inputElementId);
         this.suggestionsContainer = null;
         this.breadcrumbContainer = null;
+        this.materialValidator = null; // Reference to MaterialValidator instance
         
         // Configuration
         this.config = {
@@ -56,6 +57,9 @@ class MaterialSelector {
         
         // Set up event listeners
         this.setupEventListeners();
+        
+        // Try to find and integrate with MaterialValidator
+        this.integrateWithMaterialValidator();
         
         console.log('MaterialSelector initialized for', this.inputElement.id);
     }
@@ -137,6 +141,21 @@ class MaterialSelector {
         });
     }
     
+    integrateWithMaterialValidator() {
+        // Try to find MaterialValidator instance for this input
+        if (window.materialValidator && window.materialValidator.materialField === this.inputElement) {
+            this.materialValidator = window.materialValidator;
+            console.log('MaterialSelector: Integrated with MaterialValidator');
+        }
+    }
+    
+    triggerValidation() {
+        // Trigger MaterialValidator validation if available
+        if (this.materialValidator) {
+            this.materialValidator.validateMaterial();
+        }
+    }
+    
     async handleInput(value) {
         const query = value.trim();
         
@@ -150,6 +169,9 @@ class MaterialSelector {
             this.isNavigationMode = false;
             await this.showSearchResults(query);
         }
+        
+        // Trigger MaterialValidator validation after handling input
+        this.triggerValidation();
     }
     
     async handleFocus() {
@@ -177,6 +199,9 @@ class MaterialSelector {
         } else {
             console.log('MaterialSelector: Not hiding suggestions - clicking on suggestions or navigating');
         }
+        
+        // Trigger MaterialValidator validation on blur
+        this.triggerValidation();
     }
     
     handleKeyDown(e) {
