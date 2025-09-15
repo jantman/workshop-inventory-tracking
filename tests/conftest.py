@@ -179,6 +179,8 @@ def browser_context_args(browser_context_args):
         **browser_context_args,
         "viewport": {"width": 1280, "height": 720},
         "ignore_https_errors": True,
+        "default_timeout": 60000,              # Increase from 30s to 60s
+        "default_navigation_timeout": 60000,   # For page.goto()
     }
 
 

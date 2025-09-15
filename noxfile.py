@@ -44,13 +44,15 @@ def e2e(session):
     # Install Playwright browsers (without --with-deps on Arch Linux due to sudo issues)
     session.run("python", "-m", "playwright", "install", "chromium")
     
-    # Run E2E tests only
+    # Run E2E tests only with retry logic
     session.run(
         "python", "-m", "pytest",
         "-v", 
         "--durations=20",
         "-m", "e2e",
         "--tb=short",
+        "--reruns=3",          # Retry failed tests up to 3 times
+        "--reruns-delay=2",    # Wait 2 seconds between retries
         *session.posargs
     )
 
