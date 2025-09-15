@@ -69,7 +69,7 @@ def generate_and_print_label(
     printer.print_images(images)
 ```
 
-And here is a dictionary mapping label type names (which the user will select in the UI) to the keyword arguments that should be passed to `generate_and_print_label()` for each of them; each of these keyword argument dictionaries expect one more element, `barcode_value`, whose value is the string barcode content (JA ID):
+And here is a dictionary mapping label type names (which the user will select in the UI) to the keyword arguments that should be passed to `generate_and_print_label()` for each of them; each of these keyword argument dictionaries expect one more element, `barcode_value`, whose value is the string barcode content (JA ID). **IMPORTANT** these label types must be defined in one and only one place; adding a new label type to this dictionary should fulfill everything required to make that label type usable in the UI and successfully print.
 
 ```python
 LABEL_TYPES: Dict[str, dict] = {
