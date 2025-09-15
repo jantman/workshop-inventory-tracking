@@ -49,6 +49,9 @@
                                         title="Generate next JA ID">
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
+                                <button type="button" class="btn btn-outline-info" id="print-label-btn" title="Print label">
+                                    <i class="bi bi-printer"></i>
+                                </button>
                             </div>
                             <div class="invalid-feedback">
                                 Please provide a valid JA ID (format: JA000001).
@@ -336,6 +339,7 @@ window.validMaterials = {{ valid_materials | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
 <script>
 // Edit form functionality (simplified version without complex add form features)
 document.addEventListener('DOMContentLoaded', function() {
@@ -415,6 +419,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Restore button state
                 generateJaIdBtn.disabled = false;
                 generateJaIdBtn.innerHTML = originalHTML;
+            }
+        });
+    }
+    
+    // Add Print Label functionality
+    const printLabelBtn = document.getElementById('print-label-btn');
+    if (printLabelBtn) {
+        printLabelBtn.addEventListener('click', async function() {
+            const jaId = document.getElementById('ja_id').value.trim();
+            if (jaId && jaId.match(/^JA\d{6}$/)) {
+                // Show modal without persistence for Edit Item form
+                await showLabelPrintingModal(jaId, false);
+            } else {
+                alert('Please enter a valid JA ID before printing a label');
             }
         });
     }

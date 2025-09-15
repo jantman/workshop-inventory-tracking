@@ -127,22 +127,23 @@ When complete, please update `docs/user-manual.md` with user instructions for pr
 
 This feature will be implemented in two milestones:
 
-### Milestone 1: Backend Infrastructure and Core Printing Service
+### Milestone 1: Backend Infrastructure and Core Printing Service ✅ COMPLETED
 
-**Label Printing - 1.1: Install Dependencies and Create Core Service**
-- Install pt-p710bt-label-maker dependency from jantman branch
-- Create backend label printing service (`app/services/label_printer.py`) with:
-  - `LABEL_TYPES` dictionary defining all supported label configurations
-  - `generate_and_print_label()` function implementation
-  - Test mode detection and short-circuit logic for e2e tests
-  - Proper error handling and logging
+**Label Printing - 1.1: Install Dependencies and Create Core Service** ✅
+- ✅ Install pt-p710bt-label-maker dependency from jantman branch
+- ✅ Create backend label printing service (`app/services/label_printer.py`) with:
+  - ✅ `LABEL_TYPES` dictionary defining all supported label configurations
+  - ✅ `generate_and_print_label()` function implementation
+  - ✅ Test mode detection and short-circuit logic for e2e tests
+  - ✅ Proper error handling and logging
 
-**Label Printing - 1.2: Add API Endpoint and Backend Integration**
-- Create `/api/labels/print` POST endpoint in Flask routes
-- Implement request validation for JA ID and label type
-- Add proper error responses and JSON formatting
-- Write comprehensive unit tests for the label printing service
-- Write unit tests for the API endpoint
+**Label Printing - 1.2: Add API Endpoint and Backend Integration** ✅
+- ✅ Create `/api/labels/print` POST endpoint in Flask routes
+- ✅ Create `/api/labels/types` GET endpoint for UI consumption  
+- ✅ Implement request validation for JA ID and label type
+- ✅ Add proper error responses and JSON formatting
+- ✅ Write comprehensive unit tests for the label printing service (19 tests)
+- ✅ Write unit tests for the API endpoint
 
 ### Milestone 2: Frontend Implementation and Integration
 

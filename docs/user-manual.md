@@ -4,13 +4,14 @@
 1. [Getting Started](#getting-started)
 2. [Overview](#overview)
 3. [Adding New Inventory](#adding-new-inventory)
-4. [Managing Existing Inventory](#managing-existing-inventory)
-5. [Advanced Search](#advanced-search)
-6. [Batch Operations](#batch-operations)
-7. [Data Export](#data-export)
-8. [Keyboard Shortcuts](#keyboard-shortcuts)
-9. [Tips and Best Practices](#tips-and-best-practices)
-10. [Troubleshooting](#troubleshooting)
+4. [Label Printing](#label-printing)
+5. [Managing Existing Inventory](#managing-existing-inventory)
+6. [Advanced Search](#advanced-search)
+7. [Batch Operations](#batch-operations)
+8. [Data Export](#data-export)
+9. [Keyboard Shortcuts](#keyboard-shortcuts)
+10. [Tips and Best Practices](#tips-and-best-practices)
+11. [Troubleshooting](#troubleshooting)
 
 ## Getting Started
 
@@ -85,6 +86,76 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 - **Carry Forward**: Click "Continue Adding" to keep common values
 - **Auto-save**: Form data is preserved if page refreshes
 - **Validation**: Real-time feedback on field formats
+
+## Label Printing
+
+The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from both the Add Item and Edit Item forms.
+
+### Accessing Label Printing
+
+#### From Add Item Form
+1. Enter a valid JA ID (format: JA######)
+2. The printer button (📄) will become enabled next to the JA ID field
+3. Click the printer button to open the label printing dialog
+
+#### From Edit Item Form
+1. The printer button is always enabled since the JA ID already exists
+2. Click the printer button next to the JA ID field
+3. The label printing dialog will open
+
+### Using the Label Printing Dialog
+
+1. **Select Label Type**: Choose from available label types:
+   - **Sato 1x2**: Standard 1" × 2" labels
+   - **Sato 1x2 Flag**: 1" × 2" labels with flag mode (rotated barcodes)
+   - **Sato 2x4**: Larger 2" × 4" labels
+   - **Sato 2x4 Flag**: 2" × 4" labels with flag mode
+   - **Sato 4x6**: Large 4" × 6" labels
+   - **Sato 4x6 Flag**: 4" × 6" labels with flag mode
+
+2. **Print Label**: Click "Print Label" to send the job to the printer
+3. **Success Confirmation**: A green success message will appear when printing completes
+4. **Auto-close**: The dialog automatically closes after successful printing
+
+### Label Type Selection
+
+#### Add Item Form
+- Label type selection is **remembered** between uses
+- Your last selected label type will be pre-selected the next time you print
+- This helps speed up workflows when printing many similar labels
+
+#### Edit Item Form  
+- Label type selection is **not remembered**
+- You must select the label type each time
+- This prevents confusion when editing different items
+
+### Supported Printers
+
+The system supports Sato label printers with the following configurations:
+- **sato2**: 1" × 2" label printer
+- **sato3**: 2" × 4" label printer  
+- **SatoM48Pro2**: 4" × 6" label printer
+
+### Flag Mode Labels
+
+Flag mode creates labels with rotated barcodes at both ends, making them easier to read when wrapped around cylindrical objects like rods or tubes.
+
+### Troubleshooting Label Printing
+
+#### Printer Not Responding
+- Verify the printer is powered on and connected
+- Check that the correct printer driver is installed
+- Ensure the printer name matches the system configuration
+
+#### Label Format Issues
+- Verify you selected the correct label type for your printer
+- Check that labels are loaded correctly in the printer
+- Ensure label size matches the selected type
+
+#### Barcode Scanning Issues
+- Use high contrast settings if barcodes appear faint
+- Verify label material is compatible with your scanner
+- Clean scanner lens if having reading difficulties
 
 ## Managing Existing Inventory
 

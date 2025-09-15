@@ -51,6 +51,9 @@
                                 <button type="button" class="btn btn-outline-secondary" id="scan-ja-id-btn" title="Scan barcode">
                                     <i class="bi bi-upc-scan"></i>
                                 </button>
+                                <button type="button" class="btn btn-outline-info" id="print-label-btn" title="Print label" disabled>
+                                    <i class="bi bi-printer"></i>
+                                </button>
                             </div>
                             <div class="invalid-feedback">
                                 Please enter a valid JA ID (format: JA######)
@@ -324,5 +327,38 @@ window.validMaterials = {{ valid_materials | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/inventory-add.js') }}"></script>
+<script>
+// Label printing functionality for Add Item form
+document.addEventListener('DOMContentLoaded', function() {
+    const jaIdInput = document.getElementById('ja_id');
+    const printLabelBtn = document.getElementById('print-label-btn');
+    
+    if (jaIdInput && printLabelBtn) {
+        // Function to validate JA ID format and enable/disable print button
+        function validateJaIdForPrinting() {
+            const jaId = jaIdInput.value.trim();
+            const isValid = jaId && jaId.match(/^JA\d{6}$/);
+            printLabelBtn.disabled = !isValid;
+        }
+        
+        // Check JA ID on input change
+        jaIdInput.addEventListener('input', validateJaIdForPrinting);
+        jaIdInput.addEventListener('change', validateJaIdForPrinting);
+        
+        // Initial check
+        validateJaIdForPrinting();
+        
+        // Handle print button click
+        printLabelBtn.addEventListener('click', async function() {
+            const jaId = jaIdInput.value.trim();
+            if (jaId && jaId.match(/^JA\d{6}$/)) {
+                // Show modal with persistence enabled for Add Item form
+                await showLabelPrintingModal(jaId, true);
+            }
+        });
+    }
+});
+</script>
 {% endblock %}
