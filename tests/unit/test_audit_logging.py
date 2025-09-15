@@ -14,6 +14,7 @@ from datetime import datetime, date
 
 from app.logging_config import log_audit_operation, log_audit_batch_operation
 from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.main.routes import _item_to_audit_dict
 from decimal import Decimal
 
 
@@ -668,3 +669,71 @@ class TestAuditLogReconstructionScenarios:
         assert reversal_moves[0]['location'] == 'Shop Floor'
         assert reversal_moves[1]['ja_id'] == 'JA001002'
         assert reversal_moves[1]['location'] == 'Storage Room A'
+
+    @pytest.mark.unit
+    def test_item_to_audit_dict_with_original_thread(self):
+        """Test _item_to_audit_dict function handles original_thread as string correctly"""
+        # Create a mock item with original_thread as a string (the bug scenario)
+        mock_item = MagicMock()
+        mock_item.ja_id = 'JA000123'
+        mock_item.item_type = ItemType.BAR
+        mock_item.shape = ItemShape.ROUND
+        mock_item.material = 'Steel'
+        mock_item.dimensions = None
+        mock_item.thread = None
+        mock_item.quantity = 1
+        mock_item.location = 'Shop A'
+        mock_item.sub_location = 'Shelf 1'
+        mock_item.purchase_date = None
+        mock_item.purchase_price = None
+        mock_item.purchase_location = None
+        mock_item.notes = 'Test item'
+        mock_item.vendor = None
+        mock_item.vendor_part_number = None
+        mock_item.original_material = None
+        mock_item.original_thread = '1/4-20'  # This is a string, not a Thread object
+        mock_item.active = True
+        mock_item.date_added = None
+        mock_item.last_modified = None
+        
+        # This should not raise an AttributeError after our fix
+        result = _item_to_audit_dict(mock_item)
+        
+        # Verify the result contains the correct original_thread value
+        assert result['original_thread'] == '1/4-20'
+        assert result['ja_id'] == 'JA000123'
+        assert result['material'] == 'Steel'
+        
+    @pytest.mark.unit  
+    def test_item_to_audit_dict_with_none_original_thread(self):
+        """Test _item_to_audit_dict function handles None original_thread correctly"""
+        # Create a mock item with original_thread as None
+        mock_item = MagicMock()
+        mock_item.ja_id = 'JA000124'
+        mock_item.item_type = ItemType.BAR
+        mock_item.shape = ItemShape.ROUND
+        mock_item.material = 'Aluminum'
+        mock_item.dimensions = None
+        mock_item.thread = None
+        mock_item.quantity = 1
+        mock_item.location = 'Shop B'
+        mock_item.sub_location = 'Shelf 2'
+        mock_item.purchase_date = None
+        mock_item.purchase_price = None
+        mock_item.purchase_location = None
+        mock_item.notes = 'Test item 2'
+        mock_item.vendor = None
+        mock_item.vendor_part_number = None
+        mock_item.original_material = None
+        mock_item.original_thread = None  # This should work fine
+        mock_item.active = True
+        mock_item.date_added = None
+        mock_item.last_modified = None
+        
+        # This should work fine
+        result = _item_to_audit_dict(mock_item)
+        
+        # Verify the result contains None for original_thread
+        assert result['original_thread'] is None
+        assert result['ja_id'] == 'JA000124'
+        assert result['material'] == 'Aluminum'

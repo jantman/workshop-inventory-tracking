@@ -46,7 +46,7 @@ def _item_to_audit_dict(item):
         'vendor': item.vendor,
         'vendor_part': item.vendor_part_number,
         'original_material': item.original_material,
-        'original_thread': item.original_thread.to_dict() if item.original_thread else None,
+        'original_thread': item.original_thread,
         'active': item.active,
         'date_added': item.date_added.isoformat() if item.date_added else None,
         'last_modified': item.last_modified.isoformat() if item.last_modified else None
