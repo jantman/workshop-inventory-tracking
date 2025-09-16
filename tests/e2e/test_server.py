@@ -14,8 +14,7 @@ from contextlib import closing
 from werkzeug.serving import make_server
 from app import create_app
 from app.mariadb_storage import MariaDBStorage
-from tests.test_config import TestConfig
-from tests.test_database import DatabaseTestConfig
+from config import TestConfig
 from app.database import Base, InventoryItem, MaterialTaxonomy
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -45,15 +44,13 @@ class E2ETestServer:
         if self.thread and self.thread.is_alive():
             return  # Already running
             
-        # Create temporary SQLite database for E2E tests
-        self.temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
-        self.temp_db.close()  # Close the file handle, keep the path
-        
-        # Set up test database URI
-        test_db_uri = f'sqlite:///{self.temp_db.name}?check_same_thread=false'
+        # Use MariaDB for E2E tests (testcontainer locally, service in CI)
+        # Environment variables should already be set by testcontainer or CI
+        config = TestConfig()
+        test_db_uri = config.SQLALCHEMY_DATABASE_URI
         
         # Create test engine and initialize database
-        self.engine = create_engine(test_db_uri)
+        self.engine = create_engine(test_db_uri, **config.SQLALCHEMY_ENGINE_OPTIONS)
         Base.metadata.create_all(self.engine)
         
         # Create MariaDB storage instance with test database
@@ -102,14 +99,10 @@ class E2ETestServer:
             self.storage.close()
             self.storage = None
             
-        # Clean up temporary database file
-        if hasattr(self, 'temp_db') and self.temp_db and os.path.exists(self.temp_db.name):
-            try:
-                os.unlink(self.temp_db.name)
-                print(f"🧹 Cleaned up test database: {self.temp_db.name}")
-            except OSError as e:
-                print(f"⚠️ Failed to clean up test database {self.temp_db.name}: {e}")
-            self.temp_db = None
+        # Engine cleanup (MariaDB connections managed by testcontainer/CI)
+        if hasattr(self, 'engine') and self.engine:
+            self.engine.dispose()
+            self.engine = None
     
     def _wait_for_server(self, timeout=30):
         """Wait for the server to be ready to accept requests"""

@@ -10,6 +10,7 @@ pytest-blockage==0.2.4
 # E2E Testing
 playwright==1.55.0
 pytest-playwright==0.7.1
+testcontainers[mysql]==4.8.2
 
 # Additional test utilities
 factory-boy==3.3.3

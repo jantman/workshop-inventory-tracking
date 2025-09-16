@@ -27,6 +27,9 @@ from decimal import Decimal
 from tests.e2e.test_server import get_test_server
 from tests.e2e.debug_utils import E2EDebugCapture, create_debug_summary
 
+# Import testcontainer fixture for e2e tests
+from tests.test_database import mariadb_testcontainer
+
 
 @pytest.fixture
 def test_storage():
@@ -155,8 +158,9 @@ def populated_storage(test_storage, sample_item_data, sample_threaded_item_data)
 # E2E Testing Fixtures
 
 @pytest.fixture(scope="session")
-def e2e_server():
+def e2e_server(mariadb_testcontainer):
     """Session-scoped test server for E2E tests"""
+    # testcontainer dependency ensures MariaDB is ready before server starts
     server = get_test_server()
     server.start()
     

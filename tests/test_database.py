@@ -9,6 +9,7 @@ import pytest
 import os
 import tempfile
 import sqlalchemy as sa
+import time
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.pool import StaticPool
@@ -17,28 +18,44 @@ from config import TestConfig
 from app.database import Base, InventoryItem, MaterialTaxonomy
 
 
-class DatabaseTestConfig(TestConfig):
-    """Test configuration specifically for database integration tests"""
+@pytest.fixture(scope="session")
+def mariadb_testcontainer():
+    """Session-scoped MariaDB testcontainer for local e2e testing"""
+    # Skip testcontainer in CI - use service container instead
+    if os.environ.get('CI') == 'true':
+        pytest.skip("Using MariaDB service container in CI")
     
-    @property
-    def SQLALCHEMY_DATABASE_URI(self):
-        """Override for test database URI"""
-        if os.environ.get('USE_TEST_MARIADB') == '1':
-            # Use MariaDB test container
-            return super().SQLALCHEMY_DATABASE_URI
-        else:
-            # Fall back to SQLite for unit tests
-            db_path = os.environ.get('TEST_DATABASE_PATH', ':memory:')
-            return f'sqlite:///{db_path}?check_same_thread=false'
+    try:
+        from testcontainers.mysql import MySqlContainer
+    except ImportError:
+        pytest.skip("testcontainers not installed - run: pip install testcontainers[mysql]")
+    
+    # Start MariaDB container with same config as CI
+    container = MySqlContainer("mariadb:10.11")
+    container = container.with_env("MYSQL_ROOT_PASSWORD", "test_root_password")
+    container = container.with_env("MYSQL_DATABASE", "workshop_inventory_test") 
+    container = container.with_env("MYSQL_USER", "inventory_test_user")
+    container = container.with_env("MYSQL_PASSWORD", "test_password")
+    container = container.with_env("MARIADB_CHARACTER_SET_SERVER", "utf8mb4")
+    container = container.with_env("MARIADB_COLLATION_SERVER", "utf8mb4_unicode_ci")
+    
+    with container:
+        # Set SQLALCHEMY_DATABASE_URI directly from testcontainer
+        connection_url = container.get_connection_url()
+        os.environ['SQLALCHEMY_DATABASE_URI'] = connection_url
+        print(f"✅ MariaDB testcontainer ready: {connection_url}")
+        
+        yield container
+
+
 
 
 @pytest.fixture(scope="session")
-def mariadb_engine():
-    """Session-scoped MariaDB engine for integration tests"""
-    if os.environ.get('USE_TEST_MARIADB') != '1':
-        pytest.skip("MariaDB integration tests require USE_TEST_MARIADB=1")
+def mariadb_engine(mariadb_testcontainer):
+    """Session-scoped MariaDB engine for e2e tests"""
+    # testcontainer fixture sets SQLALCHEMY_DATABASE_URI environment variable
     
-    config = DatabaseTestConfig()
+    config = TestConfig()  # Uses SQLALCHEMY_DATABASE_URI from environment
     engine = create_engine(
         config.SQLALCHEMY_DATABASE_URI,
         **config.SQLALCHEMY_ENGINE_OPTIONS
@@ -48,8 +65,9 @@ def mariadb_engine():
     try:
         with engine.connect() as conn:
             conn.execute(sa.text("SELECT 1"))
+            print(f"✅ Connected to MariaDB: {config.SQLALCHEMY_DATABASE_URI}")
     except Exception as e:
-        pytest.skip(f"Cannot connect to MariaDB test database: {e}")
+        pytest.fail(f"Cannot connect to MariaDB database: {e}")
     
     yield engine
     engine.dispose()

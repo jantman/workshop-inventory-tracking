@@ -5,6 +5,7 @@
 ### Prerequisites
 - Python 3.13
 - Git
+- **Docker** (for E2E tests with MariaDB testcontainer)
 - Chrome/Chromium browser (for E2E tests)
 
 ### Initial Setup
@@ -57,6 +58,8 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Purpose**: Tests complete user workflows through the web interface using browser automation.
 
+**Database**: Uses **MariaDB testcontainer** locally (auto-managed) and MariaDB service in CI
+
 **Coverage**:
 - **Form Submission**: Adding new inventory items via web form
 - **Data Persistence**: Verifying items are saved and retrievable
@@ -64,9 +67,9 @@ The project uses **Nox** for consistent test execution across environments. All 
 - **Multi-Row Scenarios**: Testing active item lookup and history functionality
 - **API Endpoints**: Testing item history API and data retrieval logic
 
-**Technology**: Playwright with Chromium browser
+**Technology**: Playwright with Chromium browser + MariaDB 10.11 testcontainer
 
-**Runtime**: ~10-15 seconds
+**Runtime**: ~10-15 seconds (plus initial Docker container startup)
 
 **Debug Features**:
 - Automatic failure capture with screenshots, HTML dumps, and console logs
@@ -118,7 +121,9 @@ nox -l
 
 ### E2E Test Structure
 
-**Test Server**: Dedicated Flask server with test configuration that uses MariaDBStorage with SQLite backend for testing. Direct database writes ensure test data is immediately available.
+**Test Server**: Dedicated Flask server with test configuration that uses MariaDB (testcontainer locally, service in CI). Direct database writes ensure test data is immediately available.
+
+**MariaDB Testcontainer**: Automatically managed Docker container with MariaDB 10.11, same version as production. No manual setup required.
 
 **Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
 
@@ -173,7 +178,7 @@ python app.py  # Configured for 127.0.0.1:5000
 - Static file serving with cache disabled
 - Detailed error pages with interactive debugger
 
-**Note**: The development server uses MariaDB for data storage (production setup). Both development and testing now use MariaDB interface - only the backend database differs (MariaDB vs SQLite).
+**Note**: The development server uses MariaDB for data storage (production setup). E2E tests use MariaDB testcontainer to match production exactly.
 
 ## Development Workflow
 
@@ -212,6 +217,17 @@ def test_workflow(page):
 
 ### Common Issues
 
+**Docker Container Issues**:
+- Error: `Cannot connect to the Docker daemon`
+- Solution: Ensure Docker is running: `sudo systemctl start docker` (Linux) or start Docker Desktop
+- Error: `Permission denied while trying to connect to Docker`
+- Solution: Add user to docker group: `sudo usermod -aG docker $USER` and restart terminal
+
+**Testcontainer Startup Issues**:
+- Error: `MariaDB container failed to start`
+- Solution: Check Docker logs: `docker logs <container_id>`, ensure port 3306 is available
+- Slow startup: Initial MariaDB container download may take time, subsequent runs are faster
+
 **Playwright Browser Issues (Arch Linux)**:
 - Error: `sudo: a password is required`
 - Solution: Browsers installed without `--with-deps` flag to avoid sudo requirements
@@ -221,8 +237,8 @@ def test_workflow(page):
 - Update fixtures if model constructors change
 
 **E2E Test Flakiness**:
-- Ensure Flask test server is running (`python run_test_server.py`)
-- Check that test data doesn't conflict between tests
+- MariaDB testcontainer provides consistent database state
+- Check Docker container health if tests consistently fail
 - Use explicit waits: `page.wait_for_selector(selector)`
 
 **E2E Test Debugging**:
@@ -245,8 +261,9 @@ def test_workflow(page):
 ## Performance Notes
 
 - **Unit tests**: Optimized for speed with SQLite in-memory database via MariaDB interface
-- **Direct Database Operations**: No batching or caching layers - all operations write directly to database
-- **Test Isolation**: Each test uses fresh SQLite database with MariaDB interface
+- **E2E tests**: Use MariaDB testcontainer for production parity. Initial startup ~5-10s, subsequent tests are fast
+- **Docker optimization**: Testcontainer reuses same container across test session for efficiency
+- **Test Isolation**: Each test uses fresh database state with fast MariaDB operations
 - **E2E data persistence**: Direct database writes ensure test data is immediately available
 
 ## Continuous Integration
