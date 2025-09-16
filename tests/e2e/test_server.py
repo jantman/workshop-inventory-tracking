@@ -45,9 +45,13 @@ class E2ETestServer:
             return  # Already running
             
         # Use MariaDB for E2E tests (testcontainer locally, service in CI)
-        # Environment variables should already be set by testcontainer or CI
-        config = TestConfig()
-        test_db_uri = config.SQLALCHEMY_DATABASE_URI
+        # Use SQLALCHEMY_DATABASE_URI if set by testcontainer, otherwise use TestConfig
+        test_db_uri = os.environ.get('SQLALCHEMY_DATABASE_URI')
+        if not test_db_uri:
+            config = TestConfig()
+            test_db_uri = config.SQLALCHEMY_DATABASE_URI
+        
+        config = TestConfig()  # Still need config for other options
         
         # Create test engine and initialize database
         self.engine = create_engine(test_db_uri, **config.SQLALCHEMY_ENGINE_OPTIONS)

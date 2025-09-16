@@ -21,9 +21,11 @@ from app.database import Base, InventoryItem, MaterialTaxonomy
 @pytest.fixture(scope="session")
 def mariadb_testcontainer():
     """Session-scoped MariaDB testcontainer for local e2e testing"""
-    # Skip testcontainer in CI - use service container instead
+    # In CI, use service container - no testcontainer needed
     if os.environ.get('CI') == 'true':
-        pytest.skip("Using MariaDB service container in CI")
+        print("✅ CI detected: Using MariaDB service container")
+        yield None  # No container to manage, service container is already running
+        return
     
     try:
         from testcontainers.mysql import MySqlContainer
