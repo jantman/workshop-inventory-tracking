@@ -162,16 +162,32 @@ class InventoryMoveManager {
         this.updateScannerStatus('Waiting for Location');
     }
     
-    handleLocationInput(location) {
+    async handleLocationInput(location) {
         if (!location || location.length < 1) {
             this.showAlert('Location cannot be empty', 'warning');
             return;
+        }
+        
+        // Fetch current location for the item
+        let currentLocation = 'Unknown';
+        try {
+            const response = await fetch(`/api/items/${this.currentJaId}`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.item) {
+                    currentLocation = data.item.location || 'Unknown';
+                }
+            }
+        } catch (error) {
+            console.warn('Could not fetch current location for item:', error);
+            // currentLocation remains 'Unknown'
         }
         
         // Add to move queue
         const moveItem = {
             jaId: this.currentJaId,
             newLocation: location,
+            currentLocation: currentLocation,
             status: 'pending',
             timestamp: new Date().toISOString()
         };
