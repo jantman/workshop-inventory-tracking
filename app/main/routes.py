@@ -567,10 +567,16 @@ def materials_hierarchy():
         from app.mariadb_storage import MariaDBStorage
         from sqlalchemy.orm import sessionmaker
         
-        # Create MariaDB storage and session directly
-        storage = MariaDBStorage()
-        storage.connect()
-        engine = storage.engine
+        # Use injected storage backend if available (for testing), otherwise create new one
+        if current_app.config.get('STORAGE_BACKEND'):
+            storage = current_app.config['STORAGE_BACKEND']
+            engine = storage.engine
+        else:
+            # Create MariaDB storage and session directly
+            storage = MariaDBStorage()
+            storage.connect()
+            engine = storage.engine
+            
         Session = sessionmaker(bind=engine)
         session = Session()
         
