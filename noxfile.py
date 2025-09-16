@@ -20,6 +20,10 @@ def tests(session):
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     
+    # Log installed packages for build record
+    session.log("Installed packages:")
+    session.run("pip", "freeze")
+    
     # Run unit tests only (exclude e2e and integration)
     session.run(
         "python", "-m", "pytest",
@@ -40,6 +44,10 @@ def e2e(session):
     """
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
+    
+    # Log installed packages for build record
+    session.log("Installed packages:")
+    session.run("pip", "freeze")
     
     # Install Playwright browsers
     # Use --with-deps in CI environments, but not locally on Arch Linux to avoid sudo issues
@@ -68,6 +76,10 @@ def coverage(session):
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     
+    # Log installed packages for build record
+    session.log("Installed packages:")
+    session.run("pip", "freeze")
+    
     # Run tests with coverage
     session.run(
         "python", "-m", "pytest",
@@ -89,6 +101,10 @@ def lint(session):
     """Run linting with flake8 (future enhancement)."""
     session.install("-r", "requirements-test.txt")
     session.install("flake8", "black", "isort")
+    
+    # Log installed packages for build record
+    session.log("Installed packages:")
+    session.run("pip", "freeze")
     
     session.run("flake8", PACKAGE, *TEST_PATHS)
     session.run("black", "--check", "--diff", PACKAGE, *TEST_PATHS)
