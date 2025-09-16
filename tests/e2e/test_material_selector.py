@@ -71,10 +71,10 @@ def test_material_selector_category_navigation(page, live_server):
     assert family_items.count() > 0, "Should show navigable family items"
     
     # Wait for specific families to appear
-    expect(suggestions_container).to_contain_text('6000 Series Aluminum', timeout=10000)
+    expect(suggestions_container).to_contain_text('6000 Series', timeout=10000)
     
     # Check for family icons  
-    family_item = page.locator('.material-suggestions .suggestion-item', has_text='6000 Series Aluminum')
+    family_item = page.locator('.material-suggestions .suggestion-item', has_text='6000 Series')
     expect(family_item).to_contain_text('📂')
     
     # Should show back button
@@ -107,8 +107,8 @@ def test_material_selector_family_navigation(page, live_server):
     # Wait for families to load after navigation
     expect(suggestions_container).to_be_visible()
     
-    # Wait for "6000 Series Aluminum" family to appear, then click navigate button (if it exists)
-    family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable', has_text='6000 Series Aluminum')
+    # Wait for "6000 Series" family to appear, then click navigate button (if it exists)
+    family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable', has_text='6000 Series')
     if family_6000.count() > 0:
         expect(family_6000).to_be_visible(timeout=10000)
         navigate_button = family_6000.locator('.navigate-btn')
@@ -249,15 +249,15 @@ def test_material_selector_family_selection(page, live_server):
     # Should now show families within Aluminum
     expect(suggestions_container).to_be_visible()
     
-    # Find a family that should be both selectable and navigable (e.g., "6000 Series Aluminum")
-    family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='6000 Series Aluminum')
+    # Find a family that should be both selectable and navigable (e.g., "6000 Series")
+    family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='6000 Series')
     if family_6000.count() > 0:
         # Click on the main area (not the navigate button) to select the family
         family_text = family_6000.locator('.fw-medium')
         family_text.click()
         
         # Input should now contain the selected family
-        expect(material_input).to_have_value('6000 Series Aluminum')
+        expect(material_input).to_have_value('6000 Series')
         
         # Suggestions should be hidden after selection
         expect(suggestions_container).not_to_be_visible()
@@ -287,7 +287,7 @@ def test_material_selector_dual_action_navigation(page, live_server):
     
     # Should navigate to families view, not select Aluminum
     expect(suggestions_container).to_be_visible()
-    expect(suggestions_container).to_contain_text('6000 Series Aluminum')  # Should show families
+    expect(suggestions_container).to_contain_text('6000 Series')  # Should show families
     
     # Input should still be empty (navigation doesn't select)
     expect(material_input).to_have_value('')
