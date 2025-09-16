@@ -328,6 +328,9 @@ class InventoryListManager {
                     <button type="button" class="btn btn-outline-info btn-sm" onclick="showItemDetails('${item.ja_id}')" title="View Details">
                         <i class="bi bi-eye"></i>
                     </button>
+                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="showItemHistory('${item.ja_id}')" title="View History">
+                        <i class="bi bi-clock-history"></i>
+                    </button>
                     <div class="btn-group btn-group-sm">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle dropdown-toggle-split" 
                                 data-bs-toggle="dropdown"></button>

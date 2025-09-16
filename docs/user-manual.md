@@ -213,13 +213,25 @@ Flag mode creates labels with rotated barcodes at both ends, making them easier 
 - When items are shortened, complete history is tracked
 - Original item becomes inactive while maintaining full record
 - New item references parent item for traceability
+
+#### Viewing Item History
+- **History Button**: Click the clock icon (🕒) in the Actions column of any item in the inventory list
+- **History Modal**: Opens a timeline view showing all versions of the item
+- **Timeline Display**: 
+  - Most recent changes at the top
+  - Visual indicators for active (green) vs inactive (gray) entries
+  - Complete dimension changes and modification notes
+  - Timestamps for when each version was created/modified
+- **Summary Information**: Total versions, active items, and inactive items count
+
+#### Technical Details
 - **Item History API**: Access complete modification history via `/api/items/{JA_ID}/history`
   - Returns chronological list of all versions of an item
   - Shows active/inactive status for each version
   - Includes dimensions, dates, and modification details
 - **Multi-Row Support**: System properly handles multiple database entries per JA ID
   - UI always displays current active item data
-  - Historical versions remain accessible via API
+  - Historical versions remain accessible via API and History UI
   - Search and filtering only return active items by default
 
 ## Advanced Search
