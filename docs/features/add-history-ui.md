@@ -204,6 +204,78 @@ The existing API returns data in this format:
 - [ ] Loading and error states are handled gracefully
 - [ ] All functionality is covered by E2E tests
 
+## Implementation Plan
+
+Based on analysis of the existing codebase, this feature will be implemented using the established patterns and architecture. The backend API endpoint (`GET /api/items/{ja_id}/history`) is already complete and tested.
+
+### Milestone 1: Basic History Viewing (AHU - 1.1 - 1.4)
+**Prefix: AHU - 1**
+
+**Task 1.1: Add History Button to Inventory List**
+- Add "View History" button to action column in inventory list table (`app/templates/inventory/list.html`)
+- Update `app/static/js/inventory-list.js` to include history button in `renderTableRow()` method
+- Button should appear alongside existing View/Edit buttons
+
+**Task 1.2: Create History Modal Component**
+- Create history modal HTML structure in `app/templates/inventory/list.html`
+- Design Bootstrap modal with timeline-style layout
+- Include loading, error, and empty states
+
+**Task 1.3: Implement History JavaScript Module**
+- Create `app/static/js/history-viewer.js` to handle:
+  - API calls to `/api/items/{ja_id}/history`
+  - Modal display and interaction
+  - Timeline rendering with proper formatting
+  - Error handling and loading states
+
+**Task 1.4: Style History Timeline**
+- Add CSS for timeline display in `app/static/css/main.css`
+- Implement visual indicators for active/inactive items
+- Style change descriptions and timestamps
+- Ensure responsive design
+
+### Milestone 2: Enhanced History Access (AHU - 2.1 - 2.2)
+**Prefix: AHU - 2**
+
+**Task 2.1: Add History to Item Details Modal**
+- Update existing item details modal to include "View History" button
+- Integrate with history viewer from Milestone 1
+
+**Task 2.2: Add History to Edit Form**
+- Add "View History" link to edit form header (`app/templates/inventory/edit.html`)
+- Ensure consistent styling and behavior
+
+### Milestone 3: Testing and Documentation (AHU - 3.1 - 3.2)
+**Prefix: AHU - 3**
+
+**Task 3.1: Implement E2E Tests**
+- Add tests for history button visibility and functionality
+- Test history modal display with various data scenarios
+- Test error handling for non-existent items
+
+**Task 3.2: Update Documentation**
+- Update user manual with history viewing instructions
+- Update development guide if needed
+- Update any relevant documentation
+
+## Technical Architecture
+
+**Files to Create:**
+- `app/static/js/history-viewer.js` - History viewing functionality
+- CSS additions to `app/static/css/main.css` - Timeline styling
+
+**Files to Modify:**
+- `app/templates/inventory/list.html` - Add history button and modal
+- `app/static/js/inventory-list.js` - Add history button to table rows
+- `app/templates/inventory/edit.html` - Add history link
+- E2E test files - Add history functionality tests
+
+**Design Decisions:**
+- **Modal vs Page**: Using modal approach for Phase 1 to maintain context and reduce navigation complexity
+- **Timeline Layout**: Most recent first, clear visual hierarchy
+- **Integration**: Leverage existing Bootstrap modal patterns and JavaScript architecture
+- **Responsive**: Mobile-friendly timeline design using Bootstrap grid system
+
 ## Notes
 
 This implementation will provide users with full visibility into how their inventory items have changed over time, making the keep-same-ID shortening workflow much more transparent and useful for tracking material usage and project history.
