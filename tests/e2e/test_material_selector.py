@@ -27,17 +27,18 @@ def test_material_selector_shows_categories_on_focus(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Should show category items (level 1)
+    # Wait for API response and suggestion items to populate (longer timeout for CI)
     category_items = page.locator('.material-suggestions .suggestion-item.navigable')
+    expect(category_items.first).to_be_visible(timeout=10000)
     assert category_items.count() > 0, "Should show navigable category items"
     
-    # Check for specific categories (using text content)
-    expect(suggestions_container).to_contain_text('Aluminum')
-    expect(suggestions_container).to_contain_text('Steel')
+    # Wait for specific categories to appear (API response dependent)
+    expect(suggestions_container).to_contain_text('Aluminum', timeout=10000)
+    expect(suggestions_container).to_contain_text('Steel', timeout=10000)
     
-    # Check for category icons
+    # Check for category icons (wait for content to load)
     aluminum_item = page.locator('.material-suggestions .suggestion-item', has_text='Aluminum')
-    expect(aluminum_item).to_contain_text('📁')
+    expect(aluminum_item).to_contain_text('📁', timeout=10000)
 
 
 @pytest.mark.e2e
@@ -55,20 +56,22 @@ def test_material_selector_category_navigation(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Click on "Aluminum" category navigate button to navigate
+    # Wait for Aluminum category to appear in API response
     aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    expect(aluminum_category).to_be_visible(timeout=10000)
     navigate_button = aluminum_category.locator('.navigate-btn')
     navigate_button.click()
     
     # Should now show families within Aluminum
     expect(suggestions_container).to_be_visible()
     
-    # Should show family items (like "6000 Series Aluminum", "Pure Aluminum")
+    # Wait for family items to load after navigation (API response dependent)
     family_items = page.locator('.material-suggestions .suggestion-item.navigable')
+    expect(family_items.first).to_be_visible(timeout=10000)
     assert family_items.count() > 0, "Should show navigable family items"
     
-    # Check for specific families
-    expect(suggestions_container).to_contain_text('6000 Series Aluminum')
+    # Wait for specific families to appear
+    expect(suggestions_container).to_contain_text('6000 Series Aluminum', timeout=10000)
     
     # Check for family icons  
     family_item = page.locator('.material-suggestions .suggestion-item', has_text='6000 Series Aluminum')
@@ -95,17 +98,19 @@ def test_material_selector_family_navigation(page, live_server):
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
     
-    # Click Aluminum category navigate button to navigate
+    # Wait for Aluminum category to appear, then click navigate button
     aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    expect(aluminum_category).to_be_visible(timeout=10000)
     navigate_button = aluminum_category.locator('.navigate-btn')
     navigate_button.click()
     
-    # Wait for families to load
+    # Wait for families to load after navigation
     expect(suggestions_container).to_be_visible()
     
-    # Click on "6000 Series Aluminum" family navigate button (if it exists)
+    # Wait for "6000 Series Aluminum" family to appear, then click navigate button (if it exists)
     family_6000 = page.locator('.material-suggestions .suggestion-item.selectable.navigable', has_text='6000 Series Aluminum')
     if family_6000.count() > 0:
+        expect(family_6000).to_be_visible(timeout=10000)
         navigate_button = family_6000.locator('.navigate-btn')
         navigate_button.click()
         
@@ -151,10 +156,10 @@ def test_material_selector_back_navigation(page, live_server):
     # Click back button
     back_button.click()
     
-    # Should be back to categories view
+    # Should be back to categories view (wait for API response)
     expect(suggestions_container).to_be_visible()
-    expect(suggestions_container).to_contain_text('Aluminum')
-    expect(suggestions_container).to_contain_text('Steel')
+    expect(suggestions_container).to_contain_text('Aluminum', timeout=10000)
+    expect(suggestions_container).to_contain_text('Steel', timeout=10000)
     
     # Back button should not be visible at top level
     expect(back_button).not_to_be_visible()
@@ -506,11 +511,12 @@ def test_material_selector_works_on_edit_form(page, live_server):
     # Should show MaterialSelector categories
     suggestions_container = page.locator('.material-suggestions')
     expect(suggestions_container).to_be_visible(timeout=3000)
-    expect(suggestions_container).to_contain_text('Aluminum')
-    expect(suggestions_container).to_contain_text('📁')
+    expect(suggestions_container).to_contain_text('Aluminum', timeout=10000)
+    expect(suggestions_container).to_contain_text('📁', timeout=10000)
     
     # Navigation should work on edit form too
     aluminum_category = page.locator('.material-suggestions .suggestion-item.selectable.navigable').filter(has_text='Aluminum').first
+    expect(aluminum_category).to_be_visible(timeout=10000)
     navigate_button = aluminum_category.locator('.navigate-btn')
     navigate_button.click()
     
