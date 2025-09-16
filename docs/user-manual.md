@@ -83,9 +83,46 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 
 ### Form Features
 - **Auto-complete**: Previous entries suggest values as you type
-- **Carry Forward**: Click "Continue Adding" to keep common values
 - **Auto-save**: Form data is preserved if page refreshes
 - **Validation**: Real-time feedback on field formats
+
+### Streamlined Data Entry
+
+#### Carry Forward Button
+The **Carry Forward** button (located in the top-right header) allows you to copy common field values from the previously added item into the current form. This is useful when adding multiple similar items.
+
+**Fields copied forward:**
+- Type, Shape, Material, Quantity
+- Location and Sub-Location
+- Vendor and Purchase Location  
+- Thread Series and Handedness
+
+**Fields NOT copied (remain blank):**
+- JA ID (you'll need to enter unique ID)
+- Dimensions (length, width, thickness, etc.)
+- Thread Size, Notes, Vendor Part Number
+- Purchase Date and Price
+
+**How to use:**
+1. Add your first item normally
+2. On the next add form, click **Carry Forward** to populate common fields
+3. Enter the unique JA ID and dimensions for the new item
+4. Submit as normal
+
+#### Add & Continue Button
+The **Add & Continue** button (green button next to "Add Item") submits the current item and immediately returns to a fresh add form, streamlining bulk entry workflows.
+
+**How to use:**
+1. Fill out the add item form completely
+2. Click **Add & Continue** instead of **Add Item**
+3. The item is saved and you're returned to a blank add form
+4. Repeat for additional items
+5. Use **Add Item** (blue button) for your final item to return to the inventory list
+
+**When to use each:**
+- **Carry Forward**: Adding multiple similar items (same material, location, etc.)
+- **Add & Continue**: Adding multiple different items in sequence
+- **Combined approach**: Use Add & Continue, then Carry Forward for maximum efficiency
 
 ## Label Printing
 
