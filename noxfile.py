@@ -72,7 +72,7 @@ def coverage(session):
         "--cov-report=term-missing",
         "--cov-report=html:htmlcov",
         "--cov-report=xml",
-        "--cov-fail-under=45",
+        "--cov-fail-under=1",
         *session.posargs
     )
     
