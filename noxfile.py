@@ -41,8 +41,13 @@ def e2e(session):
     session.install("-r", "requirements.txt")
     session.install("-r", "requirements-test.txt")
     
-    # Install Playwright browsers (without --with-deps on Arch Linux due to sudo issues)
-    session.run("python", "-m", "playwright", "install", "chromium")
+    # Install Playwright browsers
+    # Use --with-deps in CI environments, but not locally on Arch Linux to avoid sudo issues
+    import os
+    if os.environ.get('CI') == 'true':
+        session.run("python", "-m", "playwright", "install", "--with-deps", "chromium")
+    else:
+        session.run("python", "-m", "playwright", "install", "chromium")
     
     # Run E2E tests only with retry logic
     session.run(

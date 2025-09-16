@@ -84,7 +84,9 @@ class E2ETestServer:
         self.thread.start()
         
         # Wait for server to be ready
+        print(f"🚀 Starting test server at {self.url}")
         self._wait_for_server()
+        print(f"✅ Test server ready at {self.url}")
     
     def stop(self):
         """Stop the test server"""
@@ -109,17 +111,19 @@ class E2ETestServer:
                 print(f"⚠️ Failed to clean up test database {self.temp_db.name}: {e}")
             self.temp_db = None
     
-    def _wait_for_server(self, timeout=10):
+    def _wait_for_server(self, timeout=30):
         """Wait for the server to be ready to accept requests"""
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                response = requests.get(f'http://{self.host}:{self.port}/health', timeout=1)
+                response = requests.get(f'http://{self.host}:{self.port}/health', timeout=5)
                 if response.status_code == 200:
                     return True
-            except (requests.RequestException, ConnectionError):
+            except (requests.RequestException, ConnectionError) as e:
+                print(f"🔄 Server not ready yet: {e}")
                 time.sleep(0.1)
         
+        print(f"❌ Test server failed to start within {timeout} seconds")
         raise TimeoutError(f"Test server failed to start within {timeout} seconds")
     
     @property 
