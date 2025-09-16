@@ -179,8 +179,6 @@ def browser_context_args(browser_context_args):
         **browser_context_args,
         "viewport": {"width": 1280, "height": 720},
         "ignore_https_errors": True,
-        "default_timeout": 60000,              # Increase from 30s to 60s
-        "default_navigation_timeout": 60000,   # For page.goto()
     }
 
 
@@ -219,8 +217,12 @@ _debug_captures = {}
 @pytest.fixture
 def page(page, request):
     """Enhanced page fixture with debug capture for E2E tests"""
-    # Only set up debug capture for E2E tests
+    # Set timeouts for E2E tests
     if any(mark.name == "e2e" for mark in request.node.iter_markers()):
+        # Set page-level timeouts (60s)
+        page.set_default_timeout(60000)
+        page.set_default_navigation_timeout(60000)
+        
         # Set up debug capture
         test_name = request.node.name
         debug_capture = E2EDebugCapture(test_name)
