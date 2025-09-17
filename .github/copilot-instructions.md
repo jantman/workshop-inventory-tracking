@@ -8,17 +8,20 @@
 - **Environment must be activated once per terminal session** - Run `eval $(poetry env activate)` at the start of each new terminal session
 - **Do not** run the same command multiple times in a row; if this will be needed, then use a temporary file to store the output and analyze it later, such as `cmd > file.txt 2>&1; analyze file.txt; rm -f file.txt`. Be sure to clean up the temporary file after analysis.
 - **Always** include the `-f` option when removing files, such as `rm -f file.txt`.
-- **Always** run the `format` nox session before running the `lint` session, such as `poetry run nox -s format; poetry run nox -s lint`.
-- When working on a problem, **always** ask for human confirmation before making code changes. We value complete understanding and consensus over speed.
 
 ## Rules for Implementing Features and Fixing Bugs / Issues
 
 If you have been assigned an issue to complete or a feature to implement, you MUST ALWAYS follow these rules:
 
+* When beginning work on a new problem/issue, you must identify any areas that you are unclear on or confused about, and you must ask for clarification from a human developer before proceeding.
 * Tests may not be skipped, ignored, deleted, disabled, or circumvented without explicit human developer approval.
 * You MUST add ttests to cover any new functionality you implement; these should be the minimum necessary to demonstrate the feature works as intended and to cover expected failure modes. Frontend/UI changes MUST be covered by e2e browser tests.
 * ALL tests MUST pass for work to be considered ready for review; if you cannot get tests to pass, you MUST ask for help from a human developer, but you must attempt to get all tests to pass before asking for help or asking for a review.
-
+* If you get confused, you must ask for help from a human developer; you must not make assumptions or guesses about what to do next.
+* Correctness, quality, and maintainability are more important than speed; you must take the time to do things right, even if it takes longer. You must strive to maintain a clean code base with little to no duplication, clear and consistent style, and good organization.
+* Features that are non-trivial in size (i.e. more than a few simple changes) should be broken down into multiple commit-sized chunks, each with a clear purpose and scope and each testable. You must not attempt to implement a large feature in a single step.
+* All changes must include updates to relevant documentation (i.e. `README.md` and `docs/*.md`).
+* If you become confused or unclear on how to proceed, have to make a significant decision not explicitly included in the implementation plan, or find yourself making changes and then undoing them without a clear and certain path forward, you must stop and ask for human guidance.
 
 ## Technology Stack
 
