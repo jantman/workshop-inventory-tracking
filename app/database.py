@@ -9,10 +9,15 @@ with proper constraints to ensure data integrity.
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql import func
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import enum
+import re
+
+# Import enums and helper classes from models module
+from .models import ItemType, ItemShape, ThreadSeries, ThreadHandedness, Dimensions, Thread
 
 Base = declarative_base()
 
@@ -86,6 +91,478 @@ class InventoryItem(Base):
         # Ensure valid JA ID format (MariaDB/MySQL compatible)
         CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_valid_ja_id_format'),
     )
+    
+    # Enum properties for automatic conversion between database strings and enum objects
+    @hybrid_property
+    def item_type_enum(self) -> Optional[ItemType]:
+        """Get item type as enum object"""
+        if not self.item_type:
+            return None
+        try:
+            return ItemType(self.item_type)
+        except ValueError:
+            # Handle legacy enum class name format (e.g., 'ItemType.PLATE' -> 'Plate')
+            if '.' in self.item_type:
+                enum_name = self.item_type.split('.')[-1]  # 'ItemType.PLATE' -> 'PLATE'
+                for enum_item in ItemType:
+                    if enum_item.name == enum_name:
+                        return enum_item
+                    # Try with common case transformations
+                    if enum_item.value == enum_name.capitalize():
+                        return enum_item
+            return None
+    
+    @item_type_enum.setter
+    def item_type_enum(self, value: Optional[ItemType]):
+        """Set item type from enum object"""
+        self.item_type = value.value if value else None
+    
+    @hybrid_property
+    def shape_enum(self) -> Optional[ItemShape]:
+        """Get shape as enum object"""
+        if not self.shape:
+            return None
+        try:
+            return ItemShape(self.shape)
+        except ValueError:
+            # Handle legacy enum class name format
+            if '.' in self.shape:
+                enum_name = self.shape.split('.')[-1]
+                for enum_item in ItemShape:
+                    if enum_item.name == enum_name:
+                        return enum_item
+                    # Try with common case transformations
+                    if enum_item.value == enum_name.capitalize():
+                        return enum_item
+            return None
+    
+    @shape_enum.setter
+    def shape_enum(self, value: Optional[ItemShape]):
+        """Set shape from enum object"""
+        self.shape = value.value if value else None
+    
+    @hybrid_property
+    def thread_series_enum(self) -> Optional[ThreadSeries]:
+        """Get thread series as enum object"""
+        if not self.thread_series:
+            return None
+        try:
+            return ThreadSeries(self.thread_series)
+        except ValueError:
+            # Handle legacy enum class name format
+            if '.' in self.thread_series:
+                enum_name = self.thread_series.split('.')[-1]
+                for enum_item in ThreadSeries:
+                    if enum_item.name == enum_name:
+                        return enum_item
+                    if enum_item.value == enum_name:
+                        return enum_item
+            return None
+    
+    @thread_series_enum.setter
+    def thread_series_enum(self, value: Optional[ThreadSeries]):
+        """Set thread series from enum object"""
+        self.thread_series = value.value if value else None
+    
+    @hybrid_property
+    def thread_handedness_enum(self) -> Optional[ThreadHandedness]:
+        """Get thread handedness as enum object"""
+        if not self.thread_handedness:
+            return None
+        try:
+            return ThreadHandedness(self.thread_handedness)
+        except ValueError:
+            # Handle legacy enum class name format
+            if '.' in self.thread_handedness:
+                enum_name = self.thread_handedness.split('.')[-1]
+                for enum_item in ThreadHandedness:
+                    if enum_item.name == enum_name:
+                        return enum_item
+                    if enum_item.value == enum_name:
+                        return enum_item
+            return None
+    
+    @thread_handedness_enum.setter
+    def thread_handedness_enum(self, value: Optional[ThreadHandedness]):
+        """Set thread handedness from enum object"""
+        self.thread_handedness = value.value if value else None
+    
+    def validate(self) -> List[str]:
+        """
+        Validate item data and return list of error messages.
+        Similar to Item._validate_required_fields but returns errors instead of raising.
+        """
+        errors = []
+        
+        # Validate JA ID format
+        if not self.ja_id:
+            errors.append("JA ID is required")
+        elif not re.match(r'^JA\d{6}$', self.ja_id):
+            errors.append(f"Invalid JA ID format: {self.ja_id}. Expected format: JA######")
+        
+        # Basic required fields
+        if not self.material or not self.material.strip():
+            errors.append("Material is required")
+        
+        if not self.item_type:
+            errors.append("Item type is required")
+        
+        # Type and shape-specific dimension requirements
+        item_type_enum = self.item_type_enum
+        shape_enum = self.shape_enum
+        
+        if item_type_enum == ItemType.THREADED_ROD:
+            # Threaded rods only need length and thread specification
+            if not self.length:
+                errors.append("Length is required for threaded rods")
+            if not self.thread_size or not self.thread_size.strip():
+                errors.append("Thread size is required for threaded rods")
+        elif shape_enum == ItemShape.RECTANGULAR:
+            if not self.length:
+                errors.append("Length is required for rectangular items")
+            if not self.width:
+                errors.append("Width is required for rectangular items") 
+            if not self.thickness:
+                errors.append("Thickness is required for rectangular items")
+        elif shape_enum == ItemShape.ROUND:
+            if not self.length:
+                errors.append("Length is required for round items")
+            if not self.width:  # width = diameter for round items
+                errors.append("Diameter (width) is required for round items")
+        elif shape_enum == ItemShape.SQUARE:
+            if not self.length:
+                errors.append("Length is required for square items")
+            if not self.width:
+                errors.append("Width is required for square items")
+        
+        # Validate dimension values are positive
+        dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
+        for field_name in dimension_fields:
+            value = getattr(self, field_name)
+            if value is not None and float(value) <= 0:
+                errors.append(f"{field_name.replace('_', ' ').title()} must be positive")
+        
+        # Validate quantity
+        if self.quantity is not None and self.quantity <= 0:
+            errors.append("Quantity must be positive")
+        
+        return errors
+    
+    @property
+    def display_name(self) -> str:
+        """Generate a human-readable display name"""
+        parts = [self.material]
+        
+        if self.item_type_enum:
+            parts.append(self.item_type_enum.value)
+        if self.shape_enum:
+            parts.append(self.shape_enum.value)
+        
+        if self.length:
+            if self.shape_enum == ItemShape.ROUND:
+                parts.append(f"⌀{self.width}\" × {self.length}\"")
+            elif self.shape_enum == ItemShape.RECTANGULAR:
+                parts.append(f"{self.width}\" × {self.thickness}\" × {self.length}\"")
+            elif self.shape_enum == ItemShape.SQUARE:
+                parts.append(f"{self.width}\" × {self.length}\"")
+        
+        return " ".join(str(p) for p in parts if p)
+    
+    @property
+    def is_threaded(self) -> bool:
+        """Check if item has threading specification"""
+        return bool(self.thread_series is not None or 
+                   self.thread_handedness is not None or
+                   (self.thread_size and self.thread_size.strip()))
+    
+    @property
+    def dimensions(self) -> Dimensions:
+        """Get dimensions as Dimensions object"""
+        from decimal import Decimal
+        return Dimensions(
+            length=Decimal(str(self.length)) if self.length is not None else None,
+            width=Decimal(str(self.width)) if self.width is not None else None,
+            thickness=Decimal(str(self.thickness)) if self.thickness is not None else None,
+            wall_thickness=Decimal(str(self.wall_thickness)) if self.wall_thickness is not None else None,
+            weight=Decimal(str(self.weight)) if self.weight is not None else None,
+        )
+    
+    @dimensions.setter
+    def dimensions(self, value: Dimensions):
+        """Set dimensions from Dimensions object"""
+        if value:
+            self.length = float(value.length) if value.length is not None else None
+            self.width = float(value.width) if value.width is not None else None
+            self.thickness = float(value.thickness) if value.thickness is not None else None
+            self.wall_thickness = float(value.wall_thickness) if value.wall_thickness is not None else None
+            self.weight = float(value.weight) if value.weight is not None else None
+    
+    @property
+    def thread(self) -> Optional[Thread]:
+        """Get thread specification as Thread object"""
+        # Only create Thread object if we have meaningful thread data
+        if not any([self.thread_series, self.thread_handedness, 
+                   self.thread_size and self.thread_size.strip()]):
+            return None
+        
+        try:
+            return Thread(
+                series=self.thread_series_enum,
+                handedness=self.thread_handedness_enum,
+                size=self.thread_size.strip() if self.thread_size else None,
+                original=self.original_thread
+            )
+        except ValueError:
+            # Skip thread creation if validation fails - thread data is malformed
+            return None
+    
+    @thread.setter
+    def thread(self, value: Optional[Thread]):
+        """Set thread specification from Thread object"""
+        if value:
+            self.thread_series_enum = value.series
+            self.thread_handedness_enum = value.handedness  
+            self.thread_size = value.size
+            if value.original:
+                self.original_thread = value.original
+        else:
+            self.thread_series = None
+            self.thread_handedness = None
+            self.thread_size = None
+    
+    @property
+    def estimated_volume(self) -> Optional['Decimal']:
+        """Calculate estimated volume using dimensions and shape"""
+        return self.dimensions.volume(self.shape_enum) if self.shape_enum else None
+    
+    def to_dict_enhanced(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary with enum handling for API responses.
+        Enhanced version that includes enum values alongside string values.
+        """
+        result = self.to_dict()  # Start with existing to_dict()
+        
+        # Add enum representations
+        result.update({
+            'item_type_enum': self.item_type_enum.value if self.item_type_enum else None,
+            'shape_enum': self.shape_enum.value if self.shape_enum else None,
+            'thread_series_enum': self.thread_series_enum.value if self.thread_series_enum else None,
+            'thread_handedness_enum': self.thread_handedness_enum.value if self.thread_handedness_enum else None,
+            'display_name': self.display_name,
+            'is_threaded': self.is_threaded,
+        })
+        
+        return result
+    
+    @classmethod
+    def from_dict_enhanced(cls, data: Dict[str, Any]) -> 'InventoryItem':
+        """
+        Create InventoryItem from dictionary with enum support.
+        Handles both string values and enum objects.
+        """
+        # Create base item with string values
+        item = cls()
+        
+        # Set basic fields
+        for field in ['ja_id', 'material', 'quantity', 'location', 'sub_location',
+                     'notes', 'vendor', 'vendor_part', 'original_material', 'original_thread']:
+            if field in data and data[field] is not None:
+                setattr(item, field, data[field])
+        
+        # Handle enum fields - prefer enum values, fall back to string values
+        if 'item_type_enum' in data and data['item_type_enum']:
+            try:
+                item.item_type_enum = ItemType(data['item_type_enum'])
+            except ValueError:
+                item.item_type = data.get('item_type', data['item_type_enum'])
+        elif 'item_type' in data:
+            item.item_type = data['item_type']
+        
+        if 'shape_enum' in data and data['shape_enum']:
+            try:
+                item.shape_enum = ItemShape(data['shape_enum'])
+            except ValueError:
+                item.shape = data.get('shape', data['shape_enum'])
+        elif 'shape' in data:
+            item.shape = data['shape']
+        
+        if 'thread_series_enum' in data and data['thread_series_enum']:
+            try:
+                item.thread_series_enum = ThreadSeries(data['thread_series_enum'])
+            except ValueError:
+                item.thread_series = data.get('thread_series', data['thread_series_enum'])
+        elif 'thread_series' in data:
+            item.thread_series = data['thread_series']
+        
+        if 'thread_handedness_enum' in data and data['thread_handedness_enum']:
+            try:
+                item.thread_handedness_enum = ThreadHandedness(data['thread_handedness_enum'])
+            except ValueError:
+                item.thread_handedness = data.get('thread_handedness', data['thread_handedness_enum'])
+        elif 'thread_handedness' in data:
+            item.thread_handedness = data['thread_handedness']
+        
+        # Handle numeric fields
+        for field in ['length', 'width', 'thickness', 'wall_thickness', 'weight', 'purchase_price']:
+            if field in data and data[field] is not None:
+                try:
+                    setattr(item, field, float(data[field]))
+                except (ValueError, TypeError):
+                    pass
+        
+        # Handle thread size
+        if 'thread_size' in data:
+            item.thread_size = data['thread_size']
+        
+        # Handle boolean fields
+        if 'active' in data:
+            item.active = bool(data['active'])
+        
+        # Handle date fields
+        if 'purchase_date' in data and data['purchase_date']:
+            try:
+                if isinstance(data['purchase_date'], str):
+                    item.purchase_date = datetime.fromisoformat(data['purchase_date'].replace('Z', '+00:00'))
+                elif hasattr(data['purchase_date'], 'date'):
+                    item.purchase_date = data['purchase_date']
+            except (ValueError, AttributeError):
+                pass
+        
+        return item
+    
+    def to_row(self, headers: List[str]) -> List[str]:
+        """Convert item to a row format matching given headers for Google Sheets compatibility"""
+        row = []
+        
+        for header in headers:
+            # Map headers to data fields
+            header_mappings = {
+                'Active': 'Yes' if self.active else 'No',
+                'JA ID': self.ja_id or '',
+                'Length': str(self.length) if self.length else '',
+                'Width': str(self.width) if self.width else '',
+                'Thickness': str(self.thickness) if self.thickness else '',
+                'Wall Thickness': str(self.wall_thickness) if self.wall_thickness else '',
+                'Weight': str(self.weight) if self.weight else '',
+                'Type': self.item_type or '',
+                'Shape': self.shape or '',
+                'Material': self.material or '',
+                'Thread Series': self.thread_series or '',
+                'Thread Handedness': self.thread_handedness or '',
+                'Thread Size': self.thread_size or '',
+                'Quantity': str(self.quantity) if self.quantity else '',
+                'Location': self.location or '',
+                'Sub-Location': self.sub_location or '',
+                'Purchase Date': self.purchase_date.strftime('%Y-%m-%d') if self.purchase_date else '',
+                'Purchase Price': str(self.purchase_price) if self.purchase_price else '',
+                'Purchase Location': self.purchase_location or '',
+                'Notes': self.notes or '',
+                'Vendor': self.vendor or '',
+                'Vendor Part': self.vendor_part or '',
+                'Original Material': self.original_material or '',
+                'Original Thread': self.original_thread or '',
+                'Date Added': self.date_added.isoformat() if self.date_added else '',
+                'Last Modified': self.last_modified.isoformat() if self.last_modified else '',
+            }
+            
+            row.append(header_mappings.get(header, ''))
+        
+        return row
+    
+    @classmethod
+    def from_row(cls, row: List[str], headers: List[str]) -> 'InventoryItem':
+        """Create InventoryItem from row data with given headers"""
+        row_dict = dict(zip(headers, row))
+        
+        # Create new item
+        item = cls()
+        
+        # Set basic string fields
+        string_fields = {
+            'JA ID': 'ja_id',
+            'Type': 'item_type', 
+            'Shape': 'shape',
+            'Material': 'material',
+            'Thread Series': 'thread_series',
+            'Thread Handedness': 'thread_handedness',
+            'Thread Size': 'thread_size',
+            'Location': 'location',
+            'Sub-Location': 'sub_location',
+            'Purchase Location': 'purchase_location',
+            'Vendor': 'vendor',
+            'Vendor Part': 'vendor_part',
+            'Notes': 'notes',
+            'Original Material': 'original_material',
+            'Original Thread': 'original_thread',
+        }
+        
+        for header, field_name in string_fields.items():
+            value = row_dict.get(header)
+            if value and value.strip():
+                setattr(item, field_name, value.strip())
+        
+        # Handle numeric fields
+        numeric_fields = ['Length', 'Width', 'Thickness', 'Wall Thickness', 'Weight', 'Purchase Price']
+        field_mappings = {
+            'Length': 'length',
+            'Width': 'width', 
+            'Thickness': 'thickness',
+            'Wall Thickness': 'wall_thickness',
+            'Weight': 'weight',
+            'Purchase Price': 'purchase_price'
+        }
+        
+        for header in numeric_fields:
+            value = row_dict.get(header)
+            if value and str(value).strip():
+                try:
+                    # Clean currency symbols for price
+                    if header == 'Purchase Price':
+                        cleaned_value = str(value).strip()
+                        cleaned_value = cleaned_value.replace('$', '').replace('€', '').replace('£', '').replace('¥', '')
+                        cleaned_value = cleaned_value.replace(',', '').strip()
+                        if cleaned_value:
+                            setattr(item, field_mappings[header], float(cleaned_value))
+                    else:
+                        setattr(item, field_mappings[header], float(value))
+                except (ValueError, TypeError):
+                    pass
+        
+        # Handle quantity
+        quantity_str = row_dict.get('Quantity')
+        if quantity_str:
+            try:
+                item.quantity = int(quantity_str)
+            except (ValueError, TypeError):
+                item.quantity = 1
+        
+        # Handle active status
+        active_str = row_dict.get('Active', 'Yes')
+        item.active = active_str.lower() in ['yes', 'y', 'true', '1']
+        
+        # Handle dates
+        purchase_date_str = row_dict.get('Purchase Date')
+        if purchase_date_str and purchase_date_str.strip():
+            try:
+                item.purchase_date = datetime.strptime(purchase_date_str.strip(), '%Y-%m-%d')
+            except ValueError:
+                pass
+        
+        date_added_str = row_dict.get('Date Added')
+        if date_added_str and date_added_str.strip():
+            try:
+                item.date_added = datetime.fromisoformat(date_added_str.strip().replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        last_modified_str = row_dict.get('Last Modified')
+        if last_modified_str and last_modified_str.strip():
+            try:
+                item.last_modified = datetime.fromisoformat(last_modified_str.strip().replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        return item
     
     def __repr__(self):
         return f"<InventoryItem(id={self.id}, ja_id='{self.ja_id}', active={self.active}, material='{self.material}')>"
