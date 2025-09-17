@@ -21,6 +21,11 @@ class HistoryViewer {
         this.modalBody = document.getElementById('history-modal-body');
         this.historyItemId = document.getElementById('history-item-id');
         this.editItemLink = document.getElementById('edit-item-from-history-link');
+        
+        // Check if modal elements exist
+        if (!this.modal) {
+            console.warn('History modal not found - history functionality may not work');
+        }
     }
     
     showHistory(jaId) {

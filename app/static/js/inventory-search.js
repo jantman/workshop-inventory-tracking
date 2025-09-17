@@ -504,9 +504,127 @@ class AdvancedInventorySearch {
     }
 }
 
-// Global functions for row actions
+// Global functions for row actions - Modal Implementation
+function showItemDetails(jaId) {
+    // Show loading state
+    const modal = new bootstrap.Modal(document.getElementById('item-details-modal'));
+    const modalBody = document.querySelector('#item-details-modal .modal-body');
+    const editLink = document.getElementById('edit-item-link');
+    
+    modalBody.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3">Loading item details...</p>
+        </div>
+    `;
+    
+    // Update edit link
+    editLink.href = `/inventory/edit/${jaId}`;
+    
+    modal.show();
+    
+    // Fetch item details
+    fetch(`/inventory/view/${jaId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                modalBody.innerHTML = createItemDetailsHTML(data.item);
+            } else {
+                modalBody.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Error: ${data.error || 'Unable to load item details'}
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching item details:', error);
+            modalBody.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Error loading item details. Please try again.
+                </div>
+            `;
+        });
+}
+
+function createItemDetailsHTML(item) {
+    const dimensions = item.formatted_dimensions || {};
+    const thread = item.thread || {};
+    
+    return `
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="text-muted border-bottom pb-2">Basic Information</h6>
+                <table class="table table-sm">
+                    <tr><td><strong>JA ID:</strong></td><td>${item.ja_id}</td></tr>
+                    <tr><td><strong>Type:</strong></td><td>${item.item_type || 'N/A'}</td></tr>
+                    <tr><td><strong>Shape:</strong></td><td>${item.shape || 'N/A'}</td></tr>
+                    <tr><td><strong>Material:</strong></td><td>${item.material || 'N/A'}</td></tr>
+                    <tr><td><strong>Status:</strong></td><td>
+                        ${item.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}
+                    </td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted border-bottom pb-2">Dimensions</h6>
+                <table class="table table-sm">
+                    ${dimensions.length ? `<tr><td><strong>Length:</strong></td><td>${dimensions.length}"</td></tr>` : ''}
+                    ${dimensions.width ? `<tr><td><strong>Width:</strong></td><td>${dimensions.width}"</td></tr>` : ''}
+                    ${dimensions.thickness ? `<tr><td><strong>Thickness:</strong></td><td>${dimensions.thickness}"</td></tr>` : ''}
+                    ${dimensions.diameter ? `<tr><td><strong>Diameter:</strong></td><td>${dimensions.diameter}"</td></tr>` : ''}
+                    ${dimensions.wall_thickness ? `<tr><td><strong>Wall Thickness:</strong></td><td>${dimensions.wall_thickness}"</td></tr>` : ''}
+                    ${item.weight ? `<tr><td><strong>Weight:</strong></td><td>${item.weight} lbs</td></tr>` : ''}
+                </table>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <h6 class="text-muted border-bottom pb-2">Location</h6>
+                <table class="table table-sm">
+                    <tr><td><strong>Location:</strong></td><td>${item.location || 'N/A'}</td></tr>
+                    <tr><td><strong>Sub-location:</strong></td><td>${item.sub_location || 'N/A'}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted border-bottom pb-2">Purchase Info</h6>
+                <table class="table table-sm">
+                    <tr><td><strong>Price:</strong></td><td>${item.purchase_price ? '$' + item.purchase_price : 'N/A'}</td></tr>
+                    <tr><td><strong>Vendor:</strong></td><td>${item.vendor || 'N/A'}</td></tr>
+                    <tr><td><strong>Date Added:</strong></td><td>${item.date_added ? new Date(item.date_added).toLocaleDateString() : 'N/A'}</td></tr>
+                </table>
+            </div>
+        </div>
+        ${item.notes ? `
+            <div class="row mt-3">
+                <div class="col-12">
+                    <h6 class="text-muted border-bottom pb-2">Notes</h6>
+                    <p class="text-muted">${item.notes}</p>
+                </div>
+            </div>
+        ` : ''}
+        ${thread.size ? `
+            <div class="row mt-3">
+                <div class="col-12">
+                    <h6 class="text-muted border-bottom pb-2">Thread Information</h6>
+                    <table class="table table-sm">
+                        <tr><td><strong>Thread Size:</strong></td><td>${thread.size}</td></tr>
+                        ${thread.series ? `<tr><td><strong>Series:</strong></td><td>${thread.series}</td></tr>` : ''}
+                        ${thread.handedness ? `<tr><td><strong>Handedness:</strong></td><td>${thread.handedness}</td></tr>` : ''}
+                        ${thread.form ? `<tr><td><strong>Form:</strong></td><td>${thread.form}</td></tr>` : ''}
+                    </table>
+                </div>
+            </div>
+        ` : ''}
+    `;
+}
+
+// Keep legacy function name for compatibility, but redirect to modal
 function viewItemDetails(jaId) {
-    window.location.href = `/inventory/view/${jaId}`;
+    showItemDetails(jaId);
 }
 
 function editItem(jaId) {
