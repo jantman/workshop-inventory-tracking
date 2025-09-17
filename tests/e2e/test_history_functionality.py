@@ -98,9 +98,9 @@ def test_history_modal_functionality_from_inventory_list(page, live_server):
     modal_title = page.locator('#item-history-modal-label')
     expect(modal_title).to_contain_text('Item History - JA301002')
     
-    # Verify modal contains item information
+    # Verify modal contains item information (check for item characteristics)
     modal_body = page.locator('#history-modal-body')
-    expect(modal_body).to_contain_text('JA301002')
+    expect(modal_body).to_contain_text('Aluminum')
     
     # Verify summary section shows correct counts
     expect(modal_body).to_contain_text('Total Versions')
@@ -121,19 +121,24 @@ def test_history_functionality_in_search_results(page, live_server):
     
     test_item = {
         "ja_id": "JA301003",
-        "item_type": "Rod",
-        "shape": "Round",
-        "material": "Brass",
-        "length": "18",
-        "width": "0.75",
-        "location": "Workshop B",
-        "notes": "Test rod for search history"
+        "item_type": "Plate",
+        "shape": "Rectangular",
+        "material": "Aluminum",
+        "length": "12",
+        "width": "6",
+        "thickness": "0.25",
+        "location": "Storage A",
+        "notes": "Test plate for search history"
     }
     
     add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], test_item["shape"], test_item["material"])
     add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
+    page.fill("#thickness", test_item["thickness"])
     add_page.fill_location_and_notes(location=test_item["location"], notes=test_item["notes"])
     add_page.submit_form()
+    
+    # Wait a moment for submission to complete
+    page.wait_for_timeout(2000)
     
     # Navigate to search page
     page.goto(f'{live_server.url}/inventory/search')
@@ -145,12 +150,12 @@ def test_history_functionality_in_search_results(page, live_server):
     # Wait for search results
     page.wait_for_selector('#results-table-container', state='visible')
     
-    # Find history button in search results
-    history_button = page.locator(f'button[onclick*="viewItemDetails(\'JA301003\')"]').first()
-    expect(history_button).to_be_visible()
+    # Find view details button in search results
+    view_button = page.locator('button[onclick*="viewItemDetails(\'JA301003\')"]')
+    expect(view_button).to_be_visible()
     
-    # Click to open details modal (which should have history button)
-    history_button.click()
+    # Click to open details modal
+    view_button.click()
     
     # Wait for details modal
     details_modal = page.locator('#item-details-modal')
@@ -332,8 +337,8 @@ def test_history_modal_content_and_formatting(page, live_server):
     expect(timeline).to_be_visible()
     
     # Verify at least one timeline item exists
-    timeline_items = modal_body.locator('.timeline-item')
-    expect(timeline_items).to_have_count_greater_than(0)
+    timeline_item = modal_body.locator('.timeline-item')
+    expect(timeline_item).to_be_visible()
     
     # Verify active item badge
     active_badge = modal_body.locator('.badge.bg-success')

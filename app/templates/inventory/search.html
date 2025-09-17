@@ -300,7 +300,6 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
 <!-- Item Details Modal -->
 <div class="modal fade" id="item-details-modal" tabindex="-1" aria-labelledby="item-details-modal-label" aria-hidden="true">
@@ -312,12 +311,12 @@
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" id="item-details-modal-body">
                 <!-- Content will be populated by JavaScript -->
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-outline-warning" id="view-history-from-details-btn">
+                <button type="button" class="btn btn-warning" id="view-history-from-details-btn">
                     <i class="bi bi-clock-history"></i> View History
                 </button>
                 <a href="#" class="btn btn-primary" id="edit-item-link">
@@ -350,6 +349,7 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/inventory-search.js') }}"></script>
