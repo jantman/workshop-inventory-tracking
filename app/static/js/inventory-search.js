@@ -523,6 +523,17 @@ function showItemDetails(jaId) {
     // Update edit link
     editLink.href = `/inventory/edit/${jaId}`;
     
+    // Update history button
+    const historyBtn = document.getElementById('view-history-from-details-btn');
+    if (historyBtn) {
+        historyBtn.onclick = () => {
+            // Close the details modal first
+            modal.hide();
+            // Show history modal
+            showItemHistory(jaId);
+        };
+    }
+    
     modal.show();
     
     // Fetch item details

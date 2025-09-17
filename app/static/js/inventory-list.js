@@ -714,6 +714,9 @@ function createItemDetailsModal() {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-outline-warning" id="view-history-from-details-btn">
+                            <i class="bi bi-clock-history"></i> View History
+                        </button>
                         <a href="#" class="btn btn-primary" id="edit-item-link">
                             <i class="bi bi-pencil"></i> Edit Item
                         </a>
@@ -738,6 +741,20 @@ function createItemDetailsHTML(item) {
     
     // Update edit link
     document.getElementById('edit-item-link').href = `/inventory/edit/${item.ja_id}`;
+    
+    // Update history button
+    const historyBtn = document.getElementById('view-history-from-details-btn');
+    if (historyBtn) {
+        historyBtn.onclick = () => {
+            // Close the details modal first
+            const detailsModal = bootstrap.Modal.getInstance(document.getElementById('item-details-modal'));
+            if (detailsModal) {
+                detailsModal.hide();
+            }
+            // Show history modal
+            showItemHistory(item.ja_id);
+        };
+    }
     
     return `
         <div class="row">

@@ -220,8 +220,36 @@ The existing API returns data in this format:
 - `app/static/css/main.css` - Timeline styling and responsive design
 - `docs/user-manual.md` - Added history viewing documentation
 
-### 🔄 Next Steps: Milestone 2
-Ready to proceed with enhanced history access points (item details modal and edit form).
+### ✅ Milestone 2: Enhanced History Access Points - COMPLETED
+**Implementation Date**: 2025-09-17
+
+**Completed Tasks:**
+- **AHU - 2.1**: ✅ Added History button to item details modal footer
+- **AHU - 2.2**: ✅ Added History link to edit form header
+
+**Implementation Details:**
+- Added "View History" button to item details modal footer on both inventory list and search pages
+- Implemented smooth modal transitions (details modal → history modal)
+- Added "View History" button to edit form header alongside existing navigation
+- Ensured consistent styling and functionality across all access points
+- Updated search page to include history viewer JavaScript and modal HTML
+
+**Files Modified:**
+- `app/static/js/inventory-list.js` - Added history button to details modal
+- `app/static/js/inventory-search.js` - Added history button handler 
+- `app/templates/inventory/search.html` - Added history modal HTML and scripts
+- `app/templates/inventory/edit.html` - Added history button in header and modal HTML
+- `docs/user-manual.md` - Updated with comprehensive access points documentation
+
+**Access Points Summary:**
+Users can now view item history from 4 different interfaces:
+1. 📋 Inventory List - History button in table actions
+2. 🔍 Search Results - History button in table actions  
+3. 👁️ Item Details Modal - History button in modal footer (both views)
+4. ✏️ Edit Form - History button in page header
+
+### 🔄 Next Steps: Milestone 3
+Ready to proceed with testing and documentation completion.
 
 ## Success Criteria
 
@@ -231,8 +259,9 @@ Ready to proceed with enhanced history access points (item details modal and edi
 - [x] Interface is responsive and accessible with mobile-friendly design
 - [x] Loading and error states are handled gracefully
 - [ ] All functionality is covered by E2E tests (pending Milestone 3)
-- [ ] History access from item details modal (Milestone 2)
-- [ ] History access from edit form (Milestone 2)
+- [x] History access from item details modal (completed in Milestone 2)
+- [x] History access from edit form (completed in Milestone 2)
+- [x] History access from search results (completed in Milestone 2)
 
 ## Implementation Plan
 

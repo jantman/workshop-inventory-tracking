@@ -215,14 +215,21 @@ Flag mode creates labels with rotated barcodes at both ends, making them easier 
 - New item references parent item for traceability
 
 #### Viewing Item History
-- **History Button**: Click the clock icon (🕒) in the Actions column of any item in the inventory list
-- **History Modal**: Opens a timeline view showing all versions of the item
+
+**Multiple Access Points:**
+- **📋 Inventory List**: Clock icon (🕒) in the Actions column of any item
+- **🔍 Search Results**: Clock icon (🕒) in the Actions column of search results
+- **👁️ Item Details Modal**: "View History" button in modal footer (both list and search views)
+- **✏️ Edit Form**: "View History" button in the page header
+
+**History Modal Features:**
 - **Timeline Display**: 
   - Most recent changes at the top
   - Visual indicators for active (green) vs inactive (gray) entries
   - Complete dimension changes and modification notes
   - Timestamps for when each version was created/modified
 - **Summary Information**: Total versions, active items, and inactive items count
+- **Easy Navigation**: Seamlessly transitions between details and history views
 
 #### Technical Details
 - **Item History API**: Access complete modification history via `/api/items/{JA_ID}/history`
