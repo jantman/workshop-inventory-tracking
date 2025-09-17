@@ -12,7 +12,8 @@ from decimal import Decimal
 
 from app.mariadb_inventory_service import InventoryService
 from app.database import InventoryItem
-from app.models import Item, ItemType, ItemShape, Dimensions
+from app.models import ItemType, ItemShape, Dimensions
+# Note: Tests now work with InventoryItem directly instead of Item dataclass
 
 
 class TestInventoryService:
@@ -60,6 +61,17 @@ class TestInventoryService:
         db_item.original_thread = ""
         db_item.date_added = datetime.now()
         db_item.last_modified = datetime.now()
+        
+        # Mock the dimensions property to return a Dimensions object
+        mock_dimensions = Dimensions(
+            length=Decimal("45.625"),
+            width=Decimal("1.0"),
+            thickness=None,
+            wall_thickness=None,
+            weight=None
+        )
+        db_item.dimensions = mock_dimensions
+        
         return db_item
     
     def test_get_active_item_finds_active_only(self, service, sample_db_item):
@@ -138,6 +150,14 @@ class TestInventoryService:
         item1.original_thread = ""
         item1.date_added = datetime(2025, 1, 1)
         item1.last_modified = datetime(2025, 1, 1)
+        # Mock the dimensions property
+        item1.dimensions = Dimensions(
+            length=Decimal("53.5"),
+            width=Decimal("1.0"),
+            thickness=None,
+            wall_thickness=None,
+            weight=None
+        )
         
         item2 = Mock(spec=InventoryItem)
         item2.ja_id = "JA000211"
@@ -166,6 +186,14 @@ class TestInventoryService:
         item2.original_thread = ""
         item2.date_added = datetime(2025, 1, 15)
         item2.last_modified = datetime(2025, 1, 15)
+        # Mock the dimensions property
+        item2.dimensions = Dimensions(
+            length=Decimal("48.0"),
+            width=Decimal("1.0"),
+            thickness=None,
+            wall_thickness=None,
+            weight=None
+        )
         
         item3 = Mock(spec=InventoryItem)
         item3.ja_id = "JA000211"
@@ -194,6 +222,14 @@ class TestInventoryService:
         item3.original_thread = ""
         item3.date_added = datetime(2025, 1, 30)
         item3.last_modified = datetime(2025, 1, 30)
+        # Mock the dimensions property
+        item3.dimensions = Dimensions(
+            length=Decimal("45.625"),
+            width=Decimal("1.0"),
+            thickness=None,
+            wall_thickness=None,
+            weight=None
+        )
         
         with patch.object(service, 'Session') as mock_session_class:
             mock_session = Mock()

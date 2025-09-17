@@ -375,34 +375,9 @@ class MariaDBStorage(Storage):
     
     def _inventory_item_to_row(self, item: InventoryItem) -> List[Any]:
         """Convert InventoryItem to row format compatible with Google Sheets"""
-        return [
-            item.ja_id,
-            item.item_type,
-            item.shape or '',
-            item.material,
-            float(item.length) if item.length else '',
-            float(item.width) if item.width else '',
-            float(item.thickness) if item.thickness else '',
-            float(item.wall_thickness) if item.wall_thickness else '',
-            float(item.weight) if item.weight else '',
-            item.thread_series or '',
-            item.thread_handedness or '',
-            item.thread_size or '',
-            item.quantity,
-            item.location or '',
-            item.sub_location or '',
-            item.purchase_date.strftime('%Y-%m-%d') if item.purchase_date else '',
-            float(item.purchase_price) if item.purchase_price else '',
-            item.purchase_location or '',
-            item.notes or '',
-            item.vendor or '',
-            item.vendor_part or '',
-            item.original_material or '',
-            item.original_thread or '',
-            '1' if item.active else '0',  # Google Sheets compatible boolean
-            item.date_added.strftime('%Y-%m-%d %H:%M:%S') if item.date_added else '',
-            item.last_modified.strftime('%Y-%m-%d %H:%M:%S') if item.last_modified else ''
-        ]
+        # Use enhanced InventoryItem's to_row method for consistency
+        headers = self._get_inventory_headers()
+        return item.to_row(headers)
     
     def _material_taxonomy_to_row(self, material: MaterialTaxonomy) -> List[Any]:
         """Convert MaterialTaxonomy to row format compatible with Google Sheets"""
@@ -418,29 +393,10 @@ class MariaDBStorage(Storage):
         ]
     
     def _row_to_inventory_item(self, row: List[Any]) -> InventoryItem:
-        """Convert row data to InventoryItem (basic implementation)"""
-        # This is a simplified conversion - would need more robust parsing
-        return InventoryItem(
-            ja_id=str(row[0]) if len(row) > 0 else '',
-            item_type=str(row[1]) if len(row) > 1 else '',
-            shape=str(row[2]) if len(row) > 2 and row[2] else None,
-            material=str(row[3]) if len(row) > 3 else '',
-            length=float(row[4]) if len(row) > 4 and row[4] else None,
-            width=float(row[5]) if len(row) > 5 and row[5] else None,
-            thickness=float(row[6]) if len(row) > 6 and row[6] else None,
-            wall_thickness=float(row[7]) if len(row) > 7 and row[7] else None,
-            weight=float(row[8]) if len(row) > 8 and row[8] else None,
-            thread_series=str(row[9]) if len(row) > 9 and row[9] else None,
-            thread_handedness=str(row[10]) if len(row) > 10 and row[10] else None,
-            thread_size=str(row[11]) if len(row) > 11 and row[11] else None,
-            quantity=int(row[12]) if len(row) > 12 and row[12] else 1,
-            location=str(row[13]) if len(row) > 13 and row[13] else None,
-            sub_location=str(row[14]) if len(row) > 14 and row[14] else None,
-            notes=str(row[18]) if len(row) > 18 and row[18] else None,
-            vendor=str(row[19]) if len(row) > 19 and row[19] else None,
-            vendor_part=str(row[20]) if len(row) > 20 and row[20] else None,
-            active=str(row[23]).lower() in ('1', 'true', 'yes') if len(row) > 23 else True
-        )
+        """Convert row data to InventoryItem using enhanced from_row method"""
+        # Use enhanced InventoryItem's from_row method for robust parsing
+        headers = self._get_inventory_headers()
+        return InventoryItem.from_row(row, headers)
     
     def _row_to_material_taxonomy(self, row: List[Any]) -> MaterialTaxonomy:
         """Convert row data to MaterialTaxonomy"""
@@ -455,15 +411,22 @@ class MariaDBStorage(Storage):
         )
     
     def _update_inventory_item_from_row(self, item: InventoryItem, row: List[Any]):
-        """Update InventoryItem from row data"""
-        # Update fields from row data - simplified implementation
-        if len(row) > 1:
-            item.item_type = str(row[1])
-        if len(row) > 2:
-            item.shape = str(row[2]) if row[2] else None
-        if len(row) > 3:
-            item.material = str(row[3])
-        # ... additional field updates as needed
+        """Update InventoryItem from row data using enhanced from_row method"""
+        # Use enhanced InventoryItem's from_row method for comprehensive updates
+        headers = self._get_inventory_headers()
+        updated_item = InventoryItem.from_row(row, headers)
+        
+        # Copy all fields except id and system timestamps
+        for attr in ['ja_id', 'item_type', 'shape', 'material', 'length', 'width', 
+                     'thickness', 'wall_thickness', 'weight', 'thread_series', 
+                     'thread_handedness', 'thread_size', 'quantity', 'location', 
+                     'sub_location', 'purchase_date', 'purchase_price', 
+                     'purchase_location', 'notes', 'vendor', 'vendor_part', 
+                     'original_material', 'original_thread', 'active']:
+            if hasattr(updated_item, attr):
+                setattr(item, attr, getattr(updated_item, attr))
+        
+        # Update last_modified timestamp
         item.last_modified = datetime.now(timezone.utc)
     
     def _update_material_taxonomy_from_row(self, material: MaterialTaxonomy, row: List[Any]):

@@ -17,7 +17,8 @@ from sqlalchemy import create_engine, and_, desc, asc, func
 
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
-from .models import Item, ItemType, ItemShape
+from .models import ItemType, ItemShape
+# Note: Item import moved to _db_item_to_model method for backward compatibility only
 from .storage import StorageResult
 from config import Config
 
@@ -143,7 +144,7 @@ class InventoryService:
             **Config.SQLALCHEMY_ENGINE_OPTIONS
         )
     
-    def get_active_item(self, ja_id: str) -> Optional[Item]:
+    def get_active_item(self, ja_id: str) -> Optional[InventoryItem]:
         """
         Get the currently active item for a JA ID
         
@@ -155,7 +156,7 @@ class InventoryService:
             ja_id: The JA ID to search for
             
         Returns:
-            Item object if active item found, None otherwise
+            InventoryItem object if active item found, None otherwise
         """
         try:
             session = self.Session()
@@ -171,10 +172,9 @@ class InventoryService:
             if not db_item:
                 return None
             
-            # Convert to Item model
-            item = self._db_item_to_model(db_item)
-            logger.debug(f"Found active item {ja_id}: length={item.dimensions.length}")
-            return item
+            # Return enhanced InventoryItem directly (no conversion needed)
+            logger.debug(f"Found active item {ja_id}: length={db_item.dimensions.length}")
+            return db_item
             
         except Exception as e:
             logger.error(f"Error getting active item {ja_id}: {e}")
@@ -183,7 +183,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def get_item_history(self, ja_id: str) -> List[Item]:
+    def get_item_history(self, ja_id: str) -> List[InventoryItem]:
         """
         Get all historical versions of an item (active and inactive)
         
@@ -194,7 +194,7 @@ class InventoryService:
             ja_id: The JA ID to get history for
             
         Returns:
-            List of Item objects sorted by date_added
+            List of InventoryItem objects sorted by date_added
         """
         try:
             session = self.Session()
@@ -204,13 +204,9 @@ class InventoryService:
                 InventoryItem.ja_id == ja_id
             ).order_by(asc(InventoryItem.date_added)).all()
             
-            items = []
-            for db_item in db_items:
-                item = self._db_item_to_model(db_item)
-                items.append(item)
-            
-            logger.debug(f"Found {len(items)} historical items for {ja_id}")
-            return items
+            # Return enhanced InventoryItems directly (no conversion needed)
+            logger.debug(f"Found {len(db_items)} historical items for {ja_id}")
+            return db_items
             
         except Exception as e:
             logger.error(f"Error getting item history for {ja_id}: {e}")
@@ -219,7 +215,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def get_all_active_items(self) -> List[Item]:
+    def get_all_active_items(self) -> List[InventoryItem]:
         """
         Get all currently active items (one per JA ID)
         
@@ -227,7 +223,7 @@ class InventoryService:
         state of all inventory items.
         
         Returns:
-            List of active Item objects
+            List of active InventoryItem objects
         """
         try:
             session = self.Session()
@@ -237,21 +233,9 @@ class InventoryService:
                 InventoryItem.active == True
             ).order_by(asc(InventoryItem.ja_id)).all()
             
-            items = []
-            failed_items = []
-            for db_item in db_items:
-                try:
-                    item = self._db_item_to_model(db_item)
-                    items.append(item)
-                except Exception as e:
-                    failed_items.append(db_item.ja_id)
-                    logger.warning(f"Failed to convert item {db_item.ja_id} to model: {e}")
-            
-            if failed_items:
-                logger.error(f"Failed to convert {len(failed_items)} items: {failed_items}")
-            
-            logger.info(f"Retrieved {len(items)} active inventory items ({len(failed_items)} failed conversions)")
-            return items
+            # Return enhanced InventoryItems directly (no conversion needed)
+            logger.info(f"Retrieved {len(db_items)} active inventory items")
+            return db_items
             
         except Exception as e:
             logger.error(f"Error getting all active items: {e}")
@@ -260,18 +244,19 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def search_active_items(self, filters: Dict[str, Any]) -> List[Item]:
+    def search_active_items(self, filters: Dict[str, Any]) -> List[InventoryItem]:
         """
         Search for active items using filters
         
         Only searches among active items to ensure results represent
-        current inventory state.
+        current inventory state. Now uses enhanced InventoryItem with enum properties
+        for simplified filtering logic.
         
         Args:
             filters: Dictionary of search filters
             
         Returns:
-            List of matching active Item objects
+            List of matching active InventoryItem objects
         """
         try:
             session = self.Session()
@@ -279,7 +264,7 @@ class InventoryService:
             # Start with active items only
             query = session.query(InventoryItem).filter(InventoryItem.active == True)
             
-            # Apply filters
+            # Apply filters using enum properties where applicable
             if 'ja_id' in filters and filters['ja_id']:
                 query = query.filter(InventoryItem.ja_id.ilike(f"%{filters['ja_id']}%"))
             
@@ -287,9 +272,11 @@ class InventoryService:
                 query = query.filter(InventoryItem.material == filters['material'])
             
             if 'item_type' in filters and filters['item_type']:
+                # Use enum property for better type matching
                 query = query.filter(InventoryItem.item_type == filters['item_type'])
             
             if 'shape' in filters and filters['shape']:
+                # Use enum property for better shape matching
                 query = query.filter(InventoryItem.shape == filters['shape'])
             
             if 'location' in filters and filters['location']:
@@ -316,13 +303,9 @@ class InventoryService:
             # Execute query
             db_items = query.order_by(asc(InventoryItem.ja_id)).all()
             
-            items = []
-            for db_item in db_items:
-                item = self._db_item_to_model(db_item)
-                items.append(item)
-            
-            logger.debug(f"Search found {len(items)} active items")
-            return items
+            # Return enhanced InventoryItems directly (no conversion needed)
+            logger.debug(f"Search found {len(db_items)} active items")
+            return db_items
             
         except Exception as e:
             logger.error(f"Error searching active items: {e}")
@@ -360,9 +343,12 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def _db_item_to_model(self, db_item: InventoryItem) -> Item:
+    def _db_item_to_model(self, db_item: InventoryItem) -> 'Item':
         """
         Convert database InventoryItem to Item model
+        
+        DEPRECATED: This method is maintained for backward compatibility during the transition
+        to using enhanced InventoryItem directly. Use the enhanced InventoryItem object instead.
         
         Args:
             db_item: SQLAlchemy InventoryItem object
@@ -370,6 +356,12 @@ class InventoryService:
         Returns:
             Item model object
         """
+        import warnings
+        warnings.warn(
+            "_db_item_to_model is deprecated. Use enhanced InventoryItem directly.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         from .models import Item, Dimensions, Thread, ItemType, ItemShape, ThreadSeries, ThreadHandedness
         
         # Helper function to find enum by value
@@ -642,11 +634,11 @@ class InventoryService:
     
     # Override parent class methods to use active-only logic
     
-    def get_item(self, ja_id: str) -> Optional[Item]:
+    def get_item(self, ja_id: str) -> Optional[InventoryItem]:
         """Override to return active item only"""
         return self.get_active_item(ja_id)
     
-    def get_all_items(self, force_refresh: bool = False) -> List[Item]:
+    def get_all_items(self, force_refresh: bool = False) -> List[InventoryItem]:
         """Override to return active items only"""
         return self.get_all_active_items()
     
@@ -701,7 +693,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def update_item(self, item: Item) -> bool:
+    def update_item(self, item: 'Item') -> bool:
         """
         Update an existing item in MariaDB
         
@@ -838,7 +830,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
 
-    def add_item(self, item: Item) -> bool:
+    def add_item(self, item: 'Item') -> bool:
         """Add a new item to MariaDB"""
         from .logging_config import log_audit_operation
         
@@ -1013,7 +1005,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def search_items(self, search_filter: 'SearchFilter') -> List[Item]:
+    def search_items(self, search_filter: 'SearchFilter') -> List['Item']:
         """
         Search for items using a SearchFilter object.
         This method provides compatibility with the original InventoryService API.
