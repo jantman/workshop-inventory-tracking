@@ -361,13 +361,13 @@ def test_history_modal_responsive_design(page, live_server):
     
     test_item = {
         "ja_id": "JA301007",
-        "item_type": "Wire",
+        "item_type": "Bar",
         "shape": "Round",
         "material": "Aluminum",
         "length": "100",
         "width": "0.125",
         "location": "Mobile Test",
-        "notes": "Test wire for mobile responsiveness"
+        "notes": "Test bar for mobile responsiveness"
     }
     
     add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], test_item["shape"], test_item["material"])
