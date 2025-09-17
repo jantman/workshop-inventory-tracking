@@ -657,8 +657,20 @@ class InventoryListManager {
 
 // Global functions for row actions
 window.showItemDetails = function(jaId) {
+    // Check if bootstrap is available
+    if (typeof bootstrap === 'undefined') {
+        console.error('Bootstrap is not loaded');
+        return;
+    }
+    
+    // Get or create modal element
+    let modalElement = document.getElementById('item-details-modal');
+    if (!modalElement) {
+        modalElement = createItemDetailsModal();
+    }
+    
     // Show loading state
-    const modal = new bootstrap.Modal(document.getElementById('item-details-modal') || createItemDetailsModal());
+    const modal = new bootstrap.Modal(modalElement);
     const modalBody = document.querySelector('#item-details-modal .modal-body');
     
     modalBody.innerHTML = `
@@ -746,14 +758,24 @@ function createItemDetailsHTML(item) {
     const historyBtn = document.getElementById('view-history-from-details-btn');
     if (historyBtn) {
         historyBtn.onclick = () => {
+            console.log('History button clicked for item:', item.ja_id);
+            console.log('showItemHistory function available:', typeof window.showItemHistory);
+            
             // Close the details modal first
             const detailsModal = bootstrap.Modal.getInstance(document.getElementById('item-details-modal'));
             if (detailsModal) {
                 detailsModal.hide();
             }
+            
             // Show history modal
-            showItemHistory(item.ja_id);
+            if (typeof window.showItemHistory === 'function') {
+                window.showItemHistory(item.ja_id);
+            } else {
+                console.error('showItemHistory function not available');
+            }
         };
+    } else {
+        console.warn('History button not found in modal footer');
     }
     
     return `

@@ -219,29 +219,6 @@
     </div>
 </div>
 
-<!-- History Modal -->
-<div class="modal fade" id="item-history-modal" tabindex="-1" aria-labelledby="item-history-modal-label" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="item-history-modal-label">
-                    <i class="bi bi-clock-history"></i> Item History - <span id="history-item-id"></span>
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" id="history-modal-body">
-                <!-- Content will be populated by JavaScript -->
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <a href="#" class="btn btn-primary" id="edit-item-from-history-link">
-                    <i class="bi bi-pencil"></i> Edit Item
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
-
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/inventory-list.js') }}"></script>
 <script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>

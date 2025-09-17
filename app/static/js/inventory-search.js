@@ -506,8 +506,21 @@ class AdvancedInventorySearch {
 
 // Global functions for row actions - Modal Implementation
 function showItemDetails(jaId) {
+    // Check if modal element exists
+    const modalElement = document.getElementById('item-details-modal');
+    if (!modalElement) {
+        console.error('Item details modal not found');
+        return;
+    }
+    
+    // Check if bootstrap is available
+    if (typeof bootstrap === 'undefined') {
+        console.error('Bootstrap is not loaded');
+        return;
+    }
+    
     // Show loading state
-    const modal = new bootstrap.Modal(document.getElementById('item-details-modal'));
+    const modal = new bootstrap.Modal(modalElement);
     const modalBody = document.querySelector('#item-details-modal .modal-body');
     const editLink = document.getElementById('edit-item-link');
     
@@ -527,11 +540,21 @@ function showItemDetails(jaId) {
     const historyBtn = document.getElementById('view-history-from-details-btn');
     if (historyBtn) {
         historyBtn.onclick = () => {
+            console.log('History button clicked for item:', jaId);
+            console.log('showItemHistory function available:', typeof window.showItemHistory);
+            
             // Close the details modal first
             modal.hide();
+            
             // Show history modal
-            showItemHistory(jaId);
+            if (typeof window.showItemHistory === 'function') {
+                window.showItemHistory(jaId);
+            } else {
+                console.error('showItemHistory function not available');
+            }
         };
+    } else {
+        console.warn('History button not found in search modal footer');
     }
     
     modal.show();

@@ -1,6 +1,7 @@
 # AI Copilot Instructions for workshop-inventory-tracking
 
 ## Core Rules
+
 - **NEVER suppress warnings/errors without human approval** - Fix root cause, not symptoms
 - **Always use proper type annotations** on all new code
 - **Always close resources explicitly** - Use context managers or try/finally
@@ -9,6 +10,15 @@
 - **Always** include the `-f` option when removing files, such as `rm -f file.txt`.
 - **Always** run the `format` nox session before running the `lint` session, such as `poetry run nox -s format; poetry run nox -s lint`.
 - When working on a problem, **always** ask for human confirmation before making code changes. We value complete understanding and consensus over speed.
+
+## Rules for Implementing Features and Fixing Bugs / Issues
+
+If you have been assigned an issue to complete or a feature to implement, you MUST ALWAYS follow these rules:
+
+* Tests may not be skipped, ignored, deleted, disabled, or circumvented without explicit human developer approval.
+* You MUST add ttests to cover any new functionality you implement; these should be the minimum necessary to demonstrate the feature works as intended and to cover expected failure modes. Frontend/UI changes MUST be covered by e2e browser tests.
+* ALL tests MUST pass for work to be considered ready for review; if you cannot get tests to pass, you MUST ask for help from a human developer, but you must attempt to get all tests to pass before asking for help or asking for a review.
+
 
 ## Technology Stack
 

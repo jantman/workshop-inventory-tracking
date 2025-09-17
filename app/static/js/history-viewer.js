@@ -30,7 +30,12 @@ class HistoryViewer {
     
     showHistory(jaId) {
         if (!this.modal || !this.modalBody) {
-            console.error('History modal elements not found');
+            console.error('History modal elements not found', {
+                modal: !!this.modal,
+                modalBody: !!this.modalBody,
+                modalElement: !!document.getElementById('item-history-modal'),
+                modalBodyElement: !!document.getElementById('history-modal-body')
+            });
             return;
         }
         
