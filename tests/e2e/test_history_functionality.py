@@ -345,7 +345,7 @@ def test_history_modal_content_and_formatting(page, live_server):
     expect(active_badge).to_contain_text('Active')
     
     # Verify dimensions are displayed
-    expect(modal_body).to_contain_text('L: 10.0"')
+    expect(modal_body).to_contain_text('L: 10"')
     expect(modal_body).to_contain_text('W: 1.5"')
 
 

@@ -279,12 +279,24 @@ class InventoryItem(Base):
     def dimensions(self) -> Dimensions:
         """Get dimensions as Dimensions object"""
         from decimal import Decimal
+        
+        def normalize_precision(value):
+            """Normalize decimal precision by removing trailing zeros from database fixed-precision values"""
+            if value is None:
+                return None
+            # Convert to string and remove trailing zeros and unnecessary decimal point
+            str_value = str(value).rstrip('0').rstrip('.')
+            # Handle case where all zeros were stripped (e.g., "0.0000" -> "")
+            if not str_value or str_value == '.':
+                str_value = '0'
+            return Decimal(str_value)
+        
         return Dimensions(
-            length=Decimal(str(self.length)) if self.length is not None else None,
-            width=Decimal(str(self.width)) if self.width is not None else None,
-            thickness=Decimal(str(self.thickness)) if self.thickness is not None else None,
-            wall_thickness=Decimal(str(self.wall_thickness)) if self.wall_thickness is not None else None,
-            weight=Decimal(str(self.weight)) if self.weight is not None else None,
+            length=normalize_precision(self.length),
+            width=normalize_precision(self.width),
+            thickness=normalize_precision(self.thickness),
+            wall_thickness=normalize_precision(self.wall_thickness),
+            weight=normalize_precision(self.weight),
         )
     
     @dimensions.setter

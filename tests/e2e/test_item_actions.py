@@ -153,10 +153,10 @@ def test_edit_item_workflow(page, live_server):
     expect(material_field).to_have_value('Aluminum')
     
     length_field = page.locator('#length')
-    expect(length_field).to_have_value('10.0')
+    expect(length_field).to_have_value('10')
     
     width_field = page.locator('#width')
-    expect(width_field).to_have_value('5.0')
+    expect(width_field).to_have_value('5')
     
     thickness_field = page.locator('#thickness') 
     expect(thickness_field).to_have_value('0.25')

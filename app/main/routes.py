@@ -26,13 +26,13 @@ def _get_storage_backend():
     return MariaDBStorage()
 
 def _item_to_audit_dict(item):
-    """Convert Item object to dictionary for audit logging"""
+    """Convert InventoryItem object to dictionary for audit logging"""
     if not item:
         return None
     return {
         'ja_id': item.ja_id,
-        'item_type': item.item_type.value if item.item_type else None,
-        'shape': item.shape.value if item.shape else None,
+        'item_type': item.item_type if item.item_type else None,  # InventoryItem stores as string
+        'shape': item.shape if item.shape else None,  # InventoryItem stores as string
         'material': item.material,
         'dimensions': item.dimensions.to_dict() if item.dimensions else None,
         'thread': item.thread.to_dict() if item.thread else None,
@@ -44,7 +44,7 @@ def _item_to_audit_dict(item):
         'purchase_location': item.purchase_location,
         'notes': item.notes,
         'vendor': item.vendor,
-        'vendor_part': item.vendor_part_number,
+        'vendor_part': item.vendor_part,
         'original_material': item.original_material,
         'original_thread': item.original_thread,
         'active': item.active,
@@ -704,8 +704,8 @@ def get_item_details(ja_id):
             'item': {
                 'ja_id': item.ja_id,
                 'display_name': item.display_name,
-                'item_type': item.item_type.value,
-                'shape': item.shape.value,
+                'item_type': item.item_type,  # InventoryItem stores as string
+                'shape': item.shape,  # InventoryItem stores as string
                 'material': item.material,
                 'location': item.location,
                 'sub_location': item.sub_location,
@@ -747,8 +747,8 @@ def get_item_history(ja_id):
                 'ja_id': item.ja_id,
                 'active': item.active,
                 'display_name': item.display_name,
-                'item_type': item.item_type.value if item.item_type else None,
-                'shape': item.shape.value if item.shape else None,
+                'item_type': item.item_type if item.item_type else None,  # InventoryItem stores as string
+                'shape': item.shape if item.shape else None,  # InventoryItem stores as string
                 'material': item.material,
                 'location': item.location or '',
                 'sub_location': item.sub_location or '',
@@ -1060,8 +1060,8 @@ def api_inventory_list():
             item_data = {
                 'ja_id': item.ja_id,
                 'display_name': item.display_name,
-                'item_type': item.item_type.value,
-                'shape': item.shape.value,
+                'item_type': item.item_type,  # InventoryItem stores as string
+                'shape': item.shape,  # InventoryItem stores as string
                 'material': item.material,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'thread': item.thread.to_dict() if item.thread else None,
@@ -1072,11 +1072,11 @@ def api_inventory_list():
                 'purchase_price': str(item.purchase_price) if item.purchase_price else None,
                 'purchase_location': item.purchase_location,
                 'vendor': item.vendor,
-                'vendor_part_number': item.vendor_part_number,
+                'vendor_part_number': item.vendor_part,  # InventoryItem field name
                 'notes': item.notes,
                 'active': item.active,
-                'parent_ja_id': item.parent_ja_id,
-                'child_ja_ids': list(item.child_ja_ids) if item.child_ja_ids else [],
+                'parent_ja_id': None,  # InventoryItem doesn't have parent/child relationships
+                'child_ja_ids': [],  # InventoryItem doesn't have parent/child relationships
                 'date_added': item.date_added.isoformat() if item.date_added else None,
                 'last_modified': item.last_modified.isoformat() if item.last_modified else None
             }
@@ -1208,8 +1208,8 @@ def api_advanced_search():
             item_data = {
                 'ja_id': item.ja_id,
                 'display_name': item.display_name,
-                'item_type': item.item_type.value,
-                'shape': item.shape.value,
+                'item_type': item.item_type,
+                'shape': item.shape,
                 'material': item.material,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'thread': item.thread.to_dict() if item.thread else None,
@@ -1220,11 +1220,9 @@ def api_advanced_search():
                 'purchase_price': str(item.purchase_price) if item.purchase_price else None,
                 'purchase_location': item.purchase_location,
                 'vendor': item.vendor,
-                'vendor_part_number': item.vendor_part_number,
+                'vendor_part_number': item.vendor_part,
                 'notes': item.notes,
                 'active': item.active,
-                'parent_ja_id': item.parent_ja_id,
-                'child_ja_ids': list(item.child_ja_ids) if item.child_ja_ids else [],
                 'date_added': item.date_added.isoformat() if item.date_added else None,
                 'last_modified': item.last_modified.isoformat() if item.last_modified else None
             }
