@@ -39,18 +39,9 @@
                 <label for="type-filter" class="form-label">Type</label>
                 <select class="form-select" id="type-filter">
                     <option value="all">All Types</option>
-                    <option value="Bar">Bar</option>
-                    <option value="Plate">Plate</option>
-                    <option value="Sheet">Sheet</option>
-                    <option value="Tube">Tube</option>
-                    <option value="Pipe">Pipe</option>
-                    <option value="Rod">Rod</option>
-                    <option value="Angle">Angle</option>
-                    <option value="Channel">Channel</option>
-                    <option value="Beam">Beam</option>
-                    <option value="Wire">Wire</option>
-                    <option value="Fastener">Fastener</option>
-                    <option value="Other">Other</option>
+                    {% for item_type in ItemType %}
+                    <option value="{{ item_type.value }}">{{ item_type.value }}</option>
+                    {% endfor %}
                 </select>
             </div>
             

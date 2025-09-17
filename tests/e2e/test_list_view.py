@@ -296,3 +296,34 @@ def test_list_view_item_details(page, live_server):
     # Verify key details are displayed
     assert "Stainless Steel" in test_item["material"], "Material should be displayed"
     assert "Main Storage Area" in test_item["location"], "Location should be displayed"
+
+
+@pytest.mark.e2e
+def test_item_type_filter_consistency_with_add_page(page, live_server):
+    """Test that item type filter dropdown matches Add Item page options"""
+    from tests.e2e.pages.add_item_page import AddItemPage
+    
+    # Navigate to Add Item page and get available item types
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.assert_form_visible()
+    
+    # Get all item type options from Add Item page
+    add_item_types = page.locator("#item_type option").all_text_contents()
+    add_item_types = [opt.strip() for opt in add_item_types if opt.strip() and opt.strip() != "Select type..."]
+    
+    # Navigate to inventory list page
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    list_page.wait_for_items_loaded()
+    
+    # Get all item type options from inventory list filter
+    list_item_types = page.locator("#type-filter option").all_text_contents()
+    list_item_types = [opt.strip() for opt in list_item_types if opt.strip() and opt.strip() != "All Types"]
+    
+    # The lists should be identical - this test should FAIL initially
+    missing_in_list = set(add_item_types) - set(list_item_types)
+    extra_in_list = set(list_item_types) - set(add_item_types)
+    
+    assert len(missing_in_list) == 0, f"Item types missing from list filter: {missing_in_list}"
+    assert len(extra_in_list) == 0, f"Extra item types in list filter: {extra_in_list}"

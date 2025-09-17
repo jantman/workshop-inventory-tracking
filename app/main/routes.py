@@ -89,7 +89,7 @@ def health():
 @bp.route('/inventory')
 def inventory_list():
     """Inventory list view"""
-    return render_template('inventory/list.html', title='Inventory')
+    return render_template('inventory/list.html', title='Inventory', ItemType=ItemType)
 
 def _get_valid_materials():
     """Get list of valid materials from the appropriate storage backend"""
