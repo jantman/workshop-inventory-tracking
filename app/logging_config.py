@@ -63,6 +63,16 @@ class JSONFormatter(logging.Formatter):
         if hasattr(record, 'duration'):
             log_entry['duration_ms'] = record.duration
         
+        # Add audit-specific fields for comprehensive audit logging
+        if hasattr(record, 'audit_operation'):
+            log_entry['audit_operation'] = record.audit_operation
+        if hasattr(record, 'audit_phase'):
+            log_entry['audit_phase'] = record.audit_phase
+        if hasattr(record, 'audit_timestamp'):
+            log_entry['audit_timestamp'] = record.audit_timestamp
+        if hasattr(record, 'audit_data'):
+            log_entry['audit_data'] = record.audit_data
+        
         # Add exception info if present
         if record.exc_info:
             log_entry['exception'] = self.formatException(record.exc_info)
