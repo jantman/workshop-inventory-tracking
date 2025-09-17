@@ -84,6 +84,7 @@ def coverage(session):
     session.run(
         "python", "-m", "pytest",
         "-v",
+        "--no-blockage",  # Disable pytest-blockage for CI PR comments
         "-m", "not e2e",  # Unit tests only for coverage
         f"--cov={PACKAGE}",
         "--cov-report=term-missing",
