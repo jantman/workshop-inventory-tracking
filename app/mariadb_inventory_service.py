@@ -652,6 +652,7 @@ class InventoryService:
             current_db_item.purchase_date = item.purchase_date
             current_db_item.purchase_price = item.purchase_price
             current_db_item.purchase_location = item.purchase_location
+            current_db_item.active = item.active
             # Update timestamp
             current_db_item.last_modified = func.now()
             
