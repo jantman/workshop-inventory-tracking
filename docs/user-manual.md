@@ -9,7 +9,7 @@
 6. [Advanced Search](#advanced-search)
 7. [Batch Operations](#batch-operations)
 8. [Data Export](#data-export)
-9. [Keyboard Shortcuts](#keyboard-shortcuts)
+9. [Help and Utilities](#help-and-utilities)
 10. [Tips and Best Practices](#tips-and-best-practices)
 11. [Troubleshooting](#troubleshooting)
 
@@ -48,7 +48,7 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 
 ### Using the Add Item Form
 
-1. **Navigate**: Click "Add Item" or press `Ctrl+A`
+1. **Navigate**: Click "Add Item"
 2. **Required Fields** (marked with *):
    - **JA ID**: Unique identifier (e.g., "JA12345")
    - **Type**: Rod, Tube, Sheet, Hardware, etc.
@@ -244,7 +244,7 @@ Flag mode creates labels with rotated barcodes at both ends, making them easier 
 ## Advanced Search
 
 ### Search Interface
-Access via "Search" menu or press `Ctrl+F`
+Access via "Search" menu
 
 ### Filter Categories
 
@@ -290,13 +290,13 @@ Access via "Search" menu or press `Ctrl+F`
 ## Batch Operations
 
 ### Moving Items
-1. **Navigate**: "Move Items" menu or press `Alt+M`
+1. **Navigate**: "Move Items" menu
 2. **Scan Method**: Alternate between item ID and location
 3. **Submit**: Scan ">>DONE<<" or click submit
 4. **Confirmation**: Review moves before finalizing
 
 ### Shortening Items
-1. **Navigate**: "Shorten Items" menu or press `Alt+S`
+1. **Navigate**: "Shorten Items" menu
 2. **Item Selection**: Enter or scan item JA ID
 3. **New Length**: Specify remaining length after cut
 4. **New ID**: Assign new JA ID for shortened piece
@@ -577,24 +577,26 @@ curl -X POST http://localhost:5000/api/admin/export/validate \
 - Monitor system resources during large exports
 - Consider off-peak hours for major backup operations
 
-## Keyboard Shortcuts
+## Help and Utilities
 
-### Navigation
-- `Ctrl+H` - Home page
-- `Ctrl+A` - Add Item
-- `Ctrl+F` - Search/Find
-- `Ctrl+L` - Inventory List
+### Quick Search
+- `/` - Focus search field from anywhere in the application
+- Use this to quickly jump to the search input without clicking
 
-### Quick Actions  
-- `Alt+M` - Move Items
-- `Alt+S` - Shorten Items
-- `Ctrl+S` - Submit current form
-- `/` - Focus search field
-- `Escape` - Close modals/cancel
+### Built-in Help
+- `F1` or `Shift+/` - Show available help and shortcuts
+- Hover over field labels for tooltips and guidance
+- Check validation messages for field-specific help
 
-### Help
-- `F1` or `Shift+/` - Show keyboard shortcuts help
-- `?` - Context help (when available)
+### Barcode Scanner Support
+- Most input fields support barcode scanning
+- Ensure your scanner is configured as a "keyboard wedge"
+- Test scanner functionality in any text editor first
+
+### Context-Sensitive Features
+- Form fields provide real-time validation feedback
+- Auto-complete suggestions appear as you type
+- Error messages guide you to correct formatting
 
 ## Tips and Best Practices
 
@@ -669,7 +671,7 @@ curl -X POST http://localhost:5000/api/admin/export/validate \
 ### Getting Help
 
 #### Built-in Help
-- Press `F1` for keyboard shortcuts
+- Press `F1` for help and available shortcuts
 - Hover over field labels for tooltips
 - Check validation messages for guidance
 
@@ -695,10 +697,10 @@ curl -X POST http://localhost:5000/api/admin/export/validate \
 ## Quick Reference Card
 
 ### Most Common Operations
-1. **Add Item**: `Ctrl+A` → Fill required fields → `Ctrl+S`
-2. **Find Item**: `Ctrl+F` → Enter search criteria → View results
-3. **Move Items**: `Alt+M` → Scan item/location pairs → Submit
-4. **List All**: `Ctrl+L` → Use filters as needed
+1. **Add Item**: Navigate to "Add Item" → Fill required fields → Submit
+2. **Find Item**: Navigate to "Search" → Enter search criteria → View results
+3. **Move Items**: Navigate to "Move Items" → Scan item/location pairs → Submit
+4. **List All**: Navigate to "Inventory List" → Use filters as needed
 
 ### Required Fields for New Items
 - JA ID, Type, Shape, Material

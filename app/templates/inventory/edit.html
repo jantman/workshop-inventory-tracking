@@ -94,7 +94,7 @@
                             <div class="position-relative">
                                 <input type="text" class="form-control" id="material" name="material" 
                                        value="{{ item.material }}" required autocomplete="off"
-                                       placeholder="Start typing material name...">
+                                       >
                                 <div id="material-suggestions" class="dropdown-menu position-absolute w-100" 
                                      style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
                             </div>
@@ -107,7 +107,7 @@
                         <div class="col-md-3 mb-3">
                             <label for="quantity" class="form-label">Quantity</label>
                             <input type="number" class="form-control" id="quantity" name="quantity" 
-                                   min="1" value="{{ item.quantity }}" placeholder="1">
+                                   min="1" value="{{ item.quantity }}">
                         </div>
                         
                         <div class="col-md-3 mb-3 d-flex align-items-end">
@@ -142,7 +142,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" id="length" name="length" 
                                        value="{{ item.dimensions.length if item.dimensions.length }}" 
-                                       placeholder="12.5" step="any">
+                                       step="any">
                                 <span class="input-group-text">"</span>
                             </div>
                             <div class="invalid-feedback">
@@ -155,7 +155,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" id="width" name="width" 
                                        value="{{ item.dimensions.width if item.dimensions.width }}" 
-                                       placeholder="1.5" step="any">
+                                       step="any">
                                 <span class="input-group-text">"</span>
                             </div>
                             <div class="invalid-feedback">
@@ -168,7 +168,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" id="thickness" name="thickness" 
                                        value="{{ item.dimensions.thickness if item.dimensions.thickness }}" 
-                                       placeholder="0.25" step="any">
+                                       step="any">
                                 <span class="input-group-text">"</span>
                             </div>
                         </div>
@@ -178,7 +178,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" id="wall_thickness" name="wall_thickness" 
                                        value="{{ item.dimensions.wall_thickness if item.dimensions.wall_thickness }}" 
-                                       placeholder="0.125" step="any">
+                                       step="any">
                                 <span class="input-group-text">"</span>
                             </div>
                         </div>
@@ -190,7 +190,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" id="weight" name="weight" 
                                        value="{{ item.dimensions.weight if item.dimensions.weight }}" 
-                                       placeholder="2.5" step="any">
+                                       step="any">
                                 <span class="input-group-text">lbs</span>
                             </div>
                         </div>
@@ -209,7 +209,7 @@
                             <label for="thread_size" class="form-label">Thread Size</label>
                             <input type="text" class="form-control" id="thread_size" name="thread_size" 
                                    value="{{ item.thread.size if item.thread and item.thread.size }}" 
-                                   placeholder="1/2-13" 
+                                    
                                    title="Examples: 1/2-13, M12x1.75, #10-24">
                             <div class="form-text">Examples: 1/2-13, M12x1.75, #10-24</div>
                         </div>
@@ -254,13 +254,13 @@
                         <label for="location" class="form-label">Location</label>
                         <input type="text" class="form-control" id="location" name="location" 
                                value="{{ item.location if item.location }}" 
-                               placeholder="Garage, Workshop, etc.">
+                               >
                     </div>
                     <div class="mb-3">
                         <label for="sub_location" class="form-label">Sub-location</label>
                         <input type="text" class="form-control" id="sub_location" name="sub_location" 
                                value="{{ item.sub_location if item.sub_location }}" 
-                               placeholder="Shelf A, Bin 3, etc.">
+                               >
                     </div>
                 </div>
             </div>
@@ -282,26 +282,26 @@
                             <span class="input-group-text">$</span>
                             <input type="text" class="form-control" id="purchase_price" name="purchase_price" 
                                    value="{{ item.purchase_price if item.purchase_price }}" 
-                                   placeholder="25.99" step="0.01">
+                                   step="0.01">
                         </div>
                     </div>
                     <div class="mb-3">
                         <label for="purchase_location" class="form-label">Purchase Location</label>
                         <input type="text" class="form-control" id="purchase_location" name="purchase_location" 
                                value="{{ item.purchase_location if item.purchase_location }}" 
-                               placeholder="Home Depot, Online, etc.">
+                               >
                     </div>
                     <div class="mb-3">
                         <label for="vendor" class="form-label">Vendor</label>
                         <input type="text" class="form-control" id="vendor" name="vendor" 
                                value="{{ item.vendor if item.vendor }}" 
-                               placeholder="McMaster-Carr, MSC, etc.">
+                               >
                     </div>
                     <div class="mb-3">
                         <label for="vendor_part_number" class="form-label">Vendor Part Number</label>
                         <input type="text" class="form-control" id="vendor_part_number" name="vendor_part_number" 
                                value="{{ item.vendor_part_number if item.vendor_part_number }}" 
-                               placeholder="Part # or SKU">
+                               >
                     </div>
                 </div>
             </div>
@@ -313,7 +313,7 @@
                 </div>
                 <div class="card-body">
                     <textarea class="form-control" id="notes" name="notes" rows="4" 
-                              placeholder="Additional notes, condition, special properties, etc.">{{ item.notes if item.notes }}</textarea>
+                              >{{ item.notes if item.notes }}</textarea>
                 </div>
             </div>
         </div>

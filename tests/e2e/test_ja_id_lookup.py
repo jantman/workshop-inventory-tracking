@@ -78,7 +78,7 @@ def test_ja_id_lookup_with_nonexistent_item(page, live_server):
 
 @pytest.mark.e2e 
 def test_ja_id_lookup_input_formatting(page, live_server):
-    """Test JA ID lookup input auto-formatting"""
+    """Test JA ID lookup input formatting (manual entry only)"""
     # Navigate to inventory list to see the navbar
     list_page = InventoryListPage(page, live_server.url)
     list_page.navigate()
@@ -87,11 +87,11 @@ def test_ja_id_lookup_input_formatting(page, live_server):
     lookup_input = page.locator('#ja-id-lookup')
     expect(lookup_input).to_be_visible()
     
-    # Test auto-formatting: enter just numbers
+    # Test that numbers alone are NOT auto-formatted (no JA prefix added)
     lookup_input.fill("123456")
-    expect(lookup_input).to_have_value("JA123456")
+    expect(lookup_input).to_have_value("123456")
     
-    # Clear and test with full JA ID
+    # Test that full JA ID is preserved when entered
     lookup_input.fill("JA654321")
     expect(lookup_input).to_have_value("JA654321")
 

@@ -137,63 +137,6 @@ const WorkshopInventory = {
             }
             
             const shortcuts = {
-                // Navigation shortcuts (Ctrl/Cmd + key)
-                'Home': {
-                    keys: ['KeyH'],
-                    ctrl: true,
-                    action: () => window.location.href = '/',
-                    description: 'Go to Home page'
-                },
-                'Add Item': {
-                    keys: ['KeyA'],
-                    ctrl: true,
-                    action: () => window.location.href = '/inventory/add',
-                    description: 'Go to Add Item page'
-                },
-                'Search': {
-                    keys: ['KeyF'],
-                    ctrl: true,
-                    action: () => window.location.href = '/inventory/search',
-                    description: 'Go to Search page'
-                },
-                'List Items': {
-                    keys: ['KeyL'],
-                    ctrl: true,
-                    action: () => window.location.href = '/inventory/list',
-                    description: 'Go to List Items page'
-                },
-                
-                // Quick actions (Alt + key)
-                'Move Items': {
-                    keys: ['KeyM'],
-                    alt: true,
-                    action: () => window.location.href = '/inventory/move',
-                    description: 'Go to Move Items page'
-                },
-                'Shorten Items': {
-                    keys: ['KeyS'],
-                    alt: true,
-                    action: () => window.location.href = '/inventory/shorten',
-                    description: 'Go to Shorten Items page'
-                },
-                
-                // Page-specific shortcuts
-                'Save Form': {
-                    keys: ['KeyS'],
-                    ctrl: true,
-                    action: (e) => {
-                        e.preventDefault();
-                        const form = document.querySelector('form[method="POST"]');
-                        if (form) {
-                            const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
-                            if (submitBtn && !submitBtn.disabled) {
-                                submitBtn.click();
-                            }
-                        }
-                    },
-                    description: 'Submit current form'
-                },
-                
                 // Utility shortcuts
                 'Focus Search': {
                     keys: ['Slash'],
@@ -248,20 +191,6 @@ const WorkshopInventory = {
         
         // Store shortcuts for help display
         this.keyboardShortcuts = {
-            'Navigation': {
-                'Ctrl/Cmd + H': 'Go to Home page',
-                'Ctrl/Cmd + A': 'Go to Add Item page',
-                'Ctrl/Cmd + F': 'Go to Search page',
-                'Ctrl/Cmd + L': 'Go to List Items page',
-            },
-            'Quick Actions': {
-                'Alt + M': 'Go to Move Items page',
-                'Alt + S': 'Go to Shorten Items page',
-            },
-            'Form Actions': {
-                'Ctrl/Cmd + S': 'Submit current form',
-                'Ctrl/Cmd + Enter': 'Submit current form',
-            },
             'Utilities': {
                 '/': 'Focus search input',
                 'Shift + /': 'Show this help',
@@ -306,34 +235,17 @@ const WorkshopInventory = {
             }
         });
         
-        // Handle input formatting - auto uppercase and format
+        // Handle input formatting - auto uppercase
         jaIdInput.addEventListener('input', (e) => {
             let value = e.target.value.toUpperCase();
-            
-            // Remove invalid characters
-            value = value.replace(/[^JA0-9]/g, '');
-            
-            // Ensure it starts with JA
-            if (value.length > 0 && !value.startsWith('JA')) {
-                if (value.match(/^[0-9]/)) {
-                    value = 'JA' + value;
-                } else {
-                    value = 'JA';
-                }
-            }
-            
-            // Limit to 8 characters (JA + 6 digits)
-            if (value.length > 8) {
-                value = value.substring(0, 8);
-            }
-            
-            e.target.value = value;
             
             // Remove invalid state when user types
             if (e.target.classList.contains('is-invalid')) {
                 e.target.classList.remove('is-invalid');
                 e.target.title = 'Enter JA ID and press Enter to edit item';
             }
+            
+            e.target.value = value;
         });
     },
     

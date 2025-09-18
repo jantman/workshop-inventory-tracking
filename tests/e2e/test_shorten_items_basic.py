@@ -50,9 +50,9 @@ def test_shorten_input_validation_present(page, live_server):
     expect(ja_id_input).to_have_attribute("pattern", "JA\\d{6}")
     expect(ja_id_input).to_have_attribute("required", "")
     
-    # Should have placeholder with example
+    # Placeholder should be empty (no example values)
     placeholder = ja_id_input.get_attribute("placeholder")
-    assert "JA" in placeholder and "000001" in placeholder
+    assert placeholder is None or placeholder == ""
 
 
 @pytest.mark.e2e

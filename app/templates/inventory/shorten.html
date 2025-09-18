@@ -49,7 +49,7 @@
                             <label for="source-ja-id" class="form-label">Source JA ID *</label>
                             <div class="input-group">
                                 <input type="text" class="form-control form-control-lg" id="source-ja-id" name="source_ja_id" 
-                                       pattern="JA\d{6}" placeholder="Scan or enter JA ID (e.g., JA000001)" required
+                                       pattern="JA\d{6}" required
                                        title="Format: JA followed by 6 digits">
                                 <button type="button" class="btn btn-outline-secondary" id="scan-ja-id-btn" title="Focus for barcode scan">
                                     <i class="bi bi-upc-scan"></i>
@@ -107,7 +107,7 @@
                             <label for="new-length" class="form-label">New Length *</label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="new-length" name="new_length" 
-                                       placeholder="0.0" pattern="[\d./\s]+" required
+                                       pattern="[\d./\s]+" required
                                        title="Enter new length in inches (supports fractions like 1 1/2)">
                                 <span class="input-group-text">in</span>
                             </div>
@@ -153,7 +153,7 @@
                     <div class="mb-3">
                         <label for="shortening-notes" class="form-label">Shortening Notes (Optional)</label>
                         <textarea class="form-control" id="shortening-notes" name="shortening_notes" rows="3" 
-                                  placeholder="Additional notes about the shortening operation..."></textarea>
+                                  ></textarea>
                         <div class="form-text">Optional notes about the cutting/shortening process</div>
                     </div>
                 </div>
