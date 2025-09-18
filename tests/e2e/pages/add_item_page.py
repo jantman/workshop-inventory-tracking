@@ -143,3 +143,32 @@ class AddItemPage(BasePage):
         """Assert a form field has the expected value"""
         actual_value = self.get_field_value(selector)
         assert actual_value == expected_value, f"Field {selector}: expected '{expected_value}', got '{actual_value}'"
+    
+    def submit_and_continue(self):
+        """Submit form using the 'Add & Continue' button"""
+        self.click_and_wait(self.SUBMIT_AND_CONTINUE_BUTTON)
+        # Wait a moment for form submission to process
+        self.page.wait_for_timeout(1000)
+    
+    def click_carry_forward(self):
+        """Click the 'Carry Forward' button"""
+        carry_forward_btn = "#carry-forward-btn"
+        self.click_and_wait(carry_forward_btn)
+        # Wait a moment for data to be populated
+        self.page.wait_for_timeout(500)
+    
+    def assert_carry_forward_success_toast(self):
+        """Assert that the carry forward success toast appears"""
+        # Look for the success toast message in the toast body
+        toast_body_selector = ".toast-body"
+        self.page.wait_for_selector(toast_body_selector, timeout=3000)
+        toast_text = self.page.locator(toast_body_selector).text_content()
+        assert "carried forward" in toast_text.lower() or "previous item data" in toast_text.lower(), f"Expected carry forward success message, got: {toast_text}"
+    
+    def assert_carry_forward_error_toast(self):
+        """Assert that the carry forward error toast appears"""
+        # Look for the error/info toast message in the toast body
+        toast_body_selector = ".toast-body"
+        self.page.wait_for_selector(toast_body_selector, timeout=3000)
+        toast_text = self.page.locator(toast_body_selector).text_content()
+        assert "No previous item data to carry forward" in toast_text, f"Expected carry forward error message, got: {toast_text}"

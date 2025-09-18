@@ -386,3 +386,112 @@ def test_add_threaded_rod_with_proper_validation(page, live_server):
     list_page = InventoryListPage(page, live_server.url)
     list_page.navigate()
     list_page.assert_item_in_list("JA000100")
+
+
+@pytest.mark.e2e
+def test_add_and_continue_carry_forward_workflow(page, live_server):
+    """Test the 'Add & Continue' → 'Carry Forward' workflow that is currently broken"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    # Verify form is displayed
+    add_page.assert_form_visible()
+    
+    # Fill out the first item with complete data
+    first_item_data = {
+        "ja_id": "JA000200",
+        "item_type": "Bar",
+        "shape": "Square", 
+        "material": "Carbon Steel",
+        "length": "500",
+        "width": "25",  # For square bars, width is the side dimension
+        "location": "Storage Rack A",
+        "notes": "Test material for carry forward"
+    }
+    
+    # Fill all the form fields
+    add_page.fill_basic_item_data(
+        first_item_data["ja_id"], 
+        first_item_data["item_type"], 
+        first_item_data["shape"], 
+        first_item_data["material"]
+    )
+    add_page.fill_dimensions(
+        length=first_item_data["length"], 
+        width=first_item_data["width"]
+    )
+    add_page.fill_location_and_notes(
+        location=first_item_data["location"], 
+        notes=first_item_data["notes"]
+    )
+    
+    # Submit using "Add & Continue" button
+    add_page.submit_and_continue()
+    
+    # Verify we're back on the add form (should be cleared for next item)
+    add_page.assert_form_visible()
+    
+    # Verify form is cleared (JA ID should be empty/different)
+    current_ja_id = add_page.get_field_value(add_page.JA_ID_INPUT)
+    assert current_ja_id != first_item_data["ja_id"], "Form should be cleared after Add & Continue"
+    
+    # Now click "Carry Forward" to reproduce the bug
+    add_page.click_carry_forward()
+    
+    # BUG: This should show success toast and populate fields, but currently shows error
+    # The bug is that lastItemData is not persisting across the page redirect
+    
+    # Check which toast appears - if error toast, this confirms the bug
+    try:
+        add_page.assert_carry_forward_error_toast()
+        # BUG REPRODUCED: The carry forward is showing error when it should work
+        print("BUG REPRODUCED: 'No previous item data to carry forward' error when it should work")
+        
+        # Re-raise to make the test fail and document the bug
+        raise AssertionError(
+            "BUG: Carry Forward functionality is broken. "
+            "After using 'Add & Continue', clicking 'Carry Forward' shows "
+            "'No previous item data to carry forward' instead of populating fields. "
+            "The lastItemData is not persisting across the page redirect."
+        )
+        
+    except AssertionError as e:
+        # If the error toast assertion failed, maybe the success toast appeared (bug is fixed!)
+        if "Expected carry forward error message" in str(e):
+            try:
+                add_page.assert_carry_forward_success_toast()
+                
+                # If carry forward worked, verify the fields are populated correctly
+                add_page.assert_field_value(add_page.ITEM_TYPE_SELECT, first_item_data["item_type"])
+                add_page.assert_field_value(add_page.SHAPE_SELECT, first_item_data["shape"])
+                add_page.assert_field_value(add_page.MATERIAL_INPUT, first_item_data["material"])
+                add_page.assert_field_value(add_page.LOCATION_INPUT, first_item_data["location"])
+                
+                # JA ID should NOT be carried forward (it should remain empty/different)
+                carried_ja_id = add_page.get_field_value(add_page.JA_ID_INPUT)
+                assert carried_ja_id != first_item_data["ja_id"], "JA ID should not be carried forward"
+                
+                print("SUCCESS: Carry Forward functionality is working correctly!")
+                
+            except AssertionError:
+                # Neither error nor success toast found as expected - something else is wrong
+                raise AssertionError(f"Unexpected behavior: {str(e)}")
+        else:
+            # Re-raise the original bug documentation
+            raise
+
+
+@pytest.mark.e2e  
+def test_carry_forward_without_previous_item(page, live_server):
+    """Test that Carry Forward shows appropriate message when no previous item exists"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    
+    # Verify form is displayed
+    add_page.assert_form_visible()
+    
+    # Click "Carry Forward" when no previous item exists
+    add_page.click_carry_forward()
+    
+    # Should show the appropriate error message
+    add_page.assert_carry_forward_error_toast()
