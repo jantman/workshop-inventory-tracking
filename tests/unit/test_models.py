@@ -10,8 +10,6 @@ from app.models import (
     ItemType, ItemShape, Dimensions, Thread, ThreadSeries, 
     ThreadHandedness
 )
-from app.database import InventoryItem
-from app.exceptions import ValidationError
 
 
 class TestDimensions:

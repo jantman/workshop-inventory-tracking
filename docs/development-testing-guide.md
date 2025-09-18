@@ -45,7 +45,7 @@ The project uses **Nox** for consistent test execution across environments. All 
 **Purpose**: Tests individual components in isolation using mock dependencies.
 
 **Coverage**:
-- **Model Tests** (`test_models.py`): Item, Dimensions, Thread classes and enum validation
+- **Model Tests** (`test_models.py`): Dimensions, Thread classes and enum validation
 - **Service Tests** (`test_inventory_service.py`): Business logic, search, filtering, batch operations using SQLite backend
 - **InventoryService Tests** (`test_mariadb_inventory_service.py`): MariaDB-specific active-only filtering logic
 - **Basic Tests** (`test_basic.py`): Infrastructure and integration points
@@ -95,7 +95,7 @@ nox -s tests
 python -m pytest tests/unit/test_models.py -v
 
 # Run specific test method
-python -m pytest tests/unit/test_models.py::TestItem::test_item_creation_minimal -v
+python -m pytest tests/unit/test_models.py::TestDimensions::test_dimensions_creation_basic -v
 
 # Run E2E tests (requires Flask server)
 nox -s e2e
@@ -179,6 +179,26 @@ python app.py  # Configured for 127.0.0.1:5000
 - Detailed error pages with interactive debugger
 
 **Note**: The development server uses MariaDB for data storage (production setup). E2E tests use MariaDB testcontainer to match production exactly.
+
+## Architecture Overview
+
+### Model Architecture
+The application uses a **single enhanced InventoryItem model** for both business logic and database persistence:
+
+- **InventoryItem** (`app/database.py`): SQLAlchemy model with hybrid properties for enum conversion and business logic methods
+- **Supporting Models**: `Dimensions`, `Thread` classes for complex data structures  
+- **Enums**: `ItemType`, `ItemShape`, `ThreadSeries`, `ThreadHandedness` for standardized values
+
+**Key Design Principles**:
+- Single source of truth for inventory data
+- Enum properties provide type-safe access while storing strings in database
+- Precision normalization for machinist notation compliance
+- Backward compatibility maintained throughout model evolution
+
+### Service Layer
+- **InventoryService**: Abstract base class defining business logic interface
+- **MariaDBInventoryService**: Production implementation with MariaDB backend
+- **GoogleSheetsInventoryService**: Legacy implementation (maintained for compatibility)
 
 ## Development Workflow
 
