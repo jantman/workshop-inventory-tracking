@@ -12,6 +12,7 @@ class InventoryAddForm {
         this.scanBuffer = '';
         this.scanTimeout = null;
         this.lastItemData = null;
+        this.photoManager = null;
         
         // Field mappings for dynamic requirements (updated for current ItemType/ItemShape enums)
         this.typeShapeRequirements = {
@@ -65,6 +66,9 @@ class InventoryAddForm {
         
         // Initialize carry forward data from sessionStorage if available
         this.initializeCarryForwardData();
+        
+        // Initialize photo manager
+        this.initializePhotoManager();
     }
     
     setupEventListeners() {
@@ -542,6 +546,19 @@ class InventoryAddForm {
             } catch (clearError) {
                 console.error('Init: Error clearing corrupted sessionStorage data:', clearError);
             }
+        }
+    }
+    
+    initializePhotoManager() {
+        if (typeof PhotoManager !== 'undefined') {
+            console.log('Initializing PhotoManager for Add Item form');
+            this.photoManager = PhotoManager.init('#photo-manager-container', {
+                readOnly: false,
+                itemId: null // No item ID yet since we're adding a new item
+            });
+            console.log('PhotoManager initialized successfully');
+        } else {
+            console.warn('PhotoManager not available');
         }
     }
     

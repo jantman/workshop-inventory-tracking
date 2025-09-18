@@ -241,6 +241,19 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Photos -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-camera"></i> Photos</h5>
+                    <small class="text-muted">Upload photos of this item</small>
+                </div>
+                <div class="card-body">
+                    <div id="photo-manager-container">
+                        <!-- Photo upload and gallery will be initialized here by JavaScript -->
+                    </div>
+                </div>
+            </div>
         </div>
         
         <div class="col-lg-4">
@@ -412,6 +425,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize field visibility based on current values
     updateFieldVisibility();
+    
+    // Initialize photo manager
+    initializePhotoManager();
     
     // Add Generate JA ID functionality  
     const generateJaIdBtn = document.getElementById('suggest-ja-id-btn');
@@ -618,6 +634,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Set up Enter key prevention
     setupEnterKeyPrevention();
+    
+    // Initialize photo manager for editing existing item
+    function initializePhotoManager() {
+        if (typeof PhotoManager !== 'undefined') {
+            console.log('Initializing PhotoManager for Edit Item form');
+            window.editPhotoManager = PhotoManager.init('#photo-manager-container', {
+                readOnly: false,
+                itemId: '{{ item.ja_id }}' // Use the current item's JA ID
+            });
+            console.log('PhotoManager initialized successfully for item {{ item.ja_id }}');
+        } else {
+            console.warn('PhotoManager not available');
+        }
+    }
     
     // Handle form submission with validation
     form.addEventListener('submit', function(event) {

@@ -1,0 +1,632 @@
+/**
+ * Photo Manager - Handles photo upload, display, and management
+ * Part of Workshop Inventory Tracking system
+ */
+
+const PhotoManager = {
+    
+    // Configuration
+    config: {
+        maxFiles: 10,
+        maxFileSize: 20 * 1024 * 1024, // 20MB in bytes
+        allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+        compressionOptions: {
+            maxSizeMB: 20,
+            maxWidthOrHeight: 4000,
+            useWebWorker: true,
+            fileType: 'image/jpeg',
+            initialQuality: 0.8
+        }
+    },
+    
+    // Initialize photo manager for a form
+    init: function(containerSelector, options = {}) {
+        const container = document.querySelector(containerSelector);
+        if (!container) {
+            console.error('PhotoManager: Container not found:', containerSelector);
+            return null;
+        }
+        
+        // Merge options with defaults
+        const config = Object.assign({}, this.config, options);
+        
+        // Create photo manager instance
+        const instance = {
+            container: container,
+            config: config,
+            photos: [],
+            currentItemId: options.itemId || null,
+            isReadOnly: options.readOnly || false,
+            
+            // Initialize the instance
+            initialize: function() {
+                this.createHTML();
+                this.bindEvents();
+                if (this.currentItemId) {
+                    this.loadExistingPhotos();
+                }
+            },
+            
+            // Create HTML structure
+            createHTML: function() {
+                const uploadSection = this.isReadOnly ? '' : `
+                    <div class="photo-upload-section mb-4">
+                        <h6 class="fw-bold text-primary mb-3">
+                            <i class="bi bi-camera"></i> Upload Photos
+                        </h6>
+                        
+                        <!-- File Drop Zone -->
+                        <div class="photo-drop-zone border-2 border-dashed border-primary rounded p-4 text-center" 
+                             style="min-height: 120px; cursor: pointer; transition: all 0.3s ease;">
+                            <div class="drop-zone-content">
+                                <i class="bi bi-cloud-upload display-6 text-primary mb-2"></i>
+                                <div class="fw-semibold mb-1">Drop photos here or click to browse</div>
+                                <small class="text-muted">
+                                    Supports JPEG, PNG, WebP, PDF • Max ${config.maxFiles} files • Up to 20MB each
+                                </small>
+                            </div>
+                            <input type="file" class="photo-file-input d-none" 
+                                   multiple accept="image/jpeg,image/png,image/webp,application/pdf">
+                        </div>
+                        
+                        <!-- Upload Progress -->
+                        <div class="photo-upload-progress mt-3 d-none">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="fw-semibold">Uploading photos...</span>
+                                <span class="upload-count">0 / 0</span>
+                            </div>
+                            <div class="progress">
+                                <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- File Preview -->
+                        <div class="photo-preview-list mt-3"></div>
+                    </div>
+                `;
+                
+                this.container.innerHTML = `
+                    ${uploadSection}
+                    
+                    <!-- Photo Gallery -->
+                    <div class="photo-gallery-section">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="fw-bold text-primary mb-0">
+                                <i class="bi bi-images"></i> Photos (<span class="photo-count">0</span>)
+                            </h6>
+                            ${this.isReadOnly ? '' : `
+                                <div class="gallery-actions">
+                                    <button type="button" class="btn btn-outline-danger btn-sm delete-selected-btn" 
+                                            style="display: none;">
+                                        <i class="bi bi-trash"></i> Delete Selected
+                                    </button>
+                                </div>
+                            `}
+                        </div>
+                        
+                        <!-- Gallery Grid -->
+                        <div class="photo-gallery-grid row g-2">
+                            <!-- Photos will be inserted here -->
+                        </div>
+                        
+                        <!-- Empty State -->
+                        <div class="photo-gallery-empty text-center text-muted py-4" style="display: none;">
+                            <i class="bi bi-camera display-1 opacity-25"></i>
+                            <div class="mt-2">No photos uploaded yet</div>
+                            ${this.isReadOnly ? '' : '<small>Use the upload area above to add photos</small>'}
+                        </div>
+                    </div>
+                `;
+                
+                this.updateGalleryDisplay();
+            },
+            
+            // Bind event listeners
+            bindEvents: function() {
+                if (this.isReadOnly) return;
+                
+                const dropZone = this.container.querySelector('.photo-drop-zone');
+                const fileInput = this.container.querySelector('.photo-file-input');
+                const deleteSelectedBtn = this.container.querySelector('.delete-selected-btn');
+                
+                // File input change
+                fileInput.addEventListener('change', (e) => {
+                    this.handleFileSelection(e.target.files);
+                });
+                
+                // Drop zone click
+                dropZone.addEventListener('click', () => {
+                    fileInput.click();
+                });
+                
+                // Drag and drop
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('border-success', 'bg-light');
+                });
+                
+                dropZone.addEventListener('dragleave', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('border-success', 'bg-light');
+                });
+                
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('border-success', 'bg-light');
+                    this.handleFileSelection(e.dataTransfer.files);
+                });
+                
+                // Delete selected photos
+                if (deleteSelectedBtn) {
+                    deleteSelectedBtn.addEventListener('click', () => {
+                        this.deleteSelectedPhotos();
+                    });
+                }
+            },
+            
+            // Handle file selection
+            handleFileSelection: function(files) {
+                const fileArray = Array.from(files);
+                
+                // Validate file count
+                if (this.photos.length + fileArray.length > this.config.maxFiles) {
+                    WorkshopInventory.utils.showToast(
+                        `Maximum ${this.config.maxFiles} photos allowed`, 'warning'
+                    );
+                    return;
+                }
+                
+                // Validate and process each file
+                const validFiles = [];
+                for (const file of fileArray) {
+                    if (this.validateFile(file)) {
+                        validFiles.push(file);
+                    }
+                }
+                
+                if (validFiles.length > 0) {
+                    this.processFiles(validFiles);
+                }
+            },
+            
+            // Validate individual file
+            validateFile: function(file) {
+                // Check file type
+                if (!this.config.allowedTypes.includes(file.type)) {
+                    WorkshopInventory.utils.showToast(
+                        `${file.name}: Unsupported file type`, 'danger'
+                    );
+                    return false;
+                }
+                
+                // Check file size
+                if (file.size > this.config.maxFileSize) {
+                    WorkshopInventory.utils.showToast(
+                        `${file.name}: File too large (max 20MB)`, 'danger'
+                    );
+                    return false;
+                }
+                
+                return true;
+            },
+            
+            // Process valid files
+            processFiles: async function(files) {
+                this.showUploadProgress(files.length);
+                
+                for (let i = 0; i < files.length; i++) {
+                    try {
+                        await this.processSingleFile(files[i], i + 1, files.length);
+                    } catch (error) {
+                        console.error('Error processing file:', error);
+                        WorkshopInventory.utils.showToast(
+                            `Error processing ${files[i].name}: ${error.message}`, 'danger'
+                        );
+                    }
+                }
+                
+                this.hideUploadProgress();
+                this.updateGalleryDisplay();
+            },
+            
+            // Process single file
+            processSingleFile: async function(file, current, total) {
+                this.updateUploadProgress(current, total, `Processing ${file.name}...`);
+                
+                let processedFile = file;
+                
+                // Compress image files
+                if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
+                    try {
+                        processedFile = await imageCompression(file, this.config.compressionOptions);
+                        console.log(`Compressed ${file.name}: ${file.size} → ${processedFile.size} bytes`);
+                    } catch (error) {
+                        console.warn('Compression failed, using original file:', error);
+                    }
+                }
+                
+                // Create photo object
+                const photo = {
+                    id: 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                    file: processedFile,
+                    originalFile: file,
+                    name: file.name,
+                    size: processedFile.size,
+                    type: processedFile.type,
+                    preview: null,
+                    uploaded: false,
+                    selected: false
+                };
+                
+                // Generate preview
+                if (processedFile.type.startsWith('image/')) {
+                    photo.preview = await this.generateImagePreview(processedFile);
+                } else if (processedFile.type === 'application/pdf') {
+                    photo.preview = this.getPDFPreview();
+                }
+                
+                // Upload if we have an item ID
+                if (this.currentItemId) {
+                    this.updateUploadProgress(current, total, `Uploading ${file.name}...`);
+                    await this.uploadPhoto(photo);
+                }
+                
+                this.photos.push(photo);
+                this.addPhotoToGallery(photo);
+            },
+            
+            // Generate image preview
+            generateImagePreview: function(file) {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(file);
+                });
+            },
+            
+            // Get PDF preview placeholder
+            getPDFPreview: function() {
+                return `data:image/svg+xml,${encodeURIComponent(`
+                    <svg xmlns="http://www.w3.org/2000/svg" width="150" height="150" viewBox="0 0 150 150">
+                        <rect width="150" height="150" fill="#dc3545"/>
+                        <text x="75" y="85" text-anchor="middle" fill="white" font-family="Arial" font-size="48" font-weight="bold">PDF</text>
+                    </svg>
+                `)}`;
+            },
+            
+            // Upload photo to server
+            uploadPhoto: async function(photo) {
+                const formData = new FormData();
+                formData.append('photo', photo.file);
+                
+                try {
+                    const response = await fetch(`/api/items/${this.currentItemId}/photos`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Upload failed');
+                    }
+                    
+                    const result = await response.json();
+                    photo.id = result.photo_id;
+                    photo.uploaded = true;
+                    
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    throw error;
+                }
+            },
+            
+            // Load existing photos for item
+            loadExistingPhotos: async function() {
+                if (!this.currentItemId) return;
+                
+                try {
+                    const response = await fetch(`/api/items/${this.currentItemId}/photos`);
+                    if (!response.ok) return;
+                    
+                    const data = await response.json();
+                    
+                    for (const photoData of data.photos) {
+                        const photo = {
+                            id: photoData.id,
+                            name: photoData.filename,
+                            size: photoData.file_size,
+                            type: photoData.content_type,
+                            preview: `/api/photos/${photoData.id}?size=thumbnail`,
+                            uploaded: true,
+                            selected: false
+                        };
+                        
+                        this.photos.push(photo);
+                        this.addPhotoToGallery(photo);
+                    }
+                    
+                    this.updateGalleryDisplay();
+                    
+                } catch (error) {
+                    console.error('Error loading photos:', error);
+                }
+            },
+            
+            // Add photo to gallery display
+            addPhotoToGallery: function(photo) {
+                const gallery = this.container.querySelector('.photo-gallery-grid');
+                
+                const photoCard = document.createElement('div');
+                photoCard.className = 'col-6 col-md-4 col-lg-3';
+                photoCard.setAttribute('data-photo-id', photo.id);
+                
+                const selectionCheckbox = this.isReadOnly ? '' : `
+                    <div class="photo-selection">
+                        <input type="checkbox" class="form-check-input photo-select" 
+                               id="photo-select-${photo.id}">
+                    </div>
+                `;
+                
+                const deleteButton = this.isReadOnly ? '' : `
+                    <button type="button" class="btn btn-outline-danger btn-sm photo-delete-btn" 
+                            title="Delete photo">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                `;
+                
+                photoCard.innerHTML = `
+                    <div class="photo-card border rounded overflow-hidden position-relative">
+                        ${selectionCheckbox}
+                        
+                        <div class="photo-thumbnail" style="aspect-ratio: 1; cursor: pointer;">
+                            <img src="${photo.preview}" alt="${photo.name}" 
+                                 class="w-100 h-100 object-fit-cover" loading="lazy">
+                        </div>
+                        
+                        <div class="photo-info p-2 bg-light">
+                            <div class="photo-name small fw-semibold text-truncate" title="${photo.name}">
+                                ${photo.name}
+                            </div>
+                            <div class="photo-meta small text-muted">
+                                ${this.formatFileSize(photo.size)}
+                                ${!photo.uploaded ? ' • Uploading...' : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="photo-actions position-absolute top-0 end-0 p-2">
+                            <div class="btn-group-vertical btn-group-sm">
+                                <button type="button" class="btn btn-outline-primary btn-sm photo-view-btn" 
+                                        title="View full size">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm photo-download-btn" 
+                                        title="Download">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                                ${deleteButton}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Bind photo-specific events
+                this.bindPhotoEvents(photoCard, photo);
+                
+                gallery.appendChild(photoCard);
+            },
+            
+            // Bind events for individual photo
+            bindPhotoEvents: function(photoCard, photo) {
+                const thumbnail = photoCard.querySelector('.photo-thumbnail');
+                const viewBtn = photoCard.querySelector('.photo-view-btn');
+                const downloadBtn = photoCard.querySelector('.photo-download-btn');
+                const deleteBtn = photoCard.querySelector('.photo-delete-btn');
+                const selectCheckbox = photoCard.querySelector('.photo-select');
+                
+                // View photo (thumbnail click or view button)
+                const viewPhoto = () => this.viewPhoto(photo);
+                if (thumbnail) thumbnail.addEventListener('click', viewPhoto);
+                if (viewBtn) viewBtn.addEventListener('click', viewPhoto);
+                
+                // Download photo
+                if (downloadBtn) {
+                    downloadBtn.addEventListener('click', () => this.downloadPhoto(photo));
+                }
+                
+                // Delete photo
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', () => this.deletePhoto(photo));
+                }
+                
+                // Selection checkbox
+                if (selectCheckbox) {
+                    selectCheckbox.addEventListener('change', (e) => {
+                        photo.selected = e.target.checked;
+                        this.updateSelectionActions();
+                    });
+                }
+            },
+            
+            // View photo in lightbox
+            viewPhoto: function(photo) {
+                if (!photo.uploaded && !photo.preview) return;
+                
+                // Prepare items for PhotoSwipe v5
+                const items = this.photos
+                    .filter(p => p.uploaded || p.preview)
+                    .map(p => ({
+                        src: p.uploaded ? `/api/photos/${p.id}?size=original` : p.preview,
+                        width: 1200, // Default width
+                        height: 800,  // Default height
+                        alt: p.name
+                    }));
+                
+                const currentIndex = this.photos.indexOf(photo);
+                
+                // Initialize PhotoSwipe v5
+                const lightbox = new PhotoSwipe({
+                    dataSource: items,
+                    index: currentIndex,
+                    bgOpacity: 0.8,
+                    showHideOpacity: true,
+                    initialZoomLevel: 'fit',
+                    secondaryZoomLevel: 1.5,
+                    maxZoomLevel: 3
+                });
+                
+                lightbox.init();
+            },
+            
+            // Download photo
+            downloadPhoto: function(photo) {
+                if (!photo.uploaded) return;
+                
+                const downloadUrl = `/api/photos/${photo.id}/download`;
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = photo.name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            },
+            
+            // Delete single photo
+            deletePhoto: async function(photo) {
+                if (!confirm(`Delete photo "${photo.name}"?`)) return;
+                
+                try {
+                    if (photo.uploaded) {
+                        const response = await fetch(`/api/photos/${photo.id}`, {
+                            method: 'DELETE'
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error('Failed to delete photo');
+                        }
+                    }
+                    
+                    // Remove from photos array
+                    const index = this.photos.indexOf(photo);
+                    if (index > -1) {
+                        this.photos.splice(index, 1);
+                    }
+                    
+                    // Remove from DOM
+                    const photoCard = this.container.querySelector(`[data-photo-id="${photo.id}"]`);
+                    if (photoCard) {
+                        photoCard.remove();
+                    }
+                    
+                    this.updateGalleryDisplay();
+                    WorkshopInventory.utils.showToast('Photo deleted', 'success');
+                    
+                } catch (error) {
+                    console.error('Error deleting photo:', error);
+                    WorkshopInventory.utils.showToast('Failed to delete photo', 'danger');
+                }
+            },
+            
+            // Delete selected photos
+            deleteSelectedPhotos: async function() {
+                const selectedPhotos = this.photos.filter(p => p.selected);
+                if (selectedPhotos.length === 0) return;
+                
+                if (!confirm(`Delete ${selectedPhotos.length} selected photo(s)?`)) return;
+                
+                for (const photo of selectedPhotos) {
+                    await this.deletePhoto(photo);
+                }
+            },
+            
+            // Update selection actions visibility
+            updateSelectionActions: function() {
+                const selectedCount = this.photos.filter(p => p.selected).length;
+                const deleteSelectedBtn = this.container.querySelector('.delete-selected-btn');
+                
+                if (deleteSelectedBtn) {
+                    deleteSelectedBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
+                    deleteSelectedBtn.textContent = `Delete Selected (${selectedCount})`;
+                }
+            },
+            
+            // Update gallery display state
+            updateGalleryDisplay: function() {
+                const gallery = this.container.querySelector('.photo-gallery-grid');
+                const emptyState = this.container.querySelector('.photo-gallery-empty');
+                const photoCount = this.container.querySelector('.photo-count');
+                
+                const hasPhotos = this.photos.length > 0;
+                
+                if (gallery) gallery.style.display = hasPhotos ? 'block' : 'none';
+                if (emptyState) emptyState.style.display = hasPhotos ? 'none' : 'block';
+                if (photoCount) photoCount.textContent = this.photos.length;
+            },
+            
+            // Show upload progress
+            showUploadProgress: function(totalFiles) {
+                const progressContainer = this.container.querySelector('.photo-upload-progress');
+                if (progressContainer) {
+                    progressContainer.classList.remove('d-none');
+                    this.updateUploadProgress(0, totalFiles, 'Preparing...');
+                }
+            },
+            
+            // Update upload progress
+            updateUploadProgress: function(current, total, message = '') {
+                const progressContainer = this.container.querySelector('.photo-upload-progress');
+                if (!progressContainer) return;
+                
+                const progressBar = progressContainer.querySelector('.progress-bar');
+                const uploadCount = progressContainer.querySelector('.upload-count');
+                const progressLabel = progressContainer.querySelector('.fw-semibold');
+                
+                const percentage = total > 0 ? (current / total) * 100 : 0;
+                
+                if (progressBar) progressBar.style.width = `${percentage}%`;
+                if (uploadCount) uploadCount.textContent = `${current} / ${total}`;
+                if (progressLabel && message) progressLabel.textContent = message;
+            },
+            
+            // Hide upload progress
+            hideUploadProgress: function() {
+                const progressContainer = this.container.querySelector('.photo-upload-progress');
+                if (progressContainer) {
+                    progressContainer.classList.add('d-none');
+                }
+            },
+            
+            // Format file size
+            formatFileSize: function(bytes) {
+                if (bytes === 0) return '0 B';
+                const k = 1024;
+                const sizes = ['B', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+            },
+            
+            // Get current photos data for form submission
+            getPhotosData: function() {
+                return {
+                    photoIds: this.photos.filter(p => p.uploaded).map(p => p.id),
+                    photoCount: this.photos.length
+                };
+            },
+            
+            // Clear all photos (for form reset)
+            clearAll: function() {
+                this.photos = [];
+                const gallery = this.container.querySelector('.photo-gallery-grid');
+                if (gallery) gallery.innerHTML = '';
+                this.updateGalleryDisplay();
+            }
+        };
+        
+        // Initialize and return the instance
+        instance.initialize();
+        return instance;
+    }
+};
+
+// Make PhotoManager available globally
+window.PhotoManager = PhotoManager;
