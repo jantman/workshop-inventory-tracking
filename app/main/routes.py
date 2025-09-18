@@ -191,8 +191,7 @@ def inventory_add():
                 current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {item.ja_id}')
                 # AUDIT: Log Add & Continue workflow for carry forward debugging
                 log_audit_operation('add_item', 'continue_workflow', 
-                                  item_id=item.ja_id, 
-                                  additional_data={'workflow_details': 'Add & Continue - redirecting to add form for next item'})
+                                  item_id=item.ja_id)
                 return redirect(url_for('main.inventory_add'))
             else:
                 current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {item.ja_id}')

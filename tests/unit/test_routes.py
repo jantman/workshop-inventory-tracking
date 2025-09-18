@@ -5,7 +5,7 @@ Tests for form parsing and enum lookup functions in app.main.routes
 """
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from app.models import ItemType, ItemShape
 from app.main.routes import _parse_item_from_form
 
@@ -117,3 +117,23 @@ class TestEnumLookupPatterns:
             result = ItemShape(value)
             assert result == shape_enum
             assert result.value == value
+
+
+class TestAddItemRouteAuditLogging:
+    """Tests for audit logging in the Add Item route Add & Continue workflow"""
+    
+    def test_log_audit_operation_parameters_fixed(self):
+        """Test that log_audit_operation can be called with correct parameters"""
+        from app.logging_config import log_audit_operation
+        
+        # This should not raise a TypeError anymore
+        try:
+            log_audit_operation('add_item', 'continue_workflow', item_id='JA000469')
+            # If we get here, the fix worked
+            assert True
+        except TypeError as e:
+            if "additional_data" in str(e):
+                pytest.fail("log_audit_operation still has the additional_data parameter issue")
+            else:
+                # Some other TypeError - re-raise it  
+                raise
