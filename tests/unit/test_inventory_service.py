@@ -8,7 +8,8 @@ import pytest
 from decimal import Decimal
 from app.mariadb_inventory_service import SearchFilter
 from app.mariadb_inventory_service import InventoryService
-from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.database import InventoryItem
 
 
 class TestSearchFilter:
@@ -89,12 +90,14 @@ class TestInventoryService:
     @pytest.fixture
     def sample_item(self):
         """Create a sample item for testing"""
-        return Item(
+        return InventoryItem(
             ja_id='JA000001',
-            item_type=ItemType.BAR,
-            shape=ItemShape.ROUND,
+            item_type='Bar',  # Store as string
+            shape='Round',    # Store as string
             material='Steel',
-            dimensions=Dimensions(length=Decimal('1000'), width=Decimal('25')),
+            length=1000,      # Store as float
+            width=25,         # Store as float
+            quantity=1,       # Add required quantity field
             location='Storage A',
             notes='Test item',
             active=True
@@ -103,17 +106,17 @@ class TestInventoryService:
     @pytest.fixture
     def sample_threaded_item(self):
         """Create a sample threaded item for testing"""
-        return Item(
+        return InventoryItem(
             ja_id='JA000002',
-            item_type=ItemType.THREADED_ROD,
-            shape=ItemShape.ROUND,
+            item_type='Threaded Rod',  # Store as string
+            shape='Round',             # Store as string
             material='Stainless Steel',
-            dimensions=Dimensions(length=Decimal('500'), width=Decimal('12')),
-            thread=Thread(
-                series=ThreadSeries.METRIC,
-                handedness=ThreadHandedness.RIGHT,
-                size="M12x1.5"
-            ),
+            length=500,                # Store as float
+            width=12,                  # Store as float
+            quantity=1,                # Add required quantity field
+            thread_series='METRIC',    # Store thread info as separate fields
+            thread_handedness='RH',
+            thread_size='M12x1.5',
             location='Storage B',
             notes='M12 threaded rod',
             active=True
@@ -158,7 +161,7 @@ class TestInventoryService:
         assert retrieved_item is not None
         assert retrieved_item.ja_id == 'JA000001'
         assert retrieved_item.material == 'Steel'
-        assert retrieved_item.item_type == ItemType.BAR
+        assert retrieved_item.item_type == 'Bar'  # InventoryItem stores as string
     
     @pytest.mark.unit
     def test_get_item_not_found(self, service):
@@ -265,7 +268,7 @@ class TestInventoryService:
         
         assert len(results) == 1
         assert results[0].ja_id == 'JA000002'
-        assert results[0].item_type == ItemType.THREADED_ROD
+        assert results[0].item_type == 'Threaded Rod'  # InventoryItem stores as string
     
     @pytest.mark.unit
     def test_search_items_active_only(self, service, sample_item, sample_threaded_item):
@@ -328,7 +331,7 @@ class TestInventoryService:
         assert len(results) == 1
         assert results[0].ja_id == 'JA000001'
         assert results[0].material == 'Steel'
-        assert results[0].item_type == ItemType.BAR
+        assert results[0].item_type == 'Bar'  # InventoryItem stores as string
     
     @pytest.mark.unit
     def test_batch_move_items(self, service, sample_item, sample_threaded_item):
@@ -387,13 +390,18 @@ class TestInventoryService:
         assert len(items1) == 1
         
         # Add another properly formatted item through the service 
-        from app.models import Item, ItemType, ItemShape, Dimensions
-        direct_item = Item(
+        from app.database import InventoryItem
+        direct_item = InventoryItem(
             ja_id='JA000999',
-            item_type=ItemType.BAR,
-            shape=ItemShape.ROUND,
+            item_type='Bar',
+            shape='Round',
             material='Aluminum',
-            dimensions=Dimensions(length=Decimal('200'), width=Decimal('10'))
+            length=200,
+            width=10,
+            quantity=1,
+            location='Storage A',
+            notes='Cache test item',
+            active=True
         )
         service.add_item(direct_item)
         

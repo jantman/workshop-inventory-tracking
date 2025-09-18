@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, and_, desc, asc, func
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
 from .models import ItemType, ItemShape
-# Note: Item import moved to _db_item_to_model method for backward compatibility only
+# Using enhanced InventoryItem directly instead of separate Item dataclass
 from .storage import StorageResult
 from config import Config
 
@@ -343,130 +343,6 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def _db_item_to_model(self, db_item: InventoryItem) -> 'Item':
-        """
-        Convert database InventoryItem to Item model
-        
-        DEPRECATED: This method is maintained for backward compatibility during the transition
-        to using enhanced InventoryItem directly. Use the enhanced InventoryItem object instead.
-        
-        Args:
-            db_item: SQLAlchemy InventoryItem object
-            
-        Returns:
-            Item model object
-        """
-        import warnings
-        warnings.warn(
-            "_db_item_to_model is deprecated. Use enhanced InventoryItem directly.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        from .models import Item, Dimensions, Thread, ItemType, ItemShape, ThreadSeries, ThreadHandedness
-        
-        # Helper function to find enum by value
-        def find_enum_by_value(enum_class, value):
-            if not value:
-                return None
-            
-            # First try direct value match (normal case)
-            for enum_item in enum_class:
-                if enum_item.value == value:
-                    return enum_item
-            
-            # Handle legacy enum class name format (e.g., 'ItemType.PLATE' -> 'Plate')
-            # This handles cases where database contains enum class names instead of values
-            if '.' in value:
-                try:
-                    # Extract the enum name part after the dot
-                    enum_name = value.split('.')[-1]  # 'ItemType.PLATE' -> 'PLATE'
-                    
-                    # Try to find enum by name attribute
-                    for enum_item in enum_class:
-                        if enum_item.name == enum_name:
-                            logger.warning(f"Found enum using legacy name format: {value} -> {enum_item.value}")
-                            return enum_item
-                    
-                    # If name match fails, try value match with the extracted part
-                    # Handle common case transformations
-                    potential_values = [
-                        enum_name,  # Direct match
-                        enum_name.capitalize(),  # 'PLATE' -> 'Plate'
-                        enum_name.lower(),  # 'PLATE' -> 'plate'
-                        enum_name.title()   # 'RECTANGULAR' -> 'Rectangular'
-                    ]
-                    
-                    for potential_value in potential_values:
-                        for enum_item in enum_class:
-                            if enum_item.value == potential_value:
-                                logger.warning(f"Found enum using legacy format with conversion: {value} -> {enum_item.value}")
-                                return enum_item
-                        
-                except Exception as e:
-                    logger.error(f"Error parsing legacy enum format '{value}': {e}")
-            
-            # If no match found, log the issue
-            logger.warning(f"Could not find enum value '{value}' in {enum_class.__name__}")
-            return None
-        
-        # Map thread series
-        thread_series = find_enum_by_value(ThreadSeries, db_item.thread_series)
-        
-        # Map thread handedness  
-        thread_handedness = find_enum_by_value(ThreadHandedness, db_item.thread_handedness)
-        
-        # Create thread object - only if we have meaningful thread data
-        thread = None
-        if thread_series or thread_handedness or (db_item.thread_size and db_item.thread_size.strip()):
-            try:
-                thread = Thread(
-                    series=thread_series,
-                    handedness=thread_handedness,
-                    size=db_item.thread_size.strip() if db_item.thread_size else None
-                )
-            except ValueError:
-                # Skip thread creation if validation fails - thread data is malformed
-                thread = None
-        
-        # Create dimensions
-        dimensions = Dimensions(
-            length=float(db_item.length) if db_item.length else None,
-            width=float(db_item.width) if db_item.width else None,
-            thickness=float(db_item.thickness) if db_item.thickness else None,
-            wall_thickness=float(db_item.wall_thickness) if db_item.wall_thickness else None,
-            weight=float(db_item.weight) if db_item.weight else None
-        )
-        
-        # Map item type and shape
-        item_type = find_enum_by_value(ItemType, db_item.item_type)
-        shape = find_enum_by_value(ItemShape, db_item.shape)
-        
-        # Create Item
-        item = Item(
-            ja_id=db_item.ja_id,
-            item_type=item_type,
-            shape=shape,
-            material=db_item.material,
-            dimensions=dimensions,
-            thread=thread,
-            quantity=db_item.quantity,
-            location=db_item.location,
-            sub_location=db_item.sub_location,
-            purchase_date=db_item.purchase_date,
-            purchase_price=db_item.purchase_price,
-            purchase_location=db_item.purchase_location,
-            notes=db_item.notes,
-            vendor=db_item.vendor,
-            vendor_part_number=db_item.vendor_part,
-            original_material=db_item.original_material,
-            original_thread=db_item.original_thread,
-            active=db_item.active,
-            date_added=db_item.date_added,
-            last_modified=db_item.last_modified
-        )
-        
-        return item
-    
     def shorten_item(self, ja_id: str, new_length: float, cut_date: str = None, notes: str = None) -> dict:
         """
         Shorten an existing item by creating a new active row and deactivating the current one.
@@ -693,7 +569,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def update_item(self, item: 'Item') -> bool:
+    def update_item(self, item: 'InventoryItem') -> bool:
         """
         Update an existing item in MariaDB
         
@@ -702,7 +578,7 @@ class InventoryService:
         rather than creating a new row (which is what shortening does).
         
         Args:
-            item: Item model object with updated data
+            item: InventoryItem model object with updated data
             
         Returns:
             True if update was successful, False otherwise
@@ -748,13 +624,12 @@ class InventoryService:
                 'vendor_part': current_db_item.vendor_part
             }
             
-            # Convert Item model back to database fields
-            # Handle enum values - convert enum objects back to string values
-            item_type_value = item.item_type.value if item.item_type else None
-            shape_value = item.shape.value if item.shape else None
-            thread_series_value = item.thread.series.value if (item.thread and item.thread.series) else ''
-            thread_handedness_value = item.thread.handedness.value if (item.thread and item.thread.handedness) else ''
-            thread_size_value = item.thread.size if (item.thread and item.thread.size) else ''
+            # InventoryItem already stores values as strings, no conversion needed
+            item_type_value = item.item_type if item.item_type else None
+            shape_value = item.shape if item.shape else None
+            thread_series_value = item.thread_series if item.thread_series else ''
+            thread_handedness_value = item.thread_handedness if item.thread_handedness else ''
+            thread_size_value = item.thread_size if item.thread_size else ''
             
             # Update the database fields
             current_db_item.item_type = item_type_value
@@ -773,7 +648,7 @@ class InventoryService:
             current_db_item.thread_size = thread_size_value
             current_db_item.notes = item.notes
             current_db_item.vendor = item.vendor
-            current_db_item.vendor_part = item.vendor_part_number
+            current_db_item.vendor_part = item.vendor_part
             current_db_item.purchase_date = item.purchase_date
             current_db_item.purchase_price = item.purchase_price
             current_db_item.purchase_location = item.purchase_location
@@ -802,7 +677,7 @@ class InventoryService:
                 'thread_size': thread_size_value,
                 'notes': item.notes,
                 'vendor': item.vendor,
-                'vendor_part': item.vendor_part_number
+                'vendor_part': item.vendor_part
             }
             
             # Log successful update with full audit trail
@@ -830,7 +705,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
 
-    def add_item(self, item: 'Item') -> bool:
+    def add_item(self, item: 'InventoryItem') -> bool:
         """Add a new item to MariaDB"""
         from .logging_config import log_audit_operation
         
@@ -852,20 +727,20 @@ class InventoryService:
                 return False
             
             # Convert Item model to database fields
-            item_type_str = item.item_type.value if item.item_type else None
-            shape_str = item.shape.value if item.shape else None
+            item_type_str = item.item_type if item.item_type else None
+            shape_str = item.shape if item.shape else None
             
-            # Extract dimensions
-            length = item.dimensions.length if item.dimensions else None
-            width = item.dimensions.width if item.dimensions else None
-            thickness = item.dimensions.thickness if item.dimensions else None
-            wall_thickness = item.dimensions.wall_thickness if item.dimensions else None
-            weight = item.dimensions.weight if item.dimensions else None
+            # Extract dimensions directly from InventoryItem fields
+            length = item.length
+            width = item.width  
+            thickness = item.thickness
+            wall_thickness = item.wall_thickness
+            weight = item.weight
             
-            # Extract threading info
-            thread_series_str = item.thread.series.value if item.thread and item.thread.series else None
-            thread_handedness_str = item.thread.handedness.value if item.thread and item.thread.handedness else None
-            thread_size = item.thread.size if item.thread else None
+            # Extract threading info directly from InventoryItem fields
+            thread_series_str = item.thread_series
+            thread_handedness_str = item.thread_handedness
+            thread_size = item.thread_size
             
             # Create new database item
             new_db_item = InventoryItem(
@@ -1005,7 +880,7 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
     
-    def search_items(self, search_filter: 'SearchFilter') -> List['Item']:
+    def search_items(self, search_filter: 'SearchFilter') -> List['InventoryItem']:
         """
         Search for items using a SearchFilter object.
         This method provides compatibility with the original InventoryService API.
@@ -1028,24 +903,12 @@ class InventoryService:
                     failed_ids.append(item_id)
                     continue
                 
-                # Update location and optionally notes
-                updated_item = Item(
-                    ja_id=item.ja_id,
-                    item_type=item.item_type,
-                    shape=item.shape,
-                    material=item.material,
-                    location=location_id,
-                    dimensions=item.dimensions,
-                    thread=item.thread,  # Include thread info for threaded items
-                    notes=notes if notes else item.notes,  # Update notes if provided
-                    active=item.active,
-                    date_added=item.date_added,
-                    last_modified=item.last_modified,
-                    parent_ja_id=item.parent_ja_id,
-                    child_ja_ids=item.child_ja_ids
-                )
+                # Update location and optionally notes directly on InventoryItem
+                item.location = location_id
+                if notes:
+                    item.notes = notes
                 
-                if self.update_item(updated_item):
+                if self.update_item(item):
                     moved_count += 1
                 else:
                     failed_ids.append(item_id)

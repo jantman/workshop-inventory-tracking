@@ -13,7 +13,8 @@ from unittest.mock import patch, MagicMock
 from datetime import datetime, date
 
 from app.logging_config import log_audit_operation, log_audit_batch_operation
-from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.database import InventoryItem
 from app.main.routes import _item_to_audit_dict
 from decimal import Decimal
 

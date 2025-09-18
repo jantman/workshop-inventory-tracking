@@ -144,7 +144,8 @@ class E2ETestServer:
                 service.add_item(item_data)
             else:
                 # Convert dict to Item object if needed
-                from app.models import Item, ItemType, ItemShape, Dimensions
+                from app.database import InventoryItem
+                from app.models import ItemType, ItemShape, Dimensions
                 from decimal import Decimal
                 
                 # Create dimensions from available data
@@ -162,12 +163,17 @@ class E2ETestServer:
                 
                 dimensions = Dimensions(**dimensions_data) if dimensions_data else None
                 
-                item = Item(
+                item = InventoryItem(
                     ja_id=item_data.get('ja_id', 'JA000000'),
-                    item_type=ItemType(item_data.get('item_type', 'Rod')),
-                    shape=ItemShape(item_data.get('shape', 'Round')),
+                    item_type=item_data.get('item_type', 'Rod'),  # Store as string
+                    shape=item_data.get('shape', 'Round'),         # Store as string
                     material=item_data.get('material', 'Steel'),
-                    dimensions=dimensions,
+                    length=dimensions_data.get('length') if dimensions_data else None,
+                    width=dimensions_data.get('width') if dimensions_data else None,
+                    thickness=dimensions_data.get('thickness') if dimensions_data else None,
+                    wall_thickness=dimensions_data.get('wall_thickness') if dimensions_data else None,
+                    weight=dimensions_data.get('weight') if dimensions_data else None,
+                    quantity=item_data.get('quantity', 1),
                     location=item_data.get('location'),
                     notes=item_data.get('notes'),
                     active=item_data.get('active', True)

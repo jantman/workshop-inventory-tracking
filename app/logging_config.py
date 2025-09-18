@@ -259,8 +259,8 @@ def log_audit_operation(operation_name: str, phase: str, item_id: str = None,
         phase: Phase of operation (input, success, error)
         item_id: JA ID of item being operated on
         form_data: Complete form data submitted by user
-        item_before: Item state before operation (for edits/updates)
-        item_after: Item state after operation
+        item_before: InventoryItem state before operation (for edits/updates)
+        item_after: InventoryItem state after operation
         changes: Dictionary of changed fields (for edits)
         error_details: Error information if operation failed
         logger_name: Logger to use (defaults to 'inventory')

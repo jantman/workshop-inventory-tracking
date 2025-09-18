@@ -29,7 +29,7 @@ class TestParseItemFromForm:
             
             # This should work with current implementation
             item = _parse_item_from_form(form_data)
-            assert item.item_type.value == item_type_value
+            assert item.item_type == item_type_value
             assert item.ja_id == 'JA000001'
     
     
@@ -48,8 +48,7 @@ class TestParseItemFromForm:
         
         # This should work but will fail until enum bug is fixed
         item = _parse_item_from_form(form_data)
-        assert item.item_type == ItemType.THREADED_ROD
-        assert item.item_type.value == "Threaded Rod"
+        assert item.item_type == "Threaded Rod"
         assert item.ja_id == 'JA000002'
     
     def test_all_item_types_with_enum_constructor(self):

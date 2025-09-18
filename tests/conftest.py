@@ -19,7 +19,8 @@ import sqlalchemy.exc
 warnings.filterwarnings("ignore", category=sqlalchemy.exc.SAWarning)
 from app import create_app
 # InMemoryStorage removed - E2E tests now use MariaDB with SQLite backend
-from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.database import InventoryItem
 from tests.test_config import TestConfig
 from decimal import Decimal
 

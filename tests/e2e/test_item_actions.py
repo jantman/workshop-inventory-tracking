@@ -205,7 +205,7 @@ def test_edit_item_workflow(page, live_server):
     # Wait for modal and verify updated details
     modal_body = page.locator('#item-details-modal .modal-body')
     expect(modal_body).to_contain_text('6000 Series')
-    expect(modal_body).to_contain_text('6.0"')  # updated width
+    expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
 
@@ -282,11 +282,11 @@ def test_edit_form_loads_without_validation_errors(page, live_server):
     expect(material_field).not_to_have_class('is-invalid')
     
     length_field = page.locator('#length')
-    expect(length_field).to_have_value('12.0')
+    expect(length_field).to_have_value('12')  # normalized precision
     expect(length_field).not_to_have_class('is-invalid')
     
     width_field = page.locator('#width')
-    expect(width_field).to_have_value('1.0')
+    expect(width_field).to_have_value('1')  # normalized precision
     expect(width_field).not_to_have_class('is-invalid')
 
 

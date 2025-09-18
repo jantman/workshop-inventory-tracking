@@ -484,30 +484,41 @@ def test_search_by_threaded_rod_type_workflow(page, live_server):
     """Test searching for Threaded Rod items (currently fails due to enum bug)"""
     # Add test data including Threaded Rod items
     # Note: We need to create Item objects properly with thread info for Threaded Rod
-    from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+    from app.database import InventoryItem
+    from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
     from decimal import Decimal
     
-    # Create proper Item objects for threaded rods
-    threaded_rod_1 = Item(
+    # Create proper InventoryItem objects for threaded rods
+    threaded_rod_1 = InventoryItem(
         ja_id="JA011001",
-        item_type=ItemType.THREADED_ROD,
-        shape=ItemShape.ROUND,
+        item_type="Threaded Rod",  # Store as string
+        shape="Round",             # Store as string
         material="Carbon Steel",
-        dimensions=Dimensions(length=Decimal("36"), width=Decimal("0.25")),
-        thread=Thread(series=ThreadSeries.UNC, handedness=ThreadHandedness.RIGHT, size="1/4-20"),
+        length=36,                 # Store as float
+        width=0.25,                # Store as float
+        thread_series="UNC",       # Store as string
+        thread_handedness="Right", # Store as string
+        thread_size="1/4-20",      # Store as string
+        quantity=1,                # Required field
         location="Storage D",
-        notes="1/4-20 threaded rod"
+        notes="1/4-20 threaded rod",
+        active=True
     )
     
-    threaded_rod_2 = Item(
+    threaded_rod_2 = InventoryItem(
         ja_id="JA011002",
-        item_type=ItemType.THREADED_ROD,
-        shape=ItemShape.ROUND,
+        item_type="Threaded Rod",  # Store as string
+        shape="Round",             # Store as string
         material="Stainless Steel",
-        dimensions=Dimensions(length=Decimal("48"), width=Decimal("0.375")),
-        thread=Thread(series=ThreadSeries.UNC, handedness=ThreadHandedness.RIGHT, size="3/8-16"),
+        length=48,                 # Store as float
+        width=0.375,               # Store as float
+        thread_series="UNC",       # Store as string
+        thread_handedness="Right", # Store as string
+        thread_size="3/8-16",      # Store as string
+        quantity=1,                # Required field
         location="Storage D",
-        notes="3/8-16 threaded rod"
+        notes="3/8-16 threaded rod",
+        active=True
     )
     
     test_items = [
@@ -543,28 +554,39 @@ def test_search_by_threaded_rod_type_workflow(page, live_server):
 def test_search_by_multiple_criteria_with_threaded_rod_workflow(page, live_server):
     """Test searching with multiple criteria including Threaded Rod type"""
     # Add test data
-    from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+    from app.database import InventoryItem
+    from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
     from decimal import Decimal
     
     # Create proper threaded rod items
-    threaded_rod_carbon = Item(
+    threaded_rod_carbon = InventoryItem(
         ja_id="JA012001",
-        item_type=ItemType.THREADED_ROD,
-        shape=ItemShape.ROUND,
+        item_type="Threaded Rod",  # Store as string
+        shape="Round",             # Store as string
         material="Carbon Steel",
-        dimensions=Dimensions(length=Decimal("36"), width=Decimal("0.25")),
-        thread=Thread(series=ThreadSeries.UNC, handedness=ThreadHandedness.RIGHT, size="1/4-20"),
-        location="Storage D"
+        length=36,                 # Store as float
+        width=0.25,                # Store as float
+        thread_series="UNC",       # Store as string
+        thread_handedness="Right", # Store as string
+        thread_size="1/4-20",      # Store as string
+        quantity=1,                # Required field
+        location="Storage D",
+        active=True
     )
     
-    threaded_rod_stainless = Item(
+    threaded_rod_stainless = InventoryItem(
         ja_id="JA012002",
-        item_type=ItemType.THREADED_ROD,
-        shape=ItemShape.ROUND,
+        item_type="Threaded Rod",  # Store as string
+        shape="Round",             # Store as string
         material="Stainless Steel",
-        dimensions=Dimensions(length=Decimal("36"), width=Decimal("0.25")),
-        thread=Thread(series=ThreadSeries.UNC, handedness=ThreadHandedness.RIGHT, size="1/4-20"),
-        location="Storage D"
+        length=36,                 # Store as float
+        width=0.25,                # Store as float
+        thread_series="UNC",       # Store as string
+        thread_handedness="Right", # Store as string
+        thread_size="1/4-20",      # Store as string
+        quantity=1,                # Required field
+        location="Storage D",
+        active=True
     )
     
     test_items = [

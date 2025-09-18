@@ -7,7 +7,8 @@ from app.mariadb_storage import MariaDBStorage
 from app.mariadb_inventory_service import InventoryService
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
-from app.models import Item, ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.database import InventoryItem
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
@@ -1322,76 +1323,64 @@ def _execute_shortening_operation(form_data):
 
 
 def _parse_item_from_form(form_data):
-    """Parse form data into an Item object"""
-    # Parse enums
-    item_type = ItemType(form_data['item_type'])
-    shape = ItemShape(form_data['shape'])
+    """Parse form data into an InventoryItem object"""
+    from datetime import datetime
+    
+    # Create InventoryItem directly with form data
+    item = InventoryItem(
+        ja_id=form_data['ja_id'].upper(),
+        item_type=form_data['item_type'],  # Store as string
+        shape=form_data['shape'],          # Store as string
+        material=form_data['material'].strip(),
+        active=form_data.get('active') == 'on'
+    )
     
     # Parse dimensions
-    dimensions_data = {}
     dimension_fields = ['length', 'width', 'thickness', 'wall_thickness', 'weight']
-    
     for field in dimension_fields:
         value = form_data.get(field, '').strip()
         if value:
             try:
-                # Handle fraction input
-                dimensions_data[field] = _parse_dimension_value(value)
+                # Handle fraction input and convert to float for database storage
+                parsed_value = float(_parse_dimension_value(value))
+                setattr(item, field, parsed_value)
             except (ValueError, InvalidOperation) as e:
                 raise ValueError(f"Invalid {field}: {value}")
     
-    dimensions = Dimensions.from_dict(dimensions_data) if dimensions_data else None
-    
     # Parse threading if provided
-    thread = None
     thread_series_str = form_data.get('thread_series', '').strip()
     if thread_series_str and thread_series_str != 'None':
         thread_handedness_str = form_data.get('thread_handedness', 'RH').strip() or 'RH'
         thread_size = form_data.get('thread_size', '').strip()
         
         try:
-            thread_series = ThreadSeries[thread_series_str.upper()]
-            thread_handedness = ThreadHandedness.RIGHT if thread_handedness_str.upper() == 'RH' else ThreadHandedness.LEFT
-            
-            thread = Thread(
-                series=thread_series,
-                handedness=thread_handedness,
-                size=thread_size or None
-            )
-        except KeyError:
+            # Store thread fields as strings in InventoryItem
+            item.thread_series = thread_series_str.upper()
+            item.thread_handedness = 'RH' if thread_handedness_str.upper() == 'RH' else 'LH'
+            item.thread_size = thread_size or None
+        except Exception:
             raise ValueError(f"Invalid thread series or handedness: {thread_series_str}, {thread_handedness_str}")
     
     # Parse other fields
     quantity = form_data.get('quantity', '1')
     try:
-        quantity = int(quantity) if quantity else 1
+        item.quantity = int(quantity) if quantity else 1
     except ValueError:
-        quantity = 1
+        item.quantity = 1
     
-    active = form_data.get('active') == 'on'
+    # Set other fields
+    item.location = form_data.get('location', '').strip() or None
+    item.sub_location = form_data.get('sub_location', '').strip() or None
+    item.purchase_date = _parse_date_from_form(form_data.get('purchase_date'))
+    item.purchase_price = form_data.get('purchase_price', '').strip() or None
+    item.purchase_location = form_data.get('purchase_location', '').strip() or None
+    item.vendor = form_data.get('vendor', '').strip() or None
+    item.vendor_part = form_data.get('vendor_part_number', '').strip() or None  # Note: vendor_part not vendor_part_number
+    item.notes = form_data.get('notes', '').strip() or None
     
-    # Material is now handled by hierarchical taxonomy - use as provided
-    material = form_data['material'].strip()
-    
-    # Create item
-    item = Item(
-        ja_id=form_data['ja_id'].upper(),
-        item_type=item_type,
-        shape=shape,
-        material=material,
-        dimensions=dimensions,
-        thread=thread,
-        quantity=quantity,
-        location=form_data.get('location', '').strip() or None,
-        sub_location=form_data.get('sub_location', '').strip() or None,
-        purchase_date=_parse_date_from_form(form_data.get('purchase_date')),
-        purchase_price=form_data.get('purchase_price', '').strip() or None,
-        purchase_location=form_data.get('purchase_location', '').strip() or None,
-        vendor=form_data.get('vendor', '').strip() or None,
-        vendor_part_number=form_data.get('vendor_part_number', '').strip() or None,
-        notes=form_data.get('notes', '').strip() or None,
-        active=active
-    )
+    # Set timestamps
+    item.date_added = datetime.now()
+    item.last_modified = datetime.now()
     
     return item
 

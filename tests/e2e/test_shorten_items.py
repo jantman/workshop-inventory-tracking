@@ -244,15 +244,19 @@ def test_complete_shortening_workflow(page, live_server):
     # Add test item directly to storage (bypassing UI to focus on shortening workflow)
     ja_id_to_use = "JA000001"
     
-    from app.models import Item, ItemType, ItemShape, Dimensions
+    from app.database import InventoryItem
+    from app.models import ItemType, ItemShape, Dimensions
     from decimal import Decimal
     
-    test_item = Item(
+    test_item = InventoryItem(
         ja_id=ja_id_to_use,
-        item_type=ItemType.BAR,
-        shape=ItemShape.RECTANGULAR,
+        item_type="Bar",  # Store as string
+        shape="Rectangular",  # Store as string
         material="Carbon Steel",
-        dimensions=Dimensions(length=Decimal('600'), width=Decimal('50'), thickness=Decimal('1')),  # 50 feet x 50" x 1"
+        length=600,  # Store as float
+        width=50,    # Store as float
+        thickness=1, # Store as float
+        quantity=1,  # Required field
         location="Storage Bay 1",
         notes="Test bar for complete shortening workflow",
         active=True
@@ -418,15 +422,19 @@ def test_keep_same_id_workflow(page, live_server):
     # Add test item directly to storage (bypassing UI to focus on shortening workflow)
     ja_id_to_use = "JA000001"
     
-    from app.models import Item, ItemType, ItemShape, Dimensions
+    from app.database import InventoryItem
+    from app.models import ItemType, ItemShape, Dimensions
     from decimal import Decimal
     
-    test_item = Item(
+    test_item = InventoryItem(
         ja_id=ja_id_to_use,
-        item_type=ItemType.PLATE,
-        shape=ItemShape.RECTANGULAR,
+        item_type="Plate",  # Store as string
+        shape="Rectangular",  # Store as string
         material="Carbon Steel",
-        dimensions=Dimensions(length=Decimal('240'), width=Decimal('120'), thickness=Decimal('0.25')),  # 20 feet x 10 feet x 1/4"
+        length=240,     # Store as float
+        width=120,      # Store as float
+        thickness=0.25, # Store as float
+        quantity=1,     # Required field
         location="Table A",
         notes="Test plate for keep-same-ID workflow",
         active=True
