@@ -6,7 +6,7 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -687,3 +687,73 @@ class MaterialTaxonomy(Base):
             self.aliases = ','.join([alias.strip() for alias in value if alias.strip()])
         else:
             self.aliases = None
+
+
+class ItemPhoto(Base):
+    """
+    Item photos table.
+    
+    Stores photos associated with inventory items via ja_id.
+    Each photo is stored in three sizes: thumbnail (~150px), medium (~800px), and original.
+    """
+    __tablename__ = 'item_photos'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign key to ja_id (not item.id to maintain association across shortening history)
+    ja_id = Column(String(10), nullable=False, index=True)
+    
+    # File metadata
+    filename = Column(String(255), nullable=False)  # Original filename
+    content_type = Column(String(100), nullable=False)  # MIME type
+    file_size = Column(Integer, nullable=False)  # Original file size in bytes
+    
+    # Photo data in three sizes
+    thumbnail_data = Column(LargeBinary, nullable=False)  # ~150px compressed
+    medium_data = Column(LargeBinary, nullable=False)  # ~800px compressed  
+    original_data = Column(LargeBinary, nullable=False)  # Original up to 20MB
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=func.now(), index=True)
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    
+    # Constraints
+    __table_args__ = (
+        # Ensure valid JA ID format
+        CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_photo_valid_ja_id_format'),
+        
+        # Ensure positive file size
+        CheckConstraint('file_size > 0', name='ck_photo_positive_file_size'),
+        
+        # Validate supported content types
+        CheckConstraint(
+            "content_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf')", 
+            name='ck_photo_valid_content_type'
+        ),
+    )
+    
+    def __repr__(self):
+        return f"<ItemPhoto(id={self.id}, ja_id='{self.ja_id}', filename='{self.filename}', content_type='{self.content_type}')>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses (excludes binary data)"""
+        return {
+            'id': self.id,
+            'ja_id': self.ja_id,
+            'filename': self.filename,
+            'content_type': self.content_type,
+            'file_size': self.file_size,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+    
+    @property
+    def is_image(self) -> bool:
+        """Check if the photo is an image (not PDF)"""
+        return self.content_type.startswith('image/')
+    
+    @property
+    def is_pdf(self) -> bool:
+        """Check if the photo is a PDF"""
+        return self.content_type == 'application/pdf'
