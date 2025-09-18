@@ -62,6 +62,9 @@ class InventoryAddForm {
         }
         this.updateDimensionRequirements();
         this.autoPopulateJaId();
+        
+        // Initialize carry forward data from sessionStorage if available
+        this.initializeCarryForwardData();
     }
     
     setupEventListeners() {
@@ -463,7 +466,31 @@ class InventoryAddForm {
     }
     
     carryForwardData() {
-        if (!this.lastItemData) {
+        console.log('CarryForward: Starting carry forward process');
+        
+        // First try to get data from sessionStorage (for cross-page persistence)
+        let itemData = this.lastItemData;
+        if (!itemData) {
+            console.log('CarryForward: No data in memory, checking sessionStorage');
+            try {
+                const storedData = sessionStorage.getItem('workshop_inventory_last_item');
+                if (storedData) {
+                    itemData = JSON.parse(storedData);
+                    console.log('CarryForward: Retrieved data from sessionStorage:', itemData);
+                    // Update in-memory cache
+                    this.lastItemData = itemData;
+                } else {
+                    console.log('CarryForward: No data found in sessionStorage either');
+                }
+            } catch (error) {
+                console.error('CarryForward: Error reading from sessionStorage:', error);
+            }
+        } else {
+            console.log('CarryForward: Using data from memory:', itemData);
+        }
+        
+        if (!itemData) {
+            console.log('CarryForward: No previous item data available');
             WorkshopInventory.utils.showToast('No previous item data to carry forward', 'info');
             return;
         }
@@ -475,18 +502,47 @@ class InventoryAddForm {
             'thread_series', 'thread_handedness'
         ];
         
+        console.log('CarryForward: Populating fields with data');
+        const fieldsPopulated = [];
         carryFields.forEach(field => {
             const input = document.getElementById(field);
-            if (input && this.lastItemData[field]) {
-                input.value = this.lastItemData[field];
+            if (input && itemData[field]) {
+                const oldValue = input.value;
+                input.value = itemData[field];
+                fieldsPopulated.push(`${field}: "${oldValue}" -> "${itemData[field]}"`);
+                console.log(`CarryForward: Set ${field} = "${itemData[field]}"`);
             }
         });
+        
+        console.log('CarryForward: Fields populated:', fieldsPopulated);
         
         // Trigger updates
         this.updateDimensionRequirements();
         this.updateWidthLabel();
         
+        console.log('CarryForward: Successfully carried forward data');
         WorkshopInventory.utils.showToast('Previous item data carried forward', 'success');
+    }
+    
+    initializeCarryForwardData() {
+        console.log('Init: Checking for previous item data in sessionStorage');
+        try {
+            const storedData = sessionStorage.getItem('workshop_inventory_last_item');
+            if (storedData) {
+                this.lastItemData = JSON.parse(storedData);
+                console.log('Init: Restored previous item data from sessionStorage:', this.lastItemData);
+            } else {
+                console.log('Init: No previous item data found in sessionStorage');
+            }
+        } catch (error) {
+            console.error('Init: Error reading previous item data from sessionStorage:', error);
+            // Clear corrupted data
+            try {
+                sessionStorage.removeItem('workshop_inventory_last_item');
+            } catch (clearError) {
+                console.error('Init: Error clearing corrupted sessionStorage data:', clearError);
+            }
+        }
     }
     
     async handleSubmit(event, continueAdding = false) {
@@ -524,6 +580,18 @@ class InventoryAddForm {
         
         // Store form data for carry-forward before submitting
         this.lastItemData = this.collectFormData();
+        console.log('Submit: Collected form data for carry forward:', this.lastItemData);
+        
+        // Store in sessionStorage for persistence across page redirects
+        try {
+            sessionStorage.setItem('workshop_inventory_last_item', JSON.stringify(this.lastItemData));
+            console.log('Submit: Stored form data in sessionStorage for carry forward');
+        } catch (error) {
+            console.error('Submit: Failed to store data in sessionStorage:', error);
+        }
+        
+        // Log submission type for debugging
+        console.log(`Submit: Submitting form with type: ${continueAdding ? 'continue' : 'add'}`);
         
         // Submit form normally (not via API)
         this.form.submit();
