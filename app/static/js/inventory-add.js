@@ -98,6 +98,9 @@ class InventoryAddForm {
         
         // Real-time validation
         this.setupRealTimeValidation();
+        
+        // Prevent Enter key submission for barcode scanner fields
+        this.setupEnterKeyPrevention();
     }
     
     setupBarcodeScanning() {
@@ -614,6 +617,38 @@ class InventoryAddForm {
         });
         
         this.showFormErrors(errors);
+    }
+    
+    setupEnterKeyPrevention() {
+        // Prevent Enter key from submitting form when pressed in JA ID or Location fields
+        // This is needed because barcode scanners send Enter after scanning
+        const fieldsToPrevent = ['ja_id', 'location'];
+        
+        fieldsToPrevent.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        // Move focus to next field instead of submitting
+                        const nextField = this.getNextField(field);
+                        if (nextField) {
+                            nextField.focus();
+                        }
+                    }
+                });
+            }
+        });
+    }
+    
+    getNextField(currentField) {
+        // Get all focusable form elements
+        const formElements = this.form.querySelectorAll('input:not([type="hidden"]), select, textarea');
+        const elementsArray = Array.from(formElements);
+        const currentIndex = elementsArray.indexOf(currentField);
+        
+        // Return next focusable element, or null if it's the last one
+        return elementsArray[currentIndex + 1] || null;
     }
     
     showFormErrors(errors) {

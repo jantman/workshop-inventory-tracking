@@ -583,6 +583,42 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('EditForm: MaterialSelector is active, skipping old autocomplete');
     }
     
+    // Prevent Enter key submission for barcode scanner fields
+    function setupEnterKeyPrevention() {
+        // Prevent Enter key from submitting form when pressed in JA ID or Location fields
+        // This is needed because barcode scanners send Enter after scanning
+        const fieldsToPrevent = ['ja_id', 'location'];
+        
+        fieldsToPrevent.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        // Move focus to next field instead of submitting
+                        const nextField = getNextField(field);
+                        if (nextField) {
+                            nextField.focus();
+                        }
+                    }
+                });
+            }
+        });
+    }
+    
+    function getNextField(currentField) {
+        // Get all focusable form elements
+        const formElements = form.querySelectorAll('input:not([type="hidden"]), select, textarea');
+        const elementsArray = Array.from(formElements);
+        const currentIndex = elementsArray.indexOf(currentField);
+        
+        // Return next focusable element, or null if it's the last one
+        return elementsArray[currentIndex + 1] || null;
+    }
+    
+    // Set up Enter key prevention
+    setupEnterKeyPrevention();
+    
     // Handle form submission with validation
     form.addEventListener('submit', function(event) {
         // Re-enable feedback display for submission validation
