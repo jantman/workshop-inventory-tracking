@@ -4,7 +4,27 @@
  */
 
 const PhotoManager = {
-    
+
+    // Safe toast notification helper
+    showToast: function(message, type = 'info') {
+        // Try to use WorkshopInventory.utils.showToast if available
+        if (typeof WorkshopInventory !== 'undefined' &&
+            WorkshopInventory.utils &&
+            typeof WorkshopInventory.utils.showToast === 'function') {
+            WorkshopInventory.utils.showToast(message, type);
+        } else {
+            // Fallback to console logging and alert for important messages
+            const logMethod = type === 'danger' || type === 'error' ? 'error' :
+                             type === 'warning' ? 'warn' : 'log';
+            console[logMethod](`[PhotoManager] ${message}`);
+
+            // Show alert for critical errors
+            if (type === 'danger' || type === 'error') {
+                alert(`Error: ${message}`);
+            }
+        }
+    },
+
     // Configuration
     config: {
         maxFiles: 10,
@@ -170,7 +190,7 @@ const PhotoManager = {
                 
                 // Validate file count
                 if (this.photos.length + fileArray.length > this.config.maxFiles) {
-                    WorkshopInventory.utils.showToast(
+                    PhotoManager.showToast(
                         `Maximum ${this.config.maxFiles} photos allowed`, 'warning'
                     );
                     return;
@@ -193,15 +213,15 @@ const PhotoManager = {
             validateFile: function(file) {
                 // Check file type
                 if (!this.config.allowedTypes.includes(file.type)) {
-                    WorkshopInventory.utils.showToast(
+                    PhotoManager.showToast(
                         `${file.name}: Unsupported file type`, 'danger'
                     );
                     return false;
                 }
-                
+
                 // Check file size
                 if (file.size > this.config.maxFileSize) {
-                    WorkshopInventory.utils.showToast(
+                    PhotoManager.showToast(
                         `${file.name}: File too large (max 20MB)`, 'danger'
                     );
                     return false;
@@ -219,7 +239,7 @@ const PhotoManager = {
                         await this.processSingleFile(files[i], i + 1, files.length);
                     } catch (error) {
                         console.error('Error processing file:', error);
-                        WorkshopInventory.utils.showToast(
+                        PhotoManager.showToast(
                             `Error processing ${files[i].name}: ${error.message}`, 'danger'
                         );
                     }
@@ -538,11 +558,11 @@ const PhotoManager = {
                     }
                     
                     this.updateGalleryDisplay();
-                    WorkshopInventory.utils.showToast('Photo deleted', 'success');
-                    
+                    PhotoManager.showToast('Photo deleted', 'success');
+
                 } catch (error) {
                     console.error('Error deleting photo:', error);
-                    WorkshopInventory.utils.showToast('Failed to delete photo', 'danger');
+                    PhotoManager.showToast('Failed to delete photo', 'danger');
                 }
             },
             
