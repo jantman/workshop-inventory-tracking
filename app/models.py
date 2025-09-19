@@ -100,6 +100,9 @@ class ThreadSeries(Enum):
     BSF = "BSF"  # British Standard Fine
     NPT = "NPT"  # National Pipe Thread
     ACME = "Acme"
+    TRAPEZOIDAL = "Trapezoidal"  # Trapezoidal threads (merged from ThreadForm)
+    SQUARE = "Square"  # Square threads (merged from ThreadForm)
+    BUTTRESS = "Buttress"  # Buttress threads (merged from ThreadForm)
     CUSTOM = "Custom"
     OTHER = "Other"
 
@@ -108,26 +111,12 @@ class ThreadHandedness(Enum):
     RIGHT = "RH"  # Right-hand thread
     LEFT = "LH"   # Left-hand thread
 
-class ThreadForm(Enum):
-    """Enumeration of thread form types"""
-    UN = "UN"                # Unified National (default for inch sizes)
-    ISO_METRIC = "ISO Metric"  # ISO Metric (default for metric sizes) 
-    ACME = "Acme"            # Acme threads
-    TRAPEZOIDAL = "Trapezoidal"  # Trapezoidal threads
-    NPT = "NPT"              # National Pipe Thread
-    BSW = "BSW"              # British Standard Whitworth
-    BSF = "BSF"              # British Standard Fine
-    SQUARE = "Square"        # Square threads
-    BUTTRESS = "Buttress"    # Buttress threads
-    CUSTOM = "Custom"        # Custom/specialized forms
-    OTHER = "Other"          # Other thread forms
 
 @dataclass
 class Thread:
     """Thread specification for threaded items"""
     series: Optional[ThreadSeries] = None
     handedness: Optional[ThreadHandedness] = None
-    form: Optional[ThreadForm] = None  # Thread form type (UN, Acme, etc.)
     size: Optional[str] = None  # e.g., "1/2-13", "M12x1.75"
     original: Optional[str] = None  # Original thread specification as entered
     
@@ -135,10 +124,10 @@ class Thread:
         """Validate thread data after initialization"""
         if self.size and not self._validate_thread_size():
             raise ValueError(f"Invalid thread size format: {self.size}")
-        
-        # Validate semantic relationship between size and form
-        if self.size and self.form and not self._validate_size_form_compatibility():
-            raise ValueError(f"Thread size '{self.size}' is not compatible with form '{self.form.value}'")
+
+        # Validate semantic relationship between size and series
+        if self.size and self.series and not self._validate_size_series_compatibility():
+            raise ValueError(f"Thread size '{self.size}' is not compatible with series '{self.series.value}'")
     
     def _validate_thread_size(self) -> bool:
         """Validate thread size format"""
@@ -171,55 +160,63 @@ class Thread:
         ]
         
         return any(re.match(pattern, self.size) for pattern in patterns)
-    
-    def _validate_size_form_compatibility(self) -> bool:
-        """Validate that thread size format is compatible with thread form"""
-        if not self.size or not self.form:
+
+    def _validate_size_series_compatibility(self) -> bool:
+        """Validate that thread size format is compatible with thread series"""
+        if not self.size or not self.series:
             return True  # No validation needed if either is missing
-        
+
         size = self.size
-        form = self.form
-        
-        # Metric threads (M prefix) should have ISO Metric form
+        series = self.series
+
+        # Check format-specific requirements first
+        # Metric threads (M prefix) can ONLY be METRIC series
         if re.match(r'^M\d+', size):
-            return form == ThreadForm.ISO_METRIC
-        
-        # Trapezoidal threads (digit x digit format)
+            return series == ThreadSeries.METRIC
+
+        # Trapezoidal threads (digit x digit format) can ONLY be TRAPEZOIDAL series
         if re.match(r'^\d+x\d+$', size):
-            return form == ThreadForm.TRAPEZOIDAL
-        
-        # Pipe threads (ends with ")
+            return series == ThreadSeries.TRAPEZOIDAL
+
+        # Pipe threads (ends with ") can ONLY be NPT series
         if re.match(r'^\d+/\d+"$', size):
-            return form == ThreadForm.NPT
-        
-        # Acme threads - typically fractional or whole number formats
-        # But need to be explicitly marked as Acme (can't infer from size alone)
-        if form == ThreadForm.ACME:
+            return series == ThreadSeries.NPT
+
+        # Now check series-specific requirements (what formats each series accepts)
+        if series == ThreadSeries.METRIC:
+            # METRIC series can ONLY accept M-prefix formats
+            return bool(re.match(r'^M\d+', size))
+
+        elif series == ThreadSeries.TRAPEZOIDAL:
+            # TRAPEZOIDAL series can ONLY accept digit x digit format
+            return bool(re.match(r'^\d+x\d+$', size))
+
+        elif series == ThreadSeries.NPT:
+            # NPT series can accept pipe formats or standard formats
+            return bool(re.match(r'^(\d+/\d+")|\d+/\d+-\d+|\d+-\d+)$', size))
+
+        elif series == ThreadSeries.ACME:
             # Acme threads can use standard fractional or whole number formats
             return bool(re.match(r'^(\d+/\d+-\d+|\d+-\d+|\d+ \d+/\d+-\d+)$', size))
-        
-        # UN (Unified National) threads - standard inch formats
-        if form == ThreadForm.UN:
-            # Standard inch thread formats
+
+        elif series in [ThreadSeries.UNC, ThreadSeries.UNF, ThreadSeries.UNEF]:
+            # Unified National threads - standard inch formats
             return bool(re.match(r'^(\d+/\d+-\d+|\d+-\d+|#\d+-\d+|\d+ \d+/\d+-\d+)$', size))
-        
-        # BSW/BSF - British Standard formats (similar to UN)
-        if form in [ThreadForm.BSW, ThreadForm.BSF]:
+
+        elif series in [ThreadSeries.BSW, ThreadSeries.BSF]:
+            # British Standard formats (similar to UN)
             return bool(re.match(r'^(\d+/\d+-\d+|\d+-\d+)$', size))
-        
-        # Trapezoidal threads must use digit x digit format
-        if form == ThreadForm.TRAPEZOIDAL:
-            return bool(re.match(r'^\d+x\d+$', size))
-        
-        # For other forms (SQUARE, BUTTRESS, CUSTOM, OTHER), allow flexibility
-        return True
-    
+
+        # For other series (SQUARE, BUTTRESS, CUSTOM, OTHER), allow flexibility
+        else:
+            return True
+
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation"""
         return {
             'series': self.series.value if self.series else None,
             'handedness': self.handedness.value if self.handedness else None,
-            'form': self.form.value if self.form else None,
             'size': self.size,
             'original': self.original
         }
@@ -229,12 +226,10 @@ class Thread:
         """Create Thread from dictionary"""
         series = ThreadSeries(data['series']) if data.get('series') else None
         handedness = ThreadHandedness(data['handedness']) if data.get('handedness') else None
-        form = ThreadForm(data['form']) if data.get('form') else None
-        
+
         return cls(
             series=series,
             handedness=handedness,
-            form=form,
             size=data.get('size'),
             original=data.get('original')
         )

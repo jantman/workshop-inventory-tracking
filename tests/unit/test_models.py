@@ -110,7 +110,6 @@ class TestThread:
         expected = {
             'series': 'UNC',
             'handedness': 'LH',
-            'form': None,
             'size': '1/2-13',
             'original': '1/2-13 UNC'
         }

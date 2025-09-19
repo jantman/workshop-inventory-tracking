@@ -218,15 +218,9 @@
                             <label for="thread_series" class="form-label">Thread Series</label>
                             <select class="form-select" id="thread_series" name="thread_series">
                                 <option value="">Select series...</option>
-                                <option value="UNC" {% if item.thread and item.thread.series and item.thread.series.value == 'UNC' %}selected{% endif %}>UNC</option>
-                                <option value="UNF" {% if item.thread and item.thread.series and item.thread.series.value == 'UNF' %}selected{% endif %}>UNF</option>
-                                <option value="UNEF" {% if item.thread and item.thread.series and item.thread.series.value == 'UNEF' %}selected{% endif %}>UNEF</option>
-                                <option value="Metric" {% if item.thread and item.thread.series and item.thread.series.value == 'Metric' %}selected{% endif %}>Metric</option>
-                                <option value="NPT" {% if item.thread and item.thread.series and item.thread.series.value == 'NPT' %}selected{% endif %}>NPT</option>
-                                <option value="BSW" {% if item.thread and item.thread.series and item.thread.series.value == 'BSW' %}selected{% endif %}>BSW</option>
-                                <option value="BSF" {% if item.thread and item.thread.series and item.thread.series.value == 'BSF' %}selected{% endif %}>BSF</option>
-                                <option value="Acme" {% if item.thread and item.thread.series and item.thread.series.value == 'Acme' %}selected{% endif %}>Acme</option>
-                                <option value="Other" {% if item.thread and item.thread.series and item.thread.series.value == 'Other' %}selected{% endif %}>Other</option>
+                                {% for thread_series in ThreadSeries %}
+                                <option value="{{ thread_series.value }}" {% if item.thread and item.thread.series and item.thread.series.value == thread_series.value %}selected{% endif %}>{{ thread_series.value }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         

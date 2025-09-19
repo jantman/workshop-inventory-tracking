@@ -190,31 +190,13 @@
                            placeholder="e.g., 1/2-13, M12x1.75">
                     <div class="form-text">Supports fractional, decimal, and metric formats</div>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-6 mb-3">
                     <label for="thread_series" class="form-label">Thread Series</label>
                     <select class="form-select" id="thread_series" name="thread_series">
                         <option value="">All Series</option>
-                        <option value="UNC">UNC (Unified Coarse)</option>
-                        <option value="UNF">UNF (Unified Fine)</option>
-                        <option value="UNEF">UNEF (Unified Extra Fine)</option>
-                        <option value="UNS">UNS (Unified Special)</option>
-                        <option value="Metric">Metric</option>
-                        <option value="NPT">NPT (Pipe)</option>
-                        <option value="BSW">BSW (British Standard)</option>
-                        <option value="BSF">BSF (British Fine)</option>
-                    </select>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="thread_form" class="form-label">Thread Form</label>
-                    <select class="form-select" id="thread_form" name="thread_form">
-                        <option value="">All Forms</option>
-                        <option value="UN">UN (Unified Thread)</option>
-                        <option value="ISO_Metric">ISO Metric</option>
-                        <option value="Acme">Acme</option>
-                        <option value="Trapezoidal">Trapezoidal</option>
-                        <option value="NPT">NPT</option>
-                        <option value="BSW">BSW</option>
-                        <option value="BSF">BSF</option>
+                        {% for thread_series in ThreadSeries %}
+                        <option value="{{ thread_series.value }}">{{ thread_series.value }}</option>
+                        {% endfor %}
                     </select>
                 </div>
             </div>

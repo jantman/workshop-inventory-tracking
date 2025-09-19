@@ -184,16 +184,9 @@
                             <label for="thread_series" class="form-label">Thread Series</label>
                             <select class="form-select" id="thread_series" name="thread_series">
                                 <option value="">None</option>
-                                <option value="UNC">UNC (Unified National Coarse)</option>
-                                <option value="UNF">UNF (Unified National Fine)</option>
-                                <option value="UNEF">UNEF (Unified National Extra Fine)</option>
-                                <option value="Metric">Metric</option>
-                                <option value="BSW">BSW (British Standard Whitworth)</option>
-                                <option value="BSF">BSF (British Standard Fine)</option>
-                                <option value="NPT">NPT (National Pipe Thread)</option>
-                                <option value="Acme">Acme</option>
-                                <option value="Custom">Custom</option>
-                                <option value="Other">Other</option>
+                                {% for thread_series in ThreadSeries %}
+                                <option value="{{ thread_series.value }}">{{ thread_series.value }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         

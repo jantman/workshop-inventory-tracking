@@ -133,8 +133,8 @@ def inventory_add():
         current_app.logger.info(f'Add form accessed: referer="{referer}" (for carry forward workflow debugging)')
         
         valid_materials = _get_valid_materials()
-        return render_template('inventory/add.html', title='Add Item', 
-                             ItemType=ItemType, ItemShape=ItemShape,
+        return render_template('inventory/add.html', title='Add Item',
+                             ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
                              valid_materials=valid_materials)
     
     # Handle POST request for adding item
@@ -251,8 +251,8 @@ def inventory_edit(ja_id):
         if request.method == 'GET':
             # Populate form with existing item data
             valid_materials = _get_valid_materials()
-            return render_template('inventory/edit.html', title=f'Edit {ja_id}', 
-                                 item=item, ItemType=ItemType, ItemShape=ItemShape,
+            return render_template('inventory/edit.html', title=f'Edit {ja_id}',
+                                 item=item, ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
                                  valid_materials=valid_materials)
         
         # Handle POST request for updating item
@@ -375,7 +375,7 @@ def inventory_view(ja_id):
 def inventory_search():
     """Advanced search interface"""
     return render_template('inventory/search.html', title='Search',
-                         ItemType=ItemType, ItemShape=ItemShape)
+                         ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries)
 
 @bp.route('/inventory/move', methods=['GET', 'POST'])
 def inventory_move():
@@ -1228,17 +1228,6 @@ def api_advanced_search():
                     'message': f'Invalid thread series: {data["thread_series"]}'
                 }), 400
         
-        if data.get('thread_form'):
-            # Import ThreadForm here
-            from app.models import ThreadForm
-            try:
-                thread_form = ThreadForm[data['thread_form'].upper()]
-                search_filter.add_exact_match('thread_form', thread_form)
-            except KeyError:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Invalid thread form: {data["thread_form"]}'
-                }), 400
         
         # Execute search
         items = service.search_items(search_filter)
