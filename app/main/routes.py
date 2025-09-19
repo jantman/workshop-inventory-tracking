@@ -1,4 +1,4 @@
-from flask import render_template, current_app, jsonify, abort, request, flash, redirect, url_for
+from flask import render_template, current_app, jsonify, abort, request, flash, redirect, url_for, send_file
 from datetime import datetime
 from app.main import bp
 from app import csrf
@@ -75,6 +75,21 @@ def _get_inventory_service():
     
     # All storage now uses MariaDB backend
     return InventoryService(storage)
+
+def _get_photo_info(ja_id):
+    """Get photo information for an item"""
+    try:
+        from app.photo_service import PhotoService
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photos = photo_service.get_photos(ja_id)
+            
+            return {
+                'count': len(photos),
+                'photos': [photo.to_dict() for photo in photos]
+            }
+    except Exception as e:
+        current_app.logger.error(f'Error getting photo info for {ja_id}: {e}')
+        return {'count': 0, 'photos': []}
 
 @bp.route('/')
 @bp.route('/index')
@@ -714,6 +729,9 @@ def get_item_details(ja_id):
                 'error': 'Item not found'
             }), 404
         
+        # Get photo information
+        photo_info = _get_photo_info(ja_id)
+        
         return jsonify({
             'success': True,
             'item': {
@@ -725,7 +743,8 @@ def get_item_details(ja_id):
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'active': item.active,
-                'dimensions': item.dimensions.to_dict() if item.dimensions else None
+                'dimensions': item.dimensions.to_dict() if item.dimensions else None,
+                'photos': photo_info
             }
         })
         
@@ -1069,6 +1088,12 @@ def api_inventory_list():
         # Get all items
         items = service.get_all_items()
         
+        # Get photo counts for all items efficiently
+        from app.photo_service import PhotoService
+        with PhotoService(_get_storage_backend()) as photo_service:
+            ja_ids = [item.ja_id for item in items]
+            photo_counts = photo_service.get_photo_counts_bulk(ja_ids)
+        
         # Convert to JSON-serializable format
         items_data = []
         for item in items:
@@ -1093,7 +1118,8 @@ def api_inventory_list():
                 'parent_ja_id': None,  # InventoryItem doesn't have parent/child relationships
                 'child_ja_ids': [],  # InventoryItem doesn't have parent/child relationships
                 'date_added': item.date_added.isoformat() if item.date_added else None,
-                'last_modified': item.last_modified.isoformat() if item.last_modified else None
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None,
+                'photo_count': photo_counts.get(item.ja_id, 0)
             }
             items_data.append(item_data)
         
@@ -1762,6 +1788,212 @@ def _upload_to_google_sheets(export_data, export_type):
             'success': False,
             'error': f'Upload failed: {str(e)}'
         }
+
+# Photo API endpoints
+@bp.route('/api/items/<ja_id>/photos', methods=['POST'])
+@csrf.exempt
+def upload_photo(ja_id):
+    """Upload a photo for an inventory item"""
+    try:
+        from app.photo_service import PhotoService
+        
+        # Check if file was uploaded (accept both 'file' and 'photo' field names)
+        file = request.files.get('file') or request.files.get('photo')
+        if file is None:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+        
+        # Get file data
+        file_data = file.read()
+        filename = file.filename
+        content_type = file.content_type
+        
+        # Validate content type
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photo = photo_service.upload_photo(ja_id, file_data, filename, content_type)
+            
+            return jsonify({
+                'success': True,
+                'photo': photo.to_dict(),
+                'message': f'Photo {filename} uploaded successfully'
+            })
+            
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+    except RuntimeError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+        
+    except Exception as e:
+        current_app.logger.error(f'Photo upload error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Photo upload failed: {str(e)}'
+        }), 500
+
+@bp.route('/api/items/<ja_id>/photos', methods=['GET'])
+def get_item_photos(ja_id):
+    """Get all photos for an inventory item"""
+    try:
+        from app.photo_service import PhotoService
+        
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photos = photo_service.get_photos(ja_id)
+            
+            return jsonify({
+                'success': True,
+                'photos': [photo.to_dict() for photo in photos],
+                'count': len(photos)
+            })
+        
+    except Exception as e:
+        current_app.logger.error(f'Get photos error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Failed to retrieve photos: {str(e)}'
+        }), 500
+
+@bp.route('/api/photos/<int:photo_id>', methods=['GET'])
+def get_photo_data(photo_id):
+    """Get photo data with specified size"""
+    try:
+        from app.photo_service import PhotoService
+        import io
+        
+        size = request.args.get('size', 'original')  # thumbnail, medium, original
+        if size not in ['thumbnail', 'medium', 'original']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid size parameter. Use: thumbnail, medium, or original'
+            }), 400
+        
+        with PhotoService(_get_storage_backend()) as photo_service:
+            result = photo_service.get_photo_data(photo_id, size)
+            
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo not found'
+                }), 404
+            
+            data, content_type = result
+        
+        # Return the image data
+        return send_file(
+            io.BytesIO(data),
+            mimetype=content_type,
+            as_attachment=False
+        )
+        
+    except Exception as e:
+        current_app.logger.error(f'Get photo data error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Failed to retrieve photo data: {str(e)}'
+        }), 500
+
+@bp.route('/api/photos/<int:photo_id>/download', methods=['GET'])
+def download_photo(photo_id):
+    """Download photo as attachment"""
+    try:
+        from app.photo_service import PhotoService
+        import io
+        
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photo = photo_service.get_photo(photo_id)
+            
+            if not photo:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo not found'
+                }), 404
+            
+            result = photo_service.get_photo_data(photo_id, 'original')
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo data not found'
+                }), 404
+            
+            data, content_type = result
+        
+        # Return the image data as attachment
+        return send_file(
+            io.BytesIO(data),
+            mimetype=content_type,
+            as_attachment=True,
+            download_name=photo.filename
+        )
+        
+    except Exception as e:
+        current_app.logger.error(f'Download photo error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Failed to download photo: {str(e)}'
+        }), 500
+
+@bp.route('/api/photos/<int:photo_id>', methods=['DELETE'])
+@csrf.exempt
+def delete_photo(photo_id):
+    """Delete a photo"""
+    try:
+        from app.photo_service import PhotoService
+        
+        with PhotoService(_get_storage_backend()) as photo_service:
+            success = photo_service.delete_photo(photo_id)
+            
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': 'Photo deleted successfully'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo not found'
+                }), 404
+        
+    except Exception as e:
+        current_app.logger.error(f'Delete photo error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Failed to delete photo: {str(e)}'
+        }), 500
+
+@bp.route('/api/admin/photos/cleanup', methods=['POST'])
+@csrf.exempt
+def cleanup_orphaned_photos():
+    """Cleanup photos for items that no longer exist"""
+    try:
+        from app.photo_service import PhotoService
+        
+        with PhotoService(_get_storage_backend()) as photo_service:
+            cleaned_count = photo_service.cleanup_orphaned_photos()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Cleaned up {cleaned_count} orphaned photos',
+                'photos_removed': cleaned_count
+            })
+        
+    except Exception as e:
+        current_app.logger.error(f'Photo cleanup error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Failed to cleanup photos: {str(e)}'
+        }), 500
 
 # Error handlers for the blueprint
 @bp.errorhandler(404)

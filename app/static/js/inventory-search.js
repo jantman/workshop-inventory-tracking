@@ -565,6 +565,9 @@ function showItemDetails(jaId) {
         .then(data => {
             if (data.success) {
                 modalBody.innerHTML = createItemDetailsHTML(data.item);
+                
+                // Initialize photo manager for the modal
+                initializeItemDetailsPhotoManager(data.item.ja_id);
             } else {
                 modalBody.innerHTML = `
                     <div class="alert alert-danger">
@@ -653,7 +656,20 @@ function createItemDetailsHTML(item) {
                 </div>
             </div>
         ` : ''}
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6 class="text-muted border-bottom pb-2">Photos</h6>
+                <div id="item-details-photos">
+                    <!-- Photos will be loaded here -->
+                </div>
+            </div>
+        </div>
     `;
+}
+
+// Initialize photo manager for item details modal (read-only)
+function initializeItemDetailsPhotoManager(jaId) {
+    window.itemDetailsPhotoManager = window.initializeReadOnlyPhotoManager('#item-details-photos', jaId);
 }
 
 // Keep legacy function name for compatibility, but redirect to modal

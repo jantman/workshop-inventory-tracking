@@ -92,14 +92,89 @@ Verify configuration settings:
 
 3. **Initialize Database Schema**:
    ```bash
-   # Run database migrations
-   python -c "from app.database import Base; from sqlalchemy import create_engine; engine = create_engine('mysql+pymysql://user:password@localhost/workshop_inventory'); Base.metadata.create_all(engine)"
+   # Initialize database with migrations (for new installations)
+   python manage.py db init
    ```
 
 4. **Update Environment Variables**:
    ```bash
    STORAGE_BACKEND=mariadb
    SQLALCHEMY_DATABASE_URI=mysql+pymysql://inventory_user:your_secure_password@localhost/workshop_inventory
+   ```
+
+## Database Management
+
+The application uses Alembic for database migrations. All database operations should be performed using the `manage.py` script.
+
+### Database Commands
+
+#### For New Installations
+```bash
+# Initialize a new database with the latest schema
+python manage.py db init
+```
+
+#### For Updates/Migrations
+```bash
+# Check current database version
+python manage.py db current
+
+# View migration history
+python manage.py db history
+
+# Upgrade to latest version (run after app updates)
+python manage.py db upgrade
+
+# Downgrade to specific revision (if needed)
+python manage.py db downgrade <revision>
+```
+
+#### For Development
+```bash
+# Create a new migration after model changes
+python manage.py db migrate -m "Description of changes"
+
+# Reset database (WARNING: destroys all data)
+python manage.py db reset
+```
+
+#### Configuration Check
+```bash
+# Verify configuration and database connectivity
+python manage.py config-check
+```
+
+### Migration Best Practices
+
+1. **Always backup your database** before running migrations in production
+2. **Test migrations** in a staging environment first
+3. **Review migration files** before applying them to production
+4. **Run migrations during maintenance windows** to avoid conflicts
+5. **Monitor the process** and be prepared to rollback if issues occur
+
+### Troubleshooting Database Issues
+
+If you encounter database connection issues:
+
+1. **Check configuration**:
+   ```bash
+   python manage.py config-check
+   ```
+
+2. **Verify database service is running**:
+   ```bash
+   sudo systemctl status mariadb
+   ```
+
+3. **Test manual connection**:
+   ```bash
+   mysql -u inventory_user -p workshop_inventory
+   ```
+
+4. **Check migration status**:
+   ```bash
+   python manage.py db current
+   python manage.py db history
    ```
 
 ### Google Sheets Setup (Export Only)

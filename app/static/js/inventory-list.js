@@ -690,6 +690,9 @@ window.showItemDetails = function(jaId) {
         .then(data => {
             if (data.success) {
                 modalBody.innerHTML = createItemDetailsHTML(data.item);
+                
+                // Initialize photo manager for the modal
+                initializeItemDetailsPhotoManager(data.item.ja_id);
             } else {
                 modalBody.innerHTML = `
                     <div class="alert alert-danger">
@@ -830,6 +833,11 @@ function createItemDetailsHTML(item) {
                 ` : ''}
             </div>
             <div class="col-md-6">
+                <!-- Photos Section -->
+                <h6 class="text-muted mb-3">Photos</h6>
+                <div id="item-details-photos" class="mb-4">
+                    <!-- Photos will be loaded here -->
+                </div>
                 <h6 class="text-muted mb-3">Location & Purchase</h6>
                 <table class="table table-sm">
                     <tr>
@@ -885,6 +893,11 @@ function createItemDetailsHTML(item) {
             </div>
         </div>
     `;
+}
+
+// Initialize photo manager for item details modal (read-only)
+function initializeItemDetailsPhotoManager(jaId) {
+    window.itemDetailsPhotoManager = window.initializeReadOnlyPhotoManager('#item-details-photos', jaId);
 }
 
 window.duplicateItem = function(jaId) {
