@@ -181,6 +181,11 @@
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-4 mb-3">
+                            <label for="thread_size" class="form-label">Thread Size</label>
+                            <input type="text" class="form-control" id="thread_size" name="thread_size">
+                        </div>
+
+                        <div class="col-md-4 mb-3">
                             <label for="thread_series" class="form-label">Thread Series</label>
                             <select class="form-select" id="thread_series" name="thread_series">
                                 <option value="">None</option>
@@ -189,7 +194,7 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        
+
                         <div class="col-md-4 mb-3">
                             <label for="thread_handedness" class="form-label">Handedness</label>
                             <select class="form-select" id="thread_handedness" name="thread_handedness">
@@ -197,12 +202,6 @@
                                 <option value="RH">Right Hand (RH)</option>
                                 <option value="LH">Left Hand (LH)</option>
                             </select>
-                        </div>
-                        
-                        <div class="col-md-4 mb-3">
-                            <label for="thread_size" class="form-label">Thread Size</label>
-                            <input type="text" class="form-control" id="thread_size" name="thread_size" 
-                                   >
                         </div>
                     </div>
                 </div>
