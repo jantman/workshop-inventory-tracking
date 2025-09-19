@@ -998,6 +998,43 @@ def get_next_ja_id():
             'error': 'Failed to generate next JA ID'
         }), 500
 
+@bp.route('/api/thread-series-lookup', methods=['GET'])
+def thread_series_lookup():
+    """Look up the thread series for a given thread size"""
+    try:
+        from app.models import lookup_thread_series
+
+        thread_size = request.args.get('thread_size', '').strip()
+
+        if not thread_size:
+            return jsonify({
+                'success': False,
+                'error': 'thread_size parameter is required'
+            }), 400
+
+        # Look up the series
+        series = lookup_thread_series(thread_size)
+
+        if series:
+            return jsonify({
+                'success': True,
+                'thread_size': thread_size,
+                'series': series
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'thread_size': thread_size,
+                'series': None
+            })
+
+    except Exception as e:
+        current_app.logger.error(f'Error looking up thread series for "{thread_size}": {e}')
+        return jsonify({
+            'success': False,
+            'error': 'Failed to lookup thread series'
+        }), 500
+
 @bp.route('/api/labels/print', methods=['POST'])
 @csrf.exempt
 def print_label():

@@ -511,3 +511,51 @@ def test_carry_forward_without_previous_item(page, live_server):
     
     # Should show the appropriate error message
     add_page.assert_carry_forward_error_toast()
+
+
+@pytest.mark.e2e
+def test_thread_series_auto_lookup(page, live_server):
+    """Test that thread series is auto-populated when thread size is entered"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    # Fill basic item data for a threaded rod
+    add_page.fill_basic_item_data("JA102005", "Threaded Rod", "Round", "Stainless Steel")
+
+    # Get the thread size and series fields
+    thread_size_field = page.locator('#thread_size')
+    thread_series_field = page.locator('#thread_series')
+
+    # Verify fields are visible and empty initially
+    expect(thread_size_field).to_be_visible()
+    expect(thread_series_field).to_be_visible()
+    expect(thread_series_field).to_have_value('')
+
+    # Enter a thread size that should map to UNC
+    thread_size_field.fill('1/2-13')
+
+    # Trigger blur event to activate the lookup
+    thread_size_field.blur()
+
+    # Wait a bit for the API call and auto-population
+    page.wait_for_timeout(1000)
+
+    # Verify the thread series was auto-populated
+    expect(thread_series_field).to_have_value('UNC')
+
+    # Test with a metric thread size
+    thread_size_field.fill('M8x1.25')
+    thread_size_field.blur()
+    page.wait_for_timeout(1000)
+
+    # Verify the thread series was updated to Metric
+    expect(thread_series_field).to_have_value('Metric')
+
+    # Test with an invalid thread size
+    thread_size_field.fill('invalid-size')
+    thread_series_field.select_option('UNC')  # Set a value first
+    thread_size_field.blur()
+    page.wait_for_timeout(1000)
+
+    # Thread series should remain unchanged for invalid input
+    expect(thread_series_field).to_have_value('UNC')

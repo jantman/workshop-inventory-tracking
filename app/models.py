@@ -112,6 +112,59 @@ class ThreadHandedness(Enum):
     LEFT = "LH"   # Left-hand thread
 
 
+# Thread size to series mapping for auto-population
+THREAD_SIZE_SERIES_MAPPING = {
+    "UNC": ["#0-80", "#1-64", "#2-56", "#3-48", "#4-40", "#5-40", "#6-32", "#8-32", "#10-24", "#12-24",
+            "1/4-20", "5/16-18", "3/8-16", "7/16-14", "1/2-13", "9/16-12", "5/8-11", "3/4-10", "7/8-9",
+            "1-8", "1 1/8-7", "1 1/4-7", "1 3/8-6", "1 1/2-6"],
+    "UNF": ["#0-80", "#1-72", "#2-64", "#3-56", "#4-48", "#5-44", "#6-40", "#8-36", "#10-32", "#12-28",
+            "1/4-28", "5/16-24", "3/8-24", "7/16-20", "1/2-20", "9/16-18", "5/8-18", "3/4-16", "7/8-14",
+            "1-12", "1 1/8-12", "1 1/4-12", "1 3/8-12", "1 1/2-12"],
+    "UNEF": ["#12-32", "1/4-32", "5/16-32", "3/8-32", "7/16-28", "1/2-28", "9/16-24", "5/8-24", "11/16-24",
+             "3/4-20", "13/16-20", "7/8-20", "15/16-20", "1-20"],
+    "Metric": ["M1x0.25", "M1.2x0.25", "M1.4x0.3", "M1.6x0.35", "M1.8x0.35", "M2x0.4", "M2.5x0.45",
+               "M3x0.5", "M3.5x0.6", "M4x0.7", "M5x0.8", "M6x1", "M7x1", "M8x1.25", "M10x1.5", "M12x1.75",
+               "M14x2", "M16x2", "M18x2.5", "M20x2.5", "M22x2.5", "M24x3", "M27x3", "M30x3.5", "M33x3.5",
+               "M36x4", "M39x4", "M42x4.5", "M3x0.35", "M4x0.5", "M5x0.5", "M6x0.75", "M7x0.75", "M8x1",
+               "M10x1.25", "M12x1.25", "M14x1.5", "M16x1.5", "M18x2", "M20x2", "M22x2", "M24x2", "M27x2",
+               "M30x3", "M33x3", "M36x3", "M39x3", "M42x3", "M3x0.2", "M4x0.35", "M5x0.35", "M6x0.5",
+               "M8x0.75", "M10x1", "M12x1", "M14x1.25", "M16x1.25", "M18x1.5", "M20x1.5"],
+    "BSW": ["1/8", "5/32", "3/16", "7/32", "1/4", "9/32", "5/16", "3/8", "7/16", "1/2", "9/16", "5/8",
+            "11/16", "3/4", "13/16", "7/8", "15/16", "1", "1 1/8", "1 1/4", "1 3/8", "1 1/2"],
+    "BSF": ["1/8", "5/32", "3/16", "7/32", "1/4", "9/32", "5/16", "3/8", "7/16", "1/2", "9/16", "5/8",
+            "11/16", "3/4", "13/16", "7/8", "15/16", "1", "1 1/8", "1 1/4"],
+    "NPT": ["1/16", "1/8", "1/4", "3/8", "1/2", "3/4", "1", "1 1/4", "1 1/2", "2", "2 1/2", "3", "3 1/2", "4"],
+    "Trapezoidal": ["Tr8x1.5", "Tr10x2", "Tr12x3", "Tr14x3", "Tr16x4", "Tr18x4", "Tr20x4", "Tr22x5",
+                    "Tr24x5", "Tr26x5", "Tr28x5", "Tr30x6"],
+    "Acme": ["1/4-16", "5/16-14", "3/8-12", "7/16-12", "1/2-10", "5/8-8", "3/4-6", "7/8-6", "1-5", "1 1/4-5", "1 1/2-4", "1 3/4-4", "2-4"]
+}
+
+
+def lookup_thread_series(thread_size: str) -> Optional[str]:
+    """
+    Look up the most likely thread series for a given thread size.
+
+    Args:
+        thread_size: Thread size string (e.g., "1/2-13", "M8x1.25")
+
+    Returns:
+        Thread series string or None if no match found
+    """
+    if not thread_size:
+        return None
+
+    # Normalize input - case insensitive, strip whitespace
+    normalized_size = thread_size.strip().upper()
+
+    # Check each series for a match
+    for series, sizes in THREAD_SIZE_SERIES_MAPPING.items():
+        for size in sizes:
+            if normalized_size == size.upper():
+                return series
+
+    return None
+
+
 @dataclass
 class Thread:
     """Thread specification for threaded items"""

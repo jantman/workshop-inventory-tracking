@@ -102,7 +102,10 @@ class InventoryAddForm {
         });
         
         // Material suggestions button removed - using pure autocomplete
-        
+
+        // Thread size lookup
+        this.setupThreadSizeLookup();
+
         // Real-time validation
         this.setupRealTimeValidation();
         
@@ -417,7 +420,58 @@ class InventoryAddForm {
     }
     
     // showMaterialSuggestions method removed - using pure autocomplete
-    
+
+    setupThreadSizeLookup() {
+        const threadSizeInput = document.getElementById('thread_size');
+        const threadSeriesSelect = document.getElementById('thread_series');
+
+        if (!threadSizeInput || !threadSeriesSelect) {
+            return; // Thread fields not present on this form
+        }
+
+        // Add event listener for thread size changes
+        threadSizeInput.addEventListener('blur', async () => {
+            const threadSize = threadSizeInput.value.trim();
+
+            if (!threadSize) {
+                return; // No thread size entered
+            }
+
+            try {
+                // Call the API to lookup thread series
+                const response = await fetch(`/api/thread-series-lookup?thread_size=${encodeURIComponent(threadSize)}`);
+                const data = await response.json();
+
+                if (data.success && data.series) {
+                    // Check if the series exists in the dropdown options
+                    const seriesOption = Array.from(threadSeriesSelect.options)
+                        .find(option => option.value === data.series);
+
+                    if (seriesOption && threadSeriesSelect.value !== data.series) {
+                        // Auto-populate the series field with brief visual feedback
+                        threadSeriesSelect.value = data.series;
+
+                        // Add brief highlight effect
+                        threadSeriesSelect.style.backgroundColor = '#fff3cd';
+                        threadSeriesSelect.style.border = '1px solid #ffeaa7';
+
+                        // Remove highlight after 2 seconds
+                        setTimeout(() => {
+                            threadSeriesSelect.style.backgroundColor = '';
+                            threadSeriesSelect.style.border = '';
+                        }, 2000);
+
+                        // Trigger change event for any dependent validation
+                        threadSeriesSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to lookup thread series:', error);
+                // Silently fail - don't interrupt user workflow
+            }
+        });
+    }
+
     setupRealTimeValidation() {
         // JA ID validation
         const jaIdInput = document.getElementById('ja_id');
