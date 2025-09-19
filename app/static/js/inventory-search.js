@@ -609,6 +609,16 @@ function createItemDetailsHTML(item) {
             <div class="col-md-6">
                 <h6 class="text-muted border-bottom pb-2">Dimensions</h6>
                 <table class="table table-sm">
+                    ${(() => {
+                        // Format thread info inline (similar to formatThread method)
+                        if (!thread) return '';
+                        const parts = [];
+                        if (thread.size) parts.push(thread.size);
+                        if (thread.series) parts.push(thread.series);
+                        if (thread.handedness && thread.handedness !== 'RH') parts.push(thread.handedness);
+                        const threadInfo = parts.join(' ');
+                        return threadInfo ? `<tr><td><strong><i class="bi bi-nut"></i> Thread:</strong></td><td>${threadInfo}</td></tr>` : '';
+                    })()}
                     ${dimensions.length ? `<tr><td><strong>Length:</strong></td><td>${dimensions.length}"</td></tr>` : ''}
                     ${dimensions.width ? `<tr><td><strong>Width:</strong></td><td>${dimensions.width}"</td></tr>` : ''}
                     ${dimensions.thickness ? `<tr><td><strong>Thickness:</strong></td><td>${dimensions.thickness}"</td></tr>` : ''}

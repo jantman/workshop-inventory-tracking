@@ -10,17 +10,17 @@ from tests.e2e.pages.add_item_page import AddItemPage
 from playwright.sync_api import expect
 
 
-@pytest.mark.e2e  
+@pytest.mark.e2e
 def test_view_item_modal_workflow(page, live_server):
     """Test viewing item details in modal"""
     # First add a test item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
-    
+
     test_item = {
         "ja_id": "JA102001",
         "item_type": "Bar",
-        "shape": "Round", 
+        "shape": "Round",
         "material": "Stainless Steel",
         "length": "12.5",
         "width": "0.5",
@@ -30,12 +30,12 @@ def test_view_item_modal_workflow(page, live_server):
         "vendor": "McMaster-Carr",
         "notes": "High quality stainless rod"
     }
-    
+
     # Fill the form with test data
     add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], test_item["shape"], test_item["material"])
     add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
     add_page.fill_location_and_notes(location=test_item["location"], notes=test_item["notes"])
-    
+
     # Fill additional fields
     page.fill("#sub_location", test_item["sub_location"])
     page.fill("#purchase_price", test_item["purchase_price"])
@@ -68,13 +68,13 @@ def test_view_item_modal_workflow(page, live_server):
     # Verify key item details are displayed in modal
     modal_body = page.locator('#item-details-modal .modal-body')
     expect(modal_body).to_contain_text('JA102001')
-    expect(modal_body).to_contain_text('Bar') 
+    expect(modal_body).to_contain_text('Bar')
     expect(modal_body).to_contain_text('Round')
     expect(modal_body).to_contain_text('Stainless Steel')
     expect(modal_body).to_contain_text('12.5"')
     expect(modal_body).to_contain_text('0.5"')
     expect(modal_body).to_contain_text('Workshop A')
-    expect(modal_body).to_contain_text('Shelf 1') 
+    expect(modal_body).to_contain_text('Shelf 1')
     expect(modal_body).to_contain_text('$15.99')
     expect(modal_body).to_contain_text('McMaster-Carr')
     expect(modal_body).to_contain_text('High quality stainless rod')
@@ -307,3 +307,83 @@ def test_view_nonexistent_item_workflow(page, live_server):
     # Verify error message in modal
     error_alert = page.locator('#item-details-modal .alert-danger')
     expect(error_alert).to_contain_text('Item JA999999 not found')
+
+
+@pytest.mark.e2e
+def test_view_threaded_item_modal_workflow(page, live_server):
+    """Test viewing threaded item details in modal - validates issue #14"""
+    # First add a threaded test item
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    test_item = {
+        "ja_id": "JA102004",
+        "item_type": "Threaded Rod",
+        "shape": "Round",
+        "material": "Stainless Steel",
+        "length": "12.5",
+        "location": "Workshop A",
+        "sub_location": "Shelf 1",
+        "purchase_price": "15.99",
+        "vendor": "McMaster-Carr",
+        "notes": "High quality stainless threaded rod",
+        "thread_series": "UNC",
+        "thread_handedness": "RH",
+        "thread_size": "1/2-13"
+    }
+
+    # Fill the form with test data
+    add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], test_item["shape"], test_item["material"])
+    add_page.fill_dimensions(length=test_item["length"])
+    add_page.fill_thread_information(
+        thread_series=test_item["thread_series"],
+        thread_size=test_item["thread_size"],
+        thread_handedness=test_item["thread_handedness"]
+    )
+    add_page.fill_location_and_notes(location=test_item["location"], notes=test_item["notes"])
+
+    # Fill additional fields
+    page.fill("#sub_location", test_item["sub_location"])
+    page.fill("#purchase_price", test_item["purchase_price"])
+    page.fill("#vendor", test_item["vendor"])
+
+    add_page.submit_form()
+
+    # Navigate to inventory list
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+
+    # Wait for items to load
+    list_page.wait_for_items_loaded()
+
+    # Find the view button for our threaded item
+    view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102004\')"]')
+    expect(view_button).to_be_visible()
+
+    # Click the view button
+    view_button.click()
+
+    # Wait for modal to appear
+    modal = page.locator('#item-details-modal')
+    expect(modal).to_be_visible()
+
+    # Verify modal title
+    modal_title = page.locator('#item-details-modal-label')
+    expect(modal_title).to_contain_text('JA102004 Details')
+
+    # Verify basic item details are displayed in modal
+    modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('JA102004')
+    expect(modal_body).to_contain_text('Threaded Rod')
+    expect(modal_body).to_contain_text('Round')
+    expect(modal_body).to_contain_text('Stainless Steel')
+    expect(modal_body).to_contain_text('12.5"')
+    expect(modal_body).to_contain_text('Workshop A')
+    expect(modal_body).to_contain_text('Shelf 1')
+    expect(modal_body).to_contain_text('$15.99')
+    expect(modal_body).to_contain_text('McMaster-Carr')
+    expect(modal_body).to_contain_text('High quality stainless threaded rod')
+
+    # Verify thread information is displayed in modal (issue #14)
+    expect(modal_body).to_contain_text('Thread:')  # Thread label with icon
+    expect(modal_body).to_contain_text('1/2-13 UNC')  # Thread info formatted as in tables
