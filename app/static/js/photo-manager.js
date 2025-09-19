@@ -243,9 +243,11 @@ const PhotoManager = {
                             console.log(`Compressed ${file.name}: ${file.size} → ${processedFile.size} bytes`);
                         } catch (error) {
                             console.warn('Compression failed, using original file:', error);
+                            this.showCompressionWarning(file.name, 'Compression failed. Using original file.');
                         }
                     } else {
                         console.warn('Image compression library not available, using original file');
+                        this.showCompressionWarning(file.name, 'Compression unavailable. Uploading uncompressed file.');
                     }
                 }
                 
@@ -458,9 +460,8 @@ const PhotoManager = {
                 
                 // Check if PhotoSwipe is available
                 if (typeof PhotoSwipe === 'undefined') {
-                    console.warn('PhotoSwipe not available, opening image in new tab');
-                    const imageUrl = photo.uploaded ? `/api/photos/${photo.id}?size=original` : photo.preview;
-                    window.open(imageUrl, '_blank');
+                    console.warn('PhotoSwipe not available, using fallback modal viewer');
+                    this.showFallbackImageModal(photo);
                     return;
                 }
                 
@@ -491,9 +492,8 @@ const PhotoManager = {
                     lightbox.init();
                 } catch (error) {
                     console.warn('PhotoSwipe initialization failed:', error);
-                    // Fallback: open image in new tab
-                    const imageUrl = photo.uploaded ? `/api/photos/${photo.id}?size=original` : photo.preview;
-                    window.open(imageUrl, '_blank');
+                    // Fallback: use modal viewer
+                    this.showFallbackImageModal(photo);
                 }
             },
             
@@ -613,6 +613,118 @@ const PhotoManager = {
                 if (progressContainer) {
                     progressContainer.classList.add('d-none');
                 }
+            },
+            
+            // Show compression warning to user
+            showCompressionWarning: function(filename, message) {
+                // Create or update warning banner
+                let warningBanner = this.container.querySelector('.compression-warning');
+                if (!warningBanner) {
+                    warningBanner = document.createElement('div');
+                    warningBanner.className = 'compression-warning alert alert-warning alert-dismissible fade show mt-2';
+                    warningBanner.innerHTML = `
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Compression Notice:</strong>
+                        <span class="warning-message"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    
+                    const uploadSection = this.container.querySelector('.photo-upload-section');
+                    if (uploadSection) {
+                        uploadSection.appendChild(warningBanner);
+                    }
+                }
+                
+                const messageSpan = warningBanner.querySelector('.warning-message');
+                messageSpan.textContent = `${filename}: ${message}`;
+                
+                // Auto-dismiss after 8 seconds
+                setTimeout(() => {
+                    if (warningBanner && warningBanner.parentNode) {
+                        warningBanner.remove();
+                    }
+                }, 8000);
+            },
+            
+            // Show fallback image modal when PhotoSwipe is unavailable
+            showFallbackImageModal: function(photo) {
+                // Create modal if it doesn't exist
+                let modal = document.getElementById('fallback-image-modal');
+                if (!modal) {
+                    modal = document.createElement('div');
+                    modal.id = 'fallback-image-modal';
+                    modal.className = 'modal fade';
+                    modal.setAttribute('tabindex', '-1');
+                    modal.innerHTML = `
+                        <div class="modal-dialog modal-lg modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">
+                                        <i class="bi bi-image"></i>
+                                        <span class="modal-filename"></span>
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body text-center p-0">
+                                    <img class="modal-image img-fluid" style="max-height: 70vh;" alt="Photo preview">
+                                    <div class="modal-pdf-notice d-none p-4">
+                                        <i class="bi bi-file-earmark-pdf display-1 text-danger"></i>
+                                        <p class="mt-3">PDF files cannot be previewed in this fallback viewer.</p>
+                                        <a href="#" class="btn btn-outline-primary modal-download-btn">
+                                            <i class="bi bi-download"></i> Download PDF
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="modal-footer justify-content-between">
+                                    <small class="text-muted modal-info"></small>
+                                    <div>
+                                        <a href="#" class="btn btn-outline-secondary modal-download-btn">
+                                            <i class="bi bi-download"></i> Download
+                                        </a>
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                }
+                
+                // Update modal content
+                const modalTitle = modal.querySelector('.modal-filename');
+                const modalImage = modal.querySelector('.modal-image');
+                const modalPdfNotice = modal.querySelector('.modal-pdf-notice');
+                const modalInfo = modal.querySelector('.modal-info');
+                const downloadBtns = modal.querySelectorAll('.modal-download-btn');
+                
+                modalTitle.textContent = photo.name || 'Photo';
+                
+                if (photo.contentType && photo.contentType.includes('pdf')) {
+                    modalImage.classList.add('d-none');
+                    modalPdfNotice.classList.remove('d-none');
+                } else {
+                    modalImage.classList.remove('d-none');
+                    modalPdfNotice.classList.add('d-none');
+                    
+                    const imageUrl = photo.uploaded ? `/api/photos/${photo.id}?size=original` : photo.preview;
+                    modalImage.src = imageUrl;
+                    modalImage.alt = photo.name || 'Photo';
+                }
+                
+                // Update info and download links
+                const fileSize = photo.size ? this.formatFileSize(photo.size) : '';
+                const uploadDate = photo.uploaded_at ? new Date(photo.uploaded_at).toLocaleDateString() : '';
+                modalInfo.textContent = [fileSize, uploadDate].filter(Boolean).join(' • ');
+                
+                const downloadUrl = photo.uploaded ? `/api/photos/${photo.id}/download` : photo.preview;
+                downloadBtns.forEach(btn => {
+                    btn.href = downloadUrl;
+                    btn.download = photo.name || 'photo';
+                });
+                
+                // Show modal
+                const bootstrapModal = new bootstrap.Modal(modal);
+                bootstrapModal.show();
             },
             
             // Format file size

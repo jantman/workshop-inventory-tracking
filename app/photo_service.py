@@ -20,7 +20,19 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 class PhotoService:
-    """Service for managing inventory item photos"""
+    """Service for managing inventory item photos
+    
+    Supports context manager usage for proper resource cleanup:
+        with PhotoService() as photo_service:
+            photo_service.upload_photo(...)
+    
+    Or use explicit cleanup:
+        photo_service = PhotoService()
+        try:
+            photo_service.upload_photo(...)
+        finally:
+            photo_service.close()
+    """
     
     # Supported MIME types
     SUPPORTED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
@@ -344,7 +356,16 @@ class PhotoService:
         img.save(buffer, format=format, **kwargs)
         return buffer.getvalue()
     
-    def __del__(self):
-        """Cleanup database session"""
-        if hasattr(self, 'session'):
+    def close(self):
+        """Explicitly close database session"""
+        if hasattr(self, 'session') and self.session:
             self.session.close()
+            self.session = None
+    
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager cleanup"""
+        self.close()
