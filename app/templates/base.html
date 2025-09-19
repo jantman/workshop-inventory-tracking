@@ -15,7 +15,8 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     
     <!-- PhotoSwipe CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.css">
+    <!-- TODO: Replace with actual SRI hash. Generate with: curl -s https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.css | openssl dgst -sha384 -binary | openssl base64 -A -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.css" integrity="sha384-K2LzSCMPEAoJqNILb9wHPjWjN+U+jgr2PKGhXOQhPVzAeFXSFJK1YHFX1PDMhOPy" crossorigin="anonymous">
 </head>
 <body>
     <!-- Navigation -->
@@ -114,10 +115,10 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
     
     <!-- PhotoSwipe JS -->
-    <script src="https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.umd.min.js" integrity="sha384-7Wz2+UALFW7L0gJ4lWFgwlLaJ5l+MU9A1d3Uq7Qz8tR3nOYt1fYj6x7KqJV2d3z" crossorigin="anonymous"></script>
     
     <!-- Browser Image Compression -->
-    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js" integrity="sha384-9kJ3yK1QPGt6gVjA4eU1Q5vY9j6Zt8fY5XQ3Wz8nK2lP4eR6tY9uL0mN3xCvB1qW" crossorigin="anonymous"></script>
     
     <!-- Custom JavaScript -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

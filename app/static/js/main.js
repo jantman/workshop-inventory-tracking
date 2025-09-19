@@ -772,6 +772,35 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+// Shared photo manager initialization function
+window.initializeReadOnlyPhotoManager = function(containerSelector, jaId) {
+    if (typeof PhotoManager !== 'undefined') {
+        console.log(`Initializing read-only PhotoManager for ${containerSelector}`);
+        
+        const manager = PhotoManager.init(containerSelector, {
+            readOnly: true,
+            itemId: jaId
+        });
+        
+        console.log(`PhotoManager initialized successfully for ${jaId}`);
+        return manager;
+    } else {
+        console.warn('PhotoManager not available, showing placeholder');
+        
+        // Show placeholder text when no PhotoManager
+        const photoContainer = document.querySelector(containerSelector);
+        if (photoContainer) {
+            photoContainer.innerHTML = `
+                <div class="text-muted text-center py-3">
+                    <i class="bi bi-camera"></i>
+                    <br>Photo viewer not available
+                </div>
+            `;
+        }
+        return null;
+    }
+};
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
     WorkshopInventory.init();

@@ -699,7 +699,7 @@ const PhotoManager = {
                 
                 modalTitle.textContent = photo.name || 'Photo';
                 
-                if (photo.contentType && photo.contentType.includes('pdf')) {
+                if ((photo.type && photo.type.includes('pdf')) || (photo.content_type && photo.content_type.includes('pdf'))) {
                     modalImage.classList.add('d-none');
                     modalPdfNotice.classList.remove('d-none');
                 } else {
@@ -713,7 +713,7 @@ const PhotoManager = {
                 
                 // Update info and download links
                 const fileSize = photo.size ? this.formatFileSize(photo.size) : '';
-                const uploadDate = photo.uploaded_at ? new Date(photo.uploaded_at).toLocaleDateString() : '';
+                const uploadDate = photo.created_at ? new Date(photo.created_at).toLocaleDateString() : '';
                 modalInfo.textContent = [fileSize, uploadDate].filter(Boolean).join(' • ');
                 
                 const downloadUrl = photo.uploaded ? `/api/photos/${photo.id}/download` : photo.preview;

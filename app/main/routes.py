@@ -80,13 +80,13 @@ def _get_photo_info(ja_id):
     """Get photo information for an item"""
     try:
         from app.photo_service import PhotoService
-        photo_service = PhotoService(_get_storage_backend())
-        photos = photo_service.get_photos(ja_id)
-        
-        return {
-            'count': len(photos),
-            'photos': [photo.to_dict() for photo in photos]
-        }
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photos = photo_service.get_photos(ja_id)
+            
+            return {
+                'count': len(photos),
+                'photos': [photo.to_dict() for photo in photos]
+            }
     except Exception as e:
         current_app.logger.error(f'Error getting photo info for {ja_id}: {e}')
         return {'count': 0, 'photos': []}
@@ -1090,9 +1090,9 @@ def api_inventory_list():
         
         # Get photo counts for all items efficiently
         from app.photo_service import PhotoService
-        photo_service = PhotoService(_get_storage_backend())
-        ja_ids = [item.ja_id for item in items]
-        photo_counts = photo_service.get_photo_counts_bulk(ja_ids)
+        with PhotoService(_get_storage_backend()) as photo_service:
+            ja_ids = [item.ja_id for item in items]
+            photo_counts = photo_service.get_photo_counts_bulk(ja_ids)
         
         # Convert to JSON-serializable format
         items_data = []
@@ -1797,14 +1797,13 @@ def upload_photo(ja_id):
     try:
         from app.photo_service import PhotoService
         
-        # Check if file was uploaded
-        if 'file' not in request.files:
+        # Check if file was uploaded (accept both 'file' and 'photo' field names)
+        file = request.files.get('file') or request.files.get('photo')
+        if file is None:
             return jsonify({
                 'success': False,
                 'error': 'No file provided'
             }), 400
-        
-        file = request.files['file']
         if file.filename == '':
             return jsonify({
                 'success': False,
@@ -1817,9 +1816,7 @@ def upload_photo(ja_id):
         content_type = file.content_type
         
         # Validate content type
-        photo_service = PhotoService(_get_storage_backend())
-        
-        try:
+        with PhotoService(_get_storage_backend()) as photo_service:
             photo = photo_service.upload_photo(ja_id, file_data, filename, content_type)
             
             return jsonify({
@@ -1828,16 +1825,16 @@ def upload_photo(ja_id):
                 'message': f'Photo {filename} uploaded successfully'
             })
             
-        except ValueError as e:
-            return jsonify({
-                'success': False,
-                'error': str(e)
-            }), 400
-        except RuntimeError as e:
-            return jsonify({
-                'success': False,
-                'error': str(e)
-            }), 500
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+    except RuntimeError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
         
     except Exception as e:
         current_app.logger.error(f'Photo upload error: {e}')
@@ -1852,14 +1849,14 @@ def get_item_photos(ja_id):
     try:
         from app.photo_service import PhotoService
         
-        photo_service = PhotoService(_get_storage_backend())
-        photos = photo_service.get_photos(ja_id)
-        
-        return jsonify({
-            'success': True,
-            'photos': [photo.to_dict() for photo in photos],
-            'count': len(photos)
-        })
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photos = photo_service.get_photos(ja_id)
+            
+            return jsonify({
+                'success': True,
+                'photos': [photo.to_dict() for photo in photos],
+                'count': len(photos)
+            })
         
     except Exception as e:
         current_app.logger.error(f'Get photos error: {e}')
@@ -1882,16 +1879,16 @@ def get_photo_data(photo_id):
                 'error': 'Invalid size parameter. Use: thumbnail, medium, or original'
             }), 400
         
-        photo_service = PhotoService(_get_storage_backend())
-        result = photo_service.get_photo_data(photo_id, size)
-        
-        if not result:
-            return jsonify({
-                'success': False,
-                'error': 'Photo not found'
-            }), 404
-        
-        data, content_type = result
+        with PhotoService(_get_storage_backend()) as photo_service:
+            result = photo_service.get_photo_data(photo_id, size)
+            
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo not found'
+                }), 404
+            
+            data, content_type = result
         
         # Return the image data
         return send_file(
@@ -1914,23 +1911,23 @@ def download_photo(photo_id):
         from app.photo_service import PhotoService
         import io
         
-        photo_service = PhotoService(_get_storage_backend())
-        photo = photo_service.get_photo(photo_id)
-        
-        if not photo:
-            return jsonify({
-                'success': False,
-                'error': 'Photo not found'
-            }), 404
-        
-        result = photo_service.get_photo_data(photo_id, 'original')
-        if not result:
-            return jsonify({
-                'success': False,
-                'error': 'Photo data not found'
-            }), 404
-        
-        data, content_type = result
+        with PhotoService(_get_storage_backend()) as photo_service:
+            photo = photo_service.get_photo(photo_id)
+            
+            if not photo:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo not found'
+                }), 404
+            
+            result = photo_service.get_photo_data(photo_id, 'original')
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo data not found'
+                }), 404
+            
+            data, content_type = result
         
         # Return the image data as attachment
         return send_file(
@@ -1954,19 +1951,19 @@ def delete_photo(photo_id):
     try:
         from app.photo_service import PhotoService
         
-        photo_service = PhotoService(_get_storage_backend())
-        success = photo_service.delete_photo(photo_id)
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Photo deleted successfully'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Photo not found'
-            }), 404
+        with PhotoService(_get_storage_backend()) as photo_service:
+            success = photo_service.delete_photo(photo_id)
+            
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': 'Photo deleted successfully'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Photo not found'
+                }), 404
         
     except Exception as e:
         current_app.logger.error(f'Delete photo error: {e}')
@@ -1982,14 +1979,14 @@ def cleanup_orphaned_photos():
     try:
         from app.photo_service import PhotoService
         
-        photo_service = PhotoService(_get_storage_backend())
-        cleaned_count = photo_service.cleanup_orphaned_photos()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Cleaned up {cleaned_count} orphaned photos',
-            'photos_removed': cleaned_count
-        })
+        with PhotoService(_get_storage_backend()) as photo_service:
+            cleaned_count = photo_service.cleanup_orphaned_photos()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Cleaned up {cleaned_count} orphaned photos',
+                'photos_removed': cleaned_count
+            })
         
     except Exception as e:
         current_app.logger.error(f'Photo cleanup error: {e}')

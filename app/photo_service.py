@@ -14,7 +14,6 @@ from sqlalchemy import create_engine, and_
 from datetime import datetime
 
 from .database import ItemPhoto, InventoryItem
-from .mariadb_storage import MariaDBStorage
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -357,10 +356,13 @@ class PhotoService:
         return buffer.getvalue()
     
     def close(self):
-        """Explicitly close database session"""
+        """Explicitly close database session and dispose engine"""
         if hasattr(self, 'session') and self.session:
             self.session.close()
             self.session = None
+        if hasattr(self, 'engine') and self.engine:
+            self.engine.dispose()
+            self.engine = None
     
     def __enter__(self):
         """Context manager entry"""

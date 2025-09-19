@@ -37,8 +37,8 @@ class TestPhotoUploadAddItem:
     """Test photo upload during item creation"""
     
     @pytest.mark.e2e
-    def test_add_item_with_photo_upload(self, page, live_server, sample_image_file):
-        """Test adding an item with photo upload"""
+    def test_add_item_with_photo_upload_full_workflow(self, page, live_server, sample_image_file):
+        """Test complete photo upload workflow: upload -> storage -> display"""
         # Navigate to add item page
         add_page = AddItemPage(page, live_server.url)
         add_page.navigate()
@@ -54,6 +54,17 @@ class TestPhotoUploadAddItem:
         # Add dimensions
         add_page.fill_dimensions(length="100", width="25")
         
+        # Submit form first to create the item
+        add_page.submit_form()
+        add_page.assert_form_submitted_successfully()
+        
+        # Now navigate to edit page to test photo upload
+        edit_url = f"{live_server.url}/inventory/edit/JA000501"
+        page.goto(edit_url)
+        
+        # Verify we're on the edit page
+        expect(page.locator("#add-item-form")).to_be_visible()
+        
         # Find and interact with photo upload section
         photo_section = page.locator("#photo-manager-container")
         expect(photo_section).to_be_visible()
@@ -62,27 +73,65 @@ class TestPhotoUploadAddItem:
         file_input = page.locator(".photo-file-input")
         file_input.set_input_files(sample_image_file)
         
-        # Wait for photo to appear in gallery
+        # Wait for photo to be processed and uploaded
+        page.wait_for_timeout(2000)  # Wait for upload to complete
+        
+        # Verify photo appears in gallery
         photo_gallery = page.locator(".photo-gallery-grid")
+        expect(photo_gallery).to_be_visible()
         expect(photo_gallery.locator(".photo-card")).to_have_count(1)
         
-        # Verify photo information is displayed
+        # Verify photo card details
         photo_card = photo_gallery.locator(".photo-card").first
         expect(photo_card.locator(".photo-name")).to_contain_text(".jpg")
         expect(photo_card.locator(".photo-meta")).to_be_visible()
         
-        # Submit the form
-        add_page.submit_form()
+        # Test photo viewing (click to open lightbox/modal)
+        photo_card.locator(".photo-thumbnail").click()
+        page.wait_for_timeout(1000)  # Wait for modal/lightbox to open
         
-        # Verify success message
-        add_page.assert_form_submitted_successfully()
+        # Verify photo can be viewed (either PhotoSwipe or fallback modal)
+        # Check for PhotoSwipe or fallback modal
+        photoswipe_visible = page.locator(".pswp").is_visible()
+        fallback_modal_visible = page.locator("#fallback-image-modal").is_visible()
         
-        # Navigate to inventory list to verify item was added
+        assert photoswipe_visible or fallback_modal_visible, "Photo viewer should be visible"
+        
+        # Close viewer if it's a modal
+        if fallback_modal_visible:
+            page.locator("#fallback-image-modal .btn-close").click()
+        elif photoswipe_visible:
+            page.keyboard.press("Escape")
+        
+        # Navigate to inventory list to verify photo is shown there too
         list_page = InventoryListPage(page, live_server.url)
         list_page.navigate()
         
-        # Verify the item appears in the list
-        list_page.assert_item_in_list("JA000501")
+        # Find the item row and click the details button to open modal
+        item_row = page.locator(f"tr:has-text('JA000501')")
+        expect(item_row).to_be_visible()
+        
+        # Click on the details (eye) button to open details modal
+        details_button = item_row.locator("button[title='View Details']")
+        expect(details_button).to_be_visible()
+        details_button.click()
+        
+        # Wait for modal to open
+        modal = page.locator("#item-details-modal")
+        expect(modal).to_be_visible()
+        
+        # Verify photo section exists in modal
+        modal_photo_section = modal.locator("#item-details-photos")
+        expect(modal_photo_section).to_be_visible()
+        
+        # Verify photo is displayed - should see photo card since we uploaded one
+        photo_cards = modal_photo_section.locator(".photo-card")
+        expect(photo_cards).to_have_count(1)
+        
+        # Verify photo card has the expected elements
+        first_photo_card = photo_cards.first
+        expect(first_photo_card.locator(".photo-name")).to_be_visible()
+        expect(first_photo_card.locator(".photo-meta")).to_be_visible()
     
     @pytest.mark.e2e
     def test_add_item_with_photo_section_visible(self, page, live_server):
