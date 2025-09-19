@@ -235,13 +235,17 @@ const PhotoManager = {
                 
                 let processedFile = file;
                 
-                // Compress image files
+                // Compress image files if library is available
                 if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
-                    try {
-                        processedFile = await imageCompression(file, this.config.compressionOptions);
-                        console.log(`Compressed ${file.name}: ${file.size} → ${processedFile.size} bytes`);
-                    } catch (error) {
-                        console.warn('Compression failed, using original file:', error);
+                    if (typeof imageCompression !== 'undefined') {
+                        try {
+                            processedFile = await imageCompression(file, this.config.compressionOptions);
+                            console.log(`Compressed ${file.name}: ${file.size} → ${processedFile.size} bytes`);
+                        } catch (error) {
+                            console.warn('Compression failed, using original file:', error);
+                        }
+                    } else {
+                        console.warn('Image compression library not available, using original file');
                     }
                 }
                 
@@ -452,6 +456,14 @@ const PhotoManager = {
             viewPhoto: function(photo) {
                 if (!photo.uploaded && !photo.preview) return;
                 
+                // Check if PhotoSwipe is available
+                if (typeof PhotoSwipe === 'undefined') {
+                    console.warn('PhotoSwipe not available, opening image in new tab');
+                    const imageUrl = photo.uploaded ? `/api/photos/${photo.id}?size=original` : photo.preview;
+                    window.open(imageUrl, '_blank');
+                    return;
+                }
+                
                 // Prepare items for PhotoSwipe v5
                 const items = this.photos
                     .filter(p => p.uploaded || p.preview)
@@ -464,18 +476,25 @@ const PhotoManager = {
                 
                 const currentIndex = this.photos.indexOf(photo);
                 
-                // Initialize PhotoSwipe v5
-                const lightbox = new PhotoSwipe({
-                    dataSource: items,
-                    index: currentIndex,
-                    bgOpacity: 0.8,
-                    showHideOpacity: true,
-                    initialZoomLevel: 'fit',
-                    secondaryZoomLevel: 1.5,
-                    maxZoomLevel: 3
-                });
-                
-                lightbox.init();
+                try {
+                    // Initialize PhotoSwipe v5
+                    const lightbox = new PhotoSwipe({
+                        dataSource: items,
+                        index: currentIndex,
+                        bgOpacity: 0.8,
+                        showHideOpacity: true,
+                        initialZoomLevel: 'fit',
+                        secondaryZoomLevel: 1.5,
+                        maxZoomLevel: 3
+                    });
+                    
+                    lightbox.init();
+                } catch (error) {
+                    console.warn('PhotoSwipe initialization failed:', error);
+                    // Fallback: open image in new tab
+                    const imageUrl = photo.uploaded ? `/api/photos/${photo.id}?size=original` : photo.preview;
+                    window.open(imageUrl, '_blank');
+                }
             },
             
             // Download photo
