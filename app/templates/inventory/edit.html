@@ -258,10 +258,13 @@
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
-                        <label for="location" class="form-label">Location</label>
-                        <input type="text" class="form-control" id="location" name="location" 
-                               value="{{ item.location if item.location }}" 
-                               >
+                        <label for="location" class="form-label">Location *</label>
+                        <input type="text" class="form-control" id="location" name="location"
+                               value="{{ item.location if item.location }}"
+                               required>
+                        <div class="invalid-feedback">
+                            Please enter a location
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="sub_location" class="form-label">Sub-location</label>

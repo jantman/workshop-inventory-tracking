@@ -148,7 +148,7 @@ def inventory_add():
                           form_data=form_data)
         
         # Validate required fields
-        required_fields = ['ja_id', 'item_type', 'shape', 'material']
+        required_fields = ['ja_id', 'item_type', 'shape', 'material', 'location']
         missing_fields = [field for field in required_fields if not form_data.get(field)]
         
         if missing_fields:
@@ -265,7 +265,7 @@ def inventory_edit(ja_id):
                           item_before=_item_to_audit_dict(item))
         
         # Validate required fields
-        required_fields = ['ja_id', 'item_type', 'shape', 'material']
+        required_fields = ['ja_id', 'item_type', 'shape', 'material', 'location']
         missing_fields = [field for field in required_fields if not form_data.get(field)]
         
         if missing_fields:
