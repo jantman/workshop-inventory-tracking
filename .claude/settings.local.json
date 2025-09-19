@@ -29,7 +29,8 @@
       "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short)",
       "Bash(timeout 900 python -m pytest tests/e2e/ --tb=short -x)",
       "WebSearch",
-      "Bash(gh issue view:*)"
+      "Bash(gh issue view:*)",
+      "Bash(gh pr view:*)"
     ],
     "deny": [],
     "ask": []
