@@ -385,5 +385,10 @@ def test_view_threaded_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('High quality stainless threaded rod')
 
     # Verify thread information is displayed in modal (issue #14)
-    expect(modal_body).to_contain_text('Thread:')  # Thread label with icon
-    expect(modal_body).to_contain_text('1/2-13 UNC')  # Thread info formatted as in tables
+    expect(modal_body).to_contain_text('Threading')  # Thread section header
+    expect(modal_body).to_contain_text('Size:')      # Thread size label
+    expect(modal_body).to_contain_text('1/2-13')     # Thread size value
+    expect(modal_body).to_contain_text('Series:')    # Thread series label
+    expect(modal_body).to_contain_text('UNC')        # Thread series value
+    expect(modal_body).to_contain_text('Handedness:') # Thread handedness label
+    expect(modal_body).to_contain_text('RH')         # Thread handedness value

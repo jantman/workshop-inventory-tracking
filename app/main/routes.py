@@ -346,11 +346,14 @@ def inventory_view(ja_id):
         
         # Convert item to dictionary for JSON response
         item_dict = item.to_dict()
-        
+
+        # Add thread object for consistency with other API endpoints
+        item_dict['thread'] = item.thread.to_dict() if item.thread else None
+
         # Format dimensions for display
         dimensions = item.dimensions
         formatted_dimensions = {}
-        
+
         if dimensions.length:
             formatted_dimensions['length'] = f"{dimensions.length}\""
         if dimensions.width:
@@ -361,7 +364,7 @@ def inventory_view(ja_id):
             formatted_dimensions['wall_thickness'] = f"{dimensions.wall_thickness}\""
         if dimensions.weight:
             formatted_dimensions['weight'] = f"{dimensions.weight} lbs"
-        
+
         item_dict['formatted_dimensions'] = formatted_dimensions
         item_dict['display_name'] = item.display_name
         
