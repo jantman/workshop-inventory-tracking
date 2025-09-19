@@ -503,7 +503,7 @@ class InventoryAddForm {
         const carryFields = [
             'item_type', 'shape', 'material', 'quantity',
             'location', 'sub_location', 'vendor', 'purchase_location',
-            'thread_series', 'thread_handedness'
+            'purchase_date', 'thread_series', 'thread_handedness', 'thread_size'
         ];
         
         console.log('CarryForward: Populating fields with data');
@@ -646,12 +646,21 @@ class InventoryAddForm {
         const threadSeries = formData.get('thread_series');
         const threadHandedness = formData.get('thread_handedness');
         const threadSize = formData.get('thread_size');
-        
+
         if (threadSeries || threadHandedness || threadSize) {
             data.thread = {};
-            if (threadSeries) data.thread.series = threadSeries;
-            if (threadHandedness) data.thread.handedness = threadHandedness;
-            if (threadSize) data.thread.size = threadSize.trim();
+            if (threadSeries) {
+                data.thread.series = threadSeries;
+                data.thread_series = threadSeries;  // Store at top level for carry forward
+            }
+            if (threadHandedness) {
+                data.thread.handedness = threadHandedness;
+                data.thread_handedness = threadHandedness;  // Store at top level for carry forward
+            }
+            if (threadSize) {
+                data.thread.size = threadSize.trim();
+                data.thread_size = threadSize.trim();  // Store at top level for carry forward
+            }
         }
         
         // Purchase info

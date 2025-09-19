@@ -397,33 +397,43 @@ def test_add_and_continue_carry_forward_workflow(page, live_server):
     # Verify form is displayed
     add_page.assert_form_visible()
     
-    # Fill out the first item with complete data
+    # Fill out the first item with complete data including new carry forward fields
     first_item_data = {
         "ja_id": "JA000200",
-        "item_type": "Bar",
-        "shape": "Square", 
+        "item_type": "Threaded Rod",
+        "shape": "Round",
         "material": "Carbon Steel",
         "length": "500",
-        "width": "25",  # For square bars, width is the side dimension
         "location": "Storage Rack A",
-        "notes": "Test material for carry forward"
+        "notes": "Test material for carry forward",
+        "purchase_date": "2024-01-15",
+        "thread_series": "UNC",
+        "thread_handedness": "RH",
+        "thread_size": "1/4-20"
     }
     
     # Fill all the form fields
     add_page.fill_basic_item_data(
-        first_item_data["ja_id"], 
-        first_item_data["item_type"], 
-        first_item_data["shape"], 
+        first_item_data["ja_id"],
+        first_item_data["item_type"],
+        first_item_data["shape"],
         first_item_data["material"]
     )
     add_page.fill_dimensions(
-        length=first_item_data["length"], 
-        width=first_item_data["width"]
+        length=first_item_data["length"]
+    )
+    add_page.fill_thread_information(
+        thread_series=first_item_data["thread_series"],
+        thread_size=first_item_data["thread_size"],
+        thread_handedness=first_item_data["thread_handedness"]
     )
     add_page.fill_location_and_notes(
-        location=first_item_data["location"], 
+        location=first_item_data["location"],
         notes=first_item_data["notes"]
     )
+
+    # Fill purchase date
+    page.fill("#purchase_date", first_item_data["purchase_date"])
     
     # Submit using "Add & Continue" button
     add_page.submit_and_continue()
@@ -466,7 +476,13 @@ def test_add_and_continue_carry_forward_workflow(page, live_server):
                 add_page.assert_field_value(add_page.SHAPE_SELECT, first_item_data["shape"])
                 add_page.assert_field_value(add_page.MATERIAL_INPUT, first_item_data["material"])
                 add_page.assert_field_value(add_page.LOCATION_INPUT, first_item_data["location"])
-                
+
+                # Verify NEW fields are carried forward (issue #12)
+                add_page.assert_field_value("#purchase_date", first_item_data["purchase_date"])
+                add_page.assert_field_value(add_page.THREAD_SERIES_SELECT, first_item_data["thread_series"])
+                add_page.assert_field_value(add_page.THREAD_HANDEDNESS_SELECT, first_item_data["thread_handedness"])
+                add_page.assert_field_value(add_page.THREAD_SIZE_INPUT, first_item_data["thread_size"])
+
                 # JA ID should NOT be carried forward (it should remain empty/different)
                 carried_ja_id = add_page.get_field_value(add_page.JA_ID_INPUT)
                 assert carried_ja_id != first_item_data["ja_id"], "JA ID should not be carried forward"
