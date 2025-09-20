@@ -144,6 +144,7 @@ def test_thread_field_consistency_between_add_and_edit(page, live_server):
     # Create a test item to check Edit form
     add_page.fill_basic_item_data("JA000102", "Threaded Rod", "Round", "Aluminum")
     add_page.fill_dimensions(length="24")
+    add_page.fill_thread_information(thread_series="UNC", thread_size="1/4-20")  # Add threading info for threaded rod
     add_page.fill_location_and_notes(location="Storage C")
     add_page.submit_form()
     add_page.assert_form_submitted_successfully()
