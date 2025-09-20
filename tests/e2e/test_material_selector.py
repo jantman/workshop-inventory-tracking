@@ -489,7 +489,8 @@ def test_material_selector_works_on_edit_form(page, live_server):
     page.locator('#material').fill('Steel')
     page.locator('#length').fill('12')
     page.locator('#width').fill('1')
-    
+    page.locator('#location').fill('Storage A')  # Location is now required
+
     # Submit form - use specific submit button to avoid strict mode violation
     page.locator('#submit-btn').click()
     

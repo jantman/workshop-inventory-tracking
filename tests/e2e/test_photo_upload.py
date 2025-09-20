@@ -53,7 +53,10 @@ class TestPhotoUploadAddItem:
         
         # Add dimensions
         add_page.fill_dimensions(length="100", width="25")
-        
+
+        # Add location (now required)
+        add_page.fill_location_and_notes(location="Storage A")
+
         # Submit form first to create the item
         add_page.submit_form()
         add_page.assert_form_submitted_successfully()
@@ -188,6 +191,7 @@ class TestPhotoUploadEditItem:
             material="Steel"
         )
         add_page.fill_dimensions(length="150", width="20")
+        add_page.fill_location_and_notes(location="Storage A")  # Location is now required
         add_page.submit_form()
         add_page.assert_form_submitted_successfully()
         

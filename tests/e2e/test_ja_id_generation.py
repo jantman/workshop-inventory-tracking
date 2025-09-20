@@ -177,6 +177,7 @@ def test_ja_id_auto_population_with_existing_items(page, live_server):
     page.select_option("#shape", test_item["shape"])
     page.fill("#material", test_item["material"])
     add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
+    add_page.fill_location_and_notes(location="Storage A")  # Location is now required
     add_page.submit_form()
     
     # Wait for success flash message or redirect
