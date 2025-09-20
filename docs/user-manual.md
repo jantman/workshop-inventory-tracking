@@ -17,13 +17,13 @@
 
 ### System Requirements
 - Modern web browser (Chrome, Firefox, Safari, Edge)
-- Internet connection for Google Sheets access
+- Internet connection for database access
 - Barcode scanner (optional, keyboard wedge type recommended)
 
 ### First Time Setup
 1. Open your web browser and navigate to the application URL
-2. The application will automatically connect to your Google Sheets inventory
-3. If prompted, ensure you have access to the configured Google Sheet
+2. The application will automatically connect to the database
+3. For data export functionality, ensure Google Sheets credentials are configured (optional)
 
 ### Main Navigation
 - **Home** - Dashboard with application overview and quick actions

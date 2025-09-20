@@ -33,7 +33,7 @@ FLASK_ENV=production
 SECRET_KEY=your-secret-key-here-change-this
 
 # Storage Backend Configuration
-STORAGE_BACKEND=mariadb  # MariaDB is the only supported storage backend
+STORAGE_BACKEND=mariadb  # MariaDB is the primary storage backend
 
 # MariaDB Configuration (Production)
 SQLALCHEMY_DATABASE_URI=mysql+pymysql://user:password@localhost/workshop_inventory
@@ -177,7 +177,9 @@ If you encounter database connection issues:
    python manage.py db history
    ```
 
-### Google Sheets Setup (Export Only)
+## Google Sheets Setup (Data Export Only)
+
+**Note**: Google Sheets is used exclusively for data export functionality. The primary storage backend is MariaDB.
 
 ### 1. Create Google Cloud Project
 1. Go to [Google Cloud Console](https://console.cloud.google.com)

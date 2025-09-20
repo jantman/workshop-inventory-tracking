@@ -8,7 +8,7 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 ## Features
 
 - **Complete Inventory Management**: Add, move, shorten, and track materials with parent-child relationships
-- **Dual Storage Backend Support**: MariaDB (production) and Google Sheets (legacy) with automatic service selection
+- **MariaDB Storage Backend**: Production-ready database with Google Sheets export functionality
 - **Multi-Row Item History**: Complete shortening history tracking with active/inactive item management
 - **Barcode Scanner Integration**: Keyboard wedge barcode scanner support across all workflows
 - **Advanced Search & Filtering**: Range queries, compound filters, CSV export, and URL bookmarking
@@ -30,10 +30,10 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
    pip install -r requirements.txt
    ```
 
-2. **Configure Google Sheets Integration**:
+2. **Configure Database**:
    - Follow the setup guide in [docs/deployment-guide.md](docs/deployment-guide.md)
-   - Set up Google Cloud Console API credentials
-   - Configure your Google Sheets backend
+   - Set up MariaDB database
+   - Configure Google Sheets credentials for export functionality (optional)
 
 3. **Run the Application**:
    ```bash
@@ -49,20 +49,12 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 
 ## Production Deployment
 
-**Automated deployment**:
-```bash
-git clone [repository]
-cd workshop-inventory-tracking
-sudo deployment/deploy.sh
-```
+For production deployment, follow the comprehensive setup guide in [docs/deployment-guide.md](docs/deployment-guide.md) which covers:
 
-**Docker deployment**:
-```bash
-cd deployment/docker
-cp .env.example .env
-# Edit .env with your configuration
-docker-compose up -d
-```
+- MariaDB installation and configuration
+- Environment variable setup
+- Database migrations
+- Application service configuration
 
 ## Testing
 
@@ -75,6 +67,6 @@ The project includes a comprehensive testing framework with 100% success rates:
 ## Requirements
 
 - Python 3.13
-- Google account with Sheets access
-- Google Cloud Console access for API credentials
+- MariaDB database server
+- Google Cloud Console access for API credentials (for export functionality)
 - Chrome/Chromium browser (for E2E testing)
