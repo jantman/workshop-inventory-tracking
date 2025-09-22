@@ -232,6 +232,79 @@ startxref
         assert medium == sample_pdf_data
     
     @pytest.mark.unit
+    def test_process_pdf_with_pymupdf(self, photo_service, sample_pdf_data):
+        """Test PDF processing with PyMuPDF available"""
+        with patch('app.photo_service.PDF_SUPPORT', True), \
+             patch('app.photo_service.fitz') as mock_fitz:
+            
+            # Mock PyMuPDF components
+            mock_doc = Mock()
+            mock_doc.page_count = 1
+            mock_page = Mock()
+            mock_pixmap = Mock()
+            mock_pixmap.tobytes.return_value = b'fake_image_data'
+            
+            mock_doc.__getitem__.return_value = mock_page
+            mock_page.get_pixmap.return_value = mock_pixmap
+            
+            mock_fitz.open.return_value = mock_doc
+            
+            # Mock PIL Image to avoid actual image processing in test
+            with patch('app.photo_service.Image') as mock_image_class:
+                mock_image = Mock()
+                mock_image_class.open.return_value.__enter__.return_value = mock_image
+                
+                # Mock the _image_to_bytes method to return fake data
+                with patch.object(photo_service, '_image_to_bytes', side_effect=[b'thumbnail_data', b'medium_data']):
+                    thumbnail, medium, original = photo_service._process_pdf(sample_pdf_data)
+                
+                # Should return processed thumbnail and medium, plus original
+                assert thumbnail == b'thumbnail_data'
+                assert medium == b'medium_data'
+                assert original == sample_pdf_data
+                
+                # Verify PyMuPDF was called correctly
+                mock_fitz.open.assert_called_once_with(stream=sample_pdf_data, filetype="pdf")
+                mock_doc.close.assert_called_once()
+    
+    @pytest.mark.unit
+    def test_process_pdf_fallback(self, photo_service, sample_pdf_data):
+        """Test PDF processing fallback when PyMuPDF not available"""
+        with patch('app.photo_service.PDF_SUPPORT', False):
+            thumbnail, medium, original = photo_service._process_pdf(sample_pdf_data)
+            
+            # Should fallback to original data for all sizes
+            assert thumbnail == sample_pdf_data
+            assert medium == sample_pdf_data
+            assert original == sample_pdf_data
+    
+    @pytest.mark.unit
+    def test_get_photo_data_pdf_content_type(self, photo_service):
+        """Test that PDF thumbnails return JPEG content type"""
+        mock_photo = Mock()
+        mock_photo.content_type = 'application/pdf'
+        mock_photo.thumbnail_data = b'fake_jpeg_data'
+        mock_photo.medium_data = b'fake_jpeg_data'
+        mock_photo.original_data = b'fake_pdf_data'
+        
+        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
+        
+        # Test thumbnail
+        data, content_type = photo_service.get_photo_data(1, 'thumbnail')
+        assert content_type == 'image/jpeg'
+        assert data == b'fake_jpeg_data'
+        
+        # Test medium
+        data, content_type = photo_service.get_photo_data(1, 'medium')
+        assert content_type == 'image/jpeg'
+        assert data == b'fake_jpeg_data'
+        
+        # Test original
+        data, content_type = photo_service.get_photo_data(1, 'original')
+        assert content_type == 'application/pdf'
+        assert data == b'fake_pdf_data'
+    
+    @pytest.mark.unit
     def test_item_exists_true(self, photo_service):
         """Test item exists check when item exists"""
         # Mock query to return an item

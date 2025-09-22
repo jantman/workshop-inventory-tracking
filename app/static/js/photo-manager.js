@@ -288,6 +288,7 @@ const PhotoManager = {
                 if (processedFile.type.startsWith('image/')) {
                     photo.preview = await this.generateImagePreview(processedFile);
                 } else if (processedFile.type === 'application/pdf') {
+                    // Use a placeholder initially - we'll get the real thumbnail after upload
                     photo.preview = this.getPDFPreview();
                 }
                 
@@ -340,6 +341,13 @@ const PhotoManager = {
                     const result = await response.json();
                     photo.id = result.photo_id;
                     photo.uploaded = true;
+                    
+                    // For PDFs, update preview to use server-generated thumbnail
+                    if (photo.type === 'application/pdf') {
+                        photo.preview = `/api/photos/${photo.id}?size=thumbnail`;
+                        // Update the preview in gallery
+                        this.updatePhotoInGallery(photo);
+                    }
                     
                 } catch (error) {
                     console.error('Upload error:', error);
@@ -440,6 +448,22 @@ const PhotoManager = {
                 this.bindPhotoEvents(photoCard, photo);
                 
                 gallery.appendChild(photoCard);
+            },
+            
+            // Update existing photo in gallery (for preview changes after upload)
+            updatePhotoInGallery: function(photo) {
+                const gallery = this.container.querySelector('.photo-gallery-grid');
+                const existingCard = gallery.querySelector(`[data-photo-id="${photo.id}"]`);
+                
+                if (existingCard) {
+                    const img = existingCard.querySelector('.photo-thumbnail img');
+                    const meta = existingCard.querySelector('.photo-meta');
+                    
+                    if (img) img.src = photo.preview;
+                    if (meta) {
+                        meta.innerHTML = `${this.formatFileSize(photo.size)}${!photo.uploaded ? ' • Uploading...' : ''}`;
+                    }
+                }
             },
             
             // Bind events for individual photo
@@ -687,9 +711,32 @@ const PhotoManager = {
                                 </div>
                                 <div class="modal-body text-center p-0">
                                     <img class="modal-image img-fluid" style="max-height: 70vh;" alt="Photo preview">
+                                    <div class="modal-pdf-viewer d-none" style="height: 70vh;">
+                                        <canvas class="pdf-canvas w-100 h-100"></canvas>
+                                        <div class="pdf-controls bg-dark text-white d-flex justify-content-between align-items-center p-2">
+                                            <div>
+                                                <button class="btn btn-sm btn-outline-light pdf-prev-btn">
+                                                    <i class="bi bi-chevron-left"></i> Previous
+                                                </button>
+                                                <span class="mx-2 pdf-page-info">Page 1 of 1</span>
+                                                <button class="btn btn-sm btn-outline-light pdf-next-btn">
+                                                    Next <i class="bi bi-chevron-right"></i>
+                                                </button>
+                                            </div>
+                                            <div>
+                                                <button class="btn btn-sm btn-outline-light pdf-zoom-out-btn">
+                                                    <i class="bi bi-zoom-out"></i>
+                                                </button>
+                                                <span class="mx-2 pdf-zoom-level">100%</span>
+                                                <button class="btn btn-sm btn-outline-light pdf-zoom-in-btn">
+                                                    <i class="bi bi-zoom-in"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div class="modal-pdf-notice d-none p-4">
                                         <i class="bi bi-file-earmark-pdf display-1 text-danger"></i>
-                                        <p class="mt-3">PDF files cannot be previewed in this fallback viewer.</p>
+                                        <p class="mt-3">PDF viewer is not available. Please download to view.</p>
                                         <a href="#" class="btn btn-outline-primary modal-download-btn">
                                             <i class="bi bi-download"></i> Download PDF
                                         </a>
@@ -713,6 +760,7 @@ const PhotoManager = {
                 // Update modal content
                 const modalTitle = modal.querySelector('.modal-filename');
                 const modalImage = modal.querySelector('.modal-image');
+                const modalPdfViewer = modal.querySelector('.modal-pdf-viewer');
                 const modalPdfNotice = modal.querySelector('.modal-pdf-notice');
                 const modalInfo = modal.querySelector('.modal-info');
                 const downloadBtns = modal.querySelectorAll('.modal-download-btn');
@@ -721,9 +769,20 @@ const PhotoManager = {
                 
                 if ((photo.type && photo.type.includes('pdf')) || (photo.content_type && photo.content_type.includes('pdf'))) {
                     modalImage.classList.add('d-none');
-                    modalPdfNotice.classList.remove('d-none');
+                    
+                    // Try to load PDF with PDF.js
+                    if (typeof pdfjsLib !== 'undefined' && photo.uploaded) {
+                        modalPdfViewer.classList.remove('d-none');
+                        modalPdfNotice.classList.add('d-none');
+                        this.loadPDFInViewer(photo, modalPdfViewer);
+                    } else {
+                        // Fallback to notice if PDF.js not available or photo not uploaded
+                        modalPdfViewer.classList.add('d-none');
+                        modalPdfNotice.classList.remove('d-none');
+                    }
                 } else {
                     modalImage.classList.remove('d-none');
+                    modalPdfViewer.classList.add('d-none');
                     modalPdfNotice.classList.add('d-none');
                     
                     const imageUrl = photo.uploaded ? `/api/photos/${photo.id}?size=original` : photo.preview;
@@ -745,6 +804,99 @@ const PhotoManager = {
                 // Show modal
                 const bootstrapModal = new bootstrap.Modal(modal);
                 bootstrapModal.show();
+            },
+            
+            // Load PDF in viewer using PDF.js
+            loadPDFInViewer: function(photo, viewerElement) {
+                const canvas = viewerElement.querySelector('.pdf-canvas');
+                const pageInfo = viewerElement.querySelector('.pdf-page-info');
+                const prevBtn = viewerElement.querySelector('.pdf-prev-btn');
+                const nextBtn = viewerElement.querySelector('.pdf-next-btn');
+                const zoomInBtn = viewerElement.querySelector('.pdf-zoom-in-btn');
+                const zoomOutBtn = viewerElement.querySelector('.pdf-zoom-out-btn');
+                const zoomLevel = viewerElement.querySelector('.pdf-zoom-level');
+                
+                let pdfDoc = null;
+                let currentPage = 1;
+                let currentZoom = 1.0;
+                
+                const pdfUrl = `/api/photos/${photo.id}?size=original`;
+                
+                // Configure PDF.js worker
+                if (typeof pdfjsLib !== 'undefined') {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+                    
+                    // Load PDF
+                    pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+                        pdfDoc = pdf;
+                        pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                        
+                        // Update navigation buttons
+                        prevBtn.disabled = currentPage <= 1;
+                        nextBtn.disabled = currentPage >= pdf.numPages;
+                        
+                        // Render first page
+                        renderPage(currentPage);
+                        
+                        // Set up event listeners
+                        prevBtn.onclick = () => {
+                            if (currentPage > 1) {
+                                currentPage--;
+                                renderPage(currentPage);
+                                pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                                prevBtn.disabled = currentPage <= 1;
+                                nextBtn.disabled = false;
+                            }
+                        };
+                        
+                        nextBtn.onclick = () => {
+                            if (currentPage < pdf.numPages) {
+                                currentPage++;
+                                renderPage(currentPage);
+                                pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                                nextBtn.disabled = currentPage >= pdf.numPages;
+                                prevBtn.disabled = false;
+                            }
+                        };
+                        
+                        zoomInBtn.onclick = () => {
+                            currentZoom = Math.min(currentZoom * 1.2, 3.0);
+                            zoomLevel.textContent = Math.round(currentZoom * 100) + '%';
+                            renderPage(currentPage);
+                        };
+                        
+                        zoomOutBtn.onclick = () => {
+                            currentZoom = Math.max(currentZoom / 1.2, 0.5);
+                            zoomLevel.textContent = Math.round(currentZoom * 100) + '%';
+                            renderPage(currentPage);
+                        };
+                        
+                    }).catch(error => {
+                        console.error('Error loading PDF:', error);
+                        // Fall back to notice
+                        viewerElement.classList.add('d-none');
+                        viewerElement.parentElement.querySelector('.modal-pdf-notice').classList.remove('d-none');
+                    });
+                }
+                
+                function renderPage(pageNumber) {
+                    if (!pdfDoc) return;
+                    
+                    pdfDoc.getPage(pageNumber).then(page => {
+                        const viewport = page.getViewport({ scale: currentZoom });
+                        const context = canvas.getContext('2d');
+                        
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport
+                        };
+                        
+                        page.render(renderContext);
+                    });
+                }
             },
             
             // Format file size

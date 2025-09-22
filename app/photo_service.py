@@ -13,6 +13,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_
 from datetime import datetime
 
+# PDF processing support
+try:
+    import fitz  # PyMuPDF
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
+    logger.warning("PyMuPDF not available - PDF thumbnail generation will use fallback")
+
 from .database import ItemPhoto, InventoryItem
 from config import Config
 
@@ -154,9 +162,13 @@ class PhotoService:
             return None
         
         if size == 'thumbnail':
-            return photo.thumbnail_data, photo.content_type
+            # For PDF thumbnails, return as JPEG since we converted them
+            content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
+            return photo.thumbnail_data, content_type
         elif size == 'medium':
-            return photo.medium_data, photo.content_type
+            # For PDF medium size, return as JPEG since we converted them  
+            content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
+            return photo.medium_data, content_type
         else:  # original
             return photo.original_data, photo.content_type
     
@@ -307,8 +319,7 @@ class PhotoService:
             Tuple of (thumbnail_data, medium_data, original_data)
         """
         if content_type == 'application/pdf':
-            # For PDFs, store original data in all three fields
-            return file_data, file_data, file_data
+            return self._process_pdf(file_data)
         
         if content_type not in self.SUPPORTED_IMAGE_TYPES:
             raise ValueError(f"Unsupported image type: {content_type}")
@@ -348,6 +359,66 @@ class PhotoService:
         except Exception as e:
             logger.error(f"Failed to process image: {str(e)}")
             raise RuntimeError(f"Image processing failed: {str(e)}")
+    
+    def _process_pdf(self, file_data: bytes) -> Tuple[bytes, bytes, bytes]:
+        """
+        Process PDF to generate thumbnail and medium size previews from first page
+        
+        Returns:
+            Tuple of (thumbnail_data, medium_data, original_data)
+        """
+        if not PDF_SUPPORT:
+            logger.warning("PDF thumbnail generation not available - using original data for all sizes")
+            return file_data, file_data, file_data
+        
+        try:
+            # Open PDF document
+            pdf_doc = fitz.open(stream=file_data, filetype="pdf")
+            
+            if pdf_doc.page_count == 0:
+                logger.warning("PDF has no pages - using original data for all sizes")
+                pdf_doc.close()
+                return file_data, file_data, file_data
+            
+            # Get first page
+            page = pdf_doc[0]
+            
+            # Generate thumbnail (150x150 max)
+            thumbnail_matrix = fitz.Matrix(1.0, 1.0)  # Start with 1:1 scale
+            thumbnail_pixmap = page.get_pixmap(matrix=thumbnail_matrix)
+            
+            # Convert pixmap to PIL Image
+            thumbnail_img_data = thumbnail_pixmap.tobytes("ppm")
+            thumbnail_img = Image.open(io.BytesIO(thumbnail_img_data))
+            
+            # Resize to thumbnail size
+            thumbnail_img.thumbnail(self.THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
+            thumbnail_bytes = self._image_to_bytes(thumbnail_img, 'JPEG', quality=85)
+            
+            # Generate medium size (800x800 max)
+            medium_matrix = fitz.Matrix(2.0, 2.0)  # Higher resolution for medium
+            medium_pixmap = page.get_pixmap(matrix=medium_matrix)
+            
+            # Convert pixmap to PIL Image
+            medium_img_data = medium_pixmap.tobytes("ppm")
+            medium_img = Image.open(io.BytesIO(medium_img_data))
+            
+            # Resize to medium size
+            medium_img.thumbnail(self.MEDIUM_SIZE, Image.Resampling.LANCZOS)
+            medium_bytes = self._image_to_bytes(medium_img, 'JPEG', quality=90)
+            
+            # Clean up PyMuPDF resources
+            thumbnail_pixmap = None
+            medium_pixmap = None
+            pdf_doc.close()
+            
+            logger.info("Generated PDF thumbnails successfully")
+            return thumbnail_bytes, medium_bytes, file_data
+            
+        except Exception as e:
+            logger.error(f"Failed to process PDF: {str(e)}")
+            # Fallback to original data for all sizes if PDF processing fails
+            return file_data, file_data, file_data
     
     def _image_to_bytes(self, img: Image.Image, format: str, **kwargs) -> bytes:
         """Convert PIL Image to bytes"""
