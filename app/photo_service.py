@@ -13,6 +13,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_
 from datetime import datetime
 
+from .database import ItemPhoto, InventoryItem
+from config import Config
+
+logger = logging.getLogger(__name__)
+
 # PDF processing support
 try:
     import fitz  # PyMuPDF
@@ -20,11 +25,6 @@ try:
 except ImportError:
     PDF_SUPPORT = False
     logger.warning("PyMuPDF not available - PDF thumbnail generation will use fallback")
-
-from .database import ItemPhoto, InventoryItem
-from config import Config
-
-logger = logging.getLogger(__name__)
 
 class PhotoService:
     """Service for managing inventory item photos
