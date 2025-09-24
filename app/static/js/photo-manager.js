@@ -887,21 +887,36 @@ const PhotoManager = {
                     if (!pdfDoc) return;
                     
                     pdfDoc.getPage(pageNumber).then(page => {
-                        const viewport = page.getViewport({ scale: currentZoom });
+                        const container = viewerElement.querySelector('.pdf-canvas-container');
+                        const containerWidth = container.clientWidth - 20; // Account for padding
+                        const containerHeight = container.clientHeight - 20;
+                        
+                        // Calculate scale to fit within container while maintaining aspect ratio
+                        let scale = currentZoom;
+                        const viewport = page.getViewport({ scale: 1.0 });
+                        const scaleX = containerWidth / viewport.width;
+                        const scaleY = containerHeight / viewport.height;
+                        const containerScale = Math.min(scaleX, scaleY, 2.0); // Max 2x for readability
+                        
+                        // Apply both container scale and user zoom
+                        const finalScale = containerScale * currentZoom;
+                        const finalViewport = page.getViewport({ scale: finalScale });
+                        
                         const context = canvas.getContext('2d');
                         
-                        // Set canvas size to match viewport (maintaining aspect ratio)
-                        canvas.width = viewport.width;
-                        canvas.height = viewport.height;
+                        // Set canvas size to match scaled viewport
+                        canvas.width = finalViewport.width;
+                        canvas.height = finalViewport.height;
                         
-                        // Also set the CSS size to match the actual canvas size
-                        // This prevents stretching and maintains proper aspect ratio
-                        canvas.style.width = viewport.width + 'px';
-                        canvas.style.height = viewport.height + 'px';
+                        // Remove explicit CSS sizing to let the container handle it
+                        canvas.style.width = '';
+                        canvas.style.height = '';
+                        canvas.style.maxWidth = '100%';
+                        canvas.style.maxHeight = '100%';
                         
                         const renderContext = {
                             canvasContext: context,
-                            viewport: viewport
+                            viewport: finalViewport
                         };
                         
                         page.render(renderContext);

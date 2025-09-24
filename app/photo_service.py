@@ -439,6 +439,57 @@ class PhotoService:
         """Context manager entry"""
         return self
     
+    def regenerate_pdf_thumbnails(self) -> int:
+        """
+        Regenerate thumbnails for existing PDF photos that only have original PDF data
+        
+        Returns:
+            int: Number of PDFs that were processed
+        """
+        if not PDF_SUPPORT:
+            logger.warning("PyMuPDF not available - cannot regenerate PDF thumbnails")
+            return 0
+            
+        try:
+            # Find PDFs where thumbnail_data is still PDF data (starts with %PDF)
+            pdf_photos = self.session.query(ItemPhoto).filter(
+                ItemPhoto.content_type == 'application/pdf'
+            ).all()
+            
+            updated_count = 0
+            
+            for photo in pdf_photos:
+                # Check if thumbnail_data is still PDF data (not JPEG)
+                if photo.thumbnail_data and photo.thumbnail_data.startswith(b'%PDF'):
+                    try:
+                        # Regenerate thumbnails using original PDF data
+                        thumbnail_data, medium_data, original_data = self._process_pdf(photo.original_data)
+                        
+                        # Update the photo record with new thumbnail data
+                        photo.thumbnail_data = thumbnail_data
+                        photo.medium_data = medium_data
+                        photo.updated_at = datetime.utcnow()
+                        
+                        updated_count += 1
+                        logger.info(f"Regenerated thumbnails for PDF {photo.filename} (ID: {photo.id})")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to regenerate thumbnails for PDF {photo.filename} (ID: {photo.id}): {str(e)}")
+                        continue
+            
+            if updated_count > 0:
+                self.session.commit()
+                logger.info(f"Successfully regenerated thumbnails for {updated_count} PDF photos")
+            else:
+                logger.info("No PDF photos needed thumbnail regeneration")
+                
+            return updated_count
+            
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Failed to regenerate PDF thumbnails: {str(e)}")
+            raise RuntimeError(f"PDF thumbnail regeneration failed: {str(e)}")
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager cleanup"""
         self.close()
