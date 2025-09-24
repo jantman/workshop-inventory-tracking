@@ -776,13 +776,23 @@ const PhotoManager = {
                     
                     // Try to load PDF with PDF.js
                     if (typeof pdfjsLib !== 'undefined' && photo.uploaded) {
-                        modalPdfViewer.classList.remove('d-none');
-                        modalPdfNotice.classList.add('d-none');
-                        this.loadPDFInViewer(photo, modalPdfViewer);
+                        try {
+                            modalPdfViewer.classList.remove('d-none');
+                            modalPdfNotice.classList.add('d-none');
+                            this.loadPDFInViewer(photo, modalPdfViewer);
+                        } catch (error) {
+                            console.error('PDF viewer error:', error);
+                            // Fallback to download notice if PDF viewing fails
+                            modalPdfViewer.classList.add('d-none');
+                            modalPdfNotice.classList.remove('d-none');
+                        }
                     } else {
                         // Fallback to notice if PDF.js not available or photo not uploaded
                         modalPdfViewer.classList.add('d-none');
                         modalPdfNotice.classList.remove('d-none');
+                        if (typeof pdfjsLib === 'undefined') {
+                            console.warn('PDF.js not available, showing download notice');
+                        }
                     }
                 } else {
                     modalImage.classList.remove('d-none');
@@ -828,59 +838,67 @@ const PhotoManager = {
                 
                 // Configure PDF.js worker
                 if (typeof pdfjsLib !== 'undefined') {
-                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-                    
-                    // Load PDF
-                    pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
-                        pdfDoc = pdf;
-                        pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                    try {
+                        // Try alternative CDN URLs for better reliability
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
                         
-                        // Update navigation buttons
-                        prevBtn.disabled = currentPage <= 1;
-                        nextBtn.disabled = currentPage >= pdf.numPages;
-                        
-                        // Render first page
-                        renderPage(currentPage);
-                        
-                        // Set up event listeners
-                        prevBtn.onclick = () => {
-                            if (currentPage > 1) {
-                                currentPage--;
-                                renderPage(currentPage);
-                                pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
-                                prevBtn.disabled = currentPage <= 1;
-                                nextBtn.disabled = false;
-                            }
-                        };
-                        
-                        nextBtn.onclick = () => {
-                            if (currentPage < pdf.numPages) {
-                                currentPage++;
-                                renderPage(currentPage);
-                                pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
-                                nextBtn.disabled = currentPage >= pdf.numPages;
-                                prevBtn.disabled = false;
-                            }
-                        };
-                        
-                        zoomInBtn.onclick = () => {
-                            currentZoom = Math.min(currentZoom * 1.2, 3.0);
-                            zoomLevel.textContent = Math.round(currentZoom * 100) + '%';
+                        // Load PDF
+                        pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+                            pdfDoc = pdf;
+                            pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                            
+                            // Update navigation buttons
+                            prevBtn.disabled = currentPage <= 1;
+                            nextBtn.disabled = currentPage >= pdf.numPages;
+                            
+                            // Render first page
                             renderPage(currentPage);
-                        };
-                        
-                        zoomOutBtn.onclick = () => {
-                            currentZoom = Math.max(currentZoom / 1.2, 0.5);
-                            zoomLevel.textContent = Math.round(currentZoom * 100) + '%';
-                            renderPage(currentPage);
-                        };
-                        
-                    }).catch(error => {
-                        console.error('Error loading PDF:', error);
-                        // Fall back to notice
-                        viewerElement.classList.add('d-none');
-                        viewerElement.parentElement.querySelector('.modal-pdf-notice').classList.remove('d-none');
-                    });
+                            
+                            // Set up event listeners
+                            prevBtn.onclick = () => {
+                                if (currentPage > 1) {
+                                    currentPage--;
+                                    renderPage(currentPage);
+                                    pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                                    prevBtn.disabled = currentPage <= 1;
+                                    nextBtn.disabled = false;
+                                }
+                            };
+                            
+                            nextBtn.onclick = () => {
+                                if (currentPage < pdf.numPages) {
+                                    currentPage++;
+                                    renderPage(currentPage);
+                                    pageInfo.textContent = `Page ${currentPage} of ${pdf.numPages}`;
+                                    nextBtn.disabled = currentPage >= pdf.numPages;
+                                    prevBtn.disabled = false;
+                                }
+                            };
+                            
+                            zoomInBtn.onclick = () => {
+                                currentZoom = Math.min(currentZoom * 1.2, 3.0);
+                                zoomLevel.textContent = Math.round(currentZoom * 100) + '%';
+                                renderPage(currentPage);
+                            };
+                            
+                            zoomOutBtn.onclick = () => {
+                                currentZoom = Math.max(currentZoom / 1.2, 0.5);
+                                zoomLevel.textContent = Math.round(currentZoom * 100) + '%';
+                                renderPage(currentPage);
+                            };
+                            
+                        }).catch(error => {
+                            console.error('Error loading PDF:', error);
+                            // Fall back to notice
+                            this.showPDFError(viewerElement, 'Failed to load PDF document');
+                        });
+                    } catch (error) {
+                        console.error('PDF.js initialization error:', error);
+                        this.showPDFError(viewerElement, 'PDF viewer initialization failed');
+                    }
+                } else {
+                    console.warn('PDF.js library not available');
+                    this.showPDFError(viewerElement, 'PDF viewer not available');
                 }
                 
                 function renderPage(pageNumber) {
@@ -919,8 +937,27 @@ const PhotoManager = {
                             viewport: finalViewport
                         };
                         
-                        page.render(renderContext);
+                        page.render(renderContext).promise.catch(error => {
+                            console.error('Error rendering PDF page:', error);
+                        });
+                    }).catch(error => {
+                        console.error('Error getting PDF page:', error);
                     });
+                }
+            },
+            
+            // Helper function to show PDF error and fallback to download notice
+            showPDFError: function(viewerElement, message) {
+                console.warn('PDF viewer error:', message);
+                viewerElement.classList.add('d-none');
+                const pdfNotice = viewerElement.parentElement.querySelector('.modal-pdf-notice');
+                if (pdfNotice) {
+                    pdfNotice.classList.remove('d-none');
+                    // Update the error message to be more helpful
+                    const errorMsg = pdfNotice.querySelector('p');
+                    if (errorMsg) {
+                        errorMsg.textContent = 'PDF viewer is not available. Please download to view the PDF.';
+                    }
                 }
             },
             
