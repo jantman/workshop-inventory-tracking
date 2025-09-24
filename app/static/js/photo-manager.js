@@ -371,9 +371,11 @@ const PhotoManager = {
                             name: photoData.filename,
                             size: photoData.file_size,
                             type: photoData.content_type,
+                            content_type: photoData.content_type, // Also set content_type for consistency
                             preview: `/api/photos/${photoData.id}?size=thumbnail`,
                             uploaded: true,
-                            selected: false
+                            selected: false,
+                            created_at: photoData.created_at // Include creation date
                         };
                         
                         this.photos.push(photo);
@@ -711,8 +713,10 @@ const PhotoManager = {
                                 </div>
                                 <div class="modal-body text-center p-0">
                                     <img class="modal-image img-fluid" style="max-height: 70vh;" alt="Photo preview">
-                                    <div class="modal-pdf-viewer d-none" style="height: 70vh;">
-                                        <canvas class="pdf-canvas w-100 h-100"></canvas>
+                                    <div class="modal-pdf-viewer d-none" style="height: 70vh; display: flex; flex-direction: column;">
+                                        <div class="pdf-canvas-container" style="flex: 1; display: flex; justify-content: center; align-items: center; overflow: auto; background: #f8f9fa;">
+                                            <canvas class="pdf-canvas" style="max-width: 100%; max-height: 100%; border: 1px solid #dee2e6;"></canvas>
+                                        </div>
                                         <div class="pdf-controls bg-dark text-white d-flex justify-content-between align-items-center p-2">
                                             <div>
                                                 <button class="btn btn-sm btn-outline-light pdf-prev-btn">
@@ -886,8 +890,14 @@ const PhotoManager = {
                         const viewport = page.getViewport({ scale: currentZoom });
                         const context = canvas.getContext('2d');
                         
-                        canvas.height = viewport.height;
+                        // Set canvas size to match viewport (maintaining aspect ratio)
                         canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+                        
+                        // Also set the CSS size to match the actual canvas size
+                        // This prevents stretching and maintains proper aspect ratio
+                        canvas.style.width = viewport.width + 'px';
+                        canvas.style.height = viewport.height + 'px';
                         
                         const renderContext = {
                             canvasContext: context,
