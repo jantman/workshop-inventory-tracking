@@ -41,6 +41,11 @@ def test_view_item_modal_workflow(page, live_server):
     page.fill("#purchase_price", test_item["purchase_price"])
     page.fill("#vendor", test_item["vendor"])
     
+    # Test precision checkbox - check it for this test item
+    precision_checkbox = page.locator('#precision')
+    expect(precision_checkbox).to_be_visible()
+    precision_checkbox.check()
+    
     add_page.submit_form()
     
     # Navigate to inventory list
@@ -78,6 +83,10 @@ def test_view_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('$15.99')
     expect(modal_body).to_contain_text('McMaster-Carr')
     expect(modal_body).to_contain_text('High quality stainless rod')
+    
+    # Verify precision field shows 'Yes' (since we checked the checkbox)
+    expect(modal_body).to_contain_text('Precision')
+    expect(modal_body).to_contain_text('Yes')
     
     # Verify edit button in modal footer
     edit_link = page.locator('#edit-item-link')
@@ -167,11 +176,20 @@ def test_edit_item_workflow(page, live_server):
     notes_field = page.locator('#notes')
     expect(notes_field).to_have_value('Original aluminum plate')
     
+    # Check initial precision checkbox state (should be unchecked as default)
+    precision_checkbox = page.locator('#precision')
+    expect(precision_checkbox).to_be_visible()
+    expect(precision_checkbox).not_to_be_checked()
+    
     # Make some changes to the item
     material_field.fill('6000 Series')
     width_field.fill('6')
     location_field.fill('Workshop C')
     notes_field.fill('Updated aluminum plate - now 6000 series alloy')
+    
+    # Check the precision checkbox as part of the edit
+    precision_checkbox.check()
+    expect(precision_checkbox).to_be_checked()
     
     # Submit the changes
     submit_button = page.locator('button[type="submit"]')
@@ -208,6 +226,10 @@ def test_edit_item_workflow(page, live_server):
     expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
+    
+    # Verify precision field shows 'Yes' after editing
+    expect(modal_body).to_contain_text('Precision')
+    expect(modal_body).to_contain_text('Yes')
 
 
 @pytest.mark.e2e

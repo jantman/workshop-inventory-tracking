@@ -94,8 +94,9 @@ class InventoryExportSchema:
         "Vendor Part",     # 23
         "Original Material", # 24
         "Original Thread", # 25
-        "Date Added",      # 26
-        "Last Modified"    # 27
+        "Precision",       # 26  
+        "Date Added",      # 27
+        "Last Modified"    # 28
     ]
     
     @staticmethod
@@ -137,8 +138,9 @@ class InventoryExportSchema:
             formatter.format_string(item.vendor_part),               # 23. Vendor Part
             formatter.format_string(item.original_material),         # 24. Original Material
             formatter.format_string(item.original_thread),           # 25. Original Thread
-            formatter.format_datetime(item.date_added),              # 26. Date Added
-            formatter.format_datetime(item.last_modified)            # 27. Last Modified
+            formatter.format_boolean(item.precision),                # 26. Precision
+            formatter.format_datetime(item.date_added),              # 27. Date Added
+            formatter.format_datetime(item.last_modified)            # 28. Last Modified
         ]
     
     @staticmethod
