@@ -605,7 +605,7 @@ function createItemDetailsHTML(item) {
                         ${item.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}
                     </td></tr>
                     <tr><td><strong>Precision:</strong></td><td>
-                        ${item.precision ? 'Yes' : ''}
+                        ${item.precision === true ? 'Yes' : ''}
                     </td></tr>
                 </table>
             </div>

@@ -44,7 +44,9 @@ def test_view_item_modal_workflow(page, live_server):
     # Test precision checkbox - check it for this test item
     precision_checkbox = page.locator('#precision')
     expect(precision_checkbox).to_be_visible()
+    expect(precision_checkbox).not_to_be_checked()  # Initially unchecked
     precision_checkbox.check()
+    expect(precision_checkbox).to_be_checked()  # Verify it got checked
     
     add_page.submit_form()
     
@@ -85,8 +87,17 @@ def test_view_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('High quality stainless rod')
     
     # Verify precision field shows 'Yes' (since we checked the checkbox)
-    expect(modal_body).to_contain_text('Precision')
-    expect(modal_body).to_contain_text('Yes')
+    # Wait for modal content to be populated
+    expect(modal_body).to_contain_text('JA102001')  # Ensure modal is loaded
+    
+    # Check for precision field - it should show 'Yes' since we checked the checkbox
+    # The field might be in a table row or just as text
+    modal_content = modal_body.inner_text()
+    assert 'Precision' in modal_content, f"Precision field not found in modal content: {modal_content}"
+    
+    # Look for either "Precision: Yes" or a table row containing both
+    precision_found = ('Precision' in modal_content and 'Yes' in modal_content)
+    assert precision_found, f"Expected precision 'Yes' not found in modal: {modal_content}"
     
     # Verify edit button in modal footer
     edit_link = page.locator('#edit-item-link')
@@ -228,8 +239,16 @@ def test_edit_item_workflow(page, live_server):
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
     
     # Verify precision field shows 'Yes' after editing
-    expect(modal_body).to_contain_text('Precision')
-    expect(modal_body).to_contain_text('Yes')
+    # Wait for modal content to be populated
+    expect(modal_body).to_contain_text('JA102002')  # Ensure modal is loaded
+    
+    # Check for precision field - it should show 'Yes' since we checked the checkbox
+    modal_content = modal_body.inner_text()
+    assert 'Precision' in modal_content, f"Precision field not found in modal content: {modal_content}"
+    
+    # Look for precision 'Yes' value
+    precision_found = ('Precision' in modal_content and 'Yes' in modal_content)
+    assert precision_found, f"Expected precision 'Yes' not found in modal: {modal_content}"
 
 
 @pytest.mark.e2e
