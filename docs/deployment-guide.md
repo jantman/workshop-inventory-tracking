@@ -177,6 +177,93 @@ If you encounter database connection issues:
    python manage.py db history
    ```
 
+## Photo Management
+
+The application provides tools for managing photo uploads and thumbnails, particularly for PDF files that require special processing.
+
+### PDF Thumbnail Regeneration
+
+When upgrading from a version without PDF thumbnail generation to one with PDF thumbnails, existing PDFs in the database will still have PDF binary data in their thumbnail fields instead of generated JPEG thumbnails. This prevents them from displaying properly as thumbnails.
+
+#### Management Command
+
+Use the integrated management command to regenerate thumbnails for existing PDFs:
+
+```bash
+# Preview what PDFs would be processed (recommended first step)
+python manage.py photos regenerate-pdf-thumbnails --dry-run
+
+# Actually regenerate thumbnails for existing PDFs
+python manage.py photos regenerate-pdf-thumbnails
+```
+
+**Example output:**
+```
+PDF Thumbnail Regeneration
+========================================
+Started at: 2025-01-15 14:30:00.123456
+
+Found 15 total PDF photos
+Found 8 PDF photos that need thumbnail regeneration
+
+Photos that would be processed:
+  - manual.pdf (ID: 23, JA ID: JA000156)
+  - schematic.pdf (ID: 34, JA ID: JA000198)
+  - datasheet.pdf (ID: 45, JA ID: JA000234)
+  ... and 5 more
+
+To actually regenerate thumbnails, run without --dry-run
+
+Completed at: 2025-01-15 14:30:01.456789
+```
+
+#### API Endpoint
+
+For programmatic access or automation, use the admin API endpoint:
+
+```bash
+# Using curl
+curl -X POST http://localhost:5000/api/admin/photos/regenerate-pdf-thumbnails
+
+# Expected response
+{
+  "success": true,
+  "message": "Regenerated thumbnails for 8 PDF photos",
+  "photos_updated": 8
+}
+
+# Error response (if PyMuPDF not available)
+{
+  "success": false,
+  "error": "Failed to regenerate PDF thumbnails: PyMuPDF not available"
+}
+```
+
+#### When to Use
+
+Run PDF thumbnail regeneration in these scenarios:
+- **After upgrading** from a version without PDF thumbnail support
+- **When PDFs show red placeholders** instead of actual page previews  
+- **After system maintenance** that may have corrupted thumbnail data
+- **When troubleshooting PDF display issues**
+
+#### Technical Details
+
+The regeneration process:
+1. **Identifies PDFs** where `thumbnail_data` contains PDF binary data (starts with `%PDF`)
+2. **Uses PyMuPDF** to generate JPEG thumbnails from the first page
+3. **Updates database** with new JPEG thumbnail and medium-size data
+4. **Preserves original PDF** data unchanged
+5. **Requires PyMuPDF** to be installed (`pip install PyMuPDF==1.24.9`)
+
+#### Best Practices
+
+1. **Always run with `--dry-run` first** to preview what will be processed
+2. **Backup your database** before running the actual regeneration
+3. **Run during maintenance windows** for large numbers of PDFs
+4. **Monitor process output** for any errors or warnings
+5. **Verify results** by checking that PDFs now show proper thumbnails in the UI
+
 ## Google Sheets Setup (Data Export Only)
 
 **Note**: Google Sheets is used exclusively for data export functionality. The primary storage backend is MariaDB.

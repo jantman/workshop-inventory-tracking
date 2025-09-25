@@ -2024,6 +2024,29 @@ def cleanup_orphaned_photos():
             'error': f'Failed to cleanup photos: {str(e)}'
         }), 500
 
+@bp.route('/api/admin/photos/regenerate-pdf-thumbnails', methods=['POST'])
+@csrf.exempt
+def regenerate_pdf_thumbnails():
+    """Regenerate thumbnails for existing PDF photos"""
+    try:
+        from app.photo_service import PhotoService
+        
+        with PhotoService(_get_storage_backend()) as photo_service:
+            updated_count = photo_service.regenerate_pdf_thumbnails()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Regenerated thumbnails for {updated_count} PDF photos',
+                'photos_updated': updated_count
+            })
+        
+    except Exception as e:
+        current_app.logger.error(f'PDF thumbnail regeneration error: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'Failed to regenerate PDF thumbnails: {str(e)}'
+        }), 500
+
 # Error handlers for the blueprint
 @bp.errorhandler(404)
 def not_found_error(error):

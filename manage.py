@@ -108,6 +108,80 @@ def reset():
     click.echo("Database reset successfully!")
 
 
+@cli.group()
+def photos():
+    """Photo management commands"""
+    pass
+
+
+@photos.command()
+@click.option('--dry-run', is_flag=True, help='Show what would be processed without making changes')
+def regenerate_pdf_thumbnails(dry_run):
+    """Regenerate thumbnails for existing PDF photos"""
+    from datetime import datetime
+    
+    click.echo("PDF Thumbnail Regeneration")
+    click.echo("=" * 40)
+    click.echo(f"Started at: {datetime.now()}")
+    click.echo()
+    
+    try:
+        from app.photo_service import PhotoService
+        from app.database import ItemPhoto
+        
+        # Initialize PhotoService
+        with PhotoService() as photo_service:
+            if dry_run:
+                click.echo("DRY RUN MODE - No changes will be made")
+                click.echo()
+                
+                # Find PDFs that need thumbnail regeneration
+                pdf_photos = photo_service.session.query(ItemPhoto).filter(
+                    ItemPhoto.content_type == 'application/pdf'
+                ).all()
+                
+                needs_update = []
+                for photo in pdf_photos:
+                    if photo.thumbnail_data and photo.thumbnail_data.startswith(b'%PDF'):
+                        needs_update.append(photo)
+                
+                click.echo(f"Found {len(pdf_photos)} total PDF photos")
+                click.echo(f"Found {len(needs_update)} PDF photos that need thumbnail regeneration")
+                click.echo()
+                
+                if needs_update:
+                    click.echo("Photos that would be processed:")
+                    for photo in needs_update[:10]:  # Show first 10
+                        click.echo(f"  - {photo.filename} (ID: {photo.id}, JA ID: {photo.ja_id})")
+                    if len(needs_update) > 10:
+                        click.echo(f"  ... and {len(needs_update) - 10} more")
+                    click.echo()
+                    click.echo("To actually regenerate thumbnails, run without --dry-run")
+                else:
+                    click.echo("No PDF photos need thumbnail regeneration.")
+                    
+            else:
+                click.echo("PROCESSING MODE - Making changes")
+                click.echo()
+                
+                updated_count = photo_service.regenerate_pdf_thumbnails()
+                
+                click.echo()
+                click.echo(f"Successfully regenerated thumbnails for {updated_count} PDF photos")
+        
+        click.echo()
+        click.echo(f"Completed at: {datetime.now()}")
+        
+    except ImportError as e:
+        click.echo(f"Error importing required modules: {e}")
+        click.echo("Make sure all dependencies are installed")
+        sys.exit(1)
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+
+
 @cli.command()
 def config_check():
     """Check application configuration"""
