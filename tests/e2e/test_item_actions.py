@@ -68,13 +68,15 @@ def test_view_item_modal_workflow(page, live_server):
     modal = page.locator('#item-details-modal')
     expect(modal).to_be_visible()
     
+    # Wait for modal content to be loaded (it should contain the JA ID)
+    modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('JA102001')  # Wait for content to be loaded
+    
     # Verify modal title
     modal_title = page.locator('#item-details-modal-label')
-    expect(modal_title).to_contain_text('JA102001 Details')
+    expect(modal_title).to_contain_text('Item Details')
     
     # Verify key item details are displayed in modal
-    modal_body = page.locator('#item-details-modal .modal-body')
-    expect(modal_body).to_contain_text('JA102001')
     expect(modal_body).to_contain_text('Bar')
     expect(modal_body).to_contain_text('Round')
     expect(modal_body).to_contain_text('Stainless Steel')
@@ -222,8 +224,9 @@ def test_edit_item_workflow(page, live_server):
     view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102002\')"]')
     view_button.click()
     
-    # Wait for modal and verify updated details
+    # Wait for modal content to be loaded
     modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('JA102002')  # Wait for content to load
     expect(modal_body).to_contain_text('6000 Series')
     expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
