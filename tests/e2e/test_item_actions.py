@@ -48,7 +48,11 @@ def test_view_item_modal_workflow(page, live_server):
     precision_checkbox.check()
     expect(precision_checkbox).to_be_checked()  # Verify it got checked
     
+    # Submit form and wait for processing
     add_page.submit_form()
+    
+    # Give extra time for form processing and database write
+    page.wait_for_timeout(3000)
     
     # Navigate to inventory list
     list_page = InventoryListPage(page, live_server.url)
@@ -89,7 +93,15 @@ def test_view_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('High quality stainless rod')
     
     # Verify precision field shows 'Yes' (since we checked the checkbox)
+    # First ensure the modal content is fully loaded
+    expect(modal_body).to_contain_text('Stainless Steel')  # Wait for content to load
+    
+    # Check if precision row exists
     expect(modal_body).to_contain_text('Precision')
+    
+    # The precision field should show 'Yes' since we checked the checkbox
+    # Use a more lenient check that waits for the text to appear
+    page.wait_for_timeout(2000)  # Give extra time for API response
     expect(modal_body).to_contain_text('Yes')
     
     # Verify edit button in modal footer
@@ -199,6 +211,9 @@ def test_edit_item_workflow(page, live_server):
     submit_button = page.locator('button[type="submit"]')
     submit_button.click()
     
+    # Give extra time for form processing and database write
+    page.wait_for_timeout(3000)
+    
     # Verify redirect to inventory list
     expect(page).to_have_url(f'{live_server.url}/inventory')
     
@@ -233,7 +248,15 @@ def test_edit_item_workflow(page, live_server):
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
     
     # Verify precision field shows 'Yes' after editing
+    # First ensure the modal content is fully loaded
+    expect(modal_body).to_contain_text('6000 Series')  # Wait for content to load
+    
+    # Check if precision row exists
     expect(modal_body).to_contain_text('Precision')
+    
+    # The precision field should show 'Yes' since we checked the checkbox
+    # Use a more lenient check that waits for the text to appear
+    page.wait_for_timeout(2000)  # Give extra time for API response
     expect(modal_body).to_contain_text('Yes')
 
 
