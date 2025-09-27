@@ -344,7 +344,7 @@ def inventory_view(ja_id):
         item = service.get_item(ja_id)
         if not item:
             return jsonify({'success': False, 'error': f'Item {ja_id} not found.'}), 404
-        
+
         # Convert item to dictionary for JSON response
         item_dict = item.to_dict()
 
@@ -1157,6 +1157,7 @@ def api_inventory_list():
                 'vendor_part_number': item.vendor_part,  # InventoryItem field name
                 'notes': item.notes,
                 'active': item.active,
+                'precision': item.precision,  # Add precision field to API response
                 'parent_ja_id': None,  # InventoryItem doesn't have parent/child relationships
                 'child_ja_ids': [],  # InventoryItem doesn't have parent/child relationships
                 'date_added': item.date_added.isoformat() if item.date_added else None,

@@ -810,6 +810,10 @@ function createItemDetailsHTML(item) {
                         <td><strong>Status:</strong></td>
                         <td><span class="badge ${item.active ? 'bg-success' : 'bg-secondary'}">${item.active ? 'Active' : 'Inactive'}</span></td>
                     </tr>
+                    <tr>
+                        <td><strong>Precision:</strong></td>
+                        <td><span class="badge ${item.precision ? 'bg-primary' : 'bg-secondary'}">${item.precision ? 'Yes' : 'No'}</span></td>
+                    </tr>
                 </table>
                 
                 ${Object.keys(dimensions).length > 0 ? `

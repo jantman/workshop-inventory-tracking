@@ -78,7 +78,7 @@ def test_view_item_modal_workflow(page, live_server):
     
     # Verify modal title
     modal_title = page.locator('#item-details-modal-label')
-    expect(modal_title).to_contain_text('Item Details')
+    expect(modal_title).to_contain_text('JA102001 Details')
     
     # Verify key item details are displayed in modal
     expect(modal_body).to_contain_text('Bar')
@@ -199,11 +199,18 @@ def test_edit_item_workflow(page, live_server):
     
     # Make some changes to the item
     material_field.fill('6000 Series')
+    # Wait for material selector dropdown to disappear after filling
+    page.wait_for_timeout(500)
+    # Click outside material field to close any dropdown
+    page.locator('body').click()
+    
     width_field.fill('6')
     location_field.fill('Workshop C')
     notes_field.fill('Updated aluminum plate - now 6000 series alloy')
     
     # Check the precision checkbox as part of the edit
+    # Wait for any dropdowns to close before interacting with checkbox
+    page.wait_for_timeout(500)
     precision_checkbox.check()
     expect(precision_checkbox).to_be_checked()
     
