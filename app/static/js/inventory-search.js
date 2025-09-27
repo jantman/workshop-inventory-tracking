@@ -604,6 +604,9 @@ function createItemDetailsHTML(item) {
                     <tr><td><strong>Status:</strong></td><td>
                         ${item.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}
                     </td></tr>
+                    <tr><td><strong>Precision:</strong></td><td>
+                        ${item.precision === true ? 'Yes' : ''}
+                    </td></tr>
                 </table>
             </div>
             <div class="col-md-6">

@@ -48,6 +48,7 @@ def _item_to_audit_dict(item):
         'vendor_part': item.vendor_part,
         'original_material': item.original_material,
         'original_thread': item.original_thread,
+        'precision': item.precision,
         'active': item.active,
         'date_added': item.date_added.isoformat() if item.date_added else None,
         'last_modified': item.last_modified.isoformat() if item.last_modified else None
@@ -343,7 +344,7 @@ def inventory_view(ja_id):
         item = service.get_item(ja_id)
         if not item:
             return jsonify({'success': False, 'error': f'Item {ja_id} not found.'}), 404
-        
+
         # Convert item to dictionary for JSON response
         item_dict = item.to_dict()
 
@@ -746,6 +747,7 @@ def get_item_details(ja_id):
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'active': item.active,
+                'precision': item.precision,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'photos': photo_info
             }
@@ -1155,6 +1157,7 @@ def api_inventory_list():
                 'vendor_part_number': item.vendor_part,  # InventoryItem field name
                 'notes': item.notes,
                 'active': item.active,
+                'precision': item.precision,  # Add precision field to API response
                 'parent_ja_id': None,  # InventoryItem doesn't have parent/child relationships
                 'child_ja_ids': [],  # InventoryItem doesn't have parent/child relationships
                 'date_added': item.date_added.isoformat() if item.date_added else None,
@@ -1230,6 +1233,13 @@ def api_advanced_search():
             elif isinstance(data['active'], str):
                 search_filter.add_exact_match('active', data['active'].lower() == 'true')
         
+        # Precision filter
+        if 'precision' in data and data['precision'] is not None:
+            if isinstance(data['precision'], bool):
+                search_filter.add_exact_match('precision', data['precision'])
+            elif isinstance(data['precision'], str):
+                search_filter.add_exact_match('precision', data['precision'].lower() == 'true')
+        
         # Material filter
         if data.get('material'):
             exact_match = data.get('material_exact', False)
@@ -1292,6 +1302,7 @@ def api_advanced_search():
                 'vendor': item.vendor,
                 'vendor_part_number': item.vendor_part,
                 'notes': item.notes,
+                'precision': item.precision,
                 'active': item.active,
                 'date_added': item.date_added.isoformat() if item.date_added else None,
                 'last_modified': item.last_modified.isoformat() if item.last_modified else None
@@ -1401,7 +1412,8 @@ def _parse_item_from_form(form_data):
         item_type=form_data['item_type'],  # Store as string
         shape=form_data['shape'],          # Store as string
         material=form_data['material'].strip(),
-        active=form_data.get('active') == 'on'
+        active=form_data.get('active') == 'on',
+        precision=form_data.get('precision') == 'on'
     )
     
     # Parse dimensions

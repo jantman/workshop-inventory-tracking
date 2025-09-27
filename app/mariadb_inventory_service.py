@@ -653,6 +653,7 @@ class InventoryService:
             current_db_item.purchase_price = item.purchase_price
             current_db_item.purchase_location = item.purchase_location
             current_db_item.active = item.active
+            current_db_item.precision = getattr(item, 'precision', False)
             # Update timestamp
             current_db_item.last_modified = func.now()
             
@@ -766,6 +767,7 @@ class InventoryService:
                 notes=getattr(item, 'notes', None),
                 vendor=getattr(item, 'vendor', None),
                 vendor_part=getattr(item, 'vendor_part', None),
+                precision=getattr(item, 'precision', False),
                 active=True
             )
             

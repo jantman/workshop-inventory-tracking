@@ -41,7 +41,18 @@ def test_view_item_modal_workflow(page, live_server):
     page.fill("#purchase_price", test_item["purchase_price"])
     page.fill("#vendor", test_item["vendor"])
     
+    # Test precision checkbox - check it for this test item
+    precision_checkbox = page.locator('#precision')
+    expect(precision_checkbox).to_be_visible()
+    expect(precision_checkbox).not_to_be_checked()  # Initially unchecked
+    precision_checkbox.check()
+    expect(precision_checkbox).to_be_checked()  # Verify it got checked
+    
+    # Submit form and wait for processing
     add_page.submit_form()
+    
+    # Give extra time for form processing and database write
+    page.wait_for_timeout(3000)
     
     # Navigate to inventory list
     list_page = InventoryListPage(page, live_server.url)
@@ -61,13 +72,15 @@ def test_view_item_modal_workflow(page, live_server):
     modal = page.locator('#item-details-modal')
     expect(modal).to_be_visible()
     
+    # Wait for modal content to be loaded (it should contain the JA ID)
+    modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('JA102001')  # Wait for content to be loaded
+    
     # Verify modal title
     modal_title = page.locator('#item-details-modal-label')
     expect(modal_title).to_contain_text('JA102001 Details')
     
     # Verify key item details are displayed in modal
-    modal_body = page.locator('#item-details-modal .modal-body')
-    expect(modal_body).to_contain_text('JA102001')
     expect(modal_body).to_contain_text('Bar')
     expect(modal_body).to_contain_text('Round')
     expect(modal_body).to_contain_text('Stainless Steel')
@@ -78,6 +91,18 @@ def test_view_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('$15.99')
     expect(modal_body).to_contain_text('McMaster-Carr')
     expect(modal_body).to_contain_text('High quality stainless rod')
+    
+    # Verify precision field shows 'Yes' (since we checked the checkbox)
+    # First ensure the modal content is fully loaded
+    expect(modal_body).to_contain_text('Stainless Steel')  # Wait for content to load
+    
+    # Check if precision row exists
+    expect(modal_body).to_contain_text('Precision')
+    
+    # The precision field should show 'Yes' since we checked the checkbox
+    # Use a more lenient check that waits for the text to appear
+    page.wait_for_timeout(2000)  # Give extra time for API response
+    expect(modal_body).to_contain_text('Yes')
     
     # Verify edit button in modal footer
     edit_link = page.locator('#edit-item-link')
@@ -167,15 +192,34 @@ def test_edit_item_workflow(page, live_server):
     notes_field = page.locator('#notes')
     expect(notes_field).to_have_value('Original aluminum plate')
     
+    # Check initial precision checkbox state (should be unchecked as default)
+    precision_checkbox = page.locator('#precision')
+    expect(precision_checkbox).to_be_visible()
+    expect(precision_checkbox).not_to_be_checked()
+    
     # Make some changes to the item
     material_field.fill('6000 Series')
+    # Wait for material selector dropdown to disappear after filling
+    page.wait_for_timeout(500)
+    # Click outside material field to close any dropdown
+    page.locator('body').click()
+    
     width_field.fill('6')
     location_field.fill('Workshop C')
     notes_field.fill('Updated aluminum plate - now 6000 series alloy')
     
+    # Check the precision checkbox as part of the edit
+    # Wait for any dropdowns to close before interacting with checkbox
+    page.wait_for_timeout(500)
+    precision_checkbox.check()
+    expect(precision_checkbox).to_be_checked()
+    
     # Submit the changes
     submit_button = page.locator('button[type="submit"]')
     submit_button.click()
+    
+    # Give extra time for form processing and database write
+    page.wait_for_timeout(3000)
     
     # Verify redirect to inventory list
     expect(page).to_have_url(f'{live_server.url}/inventory')
@@ -202,12 +246,25 @@ def test_edit_item_workflow(page, live_server):
     view_button = page.locator(f'button[onclick*="showItemDetails(\'JA102002\')"]')
     view_button.click()
     
-    # Wait for modal and verify updated details
+    # Wait for modal content to be loaded
     modal_body = page.locator('#item-details-modal .modal-body')
+    expect(modal_body).to_contain_text('JA102002')  # Wait for content to load
     expect(modal_body).to_contain_text('6000 Series')
     expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
+    
+    # Verify precision field shows 'Yes' after editing
+    # First ensure the modal content is fully loaded
+    expect(modal_body).to_contain_text('6000 Series')  # Wait for content to load
+    
+    # Check if precision row exists
+    expect(modal_body).to_contain_text('Precision')
+    
+    # The precision field should show 'Yes' since we checked the checkbox
+    # Use a more lenient check that waits for the text to appear
+    page.wait_for_timeout(2000)  # Give extra time for API response
+    expect(modal_body).to_contain_text('Yes')
 
 
 @pytest.mark.e2e
