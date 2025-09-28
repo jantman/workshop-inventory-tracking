@@ -19,6 +19,7 @@
 - [Data Integrity Auditing](#data-integrity-auditing)
   - [Audit Commands](#audit-commands)
   - [Materials Audit](#materials-audit)
+  - [Locations Audit](#locations-audit)
 - [Photo Management](#photo-management)
   - [PDF Thumbnail Regeneration](#pdf-thumbnail-regeneration)
 - [Google Sheets Setup (Data Export Only)](#google-sheets-setup-data-export-only)
@@ -283,6 +284,99 @@ Run the materials audit:
 2. **Document decisions**: Keep notes on why certain materials were added or corrected
 3. **Batch corrections**: Group similar materials for efficient processing
 4. **Coordinate with users**: Inform users of material naming standards and taxonomy updates
+
+### Locations Audit
+
+The locations audit generates a comprehensive report of all inventory locations and sub-locations, showing which items are stored in each location. This helps with physical inventory management, organization planning, and identifying items that may need location updates.
+
+#### Running Locations Audit
+
+```bash
+# Generate locations report
+python manage.py audit locations
+```
+
+**Example output:**
+```
+Generating locations report...
+
+Location Report
+================================================================================
+Total locations: 20
+Total items: 514
+================================================================================
+
+📍 M1-A (94 items)
+------------------------------------------------------------
+  📂 Steel Bar 1 (30 items)
+    JA000037   Carbon Steel Bar Rectangular (L:16.2500, W:2.0000, T:1.5000)
+    JA000038   Carbon Steel Bar Rectangular (L:10.8750, W:1.5000, T:1.5000)
+    JA000039   Carbon Steel Bar Rectangular (L:17.0000, W:1.0000, T:1.0000)
+    ...
+
+  📂 Steel Tube 1 (18 items)
+    JA000015   Carbon Steel Tube Square (L:15.0000, W:2.0000, T:2.0000, ...
+    JA000016   Carbon Steel Tube Square (L:15.5000, W:2.0000, T:2.0000, ...
+    ...
+
+📍 M1-B (117 items)
+------------------------------------------------------------
+  📂 Stainless 1 (26 items)
+    JA000074   Unknown Bar Rectangular (L:5.0000, W:3.0000, T:0.3750)
+    JA000099   Stainless? Bar Rectangular (L:14.2500, W:1.5000, T:0.2500)
+    ...
+
+📍 No Location (37 items)
+------------------------------------------------------------
+  📂 No Sub-location (37 items)
+    JA000001   Unknown Bar Rectangular (L:24.0000, W:1.5000, T:0.7500)
+    ...
+================================================================================
+Report complete
+```
+
+#### Understanding the Report
+
+The locations report provides:
+- **Total summary**: Overview of total locations and items
+- **Hierarchical organization**: Locations grouped by main location, then sub-location
+- **Item counts**: Number of items in each location and sub-location
+- **Item details**: Each item shows JA ID, material, type, shape, and key dimensions
+- **Sorted display**: Locations and sub-locations sorted alphabetically (with "No Location"/"No Sub-location" at the end)
+
+#### Report Features
+
+1. **Visual organization**: Uses emojis (📍 for locations, 📂 for sub-locations) for easy scanning
+2. **Dimension display**: Shows relevant dimensions (Length, Width, Thickness, Wall Thickness) when available
+3. **Description truncation**: Long item descriptions are truncated to maintain readable formatting
+4. **Missing location handling**: Items without location/sub-location are clearly grouped and labeled
+
+#### Using the Report
+
+The locations audit is useful for:
+
+**Inventory Management:**
+- Physical location verification during inventory counts
+- Identifying items that may be misplaced or need relocation
+- Planning workshop organization and storage optimization
+
+**Space Planning:**
+- Understanding current space utilization across locations
+- Identifying overcrowded or underutilized storage areas
+- Planning expansion or reorganization of storage systems
+
+**Workflow Optimization:**
+- Grouping related materials for easier access
+- Identifying frequently accessed items that should be in convenient locations
+- Planning tool and equipment placement based on material locations
+
+#### Best Practices
+
+1. **Regular reporting**: Generate location reports monthly for inventory management
+2. **Physical verification**: Use reports during physical inventory counts to verify item locations
+3. **Organization planning**: Use item counts and types to optimize storage layout
+4. **Data cleanup**: Identify items with missing or vague location information that need updates
+5. **Coordinate updates**: Share location information with all workshop users to maintain accuracy
 
 ## Photo Management
 
