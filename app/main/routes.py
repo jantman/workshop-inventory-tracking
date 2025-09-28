@@ -254,7 +254,7 @@ def inventory_edit(ja_id):
             valid_materials = _get_valid_materials()
             return render_template('inventory/edit.html', title=f'Edit {ja_id}',
                                  item=item, ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
-                                 valid_materials=valid_materials)
+                                 valid_materials=valid_materials, validation_errors={})
         
         # Handle POST request for updating item
         form_data = request.form.to_dict()

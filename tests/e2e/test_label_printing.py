@@ -144,12 +144,10 @@ def test_label_printing_edit_item_form(page, live_server):
     # Click print button
     print_btn.click()
 
-    # Wait for modal to be created and shown
-    page.wait_for_timeout(3000)
-
-    # Verify modal opens with correct JA ID
+    # Wait for modal to be created and shown with a more robust approach
     modal = page.locator("#label-printing-modal")
-    expect(modal).to_be_visible()
+    # Wait up to 15 seconds for modal to become visible
+    expect(modal).to_be_visible(timeout=15000)
     expect(page.locator("#label-ja-id-display")).to_contain_text("JA654321")
     
     # Wait for modal to load
