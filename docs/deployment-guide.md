@@ -1,5 +1,35 @@
 # Workshop Inventory Tracking - Deployment Guide
 
+## Table of Contents
+
+- [Installation Process](#installation-process)
+  - [1. Download Application](#1-download-application)
+  - [2. Create Virtual Environment](#2-create-virtual-environment)
+  - [3. Install Python Dependencies](#3-install-python-dependencies)
+- [Configuration](#configuration)
+  - [1. Environment Variables](#1-environment-variables)
+  - [2. Secret Key Generation](#2-secret-key-generation)
+  - [3. Configuration File (config.py)](#3-configuration-file-configpy)
+- [Storage Backend Setup](#storage-backend-setup)
+  - [MariaDB Setup (Recommended for Production)](#mariadb-setup-recommended-for-production)
+- [Database Management](#database-management)
+  - [Database Commands](#database-commands)
+  - [Migration Best Practices](#migration-best-practices)
+  - [Troubleshooting Database Issues](#troubleshooting-database-issues)
+- [Data Integrity Auditing](#data-integrity-auditing)
+  - [Audit Commands](#audit-commands)
+  - [Materials Audit](#materials-audit)
+- [Photo Management](#photo-management)
+  - [PDF Thumbnail Regeneration](#pdf-thumbnail-regeneration)
+- [Google Sheets Setup (Data Export Only)](#google-sheets-setup-data-export-only)
+  - [1. Create Google Cloud Project](#1-create-google-cloud-project)
+  - [2. Create Service Account](#2-create-service-account)
+  - [3. Share Google Sheet](#3-share-google-sheet)
+  - [4. Test Connection](#4-test-connection)
+- [Monitoring and Maintenance](#monitoring-and-maintenance)
+  - [1. Log Monitoring](#1-log-monitoring)
+  - [2. Health Checks](#2-health-checks)
+
 ## Installation Process
 
 ### 1. Download Application
@@ -176,6 +206,83 @@ If you encounter database connection issues:
    python manage.py db current
    python manage.py db history
    ```
+
+## Data Integrity Auditing
+
+The application provides audit commands to help identify data integrity issues and inconsistencies in your inventory.
+
+### Audit Commands
+
+All audit commands are available under the `audit` subcommand group:
+
+```bash
+# View available audit commands
+python manage.py audit --help
+```
+
+### Materials Audit
+
+The materials audit identifies inventory items that have materials not present in the materials taxonomy. This helps maintain data consistency and identify materials that need to be added to the taxonomy or corrected in existing items.
+
+#### Running Materials Audit
+
+```bash
+# Audit materials in inventory items
+python manage.py audit materials
+```
+
+**Example output:**
+```
+Auditing materials...
+
+Found 55 materials not in taxonomy:
+============================================================
+  Carbon Steel                             (153 items)
+  Steel                                    (52 items)
+  Brass                                    (49 items)
+  Unknown                                  (37 items)
+  Copper                                   (30 items)
+  Aluminum                                 (18 items)
+  321 Stainless                            (17 items)
+  Brass 360-H02                            (9 items)
+  Stainless?                               (9 items)
+  15-5 Stainless                           (7 items)
+  T-304 Stainless                          (5 items)
+  410 Stainless                            (5 items)
+  ...
+============================================================
+Total items with invalid materials: 470
+```
+
+#### Understanding Results
+
+The audit report shows:
+- **Material name**: The exact material string found in inventory items
+- **Item count**: Number of inventory items using this material
+- **Sort order**: Results are sorted by item count (descending), then alphabetically
+
+#### Resolving Material Issues
+
+When the audit finds materials not in the taxonomy, you can:
+
+1. **Add materials to taxonomy**: Use the admin interface to add missing materials to the materials taxonomy
+2. **Update inventory items**: Correct material names in existing inventory items to match taxonomy entries
+3. **Add aliases**: If materials are variations of existing taxonomy entries, add them as aliases
+
+#### When to Run Materials Audit
+
+Run the materials audit:
+- **After data imports** to identify materials that need taxonomy entries
+- **Before major data cleanup** to understand the scope of material inconsistencies
+- **Periodically** as part of regular data maintenance
+- **After taxonomy changes** to verify all inventory items use valid materials
+
+#### Best Practices
+
+1. **Regular auditing**: Run materials audit monthly or after significant data changes
+2. **Document decisions**: Keep notes on why certain materials were added or corrected
+3. **Batch corrections**: Group similar materials for efficient processing
+4. **Coordinate with users**: Inform users of material naming standards and taxonomy updates
 
 ## Photo Management
 

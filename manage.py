@@ -182,11 +182,91 @@ def regenerate_pdf_thumbnails(dry_run):
         sys.exit(1)
 
 
+@cli.group()
+def audit():
+    """Data integrity audit commands"""
+    pass
+
+
+@audit.command()
+def materials():
+    """Audit items with materials not in the taxonomy"""
+    click.echo("Auditing materials...")
+
+    try:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.database import InventoryItem, MaterialTaxonomy
+
+        # Get database connection
+        database_url = os.environ.get('SQLALCHEMY_DATABASE_URI') or AppConfig.SQLALCHEMY_DATABASE_URI
+        engine = create_engine(database_url)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        try:
+            # Get all valid materials from taxonomy (level 3)
+            valid_materials = set()
+            taxonomy_materials = session.query(MaterialTaxonomy).filter(
+                MaterialTaxonomy.level == 3,
+                MaterialTaxonomy.active == True
+            ).all()
+
+            for material in taxonomy_materials:
+                valid_materials.add(material.name)
+                # Add aliases if they exist
+                if material.aliases:
+                    aliases = [alias.strip() for alias in material.aliases.split(',') if alias.strip()]
+                    valid_materials.update(aliases)
+
+            # Get all unique materials from inventory items
+            used_materials = session.query(InventoryItem.material).filter(
+                InventoryItem.active == True
+            ).distinct().all()
+
+            # Find materials not in taxonomy
+            invalid_materials = []
+            for (material,) in used_materials:
+                if material and material not in valid_materials:
+                    # Count how many items use this material
+                    count = session.query(InventoryItem).filter(
+                        InventoryItem.active == True,
+                        InventoryItem.material == material
+                    ).count()
+                    invalid_materials.append((material, count))
+
+            # Display results
+            if invalid_materials:
+                click.echo(f"\nFound {len(invalid_materials)} materials not in taxonomy:")
+                click.echo("=" * 60)
+
+                # Sort by count (descending) then by name
+                invalid_materials.sort(key=lambda x: (-x[1], x[0]))
+
+                for material, count in invalid_materials:
+                    click.echo(f"  {material:<40} ({count} items)")
+
+                click.echo("=" * 60)
+                click.echo(f"Total items with invalid materials: {sum(count for _, count in invalid_materials)}")
+            else:
+                click.echo("✓ All materials in inventory are present in the taxonomy")
+
+        finally:
+            session.close()
+
+    except ImportError as e:
+        click.echo(f"Error importing required modules: {e}")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error during audit: {e}")
+        sys.exit(1)
+
+
 @cli.command()
 def config_check():
     """Check application configuration"""
     click.echo("Checking configuration...")
-    
+
     errors = AppConfig.validate_config()
     if errors:
         click.echo("Configuration errors found:")
@@ -195,18 +275,18 @@ def config_check():
         sys.exit(1)
     else:
         click.echo("Configuration is valid!")
-        
+
     # Test database connection
     try:
         from sqlalchemy import create_engine
         database_url = os.environ.get('SQLALCHEMY_DATABASE_URI') or AppConfig.SQLALCHEMY_DATABASE_URI
         engine = create_engine(database_url)
-        
+
         # Test connection
         with engine.connect() as conn:
             conn.execute("SELECT 1")
         click.echo("Database connection: OK")
-        
+
     except Exception as e:
         click.echo(f"Database connection failed: {e}")
         sys.exit(1)
