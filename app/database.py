@@ -70,6 +70,7 @@ class InventoryItem(Base):
     vendor_part = Column(String(100), nullable=True)
     original_material = Column(String(100), nullable=True)  # For tracking material changes
     original_thread = Column(String(50), nullable=True)  # For tracking thread changes
+    precision = Column(Boolean, nullable=False, default=False)  # Indicates item has precision dimensions
     
     # Timestamps
     date_added = Column(DateTime, nullable=False, default=func.now())
@@ -429,6 +430,8 @@ class InventoryItem(Base):
         # Handle boolean fields
         if 'active' in data:
             item.active = bool(data['active'])
+        if 'precision' in data:
+            item.precision = bool(data['precision'])
         
         # Handle date fields
         if 'purchase_date' in data and data['purchase_date']:
@@ -607,6 +610,7 @@ class InventoryItem(Base):
             'vendor_part': self.vendor_part,
             'original_material': self.original_material,
             'original_thread': self.original_thread,
+            'precision': self.precision,
             'date_added': self.date_added.isoformat() if self.date_added else None,
             'last_modified': self.last_modified.isoformat() if self.last_modified else None,
         }

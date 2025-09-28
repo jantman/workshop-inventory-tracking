@@ -100,7 +100,8 @@ class TestInventoryService:
             quantity=1,       # Add required quantity field
             location='Storage A',
             notes='Test item',
-            active=True
+            active=True,
+            precision=False
         )
     
     @pytest.fixture
@@ -119,7 +120,8 @@ class TestInventoryService:
             thread_size='M12x1.5',
             location='Storage B',
             notes='M12 threaded rod',
-            active=True
+            active=True,
+            precision=False
         )
     
     @pytest.mark.unit
@@ -389,7 +391,7 @@ class TestInventoryService:
         items1 = service.get_all_items()
         assert len(items1) == 1
         
-        # Add another properly formatted item through the service 
+        # Add another properly formatted item through the service
         from app.database import InventoryItem
         direct_item = InventoryItem(
             ja_id='JA000999',
@@ -401,7 +403,8 @@ class TestInventoryService:
             quantity=1,
             location='Storage A',
             notes='Cache test item',
-            active=True
+            active=True,
+            precision=False
         )
         service.add_item(direct_item)
         
