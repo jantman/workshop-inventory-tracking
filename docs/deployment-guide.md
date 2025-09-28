@@ -225,6 +225,8 @@ python manage.py audit --help
 
 The materials audit identifies inventory items that have materials not present in the materials taxonomy. This helps maintain data consistency and identify materials that need to be added to the taxonomy or corrected in existing items.
 
+**Note**: The materials taxonomy supports a 3-level hierarchy (Category → Family → Material), and inventory items can be associated with materials at ANY level of this hierarchy. For example, an item can be labeled as "Carbon Steel" (Level 1 category), "Low Carbon Steel" (Level 2 family), or "A36" (Level 3 specific material) - all are equally valid.
+
 #### Running Materials Audit
 
 ```bash

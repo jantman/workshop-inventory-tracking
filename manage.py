@@ -205,10 +205,9 @@ def materials():
         session = Session()
 
         try:
-            # Get all valid materials from taxonomy (level 3)
+            # Get all valid materials from taxonomy (all levels are valid)
             valid_materials = set()
             taxonomy_materials = session.query(MaterialTaxonomy).filter(
-                MaterialTaxonomy.level == 3,
                 MaterialTaxonomy.active == True
             ).all()
 
