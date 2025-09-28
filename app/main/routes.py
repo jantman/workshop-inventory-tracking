@@ -286,11 +286,20 @@ def inventory_edit(ja_id):
         if material and material.lower() not in valid_materials_lower:
             error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
             # AUDIT: Log validation error
-            log_audit_operation('edit_item', 'error', 
-                              item_id=ja_id, 
+            log_audit_operation('edit_item', 'error',
+                              item_id=ja_id,
                               error_details=error_msg)
             flash(error_msg, 'error')
-            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+
+            # Create a temporary item with the submitted form data to preserve user input
+            temp_item = _parse_item_from_form(form_data)
+            temp_item.date_added = item.date_added  # Preserve original dates
+
+            # Re-render the form with validation errors and user input
+            return render_template('inventory/edit.html', title=f'Edit {ja_id}',
+                                 item=temp_item, ItemType=ItemType, ItemShape=ItemShape,
+                                 ThreadSeries=ThreadSeries, valid_materials=valid_materials,
+                                 validation_errors={'material': error_msg})
         
         # Parse form data into updated item
         updated_item = _parse_item_from_form(form_data)

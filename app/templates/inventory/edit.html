@@ -92,14 +92,18 @@
                         <div class="col-md-6 mb-3">
                             <label for="material" class="form-label">Material *</label>
                             <div class="position-relative">
-                                <input type="text" class="form-control" id="material" name="material" 
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.material %} is-invalid{% endif %}" id="material" name="material"
                                        value="{{ item.material }}" required autocomplete="off"
                                        >
-                                <div id="material-suggestions" class="dropdown-menu position-absolute w-100" 
+                                <div id="material-suggestions" class="dropdown-menu position-absolute w-100"
                                      style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
                             </div>
-                            <div class="invalid-feedback">
-                                Please specify the material.
+                            <div class="invalid-feedback{% if validation_errors and validation_errors.material %} d-block{% endif %}">
+                                {% if validation_errors and validation_errors.material %}
+                                    {{ validation_errors.material }}
+                                {% else %}
+                                    Please specify the material.
+                                {% endif %}
                             </div>
                             <small class="form-text text-muted">Start typing to see suggestions from your inventory</small>
                         </div>
