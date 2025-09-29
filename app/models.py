@@ -95,6 +95,7 @@ class ThreadSeries(Enum):
     UNC = "UNC"  # Unified National Coarse
     UNF = "UNF"  # Unified National Fine
     UNEF = "UNEF"  # Unified National Extra Fine
+    UNS = "UNS"  # Unified National Special
     METRIC = "Metric"
     BSW = "BSW"  # British Standard Whitworth
     BSF = "BSF"  # British Standard Fine
