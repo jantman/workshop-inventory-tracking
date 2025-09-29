@@ -223,30 +223,72 @@ def materials():
                 InventoryItem.active == True
             ).distinct().all()
 
-            # Find materials not in taxonomy
-            invalid_materials = []
+            # Find materials not in taxonomy and get their items
+            invalid_materials = {}
             for (material,) in used_materials:
                 if material and material not in valid_materials:
-                    # Count how many items use this material
-                    count = session.query(InventoryItem).filter(
+                    # Get all items with this material
+                    items = session.query(InventoryItem).filter(
                         InventoryItem.active == True,
                         InventoryItem.material == material
-                    ).count()
-                    invalid_materials.append((material, count))
+                    ).order_by(InventoryItem.ja_id.asc()).all()
+                    invalid_materials[material] = items
 
             # Display results
             if invalid_materials:
+                total_items = sum(len(items) for items in invalid_materials.values())
                 click.echo(f"\nFound {len(invalid_materials)} materials not in taxonomy:")
-                click.echo("=" * 60)
+                click.echo("=" * 80)
+                click.echo(f"Total items with invalid materials: {total_items}")
+                click.echo("=" * 80)
 
-                # Sort by count (descending) then by name
-                invalid_materials.sort(key=lambda x: (-x[1], x[0]))
+                # Sort materials by count (descending) then by name
+                sorted_materials = sorted(invalid_materials.items(),
+                                        key=lambda x: (-len(x[1]), x[0]))
 
-                for material, count in invalid_materials:
-                    click.echo(f"  {material:<40} ({count} items)")
+                for material, items in sorted_materials:
+                    click.echo(f"\n🔍 {material} ({len(items)} items)")
+                    click.echo("-" * 60)
 
-                click.echo("=" * 60)
-                click.echo(f"Total items with invalid materials: {sum(count for _, count in invalid_materials)}")
+                    for item in items:
+                        # Format item description (similar to locations command)
+                        desc_parts = []
+                        if item.item_type:
+                            desc_parts.append(item.item_type)
+                        if item.shape:
+                            desc_parts.append(item.shape)
+
+                        # Add dimensions if available
+                        dims = []
+                        if item.length:
+                            dims.append(f"L:{item.length}")
+                        if item.width:
+                            dims.append(f"W:{item.width}")
+                        if item.thickness:
+                            dims.append(f"T:{item.thickness}")
+                        if item.wall_thickness:
+                            dims.append(f"WT:{item.wall_thickness}")
+
+                        if dims:
+                            desc_parts.append(f"({', '.join(dims)})")
+
+                        description = " ".join(desc_parts) if desc_parts else "No description"
+
+                        # Truncate description if too long
+                        if len(description) > 50:
+                            description = description[:47] + "..."
+
+                        # Show location info
+                        location_info = ""
+                        if item.location:
+                            location_info = f" @ {item.location}"
+                            if item.sub_location:
+                                location_info += f"/{item.sub_location}"
+
+                        click.echo(f"  {item.ja_id:<10} {description:<50} {location_info}")
+
+                click.echo("\n" + "=" * 80)
+                click.echo("Audit complete")
             else:
                 click.echo("✓ All materials in inventory are present in the taxonomy")
 
