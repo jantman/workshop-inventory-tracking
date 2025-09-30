@@ -245,6 +245,10 @@ startxref
     @pytest.mark.unit
     def test_process_pdf_with_pymupdf(self, photo_service, sample_pdf_data):
         """Test PDF processing with PyMuPDF available"""
+        import sys
+        if sys.version_info >= (3, 13):
+            pytest.skip("PyMuPDF disabled on Python 3.13+ due to SWIG compatibility issues")
+
         with patch('app.photo_service.PDF_SUPPORT', True), \
              patch('app.photo_service.fitz') as mock_fitz:
             

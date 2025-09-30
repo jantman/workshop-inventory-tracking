@@ -18,13 +18,18 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-# PDF processing support
-try:
-    import fitz  # PyMuPDF
-    PDF_SUPPORT = True
-except ImportError:
+# PDF processing support - disabled on Python 3.13+ due to SWIG compatibility issues
+import sys
+if sys.version_info >= (3, 13):
     PDF_SUPPORT = False
-    logger.warning("PyMuPDF not available - PDF thumbnail generation will use fallback")
+    logger.warning("PyMuPDF disabled on Python 3.13+ - PDF thumbnail generation will use fallback")
+else:
+    try:
+        import fitz  # PyMuPDF
+        PDF_SUPPORT = True
+    except ImportError:
+        PDF_SUPPORT = False
+        logger.warning("PyMuPDF not available - PDF thumbnail generation will use fallback")
 
 class PhotoService:
     """Service for managing inventory item photos
