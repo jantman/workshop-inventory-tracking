@@ -34,7 +34,9 @@
       "mcp__github__get_pull_request",
       "mcp__github__get_pull_request_review_comments",
       "mcp__github__get_pull_request_reviews",
-      "mcp__github__add_comment_to_pending_review"
+      "mcp__github__add_comment_to_pending_review",
+      "Bash(pip show:*)",
+      "Bash(pip index versions:*)"
     ],
     "deny": [],
     "ask": []
