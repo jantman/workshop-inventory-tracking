@@ -228,12 +228,12 @@ class GoogleSheetsExportService:
     ) -> StorageResult:
         """
         Upload inventory export data to Google Sheets
-        
+
         Args:
-            headers: Inventory column headers (should be 27 columns)
+            headers: Inventory column headers (should be 28 columns)
             rows: Inventory data rows
             sheet_name: Target sheet name (defaults to Metal_Export)
-            
+
         Returns:
             StorageResult with upload details
         """

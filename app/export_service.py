@@ -498,8 +498,8 @@ class CombinedExportService:
         inv_headers = inv_data.get('headers', [])
         inv_rows = inv_data.get('rows', [])
         
-        if len(inv_headers) != 27:
-            issues.append(f"Inventory headers count mismatch: expected 27, got {len(inv_headers)}")
+        if len(inv_headers) != 28:
+            issues.append(f"Inventory headers count mismatch: expected 28, got {len(inv_headers)}")
         
         for i, row in enumerate(inv_rows):
             if len(row) != len(inv_headers):
