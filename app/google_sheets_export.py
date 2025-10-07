@@ -240,10 +240,10 @@ class GoogleSheetsExportService:
         logger.info(f"Uploading inventory export: {len(headers)} headers, {len(rows)} items")
         
         # Validate headers count
-        if len(headers) != 27:
+        if len(headers) != 28:
             return StorageResult(
                 success=False,
-                error=f"Invalid inventory headers count: expected 27, got {len(headers)}"
+                error=f"Invalid inventory headers count: expected 28, got {len(headers)}"
             )
         
         return self.upload_data_to_sheet(sheet_name, headers, rows, clear_existing=True)
