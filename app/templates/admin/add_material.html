@@ -53,7 +53,7 @@
                 </div>
                 <div class="card-body">
                     <form method="POST" id="add-material-form" novalidate>
-                        {{ csrf_token() }}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <input type="hidden" name="level" value="{{ level }}">
 
                         <!-- Name (Required) -->
