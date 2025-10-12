@@ -7,6 +7,7 @@ Provides command-line interface for database migrations and other administrative
 
 import os
 import sys
+import csv
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -189,9 +190,11 @@ def audit():
 
 
 @audit.command()
-def materials():
+@click.option('--csv', 'output_csv', type=click.Path(), help='Output results to CSV file')
+def materials(output_csv):
     """Audit items with materials not in the taxonomy"""
-    click.echo("Auditing materials...")
+    if not output_csv:
+        click.echo("Auditing materials...")
 
     try:
         from sqlalchemy import create_engine
@@ -234,63 +237,96 @@ def materials():
                     ).order_by(InventoryItem.ja_id.asc()).all()
                     invalid_materials[material] = items
 
-            # Display results
-            if invalid_materials:
+            # Output results
+            if output_csv:
+                # CSV output mode
+                with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    # Write header
+                    writer.writerow(['Material', 'JA_ID', 'Item_Type', 'Shape', 'Length',
+                                   'Width', 'Thickness', 'Wall_Thickness', 'Location', 'Sub_Location'])
+
+                    # Sort materials by count (descending) then by name
+                    sorted_materials = sorted(invalid_materials.items(),
+                                            key=lambda x: (-len(x[1]), x[0]))
+
+                    for material, items in sorted_materials:
+                        for item in items:
+                            writer.writerow([
+                                material,
+                                item.ja_id,
+                                item.item_type or '',
+                                item.shape or '',
+                                item.length or '',
+                                item.width or '',
+                                item.thickness or '',
+                                item.wall_thickness or '',
+                                item.location or '',
+                                item.sub_location or ''
+                            ])
+
                 total_items = sum(len(items) for items in invalid_materials.values())
-                click.echo(f"\nFound {len(invalid_materials)} materials not in taxonomy:")
-                click.echo("=" * 80)
+                click.echo(f"CSV output written to {output_csv}")
+                click.echo(f"Found {len(invalid_materials)} materials not in taxonomy")
                 click.echo(f"Total items with invalid materials: {total_items}")
-                click.echo("=" * 80)
-
-                # Sort materials by count (descending) then by name
-                sorted_materials = sorted(invalid_materials.items(),
-                                        key=lambda x: (-len(x[1]), x[0]))
-
-                for material, items in sorted_materials:
-                    click.echo(f"\n🔍 {material} ({len(items)} items)")
-                    click.echo("-" * 60)
-
-                    for item in items:
-                        # Format item description (similar to locations command)
-                        desc_parts = []
-                        if item.item_type:
-                            desc_parts.append(item.item_type)
-                        if item.shape:
-                            desc_parts.append(item.shape)
-
-                        # Add dimensions if available
-                        dims = []
-                        if item.length:
-                            dims.append(f"L:{item.length}")
-                        if item.width:
-                            dims.append(f"W:{item.width}")
-                        if item.thickness:
-                            dims.append(f"T:{item.thickness}")
-                        if item.wall_thickness:
-                            dims.append(f"WT:{item.wall_thickness}")
-
-                        if dims:
-                            desc_parts.append(f"({', '.join(dims)})")
-
-                        description = " ".join(desc_parts) if desc_parts else "No description"
-
-                        # Truncate description if too long
-                        if len(description) > 50:
-                            description = description[:47] + "..."
-
-                        # Show location info
-                        location_info = ""
-                        if item.location:
-                            location_info = f" @ {item.location}"
-                            if item.sub_location:
-                                location_info += f"/{item.sub_location}"
-
-                        click.echo(f"  {item.ja_id:<10} {description:<50} {location_info}")
-
-                click.echo("\n" + "=" * 80)
-                click.echo("Audit complete")
             else:
-                click.echo("✓ All materials in inventory are present in the taxonomy")
+                # Pretty print mode
+                if invalid_materials:
+                    total_items = sum(len(items) for items in invalid_materials.values())
+                    click.echo(f"\nFound {len(invalid_materials)} materials not in taxonomy:")
+                    click.echo("=" * 80)
+                    click.echo(f"Total items with invalid materials: {total_items}")
+                    click.echo("=" * 80)
+
+                    # Sort materials by count (descending) then by name
+                    sorted_materials = sorted(invalid_materials.items(),
+                                            key=lambda x: (-len(x[1]), x[0]))
+
+                    for material, items in sorted_materials:
+                        click.echo(f"\n🔍 {material} ({len(items)} items)")
+                        click.echo("-" * 60)
+
+                        for item in items:
+                            # Format item description (similar to locations command)
+                            desc_parts = []
+                            if item.item_type:
+                                desc_parts.append(item.item_type)
+                            if item.shape:
+                                desc_parts.append(item.shape)
+
+                            # Add dimensions if available
+                            dims = []
+                            if item.length:
+                                dims.append(f"L:{item.length}")
+                            if item.width:
+                                dims.append(f"W:{item.width}")
+                            if item.thickness:
+                                dims.append(f"T:{item.thickness}")
+                            if item.wall_thickness:
+                                dims.append(f"WT:{item.wall_thickness}")
+
+                            if dims:
+                                desc_parts.append(f"({', '.join(dims)})")
+
+                            description = " ".join(desc_parts) if desc_parts else "No description"
+
+                            # Truncate description if too long
+                            if len(description) > 50:
+                                description = description[:47] + "..."
+
+                            # Show location info
+                            location_info = ""
+                            if item.location:
+                                location_info = f" @ {item.location}"
+                                if item.sub_location:
+                                    location_info += f"/{item.sub_location}"
+
+                            click.echo(f"  {item.ja_id:<10} {description:<50} {location_info}")
+
+                    click.echo("\n" + "=" * 80)
+                    click.echo("Audit complete")
+                else:
+                    click.echo("✓ All materials in inventory are present in the taxonomy")
 
         finally:
             session.close()
@@ -304,9 +340,11 @@ def materials():
 
 
 @audit.command()
-def locations():
+@click.option('--csv', 'output_csv', type=click.Path(), help='Output results to CSV file')
+def locations(output_csv):
     """Generate a report of all locations and sub-locations with their items"""
-    click.echo("Generating locations report...")
+    if not output_csv:
+        click.echo("Generating locations report...")
 
     try:
         from sqlalchemy import create_engine
@@ -338,71 +376,116 @@ def locations():
                 sub_location = item.sub_location or "No Sub-location"
                 locations[location][sub_location].append(item)
 
-            # Display results
+            # Output results
             total_locations = len(locations)
             total_items = len(items)
 
-            click.echo(f"\nLocation Report")
-            click.echo("=" * 80)
-            click.echo(f"Total locations: {total_locations}")
-            click.echo(f"Total items: {total_items}")
-            click.echo("=" * 80)
+            if output_csv:
+                # CSV output mode
+                with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    # Write header
+                    writer.writerow(['Location', 'Sub_Location', 'JA_ID', 'Material', 'Item_Type',
+                                   'Shape', 'Length', 'Width', 'Thickness', 'Wall_Thickness'])
 
-            # Sort locations alphabetically, but put "No Location" last
-            sorted_locations = sorted(locations.keys())
-            if "No Location" in sorted_locations:
-                sorted_locations.remove("No Location")
-                sorted_locations.append("No Location")
+                    # Sort locations alphabetically, but put "No Location" last
+                    sorted_locations = sorted(locations.keys())
+                    if "No Location" in sorted_locations:
+                        sorted_locations.remove("No Location")
+                        sorted_locations.append("No Location")
 
-            for location in sorted_locations:
-                sub_locations = locations[location]
-                location_item_count = sum(len(items) for items in sub_locations.values())
+                    for location in sorted_locations:
+                        sub_locations = locations[location]
 
-                click.echo(f"\n📍 {location} ({location_item_count} items)")
-                click.echo("-" * 60)
+                        # Sort sub-locations alphabetically, but put "No Sub-location" last
+                        sorted_sub_locations = sorted(sub_locations.keys())
+                        if "No Sub-location" in sorted_sub_locations:
+                            sorted_sub_locations.remove("No Sub-location")
+                            sorted_sub_locations.append("No Sub-location")
 
-                # Sort sub-locations alphabetically, but put "No Sub-location" last
-                sorted_sub_locations = sorted(sub_locations.keys())
-                if "No Sub-location" in sorted_sub_locations:
-                    sorted_sub_locations.remove("No Sub-location")
-                    sorted_sub_locations.append("No Sub-location")
+                        for sub_location in sorted_sub_locations:
+                            items_in_subloc = sub_locations[sub_location]
 
-                for sub_location in sorted_sub_locations:
-                    items_in_subloc = sub_locations[sub_location]
-                    click.echo(f"  📂 {sub_location} ({len(items_in_subloc)} items)")
+                            for item in items_in_subloc:
+                                writer.writerow([
+                                    location,
+                                    sub_location,
+                                    item.ja_id,
+                                    item.material or '',
+                                    item.item_type or '',
+                                    item.shape or '',
+                                    item.length or '',
+                                    item.width or '',
+                                    item.thickness or '',
+                                    item.wall_thickness or ''
+                                ])
 
-                    for item in items_in_subloc:
-                        # Format item description
-                        desc_parts = [item.material]
-                        if item.item_type:
-                            desc_parts.append(item.item_type)
-                        if item.shape:
-                            desc_parts.append(item.shape)
+                click.echo(f"CSV output written to {output_csv}")
+                click.echo(f"Total locations: {total_locations}")
+                click.echo(f"Total items: {total_items}")
+            else:
+                # Pretty print mode
+                click.echo(f"\nLocation Report")
+                click.echo("=" * 80)
+                click.echo(f"Total locations: {total_locations}")
+                click.echo(f"Total items: {total_items}")
+                click.echo("=" * 80)
 
-                        # Add dimensions if available
-                        dims = []
-                        if item.length:
-                            dims.append(f"L:{item.length}")
-                        if item.width:
-                            dims.append(f"W:{item.width}")
-                        if item.thickness:
-                            dims.append(f"T:{item.thickness}")
-                        if item.wall_thickness:
-                            dims.append(f"WT:{item.wall_thickness}")
+                # Sort locations alphabetically, but put "No Location" last
+                sorted_locations = sorted(locations.keys())
+                if "No Location" in sorted_locations:
+                    sorted_locations.remove("No Location")
+                    sorted_locations.append("No Location")
 
-                        if dims:
-                            desc_parts.append(f"({', '.join(dims)})")
+                for location in sorted_locations:
+                    sub_locations = locations[location]
+                    location_item_count = sum(len(items) for items in sub_locations.values())
 
-                        description = " ".join(desc_parts)
+                    click.echo(f"\n📍 {location} ({location_item_count} items)")
+                    click.echo("-" * 60)
 
-                        # Truncate description if too long
-                        if len(description) > 60:
-                            description = description[:57] + "..."
+                    # Sort sub-locations alphabetically, but put "No Sub-location" last
+                    sorted_sub_locations = sorted(sub_locations.keys())
+                    if "No Sub-location" in sorted_sub_locations:
+                        sorted_sub_locations.remove("No Sub-location")
+                        sorted_sub_locations.append("No Sub-location")
 
-                        click.echo(f"    {item.ja_id:<10} {description}")
+                    for sub_location in sorted_sub_locations:
+                        items_in_subloc = sub_locations[sub_location]
+                        click.echo(f"  📂 {sub_location} ({len(items_in_subloc)} items)")
 
-            click.echo("\n" + "=" * 80)
-            click.echo("Report complete")
+                        for item in items_in_subloc:
+                            # Format item description
+                            desc_parts = [item.material]
+                            if item.item_type:
+                                desc_parts.append(item.item_type)
+                            if item.shape:
+                                desc_parts.append(item.shape)
+
+                            # Add dimensions if available
+                            dims = []
+                            if item.length:
+                                dims.append(f"L:{item.length}")
+                            if item.width:
+                                dims.append(f"W:{item.width}")
+                            if item.thickness:
+                                dims.append(f"T:{item.thickness}")
+                            if item.wall_thickness:
+                                dims.append(f"WT:{item.wall_thickness}")
+
+                            if dims:
+                                desc_parts.append(f"({', '.join(dims)})")
+
+                            description = " ".join(desc_parts)
+
+                            # Truncate description if too long
+                            if len(description) > 60:
+                                description = description[:57] + "..."
+
+                            click.echo(f"    {item.ja_id:<10} {description}")
+
+                click.echo("\n" + "=" * 80)
+                click.echo("Report complete")
 
         finally:
             session.close()
