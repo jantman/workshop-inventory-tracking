@@ -20,6 +20,7 @@ class SearchPage(BasePage):
     LOCATION_SEARCH = "#location"
     JA_ID_SEARCH = "#ja_id"
     NOTES_SEARCH = "#notes"
+    PRECISION_SEARCH = "#precision"
     LENGTH_MIN = "#length_min"
     LENGTH_MAX = "#length_max"
     DIAMETER_MIN = "#width_min"  # Using width as diameter equivalent
@@ -73,7 +74,17 @@ class SearchPage(BasePage):
         """Search for items by notes content"""
         self.fill_and_wait(self.NOTES_SEARCH, notes_text)
         self.click_search()
-    
+
+    def search_by_precision(self, precision_value: str):
+        """Search for items by precision filter
+
+        Args:
+            precision_value: "true" for precision items only, "false" for non-precision only, "" for all items
+        """
+        if self.is_visible(self.PRECISION_SEARCH):
+            self.page.select_option(self.PRECISION_SEARCH, precision_value)
+        self.click_search()
+
     def search_by_dimensions(self, length_min: str = None, length_max: str = None,
                            diameter_min: str = None, diameter_max: str = None):
         """Search for items by dimensional ranges"""
