@@ -176,6 +176,7 @@ class E2ETestServer:
                     quantity=item_data.get('quantity', 1),
                     location=item_data.get('location'),
                     notes=item_data.get('notes'),
+                    precision=item_data.get('precision', False),
                     active=item_data.get('active', True)
                 )
                 service.add_item(item)

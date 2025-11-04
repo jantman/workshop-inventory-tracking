@@ -278,7 +278,10 @@ class InventoryService:
             if 'shape' in filters and filters['shape']:
                 # Use enum property for better shape matching
                 query = query.filter(InventoryItem.shape == filters['shape'])
-            
+
+            if 'precision' in filters and filters['precision'] is not None:
+                query = query.filter(InventoryItem.precision == filters['precision'])
+
             if 'location' in filters and filters['location']:
                 query = query.filter(InventoryItem.location.ilike(f"%{filters['location']}%"))
             

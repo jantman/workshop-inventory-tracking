@@ -155,6 +155,9 @@ class AdvancedInventorySearch {
         if (searchData.active) {
             searchData.active = searchData.active === 'true';
         }
+        if (searchData.precision) {
+            searchData.precision = searchData.precision === 'true';
+        }
         if (searchData.material_exact) {
             searchData.material_exact = searchData.material_exact === 'true';
         }
