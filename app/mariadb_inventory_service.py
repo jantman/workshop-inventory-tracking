@@ -295,10 +295,17 @@ class InventoryService:
             # Width range filters
             if 'min_width' in filters and filters['min_width']:
                 query = query.filter(InventoryItem.width >= filters['min_width'])
-            
+
             if 'max_width' in filters and filters['max_width']:
                 query = query.filter(InventoryItem.width <= filters['max_width'])
-            
+
+            # Thickness range filters
+            if 'min_thickness' in filters and filters['min_thickness']:
+                query = query.filter(InventoryItem.thickness >= filters['min_thickness'])
+
+            if 'max_thickness' in filters and filters['max_thickness']:
+                query = query.filter(InventoryItem.thickness <= filters['max_thickness'])
+
             # Notes filtering
             if 'notes' in filters and filters['notes']:
                 query = query.filter(InventoryItem.notes.ilike(f"%{filters['notes']}%"))
