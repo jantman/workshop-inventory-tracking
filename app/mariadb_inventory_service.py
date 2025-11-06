@@ -94,7 +94,10 @@ class SearchFilter:
         # Handle text searches - add the search text directly to the field for LIKE searches
         for field, search_vals in self.text_searches.items():
             result[field] = search_vals['query']
-            
+            # Also pass the exact match flag if specified
+            if search_vals.get('exact'):
+                result[f'{field}_exact'] = True
+
         return result
     
     
@@ -260,16 +263,33 @@ class InventoryService:
         """
         try:
             session = self.Session()
-            
-            # Start with active items only
-            query = session.query(InventoryItem).filter(InventoryItem.active == True)
-            
+
+            # Start with all items, then apply active filter if specified
+            query = session.query(InventoryItem)
+
+            # Active/Inactive filter - apply if specified, otherwise default to active only
+            # Note: filters['active'] can be True, False, or not present
+            # Empty string from form is filtered out before reaching here
+            if 'active' in filters:
+                if filters['active'] is not None and filters['active'] != '':
+                    query = query.filter(InventoryItem.active == filters['active'])
+                # If filters['active'] is '' or None, don't filter by active (show all)
+            else:
+                # Default to active items only if not specified at all
+                query = query.filter(InventoryItem.active == True)
+
             # Apply filters using enum properties where applicable
             if 'ja_id' in filters and filters['ja_id']:
                 query = query.filter(InventoryItem.ja_id.ilike(f"%{filters['ja_id']}%"))
-            
+
+            # Material filter with exact match support
             if 'material' in filters and filters['material']:
-                query = query.filter(InventoryItem.material == filters['material'])
+                # Check if exact match is requested (stored in text_searches by SearchFilter)
+                material_exact = filters.get('material_exact', False)
+                if material_exact:
+                    query = query.filter(InventoryItem.material == filters['material'])
+                else:
+                    query = query.filter(InventoryItem.material.ilike(f"%{filters['material']}%"))
             
             if 'item_type' in filters and filters['item_type']:
                 # Use enum property for better type matching
@@ -305,6 +325,20 @@ class InventoryService:
 
             if 'max_thickness' in filters and filters['max_thickness']:
                 query = query.filter(InventoryItem.thickness <= filters['max_thickness'])
+
+            # Wall thickness range filters
+            if 'min_wall_thickness' in filters and filters['min_wall_thickness']:
+                query = query.filter(InventoryItem.wall_thickness >= filters['min_wall_thickness'])
+
+            if 'max_wall_thickness' in filters and filters['max_wall_thickness']:
+                query = query.filter(InventoryItem.wall_thickness <= filters['max_wall_thickness'])
+
+            # Thread filters
+            if 'thread_size' in filters and filters['thread_size']:
+                query = query.filter(InventoryItem.thread_size.ilike(f"%{filters['thread_size']}%"))
+
+            if 'thread_series' in filters and filters['thread_series']:
+                query = query.filter(InventoryItem.thread_series == filters['thread_series'])
 
             # Notes filtering
             if 'notes' in filters and filters['notes']:
@@ -753,7 +787,10 @@ class InventoryService:
             thread_series_str = item.thread_series
             thread_handedness_str = item.thread_handedness
             thread_size = item.thread_size
-            
+
+            # Debug: Check active attribute
+            logger.debug(f"Item {item.ja_id} has active={hasattr(item, 'active')}, value={item.active if hasattr(item, 'active') else 'N/A'}")
+
             # Create new database item
             new_db_item = InventoryItem(
                 ja_id=item.ja_id,
@@ -778,7 +815,7 @@ class InventoryService:
                 vendor=getattr(item, 'vendor', None),
                 vendor_part=getattr(item, 'vendor_part', None),
                 precision=getattr(item, 'precision', False),
-                active=True
+                active=item.active if hasattr(item, 'active') else True
             )
             
             session.add(new_db_item)

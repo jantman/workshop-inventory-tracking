@@ -29,6 +29,8 @@ class SearchPage(BasePage):
     WIDTH_MAX = "#width_max"
     THICKNESS_MIN = "#thickness_min"
     THICKNESS_MAX = "#thickness_max"
+    WALL_THICKNESS_MIN = "#wall_thickness_min"
+    WALL_THICKNESS_MAX = "#wall_thickness_max"
 
     # Search controls
     SEARCH_BUTTON = "button[type='submit']"
@@ -48,6 +50,18 @@ class SearchPage(BasePage):
     def search_by_material(self, material: str):
         """Search for items by material"""
         self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        self.click_search()
+
+    def search_by_material_with_match_type(self, material: str, exact: bool = False):
+        """Search for items by material with exact or contains matching
+
+        Args:
+            material: The material name to search for
+            exact: If True, use exact match; if False, use contains match (default)
+        """
+        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        if self.is_visible("#material_exact"):
+            self.page.select_option("#material_exact", "true" if exact else "false")
         self.click_search()
     
     def search_by_item_type(self, item_type: str):
@@ -85,6 +99,16 @@ class SearchPage(BasePage):
         """
         if self.is_visible(self.PRECISION_SEARCH):
             self.page.select_option(self.PRECISION_SEARCH, precision_value)
+        self.click_search()
+
+    def search_by_active_status(self, active_value: str):
+        """Search for items by active/inactive status
+
+        Args:
+            active_value: "true" for active items only, "false" for inactive only, "" for all items
+        """
+        if self.is_visible("#active"):
+            self.page.select_option("#active", active_value)
         self.click_search()
 
     def search_by_dimensions(self, length_min: str = None, length_max: str = None,
@@ -148,6 +172,45 @@ class SearchPage(BasePage):
         if thickness_max and self.is_visible(self.THICKNESS_MAX):
             self.fill_and_wait(self.THICKNESS_MAX, thickness_max)
 
+        self.click_search()
+
+    def search_by_length_range(self, length_min: str = None, length_max: str = None):
+        """Search for items by length range"""
+        if length_min and self.is_visible(self.LENGTH_MIN):
+            self.fill_and_wait(self.LENGTH_MIN, length_min)
+
+        if length_max and self.is_visible(self.LENGTH_MAX):
+            self.fill_and_wait(self.LENGTH_MAX, length_max)
+
+        self.click_search()
+
+    def search_by_wall_thickness_range(self, wall_thickness_min: str = None, wall_thickness_max: str = None):
+        """Search for items by wall thickness range"""
+        if wall_thickness_min and self.is_visible(self.WALL_THICKNESS_MIN):
+            self.fill_and_wait(self.WALL_THICKNESS_MIN, wall_thickness_min)
+
+        if wall_thickness_max and self.is_visible(self.WALL_THICKNESS_MAX):
+            self.fill_and_wait(self.WALL_THICKNESS_MAX, wall_thickness_max)
+
+        self.click_search()
+
+    def search_by_thread_size(self, thread_size: str):
+        """Search for items by thread size
+
+        Args:
+            thread_size: Thread size to search for (e.g., "1/4-20", "M6x1.0")
+        """
+        self.fill_and_wait("#thread_size", thread_size)
+        self.click_search()
+
+    def search_by_thread_series(self, thread_series: str):
+        """Search for items by thread series
+
+        Args:
+            thread_series: Thread series to search for (e.g., "UNC", "UNF", "Metric")
+        """
+        if self.is_visible("#thread_series"):
+            self.page.select_option("#thread_series", thread_series)
         self.click_search()
 
     def click_search(self):
