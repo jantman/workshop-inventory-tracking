@@ -27,7 +27,9 @@ class SearchPage(BasePage):
     DIAMETER_MAX = "#width_max"
     WIDTH_MIN = "#width_min"
     WIDTH_MAX = "#width_max"
-    
+    THICKNESS_MIN = "#thickness_min"
+    THICKNESS_MAX = "#thickness_max"
+
     # Search controls
     SEARCH_BUTTON = "button[type='submit']"
     CLEAR_BUTTON = "#clear-form-btn"
@@ -129,15 +131,25 @@ class SearchPage(BasePage):
         """Search for items by shape and width range"""
         if shape and self.is_visible(self.SHAPE_SEARCH):
             self.page.select_option(self.SHAPE_SEARCH, shape)
-        
+
         if width_min and self.is_visible(self.WIDTH_MIN):
             self.fill_and_wait(self.WIDTH_MIN, width_min)
-        
+
         if width_max and self.is_visible(self.WIDTH_MAX):
             self.fill_and_wait(self.WIDTH_MAX, width_max)
-        
+
         self.click_search()
-    
+
+    def search_by_thickness_range(self, thickness_min: str = None, thickness_max: str = None):
+        """Search for items by thickness range"""
+        if thickness_min and self.is_visible(self.THICKNESS_MIN):
+            self.fill_and_wait(self.THICKNESS_MIN, thickness_min)
+
+        if thickness_max and self.is_visible(self.THICKNESS_MAX):
+            self.fill_and_wait(self.THICKNESS_MAX, thickness_max)
+
+        self.click_search()
+
     def click_search(self):
         """Click the search button"""
         self.click_and_wait(self.SEARCH_BUTTON)
