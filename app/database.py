@@ -378,9 +378,15 @@ class InventoryItem(Base):
         
         # Set basic fields
         for field in ['ja_id', 'material', 'quantity', 'location', 'sub_location',
-                     'notes', 'vendor', 'vendor_part', 'original_material', 'original_thread']:
+                     'notes', 'vendor', 'original_material', 'original_thread']:
             if field in data and data[field] is not None:
                 setattr(item, field, data[field])
+
+        # Handle vendor_part - accept both vendor_part and vendor_part_number for compatibility
+        if 'vendor_part_number' in data and data['vendor_part_number'] is not None:
+            item.vendor_part = data['vendor_part_number']
+        elif 'vendor_part' in data and data['vendor_part'] is not None:
+            item.vendor_part = data['vendor_part']
         
         # Handle enum fields - prefer enum values, fall back to string values
         if 'item_type_enum' in data and data['item_type_enum']:
