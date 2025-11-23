@@ -607,7 +607,7 @@ class InventoryItem(Base):
             'purchase_location': self.purchase_location,
             'notes': self.notes,
             'vendor': self.vendor,
-            'vendor_part': self.vendor_part,
+            'vendor_part_number': self.vendor_part,  # Map database field vendor_part to API field vendor_part_number
             'original_material': self.original_material,
             'original_thread': self.original_thread,
             'precision': self.precision,

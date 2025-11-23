@@ -28,6 +28,7 @@ def test_view_item_modal_workflow(page, live_server):
         "sub_location": "Shelf 1",
         "purchase_price": "15.99",
         "vendor": "McMaster-Carr",
+        "vendor_part_number": "12345-ABC",
         "notes": "High quality stainless rod"
     }
 
@@ -40,6 +41,7 @@ def test_view_item_modal_workflow(page, live_server):
     page.fill("#sub_location", test_item["sub_location"])
     page.fill("#purchase_price", test_item["purchase_price"])
     page.fill("#vendor", test_item["vendor"])
+    page.fill("#vendor_part_number", test_item["vendor_part_number"])
     
     # Test precision checkbox - check it for this test item
     precision_checkbox = page.locator('#precision')
@@ -90,6 +92,7 @@ def test_view_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('Shelf 1')
     expect(modal_body).to_contain_text('$15.99')
     expect(modal_body).to_contain_text('McMaster-Carr')
+    expect(modal_body).to_contain_text('12345-ABC')  # Verify vendor part number is displayed
     expect(modal_body).to_contain_text('High quality stainless rod')
     
     # Verify precision field shows 'Yes' (since we checked the checkbox)
@@ -125,22 +128,24 @@ def test_edit_item_workflow(page, live_server):
     add_page.navigate()
     
     original_item = {
-        "ja_id": "JA102002", 
+        "ja_id": "JA102002",
         "item_type": "Plate",
         "shape": "Rectangular",
         "material": "Aluminum",
         "length": "10",
-        "width": "5", 
+        "width": "5",
         "thickness": "0.25",
         "location": "Storage B",
+        "vendor_part_number": "ALU-PLATE-001",
         "notes": "Original aluminum plate"
     }
     
     # Fill and submit the original item
-    add_page.fill_basic_item_data(original_item["ja_id"], original_item["item_type"], 
+    add_page.fill_basic_item_data(original_item["ja_id"], original_item["item_type"],
                                  original_item["shape"], original_item["material"])
     add_page.fill_dimensions(length=original_item["length"], width=original_item["width"])
     page.fill("#thickness", original_item["thickness"])
+    page.fill("#vendor_part_number", original_item["vendor_part_number"])
     add_page.fill_location_and_notes(location=original_item["location"], notes=original_item["notes"])
     add_page.submit_form()
     
@@ -191,7 +196,11 @@ def test_edit_item_workflow(page, live_server):
     
     notes_field = page.locator('#notes')
     expect(notes_field).to_have_value('Original aluminum plate')
-    
+
+    # Verify vendor part number is pre-populated in edit form
+    vendor_part_field = page.locator('#vendor_part_number')
+    expect(vendor_part_field).to_have_value('ALU-PLATE-001')
+
     # Check initial precision checkbox state (should be unchecked as default)
     precision_checkbox = page.locator('#precision')
     expect(precision_checkbox).to_be_visible()
@@ -207,7 +216,8 @@ def test_edit_item_workflow(page, live_server):
     width_field.fill('6')
     location_field.fill('Workshop C')
     notes_field.fill('Updated aluminum plate - now 6000 series alloy')
-    
+    vendor_part_field.fill('ALU-6000-SERIES-002')  # Update vendor part number
+
     # Check the precision checkbox as part of the edit
     # Wait for any dropdowns to close before interacting with checkbox
     page.wait_for_timeout(500)
@@ -253,6 +263,7 @@ def test_edit_item_workflow(page, live_server):
     expect(modal_body).to_contain_text('6"')  # updated width
     expect(modal_body).to_contain_text('Workshop C')
     expect(modal_body).to_contain_text('Updated aluminum plate - now 6000 series alloy')
+    expect(modal_body).to_contain_text('ALU-6000-SERIES-002')  # Verify updated vendor part number
     
     # Verify precision field shows 'Yes' after editing
     # First ensure the modal content is fully loaded
@@ -383,6 +394,7 @@ def test_view_threaded_item_modal_workflow(page, live_server):
         "sub_location": "Shelf 1",
         "purchase_price": "15.99",
         "vendor": "McMaster-Carr",
+        "vendor_part_number": "SS-THREAD-1/2-13",
         "notes": "High quality stainless threaded rod",
         "thread_series": "UNC",
         "thread_handedness": "RH",
@@ -403,6 +415,7 @@ def test_view_threaded_item_modal_workflow(page, live_server):
     page.fill("#sub_location", test_item["sub_location"])
     page.fill("#purchase_price", test_item["purchase_price"])
     page.fill("#vendor", test_item["vendor"])
+    page.fill("#vendor_part_number", test_item["vendor_part_number"])
 
     add_page.submit_form()
 
@@ -439,6 +452,7 @@ def test_view_threaded_item_modal_workflow(page, live_server):
     expect(modal_body).to_contain_text('Shelf 1')
     expect(modal_body).to_contain_text('$15.99')
     expect(modal_body).to_contain_text('McMaster-Carr')
+    expect(modal_body).to_contain_text('SS-THREAD-1/2-13')  # Verify vendor part number is displayed
     expect(modal_body).to_contain_text('High quality stainless threaded rod')
 
     # Verify thread information is displayed in modal (issue #14)

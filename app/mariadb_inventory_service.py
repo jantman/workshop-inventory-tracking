@@ -820,7 +820,7 @@ class InventoryService:
             
             session.add(new_db_item)
             session.commit()
-            
+
             # Log successful operation
             log_audit_operation('add_item_service', 'success',
                               item_id=item.ja_id,

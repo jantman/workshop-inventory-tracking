@@ -142,10 +142,10 @@ def inventory_add():
     try:
         # Get form data
         form_data = request.form.to_dict()
-        
+
         # AUDIT: Log input phase with complete form data
-        log_audit_operation('add_item', 'input', 
-                          item_id=form_data.get('ja_id'), 
+        log_audit_operation('add_item', 'input',
+                          item_id=form_data.get('ja_id'),
                           form_data=form_data)
         
         # Validate required fields
@@ -181,7 +181,7 @@ def inventory_add():
         
         # Parse form data into models
         item = _parse_item_from_form(form_data)
-        
+
         # Save to storage
         service = _get_inventory_service()
         storage = _get_storage_backend()

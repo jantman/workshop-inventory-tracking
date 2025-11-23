@@ -24,6 +24,7 @@ class AddItemPage(BasePage):
     THREAD_HANDEDNESS_SELECT = "#thread_handedness"
     LOCATION_INPUT = "#location"
     NOTES_INPUT = "#notes"
+    VENDOR_PART_NUMBER_INPUT = "#vendor_part_number"
     SUBMIT_BUTTON = "#submit-btn"  # Primary add button
     SUBMIT_AND_CONTINUE_BUTTON = "#submit-and-continue-btn"  # Secondary add & continue button
     CANCEL_BUTTON = ".btn-cancel"
