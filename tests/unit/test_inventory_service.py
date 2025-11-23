@@ -68,7 +68,8 @@ class TestSearchFilter:
         
         assert result is search_filter
         assert search_filter.filters['active'] is True
-        assert search_filter.filters['material'] == 'Steel'
+        assert search_filter.text_searches['material']['query'] == 'Steel'
+        assert search_filter.text_searches['material']['exact'] is True
         assert search_filter.filters['item_type'] == 'Bar'
         assert search_filter.filters['shape'] == 'Round'
         assert search_filter.filters['location'] == 'Storage A'

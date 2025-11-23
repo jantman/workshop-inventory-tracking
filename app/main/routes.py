@@ -1236,12 +1236,16 @@ def api_advanced_search():
                 }), 400
         
         # Active/inactive filter
-        if 'active' in data and data['active'] is not None and data['active'] != '':
-            if isinstance(data['active'], bool):
-                search_filter.add_exact_match('active', data['active'])
-            elif isinstance(data['active'], str):
-                search_filter.add_exact_match('active', data['active'].lower() == 'true')
-        # If active is empty string or not present, don't add active filter (show all items)
+        if 'active' in data:
+            if data['active'] == '':
+                # Empty string means show all items - add empty string to filters
+                search_filter.add_exact_match('active', '')
+            elif data['active'] is not None:
+                if isinstance(data['active'], bool):
+                    search_filter.add_exact_match('active', data['active'])
+                elif isinstance(data['active'], str):
+                    search_filter.add_exact_match('active', data['active'].lower() == 'true')
+        # If active is not present at all, search_active_items will default to active items only
         
         # Precision filter
         if 'precision' in data and data['precision'] is not None:

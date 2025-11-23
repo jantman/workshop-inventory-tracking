@@ -143,18 +143,22 @@ class AdvancedInventorySearch {
     collectSearchData() {
         const formData = new FormData(this.form);
         const searchData = {};
-        
+
         // Collect all form values
         for (let [key, value] of formData.entries()) {
-            if (value.trim()) {
+            // Special handling for active field - include empty string to mean "all items"
+            if (key === 'active') {
+                searchData[key] = value.trim();
+            } else if (value.trim()) {
                 searchData[key] = value.trim();
             }
         }
-        
-        // Convert boolean strings
-        if (searchData.active) {
+
+        // Convert boolean strings for active field
+        if (searchData.active && searchData.active !== '') {
             searchData.active = searchData.active === 'true';
         }
+        // If active is empty string, leave it as empty string to mean "show all items"
         if (searchData.precision) {
             searchData.precision = searchData.precision === 'true';
         }

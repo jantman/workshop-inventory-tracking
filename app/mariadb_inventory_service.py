@@ -54,8 +54,8 @@ class SearchFilter:
         return self.add_exact_match('active', True)
     
     def material(self, material: str) -> 'SearchFilter':
-        """Filter by material"""
-        return self.add_exact_match('material', material)
+        """Filter by material (exact match)"""
+        return self.add_text_search('material', material, exact=True)
     
     def item_type(self, item_type) -> 'SearchFilter':
         """Filter by item type"""
@@ -269,7 +269,7 @@ class InventoryService:
 
             # Active/Inactive filter - apply if specified, otherwise default to active only
             # Note: filters['active'] can be True, False, or not present
-            # Empty string from form is filtered out before reaching here
+            # Empty string from form means show all items
             if 'active' in filters:
                 if filters['active'] is not None and filters['active'] != '':
                     query = query.filter(InventoryItem.active == filters['active'])
@@ -842,7 +842,7 @@ class InventoryService:
                                   'purchase_date': getattr(item, 'purchase_date', None).isoformat() if getattr(item, 'purchase_date', None) else None,
                                   'purchase_price': float(getattr(item, 'purchase_price', 0)) if getattr(item, 'purchase_price', None) else None,
                                   'notes': getattr(item, 'notes', None),
-                                  'active': True
+                                  'active': item.active if hasattr(item, 'active') else True
                               },
                               logger_name='mariadb_inventory_service')
             
