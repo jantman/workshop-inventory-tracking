@@ -83,15 +83,14 @@ class InventoryExportSchema:
         "Thread Handedness", # 12
         "Thread Form",     # 13 (skip - not in database)
         "Thread Size",     # 14
-        "Quantity",        # 15
-        "Location",        # 16
-        "Sub-Location",    # 17
-        "Purchase Date",   # 18
-        "Purchase Price",  # 19
-        "Purchase Location", # 20
-        "Notes",           # 21
-        "Vendor",          # 22
-        "Vendor Part",     # 23
+        "Location",        # 15
+        "Sub-Location",    # 16
+        "Purchase Date",   # 17
+        "Purchase Price",  # 18
+        "Purchase Location", # 19
+        "Notes",           # 20
+        "Vendor",          # 21
+        "Vendor Part",     # 22
         "Original Material", # 24
         "Original Thread", # 25
         "Precision",       # 26  
@@ -127,15 +126,14 @@ class InventoryExportSchema:
             formatter.format_string(item.thread_handedness),         # 12. Thread Handedness
             "",                                                       # 13. Thread Form (not in DB)
             formatter.format_string(item.thread_size),               # 14. Thread Size
-            formatter.format_integer(item.quantity),                 # 15. Quantity
-            formatter.format_string(item.location),                  # 16. Location
-            formatter.format_string(item.sub_location),              # 17. Sub-Location
-            formatter.format_date(item.purchase_date),               # 18. Purchase Date
-            formatter.format_decimal(item.purchase_price, 2),        # 19. Purchase Price
-            formatter.format_string(item.purchase_location),         # 20. Purchase Location
-            formatter.format_string(item.notes),                     # 21. Notes
-            formatter.format_string(item.vendor),                    # 22. Vendor
-            formatter.format_string(item.vendor_part),               # 23. Vendor Part
+            formatter.format_string(item.location),                  # 15. Location
+            formatter.format_string(item.sub_location),              # 16. Sub-Location
+            formatter.format_date(item.purchase_date),               # 17. Purchase Date
+            formatter.format_decimal(item.purchase_price, 2),        # 18. Purchase Price
+            formatter.format_string(item.purchase_location),         # 19. Purchase Location
+            formatter.format_string(item.notes),                     # 20. Notes
+            formatter.format_string(item.vendor),                    # 21. Vendor
+            formatter.format_string(item.vendor_part),               # 22. Vendor Part
             formatter.format_string(item.original_material),         # 24. Original Material
             formatter.format_string(item.original_thread),           # 25. Original Thread
             formatter.format_boolean(item.precision),                # 26. Precision

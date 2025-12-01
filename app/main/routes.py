@@ -37,7 +37,6 @@ def _item_to_audit_dict(item):
         'material': item.material,
         'dimensions': item.dimensions.to_dict() if item.dimensions else None,
         'thread': item.thread.to_dict() if item.thread else None,
-        'quantity': item.quantity,
         'location': item.location,
         'sub_location': item.sub_location,
         'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
@@ -1156,7 +1155,6 @@ def api_inventory_list():
                 'material': item.material,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'thread': item.thread.to_dict() if item.thread else None,
-                'quantity': item.quantity,
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
@@ -1307,7 +1305,6 @@ def api_advanced_search():
                 'material': item.material,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'thread': item.thread.to_dict() if item.thread else None,
-                'quantity': item.quantity,
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
@@ -1455,14 +1452,7 @@ def _parse_item_from_form(form_data):
             item.thread_size = thread_size or None
         except Exception:
             raise ValueError(f"Invalid thread series or handedness: {thread_series_str}, {thread_handedness_str}")
-    
-    # Parse other fields
-    quantity = form_data.get('quantity', '1')
-    try:
-        item.quantity = int(quantity) if quantity else 1
-    except ValueError:
-        item.quantity = 1
-    
+
     # Set other fields
     item.location = form_data.get('location', '').strip() or None
     item.sub_location = form_data.get('sub_location', '').strip() or None
