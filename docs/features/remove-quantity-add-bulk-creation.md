@@ -522,11 +522,43 @@ Shortening history represents the lifecycle of a specific physical item. Duplica
 
 ## Progress Updates
 
-This section will be updated as implementation progresses.
+### ✅ Milestone 1: Database Migration and Quantity Removal - COMPLETED
+**Implementation Date**: 2025-12-01
+
+**Completed Tasks:**
+- **RQBC - 1.1**: ✅ Removed quantity column from InventoryItem database model
+- **RQBC - 1.2**: ✅ Generated and customized Alembic migration with item splitting logic
+- **RQBC - 1.3**: ✅ Removed quantity from service layer (MariaDB service and storage)
+- **RQBC - 1.4**: ✅ Removed quantity from all forms, templates, and JavaScript
+- **RQBC - 1.5**: ✅ Removed quantity from routes and export schemas
+
+**Implementation Details:**
+- Created migration `56dc95692b79_remove_quantity_field_and_split_multi_.py`
+- Migration splits items with quantity > 1 into individual items with sequential JA IDs
+- Migration adds explanatory notes to duplicated items
+- Removed quantity field from all code locations (model, services, forms, UI, routes, export)
+- Complete logging and summary output during migration
+- Downgrade includes warning about irreversibility
+
+**Files Modified:**
+- `app/database.py` - Removed quantity column and validation
+- `migrations/versions/56dc95692b79_remove_quantity_field_and_split_multi_.py` - Created
+- `app/mariadb_inventory_service.py` - Removed quantity handling
+- `app/mariadb_storage.py` - Removed quantity from headers and field lists
+- `app/templates/inventory/add.html` - Removed quantity input
+- `app/templates/inventory/edit.html` - Removed quantity input
+- `app/templates/inventory/shorten.html` - Removed quantity display
+- `app/static/js/inventory-list.js` - Removed quantity from detail popover
+- `app/static/js/inventory-shorten.js` - Removed quantity references
+- `app/static/js/inventory-add.js` - Removed quantity from field lists
+- `app/main/routes.py` - Removed quantity from serialization and form parsing
+- `app/export_schemas.py` - Removed quantity column from export
+
+**Migration Status**: Ready to run (will be applied during deployment)
 
 ---
 
-**Feature Status**: 📋 Planning Complete - Awaiting Approval
+**Feature Status**: 🚧 In Progress - Milestone 1 Complete, Moving to Milestone 2
 
 **Created**: 2025-12-01
 **Last Updated**: 2025-12-01
