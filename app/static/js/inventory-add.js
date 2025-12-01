@@ -555,7 +555,7 @@ class InventoryAddForm {
         
         // Fields to carry forward
         const carryFields = [
-            'item_type', 'shape', 'material', 'quantity',
+            'item_type', 'shape', 'material',
             'location', 'sub_location', 'vendor', 'purchase_location',
             'purchase_date', 'thread_series', 'thread_handedness', 'thread_size'
         ];
@@ -674,7 +674,7 @@ class InventoryAddForm {
         
         // Basic fields
         const basicFields = [
-            'ja_id', 'item_type', 'shape', 'material', 'quantity',
+            'ja_id', 'item_type', 'shape', 'material',
             'location', 'sub_location', 'notes', 'vendor', 'vendor_part_number',
             'purchase_location'
         ];
