@@ -59,7 +59,18 @@
                                 Please enter a valid JA ID (format: JA######)
                             </div>
                         </div>
-                        
+
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity_to_create" class="form-label">Quantity to Create</label>
+                            <input type="number" class="form-control" id="quantity_to_create" name="quantity_to_create"
+                                   value="1" min="1" max="100" step="1">
+                            <small class="form-text text-muted">Number of identical items to create (each with unique JA ID)</small>
+                            <div id="bulk-creation-info" class="alert alert-info mt-2 d-none" role="alert">
+                                <i class="bi bi-info-circle"></i>
+                                <span id="bulk-creation-message"></span>
+                            </div>
+                        </div>
+
                         <div class="col-md-4 mb-3">
                             <label for="item_type" class="form-label">Type *</label>
                             <select class="form-select" id="item_type" name="item_type" required>

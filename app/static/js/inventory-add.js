@@ -90,7 +90,17 @@ class InventoryAddForm {
             this.updateDimensionRequirements();
             this.updateWidthLabel();
         });
-        
+
+        // Quantity to create field
+        const quantityField = document.getElementById('quantity_to_create');
+        if (quantityField) {
+            quantityField.addEventListener('input', () => this.updateBulkCreationInfo());
+            quantityField.addEventListener('change', () => this.updateBulkCreationInfo());
+        }
+
+        // JA ID field changes should also update bulk creation info
+        document.getElementById('ja_id').addEventListener('input', () => this.updateBulkCreationInfo());
+
         // Barcode scan buttons
         document.getElementById('scan-ja-id-btn').addEventListener('click', () => {
             this.startBarcodeCapture('ja_id');
@@ -794,11 +804,53 @@ class InventoryAddForm {
         const formElements = this.form.querySelectorAll('input:not([type="hidden"]), select, textarea');
         const elementsArray = Array.from(formElements);
         const currentIndex = elementsArray.indexOf(currentField);
-        
+
         // Return next focusable element, or null if it's the last one
         return elementsArray[currentIndex + 1] || null;
     }
-    
+
+    updateBulkCreationInfo() {
+        const quantityField = document.getElementById('quantity_to_create');
+        const jaIdField = document.getElementById('ja_id');
+        const infoDiv = document.getElementById('bulk-creation-info');
+        const messageSpan = document.getElementById('bulk-creation-message');
+
+        if (!quantityField || !jaIdField || !infoDiv || !messageSpan) {
+            return;
+        }
+
+        const quantity = parseInt(quantityField.value) || 1;
+        const jaId = jaIdField.value.trim();
+
+        // Validate quantity range
+        if (quantity < 1) {
+            quantityField.value = 1;
+            infoDiv.classList.add('d-none');
+            return;
+        }
+        if (quantity > 100) {
+            quantityField.value = 100;
+            WorkshopInventory.utils.showToast('Maximum quantity is 100', 'warning');
+            return;
+        }
+
+        // Show info message if quantity > 1 and JA ID is valid
+        if (quantity > 1 && jaId.match(/^JA\d{6}$/)) {
+            // Calculate JA ID range (starting from current + 1 for the additional items)
+            const jaNum = parseInt(jaId.substring(2));
+            const firstNewId = `JA${String(jaNum + 1).padStart(6, '0')}`;
+            const lastNewId = `JA${String(jaNum + quantity - 1).padStart(6, '0')}`;
+
+            messageSpan.textContent = `This will create ${quantity} items: ${jaId} (original) and ${quantity - 1} copies (${firstNewId} - ${lastNewId})`;
+            infoDiv.classList.remove('d-none');
+        } else if (quantity > 1) {
+            messageSpan.textContent = `This will create ${quantity} items with sequential JA IDs`;
+            infoDiv.classList.remove('d-none');
+        } else {
+            infoDiv.classList.add('d-none');
+        }
+    }
+
     showFormErrors(errors) {
         const alertsDiv = document.getElementById('form-alerts');
         
