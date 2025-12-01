@@ -489,7 +489,6 @@ class InventoryService:
                 thread_series=current_db_item.thread_series,
                 thread_handedness=current_db_item.thread_handedness,
                 thread_size=current_db_item.thread_size,
-                quantity=1,  # Shortened items are always quantity 1
                 location=current_db_item.location,
                 sub_location=current_db_item.sub_location,
                 purchase_date=current_db_item.purchase_date,
@@ -657,7 +656,6 @@ class InventoryService:
                 'thickness': float(current_db_item.thickness) if current_db_item.thickness else None,
                 'wall_thickness': float(current_db_item.wall_thickness) if current_db_item.wall_thickness else None,
                 'weight': float(current_db_item.weight) if current_db_item.weight else None,
-                'quantity': current_db_item.quantity,
                 'location': current_db_item.location,
                 'sub_location': current_db_item.sub_location,
                 'thread_series': current_db_item.thread_series,
@@ -684,7 +682,6 @@ class InventoryService:
             current_db_item.thickness = item.dimensions.thickness
             current_db_item.wall_thickness = item.dimensions.wall_thickness
             current_db_item.weight = item.dimensions.weight
-            current_db_item.quantity = item.quantity
             current_db_item.location = item.location
             current_db_item.sub_location = item.sub_location
             current_db_item.thread_series = thread_series_value
@@ -715,7 +712,6 @@ class InventoryService:
                 'thickness': float(item.dimensions.thickness) if item.dimensions.thickness else None,
                 'wall_thickness': float(item.dimensions.wall_thickness) if item.dimensions.wall_thickness else None,
                 'weight': float(item.dimensions.weight) if item.dimensions.weight else None,
-                'quantity': item.quantity,
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'thread_series': thread_series_value,
@@ -805,7 +801,6 @@ class InventoryService:
                 thread_series=thread_series_str,
                 thread_handedness=thread_handedness_str,
                 thread_size=thread_size,
-                quantity=getattr(item, 'quantity', 1),
                 location=getattr(item, 'location', None),
                 sub_location=getattr(item, 'sub_location', None),
                 purchase_date=getattr(item, 'purchase_date', None),
@@ -837,7 +832,6 @@ class InventoryService:
                                   'thread_series': thread_series_str,
                                   'thread_handedness': thread_handedness_str,
                                   'thread_size': thread_size,
-                                  'quantity': getattr(item, 'quantity', 1),
                                   'location': getattr(item, 'location', None),
                                   'purchase_date': getattr(item, 'purchase_date', None).isoformat() if getattr(item, 'purchase_date', None) else None,
                                   'purchase_price': float(getattr(item, 'purchase_price', 0)) if getattr(item, 'purchase_price', None) else None,
