@@ -86,7 +86,7 @@ class BulkCreationPage(BasePage):
 @pytest.mark.e2e
 def test_single_item_creation_quantity_one(page, live_server):
     """Test creating a single item with quantity_to_create=1 (default behavior)"""
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     # Fill in item details
@@ -137,7 +137,7 @@ def test_single_item_creation_quantity_one(page, live_server):
 @pytest.mark.e2e
 def test_bulk_creation_five_items(page, live_server):
     """Test creating 5 identical items with sequential JA IDs"""
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     # Fill in item details
@@ -207,7 +207,7 @@ def test_bulk_creation_five_items(page, live_server):
 @pytest.mark.e2e
 def test_bulk_creation_field_copying_accuracy(page, live_server):
     """Test that all fields are copied accurately to each bulk-created item"""
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     # Fill in comprehensive item details including optional fields
@@ -262,7 +262,7 @@ def test_bulk_creation_field_copying_accuracy(page, live_server):
 @pytest.mark.e2e
 def test_bulk_creation_validation_limits(page, live_server):
     """Test that quantity validation enforces min=1, max=100"""
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     quantity_input = page.locator("#quantity_to_create")
@@ -310,7 +310,7 @@ def test_bulk_creation_ja_id_sequence(page, live_server):
         service.add_item(item)
 
     # Now use bulk creation to add 3 more
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     item_data = {
@@ -341,7 +341,7 @@ def test_bulk_creation_with_photos_not_duplicated(page, live_server):
     """Test that photos are NOT duplicated to bulk-created items"""
     # Photos are only uploaded on edit page, not add page
     # This test verifies that bulk-created items start with empty photo lists
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     item_data = {
@@ -372,7 +372,7 @@ def test_bulk_creation_with_photos_not_duplicated(page, live_server):
 @pytest.mark.e2e
 def test_bulk_label_printing_modal_content(page, live_server):
     """Test that bulk label printing modal shows correct information"""
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     item_data = {
@@ -415,7 +415,7 @@ def test_bulk_label_printing_modal_content(page, live_server):
 @pytest.mark.e2e
 def test_bulk_creation_preview_updates_dynamically(page, live_server):
     """Test that bulk creation preview updates when quantity changes"""
-    bulk_page = BulkCreationPage(page)
+    bulk_page = BulkCreationPage(page, live_server.url)
     bulk_page.navigate_to_add_page()
 
     # Fill minimal item details

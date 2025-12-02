@@ -100,7 +100,7 @@ def test_duplicate_button_visibility(page, live_server):
     service.add_item(item)
 
     # Navigate to edit page
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000100")
 
     # Verify duplicate button is visible
@@ -131,7 +131,7 @@ def test_duplicate_modal_opens_and_shows_item_info(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000101")
 
     # Click duplicate button
@@ -170,7 +170,7 @@ def test_duplicate_single_item(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000102")
 
     # Open modal and verify default quantity is 1
@@ -227,7 +227,7 @@ def test_duplicate_multiple_items(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000103")
 
     # Open modal and set quantity to 5
@@ -290,7 +290,7 @@ def test_duplicate_field_copying_comprehensive(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000104")
 
     # Create duplicate
@@ -337,7 +337,7 @@ def test_duplicate_photos_not_copied(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000105")
 
     # Create duplicate
@@ -378,7 +378,7 @@ def test_duplicate_history_not_copied(page, live_server):
     current = service.get_item("JA000106")
 
     # Navigate to edit page
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000106")
 
     # Create duplicate
@@ -413,7 +413,7 @@ def test_duplicate_with_unsaved_changes_save_option(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000107")
 
     # Make changes to the form (unsaved)
@@ -460,7 +460,7 @@ def test_duplicate_with_unsaved_changes_discard_option(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000108")
 
     # Make changes to the form (unsaved)
@@ -503,7 +503,7 @@ def test_duplicate_validation_limits(page, live_server):
     )
     service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000109")
 
     # Open modal
@@ -546,7 +546,7 @@ def test_duplicate_ja_id_sequence_from_existing(page, live_server):
         )
         service.add_item(item)
 
-    dup_page = DuplicateItemPage(page)
+    dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000112")
 
     # Create 3 duplicates
