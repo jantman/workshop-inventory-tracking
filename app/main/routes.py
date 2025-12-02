@@ -178,46 +178,157 @@ def inventory_add():
                 'error': error_msg
             }), 400
         
-        # Parse form data into models
-        item = _parse_item_from_form(form_data)
+        # Check for bulk creation (quantity_to_create > 1)
+        quantity_to_create = int(form_data.get('quantity_to_create', '1'))
 
-        # Save to storage
+        # Validate quantity range
+        if quantity_to_create < 1 or quantity_to_create > 100:
+            error_msg = 'Quantity to create must be between 1 and 100'
+            log_audit_operation('add_item', 'error',
+                              item_id=form_data.get('ja_id'),
+                              error_details=error_msg)
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 400
+
         service = _get_inventory_service()
         storage = _get_storage_backend()
-        
-        result = service.add_item(item)
-        
-        if result:
-            # AUDIT: Log successful add operation with item data
-            log_audit_operation('add_item', 'success', 
-                              item_id=item.ja_id, 
-                              item_after=_item_to_audit_dict(item))
-            
-            # All storage now uses MariaDB backend which writes directly to database
-            # No batching needed - InventoryService handles this internally
-            
-            flash('Item added successfully!', 'success')
-            
-            # Check submission type and log for carry forward debugging
-            submit_type = request.form.get('submit_type')
-            current_app.logger.info(f'Add item workflow: submit_type="{submit_type}" for item {item.ja_id}')
-            
-            if submit_type == 'continue':
-                current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {item.ja_id}')
-                # AUDIT: Log Add & Continue workflow for carry forward debugging
-                log_audit_operation('add_item', 'continue_workflow', 
-                                  item_id=item.ja_id)
-                return redirect(url_for('main.inventory_add'))
+
+        if quantity_to_create == 1:
+            # Single item creation (existing logic)
+            item = _parse_item_from_form(form_data)
+            result = service.add_item(item)
+
+            if result:
+                # AUDIT: Log successful add operation with item data
+                log_audit_operation('add_item', 'success',
+                                  item_id=item.ja_id,
+                                  item_after=_item_to_audit_dict(item))
+
+                flash('Item added successfully!', 'success')
+
+                # Check submission type
+                submit_type = request.form.get('submit_type')
+                current_app.logger.info(f'Add item workflow: submit_type="{submit_type}" for item {item.ja_id}')
+
+                if submit_type == 'continue':
+                    current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {item.ja_id}')
+                    log_audit_operation('add_item', 'continue_workflow',
+                                      item_id=item.ja_id)
+                    return redirect(url_for('main.inventory_add'))
+                else:
+                    current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {item.ja_id}')
+                    return redirect(url_for('main.inventory_list'))
             else:
-                current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {item.ja_id}')
-                return redirect(url_for('main.inventory_list'))
+                log_audit_operation('add_item', 'error',
+                                  item_id=form_data.get('ja_id'),
+                                  error_details='Service add_item returned False')
+                flash('Failed to add item. Please try again.', 'error')
+                return redirect(url_for('main.inventory_add'))
         else:
-            # AUDIT: Log failed add operation
-            log_audit_operation('add_item', 'error', 
-                              item_id=form_data.get('ja_id'), 
-                              error_details='Service add_item returned False')
-            flash('Failed to add item. Please try again.', 'error')
-            return redirect(url_for('main.inventory_add'))
+            # Bulk creation (quantity_to_create > 1)
+            current_app.logger.info(f'Bulk creation: Creating {quantity_to_create} items starting from {form_data.get("ja_id")}')
+
+            # Get next available JA IDs
+            all_items = service.get_all_items()
+            if all_items:
+                max_number = 0
+                for existing_item in all_items:
+                    ja_id = existing_item.ja_id
+                    if ja_id.startswith('JA') and len(ja_id) == 8:
+                        try:
+                            number = int(ja_id[2:])
+                            max_number = max(max_number, number)
+                        except ValueError:
+                            continue
+                next_number = max_number + 1
+            else:
+                next_number = 1
+
+            # Get the starting JA ID from form (user may have entered a specific one)
+            starting_ja_id = form_data.get('ja_id', '').strip()
+            if starting_ja_id and starting_ja_id.startswith('JA'):
+                try:
+                    starting_number = int(starting_ja_id[2:])
+                    # Use whichever is higher: user's choice or next available
+                    next_number = max(next_number, starting_number)
+                except ValueError:
+                    pass  # Use calculated next_number
+
+            created_ja_ids = []
+
+            # Create N items with sequential JA IDs
+            for i in range(quantity_to_create):
+                ja_id = f"JA{next_number:06d}"
+                next_number += 1
+
+                # Create a copy of form_data with the new JA ID
+                item_form_data = form_data.copy()
+                item_form_data['ja_id'] = ja_id
+
+                # Parse and create item
+                item = _parse_item_from_form(item_form_data)
+                result = service.add_item(item)
+
+                if result:
+                    created_ja_ids.append(ja_id)
+                    # AUDIT: Log each item creation
+                    log_audit_operation('add_item', 'success',
+                                      item_id=ja_id,
+                                      item_after=_item_to_audit_dict(item),
+                                      bulk_creation=True,
+                                      bulk_index=i+1,
+                                      bulk_total=quantity_to_create)
+                else:
+                    # If any item fails, log error but continue with others
+                    log_audit_operation('add_item', 'error',
+                                      item_id=ja_id,
+                                      error_details='Service add_item returned False',
+                                      bulk_creation=True,
+                                      bulk_index=i+1,
+                                      bulk_total=quantity_to_create)
+                    current_app.logger.error(f'Failed to create item {i+1}/{quantity_to_create}: {ja_id}')
+
+            if len(created_ja_ids) == quantity_to_create:
+                # All items created successfully
+                first_ja_id = created_ja_ids[0]
+                last_ja_id = created_ja_ids[-1]
+
+                current_app.logger.info(f'Bulk creation complete: Created {len(created_ja_ids)} items ({first_ja_id} - {last_ja_id})')
+
+                # Return JSON response for bulk creation
+                return jsonify({
+                    'success': True,
+                    'count': len(created_ja_ids),
+                    'ja_ids': created_ja_ids,
+                    'message': f'Successfully created {len(created_ja_ids)} items: {first_ja_id} - {last_ja_id}'
+                }), 200
+            elif len(created_ja_ids) > 0:
+                # Partial success
+                error_msg = f'Created {len(created_ja_ids)} of {quantity_to_create} items. Some items failed.'
+                log_audit_operation('add_item', 'error',
+                                  error_details=error_msg,
+                                  bulk_creation=True,
+                                  bulk_total=quantity_to_create,
+                                  bulk_succeeded=len(created_ja_ids))
+                return jsonify({
+                    'success': False,
+                    'count': len(created_ja_ids),
+                    'ja_ids': created_ja_ids,
+                    'error': error_msg
+                }), 500
+            else:
+                # Complete failure
+                error_msg = 'Failed to create any items'
+                log_audit_operation('add_item', 'error',
+                                  error_details=error_msg,
+                                  bulk_creation=True,
+                                  bulk_total=quantity_to_create)
+                return jsonify({
+                    'success': False,
+                    'error': error_msg
+                }), 500
             
     except ValueError as e:
         # AUDIT: Log validation exception
