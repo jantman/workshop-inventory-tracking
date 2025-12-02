@@ -62,7 +62,7 @@ class BulkCreationPage(BasePage):
 
     def is_bulk_label_modal_visible(self):
         """Check if bulk label printing modal is shown"""
-        modal = self.page.locator("#bulk-label-printing-modal")
+        modal = self.page.locator("#bulkLabelPrintingModal")
         return modal.is_visible()
 
     def get_modal_ja_ids(self):
@@ -393,7 +393,7 @@ def test_bulk_label_printing_modal_content(page, live_server):
     assert bulk_page.is_bulk_label_modal_visible()
 
     # Verify modal title
-    modal_title = page.locator("#bulk-label-printing-modal .modal-title")
+    modal_title = page.locator("#bulkLabelPrintingModal .modal-title")
     expect(modal_title).to_contain_text("4 Items Created Successfully")
 
     # Verify item list is shown
