@@ -898,6 +898,105 @@ class InventoryAddForm {
         }
     }
 
+    showBulkLabelPrintingModal() {
+        const modal = document.getElementById('bulkLabelPrintingModal');
+        if (!modal || !this.createdJaIds || this.createdJaIds.length === 0) {
+            return;
+        }
+
+        // Update summary
+        const summary = document.getElementById('bulk-creation-summary');
+        const firstId = this.createdJaIds[0];
+        const lastId = this.createdJaIds[this.createdJaIds.length - 1];
+        summary.textContent = `Created ${this.bulkCreationCount} items: ${firstId} - ${lastId}`;
+
+        // Reset modal state
+        document.getElementById('bulk-print-progress').classList.add('d-none');
+        document.getElementById('bulk-print-all-btn').classList.remove('d-none');
+        document.getElementById('bulk-print-done-btn').classList.add('d-none');
+        document.getElementById('bulk-print-skip').classList.remove('d-none');
+
+        // Setup print button handler
+        const printBtn = document.getElementById('bulk-print-all-btn');
+        printBtn.onclick = () => this.printAllLabels();
+
+        // Show modal
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+    }
+
+    async printAllLabels() {
+        const labelSize = document.getElementById('bulk-label-size').value;
+        const progressDiv = document.getElementById('bulk-print-progress');
+        const progressBar = document.getElementById('bulk-print-progress-bar');
+        const statusSpan = document.getElementById('bulk-print-status');
+        const errorsDiv = document.getElementById('bulk-print-errors');
+        const printBtn = document.getElementById('bulk-print-all-btn');
+        const doneBtn = document.getElementById('bulk-print-done-btn');
+        const skipBtn = document.getElementById('bulk-print-skip');
+
+        // Show progress
+        progressDiv.classList.remove('d-none');
+        printBtn.classList.add('d-none');
+        skipBtn.classList.add('d-none');
+
+        let successCount = 0;
+        let failureCount = 0;
+        const errors = [];
+
+        for (let i = 0; i < this.createdJaIds.length; i++) {
+            const jaId = this.createdJaIds[i];
+            const progress = Math.round(((i + 1) / this.createdJaIds.length) * 100);
+
+            statusSpan.textContent = `Printing ${i + 1} of ${this.createdJaIds.length}: ${jaId}`;
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
+
+            try {
+                const response = await fetch('/api/labels/print', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ja_id: jaId,
+                        label_size: labelSize
+                    })
+                });
+
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    failureCount++;
+                    errors.push(`${jaId}: ${response.statusText}`);
+                }
+            } catch (error) {
+                failureCount++;
+                errors.push(`${jaId}: ${error.message}`);
+            }
+        }
+
+        // Show results
+        if (failureCount > 0) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `
+                <strong>Warning:</strong> ${failureCount} label(s) failed to print:<br>
+                ${errors.map(e => `• ${e}`).join('<br>')}
+            `;
+        }
+
+        statusSpan.textContent = `Complete: ${successCount} printed, ${failureCount} failed`;
+        progressBar.classList.remove('progress-bar-animated');
+
+        // Show done button
+        doneBtn.classList.remove('d-none');
+
+        // Show success message
+        if (successCount > 0) {
+            WorkshopInventory.utils.showToast(`Printed ${successCount} label(s) successfully`, 'success');
+        }
+    }
+
     showFormErrors(errors) {
         const alertsDiv = document.getElementById('form-alerts');
         
