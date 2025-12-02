@@ -719,13 +719,164 @@ document.addEventListener('DOMContentLoaded', function() {
         invalidFeedbacks.forEach(feedback => {
             feedback.style.display = '';
         });
-        
+
         if (!form.checkValidity()) {
             event.preventDefault();
             event.stopPropagation();
         }
         form.classList.add('was-validated');
     });
+
+    // ===== DUPLICATE ITEM FUNCTIONALITY =====
+    const duplicateBtn = document.getElementById('duplicate-item-btn');
+    const duplicateModal = document.getElementById('duplicateItemModal');
+    const duplicateQuantity = document.getElementById('duplicate-quantity');
+    let originalFormData = {};
+    let currentItemData = {{ item | tojson }};
+
+    if (duplicateBtn && duplicateModal) {
+        // Store original form data on page load
+        const formData = new FormData(form);
+        for (let [key, value] of formData.entries()) {
+            originalFormData[key] = value;
+        }
+
+        // Duplicate button click handler
+        duplicateBtn.addEventListener('click', function() {
+            showDuplicateModal();
+        });
+
+        // Quantity change handler
+        duplicateQuantity.addEventListener('input', function() {
+            updateDuplicatePreview();
+        });
+
+        // Create duplicates button handler
+        document.getElementById('duplicate-create-btn').addEventListener('click', async function() {
+            await createDuplicates();
+        });
+
+        function showDuplicateModal() {
+            const jaId = duplicateBtn.dataset.jaId;
+
+            // Populate item details
+            document.getElementById('duplicate-source-ja-id').textContent = jaId;
+            document.getElementById('duplicate-item-display-name').textContent = currentItemData.display_name || jaId;
+            document.getElementById('duplicate-item-material').textContent = currentItemData.material || 'N/A';
+            document.getElementById('duplicate-item-type').textContent = currentItemData.item_type || 'N/A';
+            document.getElementById('duplicate-item-shape').textContent = currentItemData.shape || 'N/A';
+            document.getElementById('duplicate-item-location').textContent = currentItemData.location || 'N/A';
+
+            // Check for unsaved changes
+            const hasUnsavedChanges = checkForUnsavedChanges();
+            const warningDiv = document.getElementById('duplicate-unsaved-warning');
+            if (hasUnsavedChanges) {
+                warningDiv.classList.remove('d-none');
+            } else {
+                warningDiv.classList.add('d-none');
+            }
+
+            // Reset quantity and update preview
+            duplicateQuantity.value = 1;
+            updateDuplicatePreview();
+
+            // Show modal
+            const bsModal = new bootstrap.Modal(duplicateModal);
+            bsModal.show();
+        }
+
+        function checkForUnsavedChanges() {
+            const currentFormData = new FormData(form);
+            for (let [key, value] of currentFormData.entries()) {
+                if (originalFormData[key] !== value) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updateDuplicatePreview() {
+            const quantity = parseInt(duplicateQuantity.value) || 1;
+            const jaId = duplicateBtn.dataset.jaId;
+
+            // Calculate JA ID range
+            const jaNum = parseInt(jaId.substring(2));
+            const firstNewId = `JA${String(jaNum + 1).padStart(6, '0')}`;
+            const lastNewId = `JA${String(jaNum + quantity).padStart(6, '0')}`;
+
+            const previewMessage = document.getElementById('duplicate-preview-message');
+            if (quantity === 1) {
+                previewMessage.textContent = `This will create 1 copy: ${firstNewId}`;
+            } else {
+                previewMessage.textContent = `This will create ${quantity} copies with JA IDs: ${firstNewId} - ${lastNewId}`;
+            }
+        }
+
+        async function createDuplicates() {
+            const quantity = parseInt(duplicateQuantity.value) || 1;
+            const jaId = duplicateBtn.dataset.jaId;
+            const saveChanges = document.getElementById('duplicate-save-yes').checked;
+            const btn = document.getElementById('duplicate-create-btn');
+
+            // Disable button and show loading
+            const originalBtnHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+            btn.disabled = true;
+
+            try {
+                // Prepare request data
+                const requestData = {
+                    quantity: quantity,
+                    save_changes: saveChanges,
+                    updated_fields: {}
+                };
+
+                // If save_changes, collect updated fields
+                if (saveChanges) {
+                    const currentFormData = new FormData(form);
+                    for (let [key, value] of currentFormData.entries()) {
+                        if (originalFormData[key] !== value) {
+                            requestData.updated_fields[key] = value;
+                        }
+                    }
+                }
+
+                // Call duplicate API
+                const response = await fetch(`/api/items/${jaId}/duplicate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const data = await response.json();
+
+                // Reset button
+                btn.innerHTML = originalBtnHTML;
+                btn.disabled = false;
+
+                if (data.success) {
+                    // Close modal
+                    const bsModal = bootstrap.Modal.getInstance(duplicateModal);
+                    bsModal.hide();
+
+                    // Show success message
+                    WorkshopInventory.utils.showToast(data.message, 'success');
+
+                    // Optionally redirect to list or show created items
+                    console.log('Created duplicates:', data.ja_ids);
+                } else {
+                    WorkshopInventory.utils.showToast(data.error || 'Failed to create duplicates', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating duplicates:', error);
+                WorkshopInventory.utils.showToast('An error occurred. Please try again.', 'error');
+                btn.innerHTML = originalBtnHTML;
+                btn.disabled = false;
+            }
+        }
+    }
 });
 </script>
 <script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>
