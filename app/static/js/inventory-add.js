@@ -673,9 +673,56 @@ class InventoryAddForm {
         
         // Log submission type for debugging
         console.log(`Submit: Submitting form with type: ${continueAdding ? 'continue' : 'add'}`);
-        
-        // Submit form normally (not via API)
-        this.form.submit();
+
+        // Check if this is bulk creation (quantity > 1)
+        const quantityField = document.getElementById('quantity_to_create');
+        const quantity = quantityField ? parseInt(quantityField.value) : 1;
+
+        if (quantity > 1) {
+            // Use AJAX for bulk creation to handle JSON response
+            try {
+                const formData = new FormData(this.form);
+                const response = await fetch(this.form.action, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                // Reset button states
+                submitBtn.innerHTML = originalSubmitHTML;
+                continueBtn.innerHTML = originalContinueHTML;
+                submitBtn.disabled = false;
+                continueBtn.disabled = false;
+
+                if (data.success) {
+                    // Store created JA IDs for label printing
+                    this.createdJaIds = data.ja_ids;
+                    this.bulkCreationCount = data.count;
+
+                    // Show success message
+                    WorkshopInventory.utils.showToast(data.message, 'success');
+
+                    // Trigger bulk label printing modal (will be implemented in next task)
+                    this.showBulkLabelPrintingModal();
+                } else {
+                    // Show error message
+                    WorkshopInventory.utils.showToast(data.error || 'Failed to create items', 'error');
+                }
+            } catch (error) {
+                console.error('Error during bulk creation:', error);
+                WorkshopInventory.utils.showToast('An error occurred. Please try again.', 'error');
+
+                // Reset button states
+                submitBtn.innerHTML = originalSubmitHTML;
+                continueBtn.innerHTML = originalContinueHTML;
+                submitBtn.disabled = false;
+                continueBtn.disabled = false;
+            }
+        } else {
+            // Submit form normally for single item creation
+            this.form.submit();
+        }
     }
     
     collectFormData() {
