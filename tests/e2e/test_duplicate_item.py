@@ -64,7 +64,8 @@ class DuplicateItemPage(BasePage):
     def click_create_duplicates_button(self):
         """Click the create duplicates button in modal"""
         self.page.locator("#duplicate-create-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        # Wait for AJAX request to complete (this is not a page navigation)
+        self.page.wait_for_timeout(1000)
 
     def modify_item_field(self, field_id, value):
         """Modify a field to create unsaved changes"""
