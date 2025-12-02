@@ -51,7 +51,7 @@ class BulkCreationPage(BasePage):
 
     def submit_form(self):
         """Submit the add item form"""
-        self.page.locator("button[type='submit']").click()
+        self.page.locator("#submit-btn").click()
         self.page.wait_for_load_state("networkidle")
 
     def get_success_message(self):

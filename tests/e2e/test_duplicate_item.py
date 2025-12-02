@@ -25,7 +25,7 @@ class DuplicateItemPage(BasePage):
 
     def is_duplicate_modal_visible(self):
         """Check if duplicate modal is shown"""
-        modal = self.page.locator("#duplicate-item-modal")
+        modal = self.page.locator("#duplicateItemModal")
         return modal.is_visible()
 
     def get_duplicate_modal_ja_id(self):
@@ -63,7 +63,7 @@ class DuplicateItemPage(BasePage):
 
     def click_create_duplicates_button(self):
         """Click the create duplicates button in modal"""
-        self.page.locator("#create-duplicates-btn").click()
+        self.page.locator("#duplicate-create-btn").click()
         self.page.wait_for_load_state("networkidle")
 
     def modify_item_field(self, field_id, value):
@@ -144,7 +144,7 @@ def test_duplicate_modal_opens_and_shows_item_info(page, live_server):
     assert dup_page.get_duplicate_modal_ja_id() == "JA000101"
 
     # Verify item details are shown in modal
-    modal_content = page.locator("#duplicate-item-modal .modal-body").inner_text()
+    modal_content = page.locator("#duplicateItemModal .modal-body").inner_text()
     assert "Aluminum" in modal_content
     assert "Plate" in modal_content
     assert "Rectangular" in modal_content
