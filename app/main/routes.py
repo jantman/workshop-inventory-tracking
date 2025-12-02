@@ -512,7 +512,8 @@ def duplicate_item(ja_id):
             next_number += 1
 
             # Create duplicate item (copy all fields except JA ID, photos, history)
-            from app.models import InventoryItem, Dimensions
+            from app.database import InventoryItem
+            from app.models import Dimensions
             duplicate = InventoryItem()
 
             # Copy all basic fields
