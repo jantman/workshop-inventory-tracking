@@ -729,4 +729,76 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 <script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>
+
+<!-- Duplicate Item Modal -->
+<div class="modal fade" id="duplicateItemModal" tabindex="-1" aria-labelledby="duplicateItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="duplicateItemModalLabel">
+                    <i class="bi bi-files"></i> Duplicate Item <span id="duplicate-source-ja-id"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Item Summary -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">Source Item Details</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Display Name:</strong> <span id="duplicate-item-display-name"></span><br>
+                                <strong>Material:</strong> <span id="duplicate-item-material"></span><br>
+                                <strong>Type:</strong> <span id="duplicate-item-type"></span>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Shape:</strong> <span id="duplicate-item-shape"></span><br>
+                                <strong>Location:</strong> <span id="duplicate-item-location"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unsaved Changes Warning -->
+                <div id="duplicate-unsaved-warning" class="alert alert-warning d-none" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>You have unsaved changes!</strong>
+                    <p class="mb-2">Choose an option:</p>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="duplicate_save_option" id="duplicate-save-yes" value="save" checked>
+                        <label class="form-check-label" for="duplicate-save-yes">
+                            Save changes and duplicate
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="duplicate_save_option" id="duplicate-save-no" value="discard">
+                        <label class="form-check-label" for="duplicate-save-no">
+                            Discard changes and duplicate current database version
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Quantity Input -->
+                <div class="mb-3">
+                    <label for="duplicate-quantity" class="form-label">Number of Copies to Create</label>
+                    <input type="number" class="form-control" id="duplicate-quantity" min="1" max="100" value="1">
+                    <small class="form-text text-muted">Create 1-100 copies (min: 1, max: 100)</small>
+                </div>
+
+                <!-- Preview -->
+                <div id="duplicate-preview" class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <span id="duplicate-preview-message"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="duplicate-create-btn">
+                    <i class="bi bi-files"></i> Create Duplicates
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
