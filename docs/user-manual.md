@@ -42,7 +42,7 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 - **Threading Details**: Series, handedness, size, form
 - **Location Tracking**: Current location and sub-location
 - **Purchase Information**: Date, price, vendor details
-- **Status**: Active/inactive, quantity available
+- **Status**: Active/inactive status for each item
 
 ## Adding New Inventory
 
@@ -88,13 +88,38 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 
 ### Streamlined Data Entry
 
+#### Bulk Creation ("Quantity to Create")
+The **Quantity to Create** field allows you to create multiple identical items with sequential JA IDs in a single form submission. This is ideal when you have multiple pieces of the same material that need individual tracking.
+
+**How to use:**
+1. Fill out the add item form completely with all item details
+2. Set **Quantity to Create** to the number of items you want (1-100)
+   - Default is 1 (single item)
+   - For multiple items, a preview shows the JA ID range that will be created
+3. Submit the form
+4. For bulk creation (quantity > 1):
+   - A modal appears showing all created JA IDs
+   - You can print labels for all items from the modal
+   - All items are identical except for their unique JA IDs
+
+**What gets copied:**
+- ALL fields: type, shape, material, dimensions, location, notes, vendor info, etc.
+- Sequential JA IDs are automatically assigned starting from the next available number
+
+**What doesn't get copied:**
+- Photos (each item starts with no photos)
+- History (each item is a fresh record)
+
+**Example use case:**
+You receive 10 identical steel bars from a supplier. Instead of creating 10 separate entries, fill out the form once with all details and set "Quantity to Create" to 10. The system creates JA000001 through JA000010 (or whatever the next available numbers are) with identical specifications.
+
 #### Carry Forward Button
 The **Carry Forward** button (located in the top-right header) allows you to copy common field values from the previously added item into the current form. This is useful when adding multiple similar items.
 
 **Fields copied forward:**
-- Type, Shape, Material, Quantity
+- Type, Shape, Material
 - Location and Sub-Location
-- Vendor and Purchase Location  
+- Vendor and Purchase Location
 - Thread Series and Handedness
 
 **Fields NOT copied (remain blank):**
@@ -202,8 +227,36 @@ Flag mode creates labels with rotated barcodes at both ends, making them easier 
 3. **Item Details**: Click any item to view complete information
 
 ### Updating Items
-- Currently done through Google Sheets directly
-- Future versions will include web-based editing
+- Edit items directly through the web interface
+- Navigate to any item's edit page from inventory list or search results
+- All fields can be updated except JA ID (which identifies the item)
+
+### Duplicating Items
+The **Duplicate** button on the edit page allows you to create copies of existing items with new sequential JA IDs. This is useful when you acquire more of the same item.
+
+**How to use:**
+1. Navigate to the edit page for the item you want to duplicate
+2. Click the **Duplicate Item** button in the page header
+3. In the modal that appears:
+   - View a summary of the item being duplicated
+   - Set the quantity (1-100) of duplicates to create
+   - Preview shows the JA ID range that will be created
+4. If you have unsaved changes on the edit form:
+   - Choose whether to **Save changes** (apply edits to source and duplicates) or **Discard changes** (use original values)
+5. Click **Create Duplicates**
+6. Success message confirms creation
+
+**What gets duplicated:**
+- ALL fields: type, shape, material, dimensions, threading, location, vendor info, notes, etc.
+- Sequential JA IDs are automatically assigned
+
+**What doesn't get duplicated:**
+- Photos (duplicates start with no photos)
+- History (duplicates have no modification history)
+- Timestamps (duplicates get current date/time)
+
+**Example use case:**
+You have an item JA000050 (a 36" steel bar) and acquire 5 more identical bars. Open JA000050's edit page, click Duplicate, set quantity to 5, and create. The system creates JA000051 through JA000055 with identical specifications.
 
 ### Item Status
 - **Active**: Available for use
