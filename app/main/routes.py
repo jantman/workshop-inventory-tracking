@@ -454,6 +454,163 @@ def inventory_edit(ja_id):
         flash('An error occurred while updating the item. Please try again.', 'error')
         return redirect(url_for('main.inventory_list'))
 
+@bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])
+def duplicate_item(ja_id):
+    """Duplicate an inventory item N times with sequential JA IDs"""
+    try:
+        # Get JSON request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+        quantity = data.get('quantity', 1)
+        save_changes = data.get('save_changes', False)
+        updated_fields = data.get('updated_fields', {})
+
+        # Validate quantity
+        if not isinstance(quantity, int) or quantity < 1 or quantity > 100:
+            return jsonify({'success': False, 'error': 'Quantity must be between 1 and 100'}), 400
+
+        service = _get_inventory_service()
+
+        # Get the source item
+        source_item = service.get_item(ja_id)
+        if not source_item:
+            return jsonify({'success': False, 'error': f'Item {ja_id} not found'}), 404
+
+        # If save_changes is True, update the source item first
+        if save_changes and updated_fields:
+            # Update source item with changed fields
+            for field, value in updated_fields.items():
+                if hasattr(source_item, field):
+                    setattr(source_item, field, value)
+            service.update_item(source_item)
+            # Reload the item to get fresh data
+            source_item = service.get_item(ja_id)
+
+        # Get next available JA IDs
+        all_items = service.get_all_items()
+        if all_items:
+            max_number = 0
+            for existing_item in all_items:
+                existing_ja_id = existing_item.ja_id
+                if existing_ja_id.startswith('JA') and len(existing_ja_id) == 8:
+                    try:
+                        number = int(existing_ja_id[2:])
+                        max_number = max(max_number, number)
+                    except ValueError:
+                        continue
+            next_number = max_number + 1
+        else:
+            next_number = 1
+
+        created_ja_ids = []
+
+        # Create N duplicates with sequential JA IDs
+        for i in range(quantity):
+            new_ja_id = f"JA{next_number:06d}"
+            next_number += 1
+
+            # Create duplicate item (copy all fields except JA ID, photos, history)
+            from app.models import InventoryItem, Dimensions
+            duplicate = InventoryItem()
+
+            # Copy all basic fields
+            duplicate.ja_id = new_ja_id
+            duplicate.item_type = source_item.item_type
+            duplicate.shape = source_item.shape
+            duplicate.material = source_item.material
+
+            # Copy dimensions
+            if source_item.dimensions:
+                duplicate.dimensions = Dimensions(
+                    length=source_item.dimensions.length,
+                    width=source_item.dimensions.width,
+                    thickness=source_item.dimensions.thickness,
+                    wall_thickness=source_item.dimensions.wall_thickness,
+                    weight=source_item.dimensions.weight
+                )
+
+            # Copy thread info
+            if source_item.thread:
+                duplicate.thread_series = source_item.thread.series
+                duplicate.thread_handedness = source_item.thread.handedness
+                duplicate.thread_size = source_item.thread.size
+
+            # Copy location
+            duplicate.location = source_item.location
+            duplicate.sub_location = source_item.sub_location
+
+            # Copy purchase info
+            duplicate.purchase_date = source_item.purchase_date
+            duplicate.purchase_price = source_item.purchase_price
+            duplicate.purchase_location = source_item.purchase_location
+            duplicate.vendor = source_item.vendor
+            duplicate.vendor_part = source_item.vendor_part
+
+            # Copy notes
+            duplicate.notes = source_item.notes
+
+            # Copy original material/thread
+            duplicate.original_material = source_item.original_material
+            duplicate.original_thread = source_item.original_thread
+
+            # Set precision flag
+            duplicate.precision = source_item.precision if hasattr(source_item, 'precision') else False
+
+            # Set as active
+            duplicate.active = True
+
+            # Add the duplicate
+            result = service.add_item(duplicate)
+
+            if result:
+                created_ja_ids.append(new_ja_id)
+                # AUDIT: Log duplication
+                log_audit_operation('duplicate_item', 'success',
+                                  item_id=new_ja_id,
+                                  item_after=_item_to_audit_dict(duplicate),
+                                  source_ja_id=ja_id,
+                                  duplicate_index=i+1,
+                                  duplicate_total=quantity)
+            else:
+                log_audit_operation('duplicate_item', 'error',
+                                  item_id=new_ja_id,
+                                  error_details='Service add_item returned False',
+                                  source_ja_id=ja_id,
+                                  duplicate_index=i+1,
+                                  duplicate_total=quantity)
+
+        # Return results
+        if len(created_ja_ids) == quantity:
+            first_id = created_ja_ids[0]
+            last_id = created_ja_ids[-1]
+            return jsonify({
+                'success': True,
+                'count': len(created_ja_ids),
+                'ja_ids': created_ja_ids,
+                'message': f'Created {len(created_ja_ids)} duplicates: {first_id} - {last_id}'
+            }), 200
+        elif len(created_ja_ids) > 0:
+            return jsonify({
+                'success': False,
+                'count': len(created_ja_ids),
+                'ja_ids': created_ja_ids,
+                'error': f'Created {len(created_ja_ids)} of {quantity} duplicates. Some failed.'
+            }), 500
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create any duplicates'
+            }), 500
+
+    except Exception as e:
+        current_app.logger.error(f'Error duplicating item {ja_id}: {e}\n{traceback.format_exc()}')
+        return jsonify({
+            'success': False,
+            'error': f'Server error: {str(e)}'
+        }), 500
+
 @bp.route('/inventory/view/<ja_id>')
 def inventory_view(ja_id):
     """View inventory item details (JSON API for modal)"""
