@@ -732,7 +732,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const duplicateModal = document.getElementById('duplicateItemModal');
     const duplicateQuantity = document.getElementById('duplicate-quantity');
     let originalFormData = {};
-    let currentItemData = {{ item | tojson }};
+    let currentItemData = {{ item.to_dict_enhanced() | tojson }};
 
     if (duplicateBtn && duplicateModal) {
         // Store original form data on page load
