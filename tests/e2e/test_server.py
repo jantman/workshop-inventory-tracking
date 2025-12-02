@@ -173,7 +173,6 @@ class E2ETestServer:
                     thickness=dimensions_data.get('thickness') if dimensions_data else None,
                     wall_thickness=dimensions_data.get('wall_thickness') if dimensions_data else None,
                     weight=dimensions_data.get('weight') if dimensions_data else None,
-                    quantity=item_data.get('quantity', 1),
                     location=item_data.get('location'),
                     notes=item_data.get('notes'),
                     precision=item_data.get('precision', False),

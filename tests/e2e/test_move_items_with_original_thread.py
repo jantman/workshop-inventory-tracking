@@ -67,8 +67,7 @@ def add_item_with_original_thread(live_server, ja_id, original_thread_value):
             material="Steel",
             length=1000.0,
             width=25.0,
-            quantity=1,
-            location="Test Location A",
+                location="Test Location A",
             notes="Test item with original_thread",
             original_thread=original_thread_value,  # This is the key field
             active=True

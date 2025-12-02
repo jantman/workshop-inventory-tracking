@@ -256,7 +256,6 @@ def test_complete_shortening_workflow(page, live_server):
         length=600,  # Store as float
         width=50,    # Store as float
         thickness=1, # Store as float
-        quantity=1,  # Required field
         location="Storage Bay 1",
         notes="Test bar for complete shortening workflow",
         active=True
@@ -434,7 +433,6 @@ def test_keep_same_id_workflow(page, live_server):
         length=240,     # Store as float
         width=120,      # Store as float
         thickness=0.25, # Store as float
-        quantity=1,     # Required field
         location="Table A",
         notes="Test plate for keep-same-ID workflow",
         active=True

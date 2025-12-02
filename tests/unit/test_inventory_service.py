@@ -98,7 +98,6 @@ class TestInventoryService:
             material='Steel',
             length=1000,      # Store as float
             width=25,         # Store as float
-            quantity=1,       # Add required quantity field
             location='Storage A',
             notes='Test item',
             active=True,
@@ -115,7 +114,6 @@ class TestInventoryService:
             material='Stainless Steel',
             length=500,                # Store as float
             width=12,                  # Store as float
-            quantity=1,                # Add required quantity field
             thread_series='METRIC',    # Store thread info as separate fields
             thread_handedness='RH',
             thread_size='M12x1.5',
@@ -401,7 +399,6 @@ class TestInventoryService:
             material='Aluminum',
             length=200,
             width=10,
-            quantity=1,
             location='Storage A',
             notes='Cache test item',
             active=True,
