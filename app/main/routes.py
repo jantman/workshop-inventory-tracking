@@ -571,16 +571,20 @@ def duplicate_item(ja_id):
                 log_audit_operation('duplicate_item', 'success',
                                   item_id=new_ja_id,
                                   item_after=_item_to_audit_dict(duplicate),
-                                  source_ja_id=ja_id,
-                                  duplicate_index=i+1,
-                                  duplicate_total=quantity)
+                                  form_data={
+                                      'source_ja_id': ja_id,
+                                      'duplicate_index': i+1,
+                                      'duplicate_total': quantity
+                                  })
             else:
                 log_audit_operation('duplicate_item', 'error',
                                   item_id=new_ja_id,
                                   error_details='Service add_item returned False',
-                                  source_ja_id=ja_id,
-                                  duplicate_index=i+1,
-                                  duplicate_total=quantity)
+                                  form_data={
+                                      'source_ja_id': ja_id,
+                                      'duplicate_index': i+1,
+                                      'duplicate_total': quantity
+                                  })
 
         # Return results
         if len(created_ja_ids) == quantity:
