@@ -594,7 +594,7 @@ def duplicate_item(ja_id):
                 'success': True,
                 'count': len(created_ja_ids),
                 'ja_ids': created_ja_ids,
-                'message': f'Created {len(created_ja_ids)} duplicates: {first_id} - {last_id}'
+                'message': f'Successfully created {len(created_ja_ids)} duplicate(s): {first_id} - {last_id}'
             }), 200
         elif len(created_ja_ids) > 0:
             return jsonify({
