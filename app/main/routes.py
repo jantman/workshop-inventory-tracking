@@ -180,6 +180,7 @@ def inventory_add():
         
         # Check for bulk creation (quantity_to_create > 1)
         quantity_to_create = int(form_data.get('quantity_to_create', '1'))
+        current_app.logger.info(f'Add item: quantity_to_create={quantity_to_create} from form_data')
 
         # Validate quantity range
         if quantity_to_create < 1 or quantity_to_create > 100:
@@ -277,17 +278,21 @@ def inventory_add():
                     log_audit_operation('add_item', 'success',
                                       item_id=ja_id,
                                       item_after=_item_to_audit_dict(item),
-                                      bulk_creation=True,
-                                      bulk_index=i+1,
-                                      bulk_total=quantity_to_create)
+                                      form_data={
+                                          'bulk_creation': True,
+                                          'bulk_index': i+1,
+                                          'bulk_total': quantity_to_create
+                                      })
                 else:
                     # If any item fails, log error but continue with others
                     log_audit_operation('add_item', 'error',
                                       item_id=ja_id,
                                       error_details='Service add_item returned False',
-                                      bulk_creation=True,
-                                      bulk_index=i+1,
-                                      bulk_total=quantity_to_create)
+                                      form_data={
+                                          'bulk_creation': True,
+                                          'bulk_index': i+1,
+                                          'bulk_total': quantity_to_create
+                                      })
                     current_app.logger.error(f'Failed to create item {i+1}/{quantity_to_create}: {ja_id}')
 
             if len(created_ja_ids) == quantity_to_create:
@@ -309,9 +314,11 @@ def inventory_add():
                 error_msg = f'Created {len(created_ja_ids)} of {quantity_to_create} items. Some items failed.'
                 log_audit_operation('add_item', 'error',
                                   error_details=error_msg,
-                                  bulk_creation=True,
-                                  bulk_total=quantity_to_create,
-                                  bulk_succeeded=len(created_ja_ids))
+                                  form_data={
+                                      'bulk_creation': True,
+                                      'bulk_total': quantity_to_create,
+                                      'bulk_succeeded': len(created_ja_ids)
+                                  })
                 return jsonify({
                     'success': False,
                     'count': len(created_ja_ids),
@@ -323,8 +330,10 @@ def inventory_add():
                 error_msg = 'Failed to create any items'
                 log_audit_operation('add_item', 'error',
                                   error_details=error_msg,
-                                  bulk_creation=True,
-                                  bulk_total=quantity_to_create)
+                                  form_data={
+                                      'bulk_creation': True,
+                                      'bulk_total': quantity_to_create
+                                  })
                 return jsonify({
                     'success': False,
                     'error': error_msg

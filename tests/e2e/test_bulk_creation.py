@@ -52,7 +52,8 @@ class BulkCreationPage(BasePage):
     def submit_form(self):
         """Submit the add item form"""
         self.page.locator("#submit-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        # For bulk creation (AJAX), wait a moment for the request to complete
+        self.page.wait_for_timeout(2000)
 
     def get_success_message(self):
         """Get success message text"""

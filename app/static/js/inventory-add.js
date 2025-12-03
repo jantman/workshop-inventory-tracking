@@ -677,8 +677,10 @@ class InventoryAddForm {
         // Check if this is bulk creation (quantity > 1)
         const quantityField = document.getElementById('quantity_to_create');
         const quantity = quantityField ? parseInt(quantityField.value) : 1;
+        console.log(`Submit: Detected quantity=${quantity} from field value="${quantityField?.value}"`);
 
         if (quantity > 1) {
+            console.log(`Submit: Using AJAX for bulk creation (quantity=${quantity})`);
             // Use AJAX for bulk creation to handle JSON response
             try {
                 const formData = new FormData(this.form);
@@ -686,8 +688,10 @@ class InventoryAddForm {
                     method: 'POST',
                     body: formData
                 });
+                console.log(`Submit: Got response status ${response.status}`);
 
                 const data = await response.json();
+                console.log(`Submit: Parsed JSON response:`, data);
 
                 // Reset button states
                 submitBtn.innerHTML = originalSubmitHTML;
@@ -696,6 +700,7 @@ class InventoryAddForm {
                 continueBtn.disabled = false;
 
                 if (data.success) {
+                    console.log(`Submit: Success! Created ${data.count} items, showing modal...`);
                     // Store created JA IDs for label printing
                     this.createdJaIds = data.ja_ids;
                     this.bulkCreationCount = data.count;
@@ -706,6 +711,7 @@ class InventoryAddForm {
                     // Trigger bulk label printing modal (will be implemented in next task)
                     this.showBulkLabelPrintingModal();
                 } else {
+                    console.log(`Submit: Error in response:`, data.error);
                     // Show error message
                     WorkshopInventory.utils.showToast(data.error || 'Failed to create items', 'error');
                 }
@@ -899,8 +905,14 @@ class InventoryAddForm {
     }
 
     showBulkLabelPrintingModal() {
+        console.log('showBulkLabelPrintingModal: Called');
         const modal = document.getElementById('bulkLabelPrintingModal');
+        console.log('showBulkLabelPrintingModal: modal element found:', !!modal);
+        console.log('showBulkLabelPrintingModal: createdJaIds:', this.createdJaIds);
+        console.log('showBulkLabelPrintingModal: bulkCreationCount:', this.bulkCreationCount);
+
         if (!modal || !this.createdJaIds || this.createdJaIds.length === 0) {
+            console.log('showBulkLabelPrintingModal: Early return - missing modal or JA IDs');
             return;
         }
 
@@ -908,6 +920,7 @@ class InventoryAddForm {
         const modalTitle = document.querySelector('#bulkLabelPrintingModalLabel');
         if (modalTitle) {
             modalTitle.innerHTML = `<i class="bi bi-printer"></i> ${this.bulkCreationCount} Items Created Successfully`;
+            console.log('showBulkLabelPrintingModal: Updated modal title');
         }
 
         // Update summary
@@ -915,6 +928,7 @@ class InventoryAddForm {
         const firstId = this.createdJaIds[0];
         const lastId = this.createdJaIds[this.createdJaIds.length - 1];
         summary.textContent = `Created ${this.bulkCreationCount} items: ${firstId} - ${lastId}`;
+        console.log('showBulkLabelPrintingModal: Updated summary');
 
         // Populate items list
         const itemsList = document.getElementById('bulk-label-items-list');
@@ -928,6 +942,7 @@ class InventoryAddForm {
                 li.textContent = `${jaId} - ${material}`;
                 itemsList.appendChild(li);
             });
+            console.log('showBulkLabelPrintingModal: Populated items list');
         }
 
         // Reset modal state
@@ -941,8 +956,10 @@ class InventoryAddForm {
         printBtn.onclick = () => this.printAllLabels();
 
         // Show modal
+        console.log('showBulkLabelPrintingModal: Showing modal...');
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
+        console.log('showBulkLabelPrintingModal: Modal show() called');
     }
 
     async printAllLabels() {
