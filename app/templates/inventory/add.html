@@ -353,7 +353,7 @@ window.validMaterials = {{ valid_materials | tojson }};
 document.addEventListener('DOMContentLoaded', function() {
     const jaIdInput = document.getElementById('ja_id');
     const printLabelBtn = document.getElementById('print-label-btn');
-    
+
     if (jaIdInput && printLabelBtn) {
         // Function to validate JA ID format and enable/disable print button
         function validateJaIdForPrinting() {
@@ -361,14 +361,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const isValid = jaId && jaId.match(/^JA\d{6}$/);
             printLabelBtn.disabled = !isValid;
         }
-        
+
         // Check JA ID on input change
         jaIdInput.addEventListener('input', validateJaIdForPrinting);
         jaIdInput.addEventListener('change', validateJaIdForPrinting);
-        
+
         // Initial check
         validateJaIdForPrinting();
-        
+
         // Handle print button click
         printLabelBtn.addEventListener('click', async function() {
             const jaId = jaIdInput.value.trim();
@@ -377,6 +377,159 @@ document.addEventListener('DOMContentLoaded', function() {
                 await showLabelPrintingModal(jaId, true);
             }
         });
+    }
+
+    // ===== BULK CREATION FUNCTIONALITY =====
+    const form = document.getElementById('item-form');
+    const quantityInput = document.getElementById('quantity_to_create');
+    const bulkModal = document.getElementById('bulkLabelPrintingModal');
+
+    if (form && quantityInput) {
+        // Intercept form submission
+        form.addEventListener('submit', async function(e) {
+            const quantity = parseInt(quantityInput.value) || 1;
+
+            // If quantity > 1, handle as bulk creation
+            if (quantity > 1) {
+                e.preventDefault();
+                await handleBulkCreation(form, quantity);
+            }
+            // Otherwise, let form submit normally
+        });
+    }
+
+    async function handleBulkCreation(form, quantity) {
+        const formData = new FormData(form);
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalBtnHTML = submitBtn.innerHTML;
+
+        // Disable submit button and show loading
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+
+        try {
+            // Submit form data via AJAX
+            const response = await fetch(form.action, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            // Re-enable button
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHTML;
+
+            if (data.success && data.ja_ids && data.ja_ids.length > 0) {
+                // Show bulk label printing modal
+                showBulkLabelModal(data);
+            } else {
+                // Show error
+                WorkshopInventory.utils.showToast(data.error || 'Failed to create items', 'error');
+            }
+        } catch (error) {
+            console.error('Bulk creation error:', error);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHTML;
+            WorkshopInventory.utils.showToast('An error occurred. Please try again.', 'error');
+        }
+    }
+
+    function showBulkLabelModal(data) {
+        const modal = document.getElementById('bulkLabelPrintingModal');
+        const summary = document.getElementById('bulk-creation-summary');
+        const itemsList = document.getElementById('bulk-label-items-list');
+        const modalTitle = document.querySelector('#bulkLabelPrintingModalLabel');
+
+        // Update modal title
+        if (modalTitle) {
+            modalTitle.innerHTML = `<i class="bi bi-printer"></i> ${data.count} Items Created Successfully`;
+        }
+
+        // Update summary
+        if (summary) {
+            summary.textContent = data.message;
+        }
+
+        // Populate items list
+        if (itemsList) {
+            itemsList.innerHTML = '';
+            data.ja_ids.forEach(jaId => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item';
+                li.textContent = `${jaId} - ${data.count > 1 ? 'Item' : 'Item'}`;
+                itemsList.appendChild(li);
+            });
+        }
+
+        // Store JA IDs for label printing
+        window.bulkCreatedItems = data.ja_ids;
+
+        // Show modal
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+
+        // Handle print all button
+        const printAllBtn = document.getElementById('bulk-print-all-btn');
+        const skipBtn = document.getElementById('bulk-print-skip');
+        const doneBtn = document.getElementById('bulk-print-done-btn');
+
+        if (printAllBtn) {
+            printAllBtn.onclick = async function() {
+                await printAllBulkLabels(data.ja_ids, printAllBtn, skipBtn, doneBtn);
+            };
+        }
+    }
+
+    async function printAllBulkLabels(jaIds, printBtn, skipBtn, doneBtn) {
+        const progressDiv = document.getElementById('bulk-print-progress');
+        const statusSpan = document.getElementById('bulk-print-status');
+        const progressBar = document.getElementById('bulk-print-progress-bar');
+        const errorsDiv = document.getElementById('bulk-print-errors');
+
+        // Show progress
+        progressDiv.classList.remove('d-none');
+        printBtn.classList.add('d-none');
+        skipBtn.classList.add('d-none');
+
+        let successCount = 0;
+        let errors = [];
+
+        for (let i = 0; i < jaIds.length; i++) {
+            const jaId = jaIds[i];
+            statusSpan.textContent = `Printing ${i + 1} of ${jaIds.length}...`;
+            progressBar.style.width = `${((i + 1) / jaIds.length) * 100}%`;
+
+            try {
+                await printLabel(jaId);
+                successCount++;
+            } catch (error) {
+                errors.push(`${jaId}: ${error.message}`);
+            }
+        }
+
+        // Show results
+        if (errors.length > 0) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `<strong>Some labels failed:</strong><br>${errors.join('<br>')}`;
+        }
+
+        statusSpan.textContent = `Printed ${successCount} of ${jaIds.length} labels`;
+        doneBtn.classList.remove('d-none');
+    }
+
+    async function printLabel(jaId) {
+        const labelSize = document.getElementById('bulk-label-size').value;
+        const response = await fetch('/api/print-label', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ja_id: jaId, label_size: labelSize})
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Print failed');
+        }
     }
 });
 </script>
@@ -396,6 +549,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     <i class="bi bi-check-circle"></i>
                     <strong>Items created successfully!</strong>
                     <p class="mb-0" id="bulk-creation-summary"></p>
+                </div>
+
+                <div class="mb-3">
+                    <h6>Created Items:</h6>
+                    <ul class="list-group" id="bulk-label-items-list">
+                        <!-- Items will be populated by JavaScript -->
+                    </ul>
                 </div>
 
                 <div class="mb-3">
@@ -426,6 +586,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 </button>
                 <button type="button" class="btn btn-success d-none" id="bulk-print-done-btn" data-bs-dismiss="modal">
                     <i class="bi bi-check-lg"></i> Done
+                </button>
+                <button type="button" class="btn btn-secondary d-none" data-bs-dismiss="modal" id="bulk-label-modal-close-btn">
+                    Close
                 </button>
             </div>
         </div>
