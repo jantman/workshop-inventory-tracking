@@ -904,11 +904,31 @@ class InventoryAddForm {
             return;
         }
 
+        // Update modal title
+        const modalTitle = document.querySelector('#bulkLabelPrintingModalLabel');
+        if (modalTitle) {
+            modalTitle.innerHTML = `<i class="bi bi-printer"></i> ${this.bulkCreationCount} Items Created Successfully`;
+        }
+
         // Update summary
         const summary = document.getElementById('bulk-creation-summary');
         const firstId = this.createdJaIds[0];
         const lastId = this.createdJaIds[this.createdJaIds.length - 1];
         summary.textContent = `Created ${this.bulkCreationCount} items: ${firstId} - ${lastId}`;
+
+        // Populate items list
+        const itemsList = document.getElementById('bulk-label-items-list');
+        if (itemsList) {
+            itemsList.innerHTML = '';
+            this.createdJaIds.forEach(jaId => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item';
+                // Try to get display name from form data
+                const material = document.getElementById('material').value || 'Item';
+                li.textContent = `${jaId} - ${material}`;
+                itemsList.appendChild(li);
+            });
+        }
 
         // Reset modal state
         document.getElementById('bulk-print-progress').classList.add('d-none');
