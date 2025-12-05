@@ -543,8 +543,9 @@ def duplicate_item(ja_id):
 
             # Copy thread info
             if source_item.thread:
-                duplicate.thread_series = source_item.thread.series
-                duplicate.thread_handedness = source_item.thread.handedness
+                # Get the string value from enum if it's an enum, otherwise use as-is
+                duplicate.thread_series = source_item.thread.series.value if hasattr(source_item.thread.series, 'value') else source_item.thread.series
+                duplicate.thread_handedness = source_item.thread.handedness.value if hasattr(source_item.thread.handedness, 'value') else source_item.thread.handedness
                 duplicate.thread_size = source_item.thread.size
 
             # Copy location
