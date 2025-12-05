@@ -363,11 +363,16 @@ def test_bulk_creation_with_photos_not_duplicated(page, live_server):
 
     # Verify items have no photos
     from app.mariadb_inventory_service import InventoryService
+    from app.photo_service import PhotoService
     service = InventoryService(live_server.storage)
 
-    for ja_id in ja_ids:
-        item = service.get_item(ja_id)
-        assert item.photos is None or item.photos == "" or item.photos == "[]"
+    # Photos are in a separate table, check via PhotoService
+    with PhotoService(live_server.storage) as photo_service:
+        for ja_id in ja_ids:
+            item = service.get_item(ja_id)
+            assert item is not None
+            photos = photo_service.get_photos(ja_id)
+            assert len(photos) == 0, f"Item {ja_id} should have no photos"
 
 
 @pytest.mark.e2e
