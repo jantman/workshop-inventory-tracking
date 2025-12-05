@@ -214,7 +214,7 @@ def test_bulk_creation_field_copying_accuracy(page, live_server):
     # Fill in comprehensive item details including optional fields
     item_data = {
         'item_type': 'Bar',
-        'shape': 'Hexagonal',
+        'shape': 'Hex',
         'material': 'Brass',
         'length': '36',
         'width': '0.5',
