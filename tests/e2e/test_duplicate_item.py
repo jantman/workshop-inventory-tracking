@@ -286,7 +286,7 @@ def test_duplicate_field_copying_comprehensive(page, live_server):
         notes="Comprehensive field copy test",
         purchase_location="Online Metals",
         vendor="Online Metals",
-        vendor_part_number="CU110-24x12x0.0625",
+        vendor_part="CU110-24x12x0.0625",
         active=True
     )
     service.add_item(item)
@@ -316,7 +316,7 @@ def test_duplicate_field_copying_comprehensive(page, live_server):
     assert duplicate.notes == original.notes
     assert duplicate.purchase_location == original.purchase_location
     assert duplicate.vendor == original.vendor
-    assert duplicate.vendor_part_number == original.vendor_part_number
+    assert duplicate.vendor_part == original.vendor_part
 
 
 @pytest.mark.e2e
