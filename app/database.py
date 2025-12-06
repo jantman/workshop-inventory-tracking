@@ -8,6 +8,7 @@ with proper constraints to ensure data integrity.
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary
 from sqlalchemy.sql.sqltypes import Numeric
+from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql import func
@@ -704,9 +705,9 @@ class ItemPhoto(Base):
     file_size = Column(Integer, nullable=False)  # Original file size in bytes
     
     # Photo data in three sizes
-    thumbnail_data = Column(LargeBinary, nullable=False)  # ~150px compressed
-    medium_data = Column(LargeBinary, nullable=False)  # ~800px compressed  
-    original_data = Column(LargeBinary, nullable=False)  # Original up to 20MB
+    thumbnail_data = Column(LargeBinary, nullable=False)  # ~150px compressed (BLOB, up to 64KB)
+    medium_data = Column(MEDIUMBLOB, nullable=False)  # ~800px compressed (MEDIUMBLOB, up to 16MB)
+    original_data = Column(MEDIUMBLOB, nullable=False)  # Original up to 20MB (MEDIUMBLOB, up to 16MB)
     
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=func.now(), index=True)
