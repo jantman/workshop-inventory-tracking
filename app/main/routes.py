@@ -1458,9 +1458,25 @@ def api_inventory_list():
     """Get inventory list data for the frontend"""
     try:
         service = _get_inventory_service()
-        
-        # Get all items
-        items = service.get_all_items()
+
+        # Get status filter from query parameter (default: all)
+        # The frontend will handle filtering based on the dropdown selection
+        status = request.args.get('status', 'all')
+
+        # Build filter dict based on status
+        filters = {}
+        if status == 'active':
+            filters['active'] = True
+        elif status == 'inactive':
+            filters['active'] = False
+        elif status == 'all':
+            filters['active'] = ''  # Empty string means show all items
+        else:
+            # Invalid status value, default to all items
+            filters['active'] = ''
+
+        # Get items using search_active_items which handles the active filter
+        items = service.search_active_items(filters)
         
         # Get photo counts for all items efficiently
         from app.photo_service import PhotoService
