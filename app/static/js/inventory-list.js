@@ -23,8 +23,9 @@ class InventoryListManager {
         
         this.initializeElements();
         this.bindEvents();
+        this.initializeBulkPrintModal();
         this.loadInventory();
-        
+
         console.log('InventoryListManager initialized');
     }
     
@@ -48,6 +49,7 @@ class InventoryListManager {
         this.selectNoneBtn = document.getElementById('select-none-btn');
         this.bulkMoveBtn = document.getElementById('bulk-move-btn');
         this.bulkDeactivateBtn = document.getElementById('bulk-deactivate-btn');
+        this.bulkPrintLabelsBtn = document.getElementById('bulk-print-labels-btn');
         
         // Display elements
         this.itemCount = document.getElementById('item-count');
@@ -92,13 +94,151 @@ class InventoryListManager {
         this.selectNoneBtn.addEventListener('click', () => this.selectNone());
         this.bulkMoveBtn.addEventListener('click', () => this.bulkMoveSelected());
         this.bulkDeactivateBtn.addEventListener('click', () => this.bulkDeactivateSelected());
+        this.bulkPrintLabelsBtn.addEventListener('click', () => this.printLabelsForSelected());
         
         // Sorting events
         this.sortableHeaders.forEach(header => {
             header.addEventListener('click', () => this.onSort(header.dataset.sort));
         });
     }
-    
+
+    initializeBulkPrintModal() {
+        // Set up event listener for label type selection
+        const labelTypeSelect = document.getElementById('list-bulk-label-type');
+        if (labelTypeSelect) {
+            labelTypeSelect.addEventListener('change', () => {
+                this.onLabelTypeChange();
+            });
+        }
+
+        // Set up event listener for Print All Labels button
+        const printAllBtn = document.getElementById('list-bulk-print-all-btn');
+        if (printAllBtn) {
+            printAllBtn.addEventListener('click', () => {
+                this.printAllLabels();
+            });
+        }
+
+        // Set up event listener for modal close to reset state
+        const modalElement = document.getElementById('listBulkLabelPrintingModal');
+        if (modalElement) {
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                this.onBulkPrintModalClose();
+            });
+        }
+    }
+
+    onLabelTypeChange() {
+        const labelTypeSelect = document.getElementById('list-bulk-label-type');
+        const printAllBtn = document.getElementById('list-bulk-print-all-btn');
+
+        // Enable the Print All button only if a label type is selected
+        if (labelTypeSelect.value) {
+            printAllBtn.disabled = false;
+        } else {
+            printAllBtn.disabled = true;
+        }
+    }
+
+    onBulkPrintModalClose() {
+        // Reset the modal state when it's closed
+        // This ensures the modal is clean for the next use
+        this.resetBulkPrintModal();
+    }
+
+    async printAllLabels() {
+        const labelType = document.getElementById('list-bulk-label-type').value;
+        const selectedJaIds = Array.from(this.selectedItems);
+
+        const progressDiv = document.getElementById('list-bulk-print-progress');
+        const progressBar = document.getElementById('list-bulk-print-progress-bar');
+        const statusSpan = document.getElementById('list-bulk-print-status');
+        const errorsDiv = document.getElementById('list-bulk-print-errors');
+        const printBtn = document.getElementById('list-bulk-print-all-btn');
+        const doneBtn = document.getElementById('list-bulk-print-done-btn');
+        const cancelBtn = document.getElementById('list-bulk-print-cancel');
+
+        // Show progress section
+        progressDiv.classList.remove('d-none');
+        printBtn.classList.add('d-none');
+        cancelBtn.classList.add('d-none');
+
+        let successCount = 0;
+        let failureCount = 0;
+        const errors = [];
+
+        // Iterate through all selected items and print labels
+        for (let i = 0; i < selectedJaIds.length; i++) {
+            const jaId = selectedJaIds[i];
+            const progress = Math.round(((i + 1) / selectedJaIds.length) * 100);
+
+            // Update progress display
+            statusSpan.textContent = `Printing ${i + 1} of ${selectedJaIds.length}: ${jaId}`;
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
+
+            try {
+                const response = await fetch('/api/labels/print', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ja_id: jaId,
+                        label_type: labelType
+                    })
+                });
+
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    const data = await response.json();
+                    failureCount++;
+                    errors.push(`${jaId}: ${data.error || response.statusText}`);
+                }
+            } catch (error) {
+                failureCount++;
+                errors.push(`${jaId}: ${error.message}`);
+            }
+        }
+
+        // Display error messages if any failures occurred
+        if (failureCount > 0) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `
+                <strong>Warning:</strong> ${failureCount} label(s) failed to print:<br>
+                ${errors.map(e => `• ${e}`).join('<br>')}
+            `;
+        }
+
+        // Update final status
+        statusSpan.textContent = `Complete: ${successCount} printed, ${failureCount} failed`;
+        progressBar.classList.remove('progress-bar-animated');
+
+        // Show done button
+        doneBtn.classList.remove('d-none');
+
+        // Show success toast notification
+        if (successCount > 0) {
+            this.showToast(`Printed ${successCount} label(s) successfully`, 'success');
+        }
+    }
+
+    showToast(message, type = 'info') {
+        // Simple toast notification - can be enhanced later
+        const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : 'alert-info';
+        const toast = document.createElement('div');
+        toast.className = `alert ${alertClass} position-fixed top-0 start-50 translate-middle-x mt-3`;
+        toast.style.zIndex = '9999';
+        toast.textContent = message;
+
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+
     async loadInventory() {
         this.showLoading();
         
@@ -592,16 +732,112 @@ class InventoryListManager {
     
     bulkDeactivateSelected() {
         if (this.selectedItems.size === 0) return;
-        
+
         const count = this.selectedItems.size;
         if (!confirm(`Are you sure you want to deactivate ${count} selected item(s)?`)) {
             return;
         }
-        
+
         // Implementation would go here
         alert(`Bulk deactivate feature coming soon! Would deactivate ${count} items.`);
     }
-    
+
+    printLabelsForSelected() {
+        if (this.selectedItems.size === 0) {
+            alert('Please select at least one item to print labels.');
+            return;
+        }
+
+        // Show the bulk label printing modal with selected items
+        this.showBulkLabelPrintingModal();
+    }
+
+    async showBulkLabelPrintingModal() {
+        const selectedJaIds = Array.from(this.selectedItems);
+
+        // Update summary
+        const summaryElement = document.getElementById('list-bulk-print-summary');
+        summaryElement.textContent = `You have selected ${selectedJaIds.length} item(s) to print labels for.`;
+
+        // Populate the items list
+        const itemsList = document.getElementById('list-bulk-label-items-list');
+        itemsList.innerHTML = '';
+        selectedJaIds.forEach(jaId => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = jaId;
+            itemsList.appendChild(li);
+        });
+
+        // Load and populate label types
+        await this.loadLabelTypes();
+
+        // Reset modal state
+        this.resetBulkPrintModal();
+
+        // Show the modal
+        const modalElement = document.getElementById('listBulkLabelPrintingModal');
+        const modal = new bootstrap.Modal(modalElement);
+        modal.show();
+    }
+
+    async loadLabelTypes() {
+        try {
+            const response = await fetch('/api/labels/types');
+            if (!response.ok) {
+                throw new Error('Failed to load label types');
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load label types');
+            }
+
+            const labelTypeSelect = document.getElementById('list-bulk-label-type');
+            // Clear existing options except the first placeholder
+            while (labelTypeSelect.children.length > 1) {
+                labelTypeSelect.removeChild(labelTypeSelect.lastChild);
+            }
+
+            // Add label type options
+            data.label_types.forEach(labelType => {
+                const option = document.createElement('option');
+                option.value = labelType;
+                option.textContent = labelType;
+                labelTypeSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading label types:', error);
+            alert('Failed to load label types. Please try again.');
+        }
+    }
+
+    resetBulkPrintModal() {
+        // Reset label type selection
+        const labelTypeSelect = document.getElementById('list-bulk-label-type');
+        labelTypeSelect.value = '';
+
+        // Hide progress section
+        const progressDiv = document.getElementById('list-bulk-print-progress');
+        progressDiv.classList.add('d-none');
+
+        // Reset progress bar
+        const progressBar = document.getElementById('list-bulk-print-progress-bar');
+        progressBar.style.width = '0%';
+        progressBar.textContent = '';
+
+        // Clear error messages
+        const errorsDiv = document.getElementById('list-bulk-print-errors');
+        errorsDiv.classList.add('d-none');
+        errorsDiv.innerHTML = '';
+
+        // Show/hide appropriate buttons
+        document.getElementById('list-bulk-print-all-btn').classList.remove('d-none');
+        document.getElementById('list-bulk-print-all-btn').disabled = true;
+        document.getElementById('list-bulk-print-done-btn').classList.add('d-none');
+        document.getElementById('list-bulk-print-cancel').classList.remove('d-none');
+    }
+
     exportToCSV() {
         // Implementation would generate and download CSV
         alert('CSV export feature coming soon!');
