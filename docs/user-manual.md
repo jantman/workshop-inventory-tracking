@@ -226,6 +226,19 @@ Flag mode creates labels with rotated barcodes at both ends, making them easier 
 2. **Search Results**: View items matching search criteria
 3. **Item Details**: Click any item to view complete information
 
+#### Inventory List Filters
+The inventory list page provides several filters to help you find items:
+
+- **Status**: Filter by item status
+  - **Active Only** (default): Shows only active/available items
+  - **Inactive Only**: Shows only inactive/used items
+  - **All Items**: Shows both active and inactive items
+- **Type**: Filter by item type (Bar, Sheet, Tube, etc.)
+- **Material**: Search/filter by material name
+- **Search**: Search across JA ID, location, and notes fields
+
+All filtering happens instantly as you type or change selections. You can also click column headers to sort the results.
+
 ### Updating Items
 - Edit items directly through the web interface
 - Navigate to any item's edit page from inventory list or search results
