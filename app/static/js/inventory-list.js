@@ -118,6 +118,14 @@ class InventoryListManager {
                 this.printAllLabels();
             });
         }
+
+        // Set up event listener for modal close to reset state
+        const modalElement = document.getElementById('listBulkLabelPrintingModal');
+        if (modalElement) {
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                this.onBulkPrintModalClose();
+            });
+        }
     }
 
     onLabelTypeChange() {
@@ -130,6 +138,12 @@ class InventoryListManager {
         } else {
             printAllBtn.disabled = true;
         }
+    }
+
+    onBulkPrintModalClose() {
+        // Reset the modal state when it's closed
+        // This ensures the modal is clean for the next use
+        this.resetBulkPrintModal();
     }
 
     async printAllLabels() {
