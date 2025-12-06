@@ -151,7 +151,7 @@ The **Add & Continue** button (green button next to "Add Item") submits the curr
 
 ## Label Printing
 
-The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from both the Add Item and Edit Item forms.
+The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from the Add Item form, Edit Item form, or in bulk from the Inventory List.
 
 ### Accessing Label Printing
 
@@ -164,6 +164,15 @@ The system can print barcode labels for any JA ID using connected label printers
 1. The printer button is always enabled since the JA ID already exists
 2. Click the printer button next to the JA ID field
 3. The label printing dialog will open
+
+#### From Inventory List (Bulk Printing)
+1. Navigate to the Inventory List page
+2. Select one or more items using the checkboxes in the leftmost column
+   - You can select items individually by clicking their checkboxes
+   - Or use the "Select All" option from the Options dropdown to select all visible items
+3. Click the "Options" dropdown button in the top-right corner
+4. Select "Print Labels" from the dropdown menu
+5. The bulk label printing dialog will open showing all selected items
 
 ### Using the Label Printing Dialog
 
@@ -186,10 +195,41 @@ The system can print barcode labels for any JA ID using connected label printers
 - Your last selected label type will be pre-selected the next time you print
 - This helps speed up workflows when printing many similar labels
 
-#### Edit Item Form  
+#### Edit Item Form
 - Label type selection is **not remembered**
 - You must select the label type each time
 - This prevents confusion when editing different items
+
+#### Inventory List (Bulk Printing)
+- Label type selection is **not remembered** between sessions
+- You must select the label type each time you open the bulk printing dialog
+- All selected items will be printed with the same label type
+
+### Using the Bulk Label Printing Dialog
+
+When printing labels for multiple items from the Inventory List:
+
+1. **Review Selected Items**: The dialog displays all selected items with their JA IDs
+2. **Select Label Type**: Choose the label type to use for all selected items
+   - The same label type will be used for all items in the batch
+3. **Print All Labels**: Click "Print All Labels" to start the batch printing process
+4. **Monitor Progress**: A progress bar shows the printing status
+   - Current item being printed
+   - Number of items completed
+   - Percentage complete
+5. **Review Results**: After completion, the dialog shows:
+   - Number of labels printed successfully
+   - Number of failures (if any)
+   - Detailed error messages for any failed prints
+6. **Close or Retry**: Click "Done" to close the dialog
+   - Your item selection remains unchanged for convenience
+   - You can retry printing if needed
+
+**Tips for Bulk Printing:**
+- Print labels in batches of similar sizes to ensure label consistency
+- Review the selected items list before printing to avoid mistakes
+- If some labels fail to print, the dialog will show which ones need to be retried
+- The progress bar helps monitor large batch jobs
 
 ### Supported Printers
 
