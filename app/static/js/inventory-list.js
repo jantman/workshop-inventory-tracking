@@ -613,7 +613,93 @@ class InventoryListManager {
         // Show the bulk label printing modal with selected items
         this.showBulkLabelPrintingModal();
     }
-    
+
+    async showBulkLabelPrintingModal() {
+        const selectedJaIds = Array.from(this.selectedItems);
+
+        // Update summary
+        const summaryElement = document.getElementById('list-bulk-print-summary');
+        summaryElement.textContent = `You have selected ${selectedJaIds.length} item(s) to print labels for.`;
+
+        // Populate the items list
+        const itemsList = document.getElementById('list-bulk-label-items-list');
+        itemsList.innerHTML = '';
+        selectedJaIds.forEach(jaId => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = jaId;
+            itemsList.appendChild(li);
+        });
+
+        // Load and populate label types
+        await this.loadLabelTypes();
+
+        // Reset modal state
+        this.resetBulkPrintModal();
+
+        // Show the modal
+        const modalElement = document.getElementById('listBulkLabelPrintingModal');
+        const modal = new bootstrap.Modal(modalElement);
+        modal.show();
+    }
+
+    async loadLabelTypes() {
+        try {
+            const response = await fetch('/api/labels/types');
+            if (!response.ok) {
+                throw new Error('Failed to load label types');
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load label types');
+            }
+
+            const labelTypeSelect = document.getElementById('list-bulk-label-type');
+            // Clear existing options except the first placeholder
+            while (labelTypeSelect.children.length > 1) {
+                labelTypeSelect.removeChild(labelTypeSelect.lastChild);
+            }
+
+            // Add label type options
+            data.label_types.forEach(labelType => {
+                const option = document.createElement('option');
+                option.value = labelType;
+                option.textContent = labelType;
+                labelTypeSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading label types:', error);
+            alert('Failed to load label types. Please try again.');
+        }
+    }
+
+    resetBulkPrintModal() {
+        // Reset label type selection
+        const labelTypeSelect = document.getElementById('list-bulk-label-type');
+        labelTypeSelect.value = '';
+
+        // Hide progress section
+        const progressDiv = document.getElementById('list-bulk-print-progress');
+        progressDiv.classList.add('d-none');
+
+        // Reset progress bar
+        const progressBar = document.getElementById('list-bulk-print-progress-bar');
+        progressBar.style.width = '0%';
+        progressBar.textContent = '';
+
+        // Clear error messages
+        const errorsDiv = document.getElementById('list-bulk-print-errors');
+        errorsDiv.classList.add('d-none');
+        errorsDiv.innerHTML = '';
+
+        // Show/hide appropriate buttons
+        document.getElementById('list-bulk-print-all-btn').classList.remove('d-none');
+        document.getElementById('list-bulk-print-all-btn').disabled = true;
+        document.getElementById('list-bulk-print-done-btn').classList.add('d-none');
+        document.getElementById('list-bulk-print-cancel').classList.remove('d-none');
+    }
+
     exportToCSV() {
         // Implementation would generate and download CSV
         alert('CSV export feature coming soon!');
