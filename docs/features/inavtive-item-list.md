@@ -76,5 +76,31 @@ The Advanced Search feature (`api_advanced_search` in `app/main/routes.py`) uses
 
 Tests confirm the bug: Backend API only returns active items regardless of filter selection.
 
-### Milestone 2: In Progress
-Currently working on backend fixes to support status filtering.
+### Milestone 2: COMPLETE ✅
+- ✅ Task 2.1-2.2: Modified `/api/inventory/list` endpoint to support status filtering
+  - Endpoint now defaults to returning all items
+  - Frontend filters items client-side based on status dropdown value
+  - Used existing `search_active_items()` method which already had status filtering logic
+- ✅ Task 2.3: All unit tests pass (147 passed, 1 skipped)
+- ✅ Task 2.4: All e2e tests pass (209 passed, including all 4 new status filter tests)
+- ✅ Task 2.5: Updated user manual to document inventory list filters
+
+## Feature Status: COMPLETE ✅
+
+The inactive item list bug has been successfully fixed:
+- Backend now sends all items to the frontend by default
+- Frontend status filter properly shows Active Only (default), Inactive Only, or All Items
+- All 209 e2e tests pass, including the 4 new regression tests for status filtering
+- All 147 unit tests pass
+- User manual documentation updated
+
+**Testing Results:**
+- Previous failures: 2 tests (inactive and all items filters)
+- Current status: All tests passing
+- Test execution time: 11:32 (well within 15-minute requirement)
+
+**Commits:**
+- 77471eb: Milestone 1.1-1.3 - Add e2e tests for status filter
+- 9f5631d: Milestone 1.4 - Verify tests fail as expected
+- 367cfaf: Milestone 2.1-2.2 - Fix backend to support status filtering
+- 5b85104: Milestone 2.3 - Update user manual documentation
