@@ -165,9 +165,10 @@ def inventory_add():
         # Validate material is in taxonomy
         material = form_data.get('material', '').strip()
         valid_materials = _get_valid_materials()
-        valid_materials_lower = [m.lower() for m in valid_materials]
-        
-        if material and material.lower() not in valid_materials_lower:
+        # Defensive: handle case where valid_materials might be None or contain None values
+        valid_materials_lower = [m.lower() for m in (valid_materials or []) if m]
+
+        if material and valid_materials_lower and material.lower() not in valid_materials_lower:
             error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
             # AUDIT: Log validation error
             log_audit_operation('add_item', 'error', 
@@ -400,9 +401,10 @@ def inventory_edit(ja_id):
         # Validate material is in taxonomy
         material = form_data.get('material', '').strip()
         valid_materials = _get_valid_materials()
-        valid_materials_lower = [m.lower() for m in valid_materials]
-        
-        if material and material.lower() not in valid_materials_lower:
+        # Defensive: handle case where valid_materials might be None or contain None values
+        valid_materials_lower = [m.lower() for m in (valid_materials or []) if m]
+
+        if material and valid_materials_lower and material.lower() not in valid_materials_lower:
             error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
             # AUDIT: Log validation error
             log_audit_operation('edit_item', 'error',
