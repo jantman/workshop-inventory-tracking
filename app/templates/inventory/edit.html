@@ -4,6 +4,9 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-pencil"></i> Edit Inventory Item: {{ item.ja_id }}</h2>
     <div class="btn-group">
+        <button type="button" class="btn btn-outline-primary" id="duplicate-item-btn" data-ja-id="{{ item.ja_id }}">
+            <i class="bi bi-files"></i> Duplicate Item
+        </button>
         <button type="button" class="btn btn-outline-warning" onclick="showItemHistory('{{ item.ja_id }}')">
             <i class="bi bi-clock-history"></i> View History
         </button>
@@ -107,13 +110,7 @@
                             </div>
                             <small class="form-text text-muted">Start typing to see suggestions from your inventory</small>
                         </div>
-                        
-                        <div class="col-md-3 mb-3">
-                            <label for="quantity" class="form-label">Quantity</label>
-                            <input type="number" class="form-control" id="quantity" name="quantity" 
-                                   min="1" value="{{ item.quantity }}">
-                        </div>
-                        
+
                         <div class="col-md-3 mb-3 d-flex align-items-end">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="active" name="active" 
@@ -722,14 +719,237 @@ document.addEventListener('DOMContentLoaded', function() {
         invalidFeedbacks.forEach(feedback => {
             feedback.style.display = '';
         });
-        
+
         if (!form.checkValidity()) {
             event.preventDefault();
             event.stopPropagation();
         }
         form.classList.add('was-validated');
     });
+
+    // ===== DUPLICATE ITEM FUNCTIONALITY =====
+    const duplicateBtn = document.getElementById('duplicate-item-btn');
+    const duplicateModal = document.getElementById('duplicateItemModal');
+    const duplicateQuantity = document.getElementById('duplicate-quantity');
+    let originalFormData = {};
+    let currentItemData = {{ item.to_dict_enhanced() | tojson }};
+
+    if (duplicateBtn && duplicateModal) {
+        // Store original form data on page load
+        const formData = new FormData(form);
+        for (let [key, value] of formData.entries()) {
+            originalFormData[key] = value;
+        }
+
+        // Duplicate button click handler
+        duplicateBtn.addEventListener('click', function() {
+            showDuplicateModal();
+        });
+
+        // Quantity change handler
+        duplicateQuantity.addEventListener('input', function() {
+            updateDuplicatePreview();
+        });
+
+        // Create duplicates button handler
+        document.getElementById('duplicate-create-btn').addEventListener('click', async function() {
+            await createDuplicates();
+        });
+
+        function showDuplicateModal() {
+            const jaId = duplicateBtn.dataset.jaId;
+
+            // Populate item details
+            document.getElementById('duplicate-source-ja-id').textContent = jaId;
+            document.getElementById('duplicate-item-display-name').textContent = currentItemData.display_name || jaId;
+            document.getElementById('duplicate-item-material').textContent = currentItemData.material || 'N/A';
+            document.getElementById('duplicate-item-type').textContent = currentItemData.item_type || 'N/A';
+            document.getElementById('duplicate-item-shape').textContent = currentItemData.shape || 'N/A';
+            document.getElementById('duplicate-item-location').textContent = currentItemData.location || 'N/A';
+
+            // Check for unsaved changes
+            const hasUnsavedChanges = checkForUnsavedChanges();
+            const warningDiv = document.getElementById('duplicate-unsaved-warning');
+            if (hasUnsavedChanges) {
+                warningDiv.classList.remove('d-none');
+            } else {
+                warningDiv.classList.add('d-none');
+            }
+
+            // Reset quantity and update preview
+            duplicateQuantity.value = 1;
+            updateDuplicatePreview();
+
+            // Show modal
+            const bsModal = new bootstrap.Modal(duplicateModal);
+            bsModal.show();
+        }
+
+        function checkForUnsavedChanges() {
+            const currentFormData = new FormData(form);
+            for (let [key, value] of currentFormData.entries()) {
+                if (originalFormData[key] !== value) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updateDuplicatePreview() {
+            const quantity = parseInt(duplicateQuantity.value) || 1;
+            const jaId = duplicateBtn.dataset.jaId;
+
+            // Calculate JA ID range
+            const jaNum = parseInt(jaId.substring(2));
+            const firstNewId = `JA${String(jaNum + 1).padStart(6, '0')}`;
+            const lastNewId = `JA${String(jaNum + quantity).padStart(6, '0')}`;
+
+            const previewMessage = document.getElementById('duplicate-preview-message');
+            if (quantity === 1) {
+                previewMessage.textContent = `This will create 1 copy: ${firstNewId}`;
+            } else {
+                previewMessage.textContent = `This will create ${quantity} copies with JA IDs: ${firstNewId} - ${lastNewId}`;
+            }
+        }
+
+        async function createDuplicates() {
+            const quantity = parseInt(duplicateQuantity.value) || 1;
+            const jaId = duplicateBtn.dataset.jaId;
+            const saveChanges = document.getElementById('duplicate-save-yes').checked;
+            const btn = document.getElementById('duplicate-create-btn');
+
+            // Disable button and show loading
+            const originalBtnHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+            btn.disabled = true;
+
+            try {
+                // Prepare request data
+                const requestData = {
+                    quantity: quantity,
+                    save_changes: saveChanges,
+                    updated_fields: {}
+                };
+
+                // If save_changes, collect updated fields
+                if (saveChanges) {
+                    const currentFormData = new FormData(form);
+                    for (let [key, value] of currentFormData.entries()) {
+                        if (originalFormData[key] !== value) {
+                            requestData.updated_fields[key] = value;
+                        }
+                    }
+                }
+
+                // Call duplicate API
+                const response = await fetch(`/api/items/${jaId}/duplicate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const data = await response.json();
+
+                // Reset button
+                btn.innerHTML = originalBtnHTML;
+                btn.disabled = false;
+
+                if (data.success) {
+                    // Close modal
+                    const bsModal = bootstrap.Modal.getInstance(duplicateModal);
+                    bsModal.hide();
+
+                    // Show success message
+                    WorkshopInventory.utils.showToast(data.message, 'success');
+
+                    // Optionally redirect to list or show created items
+                    console.log('Created duplicates:', data.ja_ids);
+                } else {
+                    WorkshopInventory.utils.showToast(data.error || 'Failed to create duplicates', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating duplicates:', error);
+                WorkshopInventory.utils.showToast('An error occurred. Please try again.', 'error');
+                btn.innerHTML = originalBtnHTML;
+                btn.disabled = false;
+            }
+        }
+    }
 });
 </script>
 <script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>
+
+<!-- Duplicate Item Modal -->
+<div class="modal fade" id="duplicateItemModal" tabindex="-1" aria-labelledby="duplicateItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="duplicateItemModalLabel">
+                    <i class="bi bi-files"></i> Duplicate Item <span id="duplicate-source-ja-id"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Item Summary -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">Source Item Details</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Display Name:</strong> <span id="duplicate-item-display-name"></span><br>
+                                <strong>Material:</strong> <span id="duplicate-item-material"></span><br>
+                                <strong>Type:</strong> <span id="duplicate-item-type"></span>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Shape:</strong> <span id="duplicate-item-shape"></span><br>
+                                <strong>Location:</strong> <span id="duplicate-item-location"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unsaved Changes Warning -->
+                <div id="duplicate-unsaved-warning" class="alert alert-warning d-none" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>You have unsaved changes!</strong>
+                    <p class="mb-2">Choose an option:</p>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="unsaved-changes-action" id="duplicate-save-yes" value="save" checked>
+                        <label class="form-check-label" for="duplicate-save-yes">
+                            Save changes and duplicate
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="unsaved-changes-action" id="duplicate-save-no" value="discard">
+                        <label class="form-check-label" for="duplicate-save-no">
+                            Discard changes and duplicate current database version
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Quantity Input -->
+                <div class="mb-3">
+                    <label for="duplicate-quantity" class="form-label">Number of Copies to Create</label>
+                    <input type="number" class="form-control" id="duplicate-quantity" min="1" max="100" value="1">
+                    <small class="form-text text-muted">Create 1-100 copies (min: 1, max: 100)</small>
+                </div>
+
+                <!-- Preview -->
+                <div id="duplicate-preview" class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <span id="duplicate-preview-message"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="duplicate-create-btn">
+                    <i class="bi bi-files"></i> Create Duplicates
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}

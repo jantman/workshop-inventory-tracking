@@ -59,7 +59,18 @@
                                 Please enter a valid JA ID (format: JA######)
                             </div>
                         </div>
-                        
+
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity_to_create" class="form-label">Quantity to Create</label>
+                            <input type="number" class="form-control" id="quantity_to_create" name="quantity_to_create"
+                                   value="1" min="1" max="100" step="1">
+                            <small class="form-text text-muted">Number of identical items to create (each with unique JA ID)</small>
+                            <div id="bulk-creation-info" class="alert alert-info mt-2 d-none" role="alert">
+                                <i class="bi bi-info-circle"></i>
+                                <span id="bulk-creation-message"></span>
+                            </div>
+                        </div>
+
                         <div class="col-md-4 mb-3">
                             <label for="item_type" class="form-label">Type *</label>
                             <select class="form-select" id="item_type" name="item_type" required>
@@ -100,12 +111,6 @@
                                 Please enter a material
                             </div>
                             <small class="form-text text-muted">Start typing to see suggestions from your inventory</small>
-                        </div>
-                        
-                        <div class="col-md-4 mb-3">
-                            <label for="quantity" class="form-label">Quantity</label>
-                            <input type="number" class="form-control" id="quantity" name="quantity" 
-                                   value="1" min="1" step="1">
                         </div>
                     </div>
                 </div>
@@ -348,7 +353,7 @@ window.validMaterials = {{ valid_materials | tojson }};
 document.addEventListener('DOMContentLoaded', function() {
     const jaIdInput = document.getElementById('ja_id');
     const printLabelBtn = document.getElementById('print-label-btn');
-    
+
     if (jaIdInput && printLabelBtn) {
         // Function to validate JA ID format and enable/disable print button
         function validateJaIdForPrinting() {
@@ -356,14 +361,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const isValid = jaId && jaId.match(/^JA\d{6}$/);
             printLabelBtn.disabled = !isValid;
         }
-        
+
         // Check JA ID on input change
         jaIdInput.addEventListener('input', validateJaIdForPrinting);
         jaIdInput.addEventListener('change', validateJaIdForPrinting);
-        
+
         // Initial check
         validateJaIdForPrinting();
-        
+
         // Handle print button click
         printLabelBtn.addEventListener('click', async function() {
             const jaId = jaIdInput.value.trim();
@@ -375,4 +380,66 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+
+<!-- Bulk Label Printing Modal -->
+<div class="modal fade" id="bulkLabelPrintingModal" tabindex="-1" aria-labelledby="bulkLabelPrintingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bulkLabelPrintingModalLabel">
+                    <i class="bi bi-printer"></i> Print Labels
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-success" role="alert">
+                    <i class="bi bi-check-circle"></i>
+                    <strong>Items created successfully!</strong>
+                    <p class="mb-0" id="bulk-creation-summary"></p>
+                </div>
+
+                <div class="mb-3">
+                    <h6>Created Items:</h6>
+                    <ul class="list-group" id="bulk-label-items-list">
+                        <!-- Items will be populated by JavaScript -->
+                    </ul>
+                </div>
+
+                <div class="mb-3">
+                    <label for="bulk-label-size" class="form-label">Label Size</label>
+                    <select class="form-select" id="bulk-label-size">
+                        <option value="2.25x1.25">2.25" × 1.25" (Standard)</option>
+                        <option value="2.25x0.5">2.25" × 0.5" (Small)</option>
+                        <option value="custom">Custom Size</option>
+                    </select>
+                </div>
+
+                <div id="bulk-print-progress" class="d-none">
+                    <div class="mb-2">
+                        <strong>Printing Progress:</strong>
+                        <span id="bulk-print-status"></span>
+                    </div>
+                    <div class="progress">
+                        <div id="bulk-print-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div id="bulk-print-errors" class="alert alert-warning mt-2 d-none"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="bulk-print-skip">Skip</button>
+                <button type="button" class="btn btn-primary" id="bulk-print-all-btn">
+                    <i class="bi bi-printer"></i> Print All Labels
+                </button>
+                <button type="button" class="btn btn-success d-none" id="bulk-print-done-btn" data-bs-dismiss="modal">
+                    <i class="bi bi-check-lg"></i> Done
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="bulk-label-modal-close-btn">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}

@@ -24,7 +24,6 @@ def test_search_by_thread_size_workflow(page, live_server):
         thread_series="UNC",
         thread_handedness="Right",
         thread_size="1/4-20",
-        quantity=1,
         location="Storage A",
         notes="1/4-20 threaded rod",
         active=True
@@ -40,7 +39,6 @@ def test_search_by_thread_size_workflow(page, live_server):
         thread_series="UNC",
         thread_handedness="Right",
         thread_size="3/8-16",
-        quantity=1,
         location="Storage B",
         notes="3/8-16 threaded rod",
         active=True
@@ -56,7 +54,6 @@ def test_search_by_thread_size_workflow(page, live_server):
         thread_series="UNC",
         thread_handedness="Right",
         thread_size="1/2-13",
-        quantity=1,
         location="Storage C",
         notes="1/2-13 threaded rod",
         active=True
@@ -96,7 +93,6 @@ def test_search_by_thread_series_workflow(page, live_server):
         thread_series="UNC",
         thread_handedness="Right",
         thread_size="1/4-20",
-        quantity=1,
         location="Storage A",
         notes="UNC threaded rod",
         active=True
@@ -112,7 +108,6 @@ def test_search_by_thread_series_workflow(page, live_server):
         thread_series="UNF",
         thread_handedness="Right",
         thread_size="1/4-28",
-        quantity=1,
         location="Storage B",
         notes="UNF threaded rod",
         active=True
@@ -128,7 +123,6 @@ def test_search_by_thread_series_workflow(page, live_server):
         thread_series="Metric",
         thread_handedness="Right",
         thread_size="M6x1.0",
-        quantity=1,
         location="Storage C",
         notes="Metric threaded rod",
         active=True
@@ -165,7 +159,6 @@ def test_search_by_thread_size_and_series_workflow(page, live_server):
         thread_series="UNC",
         thread_handedness="Right",
         thread_size="1/4-20",
-        quantity=1,
         location="Storage A",
         notes="UNC 1/4-20",
         active=True
@@ -181,7 +174,6 @@ def test_search_by_thread_size_and_series_workflow(page, live_server):
         thread_series="UNF",
         thread_handedness="Right",
         thread_size="1/4-28",
-        quantity=1,
         location="Storage B",
         notes="UNF 1/4-28",
         active=True
@@ -197,7 +189,6 @@ def test_search_by_thread_size_and_series_workflow(page, live_server):
         thread_series="UNC",
         thread_handedness="Right",
         thread_size="1/2-13",
-        quantity=1,
         location="Storage C",
         notes="UNC 1/2-13",
         active=True

@@ -377,7 +377,6 @@ def test_move_item_with_original_thread_regression_test(page, live_server):
             material="Steel",
             length=1500.0,
             width=30.0,
-            quantity=1,
             location="Storage Room A",
             notes="Regression test item with original_thread",
             original_thread="5/16-18",  # This would have caused the AttributeError bug

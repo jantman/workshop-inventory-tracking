@@ -90,7 +90,17 @@ class InventoryAddForm {
             this.updateDimensionRequirements();
             this.updateWidthLabel();
         });
-        
+
+        // Quantity to create field
+        const quantityField = document.getElementById('quantity_to_create');
+        if (quantityField) {
+            quantityField.addEventListener('input', () => this.updateBulkCreationInfo());
+            quantityField.addEventListener('change', () => this.updateBulkCreationInfo());
+        }
+
+        // JA ID field changes should also update bulk creation info
+        document.getElementById('ja_id').addEventListener('input', () => this.updateBulkCreationInfo());
+
         // Barcode scan buttons
         document.getElementById('scan-ja-id-btn').addEventListener('click', () => {
             this.startBarcodeCapture('ja_id');
@@ -555,7 +565,7 @@ class InventoryAddForm {
         
         // Fields to carry forward
         const carryFields = [
-            'item_type', 'shape', 'material', 'quantity',
+            'item_type', 'shape', 'material',
             'location', 'sub_location', 'vendor', 'purchase_location',
             'purchase_date', 'thread_series', 'thread_handedness', 'thread_size'
         ];
@@ -663,9 +673,62 @@ class InventoryAddForm {
         
         // Log submission type for debugging
         console.log(`Submit: Submitting form with type: ${continueAdding ? 'continue' : 'add'}`);
-        
-        // Submit form normally (not via API)
-        this.form.submit();
+
+        // Check if this is bulk creation (quantity > 1)
+        const quantityField = document.getElementById('quantity_to_create');
+        const quantity = quantityField ? parseInt(quantityField.value) : 1;
+        console.log(`Submit: Detected quantity=${quantity} from field value="${quantityField?.value}"`);
+
+        if (quantity > 1) {
+            console.log(`Submit: Using AJAX for bulk creation (quantity=${quantity})`);
+            // Use AJAX for bulk creation to handle JSON response
+            try {
+                const formData = new FormData(this.form);
+                const response = await fetch(this.form.action, {
+                    method: 'POST',
+                    body: formData
+                });
+                console.log(`Submit: Got response status ${response.status}`);
+
+                const data = await response.json();
+                console.log(`Submit: Parsed JSON response:`, data);
+
+                // Reset button states
+                submitBtn.innerHTML = originalSubmitHTML;
+                continueBtn.innerHTML = originalContinueHTML;
+                submitBtn.disabled = false;
+                continueBtn.disabled = false;
+
+                if (data.success) {
+                    console.log(`Submit: Success! Created ${data.count} items, showing modal...`);
+                    // Store created JA IDs for label printing
+                    this.createdJaIds = data.ja_ids;
+                    this.bulkCreationCount = data.count;
+
+                    // Show success message
+                    WorkshopInventory.utils.showToast(data.message, 'success');
+
+                    // Trigger bulk label printing modal (will be implemented in next task)
+                    this.showBulkLabelPrintingModal();
+                } else {
+                    console.log(`Submit: Error in response:`, data.error);
+                    // Show error message
+                    WorkshopInventory.utils.showToast(data.error || 'Failed to create items', 'error');
+                }
+            } catch (error) {
+                console.error('Error during bulk creation:', error);
+                WorkshopInventory.utils.showToast('An error occurred. Please try again.', 'error');
+
+                // Reset button states
+                submitBtn.innerHTML = originalSubmitHTML;
+                continueBtn.innerHTML = originalContinueHTML;
+                submitBtn.disabled = false;
+                continueBtn.disabled = false;
+            }
+        } else {
+            // Submit form normally for single item creation
+            this.form.submit();
+        }
     }
     
     collectFormData() {
@@ -674,7 +737,7 @@ class InventoryAddForm {
         
         // Basic fields
         const basicFields = [
-            'ja_id', 'item_type', 'shape', 'material', 'quantity',
+            'ja_id', 'item_type', 'shape', 'material',
             'location', 'sub_location', 'notes', 'vendor', 'vendor_part_number',
             'purchase_location'
         ];
@@ -794,11 +857,183 @@ class InventoryAddForm {
         const formElements = this.form.querySelectorAll('input:not([type="hidden"]), select, textarea');
         const elementsArray = Array.from(formElements);
         const currentIndex = elementsArray.indexOf(currentField);
-        
+
         // Return next focusable element, or null if it's the last one
         return elementsArray[currentIndex + 1] || null;
     }
-    
+
+    updateBulkCreationInfo() {
+        const quantityField = document.getElementById('quantity_to_create');
+        const jaIdField = document.getElementById('ja_id');
+        const infoDiv = document.getElementById('bulk-creation-info');
+        const messageSpan = document.getElementById('bulk-creation-message');
+
+        if (!quantityField || !jaIdField || !infoDiv || !messageSpan) {
+            return;
+        }
+
+        const quantity = parseInt(quantityField.value) || 1;
+        const jaId = jaIdField.value.trim();
+
+        // Validate quantity range
+        if (quantity < 1) {
+            quantityField.value = 1;
+            infoDiv.classList.add('d-none');
+            return;
+        }
+        if (quantity > 100) {
+            quantityField.value = 100;
+            WorkshopInventory.utils.showToast('Maximum quantity is 100', 'warning');
+            return;
+        }
+
+        // Show info message if quantity > 1 and JA ID is valid
+        if (quantity > 1 && jaId.match(/^JA\d{6}$/)) {
+            // Calculate JA ID range (starting from current + 1 for the additional items)
+            const jaNum = parseInt(jaId.substring(2));
+            const firstNewId = `JA${String(jaNum + 1).padStart(6, '0')}`;
+            const lastNewId = `JA${String(jaNum + quantity - 1).padStart(6, '0')}`;
+
+            messageSpan.textContent = `This will create ${quantity} items: ${jaId} (original) and ${quantity - 1} copies (${firstNewId} - ${lastNewId})`;
+            infoDiv.classList.remove('d-none');
+        } else if (quantity > 1) {
+            messageSpan.textContent = `This will create ${quantity} items with sequential JA IDs`;
+            infoDiv.classList.remove('d-none');
+        } else {
+            infoDiv.classList.add('d-none');
+        }
+    }
+
+    showBulkLabelPrintingModal() {
+        console.log('showBulkLabelPrintingModal: Called');
+        const modal = document.getElementById('bulkLabelPrintingModal');
+        console.log('showBulkLabelPrintingModal: modal element found:', !!modal);
+        console.log('showBulkLabelPrintingModal: createdJaIds:', this.createdJaIds);
+        console.log('showBulkLabelPrintingModal: bulkCreationCount:', this.bulkCreationCount);
+
+        if (!modal || !this.createdJaIds || this.createdJaIds.length === 0) {
+            console.log('showBulkLabelPrintingModal: Early return - missing modal or JA IDs');
+            return;
+        }
+
+        // Update modal title
+        const modalTitle = document.querySelector('#bulkLabelPrintingModalLabel');
+        if (modalTitle) {
+            modalTitle.innerHTML = `<i class="bi bi-printer"></i> ${this.bulkCreationCount} Items Created Successfully`;
+            console.log('showBulkLabelPrintingModal: Updated modal title');
+        }
+
+        // Update summary
+        const summary = document.getElementById('bulk-creation-summary');
+        const firstId = this.createdJaIds[0];
+        const lastId = this.createdJaIds[this.createdJaIds.length - 1];
+        summary.textContent = `Created ${this.bulkCreationCount} items: ${firstId} - ${lastId}`;
+        console.log('showBulkLabelPrintingModal: Updated summary');
+
+        // Populate items list
+        const itemsList = document.getElementById('bulk-label-items-list');
+        if (itemsList) {
+            itemsList.innerHTML = '';
+            this.createdJaIds.forEach(jaId => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item';
+                // Try to get display name from form data
+                const material = document.getElementById('material').value || 'Item';
+                li.textContent = `${jaId} - ${material}`;
+                itemsList.appendChild(li);
+            });
+            console.log('showBulkLabelPrintingModal: Populated items list');
+        }
+
+        // Reset modal state
+        document.getElementById('bulk-print-progress').classList.add('d-none');
+        document.getElementById('bulk-print-all-btn').classList.remove('d-none');
+        document.getElementById('bulk-print-done-btn').classList.add('d-none');
+        document.getElementById('bulk-print-skip').classList.remove('d-none');
+
+        // Setup print button handler
+        const printBtn = document.getElementById('bulk-print-all-btn');
+        printBtn.onclick = () => this.printAllLabels();
+
+        // Show modal
+        console.log('showBulkLabelPrintingModal: Showing modal...');
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        console.log('showBulkLabelPrintingModal: Modal show() called');
+    }
+
+    async printAllLabels() {
+        const labelSize = document.getElementById('bulk-label-size').value;
+        const progressDiv = document.getElementById('bulk-print-progress');
+        const progressBar = document.getElementById('bulk-print-progress-bar');
+        const statusSpan = document.getElementById('bulk-print-status');
+        const errorsDiv = document.getElementById('bulk-print-errors');
+        const printBtn = document.getElementById('bulk-print-all-btn');
+        const doneBtn = document.getElementById('bulk-print-done-btn');
+        const skipBtn = document.getElementById('bulk-print-skip');
+
+        // Show progress
+        progressDiv.classList.remove('d-none');
+        printBtn.classList.add('d-none');
+        skipBtn.classList.add('d-none');
+
+        let successCount = 0;
+        let failureCount = 0;
+        const errors = [];
+
+        for (let i = 0; i < this.createdJaIds.length; i++) {
+            const jaId = this.createdJaIds[i];
+            const progress = Math.round(((i + 1) / this.createdJaIds.length) * 100);
+
+            statusSpan.textContent = `Printing ${i + 1} of ${this.createdJaIds.length}: ${jaId}`;
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
+
+            try {
+                const response = await fetch('/api/labels/print', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ja_id: jaId,
+                        label_size: labelSize
+                    })
+                });
+
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    failureCount++;
+                    errors.push(`${jaId}: ${response.statusText}`);
+                }
+            } catch (error) {
+                failureCount++;
+                errors.push(`${jaId}: ${error.message}`);
+            }
+        }
+
+        // Show results
+        if (failureCount > 0) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `
+                <strong>Warning:</strong> ${failureCount} label(s) failed to print:<br>
+                ${errors.map(e => `• ${e}`).join('<br>')}
+            `;
+        }
+
+        statusSpan.textContent = `Complete: ${successCount} printed, ${failureCount} failed`;
+        progressBar.classList.remove('progress-bar-animated');
+
+        // Show done button
+        doneBtn.classList.remove('d-none');
+
+        // Show success message
+        if (successCount > 0) {
+            WorkshopInventory.utils.showToast(`Printed ${successCount} label(s) successfully`, 'success');
+        }
+    }
+
     showFormErrors(errors) {
         const alertsDiv = document.getElementById('form-alerts');
         

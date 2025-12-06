@@ -143,7 +143,6 @@ def sample_inventory_item():
         item_type="Bar",
         shape="Round",
         material="Steel",
-        quantity=1,
         location="Test Location",
         notes="Sample item for testing"
     )
@@ -245,14 +244,13 @@ def create_test_data(session):
             length=1000.0,
             width=25.0,
             item_type="Bar",
-            shape="Round", 
+            shape="Round",
             material="Steel",
-            quantity=1,
             location="Shop A",
             notes="Standard steel bar"
         ),
         InventoryItem(
-            ja_id="JA000002", 
+            ja_id="JA000002",
             active=True,
             length=500.0,
             width=50.0,
@@ -260,7 +258,6 @@ def create_test_data(session):
             item_type="Plate",
             shape="Rectangular",
             material="Aluminum",
-            quantity=1,
             location="Rack B",
             notes="Aluminum plate"
         )

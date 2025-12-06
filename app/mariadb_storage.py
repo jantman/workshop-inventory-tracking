@@ -364,7 +364,7 @@ class MariaDBStorage(Storage):
         return [
             'JA ID', 'Type', 'Shape', 'Material', 'Length', 'Width', 'Thickness',
             'Wall Thickness', 'Weight', 'Thread Series', 'Thread Handedness',
-            'Thread Size', 'Quantity', 'Location', 'Sub Location', 'Purchase Date',
+            'Thread Size', 'Location', 'Sub Location', 'Purchase Date',
             'Purchase Price', 'Purchase Location', 'Notes', 'Vendor', 'Vendor Part',
             'Original Material', 'Original Thread', 'Active', 'Date Added', 'Last Modified'
         ]
@@ -417,11 +417,11 @@ class MariaDBStorage(Storage):
         updated_item = InventoryItem.from_row(row, headers)
         
         # Copy all fields except id and system timestamps
-        for attr in ['ja_id', 'item_type', 'shape', 'material', 'length', 'width', 
-                     'thickness', 'wall_thickness', 'weight', 'thread_series', 
-                     'thread_handedness', 'thread_size', 'quantity', 'location', 
-                     'sub_location', 'purchase_date', 'purchase_price', 
-                     'purchase_location', 'notes', 'vendor', 'vendor_part', 
+        for attr in ['ja_id', 'item_type', 'shape', 'material', 'length', 'width',
+                     'thickness', 'wall_thickness', 'weight', 'thread_series',
+                     'thread_handedness', 'thread_size', 'location',
+                     'sub_location', 'purchase_date', 'purchase_price',
+                     'purchase_location', 'notes', 'vendor', 'vendor_part',
                      'original_material', 'original_thread', 'active']:
             if hasattr(updated_item, attr):
                 setattr(item, attr, getattr(updated_item, attr))

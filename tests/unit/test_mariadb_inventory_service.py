@@ -48,7 +48,6 @@ class TestInventoryService:
         db_item.thread_series = None
         db_item.thread_handedness = None
         db_item.thread_size = None
-        db_item.quantity = 1
         db_item.location = "Workshop"
         db_item.sub_location = ""
         db_item.purchase_date = None
@@ -137,7 +136,6 @@ class TestInventoryService:
         item1.thread_series = None
         item1.thread_handedness = None
         item1.thread_size = None
-        item1.quantity = 1
         item1.location = "Workshop"
         item1.sub_location = ""
         item1.purchase_date = None
@@ -158,7 +156,7 @@ class TestInventoryService:
             wall_thickness=None,
             weight=None
         )
-        
+
         item2 = Mock(spec=InventoryItem)
         item2.ja_id = "JA000211"
         item2.active = False
@@ -173,7 +171,6 @@ class TestInventoryService:
         item2.thread_series = None
         item2.thread_handedness = None
         item2.thread_size = None
-        item2.quantity = 1
         item2.location = "Workshop"
         item2.sub_location = ""
         item2.purchase_date = None
@@ -194,7 +191,7 @@ class TestInventoryService:
             wall_thickness=None,
             weight=None
         )
-        
+
         item3 = Mock(spec=InventoryItem)
         item3.ja_id = "JA000211"
         item3.active = True
@@ -209,7 +206,6 @@ class TestInventoryService:
         item3.thread_series = None
         item3.thread_handedness = None
         item3.thread_size = None
-        item3.quantity = 1
         item3.location = "Workshop"
         item3.sub_location = ""
         item3.purchase_date = None

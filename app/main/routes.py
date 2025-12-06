@@ -37,7 +37,6 @@ def _item_to_audit_dict(item):
         'material': item.material,
         'dimensions': item.dimensions.to_dict() if item.dimensions else None,
         'thread': item.thread.to_dict() if item.thread else None,
-        'quantity': item.quantity,
         'location': item.location,
         'sub_location': item.sub_location,
         'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
@@ -112,18 +111,95 @@ def _get_valid_materials():
     """Get list of valid materials from the appropriate storage backend"""
     try:
         storage = _get_storage_backend()
-        
+
         # All storage now uses MariaDB backend
-        
+
         # For MariaDB, use the inventory service
         from app.mariadb_inventory_service import InventoryService
         service = InventoryService(storage)
         return service.get_valid_materials()
-        
+
     except Exception as e:
         current_app.logger.error(f'Failed to load materials taxonomy: {e}')
         # Fallback to some basic materials if database query fails
         return ['Steel', 'Carbon Steel', 'Stainless Steel', 'Aluminum', 'Brass', 'Copper']
+
+
+def _add_item_with_logging(service, item, operation='add_item', context=None):
+    """
+    Helper function to add an item and log the operation.
+
+    Args:
+        service: InventoryService instance
+        item: InventoryItem object to add
+        operation: Operation name for audit logging (default: 'add_item')
+        context: Optional dict with logging context (e.g., bulk_context, duplicate_context)
+
+    Returns:
+        Tuple of (success: bool, ja_id: str, error_message: str or None)
+    """
+    try:
+        result = service.add_item(item)
+
+        if result:
+            # AUDIT: Log successful operation
+            log_audit_operation(operation, 'success',
+                              item_id=item.ja_id,
+                              item_after=_item_to_audit_dict(item),
+                              form_data=context if context else None)
+
+            return (True, item.ja_id, None)
+        else:
+            error_msg = 'Service add_item returned False'
+
+            log_audit_operation(operation, 'error',
+                              item_id=item.ja_id,
+                              error_details=error_msg,
+                              form_data=context if context else None)
+
+            return (False, item.ja_id, error_msg)
+
+    except Exception as e:
+        error_msg = str(e)
+        current_app.logger.error(f'Error adding item {item.ja_id}: {error_msg}')
+        log_audit_operation(operation, 'error',
+                          item_id=item.ja_id,
+                          error_details=error_msg,
+                          form_data=context if context else None)
+        return (False, item.ja_id, error_msg)
+
+
+def _create_single_item(service, form_data, bulk_context=None):
+    """
+    Helper function to create a single item from form data and log the operation.
+
+    Args:
+        service: InventoryService instance
+        form_data: Dictionary of form data for the item
+        bulk_context: Optional dict with 'index' and 'total' for bulk creation logging
+
+    Returns:
+        Tuple of (success: bool, ja_id: str, error_message: str or None)
+    """
+    try:
+        item = _parse_item_from_form(form_data)
+
+        # Build context for logging
+        context = None
+        if bulk_context:
+            context = {
+                'bulk_creation': True,
+                'bulk_index': bulk_context['index'],
+                'bulk_total': bulk_context['total']
+            }
+
+        return _add_item_with_logging(service, item, 'add_item', context)
+
+    except Exception as e:
+        error_msg = str(e)
+        current_app.logger.error(f'Error creating item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg)
+
 
 @bp.route('/inventory/add', methods=['GET', 'POST'])
 def inventory_add():
@@ -166,9 +242,10 @@ def inventory_add():
         # Validate material is in taxonomy
         material = form_data.get('material', '').strip()
         valid_materials = _get_valid_materials()
-        valid_materials_lower = [m.lower() for m in valid_materials]
-        
-        if material and material.lower() not in valid_materials_lower:
+        # Defensive: handle case where valid_materials might be None or contain None values
+        valid_materials_lower = [m.lower() for m in (valid_materials or []) if m]
+
+        if material and valid_materials_lower and material.lower() not in valid_materials_lower:
             error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
             # AUDIT: Log validation error
             log_audit_operation('add_item', 'error', 
@@ -179,46 +256,139 @@ def inventory_add():
                 'error': error_msg
             }), 400
         
-        # Parse form data into models
-        item = _parse_item_from_form(form_data)
+        # Check for bulk creation (quantity_to_create > 1)
+        quantity_to_create = int(form_data.get('quantity_to_create', '1'))
+        current_app.logger.info(f'Add item: quantity_to_create={quantity_to_create} from form_data')
 
-        # Save to storage
+        # Validate quantity range
+        if quantity_to_create < 1 or quantity_to_create > 100:
+            error_msg = 'Quantity to create must be between 1 and 100'
+            log_audit_operation('add_item', 'error',
+                              item_id=form_data.get('ja_id'),
+                              error_details=error_msg)
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 400
+
         service = _get_inventory_service()
         storage = _get_storage_backend()
-        
-        result = service.add_item(item)
-        
-        if result:
-            # AUDIT: Log successful add operation with item data
-            log_audit_operation('add_item', 'success', 
-                              item_id=item.ja_id, 
-                              item_after=_item_to_audit_dict(item))
-            
-            # All storage now uses MariaDB backend which writes directly to database
-            # No batching needed - InventoryService handles this internally
-            
-            flash('Item added successfully!', 'success')
-            
-            # Check submission type and log for carry forward debugging
-            submit_type = request.form.get('submit_type')
-            current_app.logger.info(f'Add item workflow: submit_type="{submit_type}" for item {item.ja_id}')
-            
-            if submit_type == 'continue':
-                current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {item.ja_id}')
-                # AUDIT: Log Add & Continue workflow for carry forward debugging
-                log_audit_operation('add_item', 'continue_workflow', 
-                                  item_id=item.ja_id)
-                return redirect(url_for('main.inventory_add'))
+
+        if quantity_to_create == 1:
+            # Single item creation
+            success, ja_id, error_msg = _create_single_item(service, form_data)
+
+            if success:
+                flash('Item added successfully!', 'success')
+
+                # Check submission type
+                submit_type = request.form.get('submit_type')
+                current_app.logger.info(f'Add item workflow: submit_type="{submit_type}" for item {ja_id}')
+
+                if submit_type == 'continue':
+                    current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {ja_id}')
+                    log_audit_operation('add_item', 'continue_workflow',
+                                      item_id=ja_id)
+                    return redirect(url_for('main.inventory_add'))
+                else:
+                    current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {ja_id}')
+                    return redirect(url_for('main.inventory_list'))
             else:
-                current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {item.ja_id}')
-                return redirect(url_for('main.inventory_list'))
+                flash('Failed to add item. Please try again.', 'error')
+                return redirect(url_for('main.inventory_add'))
         else:
-            # AUDIT: Log failed add operation
-            log_audit_operation('add_item', 'error', 
-                              item_id=form_data.get('ja_id'), 
-                              error_details='Service add_item returned False')
-            flash('Failed to add item. Please try again.', 'error')
-            return redirect(url_for('main.inventory_add'))
+            # Bulk creation (quantity_to_create > 1)
+            current_app.logger.info(f'Bulk creation: Creating {quantity_to_create} items starting from {form_data.get("ja_id")}')
+
+            # Get next available JA IDs
+            all_items = service.get_all_items()
+            if all_items:
+                max_number = 0
+                for existing_item in all_items:
+                    ja_id = existing_item.ja_id
+                    if ja_id.startswith('JA') and len(ja_id) == 8:
+                        try:
+                            number = int(ja_id[2:])
+                            max_number = max(max_number, number)
+                        except ValueError:
+                            continue
+                next_number = max_number + 1
+            else:
+                next_number = 1
+
+            # Get the starting JA ID from form (user may have entered a specific one)
+            starting_ja_id = form_data.get('ja_id', '').strip()
+            if starting_ja_id and starting_ja_id.startswith('JA'):
+                try:
+                    starting_number = int(starting_ja_id[2:])
+                    # Use whichever is higher: user's choice or next available
+                    next_number = max(next_number, starting_number)
+                except ValueError:
+                    pass  # Use calculated next_number
+
+            created_ja_ids = []
+
+            # Create N items with sequential JA IDs
+            for i in range(quantity_to_create):
+                ja_id = f"JA{next_number:06d}"
+                next_number += 1
+
+                # Create a copy of form_data with the new JA ID
+                item_form_data = form_data.copy()
+                item_form_data['ja_id'] = ja_id
+
+                # Create the item using helper function
+                bulk_context = {'index': i+1, 'total': quantity_to_create}
+                success, created_ja_id, error_msg = _create_single_item(service, item_form_data, bulk_context)
+
+                if success:
+                    created_ja_ids.append(created_ja_id)
+                else:
+                    current_app.logger.error(f'Failed to create item {i+1}/{quantity_to_create}: {ja_id} - {error_msg}')
+
+            if len(created_ja_ids) == quantity_to_create:
+                # All items created successfully
+                first_ja_id = created_ja_ids[0]
+                last_ja_id = created_ja_ids[-1]
+
+                current_app.logger.info(f'Bulk creation complete: Created {len(created_ja_ids)} items ({first_ja_id} - {last_ja_id})')
+
+                # Return JSON response for bulk creation
+                return jsonify({
+                    'success': True,
+                    'count': len(created_ja_ids),
+                    'ja_ids': created_ja_ids,
+                    'message': f'Successfully created {len(created_ja_ids)} items: {first_ja_id} - {last_ja_id}'
+                }), 200
+            elif len(created_ja_ids) > 0:
+                # Partial success
+                error_msg = f'Created {len(created_ja_ids)} of {quantity_to_create} items. Some items failed.'
+                log_audit_operation('add_item', 'error',
+                                  error_details=error_msg,
+                                  form_data={
+                                      'bulk_creation': True,
+                                      'bulk_total': quantity_to_create,
+                                      'bulk_succeeded': len(created_ja_ids)
+                                  })
+                return jsonify({
+                    'success': False,
+                    'count': len(created_ja_ids),
+                    'ja_ids': created_ja_ids,
+                    'error': error_msg
+                }), 500
+            else:
+                # Complete failure
+                error_msg = 'Failed to create any items'
+                log_audit_operation('add_item', 'error',
+                                  error_details=error_msg,
+                                  form_data={
+                                      'bulk_creation': True,
+                                      'bulk_total': quantity_to_create
+                                  })
+                return jsonify({
+                    'success': False,
+                    'error': error_msg
+                }), 500
             
     except ValueError as e:
         # AUDIT: Log validation exception
@@ -281,9 +451,10 @@ def inventory_edit(ja_id):
         # Validate material is in taxonomy
         material = form_data.get('material', '').strip()
         valid_materials = _get_valid_materials()
-        valid_materials_lower = [m.lower() for m in valid_materials]
-        
-        if material and material.lower() not in valid_materials_lower:
+        # Defensive: handle case where valid_materials might be None or contain None values
+        valid_materials_lower = [m.lower() for m in (valid_materials or []) if m]
+
+        if material and valid_materials_lower and material.lower() not in valid_materials_lower:
             error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
             # AUDIT: Log validation error
             log_audit_operation('edit_item', 'error',
@@ -343,6 +514,158 @@ def inventory_edit(ja_id):
         current_app.logger.error(f'Error updating item {ja_id}: {e}\n{traceback.format_exc()}')
         flash('An error occurred while updating the item. Please try again.', 'error')
         return redirect(url_for('main.inventory_list'))
+
+@bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])
+def duplicate_item(ja_id):
+    """Duplicate an inventory item N times with sequential JA IDs"""
+    try:
+        # Get JSON request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+        quantity = data.get('quantity', 1)
+        save_changes = data.get('save_changes', False)
+        updated_fields = data.get('updated_fields', {})
+
+        # Validate quantity
+        if not isinstance(quantity, int) or quantity < 1 or quantity > 100:
+            return jsonify({'success': False, 'error': 'Quantity must be between 1 and 100'}), 400
+
+        service = _get_inventory_service()
+
+        # Get the source item
+        source_item = service.get_item(ja_id)
+        if not source_item:
+            return jsonify({'success': False, 'error': f'Item {ja_id} not found'}), 404
+
+        # If save_changes is True, update the source item first
+        if save_changes and updated_fields:
+            # Update source item with changed fields
+            for field, value in updated_fields.items():
+                if hasattr(source_item, field):
+                    setattr(source_item, field, value)
+            service.update_item(source_item)
+            # Reload the item to get fresh data
+            source_item = service.get_item(ja_id)
+
+        # Get next available JA IDs
+        all_items = service.get_all_items()
+        if all_items:
+            max_number = 0
+            for existing_item in all_items:
+                existing_ja_id = existing_item.ja_id
+                if existing_ja_id.startswith('JA') and len(existing_ja_id) == 8:
+                    try:
+                        number = int(existing_ja_id[2:])
+                        max_number = max(max_number, number)
+                    except ValueError:
+                        continue
+            next_number = max_number + 1
+        else:
+            next_number = 1
+
+        created_ja_ids = []
+
+        # Create N duplicates with sequential JA IDs
+        for i in range(quantity):
+            new_ja_id = f"JA{next_number:06d}"
+            next_number += 1
+
+            # Create duplicate item (copy all fields except JA ID, photos, history)
+            from app.database import InventoryItem
+            from app.models import Dimensions
+            duplicate = InventoryItem()
+
+            # Copy all basic fields
+            duplicate.ja_id = new_ja_id
+            duplicate.item_type = source_item.item_type
+            duplicate.shape = source_item.shape
+            duplicate.material = source_item.material
+
+            # Copy dimensions
+            if source_item.dimensions:
+                duplicate.dimensions = Dimensions(
+                    length=source_item.dimensions.length,
+                    width=source_item.dimensions.width,
+                    thickness=source_item.dimensions.thickness,
+                    wall_thickness=source_item.dimensions.wall_thickness,
+                    weight=source_item.dimensions.weight
+                )
+
+            # Copy thread info
+            if source_item.thread:
+                # Get the string value from enum if it's an enum, otherwise use as-is
+                duplicate.thread_series = source_item.thread.series.value if hasattr(source_item.thread.series, 'value') else source_item.thread.series
+                duplicate.thread_handedness = source_item.thread.handedness.value if hasattr(source_item.thread.handedness, 'value') else source_item.thread.handedness
+                duplicate.thread_size = source_item.thread.size
+
+            # Copy location
+            duplicate.location = source_item.location
+            duplicate.sub_location = source_item.sub_location
+
+            # Copy purchase info
+            duplicate.purchase_date = source_item.purchase_date
+            duplicate.purchase_price = source_item.purchase_price
+            duplicate.purchase_location = source_item.purchase_location
+            duplicate.vendor = source_item.vendor
+            duplicate.vendor_part = source_item.vendor_part
+
+            # Copy notes
+            duplicate.notes = source_item.notes
+
+            # Copy original material/thread
+            duplicate.original_material = source_item.original_material
+            duplicate.original_thread = source_item.original_thread
+
+            # Set precision flag
+            duplicate.precision = source_item.precision if hasattr(source_item, 'precision') else False
+
+            # Set as active
+            duplicate.active = True
+
+            # Add the duplicate using helper
+            duplicate_context = {
+                'source_ja_id': ja_id,
+                'duplicate_index': i+1,
+                'duplicate_total': quantity
+            }
+            success, created_ja_id, error_msg = _add_item_with_logging(service, duplicate, 'duplicate_item', duplicate_context)
+
+            if success:
+                created_ja_ids.append(created_ja_id)
+            else:
+                current_app.logger.error(f'Failed to duplicate item {i+1}/{quantity}: {new_ja_id} - {error_msg}')
+
+        # Return results
+        if len(created_ja_ids) == quantity:
+            first_id = created_ja_ids[0]
+            last_id = created_ja_ids[-1]
+            return jsonify({
+                'success': True,
+                'count': len(created_ja_ids),
+                'ja_ids': created_ja_ids,
+                'message': f'Successfully created {len(created_ja_ids)} duplicate(s): {first_id} - {last_id}'
+            }), 200
+        elif len(created_ja_ids) > 0:
+            return jsonify({
+                'success': False,
+                'count': len(created_ja_ids),
+                'ja_ids': created_ja_ids,
+                'error': f'Created {len(created_ja_ids)} of {quantity} duplicates. Some failed.'
+            }), 500
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create any duplicates'
+            }), 500
+
+    except Exception as e:
+        current_app.logger.error(f'Error duplicating item {ja_id}: {e}\n{traceback.format_exc()}')
+        return jsonify({
+            'success': False,
+            'error': f'Server error: {str(e)}'
+        }), 500
 
 @bp.route('/inventory/view/<ja_id>')
 def inventory_view(ja_id):
@@ -1156,7 +1479,6 @@ def api_inventory_list():
                 'material': item.material,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'thread': item.thread.to_dict() if item.thread else None,
-                'quantity': item.quantity,
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
@@ -1307,7 +1629,6 @@ def api_advanced_search():
                 'material': item.material,
                 'dimensions': item.dimensions.to_dict() if item.dimensions else None,
                 'thread': item.thread.to_dict() if item.thread else None,
-                'quantity': item.quantity,
                 'location': item.location,
                 'sub_location': item.sub_location,
                 'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
@@ -1455,14 +1776,7 @@ def _parse_item_from_form(form_data):
             item.thread_size = thread_size or None
         except Exception:
             raise ValueError(f"Invalid thread series or handedness: {thread_series_str}, {thread_handedness_str}")
-    
-    # Parse other fields
-    quantity = form_data.get('quantity', '1')
-    try:
-        item.quantity = int(quantity) if quantity else 1
-    except ValueError:
-        item.quantity = 1
-    
+
     # Set other fields
     item.location = form_data.get('location', '').strip() or None
     item.sub_location = form_data.get('sub_location', '').strip() or None

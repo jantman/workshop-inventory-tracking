@@ -113,8 +113,7 @@ class TestInventoryItemValidation:
         item.material = "Steel"
         item.length = 12.0
         item.width = 1.0
-        item.quantity = 1
-        
+
         errors = item.validate()
         assert len(errors) == 0
     
@@ -349,19 +348,17 @@ class TestInventoryItemDictMethods:
             'material': 'Steel',
             'length': 12.0,
             'width': 1.0,
-            'quantity': 1,
             'active': True
         }
-        
+
         item = InventoryItem.from_dict_enhanced(data)
-        
+
         assert item.ja_id == 'JA000001'
         assert item.item_type == 'Bar'
         assert item.shape == 'Round'
         assert item.material == 'Steel'
         assert item.length == 12.0
         assert item.width == 1.0
-        assert item.quantity == 1
         assert item.active is True
 
 
@@ -378,23 +375,22 @@ class TestInventoryItemRowMethods:
         item.material = "Steel"
         item.length = 12.0
         item.width = 1.0
-        item.quantity = 1
         item.active = True
-        
+
         headers = ['JA ID', 'Type', 'Shape', 'Material', 'Length', 'Width', 'Active']
         row = item.to_row(headers)
-        
+
         expected = ['JA000001', 'Bar', 'Round', 'Steel', '12.0', '1.0', 'Yes']
         assert row == expected
     
     @pytest.mark.unit
     def test_from_row(self):
         """Test from_row method"""
-        headers = ['JA ID', 'Type', 'Shape', 'Material', 'Length', 'Width', 'Active', 'Quantity']
-        row = ['JA000001', 'Bar', 'Round', 'Steel', '12.0', '1.0', 'Yes', '1']
-        
+        headers = ['JA ID', 'Type', 'Shape', 'Material', 'Length', 'Width', 'Active']
+        row = ['JA000001', 'Bar', 'Round', 'Steel', '12.0', '1.0', 'Yes']
+
         item = InventoryItem.from_row(row, headers)
-        
+
         assert item.ja_id == 'JA000001'
         assert item.item_type == 'Bar'
         assert item.shape == 'Round'
@@ -402,7 +398,6 @@ class TestInventoryItemRowMethods:
         assert item.length == 12.0
         assert item.width == 1.0
         assert item.active is True
-        assert item.quantity == 1
     
     @pytest.mark.unit
     def test_from_row_with_currency_price(self):

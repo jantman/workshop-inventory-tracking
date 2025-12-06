@@ -499,7 +499,6 @@ def test_search_by_threaded_rod_type_workflow(page, live_server):
         thread_series="UNC",       # Store as string
         thread_handedness="Right", # Store as string
         thread_size="1/4-20",      # Store as string
-        quantity=1,                # Required field
         location="Storage D",
         notes="1/4-20 threaded rod",
         active=True
@@ -515,7 +514,6 @@ def test_search_by_threaded_rod_type_workflow(page, live_server):
         thread_series="UNC",       # Store as string
         thread_handedness="Right", # Store as string
         thread_size="3/8-16",      # Store as string
-        quantity=1,                # Required field
         location="Storage D",
         notes="3/8-16 threaded rod",
         active=True
@@ -569,7 +567,6 @@ def test_search_by_multiple_criteria_with_threaded_rod_workflow(page, live_serve
         thread_series="UNC",       # Store as string
         thread_handedness="Right", # Store as string
         thread_size="1/4-20",      # Store as string
-        quantity=1,                # Required field
         location="Storage D",
         active=True
     )
@@ -584,7 +581,6 @@ def test_search_by_multiple_criteria_with_threaded_rod_workflow(page, live_serve
         thread_series="UNC",       # Store as string
         thread_handedness="Right", # Store as string
         thread_size="1/4-20",      # Store as string
-        quantity=1,                # Required field
         location="Storage D",
         active=True
     )

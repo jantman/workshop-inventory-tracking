@@ -53,9 +53,8 @@ class TestAuditLogging:
             'wall_thickness': None,
             'weight': 5.5,
             'thread_series': None,
-            'thread_handedness': None, 
+            'thread_handedness': None,
             'thread_size': None,
-            'quantity': 1,
             'location': 'Storage A',
             'sub_location': 'Shelf 1',
             'purchase_date': '2025-01-01',
@@ -293,7 +292,6 @@ class TestAuditLogging:
                 'thread_series': 'Metric',
                 'thread_handedness': 'RH',
                 'thread_size': 'M12x1.75',
-                'quantity': '2',
                 'location': 'Storage E',
                 'sub_location': 'Bin 10',
                 'purchase_date': '2025-08-15',
@@ -518,12 +516,11 @@ class TestAuditLogReconstructionScenarios:
         original_form_data = {
             'ja_id': 'JA000777',
             'item_type': 'Plate',
-            'shape': 'Rectangular', 
+            'shape': 'Rectangular',
             'material': 'Aluminum 6061',
             'length': '12.0',
-            'width': '8.0', 
+            'width': '8.0',
             'thickness': '0.25',
-            'quantity': '2',
             'location': 'Materials Rack',
             'sub_location': 'A-3',
             'purchase_date': '2025-07-15',
@@ -533,7 +530,7 @@ class TestAuditLogReconstructionScenarios:
             'vendor_part_number': 'AL6061-12x8x0.25',
             'notes': 'Quarter-inch aluminum plate for mounting brackets'
         }
-        
+
         # Simulate the reconstruction process
         reconstructed_item = {
             'ja_id': original_form_data['ja_id'],
@@ -543,12 +540,11 @@ class TestAuditLogReconstructionScenarios:
             'length': float(original_form_data['length']),
             'width': float(original_form_data['width']),
             'thickness': float(original_form_data['thickness']),
-            'quantity': int(original_form_data['quantity']),
             'location': original_form_data['location'],
             'sub_location': original_form_data['sub_location'],
             'notes': original_form_data['notes']
         }
-        
+
         # Verify reconstruction completeness
         critical_fields = ['ja_id', 'item_type', 'material', 'length', 'width', 'location']
         for field in critical_fields:
@@ -682,7 +678,6 @@ class TestAuditLogReconstructionScenarios:
         mock_item.material = 'Steel'
         mock_item.dimensions = None
         mock_item.thread = None
-        mock_item.quantity = 1
         mock_item.location = 'Shop A'
         mock_item.sub_location = 'Shelf 1'
         mock_item.purchase_date = None
@@ -696,16 +691,16 @@ class TestAuditLogReconstructionScenarios:
         mock_item.active = True
         mock_item.date_added = None
         mock_item.last_modified = None
-        
+
         # This should not raise an AttributeError after our fix
         result = _item_to_audit_dict(mock_item)
-        
+
         # Verify the result contains the correct original_thread value
         assert result['original_thread'] == '1/4-20'
         assert result['ja_id'] == 'JA000123'
         assert result['material'] == 'Steel'
         
-    @pytest.mark.unit  
+    @pytest.mark.unit
     def test_item_to_audit_dict_with_none_original_thread(self):
         """Test _item_to_audit_dict function handles None original_thread correctly"""
         # Create a mock item with original_thread as None
@@ -716,7 +711,6 @@ class TestAuditLogReconstructionScenarios:
         mock_item.material = 'Aluminum'
         mock_item.dimensions = None
         mock_item.thread = None
-        mock_item.quantity = 1
         mock_item.location = 'Shop B'
         mock_item.sub_location = 'Shelf 2'
         mock_item.purchase_date = None

@@ -803,10 +803,6 @@ function createItemDetailsHTML(item) {
                         <td>${item.material}</td>
                     </tr>
                     <tr>
-                        <td><strong>Quantity:</strong></td>
-                        <td>${item.quantity}</td>
-                    </tr>
-                    <tr>
                         <td><strong>Status:</strong></td>
                         <td><span class="badge ${item.active ? 'bg-success' : 'bg-secondary'}">${item.active ? 'Active' : 'Inactive'}</span></td>
                     </tr>

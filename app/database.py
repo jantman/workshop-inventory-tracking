@@ -8,6 +8,7 @@ with proper constraints to ensure data integrity.
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary
 from sqlalchemy.sql.sqltypes import Numeric
+from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql import func
@@ -53,9 +54,8 @@ class InventoryItem(Base):
     thread_series = Column(String(10), nullable=True)  # UNC, UNF, Metric, etc.
     thread_handedness = Column(String(10), nullable=True)  # RH, LH
     thread_size = Column(String(20), nullable=True)  # 1/4-20, M10x1.5, etc.
-    
+
     # Inventory tracking
-    quantity = Column(Integer, nullable=False, default=1)
     location = Column(String(100), nullable=True)
     sub_location = Column(String(100), nullable=True)
     
@@ -87,8 +87,7 @@ class InventoryItem(Base):
         CheckConstraint('thickness IS NULL OR thickness > 0', name='ck_positive_thickness'),
         CheckConstraint('wall_thickness IS NULL OR wall_thickness > 0', name='ck_positive_wall_thickness'),
         CheckConstraint('weight IS NULL OR weight > 0', name='ck_positive_weight'),
-        CheckConstraint('quantity > 0', name='ck_positive_quantity'),
-        
+
         # Ensure valid JA ID format (MariaDB/MySQL compatible)
         CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_valid_ja_id_format'),
     )
@@ -242,11 +241,7 @@ class InventoryItem(Base):
             value = getattr(self, field_name)
             if value is not None and float(value) <= 0:
                 errors.append(f"{field_name.replace('_', ' ').title()} must be positive")
-        
-        # Validate quantity
-        if self.quantity is not None and self.quantity <= 0:
-            errors.append("Quantity must be positive")
-        
+
         return errors
     
     @property
@@ -377,7 +372,7 @@ class InventoryItem(Base):
         item = cls()
         
         # Set basic fields
-        for field in ['ja_id', 'material', 'quantity', 'location', 'sub_location',
+        for field in ['ja_id', 'material', 'location', 'sub_location',
                      'notes', 'vendor', 'original_material', 'original_thread']:
             if field in data and data[field] is not None:
                 setattr(item, field, data[field])
@@ -471,7 +466,6 @@ class InventoryItem(Base):
                 'Thread Series': self.thread_series or '',
                 'Thread Handedness': self.thread_handedness or '',
                 'Thread Size': self.thread_size or '',
-                'Quantity': str(self.quantity) if self.quantity else '',
                 'Location': self.location or '',
                 'Sub-Location': self.sub_location or '',
                 'Purchase Date': self.purchase_date.strftime('%Y-%m-%d') if self.purchase_date else '',
@@ -548,15 +542,7 @@ class InventoryItem(Base):
                         setattr(item, field_mappings[header], float(value))
                 except (ValueError, TypeError):
                     pass
-        
-        # Handle quantity
-        quantity_str = row_dict.get('Quantity')
-        if quantity_str:
-            try:
-                item.quantity = int(quantity_str)
-            except (ValueError, TypeError):
-                item.quantity = 1
-        
+
         # Handle active status
         active_str = row_dict.get('Active', 'Yes')
         item.active = active_str.lower() in ['yes', 'y', 'true', '1']
@@ -605,7 +591,6 @@ class InventoryItem(Base):
             'thread_series': self.thread_series,
             'thread_handedness': self.thread_handedness,
             'thread_size': self.thread_size,
-            'quantity': self.quantity,
             'location': self.location,
             'sub_location': self.sub_location,
             'purchase_date': self.purchase_date.isoformat() if self.purchase_date else None,
@@ -720,9 +705,10 @@ class ItemPhoto(Base):
     file_size = Column(Integer, nullable=False)  # Original file size in bytes
     
     # Photo data in three sizes
-    thumbnail_data = Column(LargeBinary, nullable=False)  # ~150px compressed
-    medium_data = Column(LargeBinary, nullable=False)  # ~800px compressed  
-    original_data = Column(LargeBinary, nullable=False)  # Original up to 20MB
+    # Use MEDIUMBLOB for MySQL/MariaDB, fall back to LargeBinary for SQLite tests
+    thumbnail_data = Column(LargeBinary, nullable=False)  # ~150px compressed (BLOB, up to 64KB)
+    medium_data = Column(LargeBinary().with_variant(MEDIUMBLOB, 'mysql'), nullable=False)  # ~800px compressed (MEDIUMBLOB on MySQL, up to 16MB)
+    original_data = Column(LargeBinary().with_variant(MEDIUMBLOB, 'mysql'), nullable=False)  # Original up to 20MB (MEDIUMBLOB on MySQL, up to 16MB)
     
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=func.now(), index=True)

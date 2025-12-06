@@ -52,8 +52,7 @@ class InventoryShortenManager {
         this.currentLengthSpan = document.getElementById('current-length');
         this.itemLocation = document.getElementById('item-location');
         this.itemStatus = document.getElementById('item-status');
-        this.itemQuantity = document.getElementById('item-quantity');
-        
+
         // Summary display elements
         this.summaryJaId = document.getElementById('summary-ja-id');
         this.summaryCurrentLength = document.getElementById('summary-current-length');
@@ -215,9 +214,7 @@ class InventoryShortenManager {
         this.currentLengthSpan.textContent = item.dimensions.length || 'Unknown';
         this.itemLocation.textContent = item.location || 'Not specified';
         this.itemStatus.textContent = item.active ? 'Active' : 'Inactive';
-        this.itemQuantity.textContent = '1'; // Assuming quantity 1 for shortening
-        
-        
+
         // Show item details
         this.itemDetails.classList.remove('d-none');
         this.itemNotFound.classList.add('d-none');
