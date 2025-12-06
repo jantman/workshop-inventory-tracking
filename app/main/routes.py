@@ -125,9 +125,53 @@ def _get_valid_materials():
         return ['Steel', 'Carbon Steel', 'Stainless Steel', 'Aluminum', 'Brass', 'Copper']
 
 
+def _add_item_with_logging(service, item, operation='add_item', context=None):
+    """
+    Helper function to add an item and log the operation.
+
+    Args:
+        service: InventoryService instance
+        item: InventoryItem object to add
+        operation: Operation name for audit logging (default: 'add_item')
+        context: Optional dict with logging context (e.g., bulk_context, duplicate_context)
+
+    Returns:
+        Tuple of (success: bool, ja_id: str, error_message: str or None)
+    """
+    try:
+        result = service.add_item(item)
+
+        if result:
+            # AUDIT: Log successful operation
+            log_audit_operation(operation, 'success',
+                              item_id=item.ja_id,
+                              item_after=_item_to_audit_dict(item),
+                              form_data=context if context else None)
+
+            return (True, item.ja_id, None)
+        else:
+            error_msg = 'Service add_item returned False'
+
+            log_audit_operation(operation, 'error',
+                              item_id=item.ja_id,
+                              error_details=error_msg,
+                              form_data=context if context else None)
+
+            return (False, item.ja_id, error_msg)
+
+    except Exception as e:
+        error_msg = str(e)
+        current_app.logger.error(f'Error adding item {item.ja_id}: {error_msg}')
+        log_audit_operation(operation, 'error',
+                          item_id=item.ja_id,
+                          error_details=error_msg,
+                          form_data=context if context else None)
+        return (False, item.ja_id, error_msg)
+
+
 def _create_single_item(service, form_data, bulk_context=None):
     """
-    Helper function to create a single item and log the operation.
+    Helper function to create a single item from form data and log the operation.
 
     Args:
         service: InventoryService instance
@@ -139,43 +183,17 @@ def _create_single_item(service, form_data, bulk_context=None):
     """
     try:
         item = _parse_item_from_form(form_data)
-        result = service.add_item(item)
 
-        if result:
-            # Build audit form_data
-            audit_form_data = {}
-            if bulk_context:
-                audit_form_data = {
-                    'bulk_creation': True,
-                    'bulk_index': bulk_context['index'],
-                    'bulk_total': bulk_context['total']
-                }
+        # Build context for logging
+        context = None
+        if bulk_context:
+            context = {
+                'bulk_creation': True,
+                'bulk_index': bulk_context['index'],
+                'bulk_total': bulk_context['total']
+            }
 
-            # AUDIT: Log successful add operation
-            log_audit_operation('add_item', 'success',
-                              item_id=item.ja_id,
-                              item_after=_item_to_audit_dict(item),
-                              form_data=audit_form_data if audit_form_data else None)
-
-            return (True, item.ja_id, None)
-        else:
-            error_msg = 'Service add_item returned False'
-
-            # Build audit form_data for error
-            audit_form_data = {}
-            if bulk_context:
-                audit_form_data = {
-                    'bulk_creation': True,
-                    'bulk_index': bulk_context['index'],
-                    'bulk_total': bulk_context['total']
-                }
-
-            log_audit_operation('add_item', 'error',
-                              item_id=form_data.get('ja_id'),
-                              error_details=error_msg,
-                              form_data=audit_form_data if audit_form_data else None)
-
-            return (False, form_data.get('ja_id'), error_msg)
+        return _add_item_with_logging(service, item, 'add_item', context)
 
     except Exception as e:
         error_msg = str(e)
@@ -606,29 +624,18 @@ def duplicate_item(ja_id):
             # Set as active
             duplicate.active = True
 
-            # Add the duplicate
-            result = service.add_item(duplicate)
+            # Add the duplicate using helper
+            duplicate_context = {
+                'source_ja_id': ja_id,
+                'duplicate_index': i+1,
+                'duplicate_total': quantity
+            }
+            success, created_ja_id, error_msg = _add_item_with_logging(service, duplicate, 'duplicate_item', duplicate_context)
 
-            if result:
-                created_ja_ids.append(new_ja_id)
-                # AUDIT: Log duplication
-                log_audit_operation('duplicate_item', 'success',
-                                  item_id=new_ja_id,
-                                  item_after=_item_to_audit_dict(duplicate),
-                                  form_data={
-                                      'source_ja_id': ja_id,
-                                      'duplicate_index': i+1,
-                                      'duplicate_total': quantity
-                                  })
+            if success:
+                created_ja_ids.append(created_ja_id)
             else:
-                log_audit_operation('duplicate_item', 'error',
-                                  item_id=new_ja_id,
-                                  error_details='Service add_item returned False',
-                                  form_data={
-                                      'source_ja_id': ja_id,
-                                      'duplicate_index': i+1,
-                                      'duplicate_total': quantity
-                                  })
+                current_app.logger.error(f'Failed to duplicate item {i+1}/{quantity}: {new_ja_id} - {error_msg}')
 
         # Return results
         if len(created_ja_ids) == quantity:
