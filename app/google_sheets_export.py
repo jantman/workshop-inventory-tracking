@@ -221,16 +221,16 @@ class GoogleSheetsExportService:
         return result
     
     def upload_inventory_export(
-        self, 
-        headers: List[str], 
-        rows: List[List[str]], 
+        self,
+        headers: List[str],
+        rows: List[List[str]],
         sheet_name: str = "Metal_Export"
     ) -> StorageResult:
         """
         Upload inventory export data to Google Sheets
 
         Args:
-            headers: Inventory column headers (should be 28 columns)
+            headers: Inventory column headers (should be 27 columns)
             rows: Inventory data rows
             sheet_name: Target sheet name (defaults to Metal_Export)
 
@@ -238,12 +238,12 @@ class GoogleSheetsExportService:
             StorageResult with upload details
         """
         logger.info(f"Uploading inventory export: {len(headers)} headers, {len(rows)} items")
-        
+
         # Validate headers count
-        if len(headers) != 28:
+        if len(headers) != 27:
             return StorageResult(
                 success=False,
-                error=f"Invalid inventory headers count: expected 28, got {len(headers)}"
+                error=f"Invalid inventory headers count: expected 27, got {len(headers)}"
             )
         
         return self.upload_data_to_sheet(sheet_name, headers, rows, clear_existing=True)
