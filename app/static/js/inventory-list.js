@@ -48,6 +48,7 @@ class InventoryListManager {
         this.selectNoneBtn = document.getElementById('select-none-btn');
         this.bulkMoveBtn = document.getElementById('bulk-move-btn');
         this.bulkDeactivateBtn = document.getElementById('bulk-deactivate-btn');
+        this.bulkPrintLabelsBtn = document.getElementById('bulk-print-labels-btn');
         
         // Display elements
         this.itemCount = document.getElementById('item-count');
@@ -92,6 +93,7 @@ class InventoryListManager {
         this.selectNoneBtn.addEventListener('click', () => this.selectNone());
         this.bulkMoveBtn.addEventListener('click', () => this.bulkMoveSelected());
         this.bulkDeactivateBtn.addEventListener('click', () => this.bulkDeactivateSelected());
+        this.bulkPrintLabelsBtn.addEventListener('click', () => this.printLabelsForSelected());
         
         // Sorting events
         this.sortableHeaders.forEach(header => {
@@ -592,14 +594,24 @@ class InventoryListManager {
     
     bulkDeactivateSelected() {
         if (this.selectedItems.size === 0) return;
-        
+
         const count = this.selectedItems.size;
         if (!confirm(`Are you sure you want to deactivate ${count} selected item(s)?`)) {
             return;
         }
-        
+
         // Implementation would go here
         alert(`Bulk deactivate feature coming soon! Would deactivate ${count} items.`);
+    }
+
+    printLabelsForSelected() {
+        if (this.selectedItems.size === 0) {
+            alert('Please select at least one item to print labels.');
+            return;
+        }
+
+        // Show the bulk label printing modal with selected items
+        this.showBulkLabelPrintingModal();
     }
     
     exportToCSV() {
