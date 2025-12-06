@@ -132,6 +132,99 @@ class InventoryListManager {
         }
     }
 
+    async printAllLabels() {
+        const labelType = document.getElementById('list-bulk-label-type').value;
+        const selectedJaIds = Array.from(this.selectedItems);
+
+        const progressDiv = document.getElementById('list-bulk-print-progress');
+        const progressBar = document.getElementById('list-bulk-print-progress-bar');
+        const statusSpan = document.getElementById('list-bulk-print-status');
+        const errorsDiv = document.getElementById('list-bulk-print-errors');
+        const printBtn = document.getElementById('list-bulk-print-all-btn');
+        const doneBtn = document.getElementById('list-bulk-print-done-btn');
+        const cancelBtn = document.getElementById('list-bulk-print-cancel');
+
+        // Show progress section
+        progressDiv.classList.remove('d-none');
+        printBtn.classList.add('d-none');
+        cancelBtn.classList.add('d-none');
+
+        let successCount = 0;
+        let failureCount = 0;
+        const errors = [];
+
+        // Iterate through all selected items and print labels
+        for (let i = 0; i < selectedJaIds.length; i++) {
+            const jaId = selectedJaIds[i];
+            const progress = Math.round(((i + 1) / selectedJaIds.length) * 100);
+
+            // Update progress display
+            statusSpan.textContent = `Printing ${i + 1} of ${selectedJaIds.length}: ${jaId}`;
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
+
+            try {
+                const response = await fetch('/api/labels/print', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ja_id: jaId,
+                        label_type: labelType
+                    })
+                });
+
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    const data = await response.json();
+                    failureCount++;
+                    errors.push(`${jaId}: ${data.error || response.statusText}`);
+                }
+            } catch (error) {
+                failureCount++;
+                errors.push(`${jaId}: ${error.message}`);
+            }
+        }
+
+        // Display error messages if any failures occurred
+        if (failureCount > 0) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `
+                <strong>Warning:</strong> ${failureCount} label(s) failed to print:<br>
+                ${errors.map(e => `• ${e}`).join('<br>')}
+            `;
+        }
+
+        // Update final status
+        statusSpan.textContent = `Complete: ${successCount} printed, ${failureCount} failed`;
+        progressBar.classList.remove('progress-bar-animated');
+
+        // Show done button
+        doneBtn.classList.remove('d-none');
+
+        // Show success toast notification
+        if (successCount > 0) {
+            this.showToast(`Printed ${successCount} label(s) successfully`, 'success');
+        }
+    }
+
+    showToast(message, type = 'info') {
+        // Simple toast notification - can be enhanced later
+        const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : 'alert-info';
+        const toast = document.createElement('div');
+        toast.className = `alert ${alertClass} position-fixed top-0 start-50 translate-middle-x mt-3`;
+        toast.style.zIndex = '9999';
+        toast.textContent = message;
+
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+
     async loadInventory() {
         this.showLoading();
         
