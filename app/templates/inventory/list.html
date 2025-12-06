@@ -209,6 +209,64 @@
         </div>
     </div>
 </div>
+
+<!-- Bulk Label Printing Modal -->
+<div class="modal fade" id="listBulkLabelPrintingModal" tabindex="-1" aria-labelledby="listBulkLabelPrintingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="listBulkLabelPrintingModalLabel">
+                    <i class="bi bi-printer"></i> Print Labels
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Print labels for selected items</strong>
+                    <p class="mb-0" id="list-bulk-print-summary"></p>
+                </div>
+
+                <div class="mb-3">
+                    <h6>Selected Items:</h6>
+                    <ul class="list-group" id="list-bulk-label-items-list" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Items will be populated by JavaScript -->
+                    </ul>
+                </div>
+
+                <div class="mb-3">
+                    <label for="list-bulk-label-type" class="form-label">Label Type *</label>
+                    <select class="form-select" id="list-bulk-label-type" required>
+                        <option value="">Select label type...</option>
+                        <!-- Options will be populated by JavaScript from API -->
+                    </select>
+                    <div class="form-text">Choose the type and size of label to print for all selected items</div>
+                </div>
+
+                <div id="list-bulk-print-progress" class="d-none">
+                    <div class="mb-2">
+                        <strong>Printing Progress:</strong>
+                        <span id="list-bulk-print-status"></span>
+                    </div>
+                    <div class="progress">
+                        <div id="list-bulk-print-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div id="list-bulk-print-errors" class="alert alert-warning mt-2 d-none"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="list-bulk-print-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="list-bulk-print-all-btn" disabled>
+                    <i class="bi bi-printer"></i> Print All Labels
+                </button>
+                <button type="button" class="btn btn-success d-none" id="list-bulk-print-done-btn" data-bs-dismiss="modal">
+                    <i class="bi bi-check-lg"></i> Done
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
