@@ -23,8 +23,9 @@ class InventoryListManager {
         
         this.initializeElements();
         this.bindEvents();
+        this.initializeBulkPrintModal();
         this.loadInventory();
-        
+
         console.log('InventoryListManager initialized');
     }
     
@@ -100,7 +101,37 @@ class InventoryListManager {
             header.addEventListener('click', () => this.onSort(header.dataset.sort));
         });
     }
-    
+
+    initializeBulkPrintModal() {
+        // Set up event listener for label type selection
+        const labelTypeSelect = document.getElementById('list-bulk-label-type');
+        if (labelTypeSelect) {
+            labelTypeSelect.addEventListener('change', () => {
+                this.onLabelTypeChange();
+            });
+        }
+
+        // Set up event listener for Print All Labels button
+        const printAllBtn = document.getElementById('list-bulk-print-all-btn');
+        if (printAllBtn) {
+            printAllBtn.addEventListener('click', () => {
+                this.printAllLabels();
+            });
+        }
+    }
+
+    onLabelTypeChange() {
+        const labelTypeSelect = document.getElementById('list-bulk-label-type');
+        const printAllBtn = document.getElementById('list-bulk-print-all-btn');
+
+        // Enable the Print All button only if a label type is selected
+        if (labelTypeSelect.value) {
+            printAllBtn.disabled = false;
+        } else {
+            printAllBtn.disabled = true;
+        }
+    }
+
     async loadInventory() {
         this.showLoading();
         
