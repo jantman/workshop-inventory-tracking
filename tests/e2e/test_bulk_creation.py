@@ -248,7 +248,7 @@ def test_bulk_creation_field_copying_accuracy(page, live_server):
     for ja_id in ja_ids:
         item = service.get_item(ja_id)
         assert item.item_type == 'Bar'
-        assert item.shape == 'Hexagonal'
+        assert item.shape == 'Hex'
         assert item.material == 'Brass'
         assert item.length == 36.0
         assert item.width == 0.5
@@ -257,7 +257,7 @@ def test_bulk_creation_field_copying_accuracy(page, live_server):
         assert item.notes == 'Comprehensive field test'
         assert item.purchase_location == 'McMaster-Carr'
         assert item.vendor == 'McMaster'
-        assert item.vendor_part_number == '8974K123'
+        assert item.vendor_part == '8974K123'
 
 
 @pytest.mark.e2e
