@@ -149,9 +149,9 @@ def test_history_functionality_in_search_results(page, live_server):
     
     # Wait for search results
     page.wait_for_selector('#results-table-container', state='visible')
-    
+
     # Find view details button in search results
-    view_button = page.locator('button[onclick*="viewItemDetails(\'JA301003\')"]')
+    view_button = page.locator('button[onclick*="showItemDetails(\'JA301003\')"]')
     expect(view_button).to_be_visible()
     
     # Click to open details modal

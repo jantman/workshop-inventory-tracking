@@ -524,7 +524,7 @@ class AdvancedInventorySearch {
 }
 
 // Global functions for row actions - Modal Implementation
-function showItemDetails(jaId) {
+window.showItemDetails = function(jaId) {
     // Check if modal element exists
     const modalElement = document.getElementById('item-details-modal');
     if (!modalElement) {
@@ -706,7 +706,7 @@ function initializeItemDetailsPhotoManager(jaId) {
 
 // Keep legacy function name for compatibility, but redirect to modal
 window.viewItemDetails = function(jaId) {
-    showItemDetails(jaId);
+    window.showItemDetails(jaId);
 };
 
 function editItem(jaId) {
