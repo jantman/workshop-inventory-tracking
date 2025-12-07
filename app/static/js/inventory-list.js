@@ -5,35 +5,39 @@
  * with advanced search capabilities and bulk operations.
  */
 
-import {
-    formatFullDimensions,
-    formatDimensions,
-    formatThread,
-    escapeHtml
-} from './components/item-formatters.js';
+import { InventoryTable } from './components/inventory-table.js';
 
 class InventoryListManager {
     constructor() {
         this.items = [];
         this.filteredItems = [];
-        this.currentPage = 1;
-        this.itemsPerPage = 25;
-        this.sortField = 'ja_id';
-        this.sortDirection = 'asc';
         this.filters = {
             status: 'active',
             type: 'all',
             material: '',
             search: ''
         };
-        this.selectedItems = new Set();
-        
+
         this.initializeElements();
+        this.initializeTable();
         this.bindEvents();
         this.initializeBulkPrintModal();
         this.loadInventory();
 
         console.log('InventoryListManager initialized');
+    }
+
+    initializeTable() {
+        // Create InventoryTable instance
+        this.table = new InventoryTable({
+            tableBodyId: 'inventory-table-body',
+            enableSelection: true,
+            enableSorting: true,
+            showSubLocation: true,
+            itemsPerPage: 25,
+            onSelectionChange: (selectedIds) => this.onSelectionChange(selectedIds),
+            onActionClick: (action, jaId) => this.onActionClick(action, jaId)
+        });
     }
     
     initializeElements() {
@@ -102,11 +106,8 @@ class InventoryListManager {
         this.bulkMoveBtn.addEventListener('click', () => this.bulkMoveSelected());
         this.bulkDeactivateBtn.addEventListener('click', () => this.bulkDeactivateSelected());
         this.bulkPrintLabelsBtn.addEventListener('click', () => this.printLabelsForSelected());
-        
-        // Sorting events
-        this.sortableHeaders.forEach(header => {
-            header.addEventListener('click', () => this.onSort(header.dataset.sort));
-        });
+
+        // Note: Sorting now handled by InventoryTable component
     }
 
     initializeBulkPrintModal() {
@@ -279,14 +280,10 @@ class InventoryListManager {
         this.filters.type = this.typeFilter.value;
         this.filters.material = this.materialFilter.value.toLowerCase();
         this.filters.search = this.searchFilter.value.toLowerCase();
-        
-        // Reset to first page when filters change
-        this.currentPage = 1;
-        
-        // Apply filters and update display
-        this.applyFiltersAndSort();
-        this.renderTable();
-        this.renderPagination();
+
+        // Apply filters and update table
+        this.applyFilters();
+        this.table.setItems(this.filteredItems);
     }
     
     clearFilters() {
@@ -304,29 +301,13 @@ class InventoryListManager {
     }
     
     onItemsPerPageChange() {
-        this.itemsPerPage = parseInt(this.itemsPerPageSelect.value);
-        this.currentPage = 1;
-        this.renderTable();
-        this.renderPagination();
+        const newItemsPerPage = parseInt(this.itemsPerPageSelect.value);
+        this.table.config.itemsPerPage = newItemsPerPage;
+        this.table.currentPage = 1;
+        this.table.refresh();
     }
-    
-    onSort(field) {
-        if (this.sortField === field) {
-            // Toggle direction if same field
-            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-        } else {
-            // New field, default to ascending
-            this.sortField = field;
-            this.sortDirection = 'asc';
-        }
-        
-        this.applyFiltersAndSort();
-        this.renderTable();
-        this.renderPagination();
-        this.updateSortIcons();
-    }
-    
-    applyFiltersAndSort() {
+
+    applyFilters() {
         // Apply filters
         this.filteredItems = this.items.filter(item => {
             // Status filter
@@ -357,169 +338,55 @@ class InventoryListManager {
             
             return true;
         });
-        
-        // Apply sorting
-        this.filteredItems.sort((a, b) => {
-            let aVal = this.getSortValue(a, this.sortField);
-            let bVal = this.getSortValue(b, this.sortField);
-            
-            // Handle null/undefined values
-            if (aVal == null && bVal == null) return 0;
-            if (aVal == null) return 1;
-            if (bVal == null) return -1;
-            
-            // String comparison
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                aVal = aVal.toLowerCase();
-                bVal = bVal.toLowerCase();
-            }
-            
-            // Numeric comparison
-            if (typeof aVal === 'number' && typeof bVal === 'number') {
-                return this.sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-            }
-            
-            // String comparison
-            if (aVal < bVal) return this.sortDirection === 'asc' ? -1 : 1;
-            if (aVal > bVal) return this.sortDirection === 'asc' ? 1 : -1;
-            return 0;
-        });
-    }
-    
-    getSortValue(item, field) {
-        switch (field) {
-            case 'ja_id':
-                return item.ja_id;
-            case 'item_type':
-                return item.item_type;
-            case 'shape':
-                return item.shape;
-            case 'material':
-                return item.material;
-            case 'dimensions':
-                // Sort by primary dimension (length if available, otherwise width)
-                if (item.dimensions && item.dimensions.length) {
-                    return parseFloat(item.dimensions.length);
-                } else if (item.dimensions && item.dimensions.width) {
-                    return parseFloat(item.dimensions.width);
-                }
-                return null;
-            case 'length':
-                return item.dimensions && item.dimensions.length ? parseFloat(item.dimensions.length) : null;
-            case 'location':
-                return item.location || '';
-            case 'active':
-                return item.active;
-            default:
-                return item[field] || '';
-        }
-    }
-    
-    renderTable() {
-        const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-        const endIndex = startIndex + this.itemsPerPage;
-        const pageItems = this.filteredItems.slice(startIndex, endIndex);
-        
-        this.inventoryTableBody.innerHTML = '';
-        
-        pageItems.forEach(item => {
-            const row = this.createTableRow(item);
-            this.inventoryTableBody.appendChild(row);
-        });
-        
-        // Update selection state
-        this.updateSelectAllCheckbox();
-    }
-    
-    createTableRow(item) {
-        const row = document.createElement('tr');
-        const isSelected = this.selectedItems.has(item.ja_id);
-        
-        if (isSelected) {
-            row.classList.add('table-active');
-        }
-        
-        row.innerHTML = `
-            <td class="border-end">
-                <input type="checkbox" class="form-check-input item-checkbox" 
-                       data-ja-id="${item.ja_id}" ${isSelected ? 'checked' : ''}>
-            </td>
-            <td class="border-end">
-                <strong>${item.ja_id}</strong>
-                ${item.parent_ja_id ? `<br><small class="text-muted">Child of ${item.parent_ja_id}</small>` : ''}
-                ${item.child_ja_ids && item.child_ja_ids.length > 0 ? `<br><small class="text-info">Has ${item.child_ja_ids.length} child(ren)</small>` : ''}
-            </td>
-            <td>
-                <span class="badge bg-secondary">${item.item_type}</span>
-            </td>
-            <td>${item.shape}</td>
-            <td>${item.material}</td>
-            <td>${formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
-            <td class="text-end">
-                ${formatDimensions(item.dimensions, item.item_type)}
-            </td>
-            <td>
-                <div>${item.location || '<span class="text-muted">Not specified</span>'}</div>
-                ${item.sub_location ? `<small class="text-muted">${item.sub_location}</small>` : ''}
-            </td>
-            <td class="text-center">
-                <span class="badge ${item.active ? 'bg-success' : 'bg-secondary'}">
-                    ${item.active ? 'Active' : 'Inactive'}
-                </span>
-            </td>
-            <td class="text-center">
-                <div class="btn-group btn-group-sm">
-                    <a href="/inventory/edit/${item.ja_id}" class="btn btn-outline-primary btn-sm" title="Edit">
-                        <i class="bi bi-pencil"></i>
-                    </a>
-                    <button type="button" class="btn btn-outline-info btn-sm" onclick="showItemDetails('${item.ja_id}')" title="View Details">
-                        <i class="bi bi-eye"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="showItemHistory('${item.ja_id}')" title="View History">
-                        <i class="bi bi-clock-history"></i>
-                    </button>
-                    <div class="btn-group btn-group-sm">
-                        <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle dropdown-toggle-split" 
-                                data-bs-toggle="dropdown"></button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="/inventory/move?ja_id=${item.ja_id}">
-                                <i class="bi bi-arrow-left-right"></i> Move
-                            </a></li>
-                            <li><a class="dropdown-item" href="/inventory/shorten?ja_id=${item.ja_id}">
-                                <i class="bi bi-scissors"></i> Shorten
-                            </a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#" onclick="duplicateItem('${item.ja_id}')">
-                                <i class="bi bi-copy"></i> Duplicate
-                            </a></li>
-                            <li><a class="dropdown-item text-warning" href="#" onclick="toggleItemStatus('${item.ja_id}', ${!item.active})">
-                                <i class="bi bi-${item.active ? 'eye-slash' : 'eye'}"></i> ${item.active ? 'Deactivate' : 'Activate'}
-                            </a></li>
-                        </ul>
-                    </div>
-                </div>
-            </td>
-        `;
-        
-        // Add click event for row selection
-        const checkbox = row.querySelector('.item-checkbox');
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                this.selectedItems.add(item.ja_id);
-                row.classList.add('table-active');
-            } else {
-                this.selectedItems.delete(item.ja_id);
-                row.classList.remove('table-active');
-            }
-            this.updateSelectAllCheckbox();
-            this.updateBulkActions();
-        });
-        
-        return row;
+
+        // Note: Sorting is now handled by InventoryTable component
     }
 
+    onSelectionChange(selectedIds) {
+        // Update bulk action buttons
+        this.updateBulkActions();
+    }
 
-    renderPagination() {
+    onActionClick(action, jaId) {
+        // Handle action clicks (currently handled by onclick handlers in HTML)
+        console.log(`Action ${action} clicked for ${jaId}`);
+    }
+
+    // Note: updateDisplay and createTableRow methods removed - now handled by InventoryTable component
+
+    selectAll() {
+        this.table.selectAll();
+    }
+
+    selectNone() {
+        this.table.selectNone();
+    }
+
+    toggleSelectAll(checked) {
+        if (checked) {
+            this.selectAll();
+        } else {
+            this.selectNone();
+        }
+    }
+
+    // Methods removed (now in InventoryTable): renderTable, createTableRow
+
+    // Old createTableRow removed - functionality now in InventoryTable component
+
+    updateSelectAllCheckbox() {
+        const selectedCount = this.table.getSelectedItems().length;
+        const totalCount = this.filteredItems.length;
+        if (this.selectAllCheckbox) {
+            this.selectAllCheckbox.checked = selectedCount > 0 && selectedCount === totalCount;
+            this.selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < totalCount;
+        }
+    }
+
+    // Pagination methods removed - now handled by InventoryTable component
+    // Old methods: renderPagination, handlePageChange removed
+
+    oldRenderPagination_REMOVED() {
         const totalPages = Math.ceil(this.filteredItems.length / this.itemsPerPage);
         const startItem = Math.min((this.currentPage - 1) * this.itemsPerPage + 1, this.filteredItems.length);
         const endItem = Math.min(this.currentPage * this.itemsPerPage, this.filteredItems.length);
