@@ -3,6 +3,13 @@
  * Handles complex search queries with range filtering and CSV export
  */
 
+import {
+    formatFullDimensions,
+    formatDimensions,
+    formatThread,
+    escapeHtml
+} from './components/item-formatters.js';
+
 class AdvancedInventorySearch {
     constructor() {
         this.form = document.getElementById('advanced-search-form');
@@ -232,13 +239,13 @@ class AdvancedInventorySearch {
             '<span class="badge bg-secondary">Inactive</span>';
         
         row.innerHTML = `
-            <td><strong>${this.escapeHtml(item.ja_id)}</strong></td>
-            <td><span class="badge bg-secondary">${this.escapeHtml(item.item_type || 'N/A')}</span></td>
-            <td>${this.escapeHtml(item.shape || 'N/A')}</td>
-            <td>${this.escapeHtml(item.material || 'N/A')}</td>
-            <td>${this.formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
-            <td class="text-end">${this.formatLengthOnly(item.dimensions)}</td>
-            <td>${this.escapeHtml(item.location || 'N/A')}</td>
+            <td><strong>${escapeHtml(item.ja_id)}</strong></td>
+            <td><span class="badge bg-secondary">${escapeHtml(item.item_type || 'N/A')}</span></td>
+            <td>${escapeHtml(item.shape || 'N/A')}</td>
+            <td>${escapeHtml(item.material || 'N/A')}</td>
+            <td>${formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
+            <td class="text-end">${formatDimensions(item.dimensions)}</td>
+            <td>${escapeHtml(item.location || 'N/A')}</td>
             <td class="text-center">${status}</td>
             <td class="text-center">
                 <div class="btn-group btn-group-sm">
@@ -258,52 +265,8 @@ class AdvancedInventorySearch {
         
         return row;
     }
-    
-    formatFullDimensions(dimensions, itemType, thread) {
-        if (!dimensions) return '<span class="text-muted">-</span>';
-        
-        const parts = [];
-        
-        // For threaded items, show thread info first
-        if (thread) {
-            const threadDisplay = this.formatThread(thread, true); // true for display with symbol
-            parts.push(threadDisplay);
-        }
-        
-        // Then show physical dimensions
-        if (dimensions.length) {
-            if (dimensions.width && dimensions.thickness) {
-                // Rectangular: width × thickness × length
-                parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
-            } else if (dimensions.width) {
-                // Round or Square: diameter/width × length
-                const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
-                parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
-            } else {
-                // Just length
-                parts.push(`${dimensions.length}"`);
-            }
-        }
-        
-        return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
-    }
-    
-    formatLengthOnly(dimensions) {
-        if (!dimensions || !dimensions.length) return '<span class="text-muted">-</span>';
-        return `${dimensions.length}"`;
-    }
-    
-    formatThread(thread, includeSymbol = false) {
-        if (!thread) return '';
-        const parts = [];
-        if (thread.size) parts.push(thread.size);
-        if (thread.series) parts.push(thread.series);
-        if (thread.handedness && thread.handedness !== 'RH') parts.push(thread.handedness);
-        
-        const threadText = parts.join(' ');
-        return includeSymbol && threadText ? `🔩${threadText}` : threadText;
-    }
-    
+
+
     showLoading() {
         this.resultsSection.classList.remove('d-none');
         this.loadingElement.classList.remove('d-none');
@@ -496,18 +459,6 @@ class AdvancedInventorySearch {
     getCSRFToken() {
         const token = document.querySelector('meta[name=csrf-token]');
         return token ? token.getAttribute('content') : '';
-    }
-    
-    escapeHtml(text) {
-        if (!text) return '';
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, (m) => map[m]);
     }
 }
 
