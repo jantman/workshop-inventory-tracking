@@ -194,11 +194,11 @@ class AdvancedInventorySearch {
         }
         
         const data = await response.json();
-        
-        if (data.status !== 'success') {
+
+        if (!data.success) {
             throw new Error(data.message || 'Search failed');
         }
-        
+
         return data.items || [];
     }
     
