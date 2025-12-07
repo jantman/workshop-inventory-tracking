@@ -681,18 +681,48 @@ app/templates/inventory/
 
 ## Progress
 
-### Status: Planning Complete
+### Status: In Progress - Milestone 5
 
-**Planning Phase Completed:** 2025-12-07
+**Implementation Started:** 2025-12-07
 
-**Decisions finalized:**
-- ✅ Page structure: Keep separate pages
-- ✅ Search capabilities: All preserved with documented differences
-- ✅ Backend API: Keep separate endpoints with standardized responses
-- ✅ Code organization: Component-based architecture defined
-- ✅ Migration path: Phased parallel implementation planned
+**Completed Milestones:**
 
-**Next Step:** Begin Milestone 1 pending approval.
+### ✅ Milestone 1: Backend API Standardization (Complete)
+- ✅ 1.1: Added photo_count to search endpoint
+- ✅ 1.2: Standardized API response envelopes (success field)
+- ✅ 1.3: Added unit tests for API consistency (5 tests, all passing)
+- **Result:** Both endpoints return identical item structure with 20 fields
+
+### ✅ Milestone 2: Extract Shared Formatting Utilities (Complete)
+- ✅ 2.1: Created item-formatters.js module (123 lines)
+- ✅ 2.2: Refactored inventory-list.js to use formatters (~45 lines removed)
+- ✅ 2.3: Refactored inventory-search.js to use formatters (~49 lines removed)
+- **Result:** ~94 lines eliminated, all formatting centralized
+
+### ✅ Milestone 3: Create Unified Table Component (Complete)
+- ✅ 3.1: Created shared table template macro (_item_table.html, 80 lines)
+- ✅ 3.2: Created InventoryTable JavaScript class (402 lines)
+- ✅ 3.3: Implemented table rendering logic (included in 3.2)
+- ✅ 3.4: Created item-actions.js module (145 lines)
+- **Result:** Reusable table component with sorting, pagination, selection
+
+### ✅ Milestone 4: Migrate Inventory List Page (Complete)
+- ✅ 4.1: Updated list.html template to use table macro (~33 lines removed)
+- ✅ 4.2: Refactored inventory-list.js to use InventoryTable (reduced to 831 lines from 1,154)
+- ✅ 4.3: Added bookmark functionality (new feature)
+- ✅ 4.4: All E2E tests passing (9/9 tests)
+- **Result:** Inventory list page fully migrated, all features working
+
+**Milestones Remaining:**
+- 🔄 Milestone 5: Migrate Advanced Search Page (In Progress)
+- ⏳ Milestone 6: Test Infrastructure Refactoring
+- ⏳ Milestone 7: Documentation and Final Validation
+
+**Current Metrics:**
+- Code reduced so far: ~323 lines from inventory-list.js alone
+- Shared components created: 750 lines (formatters + table + actions + macro)
+- Tests: All existing tests passing, 5 new API tests added
+- Template reduction: ~33 lines from list.html
 
 ---
 
