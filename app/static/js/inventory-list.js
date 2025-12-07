@@ -1,9 +1,16 @@
 /**
  * Inventory List JavaScript - Inventory Listing Interface
- * 
+ *
  * Handles inventory display, filtering, sorting, and pagination
  * with advanced search capabilities and bulk operations.
  */
+
+import {
+    formatFullDimensions,
+    formatDimensions,
+    formatThread,
+    escapeHtml
+} from './components/item-formatters.js';
 
 class InventoryListManager {
     constructor() {
@@ -447,9 +454,9 @@ class InventoryListManager {
             </td>
             <td>${item.shape}</td>
             <td>${item.material}</td>
-            <td>${this.formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
+            <td>${formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
             <td class="text-end">
-                ${this.formatDimensions(item.dimensions, item.item_type)}
+                ${formatDimensions(item.dimensions, item.item_type)}
             </td>
             <td>
                 <div>${item.location || '<span class="text-muted">Not specified</span>'}</div>
@@ -510,58 +517,8 @@ class InventoryListManager {
         
         return row;
     }
-    
-    formatFullDimensions(dimensions, itemType, thread) {
-        if (!dimensions) return '<span class="text-muted">-</span>';
-        
-        const parts = [];
-        
-        // For threaded items, show thread info first
-        if (thread) {
-            const threadDisplay = this.formatThread(thread, true); // true for display with symbol
-            parts.push(threadDisplay);
-        }
-        
-        // Then show physical dimensions
-        if (dimensions.length) {
-            if (dimensions.width && dimensions.thickness) {
-                // Rectangular: width × thickness × length
-                parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
-            } else if (dimensions.width) {
-                // Round or Square: diameter/width × length
-                const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
-                parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
-            } else {
-                // Just length
-                parts.push(`${dimensions.length}"`);
-            }
-        }
-        
-        return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
-    }
-    
-    formatThread(thread, includeSymbol = false) {
-        if (!thread) return '';
-        const parts = [];
-        if (thread.size) parts.push(thread.size);
-        if (thread.series) parts.push(thread.series);
-        if (thread.handedness && thread.handedness !== 'RH') parts.push(thread.handedness);
-        
-        const threadText = parts.join(' ');
-        return includeSymbol && threadText ? `🔩${threadText}` : threadText;
-    }
-    
-    formatDimensions(dimensions, itemType = null) {
-        if (!dimensions) return '<span class="text-muted">-</span>';
-        
-        // The Length column should only show the length dimension
-        if (dimensions.length) {
-            return `${dimensions.length}"`;
-        }
-        
-        return '<span class="text-muted">-</span>';
-    }
-    
+
+
     renderPagination() {
         const totalPages = Math.ceil(this.filteredItems.length / this.itemsPerPage);
         const startItem = Math.min((this.currentPage - 1) * this.itemsPerPage + 1, this.filteredItems.length);
