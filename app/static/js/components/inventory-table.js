@@ -308,19 +308,11 @@ export class InventoryTable {
         html += `<td class="text-end">${formatDimensions(item.dimensions, item.item_type)}</td>`;
 
         // Location column
-        html += `
-            <td>
-                <div>${item.location || '<span class="text-muted">Not specified</span>'}</div>
-                ${this.config.showSubLocation && item.sub_location ? `<small class="text-muted">${item.sub_location}</small>` : ''}
-            </td>
-        `;
+        html += `<td>${item.location || '<span class="text-muted">Not specified</span>'}</td>`;
 
-        // Sub-location column (if enabled and not shown in location)
+        // Sub-location column (separate column when enabled)
         if (this.config.showSubLocation) {
-            // Note: In current implementation, sub-location is shown within location column
-            // This separate column is here for future flexibility
-            // For now, we'll leave it empty to avoid duplication
-            // html += `<td>${item.sub_location || ''}</td>`;
+            html += `<td>${item.sub_location || ''}</td>`;
         }
 
         // Status column
