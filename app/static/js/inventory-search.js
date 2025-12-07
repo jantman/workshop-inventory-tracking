@@ -9,6 +9,7 @@ import {
     formatThread,
     escapeHtml
 } from './components/item-formatters.js';
+import { InventoryTable } from './components/inventory-table.js';
 
 class AdvancedInventorySearch {
     constructor() {
@@ -17,13 +18,26 @@ class AdvancedInventorySearch {
         this.loadingElement = document.getElementById('search-loading');
         this.noResultsElement = document.getElementById('no-results');
         this.tableContainer = document.getElementById('results-table-container');
-        this.tableBody = document.getElementById('results-table-body');
         this.resultsCount = document.getElementById('results-count');
-        
+
         this.currentResults = [];
         this.isSearching = false;
-        
+        this.selectedItems = [];
+
+        this.initializeTable();
         this.init();
+    }
+
+    initializeTable() {
+        this.table = new InventoryTable({
+            tableBodyId: 'results-table-body',
+            enableSelection: true,
+            enableSorting: true,
+            showSubLocation: true,
+            itemsPerPage: 1000, // Show all results in search
+            onSelectionChange: (selectedIds) => this.onSelectionChange(selectedIds),
+            onActionClick: (action, jaId) => this.onActionClick(action, jaId)
+        });
     }
     
     init() {
@@ -57,7 +71,33 @@ class AdvancedInventorySearch {
         document.getElementById('bookmark-search-btn').addEventListener('click', () => {
             this.bookmarkSearch();
         });
-        
+
+        // Bulk operation buttons
+        document.getElementById('search-select-all-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.table.selectAll();
+        });
+
+        document.getElementById('search-select-none-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.table.selectNone();
+        });
+
+        document.getElementById('search-bulk-move-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleBulkMove();
+        });
+
+        document.getElementById('search-bulk-deactivate-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleBulkDeactivate();
+        });
+
+        document.getElementById('search-bulk-print-labels-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleBulkPrintLabels();
+        });
+
         // Real-time validation for JA ID pattern
         const jaIdInput = document.getElementById('ja_id');
         jaIdInput.addEventListener('input', (e) => {
@@ -211,59 +251,15 @@ class AdvancedInventorySearch {
     
     displayResults(results) {
         this.hideLoading();
-        
+
         if (results.length === 0) {
             this.showNoResults();
             return;
         }
-        
+
         this.showResultsTable();
-        this.renderResultsTable(results);
+        this.table.setItems(results);
         this.updateResultsCount(results.length);
-    }
-    
-    renderResultsTable(items) {
-        this.tableBody.innerHTML = '';
-        
-        items.forEach(item => {
-            const row = this.createResultRow(item);
-            this.tableBody.appendChild(row);
-        });
-    }
-    
-    createResultRow(item) {
-        const row = document.createElement('tr');
-        
-        const status = item.active ? 
-            '<span class="badge bg-success">Active</span>' : 
-            '<span class="badge bg-secondary">Inactive</span>';
-        
-        row.innerHTML = `
-            <td><strong>${escapeHtml(item.ja_id)}</strong></td>
-            <td><span class="badge bg-secondary">${escapeHtml(item.item_type || 'N/A')}</span></td>
-            <td>${escapeHtml(item.shape || 'N/A')}</td>
-            <td>${escapeHtml(item.material || 'N/A')}</td>
-            <td>${formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
-            <td class="text-end">${formatDimensions(item.dimensions)}</td>
-            <td>${escapeHtml(item.location || 'N/A')}</td>
-            <td class="text-center">${status}</td>
-            <td class="text-center">
-                <div class="btn-group btn-group-sm">
-                    <button type="button" class="btn btn-outline-primary btn-sm" 
-                            onclick="viewItemDetails('${item.ja_id}')" title="View Details">
-                        <i class="bi bi-eye"></i>
-                    </button>
-                    ${item.active ? `
-                        <button type="button" class="btn btn-outline-warning btn-sm" 
-                                onclick="editItem('${item.ja_id}')" title="Edit">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                    ` : ''}
-                </div>
-            </td>
-        `;
-        
-        return row;
     }
 
 
@@ -296,6 +292,71 @@ class AdvancedInventorySearch {
     updateResultsCount(count) {
         const text = count === 1 ? '1 item found' : `${count} items found`;
         this.resultsCount.textContent = text;
+    }
+
+    onSelectionChange(selectedIds) {
+        this.selectedItems = selectedIds;
+    }
+
+    onActionClick(action, jaId) {
+        // Handle action clicks if needed
+        console.log('Action clicked:', action, jaId);
+    }
+
+    handleBulkMove() {
+        if (this.selectedItems.length === 0) {
+            alert('Please select items to move');
+            return;
+        }
+
+        const jaIds = this.selectedItems.join(',');
+        window.location.href = `/inventory/move?ja_id=${jaIds}`;
+    }
+
+    handleBulkDeactivate() {
+        if (this.selectedItems.length === 0) {
+            alert('Please select items to deactivate');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to deactivate ${this.selectedItems.length} item(s)?`)) {
+            return;
+        }
+
+        // TODO: Implement bulk deactivate API call
+        alert('Bulk deactivate functionality will be implemented');
+    }
+
+    handleBulkPrintLabels() {
+        if (this.selectedItems.length === 0) {
+            alert('Please select items to print labels for');
+            return;
+        }
+
+        // Show the bulk label printing modal
+        const modal = new bootstrap.Modal(document.getElementById('searchBulkLabelPrintingModal'));
+        this.initializeBulkLabelPrinting();
+        modal.show();
+    }
+
+    initializeBulkLabelPrinting() {
+        // Populate the items list in the modal
+        const itemsList = document.getElementById('search-bulk-label-items-list');
+        itemsList.innerHTML = '';
+
+        this.selectedItems.forEach(jaId => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = jaId;
+            itemsList.appendChild(li);
+        });
+
+        // Update summary
+        const summary = document.getElementById('search-bulk-print-summary');
+        summary.textContent = `${this.selectedItems.length} item(s) selected for label printing`;
+
+        // TODO: Load label types from API
+        // TODO: Implement bulk print functionality
     }
     
     clearForm() {
