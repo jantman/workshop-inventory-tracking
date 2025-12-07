@@ -1633,7 +1633,13 @@ def api_advanced_search():
         
         # Execute search
         items = service.search_items(search_filter)
-        
+
+        # Get photo counts for all items efficiently
+        from app.photo_service import PhotoService
+        with PhotoService(_get_storage_backend()) as photo_service:
+            ja_ids = [item.ja_id for item in items]
+            photo_counts = photo_service.get_photo_counts_bulk(ja_ids)
+
         # Convert to JSON-serializable format
         items_data = []
         for item in items:
@@ -1656,7 +1662,8 @@ def api_advanced_search():
                 'precision': item.precision,
                 'active': item.active,
                 'date_added': item.date_added.isoformat() if item.date_added else None,
-                'last_modified': item.last_modified.isoformat() if item.last_modified else None
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None,
+                'photo_count': photo_counts.get(item.ja_id, 0)
             }
             items_data.append(item_data)
         
