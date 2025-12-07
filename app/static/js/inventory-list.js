@@ -595,9 +595,7 @@ class InventoryListManager {
         } else {
             this.emptyState.classList.add('d-none');
             this.inventoryTableContainer.classList.remove('d-none');
-            this.renderTable();
-            this.renderPagination();
-            this.updateSortIcons();
+            // Table rendering now handled by InventoryTable component via setItems()
         }
     }
     
