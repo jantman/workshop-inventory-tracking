@@ -5,11 +5,12 @@ Page object for the inventory search functionality.
 """
 
 from .base_page import BasePage
+from .inventory_table_mixin import InventoryTableMixin
 from playwright.sync_api import expect
 from typing import List, Dict
 
 
-class SearchPage(BasePage):
+class SearchPage(InventoryTableMixin, BasePage):
     """Page object for inventory search"""
     
     # Search form selectors
@@ -36,12 +37,16 @@ class SearchPage(BasePage):
     SEARCH_BUTTON = "button[type='submit']"
     CLEAR_BUTTON = "#clear-form-btn"
     ADVANCED_SEARCH_TOGGLE = "#advanced-search-toggle"  # This doesn't exist in HTML
-    
+
     # Results
     RESULTS_TABLE = "#results-table-container .table"
     RESULTS_ROWS = "#results-table-body tr"
     NO_RESULTS = "#no-results"
     RESULTS_COUNT = "#results-count"
+
+    # Override mixin selectors for search page
+    TABLE_BODY_SELECTOR = "#results-table-body"
+    TABLE_ROWS_SELECTOR = "#results-table-body tr"
     
     def navigate(self):
         """Navigate to search page"""
@@ -233,32 +238,14 @@ class SearchPage(BasePage):
                 self.page.wait_for_timeout(500)
     
     def get_search_results(self) -> List[Dict[str, str]]:
-        """Get search results as list of dictionaries"""
+        """Get search results as list of dictionaries (wrapper for get_table_items)"""
         if self.is_visible(self.NO_RESULTS):
             return []
-        
+
         if not self.is_visible(self.RESULTS_TABLE):
             return []
-        
-        rows = self.page.locator(self.RESULTS_ROWS)
-        results = []
-        
-        count = rows.count()
-        for i in range(count):
-            row = rows.nth(i)
-            cells = row.locator("td")
-            
-            if cells.count() >= 8:  # Ensure minimum expected columns (Checkbox, JA ID, Type, Shape, Material, Dimensions, Length, Location, Status, Actions)
-                result = {
-                    "ja_id": (cells.nth(1).text_content() or "").strip(),      # JA ID - column 1 (checkbox is column 0)
-                    "type": (cells.nth(2).text_content() or "").strip(),       # Type - column 2
-                    "shape": (cells.nth(3).text_content() or "").strip(),      # Shape - column 3
-                    "material": (cells.nth(4).text_content() or "").strip(),   # Material - column 4
-                    "location": (cells.nth(7).text_content() or "").strip()    # Location - column 7
-                }
-                results.append(result)
-        
-        return results
+
+        return self.get_table_items()
     
     def get_results_count(self) -> int:
         """Get the number of search results"""
@@ -287,10 +274,8 @@ class SearchPage(BasePage):
         assert len(results) == 0, f"Expected no results, found {len(results)}"
     
     def assert_result_contains_item(self, ja_id: str):
-        """Assert search results contain specific item"""
-        results = self.get_search_results()
-        ja_ids = [result["ja_id"] for result in results]
-        assert ja_id in ja_ids, f"Item {ja_id} not found in search results. Found: {ja_ids}"
+        """Assert search results contain specific item (wrapper for assert_item_visible)"""
+        self.assert_item_visible(ja_id)
     
     def assert_all_results_match_criteria(self, material: str = None, location: str = None, shape: str = None):
         """Assert all search results match the given criteria"""
