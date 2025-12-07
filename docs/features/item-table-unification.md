@@ -248,41 +248,478 @@ If pages are merged:
 - Consider lazy loading for advanced search form if pages are merged
 - Maintain current pagination behavior (don't load all items at once)
 
-## Decisions Deferred to Planning Phase
+## Planning Decisions
 
-The following architectural and implementation decisions will be made during the planning phase after thorough investigation:
+The following architectural and implementation decisions have been made during the planning phase:
 
-1. **Page Structure:** Determine whether to:
-   - Keep `/inventory` and `/inventory/search` as separate pages with shared table component, OR
-   - Merge into single `/inventory` page with collapsible advanced search panel
-   - Consider: URL structure, bookmarkability, code complexity, user workflows, migration path
+### 1. Page Structure: **Keep Separate Pages**
 
-2. **Search Behavior Differences:** Investigate and document:
-   - Whether Advanced Search has unique search operators or syntax not available on Inventory List
-   - How to preserve all search capabilities in unified implementation
-   - Whether simple filters can be enhanced to cover all advanced search use cases
+**Decision:** Maintain `/inventory` and `/inventory/search` as separate pages with shared table component.
 
-3. **Backend API Approach:** Decide whether to:
-   - Keep separate `/api/inventory/list` and `/api/inventory/search` endpoints with consistent response format, OR
-   - Unify to single flexible endpoint that handles both simple and advanced filtering
-   - Ensure consistent data structure regardless of approach
+**Rationale:**
+- Different user workflows: `/inventory` for quick access, `/inventory/search` for complex queries
+- URLs already established and likely bookmarked
+- Advanced search form is large (~200+ lines) and would clutter main page
+- Lower risk incremental refactoring
+- Clear separation of concerns
 
-4. **Code Organization Strategy:** Choose specific structure for shared components:
-   - File naming conventions for shared modules
-   - Whether to use class-based or functional approach for table component
-   - How to handle component configuration and customization
-   - Directory structure for components vs utilities
+### 2. Search Behavior Differences: **Preserved**
 
-5. **Migration Path:** Define strategy for:
-   - Order of refactoring (backend first vs frontend first vs parallel)
-   - Handling existing bookmarks and deep links during transition
-   - Whether to implement feature flags for gradual rollout
-   - Rollback plan if issues are discovered
+**Documented differences:**
+- **Inventory List:** Simple text filters (status, type, material, quick search)
+- **Advanced Search:** Structured form with range filtering, exact match options, thread filters, precision filter
+- **New feature:** Add bookmark functionality to inventory list to copy current filter state to URL
+
+**All capabilities will be preserved.** The unified table component supports both simple and advanced result sets.
+
+### 3. Backend API Approach: **Keep Separate Endpoints**
+
+**Decision:** Maintain separate endpoints with standardized response format.
+
+**Rationale:**
+- `/api/inventory/list` (GET) - Simple, cacheable, status-only filtering
+- `/api/inventory/search` (POST) - Complex criteria, needs request body
+- Different HTTP methods appropriate for use cases
+
+**Required standardization:**
+- Both endpoints return identical item data structure
+- Add `photo_count` to search endpoint response
+- Add `sub_location` to search results display
+- Standardize response envelope to use `success` field consistently
+
+### 4. Code Organization Strategy: **Component-Based Architecture**
+
+**Structure:**
+```
+app/static/js/
+├── components/
+│   ├── inventory-table.js        # Core table rendering & pagination
+│   ├── item-actions.js           # Shared action handlers
+│   └── item-formatters.js        # Dimension/thread formatting utilities
+├── inventory-list.js             # List-specific: simple filters, bulk ops
+└── inventory-search.js           # Search-specific: form handling, URL state
+
+app/templates/inventory/
+├── _item_table.html              # Shared table structure (Jinja macro)
+├── list.html                     # Uses macro with full features
+└── search.html                   # Uses macro with full features
+```
+
+**Approach:**
+- ES6 class-based components (consistent with existing code)
+- Configurable table component with options for selection, sorting, columns, actions
+- Jinja macro for template reuse
+
+### 5. Migration Path: **Phased Parallel Implementation**
+
+**Approach:** Build new components alongside existing code, then replace in phases.
+**Release Strategy:** All changes released together as new version (no feature flags needed).
+
+---
 
 ## Implementation Plan
 
-*This section will be completed during the planning phase.*
+**Commit Message Prefix:** `Item Table Unification - M.T` where M = Milestone number, T = Task number
+
+### Milestone 1: Backend API Standardization
+
+**Objective:** Ensure both API endpoints return identical, consistent data structures.
+
+**Tasks:**
+
+**1.1: Add photo_count to search endpoint**
+- Modify `/api/inventory/search` endpoint in `app/main/routes.py`
+- Add bulk photo count lookup (same pattern as list endpoint)
+- Include `photo_count` in each item's response data
+
+**1.2: Standardize API response envelopes**
+- Update `/api/inventory/search` to use `success` field instead of `status`
+- Ensure both endpoints have: `success`, `items`, `total_count`
+- Update frontend search.js to handle `success` field
+
+**1.3: Add unit tests for API consistency**
+- Create test to verify both endpoints return identical item structure
+- Test that all expected fields are present in both responses
+- Test photo_count is included in both endpoints
+
+**Acceptance Criteria:**
+- Both `/api/inventory/list` and `/api/inventory/search` return items with identical structure
+- All fields present: `ja_id`, `display_name`, `item_type`, `shape`, `material`, `dimensions`, `thread`, `location`, `sub_location`, `purchase_date`, `purchase_price`, `purchase_location`, `vendor`, `vendor_part_number`, `notes`, `active`, `precision`, `date_added`, `last_modified`, `photo_count`
+- Unit tests pass
+- No E2E test regressions
+
+---
+
+### Milestone 2: Extract Shared Formatting Utilities
+
+**Objective:** Create reusable formatting functions for dimensions, threads, and other item display logic.
+
+**Tasks:**
+
+**2.1: Create item-formatters.js module**
+- Create `app/static/js/components/item-formatters.js`
+- Extract formatting functions from both inventory-list.js and inventory-search.js:
+  - `formatFullDimensions(dimensions, itemType, thread)`
+  - `formatDimensions(dimensions, itemType)` (length only)
+  - `formatThread(thread, includeSymbol)`
+  - `escapeHtml(str)`
+- Export as module with clear JSDoc documentation
+
+**2.2: Refactor inventory-list.js to use formatters**
+- Import formatters from item-formatters.js
+- Replace inline formatting logic with imported functions
+- Remove duplicate formatting code
+- Verify inventory list still works correctly
+
+**2.3: Refactor inventory-search.js to use formatters**
+- Import formatters from item-formatters.js
+- Replace inline formatting logic with imported functions
+- Remove duplicate formatting code
+- Verify search page still works correctly
+
+**Acceptance Criteria:**
+- New `item-formatters.js` module created with all formatting functions
+- Both pages use shared formatters (no duplicate formatting logic)
+- All E2E tests pass (no visual or functional regressions)
+- Code reduction: ~100-150 lines eliminated from duplication
+
+---
+
+### Milestone 3: Create Unified Table Component
+
+**Objective:** Build shared table component and template that both pages will use.
+
+**Tasks:**
+
+**3.1: Create shared table template macro**
+- Create `app/templates/inventory/_item_table.html`
+- Build Jinja macro: `render_inventory_table(config)`
+- Support configuration options:
+  - `show_selection_column` - checkbox column
+  - `enable_sorting` - sortable column headers
+  - `show_sub_location` - include sub-location column
+  - `table_id` - unique ID for table element
+  - `table_body_id` - unique ID for tbody element
+- Include all 10 columns: Checkbox (conditional), JA ID, Type, Shape, Material, Dimensions, Length, Location, Sub-location (conditional), Status, Actions
+- Use Bootstrap styling consistent with current tables
+
+**3.2: Create InventoryTable JavaScript class**
+- Create `app/static/js/components/inventory-table.js`
+- ES6 class: `InventoryTable`
+- Constructor accepts configuration:
+  ```javascript
+  {
+    tableBodyId: string,
+    enableSelection: boolean,
+    enableSorting: boolean,
+    showSubLocation: boolean,
+    itemsPerPage: number,
+    onSelectionChange: callback,
+    onActionClick: callback,
+    actions: ['view-history', 'edit', 'shorten', 'move', 'duplicate', 'print-label']
+  }
+  ```
+- Methods:
+  - `setItems(items)` - Set data to display
+  - `renderPage(pageNumber)` - Render specific page
+  - `sortBy(field, direction)` - Sort table
+  - `getSelectedItems()` - Return array of selected JA IDs
+  - `selectAll()` / `selectNone()` - Bulk selection
+  - `refresh()` - Re-render current page
+
+**3.3: Implement table rendering logic**
+- Implement row creation using formatters from item-formatters.js
+- Handle checkbox state and selection tracking
+- Implement sorting with visual indicators (chevron icons)
+- Implement pagination with controls
+- Fire callbacks for user interactions
+
+**3.4: Create item-actions.js module**
+- Create `app/static/js/components/item-actions.js`
+- Extract action handlers from inventory-list.js:
+  - `showItemHistory(jaId)`
+  - `showItemDetails(jaId)`
+  - `navigateToEdit(jaId)`
+  - `showMoveDialog(jaId)`
+  - `showDuplicateDialog(jaId)`
+  - `printLabel(jaId)`
+- Handle modals, API calls, error handling
+- Export as reusable module
+
+**Acceptance Criteria:**
+- Template macro renders complete table structure
+- InventoryTable class handles rendering, sorting, pagination, selection
+- Item actions module provides reusable action handlers
+- Component unit tests pass (if applicable)
+- Manual testing shows table works in isolation
+
+---
+
+### Milestone 4: Migrate Inventory List Page
+
+**Objective:** Refactor `/inventory` page to use unified table component.
+
+**Tasks:**
+
+**4.1: Update list.html template to use table macro**
+- Modify `app/templates/inventory/list.html`
+- Replace hardcoded table HTML with macro call:
+  ```jinja2
+  {% from 'inventory/_item_table.html' import render_inventory_table %}
+  {{ render_inventory_table({
+      'show_selection_column': true,
+      'enable_sorting': true,
+      'show_sub_location': true,
+      'table_id': 'inventory-table',
+      'table_body_id': 'inventory-table-body'
+  }) }}
+  ```
+- Keep all other elements (filters, buttons, modals) unchanged
+
+**4.2: Refactor inventory-list.js to use InventoryTable component**
+- Import InventoryTable class and item-actions module
+- Remove table rendering code (renderTable, createTableRow methods)
+- Instantiate InventoryTable with appropriate config
+- Wire up callbacks for selection changes and actions
+- Keep filter logic, bulk operations, and data loading
+- Reduce file from ~1,154 lines to ~600-700 lines
+
+**4.3: Add bookmark functionality to inventory list**
+- Add "Bookmark" button to page header
+- Implement URL parameter handling for filters
+- Copy current URL with filter params to clipboard
+- Show toast notification on success
+- Support loading filter state from URL on page load
+
+**4.4: Run E2E tests for inventory list**
+- Execute all inventory list E2E tests:
+  - `test_list_view.py`
+  - `test_list_view_status_filter.py`
+  - `test_item_actions.py` (list page portions)
+  - `test_bulk_label_printing_list.py`
+- Fix any test failures or regressions
+- Verify all features work: filtering, sorting, selection, bulk operations, actions
+
+**Acceptance Criteria:**
+- Inventory list page uses shared table component
+- All existing functionality preserved (no feature loss)
+- New bookmark functionality works
+- Code reduced by ~400-500 lines
+- All E2E tests pass
+- Visual appearance identical to original
+
+---
+
+### Milestone 5: Migrate Advanced Search Page
+
+**Objective:** Refactor `/inventory/search` page to use unified table component and add missing features.
+
+**Tasks:**
+
+**5.1: Update search.html template to use table macro**
+- Modify `app/templates/inventory/search.html`
+- Replace hardcoded table HTML with macro call:
+  ```jinja2
+  {% from 'inventory/_item_table.html' import render_inventory_table %}
+  {{ render_inventory_table({
+      'show_selection_column': true,
+      'enable_sorting': true,
+      'show_sub_location': true,
+      'table_id': 'search-results-table',
+      'table_body_id': 'results-table-body'
+  }) }}
+  ```
+- Keep search form and other elements unchanged
+
+**5.2: Add bulk operation UI to search page**
+- Add selection controls (Select All, Select None) to results header
+- Add bulk operations dropdown (Move, Deactivate, Print Labels)
+- Use same HTML structure as inventory list page
+- Show/hide based on whether results are present
+
+**5.3: Refactor inventory-search.js to use InventoryTable component**
+- Import InventoryTable class and item-actions module
+- Remove table rendering code (renderResultsTable, createResultRow methods)
+- Instantiate InventoryTable with config
+- Wire up callbacks for selection and actions
+- Implement bulk operation handlers (same logic as list page)
+- Add all item actions to action dropdown (not just View/Edit)
+- Reduce file from ~706 lines to ~400-500 lines
+
+**5.4: Add CSV export to search page**
+- Add Export button to results header (already in template)
+- Implement CSV export logic (same as inventory list)
+- Use current search results for export data
+
+**5.5: Run E2E tests for search page**
+- Execute all search E2E tests:
+  - `test_search.py`
+  - `test_search_*.py` (all search-specific tests)
+- Fix any test failures
+- Verify all features work: search, sorting, selection, bulk operations, export
+
+**Acceptance Criteria:**
+- Search page uses shared table component
+- New features added: selection checkboxes, sortable columns, sub-location column, bulk operations, all item actions, CSV export
+- Existing bookmark functionality preserved
+- Code reduced by ~200-300 lines
+- All E2E tests pass
+- Visual consistency with inventory list table
+
+---
+
+### Milestone 6: Test Infrastructure Refactoring
+
+**Objective:** Create shared test utilities and consolidate duplicate test scenarios.
+
+**Tasks:**
+
+**6.1: Create shared inventory table page object**
+- Create `tests/e2e/pages/inventory_table_mixin.py`
+- Implement mixin class with common table interactions:
+  - `get_table_items()` - Extract all visible rows
+  - `sort_by_column(column_name)` - Click sortable header
+  - `select_item(ja_id)` - Check item checkbox
+  - `select_all_items()` - Click select all
+  - `get_selected_count()` - Count selected items
+  - `click_item_action(ja_id, action)` - Trigger action button
+  - `assert_table_sorted(column, direction)` - Verify sort state
+  - `assert_item_visible(ja_id)` - Check row exists
+  - `assert_column_value(ja_id, column, expected_value)` - Verify cell content
+
+**6.2: Refactor inventory_list_page.py to use mixin**
+- Modify `tests/e2e/pages/inventory_list_page.py`
+- Inherit from mixin to get shared table methods
+- Remove duplicate table interaction code
+- Keep list-specific methods (filter interactions)
+
+**6.3: Refactor search_page.py to use mixin**
+- Modify `tests/e2e/pages/search_page.py`
+- Inherit from mixin to get shared table methods
+- Remove duplicate table interaction code
+- Keep search-specific methods (form interactions)
+
+**6.4: Create shared table behavior tests**
+- Create `tests/e2e/test_table_common_behaviors.py`
+- Parameterized tests that run against both pages:
+  - Table rendering with various data sets
+  - Column sorting (all columns, both directions)
+  - Row selection (single, multiple, all, none)
+  - Pagination with different page sizes
+  - Action button visibility and functionality
+- Use pytest parametrize to run same tests on `/inventory` and `/inventory/search`
+
+**6.5: Update existing tests for new features**
+- Update search page tests for new features (selection, sorting, bulk ops)
+- Verify no duplicate test coverage between shared and page-specific tests
+- Ensure comprehensive coverage of all unified table features
+
+**Acceptance Criteria:**
+- Shared page object mixin created and used by both page objects
+- Duplicate test code eliminated (~200+ lines)
+- New parameterized tests cover common table behaviors
+- All E2E tests pass
+- Test coverage maintained or improved
+- Test execution time similar or faster
+
+---
+
+### Milestone 7: Documentation and Final Validation
+
+**Objective:** Update all documentation and perform final comprehensive testing.
+
+**Tasks:**
+
+**7.1: Update user manual**
+- Update `docs/user-manual.md` with any UI changes
+- Document new bookmark feature on inventory list
+- Document new features on search page (selection, bulk ops, export, full actions)
+- Add screenshots if visual changes are significant
+
+**7.2: Update development documentation**
+- Update `docs/development-testing-guide.md` with new component structure
+- Document shared component architecture
+- Add guidance for future table-related changes
+- Update code organization section
+
+**7.3: Update deployment guide (if needed)**
+- Review `docs/deployment-guide.md` for any necessary updates
+- Likely no changes needed (no new dependencies or infrastructure)
+
+**7.4: Run full test suite**
+- Execute complete unit test suite: `timeout 120 python -m pytest tests/unit/`
+- Execute complete E2E test suite: `timeout 900 python -m pytest tests/e2e/ --tb=short`
+- Ensure all tests pass without failures or timeouts
+- Fix any issues discovered
+
+**7.5: Manual QA testing**
+- Test all workflows on both pages:
+  - Filtering and searching
+  - Sorting all columns
+  - Selection and bulk operations
+  - All individual item actions
+  - Pagination
+  - Export functionality
+  - Bookmark functionality
+- Test on different screen sizes (responsive design)
+- Test browser compatibility (Chrome, Firefox, Safari if available)
+
+**7.6: Update feature progress document**
+- Update this document's Progress section
+- Mark all milestones and tasks as completed
+- Document any deviations from plan or lessons learned
+- Add metrics: lines of code reduced, test coverage, etc.
+
+**Acceptance Criteria:**
+- All documentation updated and accurate
+- Full test suite passes (unit + E2E)
+- Manual QA completed without critical issues
+- Feature document updated with completion status
+- Ready for release
+
+---
 
 ## Progress
 
-*This section will be updated as milestones and tasks are completed.*
+### Status: Planning Complete
+
+**Planning Phase Completed:** 2025-12-07
+
+**Decisions finalized:**
+- ✅ Page structure: Keep separate pages
+- ✅ Search capabilities: All preserved with documented differences
+- ✅ Backend API: Keep separate endpoints with standardized responses
+- ✅ Code organization: Component-based architecture defined
+- ✅ Migration path: Phased parallel implementation planned
+
+**Next Step:** Begin Milestone 1 pending approval.
+
+---
+
+## Estimated Impact
+
+**Code Reduction:**
+- Before: ~2,460 lines (list: 1,154 + search: 706 + templates: 600)
+- After: ~1,800 lines (components: 500 + list: 600 + search: 450 + templates: 250)
+- **Reduction: ~660 lines (27%)**
+
+**Lines of Code Breakdown:**
+- Shared components: ~500 lines
+  - inventory-table.js: ~300 lines
+  - item-actions.js: ~100 lines
+  - item-formatters.js: ~100 lines
+- Page-specific code: ~1,050 lines (reduced from ~1,860)
+- Templates: ~250 lines (reduced from ~600)
+
+**Test Impact:**
+- Reduced duplicate test code: ~200 lines
+- New shared tests: ~150 lines
+- Net test code reduction: ~50 lines
+- Coverage: Maintained or improved
+
+**Benefits:**
+- Single source of truth for table rendering
+- Consistent user experience across pages
+- Easier maintenance (one place to fix bugs)
+- Feature parity on both pages
+- Improved testability with shared page objects
