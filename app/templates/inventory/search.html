@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'inventory/_item_table.html' import render_inventory_table %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -273,26 +274,13 @@
             
             <!-- Results Table -->
             <div id="results-table-container" class="d-none">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>JA ID</th>
-                                <th>Type</th>
-                                <th>Shape</th>
-                                <th>Material</th>
-                                <th>Dimensions</th>
-                                <th>Length</th>
-                                <th>Location</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="results-table-body">
-                            <!-- Results will be populated by JavaScript -->
-                        </tbody>
-                    </table>
-                </div>
+                {{ render_inventory_table({
+                    'show_selection_column': true,
+                    'enable_sorting': true,
+                    'show_sub_location': true,
+                    'table_id': 'results-table',
+                    'table_body_id': 'results-table-body'
+                }) }}
             </div>
         </div>
     </div>
