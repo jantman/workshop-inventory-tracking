@@ -264,7 +264,8 @@ class InventoryListManager {
             }
             
             this.items = data.items || [];
-            this.applyFiltersAndSort();
+            this.applyFilters();
+            this.table.setItems(this.filteredItems);
             this.updateItemCount();
             this.showInventoryTable();
             
@@ -383,181 +384,32 @@ class InventoryListManager {
         }
     }
 
-    // Pagination methods removed - now handled by InventoryTable component
-    // Old methods: renderPagination, handlePageChange removed
+    // Old methods removed - now handled by InventoryTable component:
+    // renderPagination, goToPage, updateSortIcons, toggleSelectAll (old version)
+    // selectAll/selectNone (old versions), getVisibleItems, updateSelectAllCheckbox (old version)
 
-    oldRenderPagination_REMOVED() {
-        const totalPages = Math.ceil(this.filteredItems.length / this.itemsPerPage);
-        const startItem = Math.min((this.currentPage - 1) * this.itemsPerPage + 1, this.filteredItems.length);
-        const endItem = Math.min(this.currentPage * this.itemsPerPage, this.filteredItems.length);
-        
-        // Update pagination info
-        this.itemsStart.textContent = startItem;
-        this.itemsEnd.textContent = endItem;
-        this.itemsTotal.textContent = this.filteredItems.length;
-        
-        // Show/hide pagination
-        if (this.filteredItems.length > 0) {
-            this.paginationContainer.classList.remove('d-none');
-        } else {
-            this.paginationContainer.classList.add('d-none');
-            return;
-        }
-        
-        // Build pagination buttons
-        this.pagination.innerHTML = '';
-        
-        // Previous button
-        const prevLi = document.createElement('li');
-        prevLi.className = `page-item ${this.currentPage === 1 ? 'disabled' : ''}`;
-        prevLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${this.currentPage - 1})">Previous</a>`;
-        this.pagination.appendChild(prevLi);
-        
-        // Page numbers
-        const maxVisiblePages = 5;
-        let startPage = Math.max(1, this.currentPage - Math.floor(maxVisiblePages / 2));
-        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-        
-        // Adjust start page if we're near the end
-        if (endPage - startPage < maxVisiblePages - 1) {
-            startPage = Math.max(1, endPage - maxVisiblePages + 1);
-        }
-        
-        // Add first page and ellipsis if needed
-        if (startPage > 1) {
-            const firstLi = document.createElement('li');
-            firstLi.className = 'page-item';
-            firstLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(1)">1</a>`;
-            this.pagination.appendChild(firstLi);
-            
-            if (startPage > 2) {
-                const ellipsisLi = document.createElement('li');
-                ellipsisLi.className = 'page-item disabled';
-                ellipsisLi.innerHTML = '<span class="page-link">...</span>';
-                this.pagination.appendChild(ellipsisLi);
-            }
-        }
-        
-        // Add visible page numbers
-        for (let i = startPage; i <= endPage; i++) {
-            const pageLi = document.createElement('li');
-            pageLi.className = `page-item ${i === this.currentPage ? 'active' : ''}`;
-            pageLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${i})">${i}</a>`;
-            this.pagination.appendChild(pageLi);
-        }
-        
-        // Add last page and ellipsis if needed
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) {
-                const ellipsisLi = document.createElement('li');
-                ellipsisLi.className = 'page-item disabled';
-                ellipsisLi.innerHTML = '<span class="page-link">...</span>';
-                this.pagination.appendChild(ellipsisLi);
-            }
-            
-            const lastLi = document.createElement('li');
-            lastLi.className = 'page-item';
-            lastLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${totalPages})">${totalPages}</a>`;
-            this.pagination.appendChild(lastLi);
-        }
-        
-        // Next button
-        const nextLi = document.createElement('li');
-        nextLi.className = `page-item ${this.currentPage === totalPages ? 'disabled' : ''}`;
-        nextLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${this.currentPage + 1})">Next</a>`;
-        this.pagination.appendChild(nextLi);
-    }
-    
-    goToPage(page) {
-        const totalPages = Math.ceil(this.filteredItems.length / this.itemsPerPage);
-        if (page >= 1 && page <= totalPages) {
-            this.currentPage = page;
-            this.renderTable();
-            this.renderPagination();
-        }
-    }
-    
-    updateSortIcons() {
-        this.sortableHeaders.forEach(header => {
-            const icon = header.querySelector('.sort-icon');
-            if (header.dataset.sort === this.sortField) {
-                icon.className = `bi bi-chevron-${this.sortDirection === 'asc' ? 'up' : 'down'} sort-icon`;
-                header.classList.add('text-primary');
-            } else {
-                icon.className = 'bi bi-chevron-expand sort-icon';
-                header.classList.remove('text-primary');
-            }
-        });
-    }
-    
-    toggleSelectAll(checked) {
-        const pageItems = this.getVisibleItems();
-        
-        if (checked) {
-            pageItems.forEach(item => this.selectedItems.add(item.ja_id));
-        } else {
-            pageItems.forEach(item => this.selectedItems.delete(item.ja_id));
-        }
-        
-        this.renderTable();
-        this.updateBulkActions();
-    }
-    
-    selectAll() {
-        this.filteredItems.forEach(item => this.selectedItems.add(item.ja_id));
-        this.renderTable();
-        this.updateSelectAllCheckbox();
-        this.updateBulkActions();
-    }
-    
-    selectNone() {
-        this.selectedItems.clear();
-        this.renderTable();
-        this.updateSelectAllCheckbox();
-        this.updateBulkActions();
-    }
-    
-    getVisibleItems() {
-        const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-        const endIndex = startIndex + this.itemsPerPage;
-        return this.filteredItems.slice(startIndex, endIndex);
-    }
-    
-    updateSelectAllCheckbox() {
-        const visibleItems = this.getVisibleItems();
-        const selectedVisibleItems = visibleItems.filter(item => this.selectedItems.has(item.ja_id));
-        
-        if (selectedVisibleItems.length === 0) {
-            this.selectAllCheckbox.checked = false;
-            this.selectAllCheckbox.indeterminate = false;
-        } else if (selectedVisibleItems.length === visibleItems.length) {
-            this.selectAllCheckbox.checked = true;
-            this.selectAllCheckbox.indeterminate = false;
-        } else {
-            this.selectAllCheckbox.checked = false;
-            this.selectAllCheckbox.indeterminate = true;
-        }
-    }
-    
     updateBulkActions() {
-        const hasSelection = this.selectedItems.size > 0;
+        const selectedCount = this.table.getSelectedItems().length;
+        const hasSelection = selectedCount > 0;
         this.bulkMoveBtn.classList.toggle('disabled', !hasSelection);
         this.bulkDeactivateBtn.classList.toggle('disabled', !hasSelection);
+        this.bulkPrintLabelsBtn.classList.toggle('disabled', !hasSelection);
     }
     
     bulkMoveSelected() {
-        if (this.selectedItems.size === 0) return;
-        
-        const selectedIds = Array.from(this.selectedItems);
+        const selectedIds = this.table.getSelectedItems();
+        if (selectedIds.length === 0) return;
+
         const url = new URL('/inventory/move', window.location.origin);
         url.searchParams.set('items', selectedIds.join(','));
         window.location.href = url.toString();
     }
-    
-    bulkDeactivateSelected() {
-        if (this.selectedItems.size === 0) return;
 
-        const count = this.selectedItems.size;
+    bulkDeactivateSelected() {
+        const selectedIds = this.table.getSelectedItems();
+        if (selectedIds.length === 0) return;
+
+        const count = selectedIds.length;
         if (!confirm(`Are you sure you want to deactivate ${count} selected item(s)?`)) {
             return;
         }
@@ -567,7 +419,8 @@ class InventoryListManager {
     }
 
     printLabelsForSelected() {
-        if (this.selectedItems.size === 0) {
+        const selectedIds = this.table.getSelectedItems();
+        if (selectedIds.length === 0) {
             alert('Please select at least one item to print labels.');
             return;
         }
@@ -577,7 +430,7 @@ class InventoryListManager {
     }
 
     async showBulkLabelPrintingModal() {
-        const selectedJaIds = Array.from(this.selectedItems);
+        const selectedJaIds = this.table.getSelectedItems();
 
         // Update summary
         const summaryElement = document.getElementById('list-bulk-print-summary');
