@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'inventory/_item_table.html' import render_inventory_table %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -121,45 +122,13 @@
         
         <!-- Inventory Table -->
         <div id="inventory-table-container" class="d-none">
-            <div class="table-responsive">
-                <table class="table table-hover mb-0 inventory-table">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="border-end">
-                                <input type="checkbox" class="form-check-input" id="select-all-checkbox">
-                            </th>
-                            <th class="sortable border-end" data-sort="ja_id">
-                                JA ID <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="item_type">
-                                Type <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="shape">
-                                Shape <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="material">
-                                Material <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="dimensions">
-                                Dimensions <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable text-end" data-sort="length">
-                                Length <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="location">
-                                Location <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="sortable text-center" data-sort="active">
-                                Status <i class="bi bi-chevron-expand sort-icon"></i>
-                            </th>
-                            <th class="text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventory-table-body">
-                        <!-- Items will be populated by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
+            {{ render_inventory_table({
+                'show_selection_column': true,
+                'enable_sorting': true,
+                'show_sub_location': true,
+                'table_id': 'inventory-table',
+                'table_body_id': 'inventory-table-body'
+            }) }}
         </div>
     </div>
 </div>
