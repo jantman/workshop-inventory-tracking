@@ -242,13 +242,26 @@
                 <h5 class="mb-0"><i class="bi bi-list-task"></i> Search Results</h5>
                 <small class="text-muted" id="results-count">0 items found</small>
             </div>
-            <div class="btn-group">
+            <div class="btn-group btn-group-sm">
                 <button type="button" class="btn btn-outline-success" id="export-csv-btn">
                     <i class="bi bi-download"></i> Export CSV
                 </button>
                 <button type="button" class="btn btn-outline-info" id="bookmark-search-btn" title="Copy search URL">
                     <i class="bi bi-bookmark"></i> Bookmark
                 </button>
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-gear"></i> Options
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" id="search-select-all-btn"><i class="bi bi-check-square"></i> Select All</a></li>
+                        <li><a class="dropdown-item" href="#" id="search-select-none-btn"><i class="bi bi-square"></i> Select None</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="#" id="search-bulk-move-btn"><i class="bi bi-arrow-left-right"></i> Bulk Move Selected</a></li>
+                        <li><a class="dropdown-item" href="#" id="search-bulk-deactivate-btn"><i class="bi bi-eye-slash"></i> Deactivate Selected</a></li>
+                        <li><a class="dropdown-item" href="#" id="search-bulk-print-labels-btn"><i class="bi bi-printer"></i> Print Labels</a></li>
+                    </ul>
+                </div>
             </div>
         </div>
         <div class="card-body p-0">
@@ -330,6 +343,64 @@
                 <a href="#" class="btn btn-primary" id="edit-item-from-history-link">
                     <i class="bi bi-pencil"></i> Edit Item
                 </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Label Printing Modal -->
+<div class="modal fade" id="searchBulkLabelPrintingModal" tabindex="-1" aria-labelledby="searchBulkLabelPrintingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="searchBulkLabelPrintingModalLabel">
+                    <i class="bi bi-printer"></i> Print Labels
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Print labels for selected items</strong>
+                    <p class="mb-0" id="search-bulk-print-summary"></p>
+                </div>
+
+                <div class="mb-3">
+                    <h6>Selected Items:</h6>
+                    <ul class="list-group" id="search-bulk-label-items-list" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Items will be populated by JavaScript -->
+                    </ul>
+                </div>
+
+                <div class="mb-3">
+                    <label for="search-bulk-label-type" class="form-label">Label Type *</label>
+                    <select class="form-select" id="search-bulk-label-type" required>
+                        <option value="">Select label type...</option>
+                        <!-- Options will be populated by JavaScript from API -->
+                    </select>
+                    <div class="form-text">Choose the type and size of label to print for all selected items</div>
+                </div>
+
+                <div id="search-bulk-print-progress" class="d-none">
+                    <div class="mb-2">
+                        <strong>Printing Progress:</strong>
+                        <span id="search-bulk-print-status"></span>
+                    </div>
+                    <div class="progress">
+                        <div id="search-bulk-print-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div id="search-bulk-print-errors" class="alert alert-warning mt-2 d-none"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="search-bulk-print-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="search-bulk-print-all-btn" disabled>
+                    <i class="bi bi-printer"></i> Print All Labels
+                </button>
+                <button type="button" class="btn btn-success d-none" id="search-bulk-print-done-btn" data-bs-dismiss="modal">
+                    <i class="bi bi-check-lg"></i> Done
+                </button>
             </div>
         </div>
     </div>
