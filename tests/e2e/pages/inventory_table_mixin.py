@@ -108,16 +108,24 @@ class InventoryTableMixin:
         if not hasattr(self, 'page'):
             raise AttributeError("Mixin requires 'page' attribute")
 
-        # Try to find select all button (could be in different places)
-        select_all_selectors = [
-            "#select-all-btn",
-            "#search-select-all-btn",
-            self.CHECKBOX_ALL_SELECTOR
+        # Try to find select all button - these are in dropdowns so we need to open them first
+        select_all_configs = [
+            {"button_selector": "#select-all-btn", "dropdown_selector": 'button:has-text("Options")'},
+            {"button_selector": "#search-select-all-btn", "dropdown_selector": 'button:has-text("Options")'},
+            {"button_selector": self.CHECKBOX_ALL_SELECTOR, "dropdown_selector": None}  # Checkbox doesn't need dropdown
         ]
 
-        for selector in select_all_selectors:
-            element = self.page.locator(selector)
+        for config in select_all_configs:
+            element = self.page.locator(config["button_selector"])
             if element.count() > 0:
+                # Open the dropdown first if needed
+                if config["dropdown_selector"]:
+                    dropdown_button = self.page.locator(config["dropdown_selector"])
+                    if dropdown_button.count() > 0:
+                        dropdown_button.first.click()
+                        self.page.wait_for_timeout(300)
+
+                # Now click the select all button
                 element.first.click()
                 self.page.wait_for_timeout(200)
                 return
@@ -129,15 +137,22 @@ class InventoryTableMixin:
         if not hasattr(self, 'page'):
             raise AttributeError("Mixin requires 'page' attribute")
 
-        # Try to find select none button
-        select_none_selectors = [
-            "#select-none-btn",
-            "#search-select-none-btn"
+        # Try to find select none button - these are in dropdowns so we need to open them first
+        select_none_configs = [
+            {"button_selector": "#select-none-btn", "dropdown_selector": 'button:has-text("Options")'},
+            {"button_selector": "#search-select-none-btn", "dropdown_selector": 'button:has-text("Options")'}
         ]
 
-        for selector in select_none_selectors:
-            element = self.page.locator(selector)
+        for config in select_none_configs:
+            element = self.page.locator(config["button_selector"])
             if element.count() > 0:
+                # Open the dropdown first
+                dropdown_button = self.page.locator(config["dropdown_selector"])
+                if dropdown_button.count() > 0:
+                    dropdown_button.first.click()
+                    self.page.wait_for_timeout(300)
+
+                # Now click the select none button
                 element.first.click()
                 self.page.wait_for_timeout(200)
                 return
