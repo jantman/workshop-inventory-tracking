@@ -370,7 +370,7 @@ export class InventoryTable {
                     <a href="/inventory/edit/${item.ja_id}" class="btn btn-outline-primary btn-sm" title="Edit">
                         <i class="bi bi-pencil"></i>
                     </a>
-                    <button type="button" class="btn btn-outline-info btn-sm" onclick="showItemDetails('${item.ja_id}')" title="View Details">
+                    <button type="button" class="btn btn-outline-info btn-sm" onclick="viewItemDetails('${item.ja_id}')" title="View Details">
                         <i class="bi bi-eye"></i>
                     </button>
                     <button type="button" class="btn btn-outline-warning btn-sm" onclick="showItemHistory('${item.ja_id}')" title="View History">

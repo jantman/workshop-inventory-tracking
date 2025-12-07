@@ -705,9 +705,9 @@ function initializeItemDetailsPhotoManager(jaId) {
 }
 
 // Keep legacy function name for compatibility, but redirect to modal
-function viewItemDetails(jaId) {
+window.viewItemDetails = function(jaId) {
     showItemDetails(jaId);
-}
+};
 
 function editItem(jaId) {
     window.location.href = `/inventory/edit/${jaId}`;

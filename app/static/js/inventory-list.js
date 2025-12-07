@@ -159,7 +159,7 @@ class InventoryListManager {
 
     async printAllLabels() {
         const labelType = document.getElementById('list-bulk-label-type').value;
-        const selectedJaIds = Array.from(this.selectedItems);
+        const selectedJaIds = this.table.getSelectedItems();
 
         const progressDiv = document.getElementById('list-bulk-print-progress');
         const progressBar = document.getElementById('list-bulk-print-progress-bar');
@@ -868,6 +868,11 @@ window.toggleItemStatus = function(jaId, activate) {
     if (confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
         alert(`Toggle status feature coming soon for ${jaId}!`);
     }
+};
+
+// Backwards compatibility alias
+window.viewItemDetails = function(jaId) {
+    window.showItemDetails(jaId);
 };
 
 // Initialize when DOM is loaded
