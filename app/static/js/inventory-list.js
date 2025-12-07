@@ -22,6 +22,7 @@ class InventoryListManager {
         this.initializeTable();
         this.bindEvents();
         this.initializeBulkPrintModal();
+        this.loadFiltersFromURL();  // Load filters from URL params if present
         this.loadInventory();
 
         console.log('InventoryListManager initialized');
@@ -52,6 +53,7 @@ class InventoryListManager {
         // Control elements
         this.refreshBtn = document.getElementById('refresh-btn');
         this.exportBtn = document.getElementById('export-btn');
+        this.bookmarkBtn = document.getElementById('bookmark-btn');
         this.itemsPerPageSelect = document.getElementById('items-per-page');
         
         // Selection elements
@@ -96,6 +98,7 @@ class InventoryListManager {
         // Control events
         this.refreshBtn.addEventListener('click', () => this.loadInventory());
         this.exportBtn.addEventListener('click', () => this.exportToCSV());
+        this.bookmarkBtn.addEventListener('click', () => this.copyBookmarkLink());
         this.itemsPerPageSelect.addEventListener('change', () => this.onItemsPerPageChange());
         this.retryBtn.addEventListener('click', () => this.loadInventory());
         
@@ -300,7 +303,50 @@ class InventoryListManager {
         this.searchFilter.value = '';
         this.onFilterChange();
     }
-    
+
+    loadFiltersFromURL() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('status')) this.statusFilter.value = params.get('status');
+        if (params.has('type')) this.typeFilter.value = params.get('type');
+        if (params.has('material')) this.materialFilter.value = params.get('material');
+        if (params.has('search')) this.searchFilter.value = params.get('search');
+    }
+
+    copyBookmarkLink() {
+        const url = new URL(window.location.href);
+        url.searchParams.set('status', this.filters.status);
+        url.searchParams.set('type', this.filters.type);
+        if (this.filters.material) {
+            url.searchParams.set('material', this.filters.material);
+        } else {
+            url.searchParams.delete('material');
+        }
+        if (this.filters.search) {
+            url.searchParams.set('search', this.filters.search);
+        } else {
+            url.searchParams.delete('search');
+        }
+
+        navigator.clipboard.writeText(url.toString())
+            .then(() => {
+                // Show success feedback
+                const originalText = this.bookmarkBtn.innerHTML;
+                this.bookmarkBtn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                this.bookmarkBtn.classList.add('btn-success');
+                this.bookmarkBtn.classList.remove('btn-outline-secondary');
+
+                setTimeout(() => {
+                    this.bookmarkBtn.innerHTML = originalText;
+                    this.bookmarkBtn.classList.remove('btn-success');
+                    this.bookmarkBtn.classList.add('btn-outline-secondary');
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Failed to copy bookmark link:', err);
+                alert('Failed to copy bookmark link. Please try again.');
+            });
+    }
+
     onItemsPerPageChange() {
         const newItemsPerPage = parseInt(this.itemsPerPageSelect.value);
         this.table.config.itemsPerPage = newItemsPerPage;
