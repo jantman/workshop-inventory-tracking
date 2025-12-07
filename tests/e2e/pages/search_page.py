@@ -248,13 +248,13 @@ class SearchPage(BasePage):
             row = rows.nth(i)
             cells = row.locator("td")
             
-            if cells.count() >= 7:  # Ensure minimum expected columns (JA ID, Type, Shape, Material, Dimensions, Length, Location, Status, Actions)
+            if cells.count() >= 8:  # Ensure minimum expected columns (Checkbox, JA ID, Type, Shape, Material, Dimensions, Length, Location, Status, Actions)
                 result = {
-                    "ja_id": (cells.nth(0).text_content() or "").strip(),      # JA ID - column 0
-                    "type": (cells.nth(1).text_content() or "").strip(),       # Type - column 1  
-                    "shape": (cells.nth(2).text_content() or "").strip(),      # Shape - column 2
-                    "material": (cells.nth(3).text_content() or "").strip(),   # Material - column 3
-                    "location": (cells.nth(6).text_content() or "").strip()    # Location - column 6
+                    "ja_id": (cells.nth(1).text_content() or "").strip(),      # JA ID - column 1 (checkbox is column 0)
+                    "type": (cells.nth(2).text_content() or "").strip(),       # Type - column 2
+                    "shape": (cells.nth(3).text_content() or "").strip(),      # Shape - column 3
+                    "material": (cells.nth(4).text_content() or "").strip(),   # Material - column 4
+                    "location": (cells.nth(7).text_content() or "").strip()    # Location - column 7
                 }
                 results.append(result)
         
