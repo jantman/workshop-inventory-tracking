@@ -5,16 +5,19 @@ Page object for the inventory list view functionality.
 """
 
 from .base_page import BasePage
+from .inventory_table_mixin import InventoryTableMixin
 from playwright.sync_api import expect
 from typing import List, Dict
 
 
-class InventoryListPage(BasePage):
+class InventoryListPage(InventoryTableMixin, BasePage):
     """Page object for inventory list view"""
     
     # Selectors
     INVENTORY_TABLE = "table.inventory-table"
     TABLE_ROWS = "tbody tr"
+    TABLE_BODY_SELECTOR = "#inventory-table-body"  # Override mixin selector
+    TABLE_ROWS_SELECTOR = "#inventory-table-body tr"  # Override mixin selector
     SEARCH_INPUT = "#search-filter"
     FILTER_MATERIAL = "#material-filter"
     FILTER_LOCATION = "#location-filter"  # Note: this doesn't exist in the template
@@ -45,30 +48,9 @@ class InventoryListPage(BasePage):
         ''')
     
     def get_inventory_items(self) -> List[Dict[str, str]]:
-        """Get list of inventory items from the table"""
+        """Get list of inventory items from the table (wrapper for get_table_items)"""
         self.wait_for_element(self.INVENTORY_TABLE)
-        
-        rows = self.page.locator(self.TABLE_ROWS)
-        items = []
-        
-        count = rows.count()
-        for i in range(count):
-            row = rows.nth(i)
-            cells = row.locator("td")
-            
-            if cells.count() >= 9:  # Ensure we have enough columns (checkbox + 8 data columns)
-                item = {
-                    "ja_id": (cells.nth(1).text_content() or "").strip(),  # JA ID is second column (after checkbox)
-                    "type": (cells.nth(2).text_content() or "").strip(),   # Type is third column  
-                    "shape": (cells.nth(3).text_content() or "").strip(),  # Shape is fourth column
-                    "material": (cells.nth(4).text_content() or "").strip(),  # Material is fifth column
-                    "dimensions": (cells.nth(5).text_content() or "").strip(), # Dimensions is sixth column
-                    "length": (cells.nth(6).text_content() or "").strip(),    # Length is seventh column
-                    "location": (cells.nth(7).text_content() or "").strip()   # Location is eighth column
-                }
-                items.append(item)
-        
-        return items
+        return self.get_table_items()
     
     def search_items(self, query: str):
         """Perform search in inventory list"""
@@ -95,24 +77,18 @@ class InventoryListPage(BasePage):
             self.click_and_wait(self.ADD_ITEM_BUTTON)
     
     def assert_items_displayed(self, expected_count: int):
-        """Assert the expected number of items are displayed"""
-        items = self.get_inventory_items()
-        assert len(items) == expected_count, f"Expected {expected_count} items, found {len(items)}"
-    
+        """Assert the expected number of items are displayed (wrapper for assert_table_has_rows)"""
+        self.assert_table_has_rows(expected_count)
+
     def assert_item_in_list(self, ja_id: str):
-        """Assert that an item with given JA_ID is in the list"""
-        items = self.get_inventory_items()
-        ja_ids = [item["ja_id"] for item in items]
-        assert ja_id in ja_ids, f"Item {ja_id} not found in list. Available items: {ja_ids}"
-    
+        """Assert that an item with given JA_ID is in the list (wrapper for assert_item_visible)"""
+        self.assert_item_visible(ja_id)
+
     def assert_no_items_displayed(self):
-        """Assert no items are displayed (empty list)"""
+        """Assert no items are displayed (wrapper for assert_table_empty)"""
         if self.is_visible(self.NO_RESULTS_MESSAGE):
             return  # No results message shown
-        
-        # Check if table is empty
-        items = self.get_inventory_items()
-        assert len(items) == 0, f"Expected no items, found {len(items)}"
+        self.assert_table_empty()
     
     def assert_search_results_contain(self, query: str):
         """Assert search results contain items matching the query"""

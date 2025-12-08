@@ -3,6 +3,14 @@
  * Handles complex search queries with range filtering and CSV export
  */
 
+import {
+    formatFullDimensions,
+    formatDimensions,
+    formatThread,
+    escapeHtml
+} from './components/item-formatters.js';
+import { InventoryTable } from './components/inventory-table.js';
+
 class AdvancedInventorySearch {
     constructor() {
         this.form = document.getElementById('advanced-search-form');
@@ -10,13 +18,26 @@ class AdvancedInventorySearch {
         this.loadingElement = document.getElementById('search-loading');
         this.noResultsElement = document.getElementById('no-results');
         this.tableContainer = document.getElementById('results-table-container');
-        this.tableBody = document.getElementById('results-table-body');
         this.resultsCount = document.getElementById('results-count');
-        
+
         this.currentResults = [];
         this.isSearching = false;
-        
+        this.selectedItems = [];
+
+        this.initializeTable();
         this.init();
+    }
+
+    initializeTable() {
+        this.table = new InventoryTable({
+            tableBodyId: 'results-table-body',
+            enableSelection: true,
+            enableSorting: true,
+            showSubLocation: true,
+            itemsPerPage: 1000, // Show all results in search
+            onSelectionChange: (selectedIds) => this.onSelectionChange(selectedIds),
+            onActionClick: (action, jaId) => this.onActionClick(action, jaId)
+        });
     }
     
     init() {
@@ -50,7 +71,33 @@ class AdvancedInventorySearch {
         document.getElementById('bookmark-search-btn').addEventListener('click', () => {
             this.bookmarkSearch();
         });
-        
+
+        // Bulk operation buttons
+        document.getElementById('search-select-all-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.table.selectAll();
+        });
+
+        document.getElementById('search-select-none-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.table.selectNone();
+        });
+
+        document.getElementById('search-bulk-move-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleBulkMove();
+        });
+
+        document.getElementById('search-bulk-deactivate-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleBulkDeactivate();
+        });
+
+        document.getElementById('search-bulk-print-labels-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleBulkPrintLabels();
+        });
+
         // Real-time validation for JA ID pattern
         const jaIdInput = document.getElementById('ja_id');
         jaIdInput.addEventListener('input', (e) => {
@@ -194,116 +241,28 @@ class AdvancedInventorySearch {
         }
         
         const data = await response.json();
-        
-        if (data.status !== 'success') {
+
+        if (!data.success) {
             throw new Error(data.message || 'Search failed');
         }
-        
+
         return data.items || [];
     }
     
     displayResults(results) {
         this.hideLoading();
-        
+
         if (results.length === 0) {
             this.showNoResults();
             return;
         }
-        
+
         this.showResultsTable();
-        this.renderResultsTable(results);
+        this.table.setItems(results);
         this.updateResultsCount(results.length);
     }
-    
-    renderResultsTable(items) {
-        this.tableBody.innerHTML = '';
-        
-        items.forEach(item => {
-            const row = this.createResultRow(item);
-            this.tableBody.appendChild(row);
-        });
-    }
-    
-    createResultRow(item) {
-        const row = document.createElement('tr');
-        
-        const status = item.active ? 
-            '<span class="badge bg-success">Active</span>' : 
-            '<span class="badge bg-secondary">Inactive</span>';
-        
-        row.innerHTML = `
-            <td><strong>${this.escapeHtml(item.ja_id)}</strong></td>
-            <td><span class="badge bg-secondary">${this.escapeHtml(item.item_type || 'N/A')}</span></td>
-            <td>${this.escapeHtml(item.shape || 'N/A')}</td>
-            <td>${this.escapeHtml(item.material || 'N/A')}</td>
-            <td>${this.formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
-            <td class="text-end">${this.formatLengthOnly(item.dimensions)}</td>
-            <td>${this.escapeHtml(item.location || 'N/A')}</td>
-            <td class="text-center">${status}</td>
-            <td class="text-center">
-                <div class="btn-group btn-group-sm">
-                    <button type="button" class="btn btn-outline-primary btn-sm" 
-                            onclick="viewItemDetails('${item.ja_id}')" title="View Details">
-                        <i class="bi bi-eye"></i>
-                    </button>
-                    ${item.active ? `
-                        <button type="button" class="btn btn-outline-warning btn-sm" 
-                                onclick="editItem('${item.ja_id}')" title="Edit">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                    ` : ''}
-                </div>
-            </td>
-        `;
-        
-        return row;
-    }
-    
-    formatFullDimensions(dimensions, itemType, thread) {
-        if (!dimensions) return '<span class="text-muted">-</span>';
-        
-        const parts = [];
-        
-        // For threaded items, show thread info first
-        if (thread) {
-            const threadDisplay = this.formatThread(thread, true); // true for display with symbol
-            parts.push(threadDisplay);
-        }
-        
-        // Then show physical dimensions
-        if (dimensions.length) {
-            if (dimensions.width && dimensions.thickness) {
-                // Rectangular: width × thickness × length
-                parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
-            } else if (dimensions.width) {
-                // Round or Square: diameter/width × length
-                const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
-                parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
-            } else {
-                // Just length
-                parts.push(`${dimensions.length}"`);
-            }
-        }
-        
-        return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
-    }
-    
-    formatLengthOnly(dimensions) {
-        if (!dimensions || !dimensions.length) return '<span class="text-muted">-</span>';
-        return `${dimensions.length}"`;
-    }
-    
-    formatThread(thread, includeSymbol = false) {
-        if (!thread) return '';
-        const parts = [];
-        if (thread.size) parts.push(thread.size);
-        if (thread.series) parts.push(thread.series);
-        if (thread.handedness && thread.handedness !== 'RH') parts.push(thread.handedness);
-        
-        const threadText = parts.join(' ');
-        return includeSymbol && threadText ? `🔩${threadText}` : threadText;
-    }
-    
+
+
     showLoading() {
         this.resultsSection.classList.remove('d-none');
         this.loadingElement.classList.remove('d-none');
@@ -333,6 +292,71 @@ class AdvancedInventorySearch {
     updateResultsCount(count) {
         const text = count === 1 ? '1 item found' : `${count} items found`;
         this.resultsCount.textContent = text;
+    }
+
+    onSelectionChange(selectedIds) {
+        this.selectedItems = selectedIds;
+    }
+
+    onActionClick(action, jaId) {
+        // Handle action clicks if needed
+        console.log('Action clicked:', action, jaId);
+    }
+
+    handleBulkMove() {
+        if (this.selectedItems.length === 0) {
+            alert('Please select items to move');
+            return;
+        }
+
+        const jaIds = this.selectedItems.join(',');
+        window.location.href = `/inventory/move?ja_id=${jaIds}`;
+    }
+
+    handleBulkDeactivate() {
+        if (this.selectedItems.length === 0) {
+            alert('Please select items to deactivate');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to deactivate ${this.selectedItems.length} item(s)?`)) {
+            return;
+        }
+
+        // TODO: Implement bulk deactivate API call
+        alert('Bulk deactivate functionality will be implemented');
+    }
+
+    handleBulkPrintLabels() {
+        if (this.selectedItems.length === 0) {
+            alert('Please select items to print labels for');
+            return;
+        }
+
+        // Show the bulk label printing modal
+        const modal = new bootstrap.Modal(document.getElementById('searchBulkLabelPrintingModal'));
+        this.initializeBulkLabelPrinting();
+        modal.show();
+    }
+
+    initializeBulkLabelPrinting() {
+        // Populate the items list in the modal
+        const itemsList = document.getElementById('search-bulk-label-items-list');
+        itemsList.innerHTML = '';
+
+        this.selectedItems.forEach(jaId => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = jaId;
+            itemsList.appendChild(li);
+        });
+
+        // Update summary
+        const summary = document.getElementById('search-bulk-print-summary');
+        summary.textContent = `${this.selectedItems.length} item(s) selected for label printing`;
+
+        // TODO: Load label types from API
+        // TODO: Implement bulk print functionality
     }
     
     clearForm() {
@@ -497,22 +521,10 @@ class AdvancedInventorySearch {
         const token = document.querySelector('meta[name=csrf-token]');
         return token ? token.getAttribute('content') : '';
     }
-    
-    escapeHtml(text) {
-        if (!text) return '';
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, (m) => map[m]);
-    }
 }
 
 // Global functions for row actions - Modal Implementation
-function showItemDetails(jaId) {
+window.showItemDetails = function(jaId) {
     // Check if modal element exists
     const modalElement = document.getElementById('item-details-modal');
     if (!modalElement) {
@@ -693,9 +705,9 @@ function initializeItemDetailsPhotoManager(jaId) {
 }
 
 // Keep legacy function name for compatibility, but redirect to modal
-function viewItemDetails(jaId) {
-    showItemDetails(jaId);
-}
+window.viewItemDetails = function(jaId) {
+    window.showItemDetails(jaId);
+};
 
 function editItem(jaId) {
     window.location.href = `/inventory/edit/${jaId}`;

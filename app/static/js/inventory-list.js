@@ -1,32 +1,44 @@
 /**
  * Inventory List JavaScript - Inventory Listing Interface
- * 
+ *
  * Handles inventory display, filtering, sorting, and pagination
  * with advanced search capabilities and bulk operations.
  */
+
+import { InventoryTable } from './components/inventory-table.js';
 
 class InventoryListManager {
     constructor() {
         this.items = [];
         this.filteredItems = [];
-        this.currentPage = 1;
-        this.itemsPerPage = 25;
-        this.sortField = 'ja_id';
-        this.sortDirection = 'asc';
         this.filters = {
             status: 'active',
             type: 'all',
             material: '',
             search: ''
         };
-        this.selectedItems = new Set();
-        
+
         this.initializeElements();
+        this.initializeTable();
         this.bindEvents();
         this.initializeBulkPrintModal();
+        this.loadFiltersFromURL();  // Load filters from URL params if present
         this.loadInventory();
 
         console.log('InventoryListManager initialized');
+    }
+
+    initializeTable() {
+        // Create InventoryTable instance
+        this.table = new InventoryTable({
+            tableBodyId: 'inventory-table-body',
+            enableSelection: true,
+            enableSorting: true,
+            showSubLocation: true,
+            itemsPerPage: 25,
+            onSelectionChange: (selectedIds) => this.onSelectionChange(selectedIds),
+            onActionClick: (action, jaId) => this.onActionClick(action, jaId)
+        });
     }
     
     initializeElements() {
@@ -41,6 +53,7 @@ class InventoryListManager {
         // Control elements
         this.refreshBtn = document.getElementById('refresh-btn');
         this.exportBtn = document.getElementById('export-btn');
+        this.bookmarkBtn = document.getElementById('bookmark-btn');
         this.itemsPerPageSelect = document.getElementById('items-per-page');
         
         // Selection elements
@@ -85,6 +98,7 @@ class InventoryListManager {
         // Control events
         this.refreshBtn.addEventListener('click', () => this.loadInventory());
         this.exportBtn.addEventListener('click', () => this.exportToCSV());
+        this.bookmarkBtn.addEventListener('click', () => this.copyBookmarkLink());
         this.itemsPerPageSelect.addEventListener('change', () => this.onItemsPerPageChange());
         this.retryBtn.addEventListener('click', () => this.loadInventory());
         
@@ -95,11 +109,8 @@ class InventoryListManager {
         this.bulkMoveBtn.addEventListener('click', () => this.bulkMoveSelected());
         this.bulkDeactivateBtn.addEventListener('click', () => this.bulkDeactivateSelected());
         this.bulkPrintLabelsBtn.addEventListener('click', () => this.printLabelsForSelected());
-        
-        // Sorting events
-        this.sortableHeaders.forEach(header => {
-            header.addEventListener('click', () => this.onSort(header.dataset.sort));
-        });
+
+        // Note: Sorting now handled by InventoryTable component
     }
 
     initializeBulkPrintModal() {
@@ -148,7 +159,7 @@ class InventoryListManager {
 
     async printAllLabels() {
         const labelType = document.getElementById('list-bulk-label-type').value;
-        const selectedJaIds = Array.from(this.selectedItems);
+        const selectedJaIds = this.table.getSelectedItems();
 
         const progressDiv = document.getElementById('list-bulk-print-progress');
         const progressBar = document.getElementById('list-bulk-print-progress-bar');
@@ -256,7 +267,8 @@ class InventoryListManager {
             }
             
             this.items = data.items || [];
-            this.applyFiltersAndSort();
+            this.applyFilters();
+            this.table.setItems(this.filteredItems);
             this.updateItemCount();
             this.showInventoryTable();
             
@@ -272,14 +284,10 @@ class InventoryListManager {
         this.filters.type = this.typeFilter.value;
         this.filters.material = this.materialFilter.value.toLowerCase();
         this.filters.search = this.searchFilter.value.toLowerCase();
-        
-        // Reset to first page when filters change
-        this.currentPage = 1;
-        
-        // Apply filters and update display
-        this.applyFiltersAndSort();
-        this.renderTable();
-        this.renderPagination();
+
+        // Apply filters and update table
+        this.applyFilters();
+        this.table.setItems(this.filteredItems);
     }
     
     clearFilters() {
@@ -295,31 +303,58 @@ class InventoryListManager {
         this.searchFilter.value = '';
         this.onFilterChange();
     }
-    
-    onItemsPerPageChange() {
-        this.itemsPerPage = parseInt(this.itemsPerPageSelect.value);
-        this.currentPage = 1;
-        this.renderTable();
-        this.renderPagination();
+
+    loadFiltersFromURL() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('status')) this.statusFilter.value = params.get('status');
+        if (params.has('type')) this.typeFilter.value = params.get('type');
+        if (params.has('material')) this.materialFilter.value = params.get('material');
+        if (params.has('search')) this.searchFilter.value = params.get('search');
     }
-    
-    onSort(field) {
-        if (this.sortField === field) {
-            // Toggle direction if same field
-            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+
+    copyBookmarkLink() {
+        const url = new URL(window.location.href);
+        url.searchParams.set('status', this.filters.status);
+        url.searchParams.set('type', this.filters.type);
+        if (this.filters.material) {
+            url.searchParams.set('material', this.filters.material);
         } else {
-            // New field, default to ascending
-            this.sortField = field;
-            this.sortDirection = 'asc';
+            url.searchParams.delete('material');
         }
-        
-        this.applyFiltersAndSort();
-        this.renderTable();
-        this.renderPagination();
-        this.updateSortIcons();
+        if (this.filters.search) {
+            url.searchParams.set('search', this.filters.search);
+        } else {
+            url.searchParams.delete('search');
+        }
+
+        navigator.clipboard.writeText(url.toString())
+            .then(() => {
+                // Show success feedback
+                const originalText = this.bookmarkBtn.innerHTML;
+                this.bookmarkBtn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                this.bookmarkBtn.classList.add('btn-success');
+                this.bookmarkBtn.classList.remove('btn-outline-secondary');
+
+                setTimeout(() => {
+                    this.bookmarkBtn.innerHTML = originalText;
+                    this.bookmarkBtn.classList.remove('btn-success');
+                    this.bookmarkBtn.classList.add('btn-outline-secondary');
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Failed to copy bookmark link:', err);
+                alert('Failed to copy bookmark link. Please try again.');
+            });
     }
-    
-    applyFiltersAndSort() {
+
+    onItemsPerPageChange() {
+        const newItemsPerPage = parseInt(this.itemsPerPageSelect.value);
+        this.table.config.itemsPerPage = newItemsPerPage;
+        this.table.currentPage = 1;
+        this.table.refresh();
+    }
+
+    applyFilters() {
         // Apply filters
         this.filteredItems = this.items.filter(item => {
             // Status filter
@@ -350,390 +385,77 @@ class InventoryListManager {
             
             return true;
         });
-        
-        // Apply sorting
-        this.filteredItems.sort((a, b) => {
-            let aVal = this.getSortValue(a, this.sortField);
-            let bVal = this.getSortValue(b, this.sortField);
-            
-            // Handle null/undefined values
-            if (aVal == null && bVal == null) return 0;
-            if (aVal == null) return 1;
-            if (bVal == null) return -1;
-            
-            // String comparison
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                aVal = aVal.toLowerCase();
-                bVal = bVal.toLowerCase();
-            }
-            
-            // Numeric comparison
-            if (typeof aVal === 'number' && typeof bVal === 'number') {
-                return this.sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-            }
-            
-            // String comparison
-            if (aVal < bVal) return this.sortDirection === 'asc' ? -1 : 1;
-            if (aVal > bVal) return this.sortDirection === 'asc' ? 1 : -1;
-            return 0;
-        });
+
+        // Note: Sorting is now handled by InventoryTable component
     }
-    
-    getSortValue(item, field) {
-        switch (field) {
-            case 'ja_id':
-                return item.ja_id;
-            case 'item_type':
-                return item.item_type;
-            case 'shape':
-                return item.shape;
-            case 'material':
-                return item.material;
-            case 'dimensions':
-                // Sort by primary dimension (length if available, otherwise width)
-                if (item.dimensions && item.dimensions.length) {
-                    return parseFloat(item.dimensions.length);
-                } else if (item.dimensions && item.dimensions.width) {
-                    return parseFloat(item.dimensions.width);
-                }
-                return null;
-            case 'length':
-                return item.dimensions && item.dimensions.length ? parseFloat(item.dimensions.length) : null;
-            case 'location':
-                return item.location || '';
-            case 'active':
-                return item.active;
-            default:
-                return item[field] || '';
-        }
-    }
-    
-    renderTable() {
-        const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-        const endIndex = startIndex + this.itemsPerPage;
-        const pageItems = this.filteredItems.slice(startIndex, endIndex);
-        
-        this.inventoryTableBody.innerHTML = '';
-        
-        pageItems.forEach(item => {
-            const row = this.createTableRow(item);
-            this.inventoryTableBody.appendChild(row);
-        });
-        
-        // Update selection state
-        this.updateSelectAllCheckbox();
-    }
-    
-    createTableRow(item) {
-        const row = document.createElement('tr');
-        const isSelected = this.selectedItems.has(item.ja_id);
-        
-        if (isSelected) {
-            row.classList.add('table-active');
-        }
-        
-        row.innerHTML = `
-            <td class="border-end">
-                <input type="checkbox" class="form-check-input item-checkbox" 
-                       data-ja-id="${item.ja_id}" ${isSelected ? 'checked' : ''}>
-            </td>
-            <td class="border-end">
-                <strong>${item.ja_id}</strong>
-                ${item.parent_ja_id ? `<br><small class="text-muted">Child of ${item.parent_ja_id}</small>` : ''}
-                ${item.child_ja_ids && item.child_ja_ids.length > 0 ? `<br><small class="text-info">Has ${item.child_ja_ids.length} child(ren)</small>` : ''}
-            </td>
-            <td>
-                <span class="badge bg-secondary">${item.item_type}</span>
-            </td>
-            <td>${item.shape}</td>
-            <td>${item.material}</td>
-            <td>${this.formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>
-            <td class="text-end">
-                ${this.formatDimensions(item.dimensions, item.item_type)}
-            </td>
-            <td>
-                <div>${item.location || '<span class="text-muted">Not specified</span>'}</div>
-                ${item.sub_location ? `<small class="text-muted">${item.sub_location}</small>` : ''}
-            </td>
-            <td class="text-center">
-                <span class="badge ${item.active ? 'bg-success' : 'bg-secondary'}">
-                    ${item.active ? 'Active' : 'Inactive'}
-                </span>
-            </td>
-            <td class="text-center">
-                <div class="btn-group btn-group-sm">
-                    <a href="/inventory/edit/${item.ja_id}" class="btn btn-outline-primary btn-sm" title="Edit">
-                        <i class="bi bi-pencil"></i>
-                    </a>
-                    <button type="button" class="btn btn-outline-info btn-sm" onclick="showItemDetails('${item.ja_id}')" title="View Details">
-                        <i class="bi bi-eye"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="showItemHistory('${item.ja_id}')" title="View History">
-                        <i class="bi bi-clock-history"></i>
-                    </button>
-                    <div class="btn-group btn-group-sm">
-                        <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle dropdown-toggle-split" 
-                                data-bs-toggle="dropdown"></button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="/inventory/move?ja_id=${item.ja_id}">
-                                <i class="bi bi-arrow-left-right"></i> Move
-                            </a></li>
-                            <li><a class="dropdown-item" href="/inventory/shorten?ja_id=${item.ja_id}">
-                                <i class="bi bi-scissors"></i> Shorten
-                            </a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#" onclick="duplicateItem('${item.ja_id}')">
-                                <i class="bi bi-copy"></i> Duplicate
-                            </a></li>
-                            <li><a class="dropdown-item text-warning" href="#" onclick="toggleItemStatus('${item.ja_id}', ${!item.active})">
-                                <i class="bi bi-${item.active ? 'eye-slash' : 'eye'}"></i> ${item.active ? 'Deactivate' : 'Activate'}
-                            </a></li>
-                        </ul>
-                    </div>
-                </div>
-            </td>
-        `;
-        
-        // Add click event for row selection
-        const checkbox = row.querySelector('.item-checkbox');
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                this.selectedItems.add(item.ja_id);
-                row.classList.add('table-active');
-            } else {
-                this.selectedItems.delete(item.ja_id);
-                row.classList.remove('table-active');
-            }
-            this.updateSelectAllCheckbox();
-            this.updateBulkActions();
-        });
-        
-        return row;
-    }
-    
-    formatFullDimensions(dimensions, itemType, thread) {
-        if (!dimensions) return '<span class="text-muted">-</span>';
-        
-        const parts = [];
-        
-        // For threaded items, show thread info first
-        if (thread) {
-            const threadDisplay = this.formatThread(thread, true); // true for display with symbol
-            parts.push(threadDisplay);
-        }
-        
-        // Then show physical dimensions
-        if (dimensions.length) {
-            if (dimensions.width && dimensions.thickness) {
-                // Rectangular: width × thickness × length
-                parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
-            } else if (dimensions.width) {
-                // Round or Square: diameter/width × length
-                const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
-                parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
-            } else {
-                // Just length
-                parts.push(`${dimensions.length}"`);
-            }
-        }
-        
-        return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
-    }
-    
-    formatThread(thread, includeSymbol = false) {
-        if (!thread) return '';
-        const parts = [];
-        if (thread.size) parts.push(thread.size);
-        if (thread.series) parts.push(thread.series);
-        if (thread.handedness && thread.handedness !== 'RH') parts.push(thread.handedness);
-        
-        const threadText = parts.join(' ');
-        return includeSymbol && threadText ? `🔩${threadText}` : threadText;
-    }
-    
-    formatDimensions(dimensions, itemType = null) {
-        if (!dimensions) return '<span class="text-muted">-</span>';
-        
-        // The Length column should only show the length dimension
-        if (dimensions.length) {
-            return `${dimensions.length}"`;
-        }
-        
-        return '<span class="text-muted">-</span>';
-    }
-    
-    renderPagination() {
-        const totalPages = Math.ceil(this.filteredItems.length / this.itemsPerPage);
-        const startItem = Math.min((this.currentPage - 1) * this.itemsPerPage + 1, this.filteredItems.length);
-        const endItem = Math.min(this.currentPage * this.itemsPerPage, this.filteredItems.length);
-        
-        // Update pagination info
-        this.itemsStart.textContent = startItem;
-        this.itemsEnd.textContent = endItem;
-        this.itemsTotal.textContent = this.filteredItems.length;
-        
-        // Show/hide pagination
-        if (this.filteredItems.length > 0) {
-            this.paginationContainer.classList.remove('d-none');
-        } else {
-            this.paginationContainer.classList.add('d-none');
-            return;
-        }
-        
-        // Build pagination buttons
-        this.pagination.innerHTML = '';
-        
-        // Previous button
-        const prevLi = document.createElement('li');
-        prevLi.className = `page-item ${this.currentPage === 1 ? 'disabled' : ''}`;
-        prevLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${this.currentPage - 1})">Previous</a>`;
-        this.pagination.appendChild(prevLi);
-        
-        // Page numbers
-        const maxVisiblePages = 5;
-        let startPage = Math.max(1, this.currentPage - Math.floor(maxVisiblePages / 2));
-        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-        
-        // Adjust start page if we're near the end
-        if (endPage - startPage < maxVisiblePages - 1) {
-            startPage = Math.max(1, endPage - maxVisiblePages + 1);
-        }
-        
-        // Add first page and ellipsis if needed
-        if (startPage > 1) {
-            const firstLi = document.createElement('li');
-            firstLi.className = 'page-item';
-            firstLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(1)">1</a>`;
-            this.pagination.appendChild(firstLi);
-            
-            if (startPage > 2) {
-                const ellipsisLi = document.createElement('li');
-                ellipsisLi.className = 'page-item disabled';
-                ellipsisLi.innerHTML = '<span class="page-link">...</span>';
-                this.pagination.appendChild(ellipsisLi);
-            }
-        }
-        
-        // Add visible page numbers
-        for (let i = startPage; i <= endPage; i++) {
-            const pageLi = document.createElement('li');
-            pageLi.className = `page-item ${i === this.currentPage ? 'active' : ''}`;
-            pageLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${i})">${i}</a>`;
-            this.pagination.appendChild(pageLi);
-        }
-        
-        // Add last page and ellipsis if needed
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) {
-                const ellipsisLi = document.createElement('li');
-                ellipsisLi.className = 'page-item disabled';
-                ellipsisLi.innerHTML = '<span class="page-link">...</span>';
-                this.pagination.appendChild(ellipsisLi);
-            }
-            
-            const lastLi = document.createElement('li');
-            lastLi.className = 'page-item';
-            lastLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${totalPages})">${totalPages}</a>`;
-            this.pagination.appendChild(lastLi);
-        }
-        
-        // Next button
-        const nextLi = document.createElement('li');
-        nextLi.className = `page-item ${this.currentPage === totalPages ? 'disabled' : ''}`;
-        nextLi.innerHTML = `<a class="page-link" href="#" onclick="window.listManager.goToPage(${this.currentPage + 1})">Next</a>`;
-        this.pagination.appendChild(nextLi);
-    }
-    
-    goToPage(page) {
-        const totalPages = Math.ceil(this.filteredItems.length / this.itemsPerPage);
-        if (page >= 1 && page <= totalPages) {
-            this.currentPage = page;
-            this.renderTable();
-            this.renderPagination();
-        }
-    }
-    
-    updateSortIcons() {
-        this.sortableHeaders.forEach(header => {
-            const icon = header.querySelector('.sort-icon');
-            if (header.dataset.sort === this.sortField) {
-                icon.className = `bi bi-chevron-${this.sortDirection === 'asc' ? 'up' : 'down'} sort-icon`;
-                header.classList.add('text-primary');
-            } else {
-                icon.className = 'bi bi-chevron-expand sort-icon';
-                header.classList.remove('text-primary');
-            }
-        });
-    }
-    
-    toggleSelectAll(checked) {
-        const pageItems = this.getVisibleItems();
-        
-        if (checked) {
-            pageItems.forEach(item => this.selectedItems.add(item.ja_id));
-        } else {
-            pageItems.forEach(item => this.selectedItems.delete(item.ja_id));
-        }
-        
-        this.renderTable();
+
+    onSelectionChange(selectedIds) {
+        // Update bulk action buttons
         this.updateBulkActions();
     }
-    
+
+    onActionClick(action, jaId) {
+        // Handle action clicks (currently handled by onclick handlers in HTML)
+        console.log(`Action ${action} clicked for ${jaId}`);
+    }
+
+    // Note: updateDisplay and createTableRow methods removed - now handled by InventoryTable component
+
     selectAll() {
-        this.filteredItems.forEach(item => this.selectedItems.add(item.ja_id));
-        this.renderTable();
-        this.updateSelectAllCheckbox();
-        this.updateBulkActions();
+        this.table.selectAll();
     }
-    
+
     selectNone() {
-        this.selectedItems.clear();
-        this.renderTable();
-        this.updateSelectAllCheckbox();
-        this.updateBulkActions();
+        this.table.selectNone();
     }
-    
-    getVisibleItems() {
-        const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-        const endIndex = startIndex + this.itemsPerPage;
-        return this.filteredItems.slice(startIndex, endIndex);
-    }
-    
-    updateSelectAllCheckbox() {
-        const visibleItems = this.getVisibleItems();
-        const selectedVisibleItems = visibleItems.filter(item => this.selectedItems.has(item.ja_id));
-        
-        if (selectedVisibleItems.length === 0) {
-            this.selectAllCheckbox.checked = false;
-            this.selectAllCheckbox.indeterminate = false;
-        } else if (selectedVisibleItems.length === visibleItems.length) {
-            this.selectAllCheckbox.checked = true;
-            this.selectAllCheckbox.indeterminate = false;
+
+    toggleSelectAll(checked) {
+        if (checked) {
+            this.selectAll();
         } else {
-            this.selectAllCheckbox.checked = false;
-            this.selectAllCheckbox.indeterminate = true;
+            this.selectNone();
         }
     }
-    
+
+    // Methods removed (now in InventoryTable): renderTable, createTableRow
+
+    // Old createTableRow removed - functionality now in InventoryTable component
+
+    updateSelectAllCheckbox() {
+        const selectedCount = this.table.getSelectedItems().length;
+        const totalCount = this.filteredItems.length;
+        if (this.selectAllCheckbox) {
+            this.selectAllCheckbox.checked = selectedCount > 0 && selectedCount === totalCount;
+            this.selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < totalCount;
+        }
+    }
+
+    // Old methods removed - now handled by InventoryTable component:
+    // renderPagination, goToPage, updateSortIcons, toggleSelectAll (old version)
+    // selectAll/selectNone (old versions), getVisibleItems, updateSelectAllCheckbox (old version)
+
     updateBulkActions() {
-        const hasSelection = this.selectedItems.size > 0;
+        const selectedCount = this.table.getSelectedItems().length;
+        const hasSelection = selectedCount > 0;
         this.bulkMoveBtn.classList.toggle('disabled', !hasSelection);
         this.bulkDeactivateBtn.classList.toggle('disabled', !hasSelection);
+        this.bulkPrintLabelsBtn.classList.toggle('disabled', !hasSelection);
     }
     
     bulkMoveSelected() {
-        if (this.selectedItems.size === 0) return;
-        
-        const selectedIds = Array.from(this.selectedItems);
+        const selectedIds = this.table.getSelectedItems();
+        if (selectedIds.length === 0) return;
+
         const url = new URL('/inventory/move', window.location.origin);
         url.searchParams.set('items', selectedIds.join(','));
         window.location.href = url.toString();
     }
-    
-    bulkDeactivateSelected() {
-        if (this.selectedItems.size === 0) return;
 
-        const count = this.selectedItems.size;
+    bulkDeactivateSelected() {
+        const selectedIds = this.table.getSelectedItems();
+        if (selectedIds.length === 0) return;
+
+        const count = selectedIds.length;
         if (!confirm(`Are you sure you want to deactivate ${count} selected item(s)?`)) {
             return;
         }
@@ -743,7 +465,8 @@ class InventoryListManager {
     }
 
     printLabelsForSelected() {
-        if (this.selectedItems.size === 0) {
+        const selectedIds = this.table.getSelectedItems();
+        if (selectedIds.length === 0) {
             alert('Please select at least one item to print labels.');
             return;
         }
@@ -753,7 +476,7 @@ class InventoryListManager {
     }
 
     async showBulkLabelPrintingModal() {
-        const selectedJaIds = Array.from(this.selectedItems);
+        const selectedJaIds = this.table.getSelectedItems();
 
         // Update summary
         const summaryElement = document.getElementById('list-bulk-print-summary');
@@ -872,9 +595,7 @@ class InventoryListManager {
         } else {
             this.emptyState.classList.add('d-none');
             this.inventoryTableContainer.classList.remove('d-none');
-            this.renderTable();
-            this.renderPagination();
-            this.updateSortIcons();
+            // Table rendering now handled by InventoryTable component via setItems()
         }
     }
     
@@ -1147,6 +868,11 @@ window.toggleItemStatus = function(jaId, activate) {
     if (confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
         alert(`Toggle status feature coming soon for ${jaId}!`);
     }
+};
+
+// Backwards compatibility alias
+window.viewItemDetails = function(jaId) {
+    window.showItemDetails(jaId);
 };
 
 // Initialize when DOM is loaded

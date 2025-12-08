@@ -1559,8 +1559,10 @@ def api_advanced_search():
                 search_filter.add_exact_match('item_type', item_type)
             except KeyError:
                 return jsonify({
-                    'status': 'error',
-                    'message': f'Invalid item type: {data["item_type"]}'
+                    'success': False,
+                    'message': f'Invalid item type: {data["item_type"]}',
+                    'items': [],
+                    'total_count': 0
                 }), 400
         
         if data.get('shape'):
@@ -1569,8 +1571,10 @@ def api_advanced_search():
                 search_filter.add_exact_match('shape', shape)
             except KeyError:
                 return jsonify({
-                    'status': 'error',
-                    'message': f'Invalid shape: {data["shape"]}'
+                    'success': False,
+                    'message': f'Invalid shape: {data["shape"]}',
+                    'items': [],
+                    'total_count': 0
                 }), 400
         
         # Active/inactive filter
@@ -1612,8 +1616,10 @@ def api_advanced_search():
                     search_filter.add_range(field, min_decimal, max_decimal)
                 except (ValueError, InvalidOperation):
                     return jsonify({
-                        'status': 'error',
-                        'message': f'Invalid {field} range values'
+                        'success': False,
+                        'message': f'Invalid {field} range values',
+                        'items': [],
+                        'total_count': 0
                     }), 400
         
         # Thread filters
@@ -1626,14 +1632,22 @@ def api_advanced_search():
                 search_filter.add_exact_match('thread_series', thread_series)
             except KeyError:
                 return jsonify({
-                    'status': 'error',
-                    'message': f'Invalid thread series: {data["thread_series"]}'
+                    'success': False,
+                    'message': f'Invalid thread series: {data["thread_series"]}',
+                    'items': [],
+                    'total_count': 0
                 }), 400
         
         
         # Execute search
         items = service.search_items(search_filter)
-        
+
+        # Get photo counts for all items efficiently
+        from app.photo_service import PhotoService
+        with PhotoService(_get_storage_backend()) as photo_service:
+            ja_ids = [item.ja_id for item in items]
+            photo_counts = photo_service.get_photo_counts_bulk(ja_ids)
+
         # Convert to JSON-serializable format
         items_data = []
         for item in items:
@@ -1656,23 +1670,26 @@ def api_advanced_search():
                 'precision': item.precision,
                 'active': item.active,
                 'date_added': item.date_added.isoformat() if item.date_added else None,
-                'last_modified': item.last_modified.isoformat() if item.last_modified else None
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None,
+                'photo_count': photo_counts.get(item.ja_id, 0)
             }
             items_data.append(item_data)
         
         return jsonify({
-            'status': 'success',
+            'success': True,
             'items': items_data,
             'total_count': len(items_data),
             'search_criteria': data
         })
-        
+
     except Exception as e:
         current_app.logger.error(f'Advanced search error: {e}\n{traceback.format_exc()}')
         return jsonify({
-            'status': 'error',
+            'success': False,
             'message': 'Search operation failed',
-            'error': str(e)
+            'error': str(e),
+            'items': [],
+            'total_count': 0
         }), 500
 
 def _execute_shortening_operation(form_data):

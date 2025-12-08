@@ -1,0 +1,80 @@
+{#
+  Inventory Item Table Macro
+
+  Shared table structure for displaying inventory items on both
+  inventory list and advanced search pages.
+
+  Parameters:
+    config: Dictionary with the following keys:
+      - show_selection_column (bool): Whether to show checkbox column for bulk selection
+      - enable_sorting (bool): Whether columns should be sortable with click
+      - show_sub_location (bool): Whether to show sub-location column
+      - table_id (str): Unique ID for the table element
+      - table_body_id (str): Unique ID for the tbody element
+#}
+
+{% macro render_inventory_table(config) %}
+<div class="table-responsive">
+    <table class="table table-hover mb-0 inventory-table" id="{{ config.table_id }}">
+        <thead class="table-light">
+            <tr>
+                {% if config.show_selection_column %}
+                <th class="border-end">
+                    <input type="checkbox" class="form-check-input" id="select-all-checkbox">
+                </th>
+                {% endif %}
+
+                {% if config.enable_sorting %}
+                <th class="sortable border-end" data-sort="ja_id">
+                    JA ID <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                <th class="sortable" data-sort="item_type">
+                    Type <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                <th class="sortable" data-sort="shape">
+                    Shape <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                <th class="sortable" data-sort="material">
+                    Material <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                <th class="sortable" data-sort="dimensions">
+                    Dimensions <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                <th class="sortable text-end" data-sort="length">
+                    Length <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                <th class="sortable" data-sort="location">
+                    Location <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                {% if config.show_sub_location %}
+                <th class="sortable" data-sort="sub_location">
+                    Sub-Location <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                {% endif %}
+                <th class="sortable text-center" data-sort="active">
+                    Status <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                {% else %}
+                {# Non-sortable headers #}
+                <th {% if config.show_selection_column %}class="border-end"{% endif %}>JA ID</th>
+                <th>Type</th>
+                <th>Shape</th>
+                <th>Material</th>
+                <th>Dimensions</th>
+                <th class="text-end">Length</th>
+                <th>Location</th>
+                {% if config.show_sub_location %}
+                <th>Sub-Location</th>
+                {% endif %}
+                <th class="text-center">Status</th>
+                {% endif %}
+
+                <th class="text-center">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="{{ config.table_body_id }}">
+            <!-- Items will be populated by JavaScript -->
+        </tbody>
+    </table>
+</div>
+{% endmacro %}
