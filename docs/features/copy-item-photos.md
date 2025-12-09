@@ -266,7 +266,69 @@ Comprehensive unit and e2e tests must cover:
 
 ## Implementation Plan
 
-*This section will be completed during the planning phase.*
+The feature is broken down into 8 milestones, each requiring human approval before proceeding to the next:
+
+### Milestone 1: Database Schema Refactoring & Migration
+**Prefix: `Copy Item Photos - M1`**
+
+- **M1.1**: Create Alembic migration (new tables: `photos`, `item_photo_associations`, data migration, verification, drop old table)
+- **M1.2**: Update database models (create `Photo` and `ItemPhotoAssociation` classes in `app/database.py`)
+- **M1.3**: Run migration and verify (test migration, verify data integrity, run full test suites)
+
+### Milestone 2: PhotoService Refactoring
+**Prefix: `Copy Item Photos - M2`**
+
+- **M2.1**: Refactor core PhotoService methods for new schema
+- **M2.2**: Add `copy_photos(source_ja_id, target_ja_id)` method
+- **M2.3**: Update PhotoService unit tests
+
+### Milestone 3: Automatic Photo Copying During Duplication
+**Prefix: `Copy Item Photos - M3`**
+
+- **M3.1**: Update duplicate item endpoint to copy photos automatically
+- **M3.2**: Add E2E tests for duplication with photos
+
+### Milestone 4: Backend API for Manual Photo Copying
+**Prefix: `Copy Item Photos - M4`**
+
+- **M4.1**: Create `POST /api/photos/copy` endpoint
+- **M4.2**: Add unit tests for API endpoint
+
+### Milestone 5: Frontend Photo Clipboard State Management
+**Prefix: `Copy Item Photos - M5`**
+
+- **M5.1**: Implement photo clipboard in JavaScript
+- **M5.2**: Add visual indicator banner
+- **M5.3**: Update CSS/styling
+
+### Milestone 6: Frontend Options Dropdown Integration
+**Prefix: `Copy Item Photos - M6`**
+
+- **M6.1**: Add Options menu items (Copy/Paste/Clear)
+- **M6.2**: Wire up event handlers
+- **M6.3**: Add toast notifications
+
+### Milestone 7: E2E Tests & Final Validation
+**Prefix: `Copy Item Photos - M7`**
+
+- **M7.1**: Create E2E tests for manual photo copying
+- **M7.2**: Update existing E2E tests
+- **M7.3**: Run complete test suites
+
+### Milestone 8: Documentation & Final Polish
+**Prefix: `Copy Item Photos - M8`**
+
+- **M8.1**: Update user documentation
+- **M8.2**: Update technical documentation
+- **M8.3**: Update feature documentation
+- **M8.4**: Final testing & validation
+
+**Dependencies**: M1 → M2 → M3 (sequential); M1 → M2 → M4 → M5 → M6 (sequential); M7 depends on M3 and M6; M8 depends on M7
+
+**Implementation Notes**:
+- Photo copying only applies to the duplicate endpoint (which supports quantity > 1)
+- The "Create Multiple" workflow creates brand new items (no source to copy from)
+- SHA256 deduplication column included in schema but implementation deferred as optional
 
 ## Progress
 
