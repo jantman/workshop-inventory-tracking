@@ -647,7 +647,7 @@ def duplicate_item(ja_id):
                             current_app.logger.info(f"Copied {photo_count} photos from {ja_id} to {created_ja_id}")
                             log_audit_operation('copy_photos', 'success',
                                               item_id=created_ja_id,
-                                              details={'source_ja_id': ja_id, 'photos_copied': photo_count})
+                                              form_data={'source_ja_id': ja_id, 'photos_copied': photo_count})
                 except Exception as photo_error:
                     current_app.logger.warning(f"Failed to copy photos from {ja_id} to {created_ja_id}: {photo_error}")
                     # Don't fail the entire duplication if photo copying fails
