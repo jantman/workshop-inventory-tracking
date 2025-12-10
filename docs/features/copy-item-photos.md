@@ -387,10 +387,19 @@ The feature is broken down into 8 milestones, each requiring human approval befo
 
 ### In Progress
 
-**Milestone 7: E2E Tests & Final Validation** (Next)
-- M7.1: Pending - Create E2E tests for manual photo copying
-- M7.2: Pending - Update existing E2E tests
-- M7.3: Pending - Run complete test suites
+**✅ Milestone 7: E2E Tests & Final Validation** (Nearly Complete)
+- M7.1: ✅ Created comprehensive E2E tests for manual photo copying
+  - Test copy/paste single target
+  - Test copy/paste multiple targets
+  - Test append behavior (photos added to existing)
+  - Test error handling (no photos to copy)
+  - Test clear clipboard functionality
+  - Test BLOB duplication prevention
+  - Test button enable/disable states
+- M7.2: ✅ Fixed test isolation by clearing photo tables between tests
+  - Added Photo and ItemPhotoAssociation to clear_test_data()
+  - Fixed duplicate_item tests that were failing due to photo persistence
+- M7.3: In Progress - Running complete test suites
 
 ### Remaining Milestones
 
