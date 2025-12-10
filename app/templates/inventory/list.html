@@ -67,6 +67,17 @@
     </div>
 </div>
 
+<!-- Photo Clipboard Banner -->
+<div id="photo-clipboard-banner" class="alert alert-info d-flex justify-content-between align-items-center mb-4 d-none" role="alert">
+    <div>
+        <i class="bi bi-clipboard"></i>
+        <span id="photo-clipboard-info"></span>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-info" id="clear-photo-clipboard-btn" disabled>
+        <i class="bi bi-x-circle"></i> Clear
+    </button>
+</div>
+
 <!-- Inventory Table -->
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -88,6 +99,9 @@
                     <li><a class="dropdown-item" href="#" id="bulk-move-btn"><i class="bi bi-arrow-left-right"></i> Bulk Move Selected</a></li>
                     <li><a class="dropdown-item" href="#" id="bulk-deactivate-btn"><i class="bi bi-eye-slash"></i> Deactivate Selected</a></li>
                     <li><a class="dropdown-item" href="#" id="bulk-print-labels-btn"><i class="bi bi-printer"></i> Print Labels</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" id="copy-photos-btn" disabled><i class="bi bi-camera"></i> Copy Photos From This Item</a></li>
+                    <li><a class="dropdown-item" href="#" id="paste-photos-btn" disabled><i class="bi bi-clipboard-check"></i> Paste Photos To Selected</a></li>
                 </ul>
             </div>
         </div>
