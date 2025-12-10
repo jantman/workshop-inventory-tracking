@@ -241,12 +241,12 @@ class PhotoService:
             raise RuntimeError(f"Failed to delete photo: {str(e)}")
     
     def get_photo_count(self, ja_id: str) -> int:
-        """Get count of photos for an item"""
+        """Get count of photo associations for an item"""
         try:
-            return self.session.query(ItemPhoto).filter(
-                ItemPhoto.ja_id == ja_id
+            return self.session.query(ItemPhotoAssociation).filter(
+                ItemPhotoAssociation.ja_id == ja_id
             ).count()
-            
+
         except Exception as e:
             logger.error(f"Failed to get photo count for {ja_id}: {str(e)}")
             return 0
@@ -255,26 +255,26 @@ class PhotoService:
         """Get photo counts for multiple items efficiently"""
         if not ja_ids:
             return {}
-            
+
         try:
             from sqlalchemy import func
-            
+
             # Use a fresh session for this query
             session = self.Session()
             try:
                 # Query photo counts grouped by ja_id
                 results = session.query(
-                    ItemPhoto.ja_id,
-                    func.count(ItemPhoto.id).label('photo_count')
+                    ItemPhotoAssociation.ja_id,
+                    func.count(ItemPhotoAssociation.id).label('photo_count')
                 ).filter(
-                    ItemPhoto.ja_id.in_(ja_ids)
-                ).group_by(ItemPhoto.ja_id).all()
-                
+                    ItemPhotoAssociation.ja_id.in_(ja_ids)
+                ).group_by(ItemPhotoAssociation.ja_id).all()
+
                 # Create mapping with default 0 for items with no photos
                 counts = {ja_id: 0 for ja_id in ja_ids}
                 for ja_id, count in results:
                     counts[ja_id] = count
-                
+
                 return counts
             finally:
                 session.close()
@@ -285,29 +285,49 @@ class PhotoService:
     
     def cleanup_orphaned_photos(self) -> int:
         """
-        Remove photos for ja_ids that no longer exist in the inventory
-        
+        Clean up photos and associations for items that no longer exist,
+        and photos that have no associations
+
         Returns:
-            int: Number of photos cleaned up
+            int: Number of items cleaned up (associations + photos)
         """
         session = self.Session()
         try:
-            # Find photos whose ja_id is not in the inventory_items table
-            orphaned_photos = session.query(ItemPhoto).filter(
-                ~ItemPhoto.ja_id.in_(
+            from sqlalchemy import exists
+
+            # Step 1: Find and delete associations for JA IDs that don't exist in inventory_items
+            orphaned_associations = session.query(ItemPhotoAssociation).filter(
+                ~ItemPhotoAssociation.ja_id.in_(
                     session.query(InventoryItem.ja_id).distinct()
                 )
             ).all()
-            
-            count = len(orphaned_photos)
-            if count > 0:
+
+            assoc_count = len(orphaned_associations)
+            if assoc_count > 0:
+                logger.info(f"Found {assoc_count} orphaned photo associations to clean up")
+                for assoc in orphaned_associations:
+                    session.delete(assoc)
+                session.flush()
+
+            # Step 2: Find and delete photos that have no associations
+            orphaned_photos = session.query(Photo).filter(
+                ~exists().where(ItemPhotoAssociation.photo_id == Photo.id)
+            ).all()
+
+            photo_count = len(orphaned_photos)
+            if photo_count > 0:
+                logger.info(f"Found {photo_count} orphaned photos (no associations) to clean up")
                 for photo in orphaned_photos:
                     session.delete(photo)
-                session.commit()
-                logger.info(f"Cleaned up {count} orphaned photos")
-            
-            return count
-            
+
+            session.commit()
+
+            total_cleaned = assoc_count + photo_count
+            if total_cleaned > 0:
+                logger.info(f"Cleaned up {assoc_count} associations and {photo_count} photos")
+
+            return total_cleaned
+
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to cleanup orphaned photos: {str(e)}")
