@@ -125,7 +125,7 @@ def upgrade() -> None:
         )
 
         # Get the new photo_id
-        photo_id = result.inserted_primary_key[0]
+        photo_id = result.lastrowid
 
         # Create association for this item
         # Calculate display_order based on position within this ja_id's photos
