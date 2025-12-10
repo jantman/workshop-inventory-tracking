@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_
 from datetime import datetime
 
-from .database import ItemPhoto, InventoryItem
+from .database import Photo, ItemPhotoAssociation, InventoryItem
 from config import Config
 
 logger = logging.getLogger(__name__)
