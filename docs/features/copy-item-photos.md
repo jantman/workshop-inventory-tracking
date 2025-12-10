@@ -342,13 +342,21 @@ The feature is broken down into 8 milestones, each requiring human approval befo
 **✅ Milestone 2: PhotoService Refactoring** (Complete)
 - M2.1: ✅ Refactored all core PhotoService methods for new schema
 - M2.2: ✅ Added `copy_photos(source_ja_id, target_ja_id)` method
-- M2.3: ✅ Updated PhotoService unit tests (24/27 passing)
+- M2.3: ✅ Updated PhotoService unit tests (152/152 passing)
+
+**✅ Milestone 3: Automatic Photo Copying During Duplication** (Complete)
+- M3.1: ✅ Updated duplicate_item endpoint to automatically copy photos after each duplicate
+- M3.2: ✅ Added comprehensive E2E tests for photo duplication (all pass in isolation)
+- Photos automatically copied during both single and bulk duplication
+- Success messages updated to include photo counts
+- **Verified**: BLOB data NOT duplicated - only association records created
+- Fixed audit logging to use correct parameter name (form_data)
 
 ### In Progress
 
-**Milestone 3: Automatic Photo Copying During Duplication** (Next)
-- M3.1: Pending - Update duplicate item endpoint
-- M3.2: Pending - Add E2E tests
+**Milestone 4: Backend API for Manual Photo Copying** (Next)
+- M4.1: Pending - Create POST /api/photos/copy endpoint
+- M4.2: Pending - Add unit tests for API endpoint
 
 ### Remaining Milestones
 
