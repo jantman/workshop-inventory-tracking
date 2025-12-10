@@ -370,15 +370,29 @@ The feature is broken down into 8 milestones, each requiring human approval befo
 - Methods implemented: loadPhotoClipboard(), savePhotoClipboard(), copyPhotosFromSelected(), pastePhotosToSelected(), clearPhotoClipboard(), updatePhotoClipboardUI()
 - UI updates dynamically based on selection and clipboard state
 
+**✅ Milestone 6: Frontend Options Dropdown Integration** (Complete)
+- M6.1: ✅ Added Options menu items (completed in M5.2)
+  - "Copy Photos From This Item" button added to dropdown
+  - "Paste Photos To Selected" button added to dropdown
+  - Both start disabled, enabled by JavaScript based on state
+- M6.2: ✅ Wired up event handlers (completed in M5.1)
+  - Event listeners bound in bindEvents() method
+  - copyPhotosBtn → copyPhotosFromSelected()
+  - pastePhotosBtn → pastePhotosToSelected()
+  - clearPhotoClipboardBtn → clearPhotoClipboard()
+- M6.3: ✅ Toast notifications implemented
+  - Updated showToast() to support 'warning' type
+  - All photo clipboard operations show appropriate notifications
+  - Success, error, warning, and info messages implemented
+
 ### In Progress
 
-**Milestone 6: Frontend Options Dropdown Integration** (Next)
-- M6.1: Pending - Add Options menu items (already added in M5.2)
-- M6.2: Pending - Wire up event handlers (already wired in M5.1)
-- M6.3: Pending - Verify toast notifications and complete integration testing
+**Milestone 7: E2E Tests & Final Validation** (Next)
+- M7.1: Pending - Create E2E tests for manual photo copying
+- M7.2: Pending - Update existing E2E tests
+- M7.3: Pending - Run complete test suites
 
 ### Remaining Milestones
 
-- M6: Frontend Options Dropdown Integration
 - M7: E2E Tests & Final Validation
 - M8: Documentation & Final Polish
