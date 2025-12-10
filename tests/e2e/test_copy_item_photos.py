@@ -97,8 +97,11 @@ class InventoryListPhotoCopyPage(BasePage):
 
 
 @pytest.mark.e2e
-def test_copy_paste_photos_single_target(live_server, service, page):
+def test_copy_paste_photos_single_target(live_server, page):
     """Test copying photos from one item to another"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create source item with 2 photos
     item1 = service.create_item(
         item_type="Rod",
@@ -167,8 +170,11 @@ def test_copy_paste_photos_single_target(live_server, service, page):
 
 
 @pytest.mark.e2e
-def test_copy_paste_photos_multiple_targets(live_server, service, page):
+def test_copy_paste_photos_multiple_targets(live_server, page):
     """Test copying photos from one item to multiple items"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create source item with 3 photos
     item1 = service.create_item(
         item_type="Plate",
@@ -236,8 +242,11 @@ def test_copy_paste_photos_multiple_targets(live_server, service, page):
 
 
 @pytest.mark.e2e
-def test_copy_paste_photos_append_behavior(live_server, service, page):
+def test_copy_paste_photos_append_behavior(live_server, page):
     """Test that pasting photos appends to existing photos (doesn't replace)"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create source item with 2 photos
     item1 = service.create_item(
         item_type="Tube",
@@ -298,8 +307,11 @@ def test_copy_paste_photos_append_behavior(live_server, service, page):
 
 
 @pytest.mark.e2e
-def test_copy_photos_from_item_with_no_photos(live_server, service, page):
+def test_copy_photos_from_item_with_no_photos(live_server, page):
     """Test error when trying to copy photos from item with no photos"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create item with no photos
     item = service.create_item(
         item_type="Sheet",
@@ -327,8 +339,11 @@ def test_copy_photos_from_item_with_no_photos(live_server, service, page):
 
 
 @pytest.mark.e2e
-def test_clear_photo_clipboard(live_server, service, page):
+def test_clear_photo_clipboard(live_server, page):
     """Test clearing the photo clipboard"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create item with photos
     item = service.create_item(
         item_type="Rod",
@@ -371,8 +386,11 @@ def test_clear_photo_clipboard(live_server, service, page):
 
 
 @pytest.mark.e2e
-def test_copy_paste_no_blob_duplication(live_server, service, page):
+def test_copy_paste_no_blob_duplication(live_server, page):
     """Test that photo BLOB data is NOT duplicated when copying photos"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create source item with 2 photos
     item1 = service.create_item(
         item_type="Bar",
@@ -439,8 +457,11 @@ def test_copy_paste_no_blob_duplication(live_server, service, page):
 
 
 @pytest.mark.e2e
-def test_button_states_based_on_selection(live_server, service, page):
+def test_button_states_based_on_selection(live_server, page):
     """Test that copy/paste buttons are enabled/disabled correctly"""
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
     # Create items
     item1 = service.create_item(
         item_type="Plate",
