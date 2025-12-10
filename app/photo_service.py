@@ -334,7 +334,70 @@ class PhotoService:
             return 0
         finally:
             session.close()
-    
+
+    def copy_photos(self, source_ja_id: str, target_ja_id: str) -> int:
+        """
+        Copy all photos from source item to target item by creating new associations
+
+        This creates new ItemPhotoAssociation records that reference the same Photo records,
+        so no BLOB data is duplicated - only association metadata.
+
+        Args:
+            source_ja_id: JA ID of source item (to copy photos from)
+            target_ja_id: JA ID of target item (to copy photos to)
+
+        Returns:
+            int: Number of photo associations created
+
+        Raises:
+            ValueError: If source or target item doesn't exist
+            RuntimeError: If copy operation fails
+        """
+        try:
+            # Verify both items exist
+            if not self._item_exists(source_ja_id):
+                raise ValueError(f"Source item {source_ja_id} not found")
+
+            if not self._item_exists(target_ja_id):
+                raise ValueError(f"Target item {target_ja_id} not found")
+
+            # Get all photo associations for source item
+            source_associations = self.session.query(ItemPhotoAssociation).filter(
+                ItemPhotoAssociation.ja_id == source_ja_id
+            ).order_by(ItemPhotoAssociation.display_order.asc()).all()
+
+            if not source_associations:
+                logger.info(f"No photos to copy from {source_ja_id} to {target_ja_id}")
+                return 0
+
+            # Calculate starting display_order for target item (append to existing photos)
+            target_photo_count = self.get_photo_count(target_ja_id)
+
+            # Create new associations for target item
+            created_count = 0
+            for idx, source_assoc in enumerate(source_associations):
+                new_association = ItemPhotoAssociation(
+                    ja_id=target_ja_id,
+                    photo_id=source_assoc.photo_id,  # Reference same photo (no BLOB duplication!)
+                    display_order=target_photo_count + idx,
+                    created_at=datetime.utcnow()
+                )
+                self.session.add(new_association)
+                created_count += 1
+
+            self.session.commit()
+
+            logger.info(f"Copied {created_count} photos from {source_ja_id} to {target_ja_id} (no BLOB duplication)")
+            return created_count
+
+        except ValueError:
+            # Re-raise validation errors
+            raise
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Failed to copy photos from {source_ja_id} to {target_ja_id}: {str(e)}")
+            raise RuntimeError(f"Failed to copy photos: {str(e)}")
+
     def _validate_upload(self, ja_id: str, file_data: bytes, filename: str, content_type: str):
         """Validate photo upload parameters"""
         if not ja_id or not ja_id.strip():
