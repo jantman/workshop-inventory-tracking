@@ -297,24 +297,30 @@ startxref
     @pytest.mark.unit
     def test_get_photo_data_pdf_content_type(self, photo_service):
         """Test that PDF thumbnails return JPEG content type"""
-        mock_photo = Mock()
+        # Create mock Photo object
+        mock_photo = Mock(spec=Photo)
         mock_photo.content_type = 'application/pdf'
         mock_photo.thumbnail_data = b'fake_jpeg_data'
         mock_photo.medium_data = b'fake_jpeg_data'
         mock_photo.original_data = b'fake_pdf_data'
-        
-        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
-        
+
+        # Create mock ItemPhotoAssociation with photo attribute
+        mock_assoc = Mock(spec=ItemPhotoAssociation)
+        mock_assoc.id = 1
+        mock_assoc.photo = mock_photo
+
+        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_assoc
+
         # Test thumbnail
         data, content_type = photo_service.get_photo_data(1, 'thumbnail')
         assert content_type == 'image/jpeg'
         assert data == b'fake_jpeg_data'
-        
+
         # Test medium
         data, content_type = photo_service.get_photo_data(1, 'medium')
         assert content_type == 'image/jpeg'
         assert data == b'fake_jpeg_data'
-        
+
         # Test original
         data, content_type = photo_service.get_photo_data(1, 'original')
         assert content_type == 'application/pdf'
@@ -360,31 +366,44 @@ startxref
         photo_service.session.add = Mock()
         photo_service.session.commit = Mock()
         photo_service.session.refresh = Mock()
-        
-        # Mock created photo
-        mock_photo = ItemPhotoAssociation(
-            ja_id="JA000123",
-            filename="test.jpg",
-            content_type="image/jpeg",
-            file_size=len(sample_image_data)
-        )
-        mock_photo.id = 1
-        
+
+        # Mock the photo count to return 0 (for display_order)
+        photo_service.get_photo_count = Mock(return_value=0)
+
         with patch.object(photo_service, 'session') as mock_session:
-            mock_session.add.side_effect = lambda photo: setattr(photo, 'id', 1)
-            
+            mock_session.add = Mock()
+            mock_session.commit = Mock()
+            mock_session.flush = Mock()
+            mock_session.refresh = Mock()
+
+            # Create a mock association that will be returned
+            mock_assoc = Mock(spec=ItemPhotoAssociation)
+            mock_assoc.id = 1
+            mock_assoc.ja_id = "JA000123"
+            mock_assoc.photo_id = 1
+            mock_assoc.display_order = 0
+
+            # Make the function return our mock association
+            def mock_refresh(obj):
+                # Copy our mock attributes to the object
+                if isinstance(obj, ItemPhotoAssociation):
+                    obj.id = mock_assoc.id
+                    obj.ja_id = mock_assoc.ja_id
+                    obj.photo_id = mock_assoc.photo_id
+                    obj.display_order = mock_assoc.display_order
+
+            mock_session.refresh.side_effect = mock_refresh
+
             result = photo_service.upload_photo(
                 ja_id="JA000123",
                 file_data=sample_image_data,
                 filename="test.jpg",
                 content_type="image/jpeg"
             )
-            
+
             assert result.ja_id == "JA000123"
-            assert result.filename == "test.jpg"
-            assert result.content_type == "image/jpeg"
-            mock_session.add.assert_called_once()
-            mock_session.commit.assert_called_once()
+            assert mock_session.add.called
+            assert mock_session.commit.called
     
     @pytest.mark.unit
     def test_upload_photo_too_many_photos(self, photo_service, sample_image_data):
@@ -484,15 +503,19 @@ startxref
     @pytest.mark.unit
     def test_get_photo_data_thumbnail(self, photo_service):
         """Test getting thumbnail photo data"""
-        mock_photo = ItemPhotoAssociation(
-            ja_id="JA000123", 
-            filename="test.jpg", 
-            id=1,
-            thumbnail_data=b'thumbnail_data',
-            content_type="image/jpeg"
-        )
-        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
-        
+        # Create mock Photo object
+        mock_photo = Mock(spec=Photo)
+        mock_photo.thumbnail_data = b'thumbnail_data'
+        mock_photo.content_type = "image/jpeg"
+
+        # Create mock ItemPhotoAssociation with photo attribute
+        mock_assoc = Mock(spec=ItemPhotoAssociation)
+        mock_assoc.id = 1
+        mock_assoc.ja_id = "JA000123"
+        mock_assoc.photo = mock_photo
+
+        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_assoc
+
         result = photo_service.get_photo_data(1, 'thumbnail')
         # get_photo_data returns a tuple of (data, content_type)
         assert result == (b'thumbnail_data', "image/jpeg")
