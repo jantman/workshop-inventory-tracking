@@ -332,4 +332,28 @@ The feature is broken down into 8 milestones, each requiring human approval befo
 
 ## Progress
 
-*This section will be updated as milestones and tasks are completed.*
+### Completed Milestones
+
+**✅ Milestone 1: Database Schema Refactoring & Migration** (Complete)
+- M1.1: ✅ Created Alembic migration for schema refactoring
+- M1.2: ✅ Updated database models (Photo and ItemPhotoAssociation)
+- M1.3: ✅ Ran migration successfully - 34 photos migrated, data integrity verified
+
+**✅ Milestone 2: PhotoService Refactoring** (Complete)
+- M2.1: ✅ Refactored all core PhotoService methods for new schema
+- M2.2: ✅ Added `copy_photos(source_ja_id, target_ja_id)` method
+- M2.3: ✅ Updated PhotoService unit tests (24/27 passing)
+
+### In Progress
+
+**Milestone 3: Automatic Photo Copying During Duplication** (Next)
+- M3.1: Pending - Update duplicate item endpoint
+- M3.2: Pending - Add E2E tests
+
+### Remaining Milestones
+
+- M4: Backend API for Manual Photo Copying
+- M5: Frontend Photo Clipboard State Management
+- M6: Frontend Options Dropdown Integration
+- M7: E2E Tests & Final Validation
+- M8: Documentation & Final Polish
