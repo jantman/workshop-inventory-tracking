@@ -26,7 +26,7 @@ from PIL import Image
 from decimal import Decimal
 
 from app.photo_service import PhotoService
-from app.database import ItemPhoto, InventoryItem
+from app.database import Photo, ItemPhotoAssociation, InventoryItem
 from app.models import ItemType, ItemShape
 
 
@@ -362,7 +362,7 @@ startxref
         photo_service.session.refresh = Mock()
         
         # Mock created photo
-        mock_photo = ItemPhoto(
+        mock_photo = ItemPhotoAssociation(
             ja_id="JA000123",
             filename="test.jpg",
             content_type="image/jpeg",
@@ -419,22 +419,31 @@ startxref
     def test_get_photos_for_item(self, photo_service):
         """Test getting all photos for an item"""
         # Mock query result
-        mock_photos = [
-            ItemPhoto(ja_id="JA000123", filename="photo1.jpg", id=1),
-            ItemPhoto(ja_id="JA000123", filename="photo2.jpg", id=2)
-        ]
+        mock_assoc1 = Mock(spec=ItemPhotoAssociation)
+        mock_assoc1.id = 1
+        mock_assoc1.ja_id = "JA000123"
+        mock_assoc1.display_order = 0
+
+        mock_assoc2 = Mock(spec=ItemPhotoAssociation)
+        mock_assoc2.id = 2
+        mock_assoc2.ja_id = "JA000123"
+        mock_assoc2.display_order = 1
+
+        mock_photos = [mock_assoc1, mock_assoc2]
         photo_service.session.query.return_value.filter.return_value.order_by.return_value.all.return_value = mock_photos
         
         result = photo_service.get_photos("JA000123")
-        
+
         assert len(result) == 2
-        assert result[0].filename == "photo1.jpg"
-        assert result[1].filename == "photo2.jpg"
+        assert result[0].ja_id == "JA000123"
+        assert result[1].ja_id == "JA000123"
     
     @pytest.mark.unit
     def test_get_photo_by_id_found(self, photo_service):
         """Test getting photo by ID when it exists"""
-        mock_photo = ItemPhoto(ja_id="JA000123", filename="test.jpg", id=1)
+        mock_photo = Mock(spec=ItemPhotoAssociation)
+        mock_photo.id = 1
+        mock_photo.ja_id = "JA000123"
         photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
         
         result = photo_service.get_photo(1)
@@ -451,7 +460,9 @@ startxref
     @pytest.mark.unit
     def test_delete_photo_success(self, photo_service):
         """Test successful photo deletion"""
-        mock_photo = ItemPhoto(ja_id="JA000123", filename="test.jpg", id=1)
+        mock_photo = Mock(spec=ItemPhotoAssociation)
+        mock_photo.id = 1
+        mock_photo.ja_id = "JA000123"
         photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
         photo_service.session.delete = Mock()
         photo_service.session.commit = Mock()
@@ -473,7 +484,7 @@ startxref
     @pytest.mark.unit
     def test_get_photo_data_thumbnail(self, photo_service):
         """Test getting thumbnail photo data"""
-        mock_photo = ItemPhoto(
+        mock_photo = ItemPhotoAssociation(
             ja_id="JA000123", 
             filename="test.jpg", 
             id=1,
@@ -489,7 +500,9 @@ startxref
     @pytest.mark.unit
     def test_get_photo_data_invalid_size(self, photo_service):
         """Test getting photo data with invalid size"""
-        mock_photo = ItemPhoto(ja_id="JA000123", filename="test.jpg", id=1)
+        mock_photo = Mock(spec=ItemPhotoAssociation)
+        mock_photo.id = 1
+        mock_photo.ja_id = "JA000123"
         photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
         
         # Based on the actual implementation, invalid size just defaults to 'original'
