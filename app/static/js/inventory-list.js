@@ -18,12 +18,16 @@ class InventoryListManager {
             search: ''
         };
 
+        // Photo clipboard state
+        this.photoClipboard = this.loadPhotoClipboard();
+
         this.initializeElements();
         this.initializeTable();
         this.bindEvents();
         this.initializeBulkPrintModal();
         this.loadFiltersFromURL();  // Load filters from URL params if present
         this.loadInventory();
+        this.updatePhotoClipboardUI();  // Update UI based on clipboard state
 
         console.log('InventoryListManager initialized');
     }
@@ -63,7 +67,14 @@ class InventoryListManager {
         this.bulkMoveBtn = document.getElementById('bulk-move-btn');
         this.bulkDeactivateBtn = document.getElementById('bulk-deactivate-btn');
         this.bulkPrintLabelsBtn = document.getElementById('bulk-print-labels-btn');
-        
+
+        // Photo clipboard elements
+        this.copyPhotosBtn = document.getElementById('copy-photos-btn');
+        this.pastePhotosBtn = document.getElementById('paste-photos-btn');
+        this.clearPhotoClipboardBtn = document.getElementById('clear-photo-clipboard-btn');
+        this.photoClipboardBanner = document.getElementById('photo-clipboard-banner');
+        this.photoClipboardInfo = document.getElementById('photo-clipboard-info');
+
         // Display elements
         this.itemCount = document.getElementById('item-count');
         this.loadingState = document.getElementById('loading-state');
@@ -109,6 +120,17 @@ class InventoryListManager {
         this.bulkMoveBtn.addEventListener('click', () => this.bulkMoveSelected());
         this.bulkDeactivateBtn.addEventListener('click', () => this.bulkDeactivateSelected());
         this.bulkPrintLabelsBtn.addEventListener('click', () => this.printLabelsForSelected());
+
+        // Photo clipboard events
+        if (this.copyPhotosBtn) {
+            this.copyPhotosBtn.addEventListener('click', () => this.copyPhotosFromSelected());
+        }
+        if (this.pastePhotosBtn) {
+            this.pastePhotosBtn.addEventListener('click', () => this.pastePhotosToSelected());
+        }
+        if (this.clearPhotoClipboardBtn) {
+            this.clearPhotoClipboardBtn.addEventListener('click', () => this.clearPhotoClipboard());
+        }
 
         // Note: Sorting now handled by InventoryTable component
     }
@@ -392,6 +414,8 @@ class InventoryListManager {
     onSelectionChange(selectedIds) {
         // Update bulk action buttons
         this.updateBulkActions();
+        // Update photo clipboard button states
+        this.updatePhotoClipboardUI();
     }
 
     onActionClick(action, jaId) {
@@ -603,11 +627,185 @@ class InventoryListManager {
         const total = this.items.length;
         const filtered = this.filteredItems.length;
         const active = this.items.filter(item => item.active).length;
-        
+
         if (filtered !== total) {
             this.itemCount.innerHTML = `${filtered} of ${total} items shown (${active} active)`;
         } else {
             this.itemCount.innerHTML = `${total} items (${active} active)`;
+        }
+    }
+
+    // ========== Photo Clipboard Methods ==========
+
+    loadPhotoClipboard() {
+        try {
+            const data = sessionStorage.getItem('photoClipboard');
+            return data ? JSON.parse(data) : null;
+        } catch (e) {
+            console.error('Error loading photo clipboard:', e);
+            return null;
+        }
+    }
+
+    savePhotoClipboard(clipboard) {
+        try {
+            if (clipboard) {
+                sessionStorage.setItem('photoClipboard', JSON.stringify(clipboard));
+            } else {
+                sessionStorage.removeItem('photoClipboard');
+            }
+        } catch (e) {
+            console.error('Error saving photo clipboard:', e);
+        }
+    }
+
+    copyPhotosFromSelected() {
+        const selectedIds = this.table.getSelectedIds();
+
+        if (selectedIds.length === 0) {
+            this.showToast('Please select an item to copy photos from', 'warning');
+            return;
+        }
+
+        if (selectedIds.length > 1) {
+            this.showToast('Please select exactly one item to copy photos from', 'warning');
+            return;
+        }
+
+        const sourceJaId = selectedIds[0];
+        const sourceItem = this.items.find(item => item.ja_id === sourceJaId);
+
+        if (!sourceItem) {
+            this.showToast('Source item not found', 'error');
+            return;
+        }
+
+        // Check if item has photos
+        if (!sourceItem.photo_count || sourceItem.photo_count === 0) {
+            this.showToast(`Item ${sourceJaId} has no photos to copy`, 'error');
+            return;
+        }
+
+        // Save to clipboard
+        this.photoClipboard = {
+            source_ja_id: sourceJaId,
+            photo_count: sourceItem.photo_count,
+            timestamp: new Date().toISOString()
+        };
+        this.savePhotoClipboard(this.photoClipboard);
+
+        // Clear selection and update UI
+        this.table.clearSelection();
+        this.updatePhotoClipboardUI();
+
+        this.showToast(`Ready to paste ${sourceItem.photo_count} photo(s) from ${sourceJaId}`, 'success');
+    }
+
+    async pastePhotosToSelected() {
+        if (!this.photoClipboard) {
+            this.showToast('No photos in clipboard. Please copy photos from an item first.', 'warning');
+            return;
+        }
+
+        const selectedIds = this.table.getSelectedIds();
+
+        if (selectedIds.length === 0) {
+            this.showToast('Please select target items to paste photos to', 'warning');
+            return;
+        }
+
+        const sourceJaId = this.photoClipboard.source_ja_id;
+        const photoCount = this.photoClipboard.photo_count;
+
+        // Show confirmation
+        const confirmed = confirm(
+            `Paste ${photoCount} photo(s) from ${sourceJaId} to ${selectedIds.length} selected item(s)?`
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/photos/copy', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    source_ja_id: sourceJaId,
+                    target_ja_ids: selectedIds
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                const message = `Copied ${data.photos_copied} photo(s) to ${data.items_updated} item(s)`;
+                this.showToast(message, 'success');
+
+                // Clear clipboard and selection
+                this.clearPhotoClipboard();
+                this.table.clearSelection();
+
+                // Reload inventory to show updated photo counts
+                await this.loadInventory();
+            } else if (response.status === 207) {
+                // Partial success
+                const successCount = data.details.filter(d => d.success).length;
+                const failCount = data.details.filter(d => !d.success).length;
+                const message = `Partially successful: ${successCount} succeeded, ${failCount} failed`;
+                this.showToast(message, 'warning');
+
+                // Still clear clipboard and reload
+                this.clearPhotoClipboard();
+                this.table.clearSelection();
+                await this.loadInventory();
+            } else {
+                this.showToast(data.error || 'Failed to paste photos', 'error');
+            }
+        } catch (error) {
+            console.error('Error pasting photos:', error);
+            this.showToast('Error pasting photos. Please try again.', 'error');
+        }
+    }
+
+    clearPhotoClipboard() {
+        this.photoClipboard = null;
+        this.savePhotoClipboard(null);
+        this.updatePhotoClipboardUI();
+        this.showToast('Photo clipboard cleared', 'info');
+    }
+
+    updatePhotoClipboardUI() {
+        const hasClipboard = this.photoClipboard !== null;
+        const selectedIds = this.table ? this.table.getSelectedIds() : [];
+
+        // Update banner visibility and content
+        if (this.photoClipboardBanner) {
+            if (hasClipboard) {
+                this.photoClipboardBanner.classList.remove('d-none');
+                if (this.photoClipboardInfo) {
+                    const { source_ja_id, photo_count } = this.photoClipboard;
+                    this.photoClipboardInfo.textContent =
+                        `${photo_count} photo(s) from ${source_ja_id} ready to paste. Select target items and click 'Paste Photos'.`;
+                }
+            } else {
+                this.photoClipboardBanner.classList.add('d-none');
+            }
+        }
+
+        // Update button states
+        if (this.copyPhotosBtn) {
+            this.copyPhotosBtn.disabled = selectedIds.length !== 1;
+        }
+
+        if (this.pastePhotosBtn) {
+            this.pastePhotosBtn.disabled = !hasClipboard || selectedIds.length === 0;
+        }
+
+        if (this.clearPhotoClipboardBtn) {
+            this.clearPhotoClipboardBtn.disabled = !hasClipboard;
         }
     }
 }
