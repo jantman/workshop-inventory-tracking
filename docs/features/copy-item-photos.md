@@ -352,15 +352,24 @@ The feature is broken down into 8 milestones, each requiring human approval befo
 - **Verified**: BLOB data NOT duplicated - only association records created
 - Fixed audit logging to use correct parameter name (form_data)
 
+**✅ Milestone 4: Backend API for Manual Photo Copying** (Complete)
+- M4.1: ✅ Created POST /api/photos/copy endpoint with full error handling
+- M4.2: ✅ Added 9 comprehensive unit tests for API endpoint (all passing)
+- Endpoint supports copying from 1 source to multiple targets
+- Returns appropriate status codes: 200 (success), 207 (partial), 400 (bad request), 500 (error)
+- Validates source has photos before attempting copy
+- Provides detailed per-item results in response
+- Audit logging for all photo copy operations
+
 ### In Progress
 
-**Milestone 4: Backend API for Manual Photo Copying** (Next)
-- M4.1: Pending - Create POST /api/photos/copy endpoint
-- M4.2: Pending - Add unit tests for API endpoint
+**Milestone 5: Frontend Photo Clipboard State Management** (Next)
+- M5.1: Pending - Implement photo clipboard in JavaScript
+- M5.2: Pending - Add visual indicator banner
+- M5.3: Pending - Update CSS/styling
 
 ### Remaining Milestones
 
-- M4: Backend API for Manual Photo Copying
 - M5: Frontend Photo Clipboard State Management
 - M6: Frontend Options Dropdown Integration
 - M7: E2E Tests & Final Validation
