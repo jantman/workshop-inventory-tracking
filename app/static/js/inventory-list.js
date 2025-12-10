@@ -259,7 +259,10 @@ class InventoryListManager {
 
     showToast(message, type = 'info') {
         // Simple toast notification - can be enhanced later
-        const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : 'alert-info';
+        const alertClass = type === 'success' ? 'alert-success' :
+                          type === 'error' ? 'alert-danger' :
+                          type === 'warning' ? 'alert-warning' :
+                          'alert-info';
         const toast = document.createElement('div');
         toast.className = `alert ${alertClass} position-fixed top-0 start-50 translate-middle-x mt-3`;
         toast.style.zIndex = '9999';
