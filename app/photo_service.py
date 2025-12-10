@@ -70,108 +70,127 @@ class PhotoService:
         self.Session = sessionmaker(bind=self.engine)
         self.session = self.Session()
     
-    def upload_photo(self, ja_id: str, file_data: bytes, filename: str, content_type: str) -> ItemPhoto:
+    def upload_photo(self, ja_id: str, file_data: bytes, filename: str, content_type: str) -> ItemPhotoAssociation:
         """
         Upload and process a photo for an inventory item
-        
+
         Args:
             ja_id: JA ID of the inventory item
             file_data: Raw file data
             filename: Original filename
             content_type: MIME type of the file
-            
+
         Returns:
-            ItemPhoto: Created photo record
-            
+            ItemPhotoAssociation: Created association record (with photo relationship)
+
         Raises:
             ValueError: If validation fails
             RuntimeError: If processing fails
         """
         # Validate inputs
         self._validate_upload(ja_id, file_data, filename, content_type)
-        
+
         # Check photo count limit
         existing_count = self.get_photo_count(ja_id)
         if existing_count >= self.MAX_PHOTOS_PER_ITEM:
             raise ValueError(f"Maximum {self.MAX_PHOTOS_PER_ITEM} photos allowed per item")
-        
+
         # Verify item exists
         if not self._item_exists(ja_id):
             raise ValueError(f"Item with JA ID {ja_id} not found")
-        
+
         try:
             # Process the photo
             thumbnail_data, medium_data, original_data = self._process_photo(file_data, content_type)
-            
-            # Create photo record
-            photo = ItemPhoto(
-                ja_id=ja_id,
+
+            # Create photo record (stores BLOB data once)
+            photo = Photo(
                 filename=filename,
                 content_type=content_type,
                 file_size=len(file_data),
                 thumbnail_data=thumbnail_data,
                 medium_data=medium_data,
                 original_data=original_data,
+                sha256_hash=None,  # Optional: can add hash calculation later
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
-            
+
             self.session.add(photo)
+            self.session.flush()  # Get photo.id
+
+            # Calculate display_order (position in this item's photo list)
+            display_order = self.get_photo_count(ja_id)
+
+            # Create association linking item to photo
+            association = ItemPhotoAssociation(
+                ja_id=ja_id,
+                photo_id=photo.id,
+                display_order=display_order,
+                created_at=datetime.utcnow()
+            )
+
+            self.session.add(association)
             self.session.commit()
-            
+
+            # Refresh to load the photo relationship
+            self.session.refresh(association)
+
             logger.info(f"Photo uploaded for item {ja_id}: {filename} ({len(file_data)} bytes)")
-            return photo
-            
+            return association
+
         except Exception as e:
             self.session.rollback()
             logger.error(f"Failed to upload photo for {ja_id}: {str(e)}")
             raise RuntimeError(f"Photo upload failed: {str(e)}")
     
-    def get_photos(self, ja_id: str) -> List[ItemPhoto]:
-        """Get all photos for an inventory item"""
+    def get_photos(self, ja_id: str) -> List[ItemPhotoAssociation]:
+        """Get all photo associations for an inventory item (includes photo data via relationship)"""
         try:
-            photos = self.session.query(ItemPhoto).filter(
-                ItemPhoto.ja_id == ja_id
-            ).order_by(ItemPhoto.created_at.asc()).all()
-            
-            return photos
-            
+            associations = self.session.query(ItemPhotoAssociation).filter(
+                ItemPhotoAssociation.ja_id == ja_id
+            ).order_by(ItemPhotoAssociation.display_order.asc()).all()
+
+            return associations
+
         except Exception as e:
             logger.error(f"Failed to get photos for {ja_id}: {str(e)}")
             raise RuntimeError(f"Failed to retrieve photos: {str(e)}")
     
-    def get_photo(self, photo_id: int) -> Optional[ItemPhoto]:
-        """Get a specific photo by ID"""
+    def get_photo(self, photo_id: int) -> Optional[ItemPhotoAssociation]:
+        """Get a specific photo association by ID (association ID, not photo ID)"""
         try:
-            return self.session.query(ItemPhoto).filter(
-                ItemPhoto.id == photo_id
+            return self.session.query(ItemPhotoAssociation).filter(
+                ItemPhotoAssociation.id == photo_id
             ).first()
-            
+
         except Exception as e:
-            logger.error(f"Failed to get photo {photo_id}: {str(e)}")
+            logger.error(f"Failed to get photo association {photo_id}: {str(e)}")
             raise RuntimeError(f"Failed to retrieve photo: {str(e)}")
     
     def get_photo_data(self, photo_id: int, size: str = 'original') -> Optional[Tuple[bytes, str]]:
         """
         Get photo data in specified size
-        
+
         Args:
-            photo_id: Photo ID
+            photo_id: Association ID (item_photo_associations.id)
             size: 'thumbnail', 'medium', or 'original'
-            
+
         Returns:
             Tuple of (data, content_type) or None if not found
         """
-        photo = self.get_photo(photo_id)
-        if not photo:
+        association = self.get_photo(photo_id)
+        if not association or not association.photo:
             return None
-        
+
+        photo = association.photo
+
         if size == 'thumbnail':
             # For PDF thumbnails, return as JPEG since we converted them
             content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
             return photo.thumbnail_data, content_type
         elif size == 'medium':
-            # For PDF medium size, return as JPEG since we converted them  
+            # For PDF medium size, return as JPEG since we converted them
             content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
             return photo.medium_data, content_type
         else:  # original
@@ -179,34 +198,46 @@ class PhotoService:
     
     def delete_photo(self, photo_id: int) -> bool:
         """
-        Delete a photo
-        
+        Delete a photo association and the photo itself if no other associations exist
+
         Args:
-            photo_id: Photo ID to delete
-            
+            photo_id: Association ID to delete (item_photo_associations.id)
+
         Returns:
             bool: True if deleted, False if not found
         """
         try:
-            photo = self.session.query(ItemPhoto).filter(
-                ItemPhoto.id == photo_id
-            ).first()
-            
-            if not photo:
+            association = self.get_photo(photo_id)
+            if not association:
                 return False
-            
-            ja_id = photo.ja_id
-            filename = photo.filename
-            
-            self.session.delete(photo)
+
+            photo = association.photo
+            ja_id = association.ja_id
+            filename = photo.filename if photo else "unknown"
+
+            # Delete the association
+            self.session.delete(association)
+            self.session.flush()
+
+            # Check if this photo has any other associations
+            if photo:
+                remaining_associations = self.session.query(ItemPhotoAssociation).filter(
+                    ItemPhotoAssociation.photo_id == photo.id
+                ).count()
+
+                # If no other associations exist, delete the photo data
+                if remaining_associations == 0:
+                    logger.info(f"No other associations for photo {photo.id}, deleting photo data")
+                    self.session.delete(photo)
+
             self.session.commit()
-            
-            logger.info(f"Photo deleted: {filename} (ID: {photo_id}) for item {ja_id}")
+
+            logger.info(f"Photo association deleted: {filename} (ID: {photo_id}) for item {ja_id}")
             return True
-            
+
         except Exception as e:
             self.session.rollback()
-            logger.error(f"Failed to delete photo {photo_id}: {str(e)}")
+            logger.error(f"Failed to delete photo association {photo_id}: {str(e)}")
             raise RuntimeError(f"Failed to delete photo: {str(e)}")
     
     def get_photo_count(self, ja_id: str) -> int:
