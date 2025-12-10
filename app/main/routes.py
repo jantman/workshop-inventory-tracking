@@ -566,6 +566,7 @@ def duplicate_item(ja_id):
             next_number = 1
 
         created_ja_ids = []
+        photos_copied_per_item = 0  # Track photo count for success message
 
         # Create N duplicates with sequential JA IDs
         for i in range(quantity):
@@ -634,6 +635,22 @@ def duplicate_item(ja_id):
 
             if success:
                 created_ja_ids.append(created_ja_id)
+
+                # Copy photos from source item to duplicate
+                try:
+                    from app.photo_service import PhotoService
+                    with PhotoService(_get_storage_backend()) as photo_service:
+                        photo_count = photo_service.copy_photos(ja_id, created_ja_id)
+                        if i == 0:  # Store count from first duplicate (all should be same)
+                            photos_copied_per_item = photo_count
+                        if photo_count > 0:
+                            current_app.logger.info(f"Copied {photo_count} photos from {ja_id} to {created_ja_id}")
+                            log_audit_operation('copy_photos', 'success',
+                                              item_id=created_ja_id,
+                                              details={'source_ja_id': ja_id, 'photos_copied': photo_count})
+                except Exception as photo_error:
+                    current_app.logger.warning(f"Failed to copy photos from {ja_id} to {created_ja_id}: {photo_error}")
+                    # Don't fail the entire duplication if photo copying fails
             else:
                 current_app.logger.error(f'Failed to duplicate item {i+1}/{quantity}: {new_ja_id} - {error_msg}')
 
@@ -641,18 +658,20 @@ def duplicate_item(ja_id):
         if len(created_ja_ids) == quantity:
             first_id = created_ja_ids[0]
             last_id = created_ja_ids[-1]
+            photo_msg = f' {photos_copied_per_item} photos copied to each item.' if photos_copied_per_item > 0 else ''
             return jsonify({
                 'success': True,
                 'count': len(created_ja_ids),
                 'ja_ids': created_ja_ids,
-                'message': f'Successfully created {len(created_ja_ids)} duplicate(s): {first_id} - {last_id}'
+                'message': f'Successfully created {len(created_ja_ids)} duplicate(s): {first_id} - {last_id}.{photo_msg}'
             }), 200
         elif len(created_ja_ids) > 0:
+            photo_msg = f' {photos_copied_per_item} photos copied to each successful item.' if photos_copied_per_item > 0 else ''
             return jsonify({
                 'success': False,
                 'count': len(created_ja_ids),
                 'ja_ids': created_ja_ids,
-                'error': f'Created {len(created_ja_ids)} of {quantity} duplicates. Some failed.'
+                'error': f'Created {len(created_ja_ids)} of {quantity} duplicates. Some failed.{photo_msg}'
             }), 500
         else:
             return jsonify({
