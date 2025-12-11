@@ -542,6 +542,8 @@ def test_button_states_based_on_selection(live_server, page):
 
     list_page = InventoryListPhotoCopyPage(page, live_server.url)
     list_page.navigate_to_list()
+    page.reload()  # Ensure fresh data is loaded
+    page.wait_for_load_state("networkidle")
 
     # Initially, with nothing selected, both buttons should be disabled
     # (Copy requires 1 selected, Paste requires selection + clipboard)
