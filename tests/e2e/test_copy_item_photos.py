@@ -100,15 +100,19 @@ class InventoryListPhotoCopyPage(BasePage):
 def test_copy_paste_photos_single_target(live_server, page):
     """Test copying photos from one item to another"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create source item with 2 photos
-    item1 = service.create_item(
+    item1 = InventoryItem(
+        ja_id="JA000100",
         item_type="Rod",
         material="Aluminum",
         length=24.0,
-        location="Bin A"
+        location="Bin A",
+        active=True
     )
+    service.add_item(item1)
     source_ja_id = item1.ja_id
 
     with PhotoService(live_server.storage) as photo_service:
@@ -124,12 +128,15 @@ def test_copy_paste_photos_single_target(live_server, page):
             os.unlink(temp_file.name)
 
     # Create target item with no photos
-    item2 = service.create_item(
+    item2 = InventoryItem(
+        ja_id="JA000101",
         item_type="Rod",
         material="Steel",
         length=36.0,
-        location="Bin B"
+        location="Bin B",
+        active=True
     )
+    service.add_item(item2)
     target_ja_id = item2.ja_id
 
     # Navigate to list and copy photos
@@ -173,16 +180,20 @@ def test_copy_paste_photos_single_target(live_server, page):
 def test_copy_paste_photos_multiple_targets(live_server, page):
     """Test copying photos from one item to multiple items"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create source item with 3 photos
-    item1 = service.create_item(
+    item1 = InventoryItem(
+        ja_id="JA000102",
         item_type="Plate",
         material="Brass",
         length=12.0,
         width=12.0,
-        location="Materials Rack"
+        location="Materials Rack",
+        active=True
     )
+    service.add_item(item1)
     source_ja_id = item1.ja_id
 
     with PhotoService(live_server.storage) as photo_service:
@@ -200,13 +211,16 @@ def test_copy_paste_photos_multiple_targets(live_server, page):
     # Create 3 target items with no photos
     target_ja_ids = []
     for i in range(3):
-        item = service.create_item(
+        item = InventoryItem(
+            ja_id=f"JA{103+i:06d}",
             item_type="Plate",
             material="Copper",
             length=6.0,
             width=6.0,
-            location="Storage"
+            location="Storage",
+            active=True
         )
+        service.add_item(item)
         target_ja_ids.append(item.ja_id)
 
     # Navigate to list and copy photos
@@ -245,15 +259,19 @@ def test_copy_paste_photos_multiple_targets(live_server, page):
 def test_copy_paste_photos_append_behavior(live_server, page):
     """Test that pasting photos appends to existing photos (doesn't replace)"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create source item with 2 photos
-    item1 = service.create_item(
+    item1 = InventoryItem(
+        ja_id="JA000106",
         item_type="Tube",
         material="Aluminum",
         length=48.0,
-        location="Tube Rack"
+        location="Tube Rack",
+        active=True
     )
+    service.add_item(item1)
     source_ja_id = item1.ja_id
 
     with PhotoService(live_server.storage) as photo_service:
@@ -269,12 +287,15 @@ def test_copy_paste_photos_append_behavior(live_server, page):
             os.unlink(temp_file.name)
 
     # Create target item with 1 existing photo
-    item2 = service.create_item(
+    item2 = InventoryItem(
+        ja_id="JA000107",
         item_type="Tube",
         material="Steel",
         length=24.0,
-        location="Tube Rack"
+        location="Tube Rack",
+        active=True
     )
+    service.add_item(item2)
     target_ja_id = item2.ja_id
 
     with PhotoService(live_server.storage) as photo_service:
@@ -310,16 +331,20 @@ def test_copy_paste_photos_append_behavior(live_server, page):
 def test_copy_photos_from_item_with_no_photos(live_server, page):
     """Test error when trying to copy photos from item with no photos"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create item with no photos
-    item = service.create_item(
+    item = InventoryItem(
+        ja_id="JA000108",
         item_type="Sheet",
         material="Aluminum",
         length=48.0,
         width=24.0,
-        location="Materials Storage"
+        location="Materials Storage",
+        active=True
     )
+    service.add_item(item)
 
     list_page = InventoryListPhotoCopyPage(page, live_server.url)
     list_page.navigate_to_list()
@@ -342,15 +367,19 @@ def test_copy_photos_from_item_with_no_photos(live_server, page):
 def test_clear_photo_clipboard(live_server, page):
     """Test clearing the photo clipboard"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create item with photos
-    item = service.create_item(
+    item = InventoryItem(
+        ja_id="JA000109",
         item_type="Rod",
         material="Steel",
         length=12.0,
-        location="Bin A"
+        location="Bin A",
+        active=True
     )
+    service.add_item(item)
 
     with PhotoService(live_server.storage) as photo_service:
         image = Image.new('RGB', (150, 150), color='purple')
@@ -389,15 +418,19 @@ def test_clear_photo_clipboard(live_server, page):
 def test_copy_paste_no_blob_duplication(live_server, page):
     """Test that photo BLOB data is NOT duplicated when copying photos"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create source item with 2 photos
-    item1 = service.create_item(
+    item1 = InventoryItem(
+        ja_id="JA000110",
         item_type="Bar",
         material="Aluminum",
         length=24.0,
-        location="Materials"
+        location="Materials",
+        active=True
     )
+    service.add_item(item1)
     source_ja_id = item1.ja_id
 
     with PhotoService(live_server.storage) as photo_service:
@@ -415,12 +448,15 @@ def test_copy_paste_no_blob_duplication(live_server, page):
     # Create target items
     target_ja_ids = []
     for i in range(2):
-        item = service.create_item(
+        item = InventoryItem(
+            ja_id=f"JA{111+i:06d}",
             item_type="Bar",
             material="Steel",
             length=36.0,
-            location="Materials"
+            location="Materials",
+            active=True
         )
+        service.add_item(item)
         target_ja_ids.append(item.ja_id)
 
     # Count photos BEFORE copy/paste
@@ -460,16 +496,20 @@ def test_copy_paste_no_blob_duplication(live_server, page):
 def test_button_states_based_on_selection(live_server, page):
     """Test that copy/paste buttons are enabled/disabled correctly"""
     from app.mariadb_inventory_service import InventoryService
+    from app.database import InventoryItem
     service = InventoryService(live_server.storage)
 
     # Create items
-    item1 = service.create_item(
+    item1 = InventoryItem(
+        ja_id="JA000113",
         item_type="Plate",
         material="Aluminum",
         length=12.0,
         width=6.0,
-        location="Storage"
+        location="Storage",
+        active=True
     )
+    service.add_item(item1)
 
     with PhotoService(live_server.storage) as photo_service:
         image = Image.new('RGB', (150, 150), color='gold')
@@ -482,13 +522,16 @@ def test_button_states_based_on_selection(live_server, page):
         photo_service.upload_photo(item1.ja_id, photo_data, "photo.jpg", "image/jpeg")
         os.unlink(temp_file.name)
 
-    item2 = service.create_item(
+    item2 = InventoryItem(
+        ja_id="JA000114",
         item_type="Plate",
         material="Steel",
         length=12.0,
         width=6.0,
-        location="Storage"
+        location="Storage",
+        active=True
     )
+    service.add_item(item2)
 
     list_page = InventoryListPhotoCopyPage(page, live_server.url)
     list_page.navigate_to_list()
