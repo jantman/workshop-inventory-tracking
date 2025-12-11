@@ -155,10 +155,10 @@ def test_copy_paste_photos_single_target(live_server, page):
 
     # Select target item and paste photos
     list_page.select_item(target_ja_id)
-    list_page.click_paste_photos_button()
 
-    # Confirm the paste operation
-    page.locator('button:has-text("OK")').click()
+    # Set up dialog handler to accept confirmation
+    page.on("dialog", lambda dialog: dialog.accept())
+    list_page.click_paste_photos_button()
     list_page.wait_for_toast()
 
     # Verify success message
@@ -236,10 +236,10 @@ def test_copy_paste_photos_multiple_targets(live_server, page):
 
     # Select all target items and paste photos
     list_page.select_multiple_items(target_ja_ids)
-    list_page.click_paste_photos_button()
 
-    # Confirm the paste operation
-    page.locator('button:has-text("OK")').click()
+    # Set up dialog handler to accept confirmation
+    page.on("dialog", lambda dialog: dialog.accept())
+    list_page.click_paste_photos_button()
     list_page.wait_for_toast()
 
     # Verify success message
@@ -317,8 +317,10 @@ def test_copy_paste_photos_append_behavior(live_server, page):
     list_page.click_copy_photos_button()
 
     list_page.select_item(target_ja_id)
+
+    # Set up dialog handler to accept confirmation
+    page.on("dialog", lambda dialog: dialog.accept())
     list_page.click_paste_photos_button()
-    page.locator('button:has-text("OK")').click()
     list_page.wait_for_toast()
 
     # Verify target item now has 3 photos (1 existing + 2 pasted)
@@ -472,8 +474,10 @@ def test_copy_paste_no_blob_duplication(live_server, page):
     list_page.click_copy_photos_button()
 
     list_page.select_multiple_items(target_ja_ids)
+
+    # Set up dialog handler to accept confirmation
+    page.on("dialog", lambda dialog: dialog.accept())
     list_page.click_paste_photos_button()
-    page.locator('button:has-text("OK")').click()
     list_page.wait_for_toast()
 
     # Count photos AFTER copy/paste
