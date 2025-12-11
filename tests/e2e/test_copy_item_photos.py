@@ -26,7 +26,9 @@ class InventoryListPhotoCopyPage(BasePage):
     def select_item(self, ja_id):
         """Select an item by checking its checkbox"""
         checkbox = self.page.locator(f'input[type="checkbox"][data-ja-id="{ja_id}"]')
-        checkbox.check()
+        checkbox.check(force=True)  # Force the check to ensure it works
+        # Verify the checkbox is actually checked
+        assert checkbox.is_checked(), f"Checkbox for {ja_id} was not checked"
         self.page.wait_for_timeout(300)
 
     def select_multiple_items(self, ja_ids):
