@@ -66,8 +66,9 @@ class InventoryListPhotoCopyPage(BasePage):
         return self.page.locator('#photo-clipboard-info').inner_text()
 
     def get_toast_message(self):
-        """Get the toast notification message"""
-        toast = self.page.locator('.alert.position-fixed')
+        """Get the toast notification message (latest if multiple exist)"""
+        # Use .last to get the most recent toast when multiple exist
+        toast = self.page.locator('.alert.position-fixed').last
         if toast.is_visible():
             return toast.inner_text()
         return None
