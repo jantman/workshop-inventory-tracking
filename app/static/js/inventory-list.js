@@ -802,7 +802,13 @@ class InventoryListManager {
 
         // Update button states
         if (this.copyPhotosBtn) {
-            this.copyPhotosBtn.disabled = selectedIds.length !== 1;
+            // Enable copy button only if exactly 1 item selected AND it has photos
+            let canCopy = false;
+            if (selectedIds.length === 1) {
+                const selectedItem = this.items.find(item => item.ja_id === selectedIds[0]);
+                canCopy = selectedItem && selectedItem.photo_count > 0;
+            }
+            this.copyPhotosBtn.disabled = !canCopy;
         }
 
         if (this.pastePhotosBtn) {
