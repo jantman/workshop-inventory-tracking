@@ -548,6 +548,7 @@ def test_button_states_based_on_selection(live_server, page):
 
     # Select one item with photos - Copy should be enabled, Paste still disabled
     list_page.select_item(item1.ja_id)
+    page.wait_for_timeout(500)  # Wait for button state to update
     assert list_page.is_copy_photos_button_enabled()
     assert not list_page.is_paste_photos_button_enabled()
 
@@ -557,4 +558,5 @@ def test_button_states_based_on_selection(live_server, page):
 
     # Select target item - Paste should now be enabled
     list_page.select_item(item2.ja_id)
+    page.wait_for_timeout(500)  # Wait for button state to update
     assert list_page.is_paste_photos_button_enabled()
