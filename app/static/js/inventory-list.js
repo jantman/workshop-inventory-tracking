@@ -663,7 +663,7 @@ class InventoryListManager {
     }
 
     copyPhotosFromSelected() {
-        const selectedIds = this.table.getSelectedIds();
+        const selectedIds = this.table.getSelectedItems();
 
         if (selectedIds.length === 0) {
             this.showToast('Please select an item to copy photos from', 'warning');
@@ -698,7 +698,7 @@ class InventoryListManager {
         this.savePhotoClipboard(this.photoClipboard);
 
         // Clear selection and update UI
-        this.table.clearSelection();
+        this.table.selectNone();
         this.updatePhotoClipboardUI();
 
         this.showToast(`Ready to paste ${sourceItem.photo_count} photo(s) from ${sourceJaId}`, 'success');
@@ -710,7 +710,7 @@ class InventoryListManager {
             return;
         }
 
-        const selectedIds = this.table.getSelectedIds();
+        const selectedIds = this.table.getSelectedItems();
 
         if (selectedIds.length === 0) {
             this.showToast('Please select target items to paste photos to', 'warning');
@@ -749,7 +749,7 @@ class InventoryListManager {
 
                 // Clear clipboard and selection
                 this.clearPhotoClipboard();
-                this.table.clearSelection();
+                this.table.selectNone();
 
                 // Reload inventory to show updated photo counts
                 await this.loadInventory();
@@ -762,7 +762,7 @@ class InventoryListManager {
 
                 // Still clear clipboard and reload
                 this.clearPhotoClipboard();
-                this.table.clearSelection();
+                this.table.selectNone();
                 await this.loadInventory();
             } else {
                 this.showToast(data.error || 'Failed to paste photos', 'error');
@@ -782,7 +782,7 @@ class InventoryListManager {
 
     updatePhotoClipboardUI() {
         const hasClipboard = this.photoClipboard !== null;
-        const selectedIds = this.table ? this.table.getSelectedIds() : [];
+        const selectedIds = this.table ? this.table.getSelectedItems() : [];
 
         // Update banner visibility and content
         if (this.photoClipboardBanner) {
