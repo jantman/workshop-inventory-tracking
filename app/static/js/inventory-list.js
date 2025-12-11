@@ -747,8 +747,8 @@ class InventoryListManager {
                 const message = `Copied ${data.photos_copied} photo(s) to ${data.items_updated} item(s)`;
                 this.showToast(message, 'success');
 
-                // Clear clipboard and selection
-                this.clearPhotoClipboard();
+                // Clear clipboard and selection (suppress toast since we already showed success)
+                this.clearPhotoClipboard(false);
                 this.table.selectNone();
 
                 // Reload inventory to show updated photo counts
@@ -760,8 +760,8 @@ class InventoryListManager {
                 const message = `Partially successful: ${successCount} succeeded, ${failCount} failed`;
                 this.showToast(message, 'warning');
 
-                // Still clear clipboard and reload
-                this.clearPhotoClipboard();
+                // Still clear clipboard and reload (suppress toast since we already showed result)
+                this.clearPhotoClipboard(false);
                 this.table.selectNone();
                 await this.loadInventory();
             } else {
@@ -773,11 +773,13 @@ class InventoryListManager {
         }
     }
 
-    clearPhotoClipboard() {
+    clearPhotoClipboard(showToast = true) {
         this.photoClipboard = null;
         this.savePhotoClipboard(null);
         this.updatePhotoClipboardUI();
-        this.showToast('Photo clipboard cleared', 'info');
+        if (showToast) {
+            this.showToast('Photo clipboard cleared', 'info');
+        }
     }
 
     updatePhotoClipboardUI() {
