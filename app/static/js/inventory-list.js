@@ -808,15 +808,30 @@ class InventoryListManager {
                 const selectedItem = this.items.find(item => item.ja_id === selectedIds[0]);
                 canCopy = selectedItem && selectedItem.photo_count > 0;
             }
-            this.copyPhotosBtn.disabled = !canCopy;
+            // For <a> elements, we need to add/remove the disabled attribute, not just set the property
+            if (canCopy) {
+                this.copyPhotosBtn.removeAttribute('disabled');
+            } else {
+                this.copyPhotosBtn.setAttribute('disabled', '');
+            }
         }
 
         if (this.pastePhotosBtn) {
-            this.pastePhotosBtn.disabled = !hasClipboard || selectedIds.length === 0;
+            // For <a> elements, we need to add/remove the disabled attribute, not just set the property
+            if (!hasClipboard || selectedIds.length === 0) {
+                this.pastePhotosBtn.setAttribute('disabled', '');
+            } else {
+                this.pastePhotosBtn.removeAttribute('disabled');
+            }
         }
 
         if (this.clearPhotoClipboardBtn) {
-            this.clearPhotoClipboardBtn.disabled = !hasClipboard;
+            // For <a> elements, we need to add/remove the disabled attribute, not just set the property
+            if (!hasClipboard) {
+                this.clearPhotoClipboardBtn.setAttribute('disabled', '');
+            } else {
+                this.clearPhotoClipboardBtn.removeAttribute('disabled');
+            }
         }
     }
 }
