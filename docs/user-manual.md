@@ -6,6 +6,7 @@
 3. [Adding New Inventory](#adding-new-inventory)
 4. [Label Printing](#label-printing)
 5. [Managing Existing Inventory](#managing-existing-inventory)
+   - [Photo Management](#photo-management)
 6. [Advanced Search](#advanced-search)
 7. [Batch Operations](#batch-operations)
 8. [Data Export](#data-export)
@@ -107,8 +108,9 @@ The **Quantity to Create** field allows you to create multiple identical items w
 - Sequential JA IDs are automatically assigned starting from the next available number
 
 **What doesn't get copied:**
-- Photos (each item starts with no photos)
 - History (each item is a fresh record)
+
+**Note:** Photos are not automatically copied during bulk creation. However, you can manually copy photos after creation using the photo copying feature (see [Photo Management](#photo-management)).
 
 **Example use case:**
 You receive 10 identical steel bars from a supplier. Instead of creating 10 separate entries, fill out the form once with all details and set "Quantity to Create" to 10. The system creates JA000001 through JA000010 (or whatever the next available numbers are) with identical specifications.
@@ -301,15 +303,107 @@ The **Duplicate** button on the edit page allows you to create copies of existin
 
 **What gets duplicated:**
 - ALL fields: type, shape, material, dimensions, threading, location, vendor info, notes, etc.
+- **Photos**: ALL photos are automatically copied from the source item to each duplicate
 - Sequential JA IDs are automatically assigned
 
 **What doesn't get duplicated:**
-- Photos (duplicates start with no photos)
 - History (duplicates have no modification history)
 - Timestamps (duplicates get current date/time)
 
+**Photo Copying:** When duplicating items, all photos from the source item are automatically copied to each new duplicate. The system uses efficient storage - photo data is shared between items rather than duplicated, saving storage space.
+
 **Example use case:**
 You have an item JA000050 (a 36" steel bar) and acquire 5 more identical bars. Open JA000050's edit page, click Duplicate, set quantity to 5, and create. The system creates JA000051 through JA000055 with identical specifications.
+
+### Photo Management
+
+The system allows you to attach photos to inventory items and copy photos between items. Photos can be automatically copied during item duplication or manually copied between any items.
+
+#### Uploading Photos
+
+Photos can be uploaded when adding or editing items:
+1. Navigate to the Add Item or Edit Item page
+2. Scroll to the **Photos** section
+3. Click **Choose Files** or drag and drop images
+4. Supported formats: JPEG, PNG, WebP, PDF
+5. Multiple photos can be uploaded at once
+6. Photos are automatically resized to three sizes: thumbnail, medium, and original
+
+#### Viewing Photos
+
+- **Inventory List**: Photo count displayed in the table (e.g., "📷 3" indicates 3 photos)
+- **Item Details Modal**: Click any item to view full-size photos in a gallery
+- **Edit Page**: View and manage all photos for an item
+
+#### Copying Photos Between Items
+
+There are two ways to copy photos between items:
+
+##### 1. Automatic Photo Copying (During Duplication)
+
+When duplicating items, photos are **automatically copied** to all new duplicates:
+- Navigate to the edit page for an item with photos
+- Click **Duplicate Item**
+- Set the quantity of duplicates to create
+- Click **Create Duplicates**
+- All photos from the source item are copied to each new duplicate
+- Success message shows: "Item duplicated as [JA ID]. N photos copied."
+
+**Storage Efficiency:** The system uses smart storage - photo data is shared between items rather than duplicated, saving disk space.
+
+##### 2. Manual Photo Copying (From Inventory List)
+
+For copying photos between existing items, use the photo clipboard workflow from the Inventory List page:
+
+**Step 1: Copy Photos**
+1. Navigate to **Inventory List** (`/inventory`)
+2. Select **one item** that has photos (the source item)
+   - The "Copy Photos From This Item" option is only enabled when:
+     - Exactly one item is selected, AND
+     - That item has at least one photo
+3. Click **Options** dropdown → **Copy Photos From This Item**
+4. A banner appears showing: "📋 N photo(s) from [JA ID] ready to paste. Select target items and click 'Paste Photos'."
+5. The selection is automatically cleared, ready for you to select target items
+
+**Step 2: Paste Photos**
+1. Select **one or more target items** (items that will receive the photos)
+2. Click **Options** dropdown → **Paste Photos To Selected**
+3. Confirm the paste operation
+4. Photos are **appended** to any existing photos on the target items (not replaced)
+5. Success message shows: "Copied N photo(s) to M item(s)"
+6. Photo clipboard is automatically cleared
+
+**Additional Options:**
+- **Clear Photo Clipboard**: Cancel the copy operation without pasting
+- The photo clipboard persists across page navigation within the same browser session
+
+**Example Workflow:**
+You just created 5 new metal rod items (JA000550-JA000554) and want to copy photos from an existing similar item (JA000123):
+1. Go to Inventory List
+2. Find and select item JA000123
+3. Click Options → "Copy Photos From This Item"
+4. Search/filter for items JA000550-JA000554
+5. Select all 5 new items
+6. Click Options → "Paste Photos To Selected"
+7. Confirm the operation
+8. All 3 photos from JA000123 are now on each of the 5 new items
+
+**Photo Copying Rules:**
+- Photos are **appended** to existing photos (not replaced)
+- If a target item already has 2 photos and you paste 3 photos, it will have 5 photos total
+- The display order is preserved from the source item
+- Source item's photos remain unchanged
+- Storage is efficient - photo data is shared, not duplicated
+
+#### Deleting Photos
+
+To delete a photo from an item:
+1. Navigate to the Edit Item page
+2. Find the photo in the Photos section
+3. Click the **Delete** button next to the photo
+4. Confirm the deletion
+5. If other items share the same photo, only the association is removed (photo data remains for other items)
+6. If no other items use the photo, it is completely removed from the system
 
 ### Item Status
 - **Active**: Available for use

@@ -467,6 +467,55 @@ The regeneration process:
 4. **Monitor process output** for any errors or warnings
 5. **Verify results** by checking that PDFs now show proper thumbnails in the UI
 
+### Photo Schema Refactoring (v2.x)
+
+Starting in version 2.x, the photo storage schema was refactored to enable efficient photo copying between items. The database migration handles this automatically.
+
+#### Schema Changes
+
+**Old Schema** (v1.x):
+- `item_photos` table: Photo data stored directly with each item
+- Copying photos required duplicating large BLOB data
+
+**New Schema** (v2.x):
+- `photos` table: Photo data stored once, shared between items
+- `item_photo_associations` table: Many-to-many relationships between items and photos
+- Copying photos only creates association records (no BLOB duplication)
+
+#### Migration Process
+
+The Alembic migration (`refactor_photo_schema`) automatically:
+1. Creates new `photos` and `item_photo_associations` tables
+2. Migrates all existing photo data from `item_photos` to new schema
+3. Preserves display order based on creation timestamps
+4. Verifies data integrity before dropping old table
+5. Includes rollback capability if migration fails
+
+**Important:** The migration runs automatically when you run `flask db upgrade`. No manual intervention required.
+
+#### Post-Migration Verification
+
+After upgrading to v2.x, verify photo migration:
+
+```bash
+# Check that photos display correctly in the UI
+# Navigate to inventory items with photos and verify they appear
+
+# Check database schema
+flask db current  # Should show latest migration
+
+# Verify photo counts match
+# All photos should be accessible after migration
+```
+
+#### Storage Benefits
+
+With the new schema:
+- **Storage Efficiency**: Photo data shared between items, not duplicated
+- **Fast Operations**: Copying photos = creating association records only
+- **Automatic Cleanup**: Orphaned photos (no associations) are automatically removed
+- **Photo Copying**: New feature enables copying photos during duplication and via manual workflow
+
 ## Google Sheets Setup (Data Export Only)
 
 **Note**: Google Sheets is used exclusively for data export functionality. The primary storage backend is MariaDB.
