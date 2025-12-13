@@ -67,7 +67,7 @@ def add_item_with_original_thread(live_server, ja_id, original_thread_value):
             material="Steel",
             length=1000.0,
             width=25.0,
-                location="Test Location A",
+                location="M12-L",
             notes="Test item with original_thread",
             original_thread=original_thread_value,  # This is the key field
             active=True
@@ -107,7 +107,7 @@ def test_move_item_with_original_thread_string(page, live_server):
             print(f"Error message {i+1}: {error_text}")
     
     # Scan new location
-    move_page.simulate_barcode_scan("Test Location B")
+    move_page.simulate_barcode_scan("M13-M")
 
     # Complete scanning to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
@@ -138,7 +138,7 @@ def test_move_item_with_original_thread_none(page, live_server):
     
     # Test the move workflow
     move_page.simulate_barcode_scan(ja_id)
-    move_page.simulate_barcode_scan("Test Location C")
+    move_page.simulate_barcode_scan("M14-N")
 
     # Complete workflow to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
@@ -175,7 +175,7 @@ def test_move_multiple_items_with_mixed_original_thread(page, live_server):
         if i > 0:
             # Verify previous item was added to queue
             assert move_page.get_queue_count() == i
-        move_page.simulate_barcode_scan("Test Location D")
+        move_page.simulate_barcode_scan("M15-O")
 
     # Complete scanning to finalize the last move
     move_page.simulate_barcode_scan(">>DONE<<")
@@ -202,7 +202,7 @@ def test_move_item_with_original_thread_empty_string(page, live_server):
     
     # Test the move workflow
     move_page.simulate_barcode_scan(ja_id)
-    move_page.simulate_barcode_scan("Test Location E")
+    move_page.simulate_barcode_scan("M16-P")
 
     # Complete workflow to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")

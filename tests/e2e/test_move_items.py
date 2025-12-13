@@ -124,7 +124,7 @@ def test_single_item_move_workflow(page, live_server):
         width='25'
     )
     add_page.fill_location_and_notes(
-        location="Shop A",
+        location="M1-A",
         notes="Test item for moving"
     )
     add_page.submit_form()
@@ -192,14 +192,14 @@ def test_single_item_move_workflow(page, live_server):
     assert "location" in move_page.get_status_text().lower()
     
     # Simulate scanning new location
-    move_page.simulate_barcode_scan("Shop B")
+    move_page.simulate_barcode_scan("M2-B")
 
     # Simulate >>DONE<< to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
 
     # Should show item in queue (after finalization)
     assert move_page.get_queue_count() == 1
-    move_page.assert_queue_item_visible(ja_id, "Shop B")
+    move_page.assert_queue_item_visible(ja_id, "M2-B")
     
     # Validate moves should be enabled
     expect(page.locator("#validate-btn")).to_be_enabled()
@@ -243,7 +243,7 @@ def test_multiple_items_move_workflow(page, live_server):
             width='25'
         )
         add_page.fill_location_and_notes(
-            location="Shop A",
+            location="M1-A",
             notes=f"Test item {i+1} for batch moving"
         )
         add_page.submit_form()
@@ -254,7 +254,7 @@ def test_multiple_items_move_workflow(page, live_server):
     move_page.navigate()
     
     # Move both items to different locations
-    locations = ["Shop B", "Shop C"]
+    locations = ["M2-B", "M3-C"]
 
     # Scan first item
     move_page.simulate_barcode_scan(ja_ids[0])
@@ -295,7 +295,7 @@ def test_move_nonexistent_item_error(page, live_server):
     assert "location" in move_page.get_status_text().lower()
 
     # Scan location
-    move_page.simulate_barcode_scan("Test Location")
+    move_page.simulate_barcode_scan("Other")
 
     # Complete scanning to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
@@ -334,7 +334,7 @@ def test_clear_queue_functionality(page, live_server):
         width='50'
     )
     add_page.fill_location_and_notes(
-        location="Rack 1",
+        location="M5-E",
         notes="Test item for queue clearing"
     )
     add_page.submit_form()
@@ -345,7 +345,7 @@ def test_clear_queue_functionality(page, live_server):
     move_page.navigate()
 
     move_page.simulate_barcode_scan(ja_id)
-    move_page.simulate_barcode_scan("Rack 2")
+    move_page.simulate_barcode_scan("M6-F")
 
     # Finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
@@ -384,7 +384,7 @@ def test_move_item_with_original_thread_regression_test(page, live_server):
             material="Steel",
             length=1500.0,
             width=30.0,
-            location="Storage Room A",
+            location="M7-G",
             notes="Regression test item with original_thread",
             original_thread="5/16-18",  # This would have caused the AttributeError bug
             active=True
@@ -420,14 +420,14 @@ def test_move_item_with_original_thread_regression_test(page, live_server):
                 pytest.fail(f"Bug regression detected: {error_text}")
     
     # Scan new location
-    move_page.simulate_barcode_scan("Storage Room B")
+    move_page.simulate_barcode_scan("M8-H")
 
     # Finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
 
     # Should have successfully added item to queue
     assert move_page.get_queue_count() == 1
-    move_page.assert_queue_item_visible(ja_id, "Storage Room B")
+    move_page.assert_queue_item_visible(ja_id, "M8-H")
 
     # Validate and execute the move
     move_page.click_validate_moves()

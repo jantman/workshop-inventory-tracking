@@ -67,7 +67,7 @@ def test_move_current_location_shows_unknown_bug(page, live_server):
     add_page.navigate()
     
     test_ja_id = "JA000505"  # Using a unique JA ID for this test
-    expected_location = "Workshop Bench 5"
+    expected_location = "M10-J"
     
     add_page.fill_basic_item_data(
         test_ja_id,
@@ -100,7 +100,7 @@ def test_move_current_location_shows_unknown_bug(page, live_server):
     move_page.simulate_barcode_scan(test_ja_id)
     page.wait_for_timeout(500)
 
-    new_location = "Storage Room B"
+    new_location = "M11-K"
     move_page.simulate_barcode_scan(new_location)
     page.wait_for_timeout(500)
 
