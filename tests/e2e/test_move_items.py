@@ -193,13 +193,13 @@ def test_single_item_move_workflow(page, live_server):
     
     # Simulate scanning new location
     move_page.simulate_barcode_scan("Shop B")
-    
-    # Should show item in queue
+
+    # Simulate >>DONE<< to finalize the move (required in new sub-location workflow)
+    move_page.simulate_barcode_scan(">>DONE<<")
+
+    # Should show item in queue (after finalization)
     assert move_page.get_queue_count() == 1
     move_page.assert_queue_item_visible(ja_id, "Shop B")
-    
-    # Simulate >>DONE<< to finish scanning
-    move_page.simulate_barcode_scan(">>DONE<<")
     
     # Validate moves should be enabled
     expect(page.locator("#validate-btn")).to_be_enabled()
@@ -255,22 +255,26 @@ def test_multiple_items_move_workflow(page, live_server):
     
     # Move both items to different locations
     locations = ["Shop B", "Shop C"]
-    
-    for i, ja_id in enumerate(ja_ids):
-        # Scan JA ID
-        move_page.simulate_barcode_scan(ja_id)
-        
-        # Scan new location
-        move_page.simulate_barcode_scan(locations[i])
-        
-        # Verify it's added to queue
-        move_page.assert_queue_item_visible(ja_id, locations[i])
-    
+
+    # Scan first item
+    move_page.simulate_barcode_scan(ja_ids[0])
+    move_page.simulate_barcode_scan(locations[0])
+
+    # Scan second item (this finalizes the first move)
+    move_page.simulate_barcode_scan(ja_ids[1])
+    # First item should now be in queue
+    assert move_page.get_queue_count() == 1
+    move_page.assert_queue_item_visible(ja_ids[0], locations[0])
+
+    # Scan location for second item
+    move_page.simulate_barcode_scan(locations[1])
+
+    # Complete scanning to finalize second move
+    move_page.simulate_barcode_scan(">>DONE<<")
+
     # Should have 2 items in queue
     assert move_page.get_queue_count() == 2
-    
-    # Complete and execute moves
-    move_page.simulate_barcode_scan(">>DONE<<")
+    move_page.assert_queue_item_visible(ja_ids[1], locations[1])
     move_page.click_validate_moves()
     move_page.click_execute_moves()
     
@@ -286,18 +290,18 @@ def test_move_nonexistent_item_error(page, live_server):
     
     # Try to scan non-existent JA ID
     move_page.simulate_barcode_scan("JA999999")
-    
+
     # Should accept the JA ID initially (validation happens later)
     assert "location" in move_page.get_status_text().lower()
-    
+
     # Scan location
     move_page.simulate_barcode_scan("Test Location")
-    
-    # Should now have 1 item in queue
-    assert move_page.get_queue_count() == 1
-    
-    # Complete scanning and validate - this is where the error should appear
+
+    # Complete scanning to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
+
+    # Should now have 1 item in queue (after finalization)
+    assert move_page.get_queue_count() == 1
     move_page.click_validate_moves()
     
     # Wait for validation to complete
@@ -339,10 +343,13 @@ def test_clear_queue_functionality(page, live_server):
     # Navigate to move page and add item to queue
     move_page = MoveItemsPage(page, live_server.url)
     move_page.navigate()
-    
+
     move_page.simulate_barcode_scan(ja_id)
     move_page.simulate_barcode_scan("Rack 2")
-    
+
+    # Finalize the move (required in new sub-location workflow)
+    move_page.simulate_barcode_scan(">>DONE<<")
+
     # Verify item in queue
     assert move_page.get_queue_count() == 1
     
@@ -414,13 +421,15 @@ def test_move_item_with_original_thread_regression_test(page, live_server):
     
     # Scan new location
     move_page.simulate_barcode_scan("Storage Room B")
-    
+
+    # Finalize the move (required in new sub-location workflow)
+    move_page.simulate_barcode_scan(">>DONE<<")
+
     # Should have successfully added item to queue
     assert move_page.get_queue_count() == 1
     move_page.assert_queue_item_visible(ja_id, "Storage Room B")
-    
-    # Complete the move workflow
-    move_page.simulate_barcode_scan(">>DONE<<")
+
+    # Validate and execute the move
     move_page.click_validate_moves()
     move_page.click_execute_moves()
     
