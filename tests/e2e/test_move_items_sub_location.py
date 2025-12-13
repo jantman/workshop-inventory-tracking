@@ -20,7 +20,7 @@ class TestMoveItemsSubLocation:
 
     def add_test_item(self, page, live_server, ja_id, location, sub_location=None):
         """Helper to add a test item via the UI"""
-        page.goto(f'{live_server.url()}/inventory/add')
+        page.goto(f'{live_server.url}/inventory/add')
         page.wait_for_load_state('networkidle')
 
         # Fill in basic required fields
@@ -44,7 +44,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000001', 'M1-A', None)
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location (no sub-location)
@@ -74,7 +74,7 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify item was moved
-        page.goto(f'{live_server.url()}/inventory/list')
+        page.goto(f'{live_server.url}/inventory/list')
         page.wait_for_load_state('networkidle')
         item_row = page.locator('tr', has_text='JA000001')
         expect(item_row.locator('td').nth(5)).to_have_text('M2-B')  # Location column
@@ -85,7 +85,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000002', 'M1-A', None)
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location -> Sub-location
@@ -119,7 +119,7 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify item has sub-location via API
-        response = page.request.get(f'{live_server.url()}/api/items/JA000002')
+        response = page.request.get(f'{live_server.url}/api/items/JA000002')
         data = response.json()
         assert data['success'] is True
         assert data['item']['location'] == 'M3-C'
@@ -131,7 +131,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000003', 'M1-A', 'Drawer 1')
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location (no sub-location)
@@ -161,7 +161,7 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify sub-location was cleared via API
-        response = page.request.get(f'{live_server.url()}/api/items/JA000003')
+        response = page.request.get(f'{live_server.url}/api/items/JA000003')
         data = response.json()
         assert data['success'] is True
         assert data['item']['location'] == 'M4-D'
@@ -173,7 +173,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000004', 'M1-A', 'Shelf 2')
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location -> Different Sub-location
@@ -207,7 +207,7 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify sub-location was changed via API
-        response = page.request.get(f'{live_server.url()}/api/items/JA000004')
+        response = page.request.get(f'{live_server.url}/api/items/JA000004')
         data = response.json()
         assert data['success'] is True
         assert data['item']['location'] == 'M5-E'
@@ -219,7 +219,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000005', 'T-5', 'Bin A')
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location -> Same Sub-location
@@ -248,7 +248,7 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify location changed but sub-location stayed the same
-        response = page.request.get(f'{live_server.url()}/api/items/JA000005')
+        response = page.request.get(f'{live_server.url}/api/items/JA000005')
         data = response.json()
         assert data['success'] is True
         assert data['item']['location'] == 'T-10'
@@ -262,7 +262,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000103', 'T-5', 'Shelf 2')
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
@@ -312,17 +312,17 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify all items were moved correctly
-        response1 = page.request.get(f'{live_server.url()}/api/items/JA000101')
+        response1 = page.request.get(f'{live_server.url}/api/items/JA000101')
         data1 = response1.json()
         assert data1['item']['location'] == 'M10-Z'
         assert data1['item']['sub_location'] == 'Storage Bin A'
 
-        response2 = page.request.get(f'{live_server.url()}/api/items/JA000102')
+        response2 = page.request.get(f'{live_server.url}/api/items/JA000102')
         data2 = response2.json()
         assert data2['item']['location'] == 'M11-Y'
         assert data2['item']['sub_location'] is None
 
-        response3 = page.request.get(f'{live_server.url()}/api/items/JA000103')
+        response3 = page.request.get(f'{live_server.url}/api/items/JA000103')
         data3 = response3.json()
         assert data3['item']['location'] == 'T-20'
         assert data3['item']['sub_location'] == 'Shelf 99'
@@ -333,7 +333,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000201', 'M1-A', None)
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
@@ -364,7 +364,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000202', 'M1-A', None)
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
@@ -392,7 +392,7 @@ class TestMoveItemsSubLocation:
         self.add_test_item(page, live_server, 'JA000203', 'M1-A', None)
 
         # Navigate to move page
-        page.goto(f'{live_server.url()}/inventory/move')
+        page.goto(f'{live_server.url}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
