@@ -527,3 +527,279 @@ class TestPhotoCopyAPI:
         assert data['details'][1]['success'] is False
         assert data['details'][1]['ja_id'] == 'JA000999'
         assert 'warning' in data
+
+
+@pytest.mark.unit
+class TestBatchMoveAPIWithSubLocation:
+    """Test the POST /api/inventory/batch-move endpoint with sub-location support"""
+
+    @pytest.fixture
+    def setup_test_items(self, client, test_storage):
+        """Create test items for batch move tests"""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+
+        service = InventoryService(test_storage)
+
+        # Create test items with various location/sub-location combinations
+        item1 = InventoryItem(
+            ja_id='JA000001',
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material='Steel',
+            location='M1-A',
+            sub_location=None
+        )
+
+        item2 = InventoryItem(
+            ja_id='JA000002',
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material='Steel',
+            location='M2-B',
+            sub_location='Drawer 1'
+        )
+
+        item3 = InventoryItem(
+            ja_id='JA000003',
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material='Steel',
+            location='T-5',
+            sub_location='Shelf 2'
+        )
+
+        service.add_item(item1)
+        service.add_item(item2)
+        service.add_item(item3)
+
+        return service
+
+    def test_move_with_sub_location_provided(self, client, setup_test_items):
+        """Test moving an item with sub-location specified"""
+        service = setup_test_items
+
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA000001',
+                    'new_location': 'M3-C',
+                    'new_sub_location': 'Drawer 3'
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['moved_count'] == 1
+        assert data['total_count'] == 1
+
+        # Verify item was updated correctly
+        item = service.get_item('JA000001')
+        assert item.location == 'M3-C'
+        assert item.sub_location == 'Drawer 3'
+
+    def test_move_without_sub_location_clears_existing(self, client, setup_test_items):
+        """Test that moving without specifying sub-location clears existing sub-location"""
+        service = setup_test_items
+
+        # Item JA000002 has sub_location='Drawer 1'
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA000002',
+                    'new_location': 'M4-D'
+                    # No new_sub_location specified
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['moved_count'] == 1
+
+        # Verify sub_location was cleared
+        item = service.get_item('JA000002')
+        assert item.location == 'M4-D'
+        assert item.sub_location is None
+
+    def test_move_with_empty_string_sub_location_clears(self, client, setup_test_items):
+        """Test that empty string sub-location clears the field"""
+        service = setup_test_items
+
+        # Item JA000003 has sub_location='Shelf 2'
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA000003',
+                    'new_location': 'T-10',
+                    'new_sub_location': ''  # Empty string should clear
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+
+        # Verify sub_location was cleared
+        item = service.get_item('JA000003')
+        assert item.location == 'T-10'
+        assert item.sub_location is None
+
+    def test_move_with_whitespace_only_sub_location_clears(self, client, setup_test_items):
+        """Test that whitespace-only sub-location clears the field"""
+        service = setup_test_items
+
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA000002',
+                    'new_location': 'M5-E',
+                    'new_sub_location': '   '  # Whitespace only
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+
+        # Verify sub_location was cleared
+        item = service.get_item('JA000002')
+        assert item.sub_location is None
+
+    def test_move_with_sub_location_strips_whitespace(self, client, setup_test_items):
+        """Test that sub-location values are stripped of leading/trailing whitespace"""
+        service = setup_test_items
+
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA000001',
+                    'new_location': 'M6-F',
+                    'new_sub_location': '  Drawer 5  '
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+
+        # Verify sub_location was stripped
+        item = service.get_item('JA000001')
+        assert item.sub_location == 'Drawer 5'
+
+    def test_batch_move_mixed_sub_locations(self, client, setup_test_items):
+        """Test batch move with mixed sub-location scenarios"""
+        service = setup_test_items
+
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [
+                    {
+                        'ja_id': 'JA000001',
+                        'new_location': 'M7-G',
+                        'new_sub_location': 'Bin A'
+                    },
+                    {
+                        'ja_id': 'JA000002',
+                        'new_location': 'M8-H'
+                        # No sub_location - should clear
+                    },
+                    {
+                        'ja_id': 'JA000003',
+                        'new_location': 'T-15',
+                        'new_sub_location': 'Shelf 10'
+                    }
+                ]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['moved_count'] == 3
+        assert data['total_count'] == 3
+
+        # Verify all items
+        item1 = service.get_item('JA000001')
+        assert item1.location == 'M7-G'
+        assert item1.sub_location == 'Bin A'
+
+        item2 = service.get_item('JA000002')
+        assert item2.location == 'M8-H'
+        assert item2.sub_location is None
+
+        item3 = service.get_item('JA000003')
+        assert item3.location == 'T-15'
+        assert item3.sub_location == 'Shelf 10'
+
+    def test_move_nonexistent_item_with_sub_location(self, client, setup_test_items):
+        """Test that moving a nonexistent item fails appropriately"""
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA999999',
+                    'new_location': 'M1-A',
+                    'new_sub_location': 'Drawer 1'
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert data['moved_count'] == 0
+        assert len(data['failed_moves']) == 1
+        assert data['failed_moves'][0]['ja_id'] == 'JA999999'
+        assert 'not found' in data['failed_moves'][0]['error'].lower()
+
+    def test_move_same_location_different_sub_location(self, client, setup_test_items):
+        """Test moving to the same location but with different sub-location"""
+        service = setup_test_items
+
+        # Item JA000002 is at M2-B, Drawer 1
+        response = client.post(
+            '/api/inventory/batch-move',
+            json={
+                'moves': [{
+                    'ja_id': 'JA000002',
+                    'new_location': 'M2-B',  # Same location
+                    'new_sub_location': 'Drawer 5'  # Different sub-location
+                }]
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+
+        # Verify only sub_location changed
+        item = service.get_item('JA000002')
+        assert item.location == 'M2-B'
+        assert item.sub_location == 'Drawer 5'
