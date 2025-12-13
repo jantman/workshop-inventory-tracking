@@ -22,8 +22,8 @@ Pattern Rules (applied in order):
      Starts with "M" followed by digits, then any characters
      Examples: M1-A, M2-B, M10-Shelf3
 
-   - Threaded stock storage: ^T[0-9]+.*
-     Starts with "T" followed by digits, then any characters
+   - Threaded stock storage: ^T-?[0-9]+.*
+     Starts with "T", optionally a dash, followed by digits, then any characters
      Examples: T-5, T1, T99-Row2
 
    - General/Other storage: Exact match "Other"
@@ -108,7 +108,7 @@ def is_location(value: str) -> bool:
     # module docstring above with the new pattern documentation.
     LOCATION_PATTERNS = [
         r'^M[0-9]+.*',  # Metal stock storage (M + digits + optional suffix)
-        r'^T[0-9]+.*',  # Threaded stock storage (T + digits + optional suffix)
+        r'^T-?[0-9]+.*',  # Threaded stock storage (T + optional dash + digits + optional suffix)
     ]
 
     # Check regex patterns

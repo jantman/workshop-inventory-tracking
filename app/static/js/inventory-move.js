@@ -63,7 +63,7 @@ class InventoryMoveManager {
      * 1. JA ID: ^JA[0-9]+$
      * 2. Location Patterns:
      *    - Metal stock storage: ^M[0-9]+.*
-     *    - Threaded stock storage: ^T[0-9]+.*
+     *    - Threaded stock storage: ^T-?[0-9]+.*
      *    - General storage: exact match "Other"
      * 3. Sub-location: Any string NOT matching the above
      */
@@ -83,8 +83,8 @@ class InventoryMoveManager {
             return true;
         }
 
-        // Threaded stock storage pattern
-        if (/^T[0-9]+.*/.test(value)) {
+        // Threaded stock storage pattern (T + optional dash + digits)
+        if (/^T-?[0-9]+.*/.test(value)) {
             return true;
         }
 
