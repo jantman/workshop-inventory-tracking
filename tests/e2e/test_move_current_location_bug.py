@@ -99,11 +99,15 @@ def test_move_current_location_shows_unknown_bug(page, live_server):
     # Step 3: Scan the item JA ID and new location
     move_page.simulate_barcode_scan(test_ja_id)
     page.wait_for_timeout(500)
-    
+
     new_location = "Storage Room B"
     move_page.simulate_barcode_scan(new_location)
     page.wait_for_timeout(500)
-    
+
+    # Finalize the move (required in new sub-location workflow)
+    move_page.simulate_barcode_scan(">>DONE<<")
+    page.wait_for_timeout(500)
+
     # Step 4: Verify the item appears in the queue
     queue_table = page.locator("#queue-items")
     expect(queue_table.locator(f"text={test_ja_id}")).to_be_visible()
