@@ -108,12 +108,12 @@ def test_move_item_with_original_thread_string(page, live_server):
     
     # Scan new location
     move_page.simulate_barcode_scan("Test Location B")
-    
-    # Should have item in queue without error
-    assert move_page.get_queue_count() == 1
-    
-    # Complete scanning
+
+    # Complete scanning to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
+
+    # Should have item in queue without error (after finalization)
+    assert move_page.get_queue_count() == 1
     
     # Validate moves
     move_page.click_validate_moves()
@@ -139,12 +139,12 @@ def test_move_item_with_original_thread_none(page, live_server):
     # Test the move workflow
     move_page.simulate_barcode_scan(ja_id)
     move_page.simulate_barcode_scan("Test Location C")
-    
-    # Should have item in queue
-    assert move_page.get_queue_count() == 1
-    
-    # Complete workflow
+
+    # Complete workflow to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
+
+    # Should have item in queue (after finalization)
+    assert move_page.get_queue_count() == 1
     move_page.click_validate_moves()
     move_page.click_execute_moves()
     
@@ -168,17 +168,20 @@ def test_move_multiple_items_with_mixed_original_thread(page, live_server):
     # Navigate to move page
     move_page = MoveItemsPage(page, live_server.url)
     move_page.navigate()
-    
-    # Move all items to the same location
-    for ja_id, _ in items:
+
+    # Move all items to the same location (new workflow: each JA ID finalizes previous move)
+    for i, (ja_id, _) in enumerate(items):
         move_page.simulate_barcode_scan(ja_id)
+        if i > 0:
+            # Verify previous item was added to queue
+            assert move_page.get_queue_count() == i
         move_page.simulate_barcode_scan("Test Location D")
-    
+
+    # Complete scanning to finalize the last move
+    move_page.simulate_barcode_scan(">>DONE<<")
+
     # Should have all items in queue
     assert move_page.get_queue_count() == 3
-    
-    # Complete workflow
-    move_page.simulate_barcode_scan(">>DONE<<")
     move_page.click_validate_moves()
     move_page.click_execute_moves()
     
@@ -200,12 +203,12 @@ def test_move_item_with_original_thread_empty_string(page, live_server):
     # Test the move workflow
     move_page.simulate_barcode_scan(ja_id)
     move_page.simulate_barcode_scan("Test Location E")
-    
-    # Should have item in queue
-    assert move_page.get_queue_count() == 1
-    
-    # Complete workflow
+
+    # Complete workflow to finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
+
+    # Should have item in queue (after finalization)
+    assert move_page.get_queue_count() == 1
     move_page.click_validate_moves()
     move_page.click_execute_moves()
     
