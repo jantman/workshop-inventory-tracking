@@ -387,9 +387,23 @@ class InventoryMoveManager {
     
     renderQueueItems() {
         this.queueItems.innerHTML = '';
-        
+
         this.moveQueue.forEach((item, index) => {
             const row = document.createElement('tr');
+
+            // Format sub-location display
+            const currentSubLoc = item.currentSubLocation || '<span class="text-muted fst-italic">None</span>';
+            let newSubLoc;
+            if (item.newSubLocation) {
+                newSubLoc = `<span class="fw-bold text-primary">${item.newSubLocation}</span>`;
+            } else if (item.currentSubLocation) {
+                // Clearing sub-location
+                newSubLoc = '<span class="text-danger fst-italic">Cleared</span>';
+            } else {
+                // No sub-location before or after
+                newSubLoc = '<span class="text-muted fst-italic">None</span>';
+            }
+
             row.innerHTML = `
                 <td>
                     <strong>${item.jaId}</strong>
@@ -399,13 +413,19 @@ class InventoryMoveManager {
                     <span class="text-muted">${item.currentLocation || 'Unknown'}</span>
                 </td>
                 <td>
+                    ${currentSubLoc}
+                </td>
+                <td>
                     <span class="fw-bold text-primary">${item.newLocation}</span>
+                </td>
+                <td>
+                    ${newSubLoc}
                 </td>
                 <td>
                     <span class="badge ${this.getStatusBadgeClass(item.status)}">${item.status}</span>
                 </td>
                 <td>
-                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                    <button type="button" class="btn btn-sm btn-outline-danger"
                             onclick="window.moveManager.removeFromQueue(${index})"
                             title="Remove from queue">
                         <i class="bi bi-trash"></i>
