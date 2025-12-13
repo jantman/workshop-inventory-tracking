@@ -1205,14 +1205,15 @@ def batch_move_items():
         for move in moves:
             ja_id = move.get('ja_id')
             new_location = move.get('new_location')
-            
+            new_sub_location = move.get('new_sub_location')
+
             if not ja_id or not new_location:
                 failed_moves.append({
                     'ja_id': ja_id,
                     'error': 'Missing JA ID or location'
                 })
                 continue
-            
+
             try:
                 # Get the current item
                 item = service.get_item(ja_id)
@@ -1222,25 +1223,54 @@ def batch_move_items():
                         'error': 'Item not found'
                     })
                     continue
-                
-                # Update location
+
+                # Store old values for audit logging
                 old_location = item.location
+                old_sub_location = item.sub_location
+
+                # Update location
                 item.location = new_location.strip()
-                
+
+                # Update sub-location with clearing logic:
+                # - If new_sub_location is provided and non-empty, set it (stripped)
+                # - If new_sub_location is not provided or empty, clear it (set to None)
+                if new_sub_location and new_sub_location.strip():
+                    item.sub_location = new_sub_location.strip()
+                else:
+                    item.sub_location = None
+
                 # AUDIT: Log individual move operation input
                 log_audit_operation('move_item', 'input',
                                   item_id=ja_id,
-                                  form_data={'ja_id': ja_id, 'new_location': new_location, 'old_location': old_location},
+                                  form_data={
+                                      'ja_id': ja_id,
+                                      'new_location': new_location,
+                                      'new_sub_location': new_sub_location,
+                                      'old_location': old_location,
+                                      'old_sub_location': old_sub_location
+                                  },
                                   item_before=_item_to_audit_dict(item))
-                
+
                 # Save the updated item
                 if service.update_item(item):
                     successful_moves += 1
-                    # AUDIT: Log successful individual move
+                    # AUDIT: Log successful individual move with location and sub-location changes
+                    changes = {
+                        'location': {'before': old_location, 'after': new_location}
+                    }
+                    # Only log sub_location change if it actually changed
+                    if old_sub_location != item.sub_location:
+                        changes['sub_location'] = {'before': old_sub_location, 'after': item.sub_location}
+
                     log_audit_operation('move_item', 'success',
                                       item_id=ja_id,
-                                      changes={'location': {'before': old_location, 'after': new_location}})
-                    current_app.logger.info(f'Moved {ja_id} from "{old_location}" to "{new_location}"')
+                                      changes=changes)
+
+                    # Build log message
+                    log_msg = f'Moved {ja_id} from "{old_location}" to "{new_location}"'
+                    if old_sub_location != item.sub_location:
+                        log_msg += f' (sub-location: "{old_sub_location}" -> "{item.sub_location}")'
+                    current_app.logger.info(log_msg)
                 else:
                     # AUDIT: Log failed individual move
                     log_audit_operation('move_item', 'error',
