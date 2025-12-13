@@ -18,9 +18,9 @@ from playwright.sync_api import Page, expect
 class TestMoveItemsSubLocation:
     """E2E tests for move items with sub-location functionality"""
 
-    def add_test_item(self, page, ja_id, location, sub_location=None):
+    def add_test_item(self, page, live_server, ja_id, location, sub_location=None):
         """Helper to add a test item via the UI"""
-        page.goto('/inventory/add')
+        page.goto(f'{live_server.url()}/inventory/add')
         page.wait_for_load_state('networkidle')
 
         # Fill in basic required fields
@@ -41,10 +41,10 @@ class TestMoveItemsSubLocation:
     def test_move_no_sub_to_no_sub(self, page, live_server):
         """Test moving item with no sub-location to location with no sub-location"""
         # Add test item without sub-location
-        self.add_test_item(page, 'JA000001', 'M1-A', None)
+        self.add_test_item(page, live_server, 'JA000001', 'M1-A', None)
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location (no sub-location)
@@ -74,7 +74,7 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(1000)
 
         # Verify item was moved
-        page.goto('/inventory/list')
+        page.goto(f'{live_server.url()}/inventory/list')
         page.wait_for_load_state('networkidle')
         item_row = page.locator('tr', has_text='JA000001')
         expect(item_row.locator('td').nth(5)).to_have_text('M2-B')  # Location column
@@ -82,10 +82,10 @@ class TestMoveItemsSubLocation:
     def test_move_no_sub_to_with_sub(self, page, live_server):
         """Test moving item with no sub-location to location with sub-location"""
         # Add test item without sub-location
-        self.add_test_item(page, 'JA000002', 'M1-A', None)
+        self.add_test_item(page, live_server, 'JA000002', 'M1-A', None)
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location -> Sub-location
@@ -128,10 +128,10 @@ class TestMoveItemsSubLocation:
     def test_move_with_sub_to_no_sub_clears(self, page, live_server):
         """Test moving item with sub-location to location without sub-location (clearing)"""
         # Add test item with sub-location
-        self.add_test_item(page, 'JA000003', 'M1-A', 'Drawer 1')
+        self.add_test_item(page, live_server, 'JA000003', 'M1-A', 'Drawer 1')
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location (no sub-location)
@@ -170,10 +170,10 @@ class TestMoveItemsSubLocation:
     def test_move_with_sub_to_different_sub(self, page, live_server):
         """Test moving item with sub-location to location with different sub-location"""
         # Add test item with sub-location
-        self.add_test_item(page, 'JA000004', 'M1-A', 'Shelf 2')
+        self.add_test_item(page, live_server, 'JA000004', 'M1-A', 'Shelf 2')
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location -> Different Sub-location
@@ -216,10 +216,10 @@ class TestMoveItemsSubLocation:
     def test_move_with_sub_to_same_sub(self, page, live_server):
         """Test moving item with sub-location to same location and same sub-location"""
         # Add test item with sub-location
-        self.add_test_item(page, 'JA000005', 'T-5', 'Bin A')
+        self.add_test_item(page, live_server, 'JA000005', 'T-5', 'Bin A')
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         # Enter move: JA ID -> Location -> Same Sub-location
@@ -257,12 +257,12 @@ class TestMoveItemsSubLocation:
     def test_batch_move_mixed_sub_locations(self, page, live_server):
         """Test batch move with mixed sub-location scenarios"""
         # Add multiple test items
-        self.add_test_item(page, 'JA000101', 'M1-A', None)
-        self.add_test_item(page, 'JA000102', 'M2-B', 'Drawer 1')
-        self.add_test_item(page, 'JA000103', 'T-5', 'Shelf 2')
+        self.add_test_item(page, live_server, 'JA000101', 'M1-A', None)
+        self.add_test_item(page, live_server, 'JA000102', 'M2-B', 'Drawer 1')
+        self.add_test_item(page, live_server, 'JA000103', 'T-5', 'Shelf 2')
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
@@ -330,10 +330,10 @@ class TestMoveItemsSubLocation:
     def test_location_pattern_validation(self, page, live_server):
         """Test that location patterns are correctly recognized"""
         # Add test item
-        self.add_test_item(page, 'JA000201', 'M1-A', None)
+        self.add_test_item(page, live_server, 'JA000201', 'M1-A', None)
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
@@ -361,10 +361,10 @@ class TestMoveItemsSubLocation:
     def test_threaded_location_pattern(self, page, live_server):
         """Test that threaded storage pattern (T*) is recognized"""
         # Add test item
-        self.add_test_item(page, 'JA000202', 'M1-A', None)
+        self.add_test_item(page, live_server, 'JA000202', 'M1-A', None)
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
@@ -389,10 +389,10 @@ class TestMoveItemsSubLocation:
     def test_other_location_pattern(self, page, live_server):
         """Test that 'Other' location is recognized"""
         # Add test item
-        self.add_test_item(page, 'JA000203', 'M1-A', None)
+        self.add_test_item(page, live_server, 'JA000203', 'M1-A', None)
 
         # Navigate to move page
-        page.goto('/inventory/move')
+        page.goto(f'{live_server.url()}/inventory/move')
         page.wait_for_load_state('networkidle')
 
         barcode_input = page.locator('#barcode-input')
