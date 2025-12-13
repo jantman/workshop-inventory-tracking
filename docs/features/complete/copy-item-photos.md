@@ -266,8 +266,148 @@ Comprehensive unit and e2e tests must cover:
 
 ## Implementation Plan
 
-*This section will be completed during the planning phase.*
+The feature is broken down into 8 milestones, each requiring human approval before proceeding to the next:
+
+### Milestone 1: Database Schema Refactoring & Migration
+**Prefix: `Copy Item Photos - M1`**
+
+- **M1.1**: Create Alembic migration (new tables: `photos`, `item_photo_associations`, data migration, verification, drop old table)
+- **M1.2**: Update database models (create `Photo` and `ItemPhotoAssociation` classes in `app/database.py`)
+- **M1.3**: Run migration and verify (test migration, verify data integrity, run full test suites)
+
+### Milestone 2: PhotoService Refactoring
+**Prefix: `Copy Item Photos - M2`**
+
+- **M2.1**: Refactor core PhotoService methods for new schema
+- **M2.2**: Add `copy_photos(source_ja_id, target_ja_id)` method
+- **M2.3**: Update PhotoService unit tests
+
+### Milestone 3: Automatic Photo Copying During Duplication
+**Prefix: `Copy Item Photos - M3`**
+
+- **M3.1**: Update duplicate item endpoint to copy photos automatically
+- **M3.2**: Add E2E tests for duplication with photos
+
+### Milestone 4: Backend API for Manual Photo Copying
+**Prefix: `Copy Item Photos - M4`**
+
+- **M4.1**: Create `POST /api/photos/copy` endpoint
+- **M4.2**: Add unit tests for API endpoint
+
+### Milestone 5: Frontend Photo Clipboard State Management
+**Prefix: `Copy Item Photos - M5`**
+
+- **M5.1**: Implement photo clipboard in JavaScript
+- **M5.2**: Add visual indicator banner
+- **M5.3**: Update CSS/styling
+
+### Milestone 6: Frontend Options Dropdown Integration
+**Prefix: `Copy Item Photos - M6`**
+
+- **M6.1**: Add Options menu items (Copy/Paste/Clear)
+- **M6.2**: Wire up event handlers
+- **M6.3**: Add toast notifications
+
+### Milestone 7: E2E Tests & Final Validation
+**Prefix: `Copy Item Photos - M7`**
+
+- **M7.1**: Create E2E tests for manual photo copying
+- **M7.2**: Update existing E2E tests
+- **M7.3**: Run complete test suites
+
+### Milestone 8: Documentation & Final Polish
+**Prefix: `Copy Item Photos - M8`**
+
+- **M8.1**: Update user documentation
+- **M8.2**: Update technical documentation
+- **M8.3**: Update feature documentation
+- **M8.4**: Final testing & validation
+
+**Dependencies**: M1 → M2 → M3 (sequential); M1 → M2 → M4 → M5 → M6 (sequential); M7 depends on M3 and M6; M8 depends on M7
+
+**Implementation Notes**:
+- Photo copying only applies to the duplicate endpoint (which supports quantity > 1)
+- The "Create Multiple" workflow creates brand new items (no source to copy from)
+- SHA256 deduplication column included in schema but implementation deferred as optional
 
 ## Progress
 
-*This section will be updated as milestones and tasks are completed.*
+### Completed Milestones
+
+**✅ Milestone 1: Database Schema Refactoring & Migration** (Complete)
+- M1.1: ✅ Created Alembic migration for schema refactoring
+- M1.2: ✅ Updated database models (Photo and ItemPhotoAssociation)
+- M1.3: ✅ Ran migration successfully - 34 photos migrated, data integrity verified
+
+**✅ Milestone 2: PhotoService Refactoring** (Complete)
+- M2.1: ✅ Refactored all core PhotoService methods for new schema
+- M2.2: ✅ Added `copy_photos(source_ja_id, target_ja_id)` method
+- M2.3: ✅ Updated PhotoService unit tests (152/152 passing)
+
+**✅ Milestone 3: Automatic Photo Copying During Duplication** (Complete)
+- M3.1: ✅ Updated duplicate_item endpoint to automatically copy photos after each duplicate
+- M3.2: ✅ Added comprehensive E2E tests for photo duplication (all pass in isolation)
+- Photos automatically copied during both single and bulk duplication
+- Success messages updated to include photo counts
+- **Verified**: BLOB data NOT duplicated - only association records created
+- Fixed audit logging to use correct parameter name (form_data)
+
+**✅ Milestone 4: Backend API for Manual Photo Copying** (Complete)
+- M4.1: ✅ Created POST /api/photos/copy endpoint with full error handling
+- M4.2: ✅ Added 9 comprehensive unit tests for API endpoint (all passing)
+- Endpoint supports copying from 1 source to multiple targets
+- Returns appropriate status codes: 200 (success), 207 (partial), 400 (bad request), 500 (error)
+- Validates source has photos before attempting copy
+- Provides detailed per-item results in response
+- Audit logging for all photo copy operations
+
+**✅ Milestone 5: Frontend Photo Clipboard State Management** (Complete)
+- M5.1: ✅ Implemented photo clipboard in JavaScript
+- M5.2: ✅ Added visual indicator banner with info text and clear button
+- M5.3: ✅ Updated CSS/styling with custom banner styling and animations
+- Photo clipboard state persists across page navigation via sessionStorage
+- Banner shows/hides automatically based on clipboard state
+- Methods implemented: loadPhotoClipboard(), savePhotoClipboard(), copyPhotosFromSelected(), pastePhotosToSelected(), clearPhotoClipboard(), updatePhotoClipboardUI()
+- UI updates dynamically based on selection and clipboard state
+
+**✅ Milestone 6: Frontend Options Dropdown Integration** (Complete)
+- M6.1: ✅ Added Options menu items (completed in M5.2)
+  - "Copy Photos From This Item" button added to dropdown
+  - "Paste Photos To Selected" button added to dropdown
+  - Both start disabled, enabled by JavaScript based on state
+- M6.2: ✅ Wired up event handlers (completed in M5.1)
+  - Event listeners bound in bindEvents() method
+  - copyPhotosBtn → copyPhotosFromSelected()
+  - pastePhotosBtn → pastePhotosToSelected()
+  - clearPhotoClipboardBtn → clearPhotoClipboard()
+- M6.3: ✅ Toast notifications implemented
+  - Updated showToast() to support 'warning' type
+  - All photo clipboard operations show appropriate notifications
+  - Success, error, warning, and info messages implemented
+
+**✅ Milestone 7: E2E Tests & Final Validation** (Complete)
+- M7.1: ✅ Created comprehensive E2E tests for manual photo copying
+  - Test copy/paste single target
+  - Test copy/paste multiple targets
+  - Test append behavior (photos added to existing)
+  - Test error handling (no photos to copy)
+  - Test clear clipboard functionality
+  - Test BLOB duplication prevention
+  - Test button enable/disable states
+- M7.2: ✅ Fixed test isolation by clearing photo tables between tests
+  - Added Photo and ItemPhotoAssociation to clear_test_data()
+  - Fixed duplicate_item tests that were failing due to photo persistence
+- M7.3: ✅ Fixed button state management for anchor elements
+  - Fixed enable/disable logic to use removeAttribute/setAttribute
+  - All 239 E2E tests passing (232 existing + 7 new photo copy tests)
+  - All 161 unit tests passing
+
+**✅ Milestone 8: Documentation & Final Polish** (Complete)
+- M8.1: ✅ Updated user documentation with photo copying workflows
+- M8.2: ✅ Updated technical documentation
+- M8.3: ✅ Updated feature documentation (this file)
+- M8.4: ✅ Final validation complete - all tests passing
+
+## Implementation Complete ✅
+
+All 8 milestones completed successfully. The Copy Item Photos feature is fully implemented, tested, and documented.

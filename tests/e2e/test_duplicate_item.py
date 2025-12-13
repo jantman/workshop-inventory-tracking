@@ -320,14 +320,14 @@ def test_duplicate_field_copying_comprehensive(page, live_server):
 
 
 @pytest.mark.e2e
-def test_duplicate_photos_not_copied(page, live_server):
-    """Test that photos are NOT copied to duplicated items"""
+def test_duplicate_item_with_no_photos(page, live_server):
+    """Test duplicating an item with no photos - duplicate should also have no photos"""
     from app.database import InventoryItem
     from app.mariadb_inventory_service import InventoryService
     from app.photo_service import PhotoService
     service = InventoryService(live_server.storage)
 
-    # Create item
+    # Create item without photos
     item = InventoryItem(
         ja_id="JA000105",
         item_type="Bar",
@@ -337,10 +337,6 @@ def test_duplicate_photos_not_copied(page, live_server):
         active=True
     )
     service.add_item(item)
-
-    # Note: Photos are managed separately through PhotoService
-    # This test verifies the duplicate functionality doesn't attempt to copy photos
-    # which are stored in a separate table
 
     dup_page = DuplicateItemPage(page, live_server.url)
     dup_page.navigate_to_edit_page("JA000105")
@@ -354,11 +350,302 @@ def test_duplicate_photos_not_copied(page, live_server):
     steel_items = [i for i in all_items if i.material == "Steel" and i.location == "Storage C"]
     duplicate = [i for i in steel_items if i.ja_id != "JA000105"][0]
 
-    # Verify duplicate was created successfully
-    # Photos are in a separate table, so we just verify the duplicate exists
+    # Verify both original and duplicate have no photos
+    with PhotoService(live_server.storage) as photo_service:
+        original_photos = photo_service.get_photos("JA000105")
+        dup_photos = photo_service.get_photos(duplicate.ja_id)
+        assert len(original_photos) == 0, "Original should have no photos"
+        assert len(dup_photos) == 0, "Duplicate should have no photos"
+
+
+@pytest.mark.e2e
+def test_duplicate_item_with_single_photo(page, live_server):
+    """Test duplicating an item with 1 photo - photo should be copied to duplicate"""
+    from app.database import InventoryItem
+    from app.mariadb_inventory_service import InventoryService
+    from app.photo_service import PhotoService
+    from PIL import Image
+    import tempfile
+    import os
+
+    service = InventoryService(live_server.storage)
+
+    # Create item
+    item = InventoryItem(
+        ja_id="JA000120",
+        item_type="Bar",
+        material="Aluminum",
+        length=24.0,
+        location="Shop",
+        active=True
+    )
+    service.add_item(item)
+
+    # Create a test photo
+    image = Image.new('RGB', (200, 200), color='red')
+    temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+    image.save(temp_file.name, format='JPEG', quality=90)
+    temp_file.close()
+
+    # Upload photo to original item
+    with PhotoService(live_server.storage) as photo_service:
+        with open(temp_file.name, 'rb') as f:
+            photo_data = f.read()
+        photo_service.upload_photo("JA000120", photo_data, "test.jpg", "image/jpeg")
+
+    os.unlink(temp_file.name)
+
+    # Verify original has 1 photo
+    with PhotoService(live_server.storage) as photo_service:
+        original_photos = photo_service.get_photos("JA000120")
+        assert len(original_photos) == 1
+
+    dup_page = DuplicateItemPage(page, live_server.url)
+    dup_page.navigate_to_edit_page("JA000120")
+
+    # Create duplicate
+    dup_page.click_duplicate_button()
+    dup_page.click_create_duplicates_button()
+
+    # Verify success message mentions photo
+    toast_msg = dup_page.get_toast_message()
+    assert "1 photo" in toast_msg.lower()
+
+    # Get the duplicate
+    all_items = service.get_all_items()
+    alu_items = [i for i in all_items if i.material == "Aluminum" and i.location == "Shop"]
+    duplicate = [i for i in alu_items if i.ja_id != "JA000120"][0]
+
+    # Verify duplicate has 1 photo
     with PhotoService(live_server.storage) as photo_service:
         dup_photos = photo_service.get_photos(duplicate.ja_id)
-        assert len(dup_photos) == 0, "Duplicate should have no photos"
+        assert len(dup_photos) == 1, "Duplicate should have 1 photo copied"
+
+
+@pytest.mark.e2e
+def test_duplicate_item_with_multiple_photos(page, live_server):
+    """Test duplicating an item with multiple photos - all photos should be copied"""
+    from app.database import InventoryItem
+    from app.mariadb_inventory_service import InventoryService
+    from app.photo_service import PhotoService
+    from PIL import Image
+    import tempfile
+    import os
+
+    service = InventoryService(live_server.storage)
+
+    # Create item
+    item = InventoryItem(
+        ja_id="JA000121",
+        item_type="Plate",
+        material="Copper",
+        length=12.0,
+        width=6.0,
+        location="Materials Rack",
+        active=True
+    )
+    service.add_item(item)
+
+    # Upload 3 photos to original item
+    with PhotoService(live_server.storage) as photo_service:
+        for i, color in enumerate(['red', 'green', 'blue']):
+            image = Image.new('RGB', (200, 200), color=color)
+            temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            image.save(temp_file.name, format='JPEG', quality=90)
+            temp_file.close()
+
+            with open(temp_file.name, 'rb') as f:
+                photo_data = f.read()
+            photo_service.upload_photo("JA000121", photo_data, f"photo{i+1}.jpg", "image/jpeg")
+            os.unlink(temp_file.name)
+
+    # Verify original has 3 photos
+    with PhotoService(live_server.storage) as photo_service:
+        original_photos = photo_service.get_photos("JA000121")
+        assert len(original_photos) == 3
+
+    dup_page = DuplicateItemPage(page, live_server.url)
+    dup_page.navigate_to_edit_page("JA000121")
+
+    # Create duplicate
+    dup_page.click_duplicate_button()
+    dup_page.click_create_duplicates_button()
+
+    # Verify success message mentions 3 photos
+    toast_msg = dup_page.get_toast_message()
+    assert "3 photo" in toast_msg.lower()
+
+    # Get the duplicate
+    all_items = service.get_all_items()
+    copper_items = [i for i in all_items if i.material == "Copper"]
+    duplicate = [i for i in copper_items if i.ja_id != "JA000121"][0]
+
+    # Verify duplicate has 3 photos
+    with PhotoService(live_server.storage) as photo_service:
+        dup_photos = photo_service.get_photos(duplicate.ja_id)
+        assert len(dup_photos) == 3, "Duplicate should have all 3 photos copied"
+
+
+@pytest.mark.e2e
+def test_duplicate_bulk_with_photos(page, live_server):
+    """Test bulk duplication (quantity > 1) with photos - all duplicates should get photos"""
+    from app.database import InventoryItem
+    from app.mariadb_inventory_service import InventoryService
+    from app.photo_service import PhotoService
+    from PIL import Image
+    import tempfile
+    import os
+
+    service = InventoryService(live_server.storage)
+
+    # Create item
+    item = InventoryItem(
+        ja_id="JA000122",
+        item_type="Bar",
+        material="Brass",
+        length=36.0,
+        location="Bin A",
+        active=True
+    )
+    service.add_item(item)
+
+    # Upload 2 photos to original item
+    with PhotoService(live_server.storage) as photo_service:
+        for i, color in enumerate(['yellow', 'orange']):
+            image = Image.new('RGB', (200, 200), color=color)
+            temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            image.save(temp_file.name, format='JPEG', quality=90)
+            temp_file.close()
+
+            with open(temp_file.name, 'rb') as f:
+                photo_data = f.read()
+            photo_service.upload_photo("JA000122", photo_data, f"photo{i+1}.jpg", "image/jpeg")
+            os.unlink(temp_file.name)
+
+    # Verify original has 2 photos
+    with PhotoService(live_server.storage) as photo_service:
+        original_photos = photo_service.get_photos("JA000122")
+        assert len(original_photos) == 2
+
+    dup_page = DuplicateItemPage(page, live_server.url)
+    dup_page.navigate_to_edit_page("JA000122")
+
+    # Create 5 duplicates
+    dup_page.click_duplicate_button()
+    dup_page.set_duplicate_quantity(5)
+    dup_page.click_create_duplicates_button()
+
+    # Verify success message mentions 2 photos for each item
+    toast_msg = dup_page.get_toast_message()
+    assert "5" in toast_msg
+    assert "2 photo" in toast_msg.lower()
+
+    # Get all duplicates
+    all_items = service.get_all_items()
+    brass_items = [i for i in all_items if i.material == "Brass" and i.location == "Bin A"]
+    duplicates = [i for i in brass_items if i.ja_id != "JA000122"]
+
+    # Verify 5 duplicates were created
+    assert len(duplicates) == 5, "Should have created 5 duplicates"
+
+    # Verify each duplicate has 2 photos
+    with PhotoService(live_server.storage) as photo_service:
+        for duplicate in duplicates:
+            dup_photos = photo_service.get_photos(duplicate.ja_id)
+            assert len(dup_photos) == 2, f"Duplicate {duplicate.ja_id} should have 2 photos"
+
+
+@pytest.mark.e2e
+def test_duplicate_photos_no_blob_duplication(page, live_server):
+    """CRITICAL: Verify photo BLOBs are NOT duplicated - only associations are created"""
+    from app.database import InventoryItem, Photo, ItemPhotoAssociation
+    from app.mariadb_inventory_service import InventoryService
+    from app.photo_service import PhotoService
+    from PIL import Image
+    import tempfile
+    import os
+    from sqlalchemy import func
+
+    service = InventoryService(live_server.storage)
+
+    # Create item
+    item = InventoryItem(
+        ja_id="JA000123",
+        item_type="Sheet",
+        material="Stainless Steel",
+        length=48.0,
+        width=24.0,
+        location="Materials Storage",
+        active=True
+    )
+    service.add_item(item)
+
+    # Upload 2 photos to original item
+    with PhotoService(live_server.storage) as photo_service:
+        for i, color in enumerate(['purple', 'pink']):
+            image = Image.new('RGB', (300, 300), color=color)
+            temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            image.save(temp_file.name, format='JPEG', quality=90)
+            temp_file.close()
+
+            with open(temp_file.name, 'rb') as f:
+                photo_data = f.read()
+            photo_service.upload_photo("JA000123", photo_data, f"photo{i+1}.jpg", "image/jpeg")
+            os.unlink(temp_file.name)
+
+    # Count photos BEFORE duplication
+    with PhotoService(live_server.storage) as photo_service:
+        photo_count_before = photo_service.session.query(func.count(Photo.id)).scalar()
+        assoc_count_before = photo_service.session.query(func.count(ItemPhotoAssociation.id)).scalar()
+
+    dup_page = DuplicateItemPage(page, live_server.url)
+    dup_page.navigate_to_edit_page("JA000123")
+
+    # Create 3 duplicates
+    dup_page.click_duplicate_button()
+    dup_page.set_duplicate_quantity(3)
+    dup_page.click_create_duplicates_button()
+
+    # Wait for duplication to complete
+    page.wait_for_timeout(1000)
+
+    # Count photos AFTER duplication
+    with PhotoService(live_server.storage) as photo_service:
+        photo_count_after = photo_service.session.query(func.count(Photo.id)).scalar()
+        assoc_count_after = photo_service.session.query(func.count(ItemPhotoAssociation.id)).scalar()
+
+    # CRITICAL ASSERTIONS: BLOB data should NOT be duplicated
+    assert photo_count_after == photo_count_before, \
+        f"Photo BLOB count should remain {photo_count_before} (no duplication), but got {photo_count_after}"
+
+    # Association count should increase by (2 photos × 3 duplicates) = 6
+    expected_assoc_increase = 2 * 3
+    actual_assoc_increase = assoc_count_after - assoc_count_before
+    assert actual_assoc_increase == expected_assoc_increase, \
+        f"Association count should increase by {expected_assoc_increase}, but increased by {actual_assoc_increase}"
+
+    # Verify duplicates can access the photos (associations work correctly)
+    all_items = service.get_all_items()
+    ss_items = [i for i in all_items if i.material == "Stainless Steel"]
+    duplicates = [i for i in ss_items if i.ja_id != "JA000123"]
+
+    assert len(duplicates) == 3, "Should have 3 duplicates"
+
+    with PhotoService(live_server.storage) as photo_service:
+        # Verify original still has 2 photos
+        original_photos = photo_service.get_photos("JA000123")
+        assert len(original_photos) == 2
+
+        # Verify each duplicate has 2 photos
+        for duplicate in duplicates:
+            dup_photos = photo_service.get_photos(duplicate.ja_id)
+            assert len(dup_photos) == 2
+
+            # Verify duplicates reference the SAME photo IDs as original (no duplication)
+            original_photo_ids = sorted([p.photo_id for p in original_photos])
+            dup_photo_ids = sorted([p.photo_id for p in dup_photos])
+            assert original_photo_ids == dup_photo_ids, \
+                f"Duplicate {duplicate.ja_id} should reference same photo IDs as original"
 
 
 @pytest.mark.e2e

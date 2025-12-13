@@ -6,11 +6,12 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -684,72 +685,126 @@ class MaterialTaxonomy(Base):
             self.aliases = None
 
 
-class ItemPhoto(Base):
+class Photo(Base):
     """
-    Item photos table.
-    
-    Stores photos associated with inventory items via ja_id.
+    Photos table for storing actual photo data.
+
+    Stores photo BLOB data once, referenced by multiple items via item_photo_associations.
     Each photo is stored in three sizes: thumbnail (~150px), medium (~800px), and original.
     """
-    __tablename__ = 'item_photos'
-    
+    __tablename__ = 'photos'
+
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # Foreign key to ja_id (not item.id to maintain association across shortening history)
-    ja_id = Column(String(10), nullable=False, index=True)
-    
+
     # File metadata
     filename = Column(String(255), nullable=False)  # Original filename
     content_type = Column(String(100), nullable=False)  # MIME type
     file_size = Column(Integer, nullable=False)  # Original file size in bytes
-    
+
     # Photo data in three sizes
     # Use MEDIUMBLOB for MySQL/MariaDB, fall back to LargeBinary for SQLite tests
     thumbnail_data = Column(LargeBinary, nullable=False)  # ~150px compressed (BLOB, up to 64KB)
     medium_data = Column(LargeBinary().with_variant(MEDIUMBLOB, 'mysql'), nullable=False)  # ~800px compressed (MEDIUMBLOB on MySQL, up to 16MB)
     original_data = Column(LargeBinary().with_variant(MEDIUMBLOB, 'mysql'), nullable=False)  # Original up to 20MB (MEDIUMBLOB on MySQL, up to 16MB)
-    
+
+    # Optional hash for deduplication
+    sha256_hash = Column(String(64), nullable=True, index=True)  # SHA256 hash of original data
+
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=func.now(), index=True)
+    created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
-    
+
     # Constraints
     __table_args__ = (
-        # Ensure valid JA ID format
-        CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_photo_valid_ja_id_format'),
-        
         # Ensure positive file size
         CheckConstraint('file_size > 0', name='ck_photo_positive_file_size'),
-        
+
         # Validate supported content types
         CheckConstraint(
-            "content_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf')", 
+            "content_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf')",
             name='ck_photo_valid_content_type'
         ),
     )
-    
+
     def __repr__(self):
-        return f"<ItemPhoto(id={self.id}, ja_id='{self.ja_id}', filename='{self.filename}', content_type='{self.content_type}')>"
-    
+        return f"<Photo(id={self.id}, filename='{self.filename}', content_type='{self.content_type}', size={self.file_size})>"
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses (excludes binary data)"""
         return {
             'id': self.id,
-            'ja_id': self.ja_id,
             'filename': self.filename,
             'content_type': self.content_type,
             'file_size': self.file_size,
+            'sha256_hash': self.sha256_hash,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
-    
+
     @property
     def is_image(self) -> bool:
         """Check if the photo is an image (not PDF)"""
         return self.content_type.startswith('image/')
-    
+
     @property
     def is_pdf(self) -> bool:
         """Check if the photo is a PDF"""
         return self.content_type == 'application/pdf'
+
+
+class ItemPhotoAssociation(Base):
+    """
+    Item-photo associations table for many-to-many relationships.
+
+    Links inventory items (via ja_id) to photos, allowing multiple items to share the same photo.
+    """
+    __tablename__ = 'item_photo_associations'
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to ja_id (not item.id to maintain association across shortening history)
+    ja_id = Column(String(10), nullable=False, index=True)
+
+    # Foreign key to photo
+    photo_id = Column(Integer, ForeignKey('photos.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Display order for this item's photos
+    display_order = Column(Integer, nullable=False, default=0)
+
+    # Timestamp
+    created_at = Column(DateTime, nullable=False, default=func.now())
+
+    # Relationship to Photo
+    photo = relationship('Photo', backref='associations')
+
+    # Constraints
+    __table_args__ = (
+        # Ensure valid JA ID format
+        CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_assoc_valid_ja_id'),
+
+        # Unique constraint: each photo can appear only once per item at a specific order
+        # (ja_id, photo_id, display_order) must be unique
+        UniqueConstraint('ja_id', 'photo_id', 'display_order', name='uk_ja_photo_order'),
+
+        # Index for efficient lookups
+        Index('ix_item_photo_associations_ja_id_order', 'ja_id', 'display_order'),
+    )
+
+    def __repr__(self):
+        return f"<ItemPhotoAssociation(id={self.id}, ja_id='{self.ja_id}', photo_id={self.photo_id}, order={self.display_order})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        result = {
+            'id': self.id,
+            'ja_id': self.ja_id,
+            'photo_id': self.photo_id,
+            'display_order': self.display_order,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        # Include photo data if available
+        if self.photo:
+            result['photo'] = self.photo.to_dict()
+        return result

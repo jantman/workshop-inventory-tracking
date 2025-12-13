@@ -37,7 +37,12 @@
       "mcp__github__add_comment_to_pending_review",
       "Bash(pip show:*)",
       "Bash(pip index versions:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(./venv/bin/python -m pytest tests/unit/ --tb=short -v)",
+      "Bash(./venv/bin/python -m pytest tests/unit/ --tb=short -q)",
+      "Bash(./venv/bin/python -m pytest tests/e2e/ --tb=short)",
+      "Bash(./venv/bin/python -m pytest tests/unit/test_routes.py::TestPhotoCopyAPI -v)",
+      "Bash(./venv/bin/python -m pytest:*)"
     ],
     "deny": [],
     "ask": []

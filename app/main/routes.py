@@ -566,6 +566,7 @@ def duplicate_item(ja_id):
             next_number = 1
 
         created_ja_ids = []
+        photos_copied_per_item = 0  # Track photo count for success message
 
         # Create N duplicates with sequential JA IDs
         for i in range(quantity):
@@ -634,6 +635,22 @@ def duplicate_item(ja_id):
 
             if success:
                 created_ja_ids.append(created_ja_id)
+
+                # Copy photos from source item to duplicate
+                try:
+                    from app.photo_service import PhotoService
+                    with PhotoService(_get_storage_backend()) as photo_service:
+                        photo_count = photo_service.copy_photos(ja_id, created_ja_id)
+                        if i == 0:  # Store count from first duplicate (all should be same)
+                            photos_copied_per_item = photo_count
+                        if photo_count > 0:
+                            current_app.logger.info(f"Copied {photo_count} photos from {ja_id} to {created_ja_id}")
+                            log_audit_operation('copy_photos', 'success',
+                                              item_id=created_ja_id,
+                                              form_data={'source_ja_id': ja_id, 'photos_copied': photo_count})
+                except Exception as photo_error:
+                    current_app.logger.warning(f"Failed to copy photos from {ja_id} to {created_ja_id}: {photo_error}")
+                    # Don't fail the entire duplication if photo copying fails
             else:
                 current_app.logger.error(f'Failed to duplicate item {i+1}/{quantity}: {new_ja_id} - {error_msg}')
 
@@ -641,18 +658,20 @@ def duplicate_item(ja_id):
         if len(created_ja_ids) == quantity:
             first_id = created_ja_ids[0]
             last_id = created_ja_ids[-1]
+            photo_msg = f' {photos_copied_per_item} photos copied to each item.' if photos_copied_per_item > 0 else ''
             return jsonify({
                 'success': True,
                 'count': len(created_ja_ids),
                 'ja_ids': created_ja_ids,
-                'message': f'Successfully created {len(created_ja_ids)} duplicate(s): {first_id} - {last_id}'
+                'message': f'Successfully created {len(created_ja_ids)} duplicate(s): {first_id} - {last_id}.{photo_msg}'
             }), 200
         elif len(created_ja_ids) > 0:
+            photo_msg = f' {photos_copied_per_item} photos copied to each successful item.' if photos_copied_per_item > 0 else ''
             return jsonify({
                 'success': False,
                 'count': len(created_ja_ids),
                 'ja_ids': created_ja_ids,
-                'error': f'Created {len(created_ja_ids)} of {quantity} duplicates. Some failed.'
+                'error': f'Created {len(created_ja_ids)} of {quantity} duplicates. Some failed.{photo_msg}'
             }), 500
         else:
             return jsonify({
@@ -2419,6 +2438,147 @@ def regenerate_pdf_thumbnails():
             'success': False,
             'error': f'Failed to regenerate PDF thumbnails: {str(e)}'
         }), 500
+
+
+@bp.route('/api/photos/copy', methods=['POST'])
+@csrf.exempt
+def copy_photos():
+    """
+    Copy photos from one item to one or more target items.
+
+    Request JSON:
+        {
+            "source_ja_id": "JA000123",
+            "target_ja_ids": ["JA000456", "JA000789"]
+        }
+
+    Response JSON:
+        {
+            "success": true,
+            "photos_copied": 3,
+            "items_updated": 2,
+            "details": [
+                {"ja_id": "JA000456", "photos_copied": 3, "success": true},
+                {"ja_id": "JA000789", "photos_copied": 3, "success": true}
+            ]
+        }
+    """
+    try:
+        data = request.get_json()
+
+        # Validate request data
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No JSON data provided'
+            }), 400
+
+        source_ja_id = data.get('source_ja_id')
+        target_ja_ids = data.get('target_ja_ids', [])
+
+        if not source_ja_id:
+            return jsonify({
+                'success': False,
+                'error': 'source_ja_id is required'
+            }), 400
+
+        if not target_ja_ids or not isinstance(target_ja_ids, list):
+            return jsonify({
+                'success': False,
+                'error': 'target_ja_ids must be a non-empty list'
+            }), 400
+
+        if len(target_ja_ids) == 0:
+            return jsonify({
+                'success': False,
+                'error': 'At least one target JA ID is required'
+            }), 400
+
+        # Copy photos to each target item
+        from app.photo_service import PhotoService
+
+        with PhotoService(_get_storage_backend()) as photo_service:
+            # Check if source item exists and has photos
+            source_photos = photo_service.get_photos(source_ja_id)
+
+            if not source_photos:
+                return jsonify({
+                    'success': False,
+                    'error': f'Source item {source_ja_id} has no photos to copy'
+                }), 400
+
+            photos_per_item = len(source_photos)
+            details = []
+            successful_count = 0
+
+            for target_ja_id in target_ja_ids:
+                try:
+                    copied_count = photo_service.copy_photos(source_ja_id, target_ja_id)
+                    details.append({
+                        'ja_id': target_ja_id,
+                        'photos_copied': copied_count,
+                        'success': True
+                    })
+                    successful_count += 1
+
+                    # Log audit operation
+                    log_audit_operation('copy_photos', 'success',
+                                      item_id=target_ja_id,
+                                      form_data={
+                                          'source_ja_id': source_ja_id,
+                                          'photos_copied': copied_count
+                                      })
+
+                except ValueError as e:
+                    # Item not found or other validation error
+                    current_app.logger.warning(f'Failed to copy photos to {target_ja_id}: {e}')
+                    details.append({
+                        'ja_id': target_ja_id,
+                        'photos_copied': 0,
+                        'success': False,
+                        'error': str(e)
+                    })
+                except Exception as e:
+                    # Unexpected error
+                    current_app.logger.error(f'Error copying photos to {target_ja_id}: {e}')
+                    details.append({
+                        'ja_id': target_ja_id,
+                        'photos_copied': 0,
+                        'success': False,
+                        'error': f'Unexpected error: {str(e)}'
+                    })
+
+            # Determine overall success
+            all_succeeded = successful_count == len(target_ja_ids)
+
+            response = {
+                'success': all_succeeded,
+                'photos_copied': photos_per_item,
+                'items_updated': successful_count,
+                'details': details
+            }
+
+            # If partial success, return 207 Multi-Status
+            # If all failed, return 500
+            # If all succeeded, return 200
+            if successful_count == 0:
+                response['error'] = 'Failed to copy photos to any target items'
+                return jsonify(response), 500
+            elif not all_succeeded:
+                response['warning'] = f'Copied photos to {successful_count} of {len(target_ja_ids)} items'
+                return jsonify(response), 207
+            else:
+                return jsonify(response), 200
+
+    except Exception as e:
+        current_app.logger.error(f'Photo copy API error: {e}')
+        log_audit_operation('copy_photos', 'error',
+                          error_details=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Failed to copy photos: {str(e)}'
+        }), 500
+
 
 # Error handlers for the blueprint
 @bp.errorhandler(404)

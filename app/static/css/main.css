@@ -768,19 +768,68 @@ kbd {
     .history-timeline {
         padding-left: 1.5rem;
     }
-    
+
     .timeline-marker {
         left: -1.375rem;
         width: 1.5rem;
         height: 1.5rem;
         font-size: 0.75rem;
     }
-    
+
     .timeline-item {
         padding-left: 0.75rem;
     }
-    
+
     .history-timeline::before {
         left: -0.625rem;
+    }
+}
+
+/* Photo Clipboard Banner */
+#photo-clipboard-banner {
+    background-color: #cfe2ff;
+    border: 1px solid #9ec5fe;
+    border-left: 4px solid var(--info-color);
+    animation: slideDown 0.3s ease;
+}
+
+#photo-clipboard-banner i.bi-clipboard {
+    font-size: 1.25rem;
+    margin-right: 0.5rem;
+    color: #084298;
+}
+
+#photo-clipboard-banner #photo-clipboard-info {
+    font-weight: 500;
+    color: #084298;
+}
+
+#photo-clipboard-banner #clear-photo-clipboard-btn {
+    border-color: #084298;
+    color: #084298;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+#photo-clipboard-banner #clear-photo-clipboard-btn:hover:not(:disabled) {
+    background-color: #084298;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+#photo-clipboard-banner #clear-photo-clipboard-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }

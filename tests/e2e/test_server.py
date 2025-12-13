@@ -15,7 +15,7 @@ from werkzeug.serving import make_server
 from app import create_app
 from app.mariadb_storage import MariaDBStorage
 from config import TestConfig
-from app.database import Base, InventoryItem, MaterialTaxonomy
+from app.database import Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -263,7 +263,9 @@ class E2ETestServer:
             Session = sessionmaker(bind=self.engine)
             session = Session()
             try:
-                # Delete all inventory items and materials taxonomy
+                # Delete all data (order matters due to foreign keys)
+                session.query(ItemPhotoAssociation).delete()
+                session.query(Photo).delete()
                 session.query(InventoryItem).delete()
                 session.query(MaterialTaxonomy).delete()
                 session.commit()

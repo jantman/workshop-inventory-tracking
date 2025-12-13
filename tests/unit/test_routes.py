@@ -284,3 +284,246 @@ class TestAPIConsistency:
 
         # Should have message
         assert 'message' in data, "Error response missing 'message' field"
+
+
+@pytest.mark.unit
+class TestPhotoCopyAPI:
+    """Test the POST /api/photos/copy endpoint for manual photo copying"""
+
+    @pytest.fixture
+    def mock_photo_service(self):
+        """Mock PhotoService for testing"""
+        with patch('app.photo_service.PhotoService') as mock:
+            yield mock
+
+    def test_copy_photos_success_single_target(self, client, mock_photo_service):
+        """Test successful photo copy to single target item"""
+        # Mock PhotoService context manager
+        mock_service_instance = MagicMock()
+        mock_photo_service.return_value.__enter__.return_value = mock_service_instance
+
+        # Mock source has 3 photos
+        mock_assoc1 = MagicMock()
+        mock_assoc1.id = 1
+        mock_assoc2 = MagicMock()
+        mock_assoc2.id = 2
+        mock_assoc3 = MagicMock()
+        mock_assoc3.id = 3
+        mock_service_instance.get_photos.return_value = [mock_assoc1, mock_assoc2, mock_assoc3]
+
+        # Mock copy_photos returns 3
+        mock_service_instance.copy_photos.return_value = 3
+
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100',
+                'target_ja_ids': ['JA000200']
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['photos_copied'] == 3
+        assert data['items_updated'] == 1
+        assert len(data['details']) == 1
+        assert data['details'][0]['ja_id'] == 'JA000200'
+        assert data['details'][0]['photos_copied'] == 3
+        assert data['details'][0]['success'] is True
+
+        # Verify copy_photos was called
+        mock_service_instance.copy_photos.assert_called_once_with('JA000100', 'JA000200')
+
+    def test_copy_photos_success_multiple_targets(self, client, mock_photo_service):
+        """Test successful photo copy to multiple target items"""
+        mock_service_instance = MagicMock()
+        mock_photo_service.return_value.__enter__.return_value = mock_service_instance
+
+        # Mock source has 2 photos
+        mock_assoc1 = MagicMock()
+        mock_assoc2 = MagicMock()
+        mock_service_instance.get_photos.return_value = [mock_assoc1, mock_assoc2]
+        mock_service_instance.copy_photos.return_value = 2
+
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100',
+                'target_ja_ids': ['JA000200', 'JA000201', 'JA000202']
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['photos_copied'] == 2
+        assert data['items_updated'] == 3
+        assert len(data['details']) == 3
+
+        # All targets should have success
+        for detail in data['details']:
+            assert detail['success'] is True
+            assert detail['photos_copied'] == 2
+
+    def test_copy_photos_source_has_no_photos(self, client, mock_photo_service):
+        """Test error when source item has no photos"""
+        mock_service_instance = MagicMock()
+        mock_photo_service.return_value.__enter__.return_value = mock_service_instance
+
+        # Mock source has no photos
+        mock_service_instance.get_photos.return_value = []
+
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100',
+                'target_ja_ids': ['JA000200']
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'no photos' in data['error'].lower()
+
+    def test_copy_photos_missing_source_ja_id(self, client, mock_photo_service):
+        """Test error when source_ja_id is missing"""
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'target_ja_ids': ['JA000200']
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'source_ja_id is required' in data['error']
+
+    def test_copy_photos_missing_target_ja_ids(self, client, mock_photo_service):
+        """Test error when target_ja_ids is missing"""
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100'
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'target_ja_ids' in data['error']
+
+    def test_copy_photos_empty_target_list(self, client, mock_photo_service):
+        """Test error when target_ja_ids is empty"""
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100',
+                'target_ja_ids': []
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'target_ja_ids must be a non-empty list' in data['error']
+
+    def test_copy_photos_invalid_json(self, client, mock_photo_service):
+        """Test error when empty JSON object provided"""
+        response = client.post(
+            '/api/photos/copy',
+            json={},
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        # Empty JSON {} is treated as "no JSON data" by the if not data check
+        assert 'no json data' in data['error'].lower() or 'source_ja_id is required' in data['error']
+
+    def test_copy_photos_target_not_found(self, client, mock_photo_service):
+        """Test handling when target item doesn't exist"""
+        mock_service_instance = MagicMock()
+        mock_photo_service.return_value.__enter__.return_value = mock_service_instance
+
+        # Mock source has photos
+        mock_assoc = MagicMock()
+        mock_service_instance.get_photos.return_value = [mock_assoc]
+
+        # Mock copy_photos raises ValueError for non-existent item
+        mock_service_instance.copy_photos.side_effect = ValueError('Target item JA000999 not found')
+
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100',
+                'target_ja_ids': ['JA000999']
+            },
+            content_type='application/json'
+        )
+
+        assert response.status_code == 500
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert data['items_updated'] == 0
+        assert len(data['details']) == 1
+        assert data['details'][0]['success'] is False
+        assert 'not found' in data['details'][0]['error'].lower()
+
+    def test_copy_photos_partial_success(self, client, mock_photo_service):
+        """Test partial success when some targets fail"""
+        mock_service_instance = MagicMock()
+        mock_photo_service.return_value.__enter__.return_value = mock_service_instance
+
+        # Mock source has photos
+        mock_assoc = MagicMock()
+        mock_service_instance.get_photos.return_value = [mock_assoc]
+
+        # First call succeeds, second fails
+        mock_service_instance.copy_photos.side_effect = [
+            1,  # Success for JA000200
+            ValueError('Target item JA000999 not found')  # Fail for JA000999
+        ]
+
+        response = client.post(
+            '/api/photos/copy',
+            json={
+                'source_ja_id': 'JA000100',
+                'target_ja_ids': ['JA000200', 'JA000999']
+            },
+            content_type='application/json'
+        )
+
+        # Should return 207 Multi-Status for partial success
+        assert response.status_code == 207
+        data = response.get_json()
+
+        assert data['success'] is False  # Not all succeeded
+        assert data['items_updated'] == 1  # Only 1 succeeded
+        assert len(data['details']) == 2
+
+        # First target succeeded
+        assert data['details'][0]['success'] is True
+        assert data['details'][0]['ja_id'] == 'JA000200'
+
+        # Second target failed
+        assert data['details'][1]['success'] is False
+        assert data['details'][1]['ja_id'] == 'JA000999'
+        assert 'warning' in data
