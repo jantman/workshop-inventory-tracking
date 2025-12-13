@@ -8,16 +8,20 @@
 class InventoryMoveManager {
     constructor() {
         this.moveQueue = [];
-        this.currentExpectedInput = 'ja_id'; // 'ja_id' or 'location'
+        // State machine: 'ja_id', 'location', or 'ja_id_or_sub_location'
+        // 'ja_id_or_sub_location' means we've received a location and are waiting for
+        // either the next JA ID (no sub-location) or a sub-location string
+        this.currentExpectedInput = 'ja_id';
         this.currentJaId = null;
+        this.currentLocation = null;
         this.scannerTimeout = null;
         this.scannerDelay = 100; // ms delay to detect scanner input
         this.manualEntryMode = false;
-        
+
         this.initializeElements();
         this.bindEvents();
         this.updateUI();
-        
+
         console.log('InventoryMoveManager initialized');
     }
     
@@ -49,23 +53,77 @@ class InventoryMoveManager {
         this.validationResults = document.getElementById('validation-results');
     }
     
+    /**
+     * Location Pattern Validation Functions
+     *
+     * These functions implement the centralized location pattern validation logic
+     * matching the backend implementation in app/utils/location_validator.py
+     *
+     * Pattern Rules (applied in order):
+     * 1. JA ID: ^JA[0-9]+$
+     * 2. Location Patterns:
+     *    - Metal stock storage: ^M[0-9]+.*
+     *    - Threaded stock storage: ^T[0-9]+.*
+     *    - General storage: exact match "Other"
+     * 3. Sub-location: Any string NOT matching the above
+     */
+
+    isJaId(value) {
+        // JA ID pattern: JA followed by one or more digits
+        return /^JA[0-9]+$/.test(value);
+    }
+
+    isLocation(value) {
+        if (!value || value.length === 0) {
+            return false;
+        }
+
+        // Metal stock storage pattern
+        if (/^M[0-9]+.*/.test(value)) {
+            return true;
+        }
+
+        // Threaded stock storage pattern
+        if (/^T[0-9]+.*/.test(value)) {
+            return true;
+        }
+
+        // Exact match for "Other" (case-sensitive)
+        if (value === 'Other') {
+            return true;
+        }
+
+        return false;
+    }
+
+    classifyInput(value) {
+        // Classify input as 'ja_id', 'location', or 'sub_location'
+        if (this.isJaId(value)) {
+            return 'ja_id';
+        } else if (this.isLocation(value)) {
+            return 'location';
+        } else {
+            return 'sub_location';
+        }
+    }
+
     bindEvents() {
         // Barcode input handling
         this.barcodeInput.addEventListener('input', (e) => this.handleBarcodeInput(e));
         this.barcodeInput.addEventListener('keydown', (e) => this.handleKeyDown(e));
-        
+
         // Manual entry mode toggle
         this.manualEntryCheckbox.addEventListener('change', (e) => {
             this.manualEntryMode = e.target.checked;
             this.updateScannerStatus();
         });
-        
+
         // Button events
         this.clearAllBtn.addEventListener('click', () => this.clearAll());
         this.clearQueueBtn.addEventListener('click', () => this.clearQueue());
         this.validateBtn.addEventListener('click', () => this.validateMoves());
         this.executeMoveBtn.addEventListener('click', () => this.executeMoves());
-        
+
         // Focus on barcode input when page loads
         this.barcodeInput.focus();
     }
@@ -114,23 +172,58 @@ class InventoryMoveManager {
     }
     
     processInput() {
-        const value = this.barcodeInput.value.trim().toUpperCase();
-        
+        const value = this.barcodeInput.value.trim();
+
         if (!value) {
             this.showAlert('Please enter a value', 'warning');
             return;
         }
-        
+
         // Check for done code
         if (this.isDoneCode(value)) {
             this.handleDoneCode();
             return;
         }
-        
+
+        // Classify the input
+        const inputType = this.classifyInput(value);
+
+        // State machine for input processing
         if (this.currentExpectedInput === 'ja_id') {
-            this.handleJaIdInput(value);
-        } else {
-            this.handleLocationInput(value);
+            // Expecting a JA ID
+            if (inputType === 'ja_id') {
+                this.handleJaIdInput(value);
+            } else {
+                this.showAlert(`Expected JA ID but received ${inputType}. Please scan a JA ID (format: JA000123)`, 'warning');
+                this.clearInput();
+            }
+        } else if (this.currentExpectedInput === 'location') {
+            // Expecting a location
+            if (inputType === 'location') {
+                this.handleLocationInput(value);
+            } else if (inputType === 'ja_id') {
+                this.showAlert('Expected location but received JA ID. Please scan the location for this item.', 'warning');
+                this.clearInput();
+            } else {
+                this.showAlert('Expected location but received sub-location. Please scan a valid location (M*, T*, or Other).', 'warning');
+                this.clearInput();
+            }
+        } else if (this.currentExpectedInput === 'ja_id_or_sub_location') {
+            // After scanning location, we can receive either:
+            // - A JA ID (meaning no sub-location, start next move)
+            // - A sub-location (meaning we have a sub-location for current move)
+            // - A location would be an error
+            if (inputType === 'ja_id') {
+                // No sub-location for current move, finalize it and start new move
+                this.finalizeCurrentMove(null);
+                this.handleJaIdInput(value);
+            } else if (inputType === 'sub_location') {
+                // Sub-location for current move
+                this.handleSubLocationInput(value);
+            } else if (inputType === 'location') {
+                this.showAlert('Received two locations in a row. Did you forget to scan a JA ID?', 'warning');
+                this.clearInput();
+            }
         }
     }
     
@@ -140,95 +233,113 @@ class InventoryMoveManager {
     }
     
     handleJaIdInput(jaId) {
-        // Validate JA ID format
-        if (!this.isValidJaId(jaId)) {
-            this.showAlert(`Invalid JA ID format: ${jaId}. Expected format: JA000001`, 'danger');
-            this.clearInput();
-            return;
-        }
-        
         // Check if this JA ID is already in queue
         if (this.moveQueue.some(item => item.jaId === jaId)) {
             this.showAlert(`Item ${jaId} is already in the move queue`, 'warning');
             this.clearInput();
             return;
         }
-        
+
         // Store the JA ID and wait for location
         this.currentJaId = jaId;
         this.currentExpectedInput = 'location';
         this.clearInput();
-        this.updateStatus(`JA ID ${jaId} scanned. Now scan or enter the new location.`);
+        this.updateStatus(`JA ID ${jaId} scanned. Now scan or enter the location (M*, T*, or Other).`);
         this.updateScannerStatus('Waiting for Location');
     }
-    
-    async handleLocationInput(location) {
+
+    handleLocationInput(location) {
         if (!location || location.length < 1) {
             this.showAlert('Location cannot be empty', 'warning');
             return;
         }
-        
-        // Fetch current location for the item
+
+        // Store the location and wait for either JA ID or sub-location
+        this.currentLocation = location;
+        this.currentExpectedInput = 'ja_id_or_sub_location';
+        this.clearInput();
+        this.updateStatus(`Location ${location} scanned. Now scan the next JA ID or enter a sub-location (optional).`);
+        this.updateScannerStatus('Waiting for JA ID or Sub-Location');
+    }
+
+    handleSubLocationInput(subLocation) {
+        // Finalize current move with sub-location
+        this.finalizeCurrentMove(subLocation);
+        this.clearInput();
+    }
+
+    async finalizeCurrentMove(subLocation) {
+        // Fetch current location and sub-location for the item
         let currentLocation = 'Unknown';
+        let currentSubLocation = null;
         try {
             const response = await fetch(`/api/items/${this.currentJaId}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.success && data.item) {
                     currentLocation = data.item.location || 'Unknown';
+                    currentSubLocation = data.item.sub_location || null;
                 }
             }
         } catch (error) {
             console.warn('Could not fetch current location for item:', error);
             // currentLocation remains 'Unknown'
         }
-        
+
         // Add to move queue
         const moveItem = {
             jaId: this.currentJaId,
-            newLocation: location,
+            newLocation: this.currentLocation,
+            newSubLocation: subLocation || null,
             currentLocation: currentLocation,
+            currentSubLocation: currentSubLocation,
             status: 'pending',
             timestamp: new Date().toISOString()
         };
-        
+
         this.moveQueue.push(moveItem);
-        
+
+        // Build status message
+        let statusMsg = `Added ${moveItem.jaId} → ${this.currentLocation}`;
+        if (subLocation) {
+            statusMsg += ` (${subLocation})`;
+        }
+        statusMsg += ' to queue. Ready to scan next JA ID.';
+
         // Reset for next item
         this.currentJaId = null;
+        this.currentLocation = null;
         this.currentExpectedInput = 'ja_id';
-        this.clearInput();
-        this.updateStatus(`Added ${moveItem.jaId} → ${location} to queue. Ready to scan next JA ID.`);
+        this.updateStatus(statusMsg);
         this.updateScannerStatus('Ready for JA ID');
         this.updateUI();
-        
+
         console.log('Added to move queue:', moveItem);
     }
     
     handleDoneCode() {
         this.clearInput();
-        
+
+        // If we were in the middle of entering a move, finalize or clear it
+        if (this.currentExpectedInput === 'location') {
+            // We have a JA ID but no location - clear partial entry
+            this.currentJaId = null;
+            this.currentExpectedInput = 'ja_id';
+            this.showAlert('Partial entry cleared (JA ID without location).', 'info');
+        } else if (this.currentExpectedInput === 'ja_id_or_sub_location') {
+            // We have JA ID and location but no sub-location - finalize without sub-location
+            this.finalizeCurrentMove(null);
+            this.showAlert('Finalized last entry without sub-location.', 'info');
+        }
+
         if (this.moveQueue.length === 0) {
             this.showAlert('No items in move queue. Add some items before finishing.', 'warning');
             return;
         }
-        
-        // If we were waiting for a location, clear the partial entry
-        if (this.currentExpectedInput === 'location') {
-            this.currentJaId = null;
-            this.currentExpectedInput = 'ja_id';
-            this.showAlert('Partial entry cleared. You can add more items or proceed with validation.', 'info');
-        }
-        
+
         this.updateStatus(`Scan completed. ${this.moveQueue.length} items queued for moving.`);
         this.updateScannerStatus('Done - Ready to Validate');
         this.validateBtn.disabled = false;
-    }
-    
-    isValidJaId(jaId) {
-        // JA ID format: JA followed by 6 digits
-        const jaIdPattern = /^JA\d{6}$/;
-        return jaIdPattern.test(jaId);
     }
     
     clearInput() {
@@ -238,6 +349,7 @@ class InventoryMoveManager {
     clearAll() {
         this.clearQueue();
         this.currentJaId = null;
+        this.currentLocation = null;
         this.currentExpectedInput = 'ja_id';
         this.updateStatus('All data cleared. Ready to scan first JA ID.');
         this.updateScannerStatus('Ready');
@@ -330,10 +442,11 @@ class InventoryMoveManager {
     updateButtonStates() {
         const hasItems = this.moveQueue.length > 0;
         this.clearQueueBtn.disabled = !hasItems;
-        
-        // Validate button enabled when we have items and not currently expecting location
-        this.validateBtn.disabled = !hasItems || this.currentExpectedInput === 'location';
-        
+
+        // Validate button enabled only when we have items and are ready for next JA ID
+        // (not in the middle of entering a move)
+        this.validateBtn.disabled = !hasItems || this.currentExpectedInput !== 'ja_id';
+
         // Execute moves button only enabled after successful validation
         const allValidated = hasItems && this.moveQueue.every(item => item.status === 'validated');
         this.executeMoveBtn.disabled = !allValidated;
