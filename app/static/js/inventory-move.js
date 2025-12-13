@@ -155,6 +155,7 @@ class InventoryMoveManager {
         
         // Check for >>DONE<< immediately (special case for ending scanning session)
         if (this.isDoneCode(value)) {
+            this.clearInput();  // Clear input BEFORE handling to prevent double-processing
             this.handleDoneCode();
             return;
         }
