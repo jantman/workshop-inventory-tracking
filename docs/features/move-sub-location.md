@@ -59,7 +59,129 @@ Example input sequences and their interpretation:
 
 ## Implementation Plan
 
-*This section will be completed during the planning phase.*
+Based on code exploration, the database and service layer already fully support sub_location fields. The main work involves:
+1. Adding location pattern validation logic (centralized and well-documented)
+2. Updating the backend API to handle sub-location parameters
+3. Updating the frontend to parse, display, and transmit sub-location data
+4. Comprehensive testing of all scenarios
+
+### Milestone 1: Backend Infrastructure
+**Commit Prefix**: `Move Sub-Location - M1`
+
+**M1.1: Create centralized location pattern validation utility**
+- Create new file `app/utils/location_validator.py` with well-documented pattern validation functions
+- Implement `is_ja_id(value)` - checks if string matches JA ID pattern `^JA[0-9]+$`
+- Implement `is_location(value)` - checks if string matches location patterns:
+  - `^M[0-9]+.*` (Metal stock storage)
+  - `^T[0-9]+.*` (Threaded stock storage)
+  - Exact match: `Other`
+- Add comprehensive docstrings explaining each pattern and why it exists
+- Add inline comments for future extensibility
+
+**M1.2: Update batch-move API endpoint to accept new_sub_location**
+- Update `/api/inventory/batch-move` endpoint in `app/main/routes.py`
+- Accept optional `new_sub_location` field in each move object
+- Validate that `new_sub_location` is a string or None/null
+
+**M1.3: Implement sub-location clearing logic**
+- When `new_sub_location` is not provided in move request, explicitly set `item.sub_location = None`
+- When `new_sub_location` is provided, set `item.sub_location = new_sub_location.strip()`
+- Ensure service layer `update_item()` properly saves both location and sub_location
+
+**M1.4: Update audit logging for sub-location changes**
+- Update input phase logging to include `new_sub_location` in form_data
+- Update success phase logging to track sub_location changes separately
+- Include sub_location in before/after state dictionaries
+- Update batch operation results to show sub_location changes
+
+**M1.5: Add unit tests for backend changes**
+- Add unit tests in `tests/unit/test_location_validator.py` for pattern validation
+- Add unit tests in `tests/unit/test_routes.py` for batch-move API:
+  - Test move with sub-location provided
+  - Test move without sub-location (clearing scenario)
+  - Test move with empty string sub-location (should clear)
+  - Test validation errors
+- Verify audit logging captures sub-location changes
+
+### Milestone 2: Frontend Implementation
+**Commit Prefix**: `Move Sub-Location - M2`
+
+**M2.1: Implement input parser with location pattern detection**
+- Update `app/static/js/inventory-move.js` class `InventoryMoveManager`
+- Import/implement location pattern validation (matching backend patterns)
+- Update `processInput()` method to parse three-part sequences:
+  - JA ID → Location → (optional Sub-location) → next JA ID or DONE
+  - JA ID → Location → next JA ID or DONE (no sub-location)
+- Store parsed sub-location in queue items
+
+**M2.2: Update move queue data structure**
+- Add `newSubLocation` field to queue item objects
+- Initialize to `null` when no sub-location provided
+- Track whether sub-location was explicitly cleared vs not provided
+
+**M2.3: Update UI to display sub-location**
+- Add "New Sub-Location" column to move queue table in `app/templates/inventory/move.html`
+- Display current sub-location (from item data) in queue
+- Display new sub-location (or "Cleared" if being removed) in queue
+- Update queue display methods in JavaScript to show sub-location info
+
+**M2.4: Update API payload**
+- Modify `executeMoves()` method to include `new_sub_location` in API request
+- Send `null` when sub-location should be cleared
+- Send string value when sub-location is being set
+
+**M2.5: Manual testing of UI**
+- Test all example scenarios from feature spec
+- Verify input parsing works correctly
+- Verify UI displays sub-locations properly
+- Verify API calls include correct data
+
+### Milestone 3: Test Coverage
+**Commit Prefix**: `Move Sub-Location - M3`
+
+**M3.1: Add unit tests for location pattern validation**
+- Test JA ID pattern recognition with valid/invalid inputs
+- Test location pattern recognition for M*, T*, and Other
+- Test edge cases (empty strings, special characters, etc.)
+
+**M3.2: Add E2E tests for sub-location scenarios**
+- Create new file `tests/e2e/test_move_items_sub_location.py`
+- Test scenario: No sub-location → No sub-location
+- Test scenario: No sub-location → With sub-location
+- Test scenario: With sub-location → No sub-location (clearing)
+- Test scenario: With sub-location → Different sub-location
+- Test scenario: With sub-location → Same sub-location
+- Test multiple items in batch with mixed scenarios
+
+**M3.3: Run complete test suite**
+- Run full unit test suite: `./venv/bin/python -m pytest tests/unit/ --tb=short -v`
+- Run full E2E test suite with 15-minute timeout: `timeout 900 python -m pytest tests/e2e/ --tb=short -v`
+- Fix any test failures that arise
+- Ensure all tests pass before proceeding
+
+### Milestone 4: Documentation
+**Commit Prefix**: `Move Sub-Location - M4`
+
+**M4.1: Update user manual**
+- Update `docs/user-manual.md` section on moving items
+- Document the three-part input sequence (JA ID → Location → Sub-location)
+- Add examples showing how to specify or clear sub-locations
+- Explain location pattern recognition rules
+
+**M4.2: Update development/testing guide**
+- Update `docs/development-testing-guide.md` if needed
+- Document location pattern validation utility
+- Note testing considerations for sub-location features
+
+**M4.3: Review other documentation**
+- Check `README.md` for any necessary updates
+- Check `docs/deployment-guide.md` - likely no changes needed
+- Check `docs/troubleshooting-guide.md` - add sub-location related issues if applicable
+
+**M4.4: Update feature document**
+- Mark feature as complete in this document
+- Update Progress section with completion details
+- Move document to `docs/features/complete/` directory
 
 ## Progress
 
