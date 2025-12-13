@@ -649,7 +649,8 @@ class InventoryMoveManager {
                 body: JSON.stringify({
                     moves: validItems.map(item => ({
                         ja_id: item.jaId,
-                        new_location: item.newLocation
+                        new_location: item.newLocation,
+                        new_sub_location: item.newSubLocation || null
                     }))
                 })
             });
