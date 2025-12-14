@@ -216,8 +216,15 @@ class InventoryMoveManager {
             // - A location would be an error
             if (inputType === 'ja_id') {
                 // No sub-location for current move, finalize it and start new move
-                this.finalizeCurrentMove(null);
+                // Save current values before they get overwritten by handleJaIdInput
+                const jaIdToFinalize = this.currentJaId;
+                const locationToFinalize = this.currentLocation;
+
+                // Start new move first (synchronous state update)
                 this.handleJaIdInput(value);
+
+                // Then finalize previous move (async operation)
+                this.finalizeCurrentMove(null, jaIdToFinalize, locationToFinalize);
             } else if (inputType === 'sub_location') {
                 // Sub-location for current move
                 this.handleSubLocationInput(value);
@@ -229,8 +236,9 @@ class InventoryMoveManager {
     }
     
     isDoneCode(value) {
-        const cleanValue = value.replace(/[<>]/g, '').toUpperCase();
-        return cleanValue === 'DONE' || value === '>>DONE<<';
+        // Only match the exact >>DONE<< string to prevent partial matches
+        // during character-by-character typing
+        return value === '>>DONE<<';
     }
     
     handleJaIdInput(jaId) {
@@ -269,12 +277,16 @@ class InventoryMoveManager {
         this.clearInput();
     }
 
-    async finalizeCurrentMove(subLocation) {
+    async finalizeCurrentMove(subLocation, jaIdOverride = null, locationOverride = null) {
+        // Use provided values or fall back to current state
+        const jaId = jaIdOverride || this.currentJaId;
+        const newLocation = locationOverride || this.currentLocation;
+
         // Fetch current location and sub-location for the item
         let currentLocation = 'Unknown';
         let currentSubLocation = null;
         try {
-            const response = await fetch(`/api/items/${this.currentJaId}`);
+            const response = await fetch(`/api/items/${jaId}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.success && data.item) {
@@ -289,8 +301,8 @@ class InventoryMoveManager {
 
         // Add to move queue
         const moveItem = {
-            jaId: this.currentJaId,
-            newLocation: this.currentLocation,
+            jaId: jaId,
+            newLocation: newLocation,
             newSubLocation: subLocation || null,
             currentLocation: currentLocation,
             currentSubLocation: currentSubLocation,
@@ -301,16 +313,18 @@ class InventoryMoveManager {
         this.moveQueue.push(moveItem);
 
         // Build status message
-        let statusMsg = `Added ${moveItem.jaId} → ${this.currentLocation}`;
+        let statusMsg = `Added ${moveItem.jaId} → ${newLocation}`;
         if (subLocation) {
             statusMsg += ` (${subLocation})`;
         }
         statusMsg += ' to queue. Ready to scan next JA ID.';
 
-        // Reset for next item
-        this.currentJaId = null;
-        this.currentLocation = null;
-        this.currentExpectedInput = 'ja_id';
+        // Only reset state if we're finalizing the current move (not a saved previous move)
+        if (!jaIdOverride) {
+            this.currentJaId = null;
+            this.currentLocation = null;
+            this.currentExpectedInput = 'ja_id';
+        }
         this.updateStatus(statusMsg);
         this.updateScannerStatus('Ready for JA ID');
         this.updateUI();
