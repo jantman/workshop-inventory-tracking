@@ -42,7 +42,8 @@
       "Bash(./venv/bin/python -m pytest tests/unit/ --tb=short -q)",
       "Bash(./venv/bin/python -m pytest tests/e2e/ --tb=short)",
       "Bash(./venv/bin/python -m pytest tests/unit/test_routes.py::TestPhotoCopyAPI -v)",
-      "Bash(./venv/bin/python -m pytest:*)"
+      "Bash(./venv/bin/python -m pytest:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
