@@ -319,15 +319,17 @@ class InventoryMoveManager {
         }
         statusMsg += ' to queue. Ready to scan next JA ID.';
 
-        // Only reset state if we're finalizing the current move (not a saved previous move)
+        // Only reset state and update UI if we're finalizing the current move
+        // If using overrides (jaIdOverride != null), we're finalizing a previous move
+        // while a new move has already been started, so don't reset state or update UI
         if (!jaIdOverride) {
             this.currentJaId = null;
             this.currentLocation = null;
             this.currentExpectedInput = 'ja_id';
+            this.updateStatus(statusMsg);
+            this.updateScannerStatus('Ready for JA ID');
+            this.updateUI();
         }
-        this.updateStatus(statusMsg);
-        this.updateScannerStatus('Ready for JA ID');
-        this.updateUI();
 
         console.log('Added to move queue:', moveItem);
     }
