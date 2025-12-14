@@ -173,12 +173,16 @@ def test_move_multiple_items_with_mixed_original_thread(page, live_server):
     for i, (ja_id, _) in enumerate(items):
         move_page.simulate_barcode_scan(ja_id)
         if i > 0:
+            # Wait for finalization to complete (async operation with API call)
+            page.wait_for_timeout(500)
             # Verify previous item was added to queue
             assert move_page.get_queue_count() == i
         move_page.simulate_barcode_scan("M15-O")
 
     # Complete scanning to finalize the last move
     move_page.simulate_barcode_scan(">>DONE<<")
+    # Wait for finalization to complete (async operation with API call)
+    page.wait_for_timeout(500)
 
     # Should have all items in queue
     assert move_page.get_queue_count() == 3

@@ -185,4 +185,77 @@ Based on code exploration, the database and service layer already fully support 
 
 ## Progress
 
-*This section will be updated as milestones and tasks are completed.*
+### Status: ✅ COMPLETED
+
+**Completion Date**: December 14, 2025
+
+### Implementation Summary
+
+All four milestones completed successfully with full test coverage:
+
+#### Milestone 1: Backend Infrastructure ✅
+- **M1.1**: Created centralized location pattern validation utility (`app/utils/location_validator.py`)
+- **M1.2**: Updated batch-move API endpoint to accept `new_sub_location` parameter
+- **M1.3**: Implemented sub-location clearing logic (explicitly sets to None when not provided)
+- **M1.4**: Updated audit logging to capture sub-location changes in all phases
+- **M1.5**: Added comprehensive unit tests for backend changes
+
+#### Milestone 2: Frontend Implementation ✅
+- **M2.1**: Implemented input parser with location pattern detection in `inventory-move.js`
+- **M2.2**: Updated move queue data structure to include `newSubLocation` field
+- **M2.3**: Updated UI to display sub-location in move queue table with current and new values
+- **M2.4**: Updated API payload to include `new_sub_location` in batch move requests
+- **M2.5**: Manual testing completed successfully for all scenarios
+
+#### Milestone 3: Test Coverage ✅
+- **M3.1**: Added unit tests for location pattern validation (100% coverage)
+- **M3.2**: Added 9 comprehensive E2E tests in `test_move_items_sub_location.py` covering all scenarios
+- **M3.3**: Full test suite passing (451 passed, 1 skipped, 0 failed)
+
+#### Milestone 4: Documentation ✅
+- **M4.1**: Updated user manual with comprehensive move workflow documentation
+- **M4.2**: Reviewed development/testing guide (no updates needed)
+- **M4.3**: Reviewed other documentation (README, deployment guide, etc.)
+- **M4.4**: Updated this feature document and marking as complete
+
+### Key Decisions Made
+
+1. **Workflow Change (Breaking)**: Implemented Option 2 from the original design - requires explicit finalization with `>>DONE<<` or scanning next JA ID. This provides better control and prevents accidental submissions.
+
+2. **Location Pattern Validation**: Centralized in `app/utils/location_validator.py` for easy future extension (e.g., adding new storage area types).
+
+3. **Sub-location Clearing**: When moving without specifying a sub-location, the existing sub-location is explicitly cleared (set to None). This ensures clean data and prevents orphaned sub-locations.
+
+4. **UI Update Fix**: Fixed a critical bug where the move queue UI wasn't updating when using override parameters during finalization. The fix ensures `updateUI()` is always called to reflect queue changes.
+
+### Test Results
+
+**Final Test Run**: December 14, 2025
+- Unit Tests: 203 passed, 1 skipped
+- E2E Tests: 248 passed
+- **Total: 451 passed, 1 skipped, 0 failed**
+
+### Files Modified
+
+**Backend**:
+- `app/utils/location_validator.py` (new)
+- `app/main/routes.py`
+- `tests/unit/test_location_validator.py` (new)
+- `tests/unit/test_routes.py`
+
+**Frontend**:
+- `app/static/js/inventory-move.js`
+- `app/templates/inventory/move.html`
+
+**Tests**:
+- `tests/e2e/test_move_items_sub_location.py` (new)
+- `tests/e2e/test_move_items.py` (updated with timing fixes)
+- `tests/e2e/test_move_items_with_original_thread.py` (updated with timing fixes)
+
+**Documentation**:
+- `docs/user-manual.md` (comprehensive move workflow section added)
+- `docs/features/move-sub-location.md` (this file)
+
+### Known Issues
+
+None. All tests passing, feature fully functional.

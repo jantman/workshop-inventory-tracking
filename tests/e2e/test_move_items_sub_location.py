@@ -68,16 +68,22 @@ class TestMoveItemsSubLocation:
         expect(queue_table.locator('td').nth(4)).to_contain_text('None')  # New sub-location
 
         # Validate and execute
-        page.click('#validate-btn')
-        page.wait_for_timeout(1000)
-        page.click('#execute-moves-btn')
-        page.wait_for_timeout(1000)
-
-        # Verify item was moved
-        page.goto(f'{live_server.url}/inventory/list')
+        page.locator('#validate-btn').click()
         page.wait_for_load_state('networkidle')
-        item_row = page.locator('tr', has_text='JA000001')
-        expect(item_row.locator('td').nth(5)).to_have_text('M2-B')  # Location column
+
+        # Handle confirmation dialog
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#execute-moves-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Wait a bit for database transaction to fully commit
+        page.wait_for_timeout(500)
+
+        # Verify item was moved via API
+        response = page.request.get(f'{live_server.url}/api/items/JA000001')
+        data = response.json()
+        assert data['item']['location'] == 'M2-B'
+        assert data['item']['sub_location'] is None
 
     def test_move_no_sub_to_with_sub(self, page, live_server):
         """Test moving item with no sub-location to location with sub-location"""
@@ -113,10 +119,16 @@ class TestMoveItemsSubLocation:
         expect(queue_table.locator('td').nth(4)).to_contain_text('Drawer 3')  # New sub-location
 
         # Validate and execute
-        page.click('#validate-btn')
-        page.wait_for_timeout(1000)
-        page.click('#execute-moves-btn')
-        page.wait_for_timeout(1000)
+        page.locator('#validate-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Handle confirmation dialog
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#execute-moves-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Wait a bit for database transaction to fully commit
+        page.wait_for_timeout(500)
 
         # Verify item has sub-location via API
         response = page.request.get(f'{live_server.url}/api/items/JA000002')
@@ -155,10 +167,16 @@ class TestMoveItemsSubLocation:
         expect(queue_table.locator('td').nth(4)).to_contain_text('Cleared')  # New sub-location shows "Cleared"
 
         # Validate and execute
-        page.click('#validate-btn')
-        page.wait_for_timeout(1000)
-        page.click('#execute-moves-btn')
-        page.wait_for_timeout(1000)
+        page.locator('#validate-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Handle confirmation dialog
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#execute-moves-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Wait a bit for database transaction to fully commit
+        page.wait_for_timeout(500)
 
         # Verify sub-location was cleared via API
         response = page.request.get(f'{live_server.url}/api/items/JA000003')
@@ -201,10 +219,16 @@ class TestMoveItemsSubLocation:
         expect(queue_table.locator('td').nth(4)).to_contain_text('Shelf 10')  # New sub-location
 
         # Validate and execute
-        page.click('#validate-btn')
-        page.wait_for_timeout(1000)
-        page.click('#execute-moves-btn')
-        page.wait_for_timeout(1000)
+        page.locator('#validate-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Handle confirmation dialog
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#execute-moves-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Wait a bit for database transaction to fully commit
+        page.wait_for_timeout(500)
 
         # Verify sub-location was changed via API
         response = page.request.get(f'{live_server.url}/api/items/JA000004')
@@ -242,10 +266,16 @@ class TestMoveItemsSubLocation:
         page.wait_for_timeout(200)
 
         # Validate and execute
-        page.click('#validate-btn')
-        page.wait_for_timeout(1000)
-        page.click('#execute-moves-btn')
-        page.wait_for_timeout(1000)
+        page.locator('#validate-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Handle confirmation dialog
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#execute-moves-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Wait a bit for database transaction to fully commit
+        page.wait_for_timeout(500)
 
         # Verify location changed but sub-location stayed the same
         response = page.request.get(f'{live_server.url}/api/items/JA000005')
@@ -306,10 +336,16 @@ class TestMoveItemsSubLocation:
         expect(page.locator('#queue-count')).to_contain_text('3 items')
 
         # Validate and execute
-        page.click('#validate-btn')
-        page.wait_for_timeout(1000)
-        page.click('#execute-moves-btn')
-        page.wait_for_timeout(1000)
+        page.locator('#validate-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Handle confirmation dialog
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#execute-moves-btn').click()
+        page.wait_for_load_state('networkidle')
+
+        # Wait a bit for database transaction to fully commit
+        page.wait_for_timeout(500)
 
         # Verify all items were moved correctly
         response1 = page.request.get(f'{live_server.url}/api/items/JA000101')

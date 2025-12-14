@@ -490,10 +490,95 @@ Access via "Search" menu
 ## Batch Operations
 
 ### Moving Items
-1. **Navigate**: "Move Items" menu
-2. **Scan Method**: Alternate between item ID and location
-3. **Submit**: Scan ">>DONE<<" or click submit
-4. **Confirmation**: Review moves before finalizing
+
+The Move Items feature allows you to efficiently relocate multiple inventory items in a single batch operation. The system supports moving items to both primary locations and optional sub-locations.
+
+#### Move Workflow
+
+1. **Navigate**: Click "Move Items" in the main menu
+2. **Scan Pattern**: Follow this sequence for each item:
+   - **Scan JA ID**: Scan or enter the item's barcode (e.g., JA000123)
+   - **Scan Location**: Scan or enter the new primary location (e.g., M1-A, T-5, Other)
+   - **Scan Sub-Location** (optional): Scan or enter the sub-location (e.g., Bin-3, Shelf-B)
+     - Sub-locations can be any text format
+     - If no sub-location is needed, skip this step
+   - **Next Item or Finalize**:
+     - Scan the next item's JA ID to finalize the current move and start a new one
+     - OR scan ">>DONE<<" to finalize the current move
+
+3. **Review Queue**:
+   - All queued moves appear in the table with item details
+   - Each row shows: JA ID, current location, new location, and new sub-location (if specified)
+   - Items remain in the queue until you execute the batch
+
+4. **Validate Moves**:
+   - Click "Validate & Preview" to check all queued moves
+   - System verifies that all JA IDs exist in the database
+   - Any issues are highlighted for correction
+
+5. **Execute Moves**:
+   - Click "Execute Moves" to apply all changes
+   - Confirm the operation when prompted
+   - All items are updated simultaneously
+   - Success message confirms completion
+
+#### Location Patterns
+
+The system recognizes these location patterns:
+- **M-locations**: M1, M2-B, M15-ZZ (materials storage)
+- **T-locations**: T1, T-5, T10 (tool/temporary storage)
+- **Other**: For non-standard locations
+- **Sub-locations**: Any text format for specific bin, shelf, or section
+
+#### Moving Without Sub-Location
+
+When moving an item to a new location without specifying a sub-location, the system **clears any existing sub-location** for that item. This ensures location data stays clean and accurate.
+
+**Example:**
+- Item JA000100 is currently at "M1-A / Bin-3"
+- You move it to "M2-B" (without specifying sub-location)
+- Result: Item is now at "M2-B" with no sub-location (Bin-3 is cleared)
+
+#### Workflow Examples
+
+**Example 1: Simple Move (No Sub-Location)**
+```
+Scan: JA000100
+Scan: M2-B
+Scan: >>DONE<<
+```
+Result: JA000100 moved to M2-B (sub-location cleared if it had one)
+
+**Example 2: Move with Sub-Location**
+```
+Scan: JA000200
+Scan: M3-C
+Scan: Shelf-A
+Scan: >>DONE<<
+```
+Result: JA000200 moved to M3-C / Shelf-A
+
+**Example 3: Batch Move Multiple Items**
+```
+Scan: JA000300
+Scan: M4-D
+Scan: Bin-1
+Scan: JA000301      (this finalizes JA000300's move)
+Scan: M4-D
+Scan: Bin-2
+Scan: JA000302      (this finalizes JA000301's move)
+Scan: M5-E
+Scan: >>DONE<<      (this finalizes JA000302's move)
+```
+Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA000302 to M5-E
+
+#### Tips for Efficient Moving
+
+- **Barcode Scanner**: Use a keyboard wedge barcode scanner for fastest data entry
+- **Batch Related Items**: Group items going to the same location to minimize scanning
+- **Review Before Execute**: Always validate the queue before executing to catch errors
+- **Clear Sub-Locations**: When reorganizing, move items without sub-locations first to clear old data
+- **Manual Entry Mode**: Check the "Manual Entry Mode" checkbox if you need to type values instead of scanning
 
 ### Shortening Items
 1. **Navigate**: "Shorten Items" menu

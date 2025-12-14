@@ -262,6 +262,8 @@ def test_multiple_items_move_workflow(page, live_server):
 
     # Scan second item (this finalizes the first move)
     move_page.simulate_barcode_scan(ja_ids[1])
+    # Wait for finalization to complete (async operation with API call)
+    page.wait_for_timeout(500)
     # First item should now be in queue
     assert move_page.get_queue_count() == 1
     move_page.assert_queue_item_visible(ja_ids[0], locations[0])
@@ -271,6 +273,8 @@ def test_multiple_items_move_workflow(page, live_server):
 
     # Complete scanning to finalize second move
     move_page.simulate_barcode_scan(">>DONE<<")
+    # Wait for finalization to complete (async operation with API call)
+    page.wait_for_timeout(500)
 
     # Should have 2 items in queue
     assert move_page.get_queue_count() == 2

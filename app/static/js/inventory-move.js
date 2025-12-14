@@ -175,6 +175,8 @@ class InventoryMoveManager {
     processInput() {
         const value = this.barcodeInput.value.trim();
 
+        console.log(`processInput() called: value="${value}", currentExpectedInput="${this.currentExpectedInput}"`);
+
         if (!value) {
             this.showAlert('Please enter a value', 'warning');
             return;
@@ -182,17 +184,20 @@ class InventoryMoveManager {
 
         // Check for done code
         if (this.isDoneCode(value)) {
+            console.log('processInput(): Detected >>DONE<< code');
             this.handleDoneCode();
             return;
         }
 
         // Classify the input
         const inputType = this.classifyInput(value);
+        console.log(`processInput(): Classified "${value}" as type: ${inputType}`);
 
         // State machine for input processing
         if (this.currentExpectedInput === 'ja_id') {
             // Expecting a JA ID
             if (inputType === 'ja_id') {
+                console.log(`processInput(): State=ja_id, handling JA ID: ${value}`);
                 this.handleJaIdInput(value);
             } else {
                 this.showAlert(`Expected JA ID but received ${inputType}. Please scan a JA ID (format: JA000123)`, 'warning');
@@ -201,6 +206,7 @@ class InventoryMoveManager {
         } else if (this.currentExpectedInput === 'location') {
             // Expecting a location
             if (inputType === 'location') {
+                console.log(`processInput(): State=location, handling location: ${value}`);
                 this.handleLocationInput(value);
             } else if (inputType === 'ja_id') {
                 this.showAlert('Expected location but received JA ID. Please scan the location for this item.', 'warning');
@@ -214,11 +220,13 @@ class InventoryMoveManager {
             // - A JA ID (meaning no sub-location, start next move)
             // - A sub-location (meaning we have a sub-location for current move)
             // - A location would be an error
+            console.log(`processInput(): State=ja_id_or_sub_location, inputType=${inputType}`);
             if (inputType === 'ja_id') {
                 // No sub-location for current move, finalize it and start new move
                 // Save current values before they get overwritten by handleJaIdInput
                 const jaIdToFinalize = this.currentJaId;
                 const locationToFinalize = this.currentLocation;
+                console.log(`processInput(): Finalizing previous move: ${jaIdToFinalize} → ${locationToFinalize}`);
 
                 // Start new move first (synchronous state update)
                 this.handleJaIdInput(value);
@@ -227,6 +235,7 @@ class InventoryMoveManager {
                 this.finalizeCurrentMove(null, jaIdToFinalize, locationToFinalize);
             } else if (inputType === 'sub_location') {
                 // Sub-location for current move
+                console.log(`processInput(): Handling sub-location: ${value}`);
                 this.handleSubLocationInput(value);
             } else if (inputType === 'location') {
                 this.showAlert('Received two locations in a row. Did you forget to scan a JA ID?', 'warning');
@@ -242,6 +251,8 @@ class InventoryMoveManager {
     }
     
     handleJaIdInput(jaId) {
+        console.log(`handleJaIdInput() called: jaId=${jaId}`);
+
         // Check if this JA ID is already in queue
         if (this.moveQueue.some(item => item.jaId === jaId)) {
             this.showAlert(`Item ${jaId} is already in the move queue`, 'warning');
@@ -252,12 +263,15 @@ class InventoryMoveManager {
         // Store the JA ID and wait for location
         this.currentJaId = jaId;
         this.currentExpectedInput = 'location';
+        console.log(`handleJaIdInput(): Set currentJaId=${this.currentJaId}, currentExpectedInput=${this.currentExpectedInput}`);
         this.clearInput();
         this.updateStatus(`JA ID ${jaId} scanned. Now scan or enter the location (M*, T*, or Other).`);
         this.updateScannerStatus('Waiting for Location');
     }
 
     handleLocationInput(location) {
+        console.log(`handleLocationInput() called: location=${location}`);
+
         if (!location || location.length < 1) {
             this.showAlert('Location cannot be empty', 'warning');
             return;
@@ -266,6 +280,7 @@ class InventoryMoveManager {
         // Store the location and wait for either JA ID or sub-location
         this.currentLocation = location;
         this.currentExpectedInput = 'ja_id_or_sub_location';
+        console.log(`handleLocationInput(): Set currentLocation=${this.currentLocation}, currentExpectedInput=${this.currentExpectedInput}`);
         this.clearInput();
         this.updateStatus(`Location ${location} scanned. Now scan the next JA ID or enter a sub-location (optional).`);
         this.updateScannerStatus('Waiting for JA ID or Sub-Location');
@@ -278,9 +293,12 @@ class InventoryMoveManager {
     }
 
     async finalizeCurrentMove(subLocation, jaIdOverride = null, locationOverride = null) {
+        console.log(`finalizeCurrentMove() called: subLocation=${subLocation}, jaIdOverride=${jaIdOverride}, locationOverride=${locationOverride}`);
+
         // Use provided values or fall back to current state
         const jaId = jaIdOverride || this.currentJaId;
         const newLocation = locationOverride || this.currentLocation;
+        console.log(`finalizeCurrentMove(): Will use jaId=${jaId}, newLocation=${newLocation}`);
 
         // Fetch current location and sub-location for the item
         let currentLocation = 'Unknown';
@@ -319,17 +337,22 @@ class InventoryMoveManager {
         }
         statusMsg += ' to queue. Ready to scan next JA ID.';
 
-        // Only reset state and update UI if we're finalizing the current move
+        // Only reset state if we're finalizing the current move
         // If using overrides (jaIdOverride != null), we're finalizing a previous move
-        // while a new move has already been started, so don't reset state or update UI
+        // while a new move has already been started, so don't reset state
         if (!jaIdOverride) {
+            console.log('finalizeCurrentMove(): Resetting state (no override)');
             this.currentJaId = null;
             this.currentLocation = null;
             this.currentExpectedInput = 'ja_id';
             this.updateStatus(statusMsg);
             this.updateScannerStatus('Ready for JA ID');
-            this.updateUI();
+        } else {
+            console.log('finalizeCurrentMove(): Not resetting state (using override)');
         }
+
+        // Always update UI to reflect new queue count
+        this.updateUI();
 
         console.log('Added to move queue:', moveItem);
     }
