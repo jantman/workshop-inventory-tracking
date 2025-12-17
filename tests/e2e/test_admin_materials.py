@@ -326,9 +326,12 @@ def test_material_status_toggle(page, live_server):
     
     # Enable "Show inactive materials" to see the inactive material
     admin_page.toggle_show_inactive()
-    
-    # Should now be visible with inactive badge
+
+    # Wait for the material node to appear (more robust than networkidle alone)
     material_node = page.locator('.taxonomy-node[data-name="Test Toggle Category"]')
+    expect(material_node).to_be_visible(timeout=10000)  # Wait up to 10 seconds
+
+    # Should now be visible with inactive badge
     expect(material_node.locator(".badge:has-text('INACTIVE')")).to_be_visible()
 
 
