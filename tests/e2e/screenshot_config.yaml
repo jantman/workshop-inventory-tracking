@@ -1,0 +1,254 @@
+# Screenshot Generation Configuration
+# This file defines all screenshots to be generated for documentation
+
+screenshots:
+  # README Screenshots
+  - name: "inventory_list_main"
+    description: "Main inventory list view showing key features"
+    test: "test_screenshot_inventory_list"
+    output: "readme/inventory_list.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "table.inventory-table"
+    hide_elements:
+      - ".toast-container"
+    documentation_files:
+      - file: "README.md"
+        section: "## Features"
+        caption: "Main inventory list interface showing search, filtering, and batch operations"
+
+  - name: "add_item_form_readme"
+    description: "Add item form for README"
+    test: "test_screenshot_add_item_form"
+    output: "readme/add_item_form.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#add-item-form"
+    hide_elements:
+      - ".toast-container"
+    documentation_files:
+      - file: "README.md"
+        section: "## Features"
+        caption: "Add item form with barcode scanning and auto-complete support"
+
+  # User Manual Screenshots - Adding New Inventory
+  - name: "add_item_form_complete"
+    description: "Complete add item form with all fields visible"
+    test: "test_screenshot_add_item_form"
+    output: "user-manual/add_item_form.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#add-item-form"
+    hide_elements:
+      - ".toast-container"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Using the Add Item Form"
+        caption: "Figure 1: Add item form showing required fields (marked with *) and optional fields"
+
+  - name: "autocomplete_example"
+    description: "Auto-complete dropdown showing previous entries"
+    test: "test_screenshot_autocomplete"
+    output: "user-manual/autocomplete_dropdown.png"
+    viewport: [1920, 1080]
+    wait_for: ".autocomplete-dropdown"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Form Features"
+        caption: "Figure 2: Auto-complete suggestions based on previous entries"
+
+  - name: "bulk_creation_preview"
+    description: "Bulk creation preview showing JA ID range"
+    test: "test_screenshot_bulk_creation"
+    output: "user-manual/bulk_creation_preview.png"
+    viewport: [1920, 1080]
+    wait_for: "#quantity-preview"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "#### Bulk Creation"
+        caption: "Figure 3: Bulk creation preview showing the range of JA IDs that will be created"
+
+  # User Manual Screenshots - Label Printing
+  - name: "label_preview_modal"
+    description: "Label preview modal showing label layout"
+    test: "test_screenshot_label_preview"
+    output: "user-manual/label_preview.png"
+    viewport: [1920, 1080]
+    wait_for: "#label-preview-modal"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "## Label Printing"
+        caption: "Figure 4: Label preview showing how the printed label will appear"
+
+  - name: "bulk_label_printing"
+    description: "Bulk label printing interface from inventory list"
+    test: "test_screenshot_bulk_label_printing"
+    output: "user-manual/bulk_label_printing.png"
+    viewport: [1920, 1080]
+    wait_for: "table.inventory-table"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Batch Label Printing"
+        caption: "Figure 5: Selecting multiple items for batch label printing"
+
+  # User Manual Screenshots - Managing Inventory
+  - name: "item_details_modal"
+    description: "Item details modal showing all information"
+    test: "test_screenshot_item_details"
+    output: "user-manual/item_details_modal.png"
+    viewport: [1920, 1080]
+    wait_for: "#item-details-modal"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "## Managing Existing Inventory"
+        caption: "Figure 6: Item details modal displaying complete item information"
+
+  - name: "edit_item_form"
+    description: "Edit item form with populated data"
+    test: "test_screenshot_edit_item"
+    output: "user-manual/edit_item_form.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#add-item-form"
+    hide_elements:
+      - ".toast-container"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Editing Items"
+        caption: "Figure 7: Edit item form with existing data pre-populated"
+
+  # User Manual Screenshots - Photo Management
+  - name: "photo_upload_interface"
+    description: "Photo upload interface with drag-and-drop"
+    test: "test_screenshot_photo_upload"
+    output: "user-manual/photo_upload.png"
+    viewport: [1920, 1080]
+    wait_for: "#photo-manager-container"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Photo Management"
+        caption: "Figure 8: Photo upload interface supporting drag-and-drop and file selection"
+
+  - name: "photo_gallery"
+    description: "Photo gallery with multiple photos"
+    test: "test_screenshot_photo_gallery"
+    output: "user-manual/photo_gallery.png"
+    viewport: [1920, 1080]
+    wait_for: ".photo-gallery-grid"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Photo Management"
+        caption: "Figure 9: Photo gallery showing multiple uploaded photos with thumbnails"
+
+  - name: "photo_copy_workflow"
+    description: "Photo copy/paste workflow with clipboard banner"
+    test: "test_screenshot_photo_copy"
+    output: "user-manual/photo_copy_clipboard.png"
+    viewport: [1920, 1080]
+    wait_for: "#photo-clipboard-banner"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Copying Photos Between Items"
+        caption: "Figure 10: Photo clipboard banner showing photos ready to paste"
+
+  - name: "history_view"
+    description: "Item modification history timeline"
+    test: "test_screenshot_history"
+    output: "user-manual/history_view.png"
+    viewport: [1920, 1080]
+    wait_for: "#history-timeline"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Item History"
+        caption: "Figure 11: Item history showing modifications and shortening operations"
+
+  # User Manual Screenshots - Advanced Search
+  - name: "search_form"
+    description: "Advanced search form with multiple filters"
+    test: "test_screenshot_search_form"
+    output: "user-manual/search_form.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#search-form"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "## Advanced Search"
+        caption: "Figure 12: Advanced search form with range queries and filters"
+
+  - name: "search_results"
+    description: "Search results table with filtered items"
+    test: "test_screenshot_search_results"
+    output: "user-manual/search_results.png"
+    viewport: [1920, 1080]
+    wait_for: "table.search-results"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Search Results"
+        caption: "Figure 13: Search results showing filtered inventory items"
+
+  # User Manual Screenshots - Batch Operations
+  - name: "move_items_interface"
+    description: "Move items batch operation interface"
+    test: "test_screenshot_move_items"
+    output: "user-manual/move_items.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#move-items-form"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "## Batch Operations"
+        caption: "Figure 14: Move items interface for relocating multiple items at once"
+
+  - name: "shorten_items_interface"
+    description: "Shorten items interface for cutting materials"
+    test: "test_screenshot_shorten_items"
+    output: "user-manual/shorten_items.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#shorten-items-form"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Shortening Materials"
+        caption: "Figure 15: Shorten items interface for cutting materials to length"
+
+  - name: "batch_selection_options"
+    description: "Batch selection with options menu"
+    test: "test_screenshot_batch_operations"
+    output: "user-manual/batch_selection.png"
+    viewport: [1920, 1080]
+    wait_for: "#options-dropdown"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "## Batch Operations"
+        caption: "Figure 16: Batch item selection with options menu showing available operations"
+
+  # Deployment Guide Screenshots
+  - name: "database_migration"
+    description: "Database migration output"
+    test: "test_screenshot_migration"
+    output: "deployment-guide/migration_output.png"
+    viewport: [1200, 800]
+    documentation_files:
+      - file: "docs/deployment-guide.md"
+        section: "## Database Management"
+        caption: "Example: Database migration output showing successful table creation"
+
+  # Development Guide Screenshots
+  - name: "test_execution"
+    description: "Test execution output"
+    test: "test_screenshot_test_output"
+    output: "development-guide/test_execution.png"
+    viewport: [1200, 800]
+    documentation_files:
+      - file: "docs/development-testing-guide.md"
+        section: "## Running Tests"
+        caption: "Example: E2E test execution showing all tests passing"
+
+# Configuration for screenshot generation
+config:
+  default_viewport: [1920, 1080]
+  default_timeout: 5000
+  optimize_images: true
+  optimization_quality: 85
+  generate_metadata: true
+  metadata_filename: "metadata.json"

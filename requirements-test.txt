@@ -15,3 +15,4 @@ testcontainers[mysql]==4.8.2
 # Additional test utilities
 factory-boy==3.3.3
 faker==37.8.0
+PyYAML==6.0.2
