@@ -38,54 +38,74 @@ class TestDocumentationScreenshots:
         if self.screenshot.get_screenshot_count() > 0:
             self.screenshot.save_metadata()
 
-    def _add_item_via_ui(self, page, add_page, item_data):
+    def _create_inventory_item_in_db(self, session, item_data):
         """
-        Add an inventory item via the UI.
+        Helper to create an inventory item directly in the database.
 
         Args:
-            page: Playwright page object
-            add_page: AddItemPage object
+            session: SQLAlchemy session
             item_data: Item data dictionary
         """
-        add_page.navigate()
-        add_page.fill_basic_item_data(
+        from datetime import datetime
+
+        # Parse purchase_date if it's a string
+        purchase_date = None
+        if item_data.get('purchase_date'):
+            try:
+                purchase_date = datetime.strptime(item_data['purchase_date'], '%Y-%m-%d')
+            except:
+                purchase_date = None
+
+        # Create inventory item using correct field names
+        item = InventoryItem(
             ja_id=item_data['ja_id'],
-            item_type=item_data.get('type', 'Bar'),
-            shape=item_data.get('shape', 'Round'),
-            material=item_data['material']
+            item_type=item_data.get('type', 'Bar'),  # Use item_type, not type_value
+            shape=item_data.get('shape', 'Round'),    # Use shape, not shape_value
+            material=item_data.get('material', ''),
+            length=Decimal(item_data['length']) if item_data.get('length') else None,
+            width=Decimal(item_data['width']) if item_data.get('width') else None,
+            thickness=Decimal(item_data['thickness']) if item_data.get('thickness') else None,
+            wall_thickness=Decimal(item_data['wall_thickness']) if item_data.get('wall_thickness') else None,
+            location=item_data.get('location', ''),
+            sub_location=item_data.get('sub_location', ''),
+            notes=item_data.get('notes', ''),
+            purchase_date=purchase_date,
+            purchase_price=Decimal(item_data['purchase_price']) if item_data.get('purchase_price') else None,
+            purchase_location=item_data.get('purchase_location', ''),
+            vendor=item_data.get('vendor', ''),
+            vendor_part=item_data.get('part_number', ''),  # Note: vendor_part in DB
+            active=item_data.get('active', 'yes') == 'yes',
+            thread_series=item_data.get('thread_series'),
+            thread_size=item_data.get('thread_size'),
+            thread_handedness=item_data.get('thread_handedness')
         )
 
-        # Fill dimensions
-        if item_data.get('length') or item_data.get('width'):
-            add_page.fill_dimensions(
-                length=item_data.get('length', ''),
-                width=item_data.get('width', ''),
-                diameter=item_data.get('width', '')  # For round items
-            )
+        session.add(item)
+        return item
 
-        # Fill location
-        if item_data.get('location'):
-            add_page.fill_location_and_notes(
-                location=item_data['location'],
-                notes=item_data.get('notes', '')
-            )
-
-        # Submit
-        add_page.submit_form()
-        page.wait_for_timeout(500)  # Wait for submission
-
-    def _load_inventory_data(self, page, live_server, items):
+    def _load_inventory_data(self, live_server, items):
         """
-        Load multiple inventory items via UI.
+        Load multiple inventory items directly into the database.
 
         Args:
-            page: Playwright page object
             live_server: E2E test server
             items: List of item data dictionaries
         """
-        add_page = AddItemPage(page, live_server.url)
-        for item in items:
-            self._add_item_via_ui(page, add_page, item)
+        if not hasattr(live_server, 'engine'):
+            raise RuntimeError("live_server does not have engine attribute")
+
+        Session = sessionmaker(bind=live_server.engine)
+        session = Session()
+        try:
+            for item in items:
+                self._create_inventory_item_in_db(session, item)
+            session.commit()
+            print(f"✓ Loaded {len(items)} items into database")
+        except Exception as e:
+            session.rollback()
+            raise RuntimeError(f"Failed to load inventory data: {e}")
+        finally:
+            session.close()
 
     # ========================================================================
     # Milestone 2.1: Inventory and Search Screenshots
@@ -97,7 +117,7 @@ class TestDocumentationScreenshots:
         """Generate inventory list screenshot for README and user manual"""
         # Load realistic test data
         items = get_inventory_items(count=12)  # Load all items for a full list
-        self._load_inventory_data(page, live_server, items)
+        self._load_inventory_data(live_server, items)
 
         # Navigate to inventory list
         list_page = InventoryListPage(page, live_server.url)
@@ -124,7 +144,7 @@ class TestDocumentationScreenshots:
         """Generate search form screenshot"""
         # Load some test data first so the page isn't empty
         items = get_inventory_items(count=5)
-        self._load_inventory_data(page, live_server, items)
+        self._load_inventory_data(live_server, items)
 
         # Navigate to search page
         search_page = SearchPage(page, live_server.url)
@@ -157,7 +177,7 @@ class TestDocumentationScreenshots:
         """Generate search results screenshot"""
         # Load test data
         items = get_inventory_items()
-        self._load_inventory_data(page, live_server, items)
+        self._load_inventory_data(live_server, items)
 
         # Navigate to search page
         search_page = SearchPage(page, live_server.url)
