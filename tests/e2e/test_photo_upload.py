@@ -208,17 +208,118 @@ class TestPhotoUploadEditItem:
 
 class TestPhotoViewingInModal:
     """Test photo viewing in item details modal"""
-    
+
     @pytest.mark.e2e
     def test_item_details_modal_has_photo_section(self, page, live_server):
         """Test that item details modal includes photo section"""
         # Navigate to inventory list
         list_page = InventoryListPage(page, live_server.url)
         list_page.navigate()
-        
+
         # Since we may not have items, this is a basic structural test
         # that would require actual items with photos for full testing
         page.wait_for_load_state('networkidle')
-        
+
         # The test passes if we can navigate to the list page successfully
         expect(page.locator("h2")).to_contain_text("Inventory")
+
+
+class TestPhotoMetadataDisplay:
+    """Test photo metadata display regression tests"""
+
+    @pytest.mark.e2e
+    def test_photo_metadata_displays_correctly_not_undefined(self, page, live_server, sample_image_file):
+        """
+        Regression test for photo metadata display bug.
+
+        After migration to many-to-many item-photo relationships, photo metadata
+        (filename and file size) was showing as "undefined" and "NaN Undefined"
+        because the API response structure changed but the JavaScript wasn't updated.
+
+        This test ensures that photo metadata displays correctly.
+        """
+        # Create an item with a photo
+        add_page = AddItemPage(page, live_server.url)
+        add_page.navigate()
+
+        add_page.fill_basic_item_data(
+            ja_id="JA000701",
+            item_type="Bar",
+            shape="Round",
+            material="Steel"
+        )
+        add_page.fill_dimensions(length="150", width="20")
+        add_page.fill_location_and_notes(location="Storage A")
+        add_page.submit_form()
+        add_page.assert_form_submitted_successfully()
+
+        # Navigate to edit page to upload photo
+        edit_url = f"{live_server.url}/inventory/edit/JA000701"
+        page.goto(edit_url)
+
+        # Verify we're on the edit page
+        expect(page.locator("#add-item-form")).to_be_visible()
+
+        # Upload a photo
+        file_input = page.locator(".photo-file-input")
+        file_input.set_input_files(sample_image_file)
+
+        # Wait for photo to be processed and uploaded
+        page.wait_for_timeout(2000)
+
+        # Verify photo appears in gallery
+        photo_gallery = page.locator(".photo-gallery-grid")
+        expect(photo_gallery).to_be_visible()
+        photo_card = photo_gallery.locator(".photo-card").first
+        expect(photo_card).to_be_visible()
+
+        # Critical regression test: Check that photo name is displayed correctly
+        photo_name = photo_card.locator(".photo-name")
+        expect(photo_name).to_be_visible()
+        photo_name_text = photo_name.text_content()
+        assert photo_name_text is not None, "Photo name should not be None"
+        assert "undefined" not in photo_name_text.lower(), f"Photo name should not contain 'undefined', got: {photo_name_text}"
+        assert ".jpg" in photo_name_text or ".png" in photo_name_text, f"Photo name should contain file extension, got: {photo_name_text}"
+
+        # Critical regression test: Check that photo metadata (file size) is displayed correctly
+        photo_meta = photo_card.locator(".photo-meta")
+        expect(photo_meta).to_be_visible()
+        photo_meta_text = photo_meta.text_content()
+        assert photo_meta_text is not None, "Photo metadata should not be None"
+        assert "undefined" not in photo_meta_text.lower(), f"Photo metadata should not contain 'undefined', got: {photo_meta_text}"
+        assert "nan" not in photo_meta_text.lower(), f"Photo metadata should not contain 'NaN', got: {photo_meta_text}"
+        # Should contain a file size unit (KB, MB, etc.)
+        assert any(unit in photo_meta_text for unit in ["B", "KB", "MB"]), f"Photo metadata should contain file size, got: {photo_meta_text}"
+
+        # Also verify in item details modal
+        list_page = InventoryListPage(page, live_server.url)
+        list_page.navigate()
+
+        # Find the item row and click the details button
+        item_row = page.locator(f"tr:has-text('JA000701')")
+        expect(item_row).to_be_visible()
+
+        details_button = item_row.locator("button[title='View Details']")
+        expect(details_button).to_be_visible()
+        details_button.click()
+
+        # Wait for modal to open
+        modal = page.locator("#item-details-modal")
+        expect(modal).to_be_visible()
+
+        # Verify photo section in modal
+        modal_photo_section = modal.locator("#item-details-photos")
+        expect(modal_photo_section).to_be_visible()
+
+        # Verify photo metadata in modal
+        modal_photo_card = modal_photo_section.locator(".photo-card").first
+        expect(modal_photo_card).to_be_visible()
+
+        modal_photo_name = modal_photo_card.locator(".photo-name")
+        modal_photo_name_text = modal_photo_name.text_content()
+        assert "undefined" not in modal_photo_name_text.lower(), f"Modal photo name should not contain 'undefined', got: {modal_photo_name_text}"
+
+        modal_photo_meta = modal_photo_card.locator(".photo-meta")
+        modal_photo_meta_text = modal_photo_meta.text_content()
+        assert "undefined" not in modal_photo_meta_text.lower(), f"Modal photo metadata should not contain 'undefined', got: {modal_photo_meta_text}"
+        assert "nan" not in modal_photo_meta_text.lower(), f"Modal photo metadata should not contain 'NaN', got: {modal_photo_meta_text}"

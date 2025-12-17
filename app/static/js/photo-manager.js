@@ -366,18 +366,20 @@ const PhotoManager = {
                     const data = await response.json();
                     
                     for (const photoData of data.photos) {
+                        // After many-to-many migration, photo data is nested under photoData.photo
+                        const photoInfo = photoData.photo || photoData; // Fallback for backwards compatibility
                         const photo = {
-                            id: photoData.id,
-                            name: photoData.filename,
-                            size: photoData.file_size,
-                            type: photoData.content_type,
-                            content_type: photoData.content_type, // Also set content_type for consistency
-                            preview: `/api/photos/${photoData.id}?size=thumbnail`,
+                            id: photoInfo.id,
+                            name: photoInfo.filename,
+                            size: photoInfo.file_size,
+                            type: photoInfo.content_type,
+                            content_type: photoInfo.content_type, // Also set content_type for consistency
+                            preview: `/api/photos/${photoInfo.id}?size=thumbnail`,
                             uploaded: true,
                             selected: false,
-                            created_at: photoData.created_at // Include creation date
+                            created_at: photoInfo.created_at // Include creation date
                         };
-                        
+
                         this.photos.push(photo);
                         this.addPhotoToGallery(photo);
                     }
