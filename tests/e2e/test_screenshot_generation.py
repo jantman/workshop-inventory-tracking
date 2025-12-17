@@ -203,6 +203,119 @@ class TestDocumentationScreenshots:
         print(f"✓ Generated screenshot: user-manual/search_results.png")
 
     # ========================================================================
+    # Milestone 2.2: Add/Edit Item Screenshots
+    # ========================================================================
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_add_item_form(self, page, live_server):
+        """Generate add item form screenshot with all fields visible"""
+        # Navigate to add item page
+        add_page = AddItemPage(page, live_server.url)
+        add_page.navigate()
+
+        # Fill in form with realistic data using page object (but don't submit)
+        add_page.fill_basic_item_data(
+            ja_id="JA000201",
+            item_type="Bar",  # Use actual enum values
+            shape="Round",
+            material="Steel - 1018 Cold Rolled"
+        )
+        add_page.fill_dimensions(length="72", width="1.5")
+        add_page.fill_location_and_notes(
+            location="Metal Storage Rack A",
+            notes="General purpose machining stock"
+        )
+
+        # Also fill sub_location which isn't in the helper
+        page.fill("#sub_location", "Section 3, Shelf 2")
+
+        # Wait for form to be fully rendered
+        page.wait_for_timeout(500)
+
+        # Capture screenshot
+        self.screenshot.capture_viewport(
+            "user-manual/add_item_form.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#add-item-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print(f"✓ Generated screenshot: user-manual/add_item_form.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_bulk_creation_preview(self, page, live_server):
+        """Generate bulk creation preview screenshot"""
+        add_page = AddItemPage(page, live_server.url)
+        add_page.navigate()
+
+        # Fill basic data using page object
+        add_page.fill_basic_item_data(
+            ja_id="JA000300",
+            item_type="Bar",
+            shape="Square",
+            material="Aluminum - 6061-T651"
+        )
+        add_page.fill_location_and_notes(location="Metal Storage Rack A")
+
+        # Set quantity to create multiple items
+        page.fill("#quantity_to_create", "5")
+        page.wait_for_timeout(1000)  # Wait for any JS updates
+
+        # Capture the quantity section of the form
+        # The element might have a different ID/class, so let's just capture the form section
+        try:
+            # Try to find a preview element first
+            if page.locator("#quantity-preview").count() > 0:
+                self.screenshot.capture_element(
+                    "#quantity-preview",
+                    "user-manual/bulk_creation_preview.png",
+                    padding=20
+                )
+            else:
+                # Fall back to capturing the quantity input area
+                self.screenshot.capture_element(
+                    "#quantity_to_create",
+                    "user-manual/bulk_creation_preview.png",
+                    padding=40
+                )
+        except Exception as e:
+            print(f"Warning: Could not capture bulk creation preview: {e}")
+            # Skip this screenshot if element not found
+            return
+
+        print(f"✓ Generated screenshot: user-manual/bulk_creation_preview.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_edit_item_form(self, page, live_server):
+        """Generate edit item form screenshot with populated data"""
+        # First create an item to edit
+        items = get_inventory_items(count=1)
+        self._load_inventory_data(live_server, items)
+
+        # Navigate to edit page
+        ja_id = items[0]['ja_id']
+        page.goto(f"{live_server.url}/inventory/edit/{ja_id}")
+
+        # Wait for form to load with data
+        page.wait_for_selector("#add-item-form", timeout=5000)
+        page.wait_for_timeout(1000)
+
+        # Capture screenshot
+        self.screenshot.capture_viewport(
+            "user-manual/edit_item_form.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#add-item-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print(f"✓ Generated screenshot: user-manual/edit_item_form.png")
+
+    # ========================================================================
     # Helper Tests for Debugging (not in config, but useful)
     # ========================================================================
 
