@@ -38,82 +38,54 @@ class TestDocumentationScreenshots:
         if self.screenshot.get_screenshot_count() > 0:
             self.screenshot.save_metadata()
 
-    def _create_inventory_item_in_db(self, session, item_data):
+    def _add_item_via_ui(self, page, add_page, item_data):
         """
-        Helper to create an inventory item directly in the database.
+        Add an inventory item via the UI.
 
         Args:
-            session: SQLAlchemy session
+            page: Playwright page object
+            add_page: AddItemPage object
             item_data: Item data dictionary
         """
-        # Create dimensions if provided
-        dimensions = None
-        if any(k in item_data for k in ['length', 'width', 'thickness', 'wall_thickness']):
-            dimensions = Dimensions(
-                length=Decimal(item_data.get('length', 0)) if item_data.get('length') else None,
-                width=Decimal(item_data.get('width', 0)) if item_data.get('width') else None,
-                thickness=Decimal(item_data.get('thickness', 0)) if item_data.get('thickness') else None,
-                wall_thickness=Decimal(item_data.get('wall_thickness', 0)) if item_data.get('wall_thickness') else None
-            )
-
-        # Create thread if provided
-        thread = None
-        if item_data.get('thread_series'):
-            thread = Thread(
-                series=ThreadSeries[item_data['thread_series']] if item_data.get('thread_series') else None,
-                size=item_data.get('thread_size'),
-                handedness=ThreadHandedness.RIGHT if item_data.get('thread_handedness') == 'Right' else ThreadHandedness.LEFT if item_data.get('thread_handedness') else None
-            )
-
-        # Create inventory item
-        item = InventoryItem(
+        add_page.navigate()
+        add_page.fill_basic_item_data(
             ja_id=item_data['ja_id'],
-            type_value=item_data.get('type', 'Bar'),
-            shape_value=item_data.get('shape', 'Round'),
-            material=item_data.get('material', ''),
-            length=Decimal(item_data['length']) if item_data.get('length') else None,
-            width=Decimal(item_data['width']) if item_data.get('width') else None,
-            thickness=Decimal(item_data['thickness']) if item_data.get('thickness') else None,
-            wall_thickness=Decimal(item_data['wall_thickness']) if item_data.get('wall_thickness') else None,
-            location=item_data.get('location', ''),
-            sub_location=item_data.get('sub_location', ''),
-            notes=item_data.get('notes', ''),
-            purchase_date=item_data.get('purchase_date'),
-            purchase_price=Decimal(item_data['purchase_price']) if item_data.get('purchase_price') else None,
-            purchase_location=item_data.get('purchase_location', ''),
-            vendor=item_data.get('vendor', ''),
-            part_number=item_data.get('part_number', ''),
-            active=item_data.get('active', 'yes') == 'yes',
-            thread_series=item_data.get('thread_series'),
-            thread_size=item_data.get('thread_size'),
-            thread_handedness=item_data.get('thread_handedness')
+            item_type=item_data.get('type', 'Bar'),
+            shape=item_data.get('shape', 'Round'),
+            material=item_data['material']
         )
 
-        session.add(item)
-        return item
+        # Fill dimensions
+        if item_data.get('length') or item_data.get('width'):
+            add_page.fill_dimensions(
+                length=item_data.get('length', ''),
+                width=item_data.get('width', ''),
+                diameter=item_data.get('width', '')  # For round items
+            )
 
-    def _load_inventory_data(self, live_server, items):
+        # Fill location
+        if item_data.get('location'):
+            add_page.fill_location_and_notes(
+                location=item_data['location'],
+                notes=item_data.get('notes', '')
+            )
+
+        # Submit
+        add_page.submit_form()
+        page.wait_for_timeout(500)  # Wait for submission
+
+    def _load_inventory_data(self, page, live_server, items):
         """
-        Load multiple inventory items into the database.
+        Load multiple inventory items via UI.
 
         Args:
+            page: Playwright page object
             live_server: E2E test server
             items: List of item data dictionaries
         """
-        if not hasattr(live_server, 'engine'):
-            raise RuntimeError("live_server does not have engine attribute")
-
-        Session = sessionmaker(bind=live_server.engine)
-        session = Session()
-        try:
-            for item in items:
-                self._create_inventory_item_in_db(session, item)
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            raise RuntimeError(f"Failed to load inventory data: {e}")
-        finally:
-            session.close()
+        add_page = AddItemPage(page, live_server.url)
+        for item in items:
+            self._add_item_via_ui(page, add_page, item)
 
     # ========================================================================
     # Milestone 2.1: Inventory and Search Screenshots
@@ -125,7 +97,7 @@ class TestDocumentationScreenshots:
         """Generate inventory list screenshot for README and user manual"""
         # Load realistic test data
         items = get_inventory_items(count=12)  # Load all items for a full list
-        self._load_inventory_data(live_server, items)
+        self._load_inventory_data(page, live_server, items)
 
         # Navigate to inventory list
         list_page = InventoryListPage(page, live_server.url)
@@ -152,7 +124,7 @@ class TestDocumentationScreenshots:
         """Generate search form screenshot"""
         # Load some test data first so the page isn't empty
         items = get_inventory_items(count=5)
-        self._load_inventory_data(live_server, items)
+        self._load_inventory_data(page, live_server, items)
 
         # Navigate to search page
         search_page = SearchPage(page, live_server.url)
@@ -185,7 +157,7 @@ class TestDocumentationScreenshots:
         """Generate search results screenshot"""
         # Load test data
         items = get_inventory_items()
-        self._load_inventory_data(live_server, items)
+        self._load_inventory_data(page, live_server, items)
 
         # Navigate to search page
         search_page = SearchPage(page, live_server.url)
