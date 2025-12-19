@@ -585,6 +585,88 @@ class TestDocumentationScreenshots:
             print("This is expected if the feature requires specific configuration.")
 
     # ========================================================================
+    # Milestone 3.2: History and Utility Screenshots
+    # ========================================================================
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_history_view(self, page, live_server):
+        """Generate item history view screenshot"""
+        # Load test data
+        items = get_inventory_items(count=1)
+        self._load_inventory_data(live_server, items)
+        ja_id = items[0]['ja_id']
+
+        # Navigate to edit page
+        page.goto(f"{live_server.url}/inventory/edit/{ja_id}")
+        page.wait_for_selector(".btn-outline-warning", timeout=5000)
+        page.wait_for_timeout(500)
+
+        # Click "View History" button
+        history_btn = page.locator("button:has-text('View History')")
+        if history_btn.count() > 0:
+            history_btn.click()
+            page.wait_for_timeout(1000)
+
+        # Wait for history modal to appear
+        try:
+            page.wait_for_selector("#item-history-modal.show", timeout=3000)
+
+            # Capture the history modal
+            self.screenshot.capture_viewport(
+                "user-manual/history_view.png",
+                viewport_size=(1920, 1080),
+                wait_for_selector="#item-history-modal.show",
+                hide_selectors=[".toast-container"],
+                full_page=False  # Just capture viewport since modal is centered
+            )
+
+            print(f"✓ Generated screenshot: user-manual/history_view.png")
+        except Exception as e:
+            # Modal didn't appear - might not have history data
+            print(f"Note: History modal did not appear, skipping screenshot: {e}")
+            print("This is expected if the item has no history records.")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_batch_operations(self, page, live_server):
+        """Generate batch operations menu screenshot"""
+        # Load test data
+        items = get_inventory_items(count=5)
+        self._load_inventory_data(live_server, items)
+
+        # Navigate to inventory list
+        page.goto(f"{live_server.url}/inventory")
+        page.wait_for_selector("table.inventory-table", timeout=5000)
+        page.wait_for_timeout(500)
+
+        # Select some items (check a few checkboxes)
+        checkboxes = page.locator("table.inventory-table input[type='checkbox']")
+        if checkboxes.count() >= 3:
+            checkboxes.nth(0).check()
+            checkboxes.nth(1).check()
+            checkboxes.nth(2).check()
+            page.wait_for_timeout(500)
+
+        # Click the "Options" button to show the dropdown menu
+        options_btn = page.locator("button:has-text('Options')")
+        if options_btn.count() > 0:
+            options_btn.click()
+            page.wait_for_timeout(500)
+
+            # Capture the page with the options menu open
+            self.screenshot.capture_viewport(
+                "user-manual/batch_operations_menu.png",
+                viewport_size=(1920, 1080),
+                hide_selectors=[".toast-container"],
+                full_page=False  # Just capture viewport to show the dropdown
+            )
+
+            print(f"✓ Generated screenshot: user-manual/batch_operations_menu.png")
+        else:
+            print("Note: Options button not found, skipping batch operations screenshot")
+
+    # ========================================================================
     # Helper Tests for Debugging (not in config, but useful)
     # ========================================================================
 
