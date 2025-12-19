@@ -49,6 +49,9 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 
 ### Using the Add Item Form
 
+![Add Item Form](images/screenshots/user-manual/add_item_form.png)
+*Add item interface showing all available fields for tracking materials*
+
 1. **Navigate**: Click "Add Item"
 2. **Required Fields** (marked with *):
    - **JA ID**: Unique identifier (e.g., "JA12345")
@@ -90,6 +93,10 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 ### Streamlined Data Entry
 
 #### Bulk Creation ("Quantity to Create")
+
+![Bulk Creation Preview](images/screenshots/user-manual/bulk_creation_preview.png)
+*Bulk creation preview showing sequential JA IDs that will be created*
+
 The **Quantity to Create** field allows you to create multiple identical items with sequential JA IDs in a single form submission. This is ideal when you have multiple pieces of the same material that need individual tracking.
 
 **How to use:**
@@ -263,6 +270,9 @@ Flag mode creates labels with rotated barcodes at both ends, making them easier 
 
 ## Managing Existing Inventory
 
+![Edit Item Form](images/screenshots/user-manual/edit_item_form.png)
+*Edit interface with complete item details, photo management, and history access*
+
 ### Viewing Inventory
 1. **Inventory List**: View all items with sorting and filtering
 2. **Search Results**: View items matching search criteria
@@ -321,6 +331,9 @@ The system allows you to attach photos to inventory items and copy photos betwee
 
 #### Uploading Photos
 
+![Photo Upload Interface](images/screenshots/user-manual/photo_upload.png)
+*Photo upload interface for attaching images to inventory items*
+
 Photos can be uploaded when adding or editing items:
 1. Navigate to the Add Item or Edit Item page
 2. Scroll to the **Photos** section
@@ -330,6 +343,9 @@ Photos can be uploaded when adding or editing items:
 6. Photos are automatically resized to three sizes: thumbnail, medium, and original
 
 #### Viewing Photos
+
+![Photo Gallery](images/screenshots/user-manual/photo_gallery.png)
+*Gallery view showing multiple photos attached to an item*
 
 - **Inventory List**: Photo count displayed in the table (e.g., "📷 3" indicates 3 photos)
 - **Item Details Modal**: Click any item to view full-size photos in a gallery
@@ -416,6 +432,9 @@ To delete a photo from an item:
 
 #### Viewing Item History
 
+![Item History View](images/screenshots/user-manual/history_view.png)
+*History modal showing complete modification timeline for an item*
+
 **Multiple Access Points:**
 - **📋 Inventory List**: Clock icon (🕒) in the Actions column of any item
 - **🔍 Search Results**: Clock icon (🕒) in the Actions column of search results
@@ -444,7 +463,14 @@ To delete a photo from an item:
 ## Advanced Search
 
 ### Search Interface
+
+![Advanced Search Form](images/screenshots/user-manual/search_form.png)
+*Advanced search interface with range queries, filters, and multiple criteria*
+
 Access via "Search" menu
+
+![Search Results](images/screenshots/user-manual/search_results.png)
+*Search results displaying matching items with all relevant details*
 
 ### Filter Categories
 
@@ -489,7 +515,13 @@ Access via "Search" menu
 
 ## Batch Operations
 
+![Batch Operations Menu](images/screenshots/user-manual/batch_operations_menu.png)
+*Dropdown menu showing available bulk operations for selected items*
+
 ### Moving Items
+
+![Move Items Interface](images/screenshots/user-manual/move_items.png)
+*Batch move interface for relocating multiple items efficiently*
 
 The Move Items feature allows you to efficiently relocate multiple inventory items in a single batch operation. The system supports moving items to both primary locations and optional sub-locations.
 
@@ -581,6 +613,10 @@ Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA00
 - **Manual Entry Mode**: Check the "Manual Entry Mode" checkbox if you need to type values instead of scanning
 
 ### Shortening Items
+
+![Shorten Items Interface](images/screenshots/user-manual/shorten_items.png)
+*Interface for cutting materials to length and creating child items*
+
 1. **Navigate**: "Shorten Items" menu
 2. **Item Selection**: Enter or scan item JA ID
 3. **New Length**: Specify remaining length after cut
