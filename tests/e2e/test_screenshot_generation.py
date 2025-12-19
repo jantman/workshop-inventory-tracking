@@ -465,6 +465,126 @@ class TestDocumentationScreenshots:
             print("This is expected if the photo copy feature requires specific conditions.")
 
     # ========================================================================
+    # Milestone 3.1: Batch Operation Screenshots
+    # ========================================================================
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_move_items(self, page, live_server):
+        """Generate move items interface screenshot"""
+        # Load some test data so the move page has context
+        items = get_inventory_items(count=5)
+        self._load_inventory_data(live_server, items)
+
+        # Navigate to move items page
+        page.goto(f"{live_server.url}/inventory/move")
+
+        # Wait for the page to load
+        page.wait_for_selector("#batch-move-form", timeout=5000)
+        page.wait_for_timeout(500)
+
+        # Add a JA ID to the form to show the interface in use
+        ja_id = items[0]['ja_id']
+        if page.locator("#barcode-input").count() > 0:
+            page.fill("#barcode-input", ja_id)
+            page.wait_for_timeout(300)
+
+        # Capture the move items interface
+        self.screenshot.capture_viewport(
+            "user-manual/move_items.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#batch-move-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print(f"✓ Generated screenshot: user-manual/move_items.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_shorten_items(self, page, live_server):
+        """Generate shorten items interface screenshot"""
+        # Load test data - need some items to shorten
+        items = get_inventory_items(count=3)
+        self._load_inventory_data(live_server, items)
+
+        # Navigate to shorten items page
+        page.goto(f"{live_server.url}/inventory/shorten")
+
+        # Wait for the form to load
+        page.wait_for_selector("#shorten-form", timeout=5000)
+        page.wait_for_timeout(500)
+
+        # Fill in an example JA ID to show the interface with data
+        # Get the first item's JA ID
+        ja_id = items[0]['ja_id']
+        if page.locator("#ja_id").count() > 0:
+            page.fill("#ja_id", ja_id)
+            page.wait_for_timeout(500)
+
+        # Capture the shorten interface
+        self.screenshot.capture_viewport(
+            "user-manual/shorten_items.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#shorten-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print(f"✓ Generated screenshot: user-manual/shorten_items.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_label_printing(self, page, live_server):
+        """Generate label printing modal screenshot"""
+        # Load test data
+        items = get_inventory_items(count=5)
+        self._load_inventory_data(live_server, items)
+
+        # Navigate to inventory list
+        page.goto(f"{live_server.url}/inventory")
+        page.wait_for_selector("table.inventory-table", timeout=5000)
+        page.wait_for_timeout(500)
+
+        # Select some items (check a few checkboxes)
+        checkboxes = page.locator("table.inventory-table input[type='checkbox']")
+        if checkboxes.count() >= 2:
+            checkboxes.nth(0).check()
+            checkboxes.nth(1).check()
+            page.wait_for_timeout(500)
+
+        # Click the options dropdown button
+        options_btn = page.locator("#options-dropdown-btn")
+        if options_btn.count() > 0:
+            options_btn.click()
+            page.wait_for_timeout(300)
+
+            # Click "Print Labels" button
+            print_labels_btn = page.locator("#bulk-print-labels-btn")
+            if print_labels_btn.count() > 0:
+                print_labels_btn.click()
+                page.wait_for_timeout(1000)
+
+        # Wait for the label printing modal to appear
+        try:
+            page.wait_for_selector("#listBulkLabelPrintingModal.show", timeout=3000)
+
+            # Capture the modal
+            self.screenshot.capture_viewport(
+                "user-manual/label_printing.png",
+                viewport_size=(1920, 1080),
+                wait_for_selector="#listBulkLabelPrintingModal.show",
+                hide_selectors=[".toast-container"],
+                full_page=False  # Just capture viewport since modal is centered
+            )
+
+            print(f"✓ Generated screenshot: user-manual/label_printing.png")
+        except Exception as e:
+            # Modal didn't appear - skip this screenshot
+            print(f"Note: Label printing modal did not appear, skipping screenshot: {e}")
+            print("This is expected if the feature requires specific configuration.")
+
+    # ========================================================================
     # Helper Tests for Debugging (not in config, but useful)
     # ========================================================================
 
