@@ -7,6 +7,9 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 
 ## Features
 
+![Inventory List](docs/images/screenshots/readme/inventory_list.png)
+*Main inventory list interface showing materials with search, filtering, and batch operations*
+
 - **Complete Inventory Management**: Add, move, shorten, and track materials with parent-child relationships
 - **MariaDB Storage Backend**: Production-ready database with Google Sheets export functionality
 - **Multi-Row Item History**: Complete shortening history tracking with active/inactive item management
@@ -39,6 +42,11 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
    ```bash
    flask run --debug
    ```
+
+Once running, navigate to `http://127.0.0.1:5000` to access the inventory interface:
+
+![Add Item Form](docs/images/screenshots/user-manual/add_item_form.png)
+*Add item interface showing comprehensive material tracking fields*
 
 ## Documentation
 
