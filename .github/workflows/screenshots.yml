@@ -1,0 +1,79 @@
+name: Screenshot Verification
+
+on:
+  pull_request:
+    paths:
+      - 'app/templates/**'
+      - 'app/static/css/**'
+      - 'app/static/js/**'
+      - 'tests/e2e/test_screenshot_generation.py'
+      - 'tests/e2e/fixtures/screenshot_data.py'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  verify-screenshots:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need history to compare
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install nox
+        run: pip install nox
+
+      - name: Regenerate screenshots
+        run: nox -s screenshots_headless
+        env:
+          CI: 'true'
+
+      - name: Check for screenshot differences
+        id: check_diff
+        run: |
+          if git diff --quiet docs/images/screenshots/; then
+            echo "status=up-to-date" >> $GITHUB_OUTPUT
+            echo "✅ Screenshots are up to date with UI changes"
+          else
+            echo "status=outdated" >> $GITHUB_OUTPUT
+            echo "⚠️  Screenshots are outdated and need regeneration"
+            echo ""
+            echo "Changed screenshot files:"
+            git diff --name-only docs/images/screenshots/
+            echo ""
+            echo "To fix this:"
+            echo "  1. Run: nox -s screenshots"
+            echo "  2. Review the changes"
+            echo "  3. Commit the updated screenshots"
+            exit 1
+          fi
+
+      - name: Upload regenerated screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-screenshots
+          path: docs/images/screenshots/
+          retention-days: 7
+
+      - name: Comment on PR (if outdated)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ **Screenshots are outdated**\n\n' +
+                    'UI changes detected but screenshots were not updated.\n\n' +
+                    'Please run:\n```bash\nnox -s screenshots\n```\n\n' +
+                    'Then commit the updated screenshots with your changes.\n\n' +
+                    'Updated screenshots are available in the workflow artifacts for review.'
+            })
