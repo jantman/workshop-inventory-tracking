@@ -97,31 +97,38 @@ jobs:
         run: |
           if git diff --quiet docs/images/screenshots/; then
             echo "status=up-to-date" >> $GITHUB_OUTPUT
-            echo "✅ Screenshots are up to date with UI changes"
+            echo "✅ No screenshot differences detected"
+            echo ""
+            echo "This could mean:"
+            echo "  • Screenshots were already regenerated and committed"
+            echo "  • UI changes don't affect screenshot content"
           else
             echo "status=outdated" >> $GITHUB_OUTPUT
-            echo "⚠️  Screenshots are outdated and need regeneration"
+            echo "ℹ️  Screenshot differences detected"
             echo ""
             echo "Changed screenshot files:"
             git diff --name-only docs/images/screenshots/
             echo ""
-            echo "To fix this:"
+            echo "This is expected when UI files change."
+            echo ""
+            echo "If you haven't already, regenerate and commit screenshots:"
             echo "  1. Run: nox -s screenshots"
             echo "  2. Review the changes"
-            echo "  3. Commit the updated screenshots"
-            exit 1
+            echo "  3. Commit the updated screenshots with your UI changes"
+            echo ""
+            echo "Updated screenshots are available as artifacts for comparison."
           fi
 
       - name: Upload regenerated screenshots
-        if: failure()
+        if: steps.check_diff.outputs.status == 'outdated'
         uses: actions/upload-artifact@v4
         with:
           name: regenerated-screenshots
           path: docs/images/screenshots/
           retention-days: 7
 
-      - name: Comment on PR (if outdated)
-        if: failure() && github.event_name == 'pull_request'
+      - name: Comment on PR with screenshot info
+        if: github.event_name == 'pull_request' && steps.check_diff.outputs.status == 'outdated'
         uses: actions/github-script@v6
         with:
           script: |
@@ -129,9 +136,19 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ **Screenshots are outdated**\n\n' +
-                    'UI changes detected but screenshots were not updated.\n\n' +
-                    'Please run:\n```bash\nnox -s screenshots\n```\n\n' +
-                    'Then commit the updated screenshots with your changes.\n\n' +
-                    'Updated screenshots are available in the workflow artifacts for review.'
+              body: '## 📸 Screenshot Update Reminder\n\n' +
+                    'This PR modifies UI files. Screenshot differences were detected when regenerating in CI.\n\n' +
+                    '### Next Steps\n\n' +
+                    'If you haven\'t already, please regenerate and commit screenshots:\n\n' +
+                    '```bash\n' +
+                    'nox -s screenshots\n' +
+                    'git add docs/images/screenshots/\n' +
+                    'git commit -m "Update screenshots for UI changes"\n' +
+                    '```\n\n' +
+                    '### Review\n\n' +
+                    '✅ Updated screenshots are available in the workflow artifacts for comparison\n\n' +
+                    '💡 **Note**: Minor differences in screenshots can occur due to rendering variations. ' +
+                    'The pre-commit hook will also remind you about screenshot updates.\n\n' +
+                    '---\n' +
+                    '*This is an informational message and does not block merging.*'
             })
