@@ -107,6 +107,227 @@ nox -s coverage
 nox -l
 ```
 
+## Screenshot Generation and Maintenance
+
+The project uses automated screenshot generation to keep documentation visually up-to-date with the UI.
+
+### Screenshot Test Suite
+
+**Command**: `nox -s screenshots`
+
+**Purpose**: Generate all documentation screenshots with realistic test data.
+
+**Output**: 12 screenshots in `docs/images/screenshots/` (README and user manual)
+
+**Runtime**: ~60-90 seconds
+
+#### Headless Mode (CI/CD)
+
+**Command**: `nox -s screenshots_headless`
+
+**Purpose**: Generate screenshots without visible browser windows (for CI/CD pipelines).
+
+#### Quality Verification
+
+**Command**: `nox -s screenshots_verify`
+
+**Purpose**: Verify all screenshots meet quality standards:
+- File size under 500KB
+- Valid PNG format
+- RGB/RGBA color mode
+
+### When to Regenerate Screenshots
+
+Screenshots should be regenerated when:
+
+1. **UI Changes**
+   - Template modifications (`app/templates/**`)
+   - CSS changes (`app/static/css/**`)
+   - JavaScript changes affecting UI (`app/static/js/**`)
+
+2. **Test Data Changes**
+   - Screenshot test fixtures modified (`tests/e2e/fixtures/screenshot_data.py`)
+
+3. **Feature Additions**
+   - New features that need documentation screenshots
+
+### Screenshot Maintenance Workflow
+
+#### Local Development
+
+When modifying UI files:
+
+```bash
+# 1. Make your UI changes
+vim app/templates/inventory/list.html
+
+# 2. Regenerate screenshots
+nox -s screenshots
+
+# 3. Review changes
+git diff docs/images/screenshots/
+
+# 4. Verify quality
+nox -s screenshots_verify
+
+# 5. Commit UI changes and screenshots together
+git add app/templates/ docs/images/screenshots/
+git commit -m "Update inventory list UI and regenerate screenshots"
+```
+
+#### Pre-Commit Hook
+
+The project includes a pre-commit hook that reminds you to regenerate screenshots when UI files are modified.
+
+**Install the hook:**
+
+```bash
+./hooks/install.sh
+```
+
+**What it does:**
+- Detects when you're committing UI file changes
+- Prompts you to confirm screenshots were regenerated
+- Provides commands if regeneration is needed
+- Allows skipping for non-visual changes
+
+**Example interaction:**
+```
+⚠️  UI files were modified:
+   app/templates/inventory/list.html
+
+📸 Consider regenerating screenshots:
+   nox -s screenshots
+
+❓ Did you update screenshots? (y/n/skip)
+```
+
+#### CI/CD Verification
+
+GitHub Actions automatically verifies screenshots on pull requests:
+
+**Workflow**: `.github/workflows/screenshots.yml`
+
+**Triggers**: PRs that modify:
+- Templates
+- CSS/JavaScript
+- Screenshot test files
+
+**Actions**:
+1. Regenerates all screenshots
+2. Compares with committed versions
+3. Fails if screenshots are outdated
+4. Comments on PR with instructions
+5. Provides regenerated screenshots as artifacts
+
+**PR Requirements:**
+- If you modify UI files, you must regenerate and commit screenshots
+- CI will block merge if screenshots are out of date
+
+### Screenshot Test Structure
+
+**Test File**: `tests/e2e/test_screenshot_generation.py`
+
+**Test Data**: `tests/e2e/fixtures/screenshot_data.py`
+- 12 realistic workshop inventory items
+- Complete material specifications
+- Professional purchase information
+
+**Configuration**: `tests/e2e/screenshot_config.yaml`
+- Screenshot definitions
+- Viewport sizes
+- Documentation insertion points
+
+### Adding New Screenshots
+
+To add a new screenshot:
+
+1. **Add test method** to `test_screenshot_generation.py`:
+
+```python
+@pytest.mark.screenshot
+@pytest.mark.e2e
+def test_screenshot_new_feature(self, page, live_server):
+    """Generate new feature screenshot"""
+    items = get_inventory_items(count=3)
+    self._load_inventory_data(live_server, items)
+
+    page.goto(f"{live_server.url}/new-feature")
+    page.wait_for_selector("#feature-element", timeout=5000)
+
+    self.screenshot.capture_viewport(
+        "user-manual/new_feature.png",
+        viewport_size=(1920, 1080),
+        wait_for_selector="#feature-element",
+        hide_selectors=[".toast-container"],
+        full_page=True
+    )
+```
+
+2. **Generate the screenshot**:
+```bash
+nox -s screenshots
+```
+
+3. **Add to documentation**:
+```markdown
+![New Feature](images/screenshots/user-manual/new_feature.png)
+*Description of what the screenshot shows*
+```
+
+4. **Verify and commit**:
+```bash
+nox -s screenshots_verify
+git add tests/e2e/test_screenshot_generation.py docs/images/screenshots/ docs/user-manual.md
+git commit -m "Add screenshot for new feature"
+```
+
+### Troubleshooting Screenshots
+
+#### Screenshots Don't Match UI
+
+**Problem**: Regenerated screenshots look different than expected
+
+**Solutions**:
+- Clear browser cache: Playwright uses fresh browser instances
+- Check test data: Ensure fixtures match expected state
+- Review viewport size: Screenshots use 1920x1080 by default
+- Check wait conditions: May need longer timeouts
+
+#### Tests Fail to Generate Screenshot
+
+**Problem**: Screenshot test fails with timeout or element not found
+
+**Solutions**:
+- Run test with visible browser: `nox -s screenshots` (not headless)
+- Check element selectors in test
+- Verify test data is loading correctly
+- Review test debug output in `test-debug-output/`
+
+#### File Size Too Large
+
+**Problem**: Screenshot exceeds 500KB limit
+
+**Solutions**:
+- PNG optimization is automatic; check if working
+- Consider reducing viewport size
+- Hide unnecessary UI elements with `hide_selectors`
+- Review if full-page capture is needed
+
+### Best Practices
+
+1. **Always regenerate after UI changes** - Don't manually edit screenshots
+2. **Commit screenshots with UI changes** - Keep them in sync
+3. **Use realistic test data** - Screenshots represent production usage
+4. **Review generated screenshots** - Ensure they look professional
+5. **Run verification before committing** - Catch issues early
+
+### Documentation
+
+- **Generation Guide**: `docs/images/screenshots/GENERATION_GUIDE.md`
+- **Quality Verification**: `docs/images/screenshots/VERIFICATION.md`
+- **Hook Documentation**: `hooks/README.md`
+
 ## Test Architecture
 
 ### Unit Test Structure

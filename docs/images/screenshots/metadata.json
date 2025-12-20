@@ -1,0 +1,21 @@
+{
+  "generated_at": "2025-12-19T07:19:22.957511",
+  "screenshots": [
+    {
+      "filename": "user-manual/batch_operations_menu.png",
+      "capture_type": "viewport",
+      "timestamp": "2025-12-19T07:19:25.116820",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": false,
+        "wait_for_selector": null,
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    }
+  ]
+}
