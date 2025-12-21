@@ -599,7 +599,6 @@ class InventoryListManager {
         this.emptyState.classList.add('d-none');
         this.errorState.classList.add('d-none');
         this.inventoryTableContainer.classList.add('d-none');
-        this.paginationContainer.classList.add('d-none');
         this.itemCount.textContent = 'Loading...';
     }
     
@@ -608,7 +607,6 @@ class InventoryListManager {
         this.emptyState.classList.add('d-none');
         this.errorState.classList.remove('d-none');
         this.inventoryTableContainer.classList.add('d-none');
-        this.paginationContainer.classList.add('d-none');
         this.itemCount.textContent = 'Error loading items';
     }
     
@@ -619,7 +617,6 @@ class InventoryListManager {
         if (this.filteredItems.length === 0) {
             this.emptyState.classList.remove('d-none');
             this.inventoryTableContainer.classList.add('d-none');
-            this.paginationContainer.classList.add('d-none');
         } else {
             this.emptyState.classList.add('d-none');
             this.inventoryTableContainer.classList.remove('d-none');

@@ -256,6 +256,97 @@ export class InventoryTable {
 
         // Update sort indicators
         this.updateSortIndicators();
+
+        // Update pagination controls
+        this.updatePaginationControls();
+    }
+
+    /**
+     * Update pagination controls visibility and state
+     */
+    updatePaginationControls() {
+        const paginationContainer = document.getElementById('pagination-container');
+        if (!paginationContainer) return;
+
+        const totalPages = Math.ceil(this.items.length / this.config.itemsPerPage);
+
+        // Show pagination if more than one page
+        if (totalPages > 1) {
+            paginationContainer.classList.remove('d-none');
+            this.renderPaginationButtons(totalPages);
+        } else {
+            paginationContainer.classList.add('d-none');
+        }
+
+        // Update item count display
+        this.updateItemCountDisplay();
+    }
+
+    /**
+     * Render pagination buttons
+     *
+     * @param {number} totalPages - Total number of pages
+     */
+    renderPaginationButtons(totalPages) {
+        const pagination = document.getElementById('pagination');
+        if (!pagination) return;
+
+        let html = '';
+
+        // Previous button
+        const prevDisabled = this.currentPage === 1 ? 'disabled' : '';
+        html += `<li class="page-item ${prevDisabled}">
+            <a class="page-link" href="#" data-page="${this.currentPage - 1}">Previous</a>
+        </li>`;
+
+        // Page numbers (show max 5 pages)
+        const startPage = Math.max(1, this.currentPage - 2);
+        const endPage = Math.min(totalPages, startPage + 4);
+
+        for (let i = startPage; i <= endPage; i++) {
+            const active = i === this.currentPage ? 'active' : '';
+            html += `<li class="page-item ${active}">
+                <a class="page-link" href="#" data-page="${i}">${i}</a>
+            </li>`;
+        }
+
+        // Next button
+        const nextDisabled = this.currentPage === totalPages ? 'disabled' : '';
+        html += `<li class="page-item ${nextDisabled}">
+            <a class="page-link" href="#" data-page="${this.currentPage + 1}">Next</a>
+        </li>`;
+
+        pagination.innerHTML = html;
+
+        // Attach click handlers
+        pagination.querySelectorAll('.page-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (!link.parentElement.classList.contains('disabled') &&
+                    !link.parentElement.classList.contains('active')) {
+                    const page = parseInt(link.dataset.page);
+                    this.renderPage(page);
+                }
+            });
+        });
+    }
+
+    /**
+     * Update item count display
+     */
+    updateItemCountDisplay() {
+        const itemsStart = document.getElementById('items-start');
+        const itemsEnd = document.getElementById('items-end');
+        const itemsTotal = document.getElementById('items-total');
+
+        if (!itemsStart || !itemsEnd || !itemsTotal) return;
+
+        const startIdx = (this.currentPage - 1) * this.config.itemsPerPage + 1;
+        const endIdx = Math.min(this.currentPage * this.config.itemsPerPage, this.items.length);
+
+        itemsStart.textContent = startIdx;
+        itemsEnd.textContent = endIdx;
+        itemsTotal.textContent = this.items.length;
     }
 
     /**
