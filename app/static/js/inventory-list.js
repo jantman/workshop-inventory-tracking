@@ -6,6 +6,7 @@
  */
 
 import { InventoryTable } from './components/inventory-table.js';
+import { toggleItemStatus } from './components/item-actions.js';
 
 class InventoryListManager {
     constructor() {
@@ -1087,12 +1088,8 @@ window.duplicateItem = function(jaId) {
     }
 };
 
-window.toggleItemStatus = function(jaId, activate) {
-    const action = activate ? 'activate' : 'deactivate';
-    if (confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
-        alert(`Toggle status feature coming soon for ${jaId}!`);
-    }
-};
+// Expose toggleItemStatus to global scope for onclick handlers
+window.toggleItemStatus = toggleItemStatus;
 
 // Backwards compatibility alias
 window.viewItemDetails = function(jaId) {

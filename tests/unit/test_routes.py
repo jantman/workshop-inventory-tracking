@@ -803,3 +803,158 @@ class TestBatchMoveAPIWithSubLocation:
         item = service.get_item('JA000002')
         assert item.location == 'M2-B'
         assert item.sub_location == 'Drawer 5'
+
+
+class TestToggleItemStatusAPI:
+    """Tests for the toggle item status API endpoint"""
+
+    @pytest.fixture
+    def setup_test_items(self, client, test_storage):
+        """Set up test items for status toggle tests"""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+
+        # Create active test item
+        active_item = InventoryItem(
+            ja_id="JA400001",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            notes="Active item for testing",
+            active=True
+        )
+
+        # Create inactive test item
+        inactive_item = InventoryItem(
+            ja_id="JA400002",
+            item_type=ItemType.PLATE.value,
+            shape=ItemShape.SQUARE.value,  # Use SQUARE instead of FLAT
+            material="Aluminum",
+            length=Decimal("24.0"),
+            width=Decimal("12.0"),
+            thickness=Decimal("0.125"),
+            location="Storage B",
+            notes="Inactive item for testing",
+            active=False
+        )
+
+        service.add_item(active_item)
+        service.add_item(inactive_item)
+
+        return service
+
+    def test_api_toggle_item_status_activate(self, client, setup_test_items):
+        """Test activating an inactive item via API"""
+        service = setup_test_items
+
+        response = client.patch(
+            '/api/inventory/JA400002/status',
+            json={'active': True},
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert 'activated' in data['message'].lower()
+        assert data['active'] is True
+
+        # Verify via service
+        item = service.get_item_any_status("JA400002")
+        assert item is not None
+        assert item.active is True
+
+    def test_api_toggle_item_status_deactivate(self, client, setup_test_items):
+        """Test deactivating an active item via API"""
+        service = setup_test_items
+
+        response = client.patch(
+            '/api/inventory/JA400001/status',
+            json={'active': False},
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert 'deactivated' in data['message'].lower()
+        assert data['active'] is False
+
+        # Verify via service
+        item = service.get_item_any_status("JA400001")
+        assert item is not None
+        assert item.active is False
+
+    def test_api_toggle_item_status_missing_field(self, client, setup_test_items):
+        """Test API returns error when 'active' field is missing"""
+        response = client.patch(
+            '/api/inventory/JA400001/status',
+            json={},
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'missing' in data['message'].lower()
+        assert 'active' in data['message'].lower()
+
+    def test_api_toggle_item_status_invalid_type(self, client, setup_test_items):
+        """Test API returns error when 'active' is not a boolean"""
+        response = client.patch(
+            '/api/inventory/JA400001/status',
+            json={'active': 'true'},  # String instead of boolean
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'boolean' in data['message'].lower()
+
+    def test_api_toggle_item_status_item_not_found(self, client, setup_test_items):
+        """Test API returns 404 when item doesn't exist"""
+        response = client.patch(
+            '/api/inventory/JA999999/status',
+            json={'active': True},
+            content_type='application/json'
+        )
+
+        assert response.status_code == 404
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert 'not found' in data['message'].lower()
+
+    def test_api_toggle_item_status_no_state_change(self, client, setup_test_items):
+        """Test toggling status to the same value it already has"""
+        service = setup_test_items
+
+        # JA400001 is already active, try to activate it again
+        response = client.patch(
+            '/api/inventory/JA400001/status',
+            json={'active': True},
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['active'] is True
+
+        # Verify still active via service
+        item = service.get_item_any_status("JA400001")
+        assert item is not None
+        assert item.active is True

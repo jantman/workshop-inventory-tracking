@@ -1576,6 +1576,62 @@ def api_inventory_list():
             'items': []
         }), 500
 
+@bp.route('/api/inventory/<ja_id>/status', methods=['PATCH'])
+@csrf.exempt
+def api_toggle_item_status(ja_id):
+    """Toggle item active/inactive status"""
+    try:
+        data = request.get_json() or {}
+
+        if 'active' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'Missing "active" field in request'
+            }), 400
+
+        active = data['active']
+        if not isinstance(active, bool):
+            return jsonify({
+                'success': False,
+                'message': '"active" must be a boolean'
+            }), 400
+
+        service = _get_inventory_service()
+
+        # Get item (any status) for updating
+        item = service.get_item_any_status(ja_id)
+        if not item:
+            return jsonify({
+                'success': False,
+                'message': f'Item {ja_id} not found'
+            }), 404
+
+        # Update active status
+        item.active = active
+
+        # Save changes
+        if service.update_item(item):
+
+            action = 'activated' if active else 'deactivated'
+            return jsonify({
+                'success': True,
+                'message': f'Item {ja_id} {action} successfully',
+                'active': active
+            })
+        else:
+            error_msg = f'Failed to update item {ja_id}'
+            return jsonify({
+                'success': False,
+                'message': error_msg
+            }), 500
+
+    except Exception as e:
+        current_app.logger.error(f'Error toggling item status for {ja_id}: {e}')
+        return jsonify({
+            'success': False,
+            'message': 'Internal server error'
+        }), 500
+
 @bp.route('/api/inventory/search', methods=['POST'])
 @csrf.exempt
 def api_advanced_search():
