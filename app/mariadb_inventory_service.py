@@ -217,7 +217,42 @@ class InventoryService:
         finally:
             if 'session' in locals():
                 session.close()
-    
+
+    def get_item_any_status(self, ja_id: str) -> Optional[InventoryItem]:
+        """
+        Get an item by JA ID regardless of active/inactive status
+
+        Returns the most recently added item with this JA ID,
+        which could be active or inactive. This is primarily used
+        for editing items where we need to access inactive items.
+
+        Args:
+            ja_id: The JA ID to search for
+
+        Returns:
+            InventoryItem object or None if not found
+        """
+        try:
+            session = self.Session()
+
+            # Query for item with this JA ID, get most recent
+            db_item = session.query(InventoryItem).filter(
+                InventoryItem.ja_id == ja_id
+            ).order_by(desc(InventoryItem.date_added)).first()
+
+            if not db_item:
+                return None
+
+            logger.debug(f"Found item {ja_id} (active={db_item.active})")
+            return db_item
+
+        except Exception as e:
+            logger.error(f"Error getting item {ja_id}: {e}")
+            return None
+        finally:
+            if 'session' in locals():
+                session.close()
+
     def get_all_active_items(self) -> List[InventoryItem]:
         """
         Get all currently active items (one per JA ID)
@@ -615,29 +650,30 @@ class InventoryService:
     def update_item(self, item: 'InventoryItem') -> bool:
         """
         Update an existing item in MariaDB
-        
-        For multi-row JA ID scenarios, this updates only the currently active item.
-        The update preserves the item's history by modifying the existing active row
-        rather than creating a new row (which is what shortening does).
-        
+
+        For multi-row JA ID scenarios, this updates the most recent item
+        (active or inactive). The update preserves the item's history by
+        modifying the existing row rather than creating a new row (which
+        is what shortening does).
+
         Args:
             item: InventoryItem model object with updated data
-            
+
         Returns:
             True if update was successful, False otherwise
         """
         from .logging_config import log_audit_operation
-        
+
         try:
             session = self.Session()
-            
-            # Get the current active item for this JA ID
+
+            # Get the most recent item for this JA ID (active or inactive)
             current_db_item = session.query(InventoryItem).filter(
-                and_(InventoryItem.ja_id == item.ja_id, InventoryItem.active == True)
-            ).first()
-            
+                InventoryItem.ja_id == item.ja_id
+            ).order_by(desc(InventoryItem.date_added)).first()
+
             if not current_db_item:
-                error_msg = f'Active item {item.ja_id} not found for update'
+                error_msg = f'Item {item.ja_id} not found for update'
                 log_audit_operation('update_item_service', 'error',
                                   item_id=item.ja_id,
                                   error_details=error_msg,

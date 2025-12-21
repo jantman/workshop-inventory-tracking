@@ -339,5 +339,199 @@ class TestInventoryService:
             assert result is False
             # Should have been called with only JA ID filter
             assert mock_query.filter.call_count == 1
-            
+
+            mock_session.close.assert_called_once()
+
+    def test_get_item_any_status_returns_active_item(self, service, sample_db_item):
+        """Test that get_item_any_status can return active items"""
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Mock query chain
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.first.return_value = sample_db_item
+
+            # Call the method
+            result = service.get_item_any_status("JA000211")
+
+            # Verify the result
+            assert result is not None
+            assert result.ja_id == "JA000211"
+            assert result.active is True
+
+            # Verify the query was called without active filter
+            mock_session.query.assert_called_once()
+            mock_query.filter.assert_called_once()
+            mock_query.order_by.assert_called_once()
+
+            mock_session.close.assert_called_once()
+
+    def test_get_item_any_status_returns_inactive_item(self, service):
+        """Test that get_item_any_status can return inactive items"""
+        # Create an inactive sample item
+        inactive_item = Mock(spec=InventoryItem)
+        inactive_item.ja_id = "JA000999"
+        inactive_item.active = False
+        inactive_item.item_type = "Bar"
+        inactive_item.shape = "Round"
+        inactive_item.material = "Steel"
+        inactive_item.length = Decimal("12.0")
+        inactive_item.width = Decimal("0.5")
+        inactive_item.location = "Storage"
+        inactive_item.dimensions = Dimensions(
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            thickness=None,
+            wall_thickness=None,
+            weight=None
+        )
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Mock query chain
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.first.return_value = inactive_item
+
+            # Call the method
+            result = service.get_item_any_status("JA000999")
+
+            # Verify the result - should return inactive item
+            assert result is not None
+            assert result.ja_id == "JA000999"
+            assert result.active is False
+
+            mock_session.close.assert_called_once()
+
+    def test_get_item_any_status_returns_most_recent_when_multiple(self, service):
+        """Test that get_item_any_status returns the most recent item when multiple exist"""
+        # This tests that order_by(desc(date_added)) is working correctly
+        most_recent_item = Mock(spec=InventoryItem)
+        most_recent_item.ja_id = "JA000211"
+        most_recent_item.active = False  # Most recent is inactive
+        most_recent_item.date_added = datetime(2024, 1, 15)
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Mock query chain - first() returns most recent due to order_by
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.first.return_value = most_recent_item
+
+            # Call the method
+            result = service.get_item_any_status("JA000211")
+
+            # Should return the most recent item (inactive in this case)
+            assert result is not None
+            assert result.ja_id == "JA000211"
+            assert result.active is False
+
+            mock_session.close.assert_called_once()
+
+    def test_get_item_any_status_returns_none_when_not_found(self, service):
+        """Test that get_item_any_status returns None when item doesn't exist"""
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Mock query chain returning None
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.first.return_value = None
+
+            # Call the method
+            result = service.get_item_any_status("JA999999")
+
+            # Should return None
+            assert result is None
+
+            mock_session.close.assert_called_once()
+
+    def test_update_item_allows_inactive_items(self, service):
+        """Test that update_item can update inactive items"""
+        # Create an inactive item to update
+        inactive_item = Mock(spec=InventoryItem)
+        inactive_item.ja_id = "JA000999"
+        inactive_item.active = False
+        inactive_item.item_type = "Bar"
+        inactive_item.shape = "Round"
+        inactive_item.material = "Aluminum"
+        inactive_item.length = Decimal("24.0")
+        inactive_item.width = Decimal("1.0")
+        inactive_item.thickness = None
+        inactive_item.wall_thickness = None
+        inactive_item.weight = None
+        inactive_item.location = "Storage A"
+        inactive_item.sub_location = ""
+        inactive_item.notes = "Updated notes"
+        inactive_item.vendor = ""
+        inactive_item.vendor_part = ""
+        inactive_item.thread_series = ""
+        inactive_item.thread_handedness = ""
+        inactive_item.thread_size = ""
+        inactive_item.purchase_date = None
+        inactive_item.purchase_price = None
+        inactive_item.purchase_location = None
+        inactive_item.dimensions = Dimensions(
+            length=Decimal("24.0"),
+            width=Decimal("1.0"),
+            thickness=None,
+            wall_thickness=None,
+            weight=None
+        )
+
+        # Mock database item that will be found and updated
+        db_item = Mock(spec=InventoryItem)
+        db_item.ja_id = "JA000999"
+        db_item.active = False
+        db_item.item_type = "Bar"
+        db_item.shape = "Round"
+        db_item.material = "Steel"
+        db_item.length = Decimal("12.0")
+        db_item.width = Decimal("0.5")
+        db_item.thickness = None
+        db_item.wall_thickness = None
+        db_item.weight = None
+        db_item.location = "Storage B"
+        db_item.sub_location = ""
+        db_item.notes = "Old notes"
+        db_item.vendor = ""
+        db_item.vendor_part = ""
+        db_item.thread_series = ""
+        db_item.thread_handedness = ""
+        db_item.thread_size = ""
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Mock query chain
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.first.return_value = db_item
+
+            # Call update_item
+            result = service.update_item(inactive_item)
+
+            # Should succeed
+            assert result is True
+
+            # Verify commit was called
+            mock_session.commit.assert_called_once()
             mock_session.close.assert_called_once()

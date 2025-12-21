@@ -412,9 +412,9 @@ def inventory_edit(ja_id):
     """Edit inventory item"""
     try:
         service = _get_inventory_service()
-        
-        # Get the item
-        item = service.get_item(ja_id)
+
+        # Get the item (active or inactive)
+        item = service.get_item_any_status(ja_id)
         if not item:
             flash(f'Item {ja_id} not found.', 'error')
             return redirect(url_for('main.inventory_list'))
