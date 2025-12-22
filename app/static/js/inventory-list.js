@@ -314,6 +314,8 @@ class InventoryListManager {
         // Apply filters and update table
         this.applyFilters();
         this.table.setItems(this.filteredItems);
+        this.updateItemCount();
+        this.showInventoryTable();
     }
     
     clearFilters() {

@@ -5,6 +5,7 @@ Tests to reproduce bug where pagination is not shown when filtering
 to inactive items, even when there are more than 25 results.
 """
 
+import re
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.inventory_list_page import InventoryListPage
@@ -22,7 +23,7 @@ def test_pagination_shows_for_inactive_items(page, live_server):
     test_items = []
     for i in range(1, 31):
         test_items.append({
-            "ja_id": f"JA30300{i:02d}",
+            "ja_id": f"JA{303000 + i:06d}",
             "item_type": "Bar",
             "shape": "Round",
             "material": "Carbon Steel",
@@ -67,7 +68,7 @@ def test_pagination_shows_for_inactive_items(page, live_server):
 
     # Verify pagination buttons exist
     pagination_buttons = page.locator('#pagination .page-item')
-    expect(pagination_buttons.first()).to_be_visible()
+    expect(pagination_buttons.first).to_be_visible()
 
 
 @pytest.mark.e2e
@@ -81,7 +82,7 @@ def test_pagination_navigation_for_inactive_items(page, live_server):
     test_items = []
     for i in range(1, 31):
         test_items.append({
-            "ja_id": f"JA30400{i:02d}",
+            "ja_id": f"JA{304000 + i:06d}",
             "item_type": "Plate",
             "shape": "Flat",
             "material": "Aluminum",
@@ -139,7 +140,7 @@ def test_pagination_hides_when_results_fit_one_page(page, live_server):
     test_items = []
     for i in range(1, 11):
         test_items.append({
-            "ja_id": f"JA30500{i:02d}",
+            "ja_id": f"JA{305000 + i:06d}",
             "item_type": "Bar",
             "shape": "Square",
             "material": "Stainless Steel",
@@ -167,7 +168,7 @@ def test_pagination_hides_when_results_fit_one_page(page, live_server):
 
     # Pagination should be hidden (no need for it with only 10 items)
     pagination_container = page.locator('#pagination-container')
-    expect(pagination_container).to_have_class('d-none')
+    expect(pagination_container).to_have_class(re.compile(r'd-none'))
 
 
 @pytest.mark.e2e
@@ -181,7 +182,7 @@ def test_pagination_updates_with_items_per_page_change(page, live_server):
     test_items = []
     for i in range(1, 31):
         test_items.append({
-            "ja_id": f"JA30600{i:02d}",
+            "ja_id": f"JA{306000 + i:06d}",
             "item_type": "Bar",
             "shape": "Hex",
             "material": "Carbon Steel",
@@ -235,4 +236,4 @@ def test_pagination_updates_with_items_per_page_change(page, live_server):
 
     # Pagination should be hidden (only 1 page needed)
     pagination_container = page.locator('#pagination-container')
-    expect(pagination_container).to_have_class('d-none')
+    expect(pagination_container).to_have_class(re.compile(r'd-none'))

@@ -102,18 +102,18 @@ def test_activate_inactive_item_via_dropdown(page, live_server):
 
     # Find the actions dropdown button for this item
     # The dropdown toggle is in the actions column
-    actions_dropdown = page.locator(f'tr:has-text("JA302002") .dropdown-toggle').first()
+    actions_dropdown = page.locator(f'tr:has-text("JA302002") .dropdown-toggle').first
     expect(actions_dropdown).to_be_visible()
 
     # Click to open dropdown
     actions_dropdown.click()
 
     # Wait for dropdown menu to be visible
-    dropdown_menu = page.locator(f'tr:has-text("JA302002") .dropdown-menu').first()
+    dropdown_menu = page.locator(f'tr:has-text("JA302002") .dropdown-menu').first
     expect(dropdown_menu).to_be_visible()
 
     # Find the "Activate" menu item (has eye icon for inactive items)
-    activate_link = dropdown_menu.locator('a:has-text("Activate")').first()
+    activate_link = dropdown_menu.locator('a:has-text("Activate")').first
     expect(activate_link).to_be_visible()
 
     # Set up a console message listener to catch JavaScript errors
@@ -183,13 +183,13 @@ def test_deactivate_active_item_via_dropdown(page, live_server):
     assert item_found, "Active item JA302003 should be visible in list"
 
     # Find the actions dropdown button for this item
-    actions_dropdown = page.locator(f'tr:has-text("JA302003") .dropdown-toggle').first()
+    actions_dropdown = page.locator(f'tr:has-text("JA302003") .dropdown-toggle').first
     expect(actions_dropdown).to_be_visible()
     actions_dropdown.click()
 
     # Find the "Deactivate" menu item
-    dropdown_menu = page.locator(f'tr:has-text("JA302003") .dropdown-menu').first()
-    deactivate_link = dropdown_menu.locator('a:has-text("Deactivate")').first()
+    dropdown_menu = page.locator(f'tr:has-text("JA302003") .dropdown-menu').first
+    deactivate_link = dropdown_menu.locator('a:has-text("Deactivate")').first
     expect(deactivate_link).to_be_visible()
 
     # Set up dialog handler for confirmation
