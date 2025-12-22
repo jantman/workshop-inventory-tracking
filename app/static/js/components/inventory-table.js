@@ -473,7 +473,7 @@ export class InventoryTable {
                             <li><a class="dropdown-item" href="#" onclick="duplicateItem('${item.ja_id}')">
                                 <i class="bi bi-copy"></i> Duplicate
                             </a></li>
-                            <li><a class="dropdown-item text-warning" href="#" onclick="toggleItemStatus('${item.ja_id}', ${!item.active})">
+                            <li><a class="dropdown-item text-warning" href="#" onclick="toggleItemStatus('${item.ja_id}', ${!item.active}); return false;">
                                 <i class="bi bi-${item.active ? 'eye-slash' : 'eye'}"></i> ${item.active ? 'Deactivate' : 'Activate'}
                             </a></li>
                         </ul>
