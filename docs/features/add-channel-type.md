@@ -30,17 +30,27 @@ Based on codebase exploration, item types are centrally defined in `app/models.p
 - **Required dimensions:** Define appropriate dimensions for channel types (likely length, width, thickness)
 - **Optional dimensions:** Define any optional dimensions (e.g., wall_thickness for structural channels)
 
-#### Task 1.3: Run and verify all tests pass
+#### Task 1.3: Add e2e tests for Channel items
+- **File:** `tests/e2e/test_add_item.py` or create new test file
+- **New tests to add:**
+  - Test adding a new item with Channel type (Rectangular shape)
+  - Test adding a new item with Channel type (Square shape)
+  - Test editing an existing item to change type to Channel
+  - Verify Channel items are saved correctly to database
+  - Verify Channel items display correctly in inventory list
+  - Verify Channel items can be filtered/searched by type
+- **Ensure coverage of all UI locations:** Add Item form, Edit Item form, List view filter, Search filter
+
+#### Task 1.4: Run and verify all tests pass
 - **Unit tests:** Run `./venv/bin/python -m pytest tests/unit/ --tb=short -v`
   - Verify model tests pass with new enum value
 - **E2E tests:** Run `./venv/bin/python -m pytest tests/e2e/ --tb=short` with 15-minute timeout
-  - Key test: `test_all_item_types_available_in_dropdown()` in `tests/e2e/test_add_item.py` will verify Channel appears in dropdown
-  - Verify items can be created with Channel type
-  - Verify Channel appears in all filtering dropdowns (/inventory list, /inventory/search)
-  - Verify Channel items persist correctly in database and display properly
+  - Existing test `test_all_item_types_available_in_dropdown()` will verify Channel appears in dropdown
+  - New Channel-specific tests (from Task 1.3) will verify full functionality
+  - All existing tests should still pass
 - **Fix any failures:** Address any test failures before proceeding
 
-#### Task 1.4: Update documentation
+#### Task 1.5: Update documentation
 - Review and update if needed:
   - `README.md` - Update if item types are listed
   - `docs/user-manual.md` - Update item type descriptions if present
@@ -67,5 +77,6 @@ After implementation, verify Channel type works in all locations:
 ### Milestone 1: Implement Channel Item Type
 - [ ] Task 1.1: Add Channel to ItemType enum
 - [ ] Task 1.2: Define type-shape compatibility rules
-- [ ] Task 1.3: Run and verify all tests pass
-- [ ] Task 1.4: Update documentation
+- [ ] Task 1.3: Add e2e tests for Channel items
+- [ ] Task 1.4: Run and verify all tests pass
+- [ ] Task 1.5: Update documentation
