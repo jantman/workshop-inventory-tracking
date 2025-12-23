@@ -300,12 +300,8 @@ startxref
         mock_photo.medium_data = b'fake_jpeg_data'
         mock_photo.original_data = b'fake_pdf_data'
 
-        # Create mock ItemPhotoAssociation with photo attribute
-        mock_assoc = Mock(spec=ItemPhotoAssociation)
-        mock_assoc.id = 1
-        mock_assoc.photo = mock_photo
-
-        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_assoc
+        # get_photo_data() now queries Photo directly (not through ItemPhotoAssociation)
+        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
 
         # Test thumbnail
         data, content_type = photo_service.get_photo_data(1, 'thumbnail')
@@ -504,13 +500,8 @@ startxref
         mock_photo.thumbnail_data = b'thumbnail_data'
         mock_photo.content_type = "image/jpeg"
 
-        # Create mock ItemPhotoAssociation with photo attribute
-        mock_assoc = Mock(spec=ItemPhotoAssociation)
-        mock_assoc.id = 1
-        mock_assoc.ja_id = "JA000123"
-        mock_assoc.photo = mock_photo
-
-        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_assoc
+        # get_photo_data() now queries Photo directly (not through ItemPhotoAssociation)
+        photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
 
         result = photo_service.get_photo_data(1, 'thumbnail')
         # get_photo_data returns a tuple of (data, content_type)
@@ -519,16 +510,19 @@ startxref
     @pytest.mark.unit
     def test_get_photo_data_invalid_size(self, photo_service):
         """Test getting photo data with invalid size"""
-        mock_photo = Mock(spec=ItemPhotoAssociation)
+        # Create mock Photo object
+        mock_photo = Mock(spec=Photo)
         mock_photo.id = 1
-        mock_photo.ja_id = "JA000123"
+        mock_photo.original_data = b'original_data'
+        mock_photo.content_type = "image/jpeg"
         photo_service.session.query.return_value.filter.return_value.first.return_value = mock_photo
-        
+
         # Based on the actual implementation, invalid size just defaults to 'original'
         # So we'll test that behavior instead
         result = photo_service.get_photo_data(1, 'invalid')
         # Should return (original_data, content_type)
         assert result is not None
+        assert result == (b'original_data', "image/jpeg")
     
     @pytest.mark.unit
     def test_cleanup_orphaned_photos(self, photo_service):

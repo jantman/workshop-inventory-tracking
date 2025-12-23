@@ -145,3 +145,138 @@ MariaDB [inventory]> SELECT * FROM item_photo_associations WHERE photo_id>33;
 ## Your Task
 
 You will create an e2e test that reproduces the user flow that I've described, using a database that already includes multiple items with photos (some one-to-many item to photos, and some one-to-many photo to items). This database can be pre-seeded directly in the database rather than creating and uploading via the UI. We will assume that your e2e test will reproduce the bug I'm seeing; assuming so, you will then examine the codebase and attempt to identify and fix the bug. If your e2e test does not reproduce the bug, stop and discuss with me.
+
+## Root Cause Analysis
+
+After investigation, I identified **two separate bugs** that work together to cause the observed behavior:
+
+### Bug 1: JavaScript - Incorrect Property Access (app/static/js/photo-manager.js:342)
+
+**Issue**: When a photo is uploaded, the JavaScript code tries to access `result.photo_id` which doesn't exist at the top level of the response.
+
+**API Response Structure**:
+```json
+{
+  "success": true,
+  "photo": {
+    "id": 46,          // Association ID (item_photo_associations.id)
+    "photo_id": 40,    // Photo ID (photos.id)
+    "photo": {
+      "id": 40,        // Photo ID again (nested)
+      ...
+    }
+  }
+}
+```
+
+**Original Code** (line 342):
+```javascript
+photo.id = result.photo_id;  // undefined! (no photo_id at top level)
+```
+
+**Fixed Code**:
+```javascript
+// result.photo contains the ItemPhotoAssociation with nested photo object
+// Use photo.photo.id to get the actual Photo ID (not the association ID)
+photo.id = result.photo.photo.id;
+```
+
+This bug caused the photo thumbnails to show `/api/photos/undefined?size=thumbnail` immediately after upload.
+
+### Bug 2: Backend - Querying by Wrong ID Type (app/photo_service.py:166-193)
+
+**Issue**: The `get_photo_data()` method was querying `ItemPhotoAssociation.id` (association ID) instead of `Photo.id` (photo ID).
+
+The system has two ID concepts:
+1. **Photo ID** (photos.id) - The actual photo BLOB data
+2. **Association ID** (item_photo_associations.id) - The link between an item and a photo
+
+**Problem Scenario**:
+- Photo 40 is created (photos.id = 40)
+- Association 46 is created (item_photo_associations.id = 46, photo_id = 40)
+- Frontend requests `/api/photos/40?size=original` (expecting Photo ID 40)
+- Backend queries for `ItemPhotoAssociation.id == 40` (association ID 40)
+- Association ID 40 has `photo_id = 35` (the PDF)
+- Returns wrong photo data!
+
+**Original Code**:
+```python
+def get_photo_data(self, photo_id: int, size: str = 'original'):
+    """Args: photo_id: Association ID (item_photo_associations.id)"""
+    association = self.get_photo(photo_id)  # Queries ItemPhotoAssociation.id
+    if not association or not association.photo:
+        return None
+    photo = association.photo
+    ...
+```
+
+**Fixed Code**:
+```python
+def get_photo_data(self, photo_id: int, size: str = 'original'):
+    """Args: photo_id: Photo ID (photos.id) - NOT association ID"""
+    # Query by Photo.id directly (not association ID)
+    try:
+        photo = self.session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            return None
+        ...
+```
+
+## Implementation
+
+### Milestone 1: Test Creation and Bug Reproduction
+
+**Task 1.1**: Created comprehensive e2e test (tests/e2e/test_photo_upload_bug.py)
+- Pre-seeds database with items and shared photos to create ID mismatches
+- Uploads new photo via UI
+- Verifies photo displays correctly immediately after upload
+- Simulates "Update Item" workflow (navigate away and back)
+- Confirms photo still shows correct data (not another photo's data)
+
+**Task 1.2**: Confirmed test reproduces the bug
+- Test successfully failed before fixes
+- Test passes after fixes
+
+### Milestone 2: Bug Fixes
+
+**Task 2.1**: Fixed JavaScript photo ID access
+- Modified app/static/js/photo-manager.js line 342
+- Changed from `result.photo_id` to `result.photo.photo.id`
+- Added explanatory comment about the nested structure
+
+**Task 2.2**: Fixed backend Photo ID query
+- Modified app/photo_service.py `get_photo_data()` method
+- Changed to query `Photo.id` directly instead of through `ItemPhotoAssociation.id`
+- Updated docstring to clarify parameter expects Photo ID
+- Added error handling
+
+**Task 2.3**: Updated unit tests
+- Fixed 3 unit tests in tests/unit/test_photo_service.py
+- Updated mocks to reflect new query structure
+- All 232 unit tests pass
+
+### Milestone 3: Verification
+
+**Task 3.1**: Verified e2e test passes with fixes
+- New test passes successfully
+- Confirms both bugs are fixed
+
+**Task 3.2**: Ran full test suites
+- Unit tests: 232 passed ✓
+- E2E tests: 274 passed, 1 skipped ✓
+
+## Status
+
+**COMPLETED**: All bugs identified and fixed. Test coverage added. All tests passing.
+
+## Summary
+
+Successfully resolved a photo upload bug caused by two separate issues:
+1. JavaScript incorrectly accessing undefined property when setting photo ID
+2. Backend incorrectly querying by Association ID instead of Photo ID
+
+The bug manifested as:
+- Initial upload showing "/api/photos/undefined" (Bug 1)
+- After page refresh, showing wrong photo data (Bug 2)
+
+Both bugs have been fixed, comprehensive test coverage has been added, and all 506 tests (232 unit + 274 e2e) pass successfully.
