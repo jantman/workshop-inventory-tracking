@@ -65,9 +65,15 @@ class TypeShapeValidator:
                 compatible_shapes=[ItemShape.RECTANGULAR],
                 required_dimensions=['length', 'width', 'thickness'],
                 optional_dimensions=['weight']
+            ),
+            TypeShapeCompatibility(
+                item_type=ItemType.CHANNEL,
+                compatible_shapes=[ItemShape.RECTANGULAR, ItemShape.SQUARE],
+                required_dimensions=['length', 'width', 'thickness'],
+                optional_dimensions=['weight']
             )
         ]
-        
+
         self._type_shape_compatibility = compatibilities
     
     def is_shape_compatible_with_type(self, item_type: ItemType, shape: ItemShape) -> bool:
