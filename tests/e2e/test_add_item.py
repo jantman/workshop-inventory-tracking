@@ -662,6 +662,8 @@ def test_channel_item_in_type_filter(page, live_server):
 @pytest.mark.e2e
 def test_channel_item_in_search(page, live_server):
     """Test that Channel items can be searched by type"""
+    from tests.e2e.pages.search_page import SearchPage
+
     # First add a Channel item
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
@@ -672,8 +674,8 @@ def test_channel_item_in_search(page, live_server):
     add_page.assert_form_submitted_successfully()
 
     # Navigate to search page
-    page.goto(f"{live_server.url}/inventory/search")
-    page.wait_for_timeout(1000)
+    search_page = SearchPage(page, live_server.url)
+    search_page.navigate()
 
     # Verify Channel option exists in item type dropdown
     item_type_select = page.locator('#item_type')
@@ -684,13 +686,13 @@ def test_channel_item_in_search(page, live_server):
     assert "Channel" in type_options, f"'Channel' not found in search type options: {type_options}"
 
     # Search for Channel items
-    item_type_select.select_option("Channel")
-    search_button = page.locator('button[type="submit"]')
-    search_button.click()
-    page.wait_for_timeout(1000)
+    search_page.search_by_item_type("Channel")
 
     # Verify results contain the Channel item
-    results_table = page.locator('#search-results-table')
-    expect(results_table).to_be_visible()
-    expect(results_table).to_contain_text("JA900004")
-    expect(results_table).to_contain_text("Channel")
+    search_page.assert_results_found(1)
+    search_page.assert_result_contains_item("JA900004")
+
+    # Verify the item shows Channel type in results
+    results = search_page.get_search_results()
+    assert any(item["ja_id"] == "JA900004" and "Channel" in item["type"] for item in results), \
+        "Channel item not found with correct type in search results"
