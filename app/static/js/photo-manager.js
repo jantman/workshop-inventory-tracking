@@ -339,7 +339,9 @@ const PhotoManager = {
                     }
                     
                     const result = await response.json();
-                    photo.id = result.photo_id;
+                    // result.photo contains the ItemPhotoAssociation with nested photo object
+                    // Use photo.photo.id to get the actual Photo ID (not the association ID)
+                    photo.id = result.photo.photo.id;
                     photo.uploaded = true;
                     
                     // For PDFs, update preview to use server-generated thumbnail

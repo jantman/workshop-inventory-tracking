@@ -168,28 +168,31 @@ class PhotoService:
         Get photo data in specified size
 
         Args:
-            photo_id: Association ID (item_photo_associations.id)
+            photo_id: Photo ID (photos.id) - NOT association ID
             size: 'thumbnail', 'medium', or 'original'
 
         Returns:
             Tuple of (data, content_type) or None if not found
         """
-        association = self.get_photo(photo_id)
-        if not association or not association.photo:
-            return None
+        # Query by Photo.id directly (not association ID)
+        try:
+            photo = self.session.query(Photo).filter(Photo.id == photo_id).first()
+            if not photo:
+                return None
 
-        photo = association.photo
-
-        if size == 'thumbnail':
-            # For PDF thumbnails, return as JPEG since we converted them
-            content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
-            return photo.thumbnail_data, content_type
-        elif size == 'medium':
-            # For PDF medium size, return as JPEG since we converted them
-            content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
-            return photo.medium_data, content_type
-        else:  # original
-            return photo.original_data, photo.content_type
+            if size == 'thumbnail':
+                # For PDF thumbnails, return as JPEG since we converted them
+                content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
+                return photo.thumbnail_data, content_type
+            elif size == 'medium':
+                # For PDF medium size, return as JPEG since we converted them
+                content_type = 'image/jpeg' if photo.content_type == 'application/pdf' else photo.content_type
+                return photo.medium_data, content_type
+            else:  # original
+                return photo.original_data, photo.content_type
+        except Exception as e:
+            logger.error(f"Failed to get photo data for photo ID {photo_id}: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve photo data: {str(e)}")
     
     def delete_photo(self, photo_id: int) -> bool:
         """
