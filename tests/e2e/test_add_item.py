@@ -562,3 +562,135 @@ def test_thread_series_auto_lookup(page, live_server):
 
     # Thread series should remain unchanged for invalid input
     expect(thread_series_field).to_have_value('UNC')
+
+
+@pytest.mark.e2e
+def test_add_channel_item_rectangular_shape(page, live_server):
+    """Test adding a Channel item with Rectangular shape"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    # Verify form is displayed
+    add_page.assert_form_visible()
+
+    # Add a Channel item with Rectangular shape
+    add_page.fill_basic_item_data("JA900001", "Channel", "Rectangular", "Carbon Steel")
+    add_page.fill_dimensions(length="72", width="2", diameter="0.125")  # 72" x 2" x 1/8" channel
+    add_page.fill_location_and_notes(location="Storage C", notes="C-channel structural steel")
+    add_page.submit_form()
+
+    # Verify successful submission
+    add_page.assert_form_submitted_successfully()
+
+    # Navigate to inventory list to verify item was added
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+
+    # Verify the item appears in the list
+    list_page.assert_item_in_list("JA900001")
+
+    # Verify item type badge shows "Channel"
+    item_row = page.locator(f'tr:has-text("JA900001")')
+    expect(item_row).to_be_visible()
+    expect(item_row).to_contain_text("Channel")
+
+
+@pytest.mark.e2e
+def test_add_channel_item_square_shape(page, live_server):
+    """Test adding a Channel item with Square shape"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    # Verify form is displayed
+    add_page.assert_form_visible()
+
+    # Add a Channel item with Square shape
+    add_page.fill_basic_item_data("JA900002", "Channel", "Square", "Aluminum")
+    add_page.fill_dimensions(length="48", width="1.5", diameter="0.0625")  # 48" x 1.5" x 1/16" square channel
+    add_page.fill_location_and_notes(location="Storage D", notes="Square aluminum channel")
+    add_page.submit_form()
+
+    # Verify successful submission
+    add_page.assert_form_submitted_successfully()
+
+    # Navigate to inventory list to verify item was added
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+
+    # Verify the item appears in the list
+    list_page.assert_item_in_list("JA900002")
+
+    # Verify item type badge shows "Channel"
+    item_row = page.locator(f'tr:has-text("JA900002")')
+    expect(item_row).to_be_visible()
+    expect(item_row).to_contain_text("Channel")
+
+
+@pytest.mark.e2e
+def test_channel_item_in_type_filter(page, live_server):
+    """Test that Channel items can be filtered in the inventory list"""
+    # First add a Channel item
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.fill_basic_item_data("JA900003", "Channel", "Rectangular", "Stainless Steel")
+    add_page.fill_dimensions(length="60", width="3", diameter="0.25")
+    add_page.fill_location_and_notes(location="Storage E")
+    add_page.submit_form()
+    add_page.assert_form_submitted_successfully()
+
+    # Navigate to inventory list
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    list_page.wait_for_items_loaded()
+
+    # Verify Channel option exists in type filter dropdown
+    type_filter = page.locator('#type-filter')
+    expect(type_filter).to_be_visible()
+
+    # Get all filter options
+    filter_options = type_filter.locator('option').all_text_contents()
+    assert "Channel" in filter_options, f"'Channel' not found in type filter options: {filter_options}"
+
+    # Filter by Channel type
+    type_filter.select_option("Channel")
+    page.wait_for_timeout(1000)  # Wait for filter to apply
+
+    # Verify the Channel item is visible
+    list_page.assert_item_in_list("JA900003")
+
+
+@pytest.mark.e2e
+def test_channel_item_in_search(page, live_server):
+    """Test that Channel items can be searched by type"""
+    # First add a Channel item
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+    add_page.fill_basic_item_data("JA900004", "Channel", "Square", "Brass")
+    add_page.fill_dimensions(length="36", width="1", diameter="0.125")
+    add_page.fill_location_and_notes(location="Storage F")
+    add_page.submit_form()
+    add_page.assert_form_submitted_successfully()
+
+    # Navigate to search page
+    page.goto(f"{live_server.url}/inventory/search")
+    page.wait_for_timeout(1000)
+
+    # Verify Channel option exists in item type dropdown
+    item_type_select = page.locator('#item_type')
+    expect(item_type_select).to_be_visible()
+
+    # Get all type options
+    type_options = item_type_select.locator('option').all_text_contents()
+    assert "Channel" in type_options, f"'Channel' not found in search type options: {type_options}"
+
+    # Search for Channel items
+    item_type_select.select_option("Channel")
+    search_button = page.locator('button[type="submit"]')
+    search_button.click()
+    page.wait_for_timeout(1000)
+
+    # Verify results contain the Channel item
+    results_table = page.locator('#search-results-table')
+    expect(results_table).to_be_visible()
+    expect(results_table).to_contain_text("JA900004")
+    expect(results_table).to_contain_text("Channel")
