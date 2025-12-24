@@ -567,9 +567,10 @@ class InventoryAddForm {
         const carryFields = [
             'item_type', 'shape', 'material',
             'location', 'sub_location', 'vendor', 'purchase_location',
-            'purchase_date', 'thread_series', 'thread_handedness', 'thread_size'
+            'purchase_date', 'thread_series', 'thread_handedness', 'thread_size',
+            'notes', 'vendor_part_number'
         ];
-        
+
         console.log('CarryForward: Populating fields with data');
         const fieldsPopulated = [];
         carryFields.forEach(field => {
@@ -581,7 +582,21 @@ class InventoryAddForm {
                 console.log(`CarryForward: Set ${field} = "${itemData[field]}"`);
             }
         });
-        
+
+        // Carry forward dimension fields (stored in nested dimensions object)
+        const dimensionFields = ['length', 'width', 'thickness', 'wall_thickness', 'weight'];
+        if (itemData.dimensions) {
+            dimensionFields.forEach(field => {
+                const input = document.getElementById(field);
+                if (input && itemData.dimensions[field]) {
+                    const oldValue = input.value;
+                    input.value = itemData.dimensions[field];
+                    fieldsPopulated.push(`${field}: "${oldValue}" -> "${itemData.dimensions[field]}"`);
+                    console.log(`CarryForward: Set ${field} = "${itemData.dimensions[field]}"`);
+                }
+            });
+        }
+
         console.log('CarryForward: Fields populated:', fieldsPopulated);
         
         // Trigger updates
