@@ -285,7 +285,7 @@ The inventory list page provides several filters to help you find items:
   - **Active Only** (default): Shows only active/available items
   - **Inactive Only**: Shows only inactive/used items
   - **All Items**: Shows both active and inactive items
-- **Type**: Filter by item type (Bar, Sheet, Tube, etc.)
+- **Type**: Filter by item type (Bar, Sheet, Tube, Channel, etc.)
 - **Material**: Search/filter by material name
 - **Search**: Search across JA ID, location, and notes fields
 

@@ -78,10 +78,11 @@ class ItemType(Enum):
     """Enumeration of valid item types"""
     BAR = "Bar"
     PLATE = "Plate"
-    SHEET = "Sheet" 
+    SHEET = "Sheet"
     TUBE = "Tube"
     THREADED_ROD = "Threaded Rod"
     ANGLE = "Angle"
+    CHANNEL = "Channel"
 
 class ItemShape(Enum):
     """Enumeration of valid item shapes"""
