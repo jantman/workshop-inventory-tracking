@@ -128,19 +128,20 @@ The **Carry Forward** button (located in the top-right header) allows you to cop
 **Fields copied forward:**
 - Type, Shape, Material
 - Location and Sub-Location
-- Vendor and Purchase Location
-- Thread Series and Handedness
+- Dimensions (length, width, thickness, wall thickness, weight)
+- Thread Size, Series, and Handedness
+- Vendor, Vendor Part Number, Purchase Location, and Purchase Date
+- Notes
 
 **Fields NOT copied (remain blank):**
 - JA ID (you'll need to enter unique ID)
-- Dimensions (length, width, thickness, etc.)
-- Thread Size, Notes, Vendor Part Number
-- Purchase Date and Price
+- Purchase Price
+- Photos
 
 **How to use:**
 1. Add your first item normally
 2. On the next add form, click **Carry Forward** to populate common fields
-3. Enter the unique JA ID and dimensions for the new item
+3. Enter the unique JA ID (and modify any fields as needed for the new item)
 4. Submit as normal
 
 #### Add & Continue Button
