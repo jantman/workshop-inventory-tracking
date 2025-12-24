@@ -407,8 +407,13 @@ def test_add_and_continue_carry_forward_workflow(page, live_server):
         "shape": "Round",
         "material": "Carbon Steel",
         "length": "500",
+        "width": "25",
+        "thickness": "3.5",
+        "wall_thickness": "2.0",
+        "weight": "10.5",
         "location": "Storage Rack A",
         "notes": "Test material for carry forward",
+        "vendor_part_number": "VP-12345",
         "purchase_date": "2024-01-15",
         "thread_series": "UNC",
         "thread_handedness": "RH",
@@ -423,7 +428,8 @@ def test_add_and_continue_carry_forward_workflow(page, live_server):
         first_item_data["material"]
     )
     add_page.fill_dimensions(
-        length=first_item_data["length"]
+        length=first_item_data["length"],
+        width=first_item_data["width"]
     )
     add_page.fill_thread_information(
         thread_series=first_item_data["thread_series"],
@@ -435,8 +441,14 @@ def test_add_and_continue_carry_forward_workflow(page, live_server):
         notes=first_item_data["notes"]
     )
 
-    # Fill purchase date
+    # Fill additional dimension fields
+    page.fill("#thickness", first_item_data["thickness"])
+    page.fill("#wall_thickness", first_item_data["wall_thickness"])
+    page.fill("#weight", first_item_data["weight"])
+
+    # Fill purchase date and vendor part number
     page.fill("#purchase_date", first_item_data["purchase_date"])
+    page.fill("#vendor_part_number", first_item_data["vendor_part_number"])
     
     # Submit using "Add & Continue" button
     add_page.submit_and_continue()
@@ -479,9 +491,20 @@ def test_add_and_continue_carry_forward_workflow(page, live_server):
                 add_page.assert_field_value(add_page.SHAPE_SELECT, first_item_data["shape"])
                 add_page.assert_field_value(add_page.MATERIAL_INPUT, first_item_data["material"])
                 add_page.assert_field_value(add_page.LOCATION_INPUT, first_item_data["location"])
+                add_page.assert_field_value(add_page.NOTES_INPUT, first_item_data["notes"])
 
-                # Verify NEW fields are carried forward (issue #12)
+                # Verify dimension fields are carried forward
+                add_page.assert_field_value(add_page.LENGTH_INPUT, first_item_data["length"])
+                add_page.assert_field_value(add_page.WIDTH_INPUT, first_item_data["width"])
+                add_page.assert_field_value("#thickness", first_item_data["thickness"])
+                add_page.assert_field_value("#wall_thickness", first_item_data["wall_thickness"])
+                add_page.assert_field_value("#weight", first_item_data["weight"])
+
+                # Verify purchase and vendor fields are carried forward
                 add_page.assert_field_value("#purchase_date", first_item_data["purchase_date"])
+                add_page.assert_field_value("#vendor_part_number", first_item_data["vendor_part_number"])
+
+                # Verify thread fields are carried forward
                 add_page.assert_field_value(add_page.THREAD_SERIES_SELECT, first_item_data["thread_series"])
                 add_page.assert_field_value(add_page.THREAD_HANDEDNESS_SELECT, first_item_data["thread_handedness"])
                 add_page.assert_field_value(add_page.THREAD_SIZE_INPUT, first_item_data["thread_size"])
