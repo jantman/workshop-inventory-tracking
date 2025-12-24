@@ -44,7 +44,8 @@
       "Bash(./venv/bin/python -m pytest tests/unit/test_routes.py::TestPhotoCopyAPI -v)",
       "Bash(./venv/bin/python -m pytest:*)",
       "Bash(ls:*)",
-      "Bash(gh pr checks:*)"
+      "Bash(gh pr checks:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
