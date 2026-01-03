@@ -479,7 +479,7 @@ Access via "Search" menu
 - **Status**: Active/inactive items
 - **Type**: Rod, tube, sheet, hardware, etc.
 - **Shape**: Round, square, rectangular, etc.
-- **Material**: Steel, aluminum, brass, etc.
+- **Material**: Hierarchical material search with autocomplete (see below)
 
 #### 2. Dimension Ranges
 - **Length**: Min and max values
@@ -507,10 +507,35 @@ Access via "Search" menu
 - **Notes**: Search within notes field
 - **Vendor Part**: Search part numbers
 
+### Hierarchical Material Search
+
+The material search field features intelligent autocomplete and hierarchical matching:
+
+**Autocomplete Features:**
+- **Progressive Disclosure**: Shows top-level material categories when empty
+- **Smart Filtering**: Type to filter across all taxonomy levels
+- **Navigation Mode**: Browse through categories → families → specific materials
+- **Keyboard Support**: Navigate suggestions with arrow keys, select with Enter
+
+**Hierarchical Matching:**
+When you search for a material, the system automatically includes all sub-materials in the hierarchy:
+- Searching for **"Aluminum"** (category) returns items made of:
+  - "Aluminum" (exact match)
+  - "6000 Series Aluminum" (family)
+  - "6061-T6", "6063-T5" (specific alloys)
+  - All other aluminum sub-materials
+- Searching for **"6000 Series Aluminum"** (family) returns items made of:
+  - "6000 Series Aluminum" (exact match)
+  - "6061-T6", "6063-T5", etc. (specific alloys in this family)
+- Searching for **"6061-T6"** (specific material) returns:
+  - Only items made of "6061-T6" (leaf materials have no children)
+
+This hierarchical search makes it easy to find all items of a general material type without needing to remember every specific alloy or variant.
+
 ### Search Tips
 - **Multiple Filters**: Combine filters for precise results
 - **Range Queries**: Use min/max for dimensions
-- **Partial Matches**: Text searches support partial matches
+- **Hierarchical Materials**: Search broad categories to find all variants
 - **Export Results**: Download search results as CSV
 - **Bookmark Searches**: Save frequently used search URLs
 
