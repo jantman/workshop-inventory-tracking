@@ -408,6 +408,12 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Make valid materials available globally for material selector
+window.validMaterials = {{ valid_materials | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
+<script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
 <script type="module" src="{{ url_for('static', filename='js/inventory-search.js') }}"></script>
 <script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>
 {% endblock %}

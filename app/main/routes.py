@@ -729,8 +729,10 @@ def inventory_view(ja_id):
 @bp.route('/inventory/search')
 def inventory_search():
     """Advanced search interface"""
+    valid_materials = _get_valid_materials()
     return render_template('inventory/search.html', title='Search',
-                         ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries)
+                         ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
+                         valid_materials=valid_materials)
 
 @bp.route('/inventory/move', methods=['GET', 'POST'])
 def inventory_move():
