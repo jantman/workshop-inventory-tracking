@@ -97,18 +97,11 @@
                 <div class="col-12">
                     <h6 class="text-muted border-bottom pb-2">Material</h6>
                 </div>
-                <div class="col-md-8 mb-3">
+                <div class="col-md-12 mb-3">
                     <label for="material" class="form-label">Material</label>
-                    <input type="text" class="form-control" id="material" name="material" 
-                           placeholder="e.g., 4140 Pre-Hard, 304/304L Stainless">
-                    <div class="form-text">Search material names and aliases</div>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="material_exact" class="form-label">Match Type</label>
-                    <select class="form-select" id="material_exact" name="material_exact">
-                        <option value="false">Contains (default)</option>
-                        <option value="true">Exact Match</option>
-                    </select>
+                    <input type="text" class="form-control" id="material" name="material"
+                           placeholder="e.g., Aluminum, 6000 Series Aluminum, 6061-T6">
+                    <div class="form-text">Search by material - automatically includes sub-materials in the hierarchy</div>
                 </div>
             </div>
 

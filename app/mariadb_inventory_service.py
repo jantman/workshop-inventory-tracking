@@ -317,14 +317,20 @@ class InventoryService:
             if 'ja_id' in filters and filters['ja_id']:
                 query = query.filter(InventoryItem.ja_id.ilike(f"%{filters['ja_id']}%"))
 
-            # Material filter with exact match support
+            # Material filter with hierarchical support
             if 'material' in filters and filters['material']:
-                # Check if exact match is requested (stored in text_searches by SearchFilter)
-                material_exact = filters.get('material_exact', False)
-                if material_exact:
-                    query = query.filter(InventoryItem.material == filters['material'])
+                # Check if this is a hierarchical search with multiple materials
+                if isinstance(filters['material'], list):
+                    # Hierarchical search: match any material in the list
+                    query = query.filter(InventoryItem.material.in_(filters['material']))
                 else:
-                    query = query.filter(InventoryItem.material.ilike(f"%{filters['material']}%"))
+                    # Legacy support: single material search
+                    # Check if exact match is requested (stored in text_searches by SearchFilter)
+                    material_exact = filters.get('material_exact', False)
+                    if material_exact:
+                        query = query.filter(InventoryItem.material == filters['material'])
+                    else:
+                        query = query.filter(InventoryItem.material.ilike(f"%{filters['material']}%"))
             
             if 'item_type' in filters and filters['item_type']:
                 # Use enum property for better type matching

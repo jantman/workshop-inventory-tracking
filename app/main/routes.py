@@ -1703,12 +1703,12 @@ def api_advanced_search():
             elif isinstance(data['precision'], str):
                 search_filter.add_exact_match('precision', data['precision'].lower() == 'true')
         
-        # Material filter
+        # Material filter with hierarchical support
         if data.get('material'):
-            exact_match = data.get('material_exact', False)
-            if isinstance(exact_match, str):
-                exact_match = exact_match.lower() == 'true'
-            search_filter.add_text_search('material', data['material'], exact=exact_match)
+            # Get all descendant materials in the hierarchy for hierarchical search
+            material_descendants = service.get_material_descendants(data['material'])
+            # Add the material list directly to the filter for hierarchical matching
+            search_filter.add_exact_match('material', material_descendants)
         
         # Dimension range filters
         dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
