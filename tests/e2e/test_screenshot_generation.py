@@ -183,9 +183,9 @@ class TestDocumentationScreenshots:
         search_page = SearchPage(page, live_server.url)
         search_page.navigate()
 
-        # Perform a search for Aluminum items
-        # Use the search method to ensure it works with the autocomplete
-        search_page.search_by_material("Aluminum")
+        # Perform a search for Rod items (guaranteed to have results)
+        # Using item type instead of material to avoid taxonomy matching issues
+        search_page.search_by_item_type("Rod")
 
         # Wait for results
         page.wait_for_selector("#results-table-container .table", state="visible", timeout=5000)
