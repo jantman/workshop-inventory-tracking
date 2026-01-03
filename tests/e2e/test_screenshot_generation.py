@@ -184,11 +184,11 @@ class TestDocumentationScreenshots:
         search_page.navigate()
 
         # Perform a search for Aluminum items
-        page.fill("#material", "Aluminum")
-        page.click("button[type='submit']")
+        # Use the search method to ensure it works with the autocomplete
+        search_page.search_by_material("Aluminum")
 
         # Wait for results
-        page.wait_for_selector("#results-table-container .table", timeout=5000)
+        page.wait_for_selector("#results-table-container .table", state="visible", timeout=5000)
         page.wait_for_timeout(1000)
 
         # Capture screenshot

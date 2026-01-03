@@ -203,21 +203,22 @@ def test_search_l3_material_returns_only_that_material(page, live_server):
 
 
 @pytest.mark.e2e
-def test_search_material_not_in_taxonomy(page, live_server):
-    """Test searching for a material that doesn't exist in the taxonomy"""
-    # Add taxonomy data (but not "Unknown Material")
+def test_search_material_with_no_children(page, live_server):
+    """Test searching for a material that has no children in the hierarchy"""
+    # Add taxonomy data with materials that have no children
     taxonomy_data = [
-        {"name": "Aluminum", "level": 1, "parent": None, "active": True},
+        {"name": "Brass", "level": 1, "parent": None, "active": True},
+        {"name": "Copper", "level": 1, "parent": None, "active": True},
     ]
     live_server.add_material_taxonomy(taxonomy_data)
 
-    # Add inventory item with material not in taxonomy
+    # Add inventory items
     test_items = [
         {
             "ja_id": "JA083001",
             "item_type": "Bar",
             "shape": "Round",
-            "material": "Mystery Metal",  # Not in taxonomy
+            "material": "Brass",  # L1 with no children
             "length": "400",
             "width": "25",
             "location": "Storage A"
@@ -226,7 +227,7 @@ def test_search_material_not_in_taxonomy(page, live_server):
             "ja_id": "JA083002",
             "item_type": "Plate",
             "shape": "Rectangular",
-            "material": "Aluminum",  # In taxonomy
+            "material": "Copper",  # Different L1
             "length": "300",
             "width": "200",
             "thickness": "10",
@@ -239,10 +240,10 @@ def test_search_material_not_in_taxonomy(page, live_server):
     search_page = SearchPage(page, live_server.url)
     search_page.navigate()
 
-    # Search for "Mystery Metal" (not in taxonomy)
-    search_page.search_by_material("Mystery Metal")
+    # Search for "Brass" (has no children)
+    search_page.search_by_material("Brass")
 
-    # Should still find the item (fallback to exact name match)
+    # Should find only the Brass item (no descendants to include)
     search_page.assert_results_found(1)
     search_page.assert_result_contains_item("JA083001")
 

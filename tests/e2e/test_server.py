@@ -183,12 +183,13 @@ class E2ETestServer:
         # InventoryService writes directly to database - no batching or flushing needed
         print(f"Added {len(items_data)} test items directly to database")
 
-    def add_material_taxonomy(self, taxonomy_data):
+    def add_material_taxonomy(self, taxonomy_data, clear_existing=True):
         """Add custom material taxonomy data for testing
 
         Args:
             taxonomy_data: List of dicts with keys: name, level, parent (optional), active (default True)
                 Example: [{"name": "Steel", "level": 1, "parent": None, "active": True}]
+            clear_existing: If True, clear all existing taxonomy before adding new data (default: True)
         """
         if not self.storage:
             raise RuntimeError("Server not started")
@@ -200,6 +201,12 @@ class E2ETestServer:
         session = Session()
 
         try:
+            # Clear existing taxonomy if requested
+            if clear_existing:
+                session.query(MaterialTaxonomy).delete()
+                session.commit()
+                print("🧹 Cleared existing material taxonomy")
+
             # Add taxonomy data
             for item in taxonomy_data:
                 material = MaterialTaxonomy(
