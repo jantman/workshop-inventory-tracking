@@ -146,8 +146,8 @@ Based on codebase exploration:
 - Task 1.1: ✅ Completed
 - Task 1.2: ✅ Completed (verified via unit tests - all 232 tests passing)
 
-### Milestone 2: ⏳ Not Started
-- Task 2.1: ⏳ Not Started
+### Milestone 2: 🔄 In Progress
+- Task 2.1: ✅ Completed (added get_material_descendants method with 6 unit tests - all passing)
 - Task 2.2: ⏳ Not Started
 - Task 2.3: ⏳ Not Started
 

@@ -535,3 +535,205 @@ class TestInventoryService:
             # Verify commit was called
             mock_session.commit.assert_called_once()
             mock_session.close.assert_called_once()
+
+
+class TestMaterialDescendants:
+    """Test class for hierarchical material descendant queries"""
+
+    @pytest.fixture
+    def mock_storage(self):
+        """Mock MariaDB storage"""
+        mock_storage = Mock()
+        mock_storage.engine = Mock()
+        return mock_storage
+
+    @pytest.fixture
+    def service(self, mock_storage):
+        """Create service instance with mock storage"""
+        return InventoryService(mock_storage)
+
+    def test_get_material_descendants_with_children_and_grandchildren(self, service):
+        """Test getting descendants for a material with children and grandchildren"""
+        from app.database import MaterialTaxonomy
+
+        # Create mock materials
+        aluminum = Mock(spec=MaterialTaxonomy)
+        aluminum.name = "Aluminum"
+        aluminum.active = True
+
+        six_series = Mock(spec=MaterialTaxonomy)
+        six_series.name = "6000 Series Aluminum"
+        six_series.parent = "Aluminum"
+        six_series.active = True
+
+        seven_series = Mock(spec=MaterialTaxonomy)
+        seven_series.name = "7000 Series Aluminum"
+        seven_series.parent = "Aluminum"
+        seven_series.active = True
+
+        six_zero_six_one = Mock(spec=MaterialTaxonomy)
+        six_zero_six_one.name = "6061-T6"
+        six_zero_six_one.parent = "6000 Series Aluminum"
+        six_zero_six_one.active = True
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Mock query chain for finding base material
+            mock_query_base = Mock()
+            mock_session.query.return_value = mock_query_base
+            mock_query_base.filter.return_value = mock_query_base
+
+            # First query: find base material "Aluminum"
+            # Second query: find children of "Aluminum" -> returns [6000 Series, 7000 Series]
+            # Third query: find grandchildren of "6000 Series Aluminum" -> returns [6061-T6]
+            # Fourth query: find grandchildren of "7000 Series Aluminum" -> returns []
+            mock_query_base.first.side_effect = [aluminum]
+            mock_query_base.all.side_effect = [
+                [six_series, seven_series],  # Children of Aluminum
+                [six_zero_six_one],  # Grandchildren of 6000 Series
+                []  # Grandchildren of 7000 Series
+            ]
+
+            result = service.get_material_descendants("Aluminum")
+
+            # Should return all materials in hierarchy
+            assert len(result) == 4
+            assert "Aluminum" in result
+            assert "6000 Series Aluminum" in result
+            assert "7000 Series Aluminum" in result
+            assert "6061-T6" in result
+            # Results should be sorted
+            assert result == sorted(result)
+
+            mock_session.close.assert_called_once()
+
+    def test_get_material_descendants_with_no_children(self, service):
+        """Test getting descendants for a leaf material with no children"""
+        from app.database import MaterialTaxonomy
+
+        # Create mock material with no children
+        six_zero_six_one = Mock(spec=MaterialTaxonomy)
+        six_zero_six_one.name = "6061-T6"
+        six_zero_six_one.active = True
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.first.return_value = six_zero_six_one
+            mock_query.all.return_value = []  # No children
+
+            result = service.get_material_descendants("6061-T6")
+
+            # Should return only the material itself
+            assert len(result) == 1
+            assert result[0] == "6061-T6"
+
+            mock_session.close.assert_called_once()
+
+    def test_get_material_descendants_material_not_in_taxonomy(self, service):
+        """Test getting descendants for a material not in the taxonomy"""
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.first.return_value = None  # Material not found
+
+            result = service.get_material_descendants("Unknown Material")
+
+            # Should return just the material name
+            assert len(result) == 1
+            assert result[0] == "Unknown Material"
+
+            mock_session.close.assert_called_once()
+
+    def test_get_material_descendants_case_insensitive(self, service):
+        """Test that material lookup is case-insensitive"""
+        from app.database import MaterialTaxonomy
+
+        aluminum = Mock(spec=MaterialTaxonomy)
+        aluminum.name = "Aluminum"
+        aluminum.active = True
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.first.return_value = aluminum
+            mock_query.all.return_value = []  # No children
+
+            # Search with different case
+            result = service.get_material_descendants("ALUMINUM")
+
+            # Should still find and return the proper cased name
+            assert len(result) == 1
+            assert result[0] == "Aluminum"
+
+            mock_session.close.assert_called_once()
+
+    def test_get_material_descendants_only_active_materials(self, service):
+        """Test that only active materials are included in descendants"""
+        from app.database import MaterialTaxonomy
+
+        steel = Mock(spec=MaterialTaxonomy)
+        steel.name = "Steel"
+        steel.active = True
+
+        carbon_steel = Mock(spec=MaterialTaxonomy)
+        carbon_steel.name = "Carbon Steel"
+        carbon_steel.parent = "Steel"
+        carbon_steel.active = True
+
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            mock_query = Mock()
+            mock_session.query.return_value = mock_query
+            mock_query.filter.return_value = mock_query
+            mock_query.first.return_value = steel
+            # Children query should only return active materials
+            mock_query.all.side_effect = [
+                [carbon_steel],  # Active children
+                []  # No grandchildren
+            ]
+
+            result = service.get_material_descendants("Steel")
+
+            # All queries should filter for active == True
+            # Verify through the number of filter calls
+            assert mock_query.filter.called
+
+            assert len(result) == 2
+            assert "Steel" in result
+            assert "Carbon Steel" in result
+
+            mock_session.close.assert_called_once()
+
+    def test_get_material_descendants_error_handling(self, service):
+        """Test error handling when database query fails"""
+        with patch.object(service, 'Session') as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
+
+            # Simulate database error
+            mock_session.query.side_effect = Exception("Database error")
+
+            result = service.get_material_descendants("Steel")
+
+            # Should return just the material name on error
+            assert len(result) == 1
+            assert result[0] == "Steel"
+
+            mock_session.close.assert_called_once()

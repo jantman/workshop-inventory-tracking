@@ -646,6 +646,77 @@ class InventoryService:
         finally:
             if 'session' in locals():
                 session.close()
+
+    def get_material_descendants(self, material_name: str) -> List[str]:
+        """
+        Get all descendant materials in the hierarchy for a given material.
+
+        Returns the material itself plus all children and grandchildren in the
+        taxonomy hierarchy. This supports hierarchical material searching where
+        searching for a parent material also returns items made of child materials.
+
+        For example, if searching for "Aluminum" which has children "6000 Series Aluminum"
+        and "7000 Series Aluminum", and "6000 Series Aluminum" has child "6061-T6",
+        this will return: ["Aluminum", "6000 Series Aluminum", "7000 Series Aluminum", "6061-T6"]
+
+        Args:
+            material_name: The material name to get descendants for
+
+        Returns:
+            List of material names including the original material and all descendants,
+            only including active materials
+        """
+        try:
+            from .database import MaterialTaxonomy
+
+            session = self.Session()
+
+            # Start with the material itself
+            descendants = set()
+
+            # Find the material in the taxonomy (case-insensitive search)
+            base_material = session.query(MaterialTaxonomy).filter(
+                func.lower(MaterialTaxonomy.name) == func.lower(material_name),
+                MaterialTaxonomy.active == True
+            ).first()
+
+            if not base_material:
+                # Material not found in taxonomy, return just the material name
+                logger.debug(f"Material '{material_name}' not found in taxonomy, returning as-is")
+                return [material_name]
+
+            # Add the base material
+            descendants.add(base_material.name)
+
+            # Get all direct children (materials with this as parent)
+            children = session.query(MaterialTaxonomy).filter(
+                func.lower(MaterialTaxonomy.parent) == func.lower(base_material.name),
+                MaterialTaxonomy.active == True
+            ).all()
+
+            for child in children:
+                descendants.add(child.name)
+
+                # Get all grandchildren (materials with this child as parent)
+                grandchildren = session.query(MaterialTaxonomy).filter(
+                    func.lower(MaterialTaxonomy.parent) == func.lower(child.name),
+                    MaterialTaxonomy.active == True
+                ).all()
+
+                for grandchild in grandchildren:
+                    descendants.add(grandchild.name)
+
+            result = sorted(list(descendants))
+            logger.debug(f"Material '{material_name}' has {len(result)} descendants: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error getting material descendants for '{material_name}': {e}")
+            # Return just the material name if query fails
+            return [material_name]
+        finally:
+            if 'session' in locals():
+                session.close()
     
     def update_item(self, item: 'InventoryItem') -> bool:
         """
