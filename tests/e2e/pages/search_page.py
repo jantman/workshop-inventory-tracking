@@ -276,6 +276,12 @@ class SearchPage(InventoryTableMixin, BasePage):
     def assert_result_contains_item(self, ja_id: str):
         """Assert search results contain specific item (wrapper for assert_item_visible)"""
         self.assert_item_visible(ja_id)
+
+    def assert_result_not_contains_item(self, ja_id: str):
+        """Assert search results do NOT contain a specific item"""
+        results = self.get_search_results()
+        ja_ids = [result["ja_id"] for result in results]
+        assert ja_id not in ja_ids, f"Item {ja_id} should not be in search results but was found"
     
     def assert_all_results_match_criteria(self, material: str = None, location: str = None, shape: str = None):
         """Assert all search results match the given criteria"""

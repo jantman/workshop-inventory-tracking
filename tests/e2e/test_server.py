@@ -182,7 +182,49 @@ class E2ETestServer:
         
         # InventoryService writes directly to database - no batching or flushing needed
         print(f"Added {len(items_data)} test items directly to database")
-    
+
+    def add_material_taxonomy(self, taxonomy_data):
+        """Add custom material taxonomy data for testing
+
+        Args:
+            taxonomy_data: List of dicts with keys: name, level, parent (optional), active (default True)
+                Example: [{"name": "Steel", "level": 1, "parent": None, "active": True}]
+        """
+        if not self.storage:
+            raise RuntimeError("Server not started")
+
+        from app.database import MaterialTaxonomy
+        from sqlalchemy.orm import sessionmaker
+
+        Session = sessionmaker(bind=self.engine)
+        session = Session()
+
+        try:
+            # Add taxonomy data
+            for item in taxonomy_data:
+                material = MaterialTaxonomy(
+                    name=item['name'],
+                    level=item['level'],
+                    parent=item.get('parent'),
+                    aliases=item.get('aliases'),
+                    active=item.get('active', True),
+                    sort_order=item.get('sort_order', 0),
+                    notes=item.get('notes')
+                )
+                session.add(material)
+
+            session.commit()
+            print(f"✅ Added {len(taxonomy_data)} custom taxonomy entries")
+
+        except Exception as e:
+            session.rollback()
+            print(f"Error adding custom material taxonomy: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        finally:
+            session.close()
+
     def setup_materials_taxonomy(self):
         """Setup Materials sheet with hierarchical taxonomy for testing"""
         if not self.storage:

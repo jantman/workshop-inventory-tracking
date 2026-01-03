@@ -146,10 +146,10 @@ Based on codebase exploration:
 - Task 1.1: ✅ Completed
 - Task 1.2: ✅ Completed (verified via unit tests - all 232 tests passing)
 
-### Milestone 2: 🔄 In Progress
+### Milestone 2: ✅ Completed
 - Task 2.1: ✅ Completed (added get_material_descendants method with 6 unit tests - all passing)
 - Task 2.2: ✅ Completed (updated search API and UI for hierarchical matching - all 238 tests passing)
-- Task 2.3: ⏳ Not Started
+- Task 2.3: ✅ Completed (added e2e test infrastructure and 5 comprehensive hierarchical search tests)
 
 ### Milestone 3: ⏳ Not Started
 - Task 3.1: ⏳ Not Started
