@@ -414,7 +414,7 @@ def inventory_edit(ja_id):
         service = _get_inventory_service()
 
         # Get the item (active or inactive)
-        item = service.get_item_any_status(ja_id)
+        item = service.get_canonical_item(ja_id)
         if not item:
             flash(f'Item {ja_id} not found.', 'error')
             return redirect(url_for('main.inventory_list'))
@@ -1601,7 +1601,7 @@ def api_toggle_item_status(ja_id):
         service = _get_inventory_service()
 
         # Get item (any status) for updating
-        item = service.get_item_any_status(ja_id)
+        item = service.get_canonical_item(ja_id)
         if not item:
             return jsonify({
                 'success': False,

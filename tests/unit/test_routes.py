@@ -868,7 +868,7 @@ class TestToggleItemStatusAPI:
         assert data['active'] is True
 
         # Verify via service
-        item = service.get_item_any_status("JA400002")
+        item = service.get_canonical_item("JA400002")
         assert item is not None
         assert item.active is True
 
@@ -890,7 +890,7 @@ class TestToggleItemStatusAPI:
         assert data['active'] is False
 
         # Verify via service
-        item = service.get_item_any_status("JA400001")
+        item = service.get_canonical_item("JA400001")
         assert item is not None
         assert item.active is False
 
@@ -955,7 +955,7 @@ class TestToggleItemStatusAPI:
         assert data['active'] is True
 
         # Verify still active via service
-        item = service.get_item_any_status("JA400001")
+        item = service.get_canonical_item("JA400001")
         assert item is not None
         assert item.active is True
 
@@ -1015,10 +1015,10 @@ class TestMultiRowJaIdHandling:
 
         return service
 
-    def test_get_item_any_status_prefers_active_row_with_tied_dates(self, service_with_tied_rows):
+    def test_get_canonical_item_prefers_active_row_with_tied_dates(self, service_with_tied_rows):
         """Active row must win over an inactive row sharing the same date_added."""
         from decimal import Decimal
-        item = service_with_tied_rows.get_item_any_status("JA500001")
+        item = service_with_tied_rows.get_canonical_item("JA500001")
         assert item is not None
         assert item.active is True
         assert item.length == Decimal("12.0")

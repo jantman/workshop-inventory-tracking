@@ -218,14 +218,20 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
 
-    def get_item_any_status(self, ja_id: str) -> Optional[InventoryItem]:
+    def get_canonical_item(self, ja_id: str) -> Optional[InventoryItem]:
         """
-        Get an item by JA ID regardless of active/inactive status
+        Get the canonical row for a JA ID.
 
-        Returns the canonical row for this JA ID: the active row if one
-        exists, otherwise the most recently added inactive row. Imported
-        history rows can share the same date_added, so id is used as the
-        final tiebreaker to keep this deterministic.
+        From the (possibly many) rows belonging to this JA ID, return
+        the one that represents it: the active row if one exists,
+        otherwise the most recently added inactive row. Use this when
+        you want to read or update "the item" without filtering out
+        deactivated items (e.g. the edit page and the activate /
+        deactivate API both need this). Use ``get_item`` instead when
+        you want to skip deactivated items entirely.
+
+        Imported history rows can share the same date_added, so id is
+        used as the final tiebreaker to keep this deterministic.
 
         Args:
             ja_id: The JA ID to search for
