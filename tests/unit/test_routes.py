@@ -1109,3 +1109,17 @@ class TestEditPageActions:
         assert 'id="toggle-status-btn"' in body
         assert 'Activate' in body
         assert 'data-active="false"' in body
+
+    def test_edit_page_inactive_item_disables_shorten(self, client, setup_items):
+        """Shortening only works on active items, so the Shorten control
+        must be disabled (not a live link) for inactive items."""
+        import re
+        response = client.get('/inventory/edit/JA600002')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        shorten_el = re.search(r'<(a|button)[^>]*id="shorten-item-btn"[^>]*>', body)
+        assert shorten_el is not None, "Shorten control not found on edit page"
+        assert shorten_el.group(1) == 'button', \
+            "Shorten control should be a disabled <button>, not a link, for inactive items"
+        assert 'disabled' in shorten_el.group(0)
+        assert '/inventory/shorten?ja_id=JA600002' not in body

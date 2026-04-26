@@ -732,8 +732,10 @@ class InventoryService:
         """
         Update an existing item in MariaDB
 
-        For multi-row JA ID scenarios, this updates the most recent item
-        (active or inactive). The update preserves the item's history by
+        For multi-row JA ID scenarios, this updates the canonical row for
+        this JA ID: the active row if one exists, otherwise the most
+        recent inactive row (with id as a deterministic tiebreaker for
+        rows sharing date_added). The update preserves history by
         modifying the existing row rather than creating a new row (which
         is what shortening does).
 
