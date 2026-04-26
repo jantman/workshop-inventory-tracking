@@ -541,7 +541,7 @@ def duplicate_item(ja_id):
 
         # If save_changes is True, update the source item first
         if save_changes and updated_fields:
-            # Update source item with changed fields
+            updated_fields = _normalize_duplicate_updated_fields(updated_fields)
             for field, value in updated_fields.items():
                 if hasattr(source_item, field):
                     setattr(source_item, field, value)
@@ -1999,6 +1999,39 @@ def _parse_date_from_form(date_str):
     
     # If all parsing attempts fail, return None
     return None
+
+
+_DUPLICATE_BOOLEAN_FIELDS = frozenset({'active', 'precision'})
+
+
+def _coerce_bool(value):
+    """Coerce a JSON/form value to bool, accepting True/False, "on"/"off",
+    "true"/"false", 1/0 etc. Treats any unrecognized non-empty string as
+    truthy to match the lenient behavior callers historically assumed."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in ('', 'off', 'false', '0', 'no')
+    return bool(value)
+
+
+def _normalize_duplicate_updated_fields(updated_fields):
+    """Normalize the updated_fields payload from the duplicate-with-save flow.
+
+    The edit-page form posts checkbox state as either an HTML form's "on"
+    string (legacy) or, after the snapshot-based payload builder, as JSON
+    booleans. Either way these need to land on the source item as actual
+    Python booleans before setattr, so the in-memory ORM attribute matches
+    what SQLAlchemy will persist - especially for unchecked checkboxes,
+    which would otherwise either be missing entirely (silently dropping
+    the change) or set to a stale string.
+    """
+    normalized = dict(updated_fields)
+    for field in _DUPLICATE_BOOLEAN_FIELDS:
+        if field in normalized:
+            normalized[field] = _coerce_bool(normalized[field])
+    return normalized
+
 
 # Export Endpoints
 # NOTE: /admin/export route moved to admin/routes.py

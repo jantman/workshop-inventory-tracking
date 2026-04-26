@@ -748,35 +748,45 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ===== UNSAVED-CHANGES TRACKING =====
     // Snapshot the form on page load so any handler that triggers a
-    // navigation (Activate/Deactivate, Duplicate) can warn about
-    // unsaved edits.
-    const originalFormData = {};
-    {
-        const initialFormData = new FormData(form);
-        for (let [key, value] of initialFormData.entries()) {
-            originalFormData[key] = value;
+    // navigation (Activate/Deactivate, Duplicate) can warn about - or
+    // forward - unsaved edits.
+    //
+    // We can't rely on FormData alone because unchecked checkboxes are
+    // omitted from FormData entirely. That makes a toggled-off checkbox
+    // invisible both to the change detector and to the duplicate-save
+    // payload. buildFormSnapshot overlays explicit boolean values for
+    // every checkbox so an off->on (or on->off) flip is visible to both.
+    function buildFormSnapshot() {
+        const snapshot = {};
+        for (const [key, value] of new FormData(form).entries()) {
+            snapshot[key] = value;
         }
+        for (const cb of form.querySelectorAll('input[type="checkbox"][name]')) {
+            snapshot[cb.name] = cb.checked;
+        }
+        return snapshot;
     }
 
-    function checkForUnsavedChanges() {
-        // Build a current snapshot, then compare against originalFormData by
-        // walking the union of keys so that fields which disappear from the
-        // submission (notably unchecked checkboxes like active/precision) are
-        // detected as changes too.
-        const current = {};
-        for (let [key, value] of new FormData(form).entries()) {
-            current[key] = value;
-        }
+    const originalFormData = buildFormSnapshot();
+
+    function diffFormSnapshots(original, current) {
+        // Returns an object of changed keys mapped to their current value,
+        // walking the union of keys so removals / additions are detected.
+        const diff = {};
         const allKeys = new Set([
-            ...Object.keys(originalFormData),
+            ...Object.keys(original),
             ...Object.keys(current),
         ]);
         for (const key of allKeys) {
-            if (originalFormData[key] !== current[key]) {
-                return true;
+            if (original[key] !== current[key]) {
+                diff[key] = current[key];
             }
         }
-        return false;
+        return diff;
+    }
+
+    function checkForUnsavedChanges() {
+        return Object.keys(diffFormSnapshots(originalFormData, buildFormSnapshot())).length > 0;
     }
 
     // ===== TOGGLE ACTIVE STATUS =====
@@ -893,14 +903,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     updated_fields: {}
                 };
 
-                // If save_changes, collect updated fields
+                // If save_changes, collect updated fields. Use the same
+                // snapshot helper as the unsaved-changes detector so a
+                // toggled-off checkbox is sent as `false` rather than
+                // silently omitted from the payload.
                 if (saveChanges) {
-                    const currentFormData = new FormData(form);
-                    for (let [key, value] of currentFormData.entries()) {
-                        if (originalFormData[key] !== value) {
-                            requestData.updated_fields[key] = value;
-                        }
-                    }
+                    requestData.updated_fields = diffFormSnapshots(
+                        originalFormData, buildFormSnapshot()
+                    );
                 }
 
                 // Call duplicate API

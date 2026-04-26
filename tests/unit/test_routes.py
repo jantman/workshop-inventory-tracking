@@ -1144,3 +1144,128 @@ class TestEditPageActions:
             "Shorten control should be a disabled <button>, not a link, for inactive items"
         assert 'disabled' in shorten_el.group(0)
         assert '/inventory/shorten?ja_id=JA600002' not in body
+
+
+class TestDuplicateUpdatedFieldsBoolean:
+    """Tests for the duplicate-with-save-changes flow when the user toggles
+    a checkbox (active / precision) before duplicating.
+
+    The form's snapshot-based payload builder sends checkbox state as a JSON
+    boolean. The server must coerce that to an actual Python bool when
+    applying updated_fields, so:
+      - off->on flips persist as True
+      - on->off flips persist as False (the regression case)
+      - the legacy "on" string from older clients still resolves to True
+    """
+
+    @pytest.fixture
+    def setup_item(self, client, test_storage):
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA700001",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            precision=True,
+            active=True,
+        ))
+        return service
+
+    def _post_duplicate(self, client, ja_id, updated_fields):
+        return client.post(
+            f'/api/items/{ja_id}/duplicate',
+            json={
+                'quantity': 1,
+                'save_changes': True,
+                'updated_fields': updated_fields,
+            },
+            content_type='application/json',
+        )
+
+    def test_unchecking_precision_persists_to_source_and_duplicate(self, client, setup_item):
+        """The regression case: unchecked precision must arrive as False
+        on the source item AND be inherited by the new duplicate."""
+        service = setup_item
+
+        response = self._post_duplicate(client, "JA700001", {"precision": False})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        new_ja_ids = data['ja_ids']
+        assert len(new_ja_ids) == 1
+
+        source = service.get_item("JA700001")
+        assert source.precision is False, "Source item precision must flip to False"
+
+        duplicate = service.get_item(new_ja_ids[0])
+        assert duplicate.precision is False, "Duplicate must inherit the new precision value"
+
+    def test_checking_precision_persists_when_originally_off(self, client, test_storage):
+        """The opposite direction: checking a previously-off checkbox."""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA700002",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            precision=False,
+            active=True,
+        ))
+
+        response = self._post_duplicate(client, "JA700002", {"precision": True})
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+        source = service.get_item("JA700002")
+        assert source.precision is True
+
+    def test_legacy_on_string_value_resolves_to_true(self, client, setup_item):
+        """Older clients (or anything posting raw form-encoded data) sent
+        the literal string 'on' for a checked checkbox. That must still be
+        coerced correctly so older deploys don't regress."""
+        service = setup_item
+        # Start with precision=True; flip with the legacy string value to
+        # exercise the coercion branch even though the value is "truthy".
+        # The test is meaningful because before the fix, setattr would
+        # store the string "on" in the in-memory ORM attribute.
+        response = self._post_duplicate(client, "JA700001", {"precision": "on"})
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+        source = service.get_item("JA700001")
+        assert source.precision is True
+
+    def test_legacy_off_or_empty_string_resolves_to_false(self, client, setup_item):
+        """Empty string and 'false' must both coerce to False."""
+        service = setup_item
+        for falsey in ("", "false", "off", "0", "no"):
+            # Reset to True before each iteration
+            session = service.Session()
+            try:
+                from app.database import InventoryItem
+                row = session.query(InventoryItem).filter_by(ja_id="JA700001", active=True).first()
+                row.precision = True
+                session.commit()
+            finally:
+                session.close()
+
+            response = self._post_duplicate(client, "JA700001", {"precision": falsey})
+            assert response.status_code == 200, f"value {falsey!r} failed"
+            assert service.get_item("JA700001").precision is False, \
+                f"value {falsey!r} should coerce to False"
