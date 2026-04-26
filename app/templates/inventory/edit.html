@@ -399,6 +399,10 @@
 // Make valid materials available globally
 window.validMaterials = {{ valid_materials | tojson }};
 </script>
+<script type="module">
+import { toggleItemStatus } from "{{ url_for('static', filename='js/components/item-actions.js') }}";
+window.toggleItemStatus = toggleItemStatus;
+</script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
 <script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
@@ -743,38 +747,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // ===== TOGGLE ACTIVE STATUS =====
+    // Delegates to window.toggleItemStatus, exposed by the module loader at
+    // the top of the scripts block from app/static/js/components/item-actions.js.
     const toggleStatusBtn = document.getElementById('toggle-status-btn');
     if (toggleStatusBtn) {
-        toggleStatusBtn.addEventListener('click', async function() {
+        toggleStatusBtn.addEventListener('click', function() {
             const jaId = toggleStatusBtn.dataset.jaId;
-            const isCurrentlyActive = toggleStatusBtn.dataset.active === 'true';
-            const activate = !isCurrentlyActive;
-            const action = activate ? 'activate' : 'deactivate';
-
-            if (!confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/inventory/${jaId}/status`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
-                    },
-                    body: JSON.stringify({ active: activate })
-                });
-
-                const data = await response.json();
-                if (response.ok && data.success) {
-                    window.location.reload();
-                } else {
-                    alert(`Error: ${data.message || 'Failed to update item status'}`);
-                }
-            } catch (error) {
-                console.error('Error toggling item status:', error);
-                alert('An error occurred while updating the item status. Please try again.');
-            }
+            const activate = toggleStatusBtn.dataset.active !== 'true';
+            window.toggleItemStatus(jaId, activate);
         });
     }
 
