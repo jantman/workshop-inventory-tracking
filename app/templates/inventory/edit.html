@@ -746,14 +746,46 @@ document.addEventListener('DOMContentLoaded', function() {
         form.classList.add('was-validated');
     });
 
+    // ===== UNSAVED-CHANGES TRACKING =====
+    // Snapshot the form on page load so any handler that triggers a
+    // navigation (Activate/Deactivate, Duplicate) can warn about
+    // unsaved edits.
+    const originalFormData = {};
+    {
+        const initialFormData = new FormData(form);
+        for (let [key, value] of initialFormData.entries()) {
+            originalFormData[key] = value;
+        }
+    }
+
+    function checkForUnsavedChanges() {
+        const currentFormData = new FormData(form);
+        for (let [key, value] of currentFormData.entries()) {
+            if (originalFormData[key] !== value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ===== TOGGLE ACTIVE STATUS =====
     // Delegates to window.toggleItemStatus, exposed by the module loader at
     // the top of the scripts block from app/static/js/components/item-actions.js.
+    // toggleItemStatus reloads the page on success, so warn the user first
+    // if there are unsaved edits in the form.
     const toggleStatusBtn = document.getElementById('toggle-status-btn');
     if (toggleStatusBtn) {
         toggleStatusBtn.addEventListener('click', function() {
             const jaId = toggleStatusBtn.dataset.jaId;
             const activate = toggleStatusBtn.dataset.active !== 'true';
+            const action = activate ? 'activate' : 'deactivate';
+            if (checkForUnsavedChanges()) {
+                const proceed = confirm(
+                    `You have unsaved changes that will be lost if you ${action} ` +
+                    `this item. Continue anyway?`
+                );
+                if (!proceed) return;
+            }
             window.toggleItemStatus(jaId, activate);
         });
     }
@@ -762,16 +794,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const duplicateBtn = document.getElementById('duplicate-item-btn');
     const duplicateModal = document.getElementById('duplicateItemModal');
     const duplicateQuantity = document.getElementById('duplicate-quantity');
-    let originalFormData = {};
     let currentItemData = {{ item.to_dict_enhanced() | tojson }};
 
     if (duplicateBtn && duplicateModal) {
-        // Store original form data on page load
-        const formData = new FormData(form);
-        for (let [key, value] of formData.entries()) {
-            originalFormData[key] = value;
-        }
-
         // Duplicate button click handler
         duplicateBtn.addEventListener('click', function() {
             showDuplicateModal();
@@ -814,16 +839,6 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show modal
             const bsModal = new bootstrap.Modal(duplicateModal);
             bsModal.show();
-        }
-
-        function checkForUnsavedChanges() {
-            const currentFormData = new FormData(form);
-            for (let [key, value] of currentFormData.entries()) {
-                if (originalFormData[key] !== value) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         function updateDuplicatePreview() {
