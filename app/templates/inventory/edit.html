@@ -7,6 +7,14 @@
         <button type="button" class="btn btn-outline-primary" id="duplicate-item-btn" data-ja-id="{{ item.ja_id }}">
             <i class="bi bi-files"></i> Duplicate Item
         </button>
+        <a href="{{ url_for('main.inventory_shorten') }}?ja_id={{ item.ja_id }}" class="btn btn-outline-secondary" id="shorten-item-btn">
+            <i class="bi bi-scissors"></i> Shorten
+        </a>
+        <button type="button" class="btn btn-outline-warning" id="toggle-status-btn"
+                data-ja-id="{{ item.ja_id }}" data-active="{{ 'true' if item.active else 'false' }}">
+            <i class="bi bi-{{ 'eye-slash' if item.active else 'eye' }}"></i>
+            {{ 'Deactivate' if item.active else 'Activate' }}
+        </button>
         <button type="button" class="btn btn-outline-warning" onclick="showItemHistory('{{ item.ja_id }}')">
             <i class="bi bi-clock-history"></i> View History
         </button>
@@ -726,6 +734,42 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         form.classList.add('was-validated');
     });
+
+    // ===== TOGGLE ACTIVE STATUS =====
+    const toggleStatusBtn = document.getElementById('toggle-status-btn');
+    if (toggleStatusBtn) {
+        toggleStatusBtn.addEventListener('click', async function() {
+            const jaId = toggleStatusBtn.dataset.jaId;
+            const isCurrentlyActive = toggleStatusBtn.dataset.active === 'true';
+            const activate = !isCurrentlyActive;
+            const action = activate ? 'activate' : 'deactivate';
+
+            if (!confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/inventory/${jaId}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
+                    },
+                    body: JSON.stringify({ active: activate })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    window.location.reload();
+                } else {
+                    alert(`Error: ${data.message || 'Failed to update item status'}`);
+                }
+            } catch (error) {
+                console.error('Error toggling item status:', error);
+                alert('An error occurred while updating the item status. Please try again.');
+            }
+        });
+    }
 
     // ===== DUPLICATE ITEM FUNCTIONALITY =====
     const duplicateBtn = document.getElementById('duplicate-item-btn');

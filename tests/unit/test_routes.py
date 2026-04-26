@@ -958,3 +958,154 @@ class TestToggleItemStatusAPI:
         item = service.get_item_any_status("JA400001")
         assert item is not None
         assert item.active is True
+
+
+class TestMultiRowJaIdHandling:
+    """Tests for canonical-row selection when a JA ID has multiple rows.
+
+    Imported history rows can share the same date_added, so order_by
+    on date_added alone is non-deterministic. The service must prefer
+    the active row, otherwise both edit and toggle-status target the
+    wrong row.
+    """
+
+    @pytest.fixture
+    def service_with_tied_rows(self, test_storage):
+        """Create a JA ID with one inactive and one active row sharing date_added."""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from datetime import datetime
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        shared_date = datetime(2025, 9, 12, 14, 16, 50)
+
+        session = service.Session()
+        try:
+            inactive_row = InventoryItem(
+                ja_id="JA500001",
+                item_type=ItemType.BAR.value,
+                shape=ItemShape.ROUND.value,
+                material="Carbon Steel",
+                length=Decimal("24.0"),
+                width=Decimal("0.5"),
+                location="Storage A",
+                active=False,
+                date_added=shared_date,
+                last_modified=shared_date,
+            )
+            active_row = InventoryItem(
+                ja_id="JA500001",
+                item_type=ItemType.BAR.value,
+                shape=ItemShape.ROUND.value,
+                material="Carbon Steel",
+                length=Decimal("12.0"),
+                width=Decimal("0.5"),
+                location="Storage A",
+                active=True,
+                date_added=shared_date,
+                last_modified=shared_date,
+            )
+            session.add(inactive_row)
+            session.add(active_row)
+            session.commit()
+        finally:
+            session.close()
+
+        return service
+
+    def test_get_item_any_status_prefers_active_row_with_tied_dates(self, service_with_tied_rows):
+        """Active row must win over an inactive row sharing the same date_added."""
+        from decimal import Decimal
+        item = service_with_tied_rows.get_item_any_status("JA500001")
+        assert item is not None
+        assert item.active is True
+        assert item.length == Decimal("12.0")
+
+    def test_deactivate_via_api_succeeds_with_tied_dates(self, client, service_with_tied_rows):
+        """The toggle-status API must deactivate the active row, not a tied inactive sibling."""
+        service = service_with_tied_rows
+
+        response = client.patch(
+            '/api/inventory/JA500001/status',
+            json={'active': False},
+            content_type='application/json',
+        )
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+        # No active row should remain for this JA ID.
+        from app.database import InventoryItem
+        session = service.Session()
+        try:
+            active_count = session.query(InventoryItem).filter(
+                InventoryItem.ja_id == "JA500001",
+                InventoryItem.active == True,
+            ).count()
+        finally:
+            session.close()
+        assert active_count == 0
+
+    def test_edit_page_renders_active_row_with_tied_dates(self, client, service_with_tied_rows):
+        """The edit form must reflect the active row's state, not the inactive sibling."""
+        response = client.get('/inventory/edit/JA500001')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        # Active checkbox should be pre-checked because the active row wins.
+        import re
+        active_input = re.search(r'<input[^>]*id="active"[^>]*>', body)
+        assert active_input is not None, "Active checkbox not found in edit page"
+        assert 'checked' in active_input.group(0), \
+            "Active checkbox should be checked when the canonical row is active"
+
+
+class TestEditPageActions:
+    """Tests for edit-page action buttons (Deactivate, Activate, Shorten)."""
+
+    @pytest.fixture
+    def setup_items(self, client, test_storage):
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA600001",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            active=True,
+        ))
+        service.add_item(InventoryItem(
+            ja_id="JA600002",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            active=False,
+        ))
+        return service
+
+    def test_edit_page_active_item_shows_deactivate_and_shorten(self, client, setup_items):
+        response = client.get('/inventory/edit/JA600001')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        assert 'id="toggle-status-btn"' in body
+        assert 'Deactivate' in body
+        assert 'id="shorten-item-btn"' in body
+        assert '/inventory/shorten?ja_id=JA600001' in body
+
+    def test_edit_page_inactive_item_shows_activate(self, client, setup_items):
+        response = client.get('/inventory/edit/JA600002')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        assert 'id="toggle-status-btn"' in body
+        assert 'Activate' in body
+        assert 'data-active="false"' in body
