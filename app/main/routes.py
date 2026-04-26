@@ -1600,7 +1600,8 @@ def api_toggle_item_status(ja_id):
 
         service = _get_inventory_service()
 
-        # Get item (any status) for updating
+        # Get the canonical row for this JA ID: prefer the active row,
+        # otherwise the latest inactive row with a deterministic tiebreak.
         item = service.get_canonical_item(ja_id)
         if not item:
             return jsonify({

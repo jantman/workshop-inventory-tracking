@@ -1093,12 +1093,32 @@ class TestEditPageActions:
         ))
         return service
 
+    @staticmethod
+    def _extract_toggle_button(body):
+        """Return (button_open_tag, button_inner_text) for #toggle-status-btn.
+
+        We have to target the button precisely because the edit page's inline
+        JavaScript embeds both the words "Activate" and "Deactivate" in
+        template literals, so a naive ``'Deactivate' in body`` check passes
+        regardless of the rendered button label.
+        """
+        import re
+        match = re.search(
+            r'(<button[^>]*id="toggle-status-btn"[^>]*>)(.*?)</button>',
+            body,
+            re.DOTALL,
+        )
+        assert match is not None, "Toggle status button not found on edit page"
+        return match.group(1), match.group(2)
+
     def test_edit_page_active_item_shows_deactivate_and_shorten(self, client, setup_items):
         response = client.get('/inventory/edit/JA600001')
         assert response.status_code == 200
         body = response.get_data(as_text=True)
-        assert 'id="toggle-status-btn"' in body
-        assert 'Deactivate' in body
+        open_tag, inner = self._extract_toggle_button(body)
+        assert 'data-active="true"' in open_tag
+        assert 'Deactivate' in inner
+        assert 'Activate' not in inner
         assert 'id="shorten-item-btn"' in body
         assert '/inventory/shorten?ja_id=JA600001' in body
 
@@ -1106,9 +1126,10 @@ class TestEditPageActions:
         response = client.get('/inventory/edit/JA600002')
         assert response.status_code == 200
         body = response.get_data(as_text=True)
-        assert 'id="toggle-status-btn"' in body
-        assert 'Activate' in body
-        assert 'data-active="false"' in body
+        open_tag, inner = self._extract_toggle_button(body)
+        assert 'data-active="false"' in open_tag
+        assert 'Activate' in inner
+        assert 'Deactivate' not in inner
 
     def test_edit_page_inactive_item_disables_shorten(self, client, setup_items):
         """Shortening only works on active items, so the Shorten control

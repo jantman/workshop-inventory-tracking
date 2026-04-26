@@ -412,11 +412,16 @@ class TestInventoryService:
             mock_session.close.assert_called_once()
 
     def test_get_canonical_item_returns_most_recent_when_multiple(self, service):
-        """Test that get_canonical_item returns the most recent item when multiple exist"""
-        # This tests that order_by(desc(date_added)) is working correctly
+        """Test that get_canonical_item returns whatever the canonical-row
+        query yields when multiple rows exist for a JA ID. The query orders
+        by (active DESC, date_added DESC, id DESC) so the active row wins;
+        when no active row exists it falls back to the most-recent inactive
+        row, with id as the deterministic tiebreaker for ties on date_added.
+        This particular case mocks the result to be an inactive row to
+        verify the method passes it through unmodified."""
         most_recent_item = Mock(spec=InventoryItem)
         most_recent_item.ja_id = "JA000211"
-        most_recent_item.active = False  # Most recent is inactive
+        most_recent_item.active = False  # Mocked as the canonical row in this scenario
         most_recent_item.date_added = datetime(2024, 1, 15)
 
         with patch.object(service, 'Session') as mock_session_class:
