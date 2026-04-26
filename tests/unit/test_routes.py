@@ -868,7 +868,7 @@ class TestToggleItemStatusAPI:
         assert data['active'] is True
 
         # Verify via service
-        item = service.get_item_any_status("JA400002")
+        item = service.get_canonical_item("JA400002")
         assert item is not None
         assert item.active is True
 
@@ -890,7 +890,7 @@ class TestToggleItemStatusAPI:
         assert data['active'] is False
 
         # Verify via service
-        item = service.get_item_any_status("JA400001")
+        item = service.get_canonical_item("JA400001")
         assert item is not None
         assert item.active is False
 
@@ -955,6 +955,317 @@ class TestToggleItemStatusAPI:
         assert data['active'] is True
 
         # Verify still active via service
-        item = service.get_item_any_status("JA400001")
+        item = service.get_canonical_item("JA400001")
         assert item is not None
         assert item.active is True
+
+
+class TestMultiRowJaIdHandling:
+    """Tests for canonical-row selection when a JA ID has multiple rows.
+
+    Imported history rows can share the same date_added, so order_by
+    on date_added alone is non-deterministic. The service must prefer
+    the active row, otherwise both edit and toggle-status target the
+    wrong row.
+    """
+
+    @pytest.fixture
+    def service_with_tied_rows(self, test_storage):
+        """Create a JA ID with one inactive and one active row sharing date_added."""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from datetime import datetime
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        shared_date = datetime(2025, 9, 12, 14, 16, 50)
+
+        session = service.Session()
+        try:
+            inactive_row = InventoryItem(
+                ja_id="JA500001",
+                item_type=ItemType.BAR.value,
+                shape=ItemShape.ROUND.value,
+                material="Carbon Steel",
+                length=Decimal("24.0"),
+                width=Decimal("0.5"),
+                location="Storage A",
+                active=False,
+                date_added=shared_date,
+                last_modified=shared_date,
+            )
+            active_row = InventoryItem(
+                ja_id="JA500001",
+                item_type=ItemType.BAR.value,
+                shape=ItemShape.ROUND.value,
+                material="Carbon Steel",
+                length=Decimal("12.0"),
+                width=Decimal("0.5"),
+                location="Storage A",
+                active=True,
+                date_added=shared_date,
+                last_modified=shared_date,
+            )
+            session.add(inactive_row)
+            session.add(active_row)
+            session.commit()
+        finally:
+            session.close()
+
+        return service
+
+    def test_get_canonical_item_prefers_active_row_with_tied_dates(self, service_with_tied_rows):
+        """Active row must win over an inactive row sharing the same date_added."""
+        from decimal import Decimal
+        item = service_with_tied_rows.get_canonical_item("JA500001")
+        assert item is not None
+        assert item.active is True
+        assert item.length == Decimal("12.0")
+
+    def test_deactivate_via_api_succeeds_with_tied_dates(self, client, service_with_tied_rows):
+        """The toggle-status API must deactivate the active row, not a tied inactive sibling."""
+        service = service_with_tied_rows
+
+        response = client.patch(
+            '/api/inventory/JA500001/status',
+            json={'active': False},
+            content_type='application/json',
+        )
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+        # No active row should remain for this JA ID.
+        from app.database import InventoryItem
+        session = service.Session()
+        try:
+            active_count = session.query(InventoryItem).filter(
+                InventoryItem.ja_id == "JA500001",
+                InventoryItem.active == True,
+            ).count()
+        finally:
+            session.close()
+        assert active_count == 0
+
+    def test_edit_page_renders_active_row_with_tied_dates(self, client, service_with_tied_rows):
+        """The edit form must reflect the active row's state, not the inactive sibling."""
+        response = client.get('/inventory/edit/JA500001')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        # Active checkbox should be pre-checked because the active row wins.
+        import re
+        active_input = re.search(r'<input[^>]*id="active"[^>]*>', body)
+        assert active_input is not None, "Active checkbox not found in edit page"
+        assert 'checked' in active_input.group(0), \
+            "Active checkbox should be checked when the canonical row is active"
+
+
+class TestEditPageActions:
+    """Tests for edit-page action buttons (Deactivate, Activate, Shorten)."""
+
+    @pytest.fixture
+    def setup_items(self, client, test_storage):
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA600001",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            active=True,
+        ))
+        service.add_item(InventoryItem(
+            ja_id="JA600002",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            active=False,
+        ))
+        return service
+
+    @staticmethod
+    def _extract_toggle_button(body):
+        """Return (button_open_tag, button_inner_text) for #toggle-status-btn.
+
+        We have to target the button precisely because the edit page's inline
+        JavaScript embeds both the words "Activate" and "Deactivate" in
+        template literals, so a naive ``'Deactivate' in body`` check passes
+        regardless of the rendered button label.
+        """
+        import re
+        match = re.search(
+            r'(<button[^>]*id="toggle-status-btn"[^>]*>)(.*?)</button>',
+            body,
+            re.DOTALL,
+        )
+        assert match is not None, "Toggle status button not found on edit page"
+        return match.group(1), match.group(2)
+
+    def test_edit_page_active_item_shows_deactivate_and_shorten(self, client, setup_items):
+        response = client.get('/inventory/edit/JA600001')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        open_tag, inner = self._extract_toggle_button(body)
+        assert 'data-active="true"' in open_tag
+        assert 'Deactivate' in inner
+        assert 'Activate' not in inner
+        assert 'id="shorten-item-btn"' in body
+        assert '/inventory/shorten?ja_id=JA600001' in body
+
+    def test_edit_page_inactive_item_shows_activate(self, client, setup_items):
+        response = client.get('/inventory/edit/JA600002')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        open_tag, inner = self._extract_toggle_button(body)
+        assert 'data-active="false"' in open_tag
+        assert 'Activate' in inner
+        assert 'Deactivate' not in inner
+
+    def test_edit_page_inactive_item_disables_shorten(self, client, setup_items):
+        """Shortening only works on active items, so the Shorten control
+        must be disabled (not a live link) for inactive items."""
+        import re
+        response = client.get('/inventory/edit/JA600002')
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        shorten_el = re.search(r'<(a|button)[^>]*id="shorten-item-btn"[^>]*>', body)
+        assert shorten_el is not None, "Shorten control not found on edit page"
+        assert shorten_el.group(1) == 'button', \
+            "Shorten control should be a disabled <button>, not a link, for inactive items"
+        assert 'disabled' in shorten_el.group(0)
+        assert '/inventory/shorten?ja_id=JA600002' not in body
+
+
+class TestDuplicateUpdatedFieldsBoolean:
+    """Tests for the duplicate-with-save-changes flow when the user toggles
+    a checkbox (active / precision) before duplicating.
+
+    The form's snapshot-based payload builder sends checkbox state as a JSON
+    boolean. The server must coerce that to an actual Python bool when
+    applying updated_fields, so:
+      - off->on flips persist as True
+      - on->off flips persist as False (the regression case)
+      - the legacy "on" string from older clients still resolves to True
+    """
+
+    @pytest.fixture
+    def setup_item(self, client, test_storage):
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA700001",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            precision=True,
+            active=True,
+        ))
+        return service
+
+    def _post_duplicate(self, client, ja_id, updated_fields):
+        return client.post(
+            f'/api/items/{ja_id}/duplicate',
+            json={
+                'quantity': 1,
+                'save_changes': True,
+                'updated_fields': updated_fields,
+            },
+            content_type='application/json',
+        )
+
+    def test_unchecking_precision_persists_to_source_and_duplicate(self, client, setup_item):
+        """The regression case: unchecked precision must arrive as False
+        on the source item AND be inherited by the new duplicate."""
+        service = setup_item
+
+        response = self._post_duplicate(client, "JA700001", {"precision": False})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        new_ja_ids = data['ja_ids']
+        assert len(new_ja_ids) == 1
+
+        source = service.get_item("JA700001")
+        assert source.precision is False, "Source item precision must flip to False"
+
+        duplicate = service.get_item(new_ja_ids[0])
+        assert duplicate.precision is False, "Duplicate must inherit the new precision value"
+
+    def test_checking_precision_persists_when_originally_off(self, client, test_storage):
+        """The opposite direction: checking a previously-off checkbox."""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA700002",
+            item_type=ItemType.BAR.value,
+            shape=ItemShape.ROUND.value,
+            material="Carbon Steel",
+            length=Decimal("12.0"),
+            width=Decimal("0.5"),
+            location="Storage A",
+            precision=False,
+            active=True,
+        ))
+
+        response = self._post_duplicate(client, "JA700002", {"precision": True})
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+        source = service.get_item("JA700002")
+        assert source.precision is True
+
+    def test_legacy_on_string_value_resolves_to_true(self, client, setup_item):
+        """Older clients (or anything posting raw form-encoded data) sent
+        the literal string 'on' for a checked checkbox. That must still be
+        coerced correctly so older deploys don't regress."""
+        service = setup_item
+        # Start with precision=True; flip with the legacy string value to
+        # exercise the coercion branch even though the value is "truthy".
+        # The test is meaningful because before the fix, setattr would
+        # store the string "on" in the in-memory ORM attribute.
+        response = self._post_duplicate(client, "JA700001", {"precision": "on"})
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+        source = service.get_item("JA700001")
+        assert source.precision is True
+
+    def test_legacy_off_or_empty_string_resolves_to_false(self, client, setup_item):
+        """Empty string and 'false' must both coerce to False."""
+        service = setup_item
+        for falsey in ("", "false", "off", "0", "no"):
+            # Reset to True before each iteration
+            session = service.Session()
+            try:
+                from app.database import InventoryItem
+                row = session.query(InventoryItem).filter_by(ja_id="JA700001", active=True).first()
+                row.precision = True
+                session.commit()
+            finally:
+                session.close()
+
+            response = self._post_duplicate(client, "JA700001", {"precision": falsey})
+            assert response.status_code == 200, f"value {falsey!r} failed"
+            assert service.get_item("JA700001").precision is False, \
+                f"value {falsey!r} should coerce to False"

@@ -7,6 +7,21 @@
         <button type="button" class="btn btn-outline-primary" id="duplicate-item-btn" data-ja-id="{{ item.ja_id }}">
             <i class="bi bi-files"></i> Duplicate Item
         </button>
+        {% if item.active %}
+        <a href="{{ url_for('main.inventory_shorten') }}?ja_id={{ item.ja_id }}" class="btn btn-outline-secondary" id="shorten-item-btn">
+            <i class="bi bi-scissors"></i> Shorten
+        </a>
+        {% else %}
+        <button type="button" class="btn btn-outline-secondary" id="shorten-item-btn" disabled
+                title="Only active items can be shortened.">
+            <i class="bi bi-scissors"></i> Shorten
+        </button>
+        {% endif %}
+        <button type="button" class="btn btn-outline-warning" id="toggle-status-btn"
+                data-ja-id="{{ item.ja_id }}" data-active="{{ 'true' if item.active else 'false' }}">
+            <i class="bi bi-{{ 'eye-slash' if item.active else 'eye' }}"></i>
+            {{ 'Deactivate' if item.active else 'Activate' }}
+        </button>
         <button type="button" class="btn btn-outline-warning" onclick="showItemHistory('{{ item.ja_id }}')">
             <i class="bi bi-clock-history"></i> View History
         </button>
@@ -384,6 +399,10 @@
 // Make valid materials available globally
 window.validMaterials = {{ valid_materials | tojson }};
 </script>
+<script type="module">
+import { toggleItemStatus } from "{{ url_for('static', filename='js/components/item-actions.js') }}";
+window.toggleItemStatus = toggleItemStatus;
+</script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
 <script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
@@ -727,20 +746,83 @@ document.addEventListener('DOMContentLoaded', function() {
         form.classList.add('was-validated');
     });
 
+    // ===== UNSAVED-CHANGES TRACKING =====
+    // Snapshot the form on page load so any handler that triggers a
+    // navigation (Activate/Deactivate, Duplicate) can warn about - or
+    // forward - unsaved edits.
+    //
+    // We can't rely on FormData alone because unchecked checkboxes are
+    // omitted from FormData entirely. That makes a toggled-off checkbox
+    // invisible both to the change detector and to the duplicate-save
+    // payload. buildFormSnapshot overlays explicit boolean values for
+    // every checkbox so an off->on (or on->off) flip is visible to both.
+    function buildFormSnapshot() {
+        const snapshot = {};
+        for (const [key, value] of new FormData(form).entries()) {
+            snapshot[key] = value;
+        }
+        for (const cb of form.querySelectorAll('input[type="checkbox"][name]')) {
+            snapshot[cb.name] = cb.checked;
+        }
+        return snapshot;
+    }
+
+    const originalFormData = buildFormSnapshot();
+
+    function diffFormSnapshots(original, current) {
+        // Returns an object of changed keys mapped to their current value,
+        // walking the union of keys so removals / additions are detected.
+        const diff = {};
+        const allKeys = new Set([
+            ...Object.keys(original),
+            ...Object.keys(current),
+        ]);
+        for (const key of allKeys) {
+            if (original[key] !== current[key]) {
+                diff[key] = current[key];
+            }
+        }
+        return diff;
+    }
+
+    function checkForUnsavedChanges() {
+        return Object.keys(diffFormSnapshots(originalFormData, buildFormSnapshot())).length > 0;
+    }
+
+    // ===== TOGGLE ACTIVE STATUS =====
+    // Delegates to window.toggleItemStatus, exposed by the module loader at
+    // the top of the scripts block from app/static/js/components/item-actions.js.
+    // toggleItemStatus reloads the page on success, so when the form is dirty
+    // we replace its built-in confirm with a single combined prompt that
+    // covers both the action and the unsaved-edits side effect (passing
+    // skipConfirm=true to avoid two consecutive dialogs). When the form is
+    // clean we let toggleItemStatus run its standard confirm unchanged.
+    const toggleStatusBtn = document.getElementById('toggle-status-btn');
+    if (toggleStatusBtn) {
+        toggleStatusBtn.addEventListener('click', function() {
+            const jaId = toggleStatusBtn.dataset.jaId;
+            const activate = toggleStatusBtn.dataset.active !== 'true';
+            const action = activate ? 'activate' : 'deactivate';
+            if (checkForUnsavedChanges()) {
+                const proceed = confirm(
+                    `You have unsaved changes that will be lost if you ${action} ` +
+                    `item ${jaId}. ${activate ? 'Activate' : 'Deactivate'} anyway?`
+                );
+                if (!proceed) return;
+                window.toggleItemStatus(jaId, activate, { skipConfirm: true });
+            } else {
+                window.toggleItemStatus(jaId, activate);
+            }
+        });
+    }
+
     // ===== DUPLICATE ITEM FUNCTIONALITY =====
     const duplicateBtn = document.getElementById('duplicate-item-btn');
     const duplicateModal = document.getElementById('duplicateItemModal');
     const duplicateQuantity = document.getElementById('duplicate-quantity');
-    let originalFormData = {};
     let currentItemData = {{ item.to_dict_enhanced() | tojson }};
 
     if (duplicateBtn && duplicateModal) {
-        // Store original form data on page load
-        const formData = new FormData(form);
-        for (let [key, value] of formData.entries()) {
-            originalFormData[key] = value;
-        }
-
         // Duplicate button click handler
         duplicateBtn.addEventListener('click', function() {
             showDuplicateModal();
@@ -785,16 +867,6 @@ document.addEventListener('DOMContentLoaded', function() {
             bsModal.show();
         }
 
-        function checkForUnsavedChanges() {
-            const currentFormData = new FormData(form);
-            for (let [key, value] of currentFormData.entries()) {
-                if (originalFormData[key] !== value) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         function updateDuplicatePreview() {
             const quantity = parseInt(duplicateQuantity.value) || 1;
             const jaId = duplicateBtn.dataset.jaId;
@@ -831,14 +903,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     updated_fields: {}
                 };
 
-                // If save_changes, collect updated fields
+                // If save_changes, collect updated fields. Use the same
+                // snapshot helper as the unsaved-changes detector so a
+                // toggled-off checkbox is sent as `false` rather than
+                // silently omitted from the payload.
                 if (saveChanges) {
-                    const currentFormData = new FormData(form);
-                    for (let [key, value] of currentFormData.entries()) {
-                        if (originalFormData[key] !== value) {
-                            requestData.updated_fields[key] = value;
-                        }
-                    }
+                    requestData.updated_fields = diffFormSnapshots(
+                        originalFormData, buildFormSnapshot()
+                    );
                 }
 
                 // Call duplicate API

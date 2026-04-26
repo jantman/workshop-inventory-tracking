@@ -342,8 +342,8 @@ class TestInventoryService:
 
             mock_session.close.assert_called_once()
 
-    def test_get_item_any_status_returns_active_item(self, service, sample_db_item):
-        """Test that get_item_any_status can return active items"""
+    def test_get_canonical_item_returns_active_item(self, service, sample_db_item):
+        """Test that get_canonical_item can return active items"""
         with patch.object(service, 'Session') as mock_session_class:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
@@ -356,7 +356,7 @@ class TestInventoryService:
             mock_query.first.return_value = sample_db_item
 
             # Call the method
-            result = service.get_item_any_status("JA000211")
+            result = service.get_canonical_item("JA000211")
 
             # Verify the result
             assert result is not None
@@ -370,8 +370,8 @@ class TestInventoryService:
 
             mock_session.close.assert_called_once()
 
-    def test_get_item_any_status_returns_inactive_item(self, service):
-        """Test that get_item_any_status can return inactive items"""
+    def test_get_canonical_item_returns_inactive_item(self, service):
+        """Test that get_canonical_item can return inactive items"""
         # Create an inactive sample item
         inactive_item = Mock(spec=InventoryItem)
         inactive_item.ja_id = "JA000999"
@@ -402,7 +402,7 @@ class TestInventoryService:
             mock_query.first.return_value = inactive_item
 
             # Call the method
-            result = service.get_item_any_status("JA000999")
+            result = service.get_canonical_item("JA000999")
 
             # Verify the result - should return inactive item
             assert result is not None
@@ -411,12 +411,17 @@ class TestInventoryService:
 
             mock_session.close.assert_called_once()
 
-    def test_get_item_any_status_returns_most_recent_when_multiple(self, service):
-        """Test that get_item_any_status returns the most recent item when multiple exist"""
-        # This tests that order_by(desc(date_added)) is working correctly
+    def test_get_canonical_item_returns_most_recent_when_multiple(self, service):
+        """Test that get_canonical_item returns whatever the canonical-row
+        query yields when multiple rows exist for a JA ID. The query orders
+        by (active DESC, date_added DESC, id DESC) so the active row wins;
+        when no active row exists it falls back to the most-recent inactive
+        row, with id as the deterministic tiebreaker for ties on date_added.
+        This particular case mocks the result to be an inactive row to
+        verify the method passes it through unmodified."""
         most_recent_item = Mock(spec=InventoryItem)
         most_recent_item.ja_id = "JA000211"
-        most_recent_item.active = False  # Most recent is inactive
+        most_recent_item.active = False  # Mocked as the canonical row in this scenario
         most_recent_item.date_added = datetime(2024, 1, 15)
 
         with patch.object(service, 'Session') as mock_session_class:
@@ -431,7 +436,7 @@ class TestInventoryService:
             mock_query.first.return_value = most_recent_item
 
             # Call the method
-            result = service.get_item_any_status("JA000211")
+            result = service.get_canonical_item("JA000211")
 
             # Should return the most recent item (inactive in this case)
             assert result is not None
@@ -440,8 +445,8 @@ class TestInventoryService:
 
             mock_session.close.assert_called_once()
 
-    def test_get_item_any_status_returns_none_when_not_found(self, service):
-        """Test that get_item_any_status returns None when item doesn't exist"""
+    def test_get_canonical_item_returns_none_when_not_found(self, service):
+        """Test that get_canonical_item returns None when item doesn't exist"""
         with patch.object(service, 'Session') as mock_session_class:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
@@ -454,7 +459,7 @@ class TestInventoryService:
             mock_query.first.return_value = None
 
             # Call the method
-            result = service.get_item_any_status("JA999999")
+            result = service.get_canonical_item("JA999999")
 
             # Should return None
             assert result is None

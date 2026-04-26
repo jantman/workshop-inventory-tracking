@@ -218,13 +218,20 @@ class InventoryService:
             if 'session' in locals():
                 session.close()
 
-    def get_item_any_status(self, ja_id: str) -> Optional[InventoryItem]:
+    def get_canonical_item(self, ja_id: str) -> Optional[InventoryItem]:
         """
-        Get an item by JA ID regardless of active/inactive status
+        Get the canonical row for a JA ID.
 
-        Returns the most recently added item with this JA ID,
-        which could be active or inactive. This is primarily used
-        for editing items where we need to access inactive items.
+        From the (possibly many) rows belonging to this JA ID, return
+        the one that represents it: the active row if one exists,
+        otherwise the most recently added inactive row. Use this when
+        you want to read or update "the item" without filtering out
+        deactivated items (e.g. the edit page and the activate /
+        deactivate API both need this). Use ``get_item`` instead when
+        you want to skip deactivated items entirely.
+
+        Imported history rows can share the same date_added, so id is
+        used as the final tiebreaker to keep this deterministic.
 
         Args:
             ja_id: The JA ID to search for
@@ -235,10 +242,13 @@ class InventoryService:
         try:
             session = self.Session()
 
-            # Query for item with this JA ID, get most recent
             db_item = session.query(InventoryItem).filter(
                 InventoryItem.ja_id == ja_id
-            ).order_by(desc(InventoryItem.date_added)).first()
+            ).order_by(
+                desc(InventoryItem.active),
+                desc(InventoryItem.date_added),
+                desc(InventoryItem.id),
+            ).first()
 
             if not db_item:
                 return None
@@ -728,8 +738,10 @@ class InventoryService:
         """
         Update an existing item in MariaDB
 
-        For multi-row JA ID scenarios, this updates the most recent item
-        (active or inactive). The update preserves the item's history by
+        For multi-row JA ID scenarios, this updates the canonical row for
+        this JA ID: the active row if one exists, otherwise the most
+        recent inactive row (with id as a deterministic tiebreaker for
+        rows sharing date_added). The update preserves history by
         modifying the existing row rather than creating a new row (which
         is what shortening does).
 
@@ -744,10 +756,17 @@ class InventoryService:
         try:
             session = self.Session()
 
-            # Get the most recent item for this JA ID (active or inactive)
+            # Get the canonical row for this JA ID: prefer the active row,
+            # falling back to the most recent (id-tiebroken) inactive row.
+            # Imported history rows can share date_added, so id is the
+            # final tiebreaker.
             current_db_item = session.query(InventoryItem).filter(
                 InventoryItem.ja_id == item.ja_id
-            ).order_by(desc(InventoryItem.date_added)).first()
+            ).order_by(
+                desc(InventoryItem.active),
+                desc(InventoryItem.date_added),
+                desc(InventoryItem.id),
+            ).first()
 
             if not current_db_item:
                 error_msg = f'Item {item.ja_id} not found for update'

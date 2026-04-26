@@ -71,6 +71,15 @@ class DuplicateItemPage(BasePage):
         """Modify a field to create unsaved changes"""
         self.page.locator(f"#{field_id}").fill(value)
 
+    def set_checkbox(self, field_id, checked):
+        """Force a checkbox to a specific checked state. Triggers a change
+        event so any listeners (e.g. unsaved-changes detection) see it."""
+        locator = self.page.locator(f"#{field_id}")
+        if checked:
+            locator.check()
+        else:
+            locator.uncheck()
+
     def get_toast_message(self):
         """Get the toast notification message"""
         toast = self.page.locator(".toast-body").first
@@ -859,3 +868,67 @@ def test_duplicate_ja_id_sequence_from_existing(page, live_server):
     assert service.get_item("JA000113") is not None
     assert service.get_item("JA000114") is not None
     assert service.get_item("JA000115") is not None
+
+
+@pytest.mark.e2e
+def test_duplicate_with_unchecked_checkbox_save_option(page, live_server):
+    """Regression test: an unchecked checkbox in the unsaved edit form must
+    (a) trigger the unsaved-changes warning, (b) be sent to the server as
+    a real boolean false in the duplicate-with-save payload, and (c) be
+    persisted on both the source item and the new duplicate. Before the
+    fix, the checkbox simply wasn't in FormData when unchecked, so the
+    warning didn't fire and the duplicate-save loop silently dropped the
+    change."""
+    from app.database import InventoryItem
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+
+    item = InventoryItem(
+        ja_id="JA000150",
+        item_type="Bar",
+        material="Steel",
+        length=36.0,
+        location="Shop A",
+        precision=True,
+        active=True,
+    )
+    service.add_item(item)
+
+    dup_page = DuplicateItemPage(page, live_server.url)
+    dup_page.navigate_to_edit_page("JA000150")
+
+    # Sanity-check the precision checkbox renders as checked (this is the
+    # canonical-row fix earlier in the PR; it would catch a regression
+    # where the edit page reads a non-canonical row).
+    expect(page.locator("#precision")).to_be_checked()
+
+    # Toggle the checkbox off -- this is the only edit on the page.
+    dup_page.set_checkbox("precision", False)
+
+    dup_page.click_duplicate_button()
+
+    # The unsaved-changes warning must fire: this proves the snapshot-based
+    # detector sees a checkbox going from checked to unchecked, which the
+    # FormData-only implementation missed.
+    assert dup_page.is_unsaved_changes_warning_visible(), \
+        "Unchecking a checkbox must trigger the unsaved-changes warning"
+
+    dup_page.select_save_changes_option()
+    dup_page.click_create_duplicates_button()
+
+    # Source item must reflect the unchecked state.
+    source = service.get_item("JA000150")
+    assert source is not None
+    assert source.precision is False, \
+        "Source item precision must be False after duplicate-with-save"
+
+    # The newly created duplicate must inherit the new precision value.
+    all_items = service.get_all_items()
+    duplicates = [
+        i for i in all_items
+        if i.material == "Steel" and i.location == "Shop A" and i.ja_id != "JA000150"
+    ]
+    assert len(duplicates) == 1, \
+        f"Expected exactly 1 duplicate, found {len(duplicates)}"
+    assert duplicates[0].precision is False, \
+        "Duplicate must inherit the unchecked precision value"
