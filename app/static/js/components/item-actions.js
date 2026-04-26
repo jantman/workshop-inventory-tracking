@@ -62,13 +62,21 @@ export function printLabel(jaId) {
  *
  * @param {string} jaId - Item JA ID
  * @param {boolean} activate - True to activate, false to deactivate
+ * @param {Object} [options]
+ * @param {boolean} [options.skipConfirm=false] - When true, skip the
+ *   built-in confirmation dialog. Use this when the caller has already
+ *   prompted the user (e.g. with a combined warning that covers both the
+ *   action and a side-effect like discarding unsaved edits) so the user
+ *   doesn't see two consecutive confirms for the same click.
  * @returns {Promise<boolean>} Success status
  */
-export async function toggleItemStatus(jaId, activate) {
+export async function toggleItemStatus(jaId, activate, options = {}) {
     const action = activate ? 'activate' : 'deactivate';
 
-    if (!confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
-        return false;
+    if (!options.skipConfirm) {
+        if (!confirm(`Are you sure you want to ${action} item ${jaId}?`)) {
+            return false;
+        }
     }
 
     try {

@@ -759,9 +759,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function checkForUnsavedChanges() {
-        const currentFormData = new FormData(form);
-        for (let [key, value] of currentFormData.entries()) {
-            if (originalFormData[key] !== value) {
+        // Build a current snapshot, then compare against originalFormData by
+        // walking the union of keys so that fields which disappear from the
+        // submission (notably unchecked checkboxes like active/precision) are
+        // detected as changes too.
+        const current = {};
+        for (let [key, value] of new FormData(form).entries()) {
+            current[key] = value;
+        }
+        const allKeys = new Set([
+            ...Object.keys(originalFormData),
+            ...Object.keys(current),
+        ]);
+        for (const key of allKeys) {
+            if (originalFormData[key] !== current[key]) {
                 return true;
             }
         }
@@ -771,8 +782,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // ===== TOGGLE ACTIVE STATUS =====
     // Delegates to window.toggleItemStatus, exposed by the module loader at
     // the top of the scripts block from app/static/js/components/item-actions.js.
-    // toggleItemStatus reloads the page on success, so warn the user first
-    // if there are unsaved edits in the form.
+    // toggleItemStatus reloads the page on success, so when the form is dirty
+    // we replace its built-in confirm with a single combined prompt that
+    // covers both the action and the unsaved-edits side effect (passing
+    // skipConfirm=true to avoid two consecutive dialogs). When the form is
+    // clean we let toggleItemStatus run its standard confirm unchanged.
     const toggleStatusBtn = document.getElementById('toggle-status-btn');
     if (toggleStatusBtn) {
         toggleStatusBtn.addEventListener('click', function() {
@@ -782,11 +796,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (checkForUnsavedChanges()) {
                 const proceed = confirm(
                     `You have unsaved changes that will be lost if you ${action} ` +
-                    `this item. Continue anyway?`
+                    `item ${jaId}. ${activate ? 'Activate' : 'Deactivate'} anyway?`
                 );
                 if (!proceed) return;
+                window.toggleItemStatus(jaId, activate, { skipConfirm: true });
+            } else {
+                window.toggleItemStatus(jaId, activate);
             }
-            window.toggleItemStatus(jaId, activate);
         });
     }
 
