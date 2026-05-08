@@ -287,19 +287,7 @@ def _process_item_creation(input_data):
         f'Bulk creation: Creating {quantity_to_create} items starting from {input_data.get("ja_id")}'
     )
 
-    all_items = service.get_all_items()
-    if all_items:
-        max_number = 0
-        for existing_item in all_items:
-            existing_id = existing_item.ja_id
-            if existing_id.startswith('JA') and len(existing_id) == 8:
-                try:
-                    max_number = max(max_number, int(existing_id[2:]))
-                except ValueError:
-                    continue
-        next_number = max_number + 1
-    else:
-        next_number = 1
+    next_number = service.get_max_ja_id_number() + 1
 
     starting_ja_id = input_data.get('ja_id', '').strip()
     if starting_ja_id and starting_ja_id.startswith('JA'):
@@ -314,20 +302,21 @@ def _process_item_creation(input_data):
     for i in range(quantity_to_create):
         ja_id = f"JA{next_number:06d}"
         next_number += 1
+        position = i + 1
 
         item_input = dict(input_data)
         item_input['ja_id'] = ja_id
 
-        bulk_context = {'index': i + 1, 'total': quantity_to_create}
+        bulk_context = {'index': position, 'total': quantity_to_create}
         success, created_ja_id, error_msg = _create_single_item(service, item_input, bulk_context)
 
         if success:
             created_ja_ids.append(created_ja_id)
         else:
             current_app.logger.error(
-                f'Failed to create item {i+1}/{quantity_to_create}: {ja_id} - {error_msg}'
+                f'Failed to create item {position}/{quantity_to_create}: {ja_id} - {error_msg}'
             )
-            errors.append({'index': i, 'ja_id': ja_id, 'message': error_msg or 'Unknown error'})
+            errors.append({'index': position, 'ja_id': ja_id, 'message': error_msg or 'Unknown error'})
 
     if len(created_ja_ids) == quantity_to_create:
         first_ja_id = created_ja_ids[0]
@@ -419,7 +408,9 @@ def _normalize_json_item_payload(json_body):
             if isinstance(value, str):
                 normalized[key] = value
                 continue
-            raise ValueError(f'Field "{key}" must be a boolean')
+            raise ValueError(
+                f'Field "{key}" must be a boolean, "on", or "off"'
+            )
         normalized[key] = str(value)
 
     return normalized
@@ -717,21 +708,8 @@ def duplicate_item(ja_id):
             # Reload the item to get fresh data
             source_item = service.get_item(ja_id)
 
-        # Get next available JA IDs
-        all_items = service.get_all_items()
-        if all_items:
-            max_number = 0
-            for existing_item in all_items:
-                existing_ja_id = existing_item.ja_id
-                if existing_ja_id.startswith('JA') and len(existing_ja_id) == 8:
-                    try:
-                        number = int(existing_ja_id[2:])
-                        max_number = max(max_number, number)
-                    except ValueError:
-                        continue
-            next_number = max_number + 1
-        else:
-            next_number = 1
+        # Get next available JA ID via a single SQL aggregate
+        next_number = service.get_max_ja_id_number() + 1
 
         created_ja_ids = []
         photos_copied_per_item = 0  # Track photo count for success message
@@ -1516,29 +1494,9 @@ def get_next_ja_id():
     """Get the next available JA ID"""
     try:
         service = _get_inventory_service()
-        
-        # Get all items to find the highest JA ID
-        all_items = service.get_all_items()
-        
-        if not all_items:
-            # No items exist, start with JA000001
-            next_id = "JA000001"
-        else:
-            # Find the highest numeric part
-            max_number = 0
-            for item in all_items:
-                ja_id = item.ja_id
-                if ja_id.startswith('JA') and len(ja_id) == 8:
-                    try:
-                        number = int(ja_id[2:])
-                        max_number = max(max_number, number)
-                    except ValueError:
-                        continue
-            
-            # Generate next ID
-            next_number = max_number + 1
-            next_id = f"JA{next_number:06d}"
-        
+        next_number = service.get_max_ja_id_number() + 1
+        next_id = f"JA{next_number:06d}"
+
         return jsonify({
             'success': True,
             'next_ja_id': next_id

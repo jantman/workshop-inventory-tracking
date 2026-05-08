@@ -1496,6 +1496,9 @@ class TestApiCreateItems:
         assert len(data['created_ja_ids']) == 2
         assert len(data['errors']) == 1
         assert data['errors'][0]['message'] == 'simulated failure'
+        # Bulk error indices are 1-based, matching the bulk_context.index
+        # passed to the audit logger.
+        assert data['errors'][0]['index'] == 2
 
     def test_complete_failure_returns_500(self, client, monkeypatch):
         def always_fail(service, form_data, bulk_context=None):

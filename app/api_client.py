@@ -90,10 +90,26 @@ class WorkshopInventoryClient:
             timeout=self.timeout,
         )
         body = self._safe_json(response)
+        # An HTTP error always means failure regardless of what the body
+        # claims; only successful (1xx/2xx/3xx) responses defer to the
+        # body's success field. 207 partial-success carries success=false
+        # in the body, so this still reports it correctly.
+        if response.status_code >= 400:
+            success = False
+        else:
+            success = bool(body.get('success', False))
+        errors = list(body.get('errors') or [])
+        if not success and not errors:
+            err_msg = body.get('error') or body.get('message') or f'HTTP {response.status_code}'
+            errors = [{
+                'index': 0,
+                'ja_id': item.get('ja_id') if isinstance(item, dict) else None,
+                'message': err_msg,
+            }]
         return CreateItemResult(
-            success=bool(body.get('success', False)),
+            success=success,
             created_ja_ids=list(body.get('created_ja_ids') or []),
-            errors=list(body.get('errors') or []),
+            errors=errors,
             http_status=response.status_code,
             raw=body,
         )
@@ -141,7 +157,12 @@ class WorkshopInventoryClient:
         )
         body = self._safe_json(response)
 
-        success = bool(body.get('success', False))
+        # HTTP error → never report success, regardless of body content.
+        if response.status_code >= 400:
+            success = False
+        else:
+            success = bool(body.get('success', False))
+
         errors: list[dict[str, Any]] = []
         if not success:
             err_msg = (

@@ -603,14 +603,36 @@ class InventoryService:
                 session.close()
     
     # Override parent class methods to use active-only logic
-    
+
     def get_item(self, ja_id: str) -> Optional[InventoryItem]:
         """Override to return active item only"""
         return self.get_active_item(ja_id)
-    
+
     def get_all_items(self, force_refresh: bool = False) -> List[InventoryItem]:
         """Override to return active items only"""
         return self.get_all_active_items()
+
+    def get_max_ja_id_number(self) -> int:
+        """Largest numeric suffix among active JA IDs of the canonical
+        ``JA`` + 6-digit form, or 0 if there are none.
+
+        Used to allocate the next sequential JA ID without loading every
+        item into memory. Scoped to active rows to match the historical
+        behavior of the per-route scanning loops it replaces.
+        """
+        from sqlalchemy import cast, Integer
+
+        session = self.Session()
+        try:
+            result = session.query(
+                func.max(cast(func.substr(InventoryItem.ja_id, 3), Integer))
+            ).filter(
+                InventoryItem.active == True,
+                InventoryItem.ja_id.like('JA______'),
+            ).scalar()
+            return int(result) if result is not None else 0
+        finally:
+            session.close()
     
     def get_valid_materials(self) -> List[str]:
         """

@@ -153,6 +153,21 @@ class TestCreateItem:
 
         assert session.post.call_args.args[0] == 'http://example.test/api/inventory/items'
 
+    def test_http_error_always_reports_failure_even_if_body_claims_success(self, client, session):
+        # If the server ever lies about success on an error status, the
+        # client must still report failure based on the HTTP code.
+        session.post.return_value = _mock_response(500, {
+            'success': True,
+            'created_ja_ids': [],
+            'errors': [],
+        })
+
+        result = client.create_item({'ja_id': 'JA000001'})
+
+        assert result.success is False
+        assert result.http_status == 500
+        assert len(result.errors) >= 1
+
     def test_custom_timeout_propagates(self, session):
         client = WorkshopInventoryClient('http://example.test', timeout=5.0, session=session)
         session.post.return_value = _mock_response(200, {
@@ -259,6 +274,18 @@ class TestUploadPhoto:
         assert len(result.errors) == 1
         assert result.errors[0]['ja_id'] == 'JA000001'
         assert 'No file provided' in result.errors[0]['message']
+
+    def test_http_error_always_reports_failure_even_if_body_claims_success(self, client, session):
+        session.post.return_value = _mock_response(500, {
+            'success': True,
+            'photo': {'id': 1},
+        })
+
+        result = client.upload_photo('JA000001', file_data=b'x', filename='x.jpg')
+
+        assert result.success is False
+        assert result.http_status == 500
+        assert len(result.errors) >= 1
 
     def test_server_error_500(self, client, session):
         session.post.return_value = _mock_response(500, {
