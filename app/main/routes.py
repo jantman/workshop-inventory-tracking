@@ -1,5 +1,6 @@
 from flask import render_template, current_app, jsonify, abort, request, flash, redirect, url_for, send_file
 from datetime import datetime
+from typing import Any
 from app.main import bp
 from app import csrf
 from app.mariadb_storage import MariaDBStorage
@@ -169,63 +170,79 @@ def _add_item_with_logging(service, item, operation='add_item', context=None):
         return (False, item.ja_id, error_msg)
 
 
-def _create_single_item(service, form_data, bulk_context=None):
-    """
-    Helper function to create a single item from form data and log the operation.
+def _create_single_item(
+    service,
+    form_data: dict,
+    bulk_context: dict | None = None,
+) -> tuple[bool, str | None, str | None, str | None]:
+    """Parse, persist, and log a single add-item submission.
 
-    Args:
-        service: InventoryService instance
-        form_data: Dictionary of form data for the item
-        bulk_context: Optional dict with 'index' and 'total' for bulk creation logging
-
-    Returns:
-        Tuple of (success: bool, ja_id: str, error_message: str or None)
+    Returns ``(success, ja_id, error_message, error_kind)`` where
+    ``error_kind`` distinguishes user-input parse failures (the string
+    ``'validation_error'``) from backend persistence failures (the
+    string ``'error'``). It is ``None`` on success. Callers map
+    ``error_kind`` onto an HTTP status — parse failures should surface
+    as 400, persistence failures as 500.
     """
     try:
         item = _parse_item_from_form(form_data)
+    except (ValueError, InvalidOperation) as e:
+        error_msg = str(e)
+        current_app.logger.error(f'Validation error parsing item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg, 'validation_error')
+    except Exception as e:
+        # Unexpected parse-stage failure (not user input). Treat as a
+        # backend error rather than user-facing validation.
+        error_msg = str(e)
+        current_app.logger.error(f'Unexpected error parsing item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg, 'error')
 
-        # Build context for logging
-        context = None
-        if bulk_context:
-            context = {
-                'bulk_creation': True,
-                'bulk_index': bulk_context['index'],
-                'bulk_total': bulk_context['total']
-            }
+    context = None
+    if bulk_context:
+        context = {
+            'bulk_creation': True,
+            'bulk_index': bulk_context['index'],
+            'bulk_total': bulk_context['total'],
+        }
 
-        return _add_item_with_logging(service, item, 'add_item', context)
-
+    try:
+        success, ja_id, error_msg = _add_item_with_logging(service, item, 'add_item', context)
     except Exception as e:
         error_msg = str(e)
-        current_app.logger.error(f'Error creating item: {error_msg}')
-        return (False, form_data.get('ja_id'), error_msg)
+        current_app.logger.error(f'Error persisting item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg, 'error')
+
+    return (success, ja_id, error_msg, None if success else 'error')
 
 
-def _process_item_creation(input_data):
-    """
-    Run validation, parsing, and persistence for an add-item submission,
-    including bulk creation when ``quantity_to_create > 1``. Audit logging
-    is performed inside.
+def _process_item_creation(input_data: dict) -> dict[str, Any]:
+    """Run validation, parsing, and persistence for an add-item
+    submission, including bulk creation when ``quantity_to_create > 1``.
+    Audit logging is performed inside.
 
     Args:
         input_data: form-style dict (string keys/values) such as
-            ``request.form.to_dict()``. JSON callers should normalize their
-            payload via ``_normalize_json_item_payload`` first.
+            ``request.form.to_dict()``. JSON callers should normalize
+            their payload via ``_normalize_json_item_payload`` first.
 
     Returns:
         dict with keys:
-            ``status`` - one of ``'ok'``, ``'partial'``, ``'validation_error'``, ``'error'``.
+            ``status`` - one of ``'ok'``, ``'partial'``,
+                ``'validation_error'``, ``'error'``.
             ``created_ja_ids`` - list of successfully-created JA IDs.
-            ``errors`` - list of ``{'index', 'ja_id', 'message'}`` dicts.
+            ``errors`` - list of ``{'index', 'ja_id', 'message'}``
+                dicts. Indices are 1-based, matching the natural
+                "Nth attempted item" phrasing.
             ``message`` - human-readable summary.
-            ``requested_quantity`` - quantity the caller asked for (0 if
-                validation failed before that field could be parsed).
+            ``requested_quantity`` - quantity the caller asked for
+                (0 if validation failed before that field could be
+                parsed).
     """
     log_audit_operation('add_item', 'input',
                         item_id=input_data.get('ja_id'),
                         form_data=input_data)
 
-    def _validation_error(msg, requested_quantity=0):
+    def _validation_error(msg: str, requested_quantity: int = 0) -> dict[str, Any]:
         log_audit_operation('add_item', 'error',
                             item_id=input_data.get('ja_id'),
                             error_details=msg)
@@ -266,7 +283,7 @@ def _process_item_creation(input_data):
     service = _get_inventory_service()
 
     if quantity_to_create == 1:
-        success, ja_id, error_msg = _create_single_item(service, input_data)
+        success, ja_id, error_msg, error_kind = _create_single_item(service, input_data)
         if success:
             return {
                 'status': 'ok',
@@ -275,8 +292,11 @@ def _process_item_creation(input_data):
                 'message': 'Item added successfully',
                 'requested_quantity': 1,
             }
+        # Parse-time failures (invalid dimensions, etc.) are user input
+        # validation errors and surface as 400, not 500.
+        status = 'validation_error' if error_kind == 'validation_error' else 'error'
         return {
-            'status': 'error',
+            'status': status,
             'created_ja_ids': [],
             'errors': [{'index': 0, 'ja_id': ja_id, 'message': error_msg or 'Failed to add item'}],
             'message': error_msg or 'Failed to add item',
@@ -296,8 +316,9 @@ def _process_item_creation(input_data):
         except ValueError:
             pass
 
-    created_ja_ids = []
-    errors = []
+    created_ja_ids: list[str] = []
+    errors: list[dict[str, Any]] = []
+    error_kinds: list[str] = []
 
     for i in range(quantity_to_create):
         ja_id = f"JA{next_number:06d}"
@@ -308,7 +329,9 @@ def _process_item_creation(input_data):
         item_input['ja_id'] = ja_id
 
         bulk_context = {'index': position, 'total': quantity_to_create}
-        success, created_ja_id, error_msg = _create_single_item(service, item_input, bulk_context)
+        success, created_ja_id, error_msg, error_kind = _create_single_item(
+            service, item_input, bulk_context
+        )
 
         if success:
             created_ja_ids.append(created_ja_id)
@@ -317,6 +340,7 @@ def _process_item_creation(input_data):
                 f'Failed to create item {position}/{quantity_to_create}: {ja_id} - {error_msg}'
             )
             errors.append({'index': position, 'ja_id': ja_id, 'message': error_msg or 'Unknown error'})
+            error_kinds.append(error_kind or 'error')
 
     if len(created_ja_ids) == quantity_to_create:
         first_ja_id = created_ja_ids[0]
@@ -356,8 +380,13 @@ def _process_item_creation(input_data):
                             'bulk_creation': True,
                             'bulk_total': quantity_to_create,
                         })
+    # If every failure was a parse-time validation problem, surface the
+    # whole request as a 400 rather than 500 — bulk requests share input
+    # data, so a parse failure on the first item is a request-level
+    # validation problem.
+    status = 'validation_error' if error_kinds and all(k == 'validation_error' for k in error_kinds) else 'error'
     return {
-        'status': 'error',
+        'status': status,
         'created_ja_ids': [],
         'errors': errors or [{'index': 0, 'ja_id': None, 'message': msg}],
         'message': msg,
@@ -379,7 +408,7 @@ _JSON_ITEM_FIELDS = frozenset({
 _JSON_BOOLEAN_FIELDS = frozenset({'active', 'precision'})
 
 
-def _normalize_json_item_payload(json_body):
+def _normalize_json_item_payload(json_body: Any) -> dict[str, str]:
     """Convert a JSON request body into the form-style dict that
     ``_process_item_creation`` and ``_parse_item_from_form`` expect.
 
@@ -425,7 +454,7 @@ def _normalize_json_item_payload(json_body):
 
 @bp.route('/api/inventory/items', methods=['POST'])
 @csrf.exempt
-def api_create_items():
+def api_create_items() -> Any:
     """JSON API to create one or more inventory items.
 
     Returns 200 on full success, 207 on partial success, 400 on

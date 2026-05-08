@@ -1488,9 +1488,9 @@ class TestApiCreateItems:
 
         def flaky_create(service, form_data, bulk_context=None):
             call_count['n'] += 1
-            # Fail the second item only
+            # Fail the second item only (persistence-style error)
             if call_count['n'] == 2:
-                return (False, form_data.get('ja_id'), 'simulated failure')
+                return (False, form_data.get('ja_id'), 'simulated failure', 'error')
             return real_create(service, form_data, bulk_context)
 
         monkeypatch.setattr('app.main.routes._create_single_item', flaky_create)
@@ -1509,7 +1509,7 @@ class TestApiCreateItems:
 
     def test_complete_failure_returns_500(self, client, monkeypatch):
         def always_fail(service, form_data, bulk_context=None):
-            return (False, form_data.get('ja_id'), 'simulated total failure')
+            return (False, form_data.get('ja_id'), 'simulated total failure', 'error')
 
         monkeypatch.setattr('app.main.routes._create_single_item', always_fail)
 
@@ -1521,9 +1521,25 @@ class TestApiCreateItems:
         assert data['created_ja_ids'] == []
         assert len(data['errors']) == 2
 
+    def test_bulk_all_validation_failures_returns_400(self, client, monkeypatch):
+        # If every bulk attempt fails with a validation_error (e.g. a
+        # parse-time problem in the shared input data), the request as
+        # a whole is a 400, not a 500.
+        def always_fail(service, form_data, bulk_context=None):
+            return (False, form_data.get('ja_id'), 'invalid length: abc', 'validation_error')
+
+        monkeypatch.setattr('app.main.routes._create_single_item', always_fail)
+
+        payload = self._minimum_payload(quantity_to_create=2)
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert data['created_ja_ids'] == []
+
     def test_single_item_persistence_failure_returns_500(self, client, monkeypatch):
         def always_fail(service, form_data, bulk_context=None):
-            return (False, form_data.get('ja_id'), 'boom')
+            return (False, form_data.get('ja_id'), 'boom', 'error')
 
         monkeypatch.setattr('app.main.routes._create_single_item', always_fail)
 
@@ -1532,6 +1548,17 @@ class TestApiCreateItems:
         data = response.get_json()
         assert data['success'] is False
         assert 'boom' in data['error']
+
+    def test_single_item_parse_failure_returns_400(self, client):
+        # Send an unparseable dimension value to trigger a real
+        # ValueError in _parse_item_from_form. The endpoint must report
+        # this as a validation error (400), not 500.
+        payload = self._minimum_payload(length='not-a-number')
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'length' in data['error'].lower()
         assert data['created_ja_ids'] == []
 
 
