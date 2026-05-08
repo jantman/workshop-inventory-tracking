@@ -211,10 +211,22 @@ Goal: ship `app/api_client.py` with a `WorkshopInventoryClient` class plus tests
 
 ### Milestone 2 — Standalone Python client and tests
 
-- [ ] Task 2.1 — Implement `app/api_client.py`.
-- [ ] Task 2.2 — Unit tests for the client (mocked HTTP).
-- [ ] Task 2.3 — E2E test exercising the client against the live
+- [x] Task 2.1 — Implement `app/api_client.py`.
+- [x] Task 2.2 — Unit tests for the client (mocked HTTP).
+- [x] Task 2.3 — E2E test exercising the client against the live
       test server.
-- [ ] Task 2.4 — Documentation update for the client (the user
-      manual already includes a usage example added in Task 1.6;
-      this task will fill in the development-testing-guide notes).
+- [x] Task 2.4 — Documentation update for the client. The user
+      manual got the usage example in Task 1.6; this task added the
+      "Standalone API Client" subsection to
+      `docs/development-testing-guide.md`.
+
+### End-of-feature verification
+
+- [x] Full unit suite passing (`nox -s tests` — 275 passed prior to
+      Milestone 2 client tests; 296 passed after).
+- [x] Full e2e suite passing (`nox -s e2e` — 282 passed, 1 skipped
+      before Milestone 2; verified again after Milestone 2 with
+      additional 5 e2e tests for the client passing in isolation).
+- [ ] Final full e2e run after the entire Milestone 2 — pending.
+- [ ] Human verification.
+- [ ] Move feature doc into `complete/` and open PR.
