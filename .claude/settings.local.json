@@ -52,7 +52,10 @@
       "Bash(PYENV_VERSION=3.12.9 nox -s tests -- tests/unit/test_routes.py::TestMultiRowJaIdHandling tests/unit/test_routes.py::TestEditPageActions tests/unit/test_routes.py::TestToggleItemStatusAPI -v)",
       "Bash(PYENV_VERSION=3.12.9 nox -s tests -- tests/unit/)",
       "mcp__chrome__take_snapshot",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(PYENV_VERSION=3.13.12 nox -s tests)",
+      "Bash(PYENV_VERSION=3.13.12 nox -s e2e -- tests/e2e/test_api_client.py --tb=short)",
+      "Bash(PYENV_VERSION=3.13.12 nox -s e2e)"
     ],
     "deny": [],
     "ask": []
