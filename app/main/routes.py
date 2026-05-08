@@ -376,6 +376,124 @@ def _process_item_creation(input_data):
     }
 
 
+_JSON_ITEM_FIELDS = frozenset({
+    'ja_id', 'item_type', 'shape', 'material',
+    'length', 'width', 'thickness', 'wall_thickness', 'weight',
+    'thread_series', 'thread_handedness', 'thread_size',
+    'location', 'sub_location',
+    'purchase_date', 'purchase_price', 'purchase_location',
+    'vendor', 'vendor_part_number', 'notes',
+    'active', 'precision',
+    'quantity_to_create',
+})
+
+_JSON_BOOLEAN_FIELDS = frozenset({'active', 'precision'})
+
+
+def _normalize_json_item_payload(json_body):
+    """Convert a JSON request body into the form-style dict that
+    ``_process_item_creation`` and ``_parse_item_from_form`` expect.
+
+    Native booleans for ``active`` / ``precision`` are mapped to the
+    HTML checkbox semantics used by the form parser ("on" when true,
+    omitted when false). Numbers are coerced to strings for dimension
+    parsing. Unknown top-level keys raise ``ValueError`` so typos
+    surface as a 400 instead of being silently ignored.
+    """
+    if not isinstance(json_body, dict):
+        raise ValueError('Request body must be a JSON object')
+
+    unknown = set(json_body.keys()) - _JSON_ITEM_FIELDS
+    if unknown:
+        raise ValueError(f'Unknown field(s): {", ".join(sorted(unknown))}')
+
+    normalized = {}
+    for key, value in json_body.items():
+        if value is None:
+            continue
+        if key in _JSON_BOOLEAN_FIELDS:
+            if isinstance(value, bool):
+                if value:
+                    normalized[key] = 'on'
+                continue
+            if isinstance(value, str):
+                normalized[key] = value
+                continue
+            raise ValueError(f'Field "{key}" must be a boolean')
+        normalized[key] = str(value)
+
+    return normalized
+
+
+@bp.route('/api/inventory/items', methods=['POST'])
+@csrf.exempt
+def api_create_items():
+    """JSON API to create one or more inventory items.
+
+    Returns 200 on full success, 207 on partial success, 400 on
+    request-level validation errors, and 500 on unexpected failures.
+    The response body always contains ``created_ja_ids`` and
+    ``errors`` lists so callers can rely on a consistent shape.
+    """
+    json_body = request.get_json(silent=True)
+    if json_body is None:
+        msg = 'Request body must be a JSON object'
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': None, 'message': msg}],
+            'error': msg,
+        }), 400
+
+    try:
+        normalized = _normalize_json_item_payload(json_body)
+    except ValueError as e:
+        msg = str(e)
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{
+                'index': 0,
+                'ja_id': json_body.get('ja_id') if isinstance(json_body, dict) else None,
+                'message': msg,
+            }],
+            'error': msg,
+        }), 400
+
+    try:
+        result = _process_item_creation(normalized)
+    except Exception as e:
+        current_app.logger.error(
+            f'Unexpected error in API item creation: {e}\n{traceback.format_exc()}'
+        )
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': normalized.get('ja_id'), 'message': str(e)}],
+            'error': f'Unexpected error: {str(e)}',
+        }), 500
+
+    status_to_code = {
+        'ok': 200,
+        'partial': 207,
+        'validation_error': 400,
+        'error': 500,
+    }
+    http_status = status_to_code[result['status']]
+
+    response = {
+        'success': result['status'] == 'ok',
+        'created_ja_ids': result['created_ja_ids'],
+        'errors': result['errors'],
+    }
+    if result.get('message'):
+        response['message'] = result['message']
+    if result['status'] != 'ok':
+        response['error'] = result['message']
+
+    return jsonify(response), http_status
+
+
 @bp.route('/inventory/add', methods=['GET', 'POST'])
 def inventory_add():
     """Add new inventory item"""

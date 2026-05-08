@@ -1269,3 +1269,318 @@ class TestDuplicateUpdatedFieldsBoolean:
             assert response.status_code == 200, f"value {falsey!r} failed"
             assert service.get_item("JA700001").precision is False, \
                 f"value {falsey!r} should coerce to False"
+
+
+class TestNormalizeJsonItemPayload:
+    """Tests for _normalize_json_item_payload."""
+
+    def test_booleans_map_to_checkbox_semantics(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        result = _normalize_json_item_payload({'active': True, 'precision': False})
+        assert result == {'active': 'on'}
+
+    def test_strings_pass_through_for_boolean_fields(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        result = _normalize_json_item_payload({'active': 'on', 'precision': 'off'})
+        assert result == {'active': 'on', 'precision': 'off'}
+
+    def test_non_bool_non_str_for_boolean_field_rejected(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        with pytest.raises(ValueError, match='active'):
+            _normalize_json_item_payload({'active': 1})
+
+    def test_numbers_coerced_to_strings(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        result = _normalize_json_item_payload({'length': 12.5, 'width': 3, 'quantity_to_create': 2})
+        assert result == {'length': '12.5', 'width': '3', 'quantity_to_create': '2'}
+
+    def test_none_values_dropped(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        result = _normalize_json_item_payload({'ja_id': 'JA000001', 'notes': None})
+        assert result == {'ja_id': 'JA000001'}
+
+    def test_unknown_field_rejected(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        with pytest.raises(ValueError, match='bogus'):
+            _normalize_json_item_payload({'ja_id': 'JA000001', 'bogus': 'x'})
+
+    def test_non_dict_rejected(self):
+        from app.main.routes import _normalize_json_item_payload
+
+        with pytest.raises(ValueError, match='JSON object'):
+            _normalize_json_item_payload(['not', 'a', 'dict'])
+
+
+@pytest.mark.unit
+class TestApiCreateItems:
+    """Tests for POST /api/inventory/items."""
+
+    @pytest.fixture
+    def app(self, test_storage):
+        from app import create_app
+        from tests.test_config import TestConfig
+        app = create_app(TestConfig, storage_backend=test_storage)
+        return app
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    @pytest.fixture(autouse=True)
+    def _no_material_taxonomy(self, monkeypatch):
+        """Default: skip material taxonomy validation (empty taxonomy)."""
+        monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: [])
+
+    def _minimum_payload(self, **overrides):
+        payload = {
+            'ja_id': 'JA000010',
+            'item_type': 'Bar',
+            'shape': 'Round',
+            'material': 'Steel',
+            'location': 'Shelf 1',
+            'length': '100',
+            'width': '25',
+        }
+        payload.update(overrides)
+        return payload
+
+    def _assert_item_persisted(self, app, ja_id):
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            assert _get_inventory_service().get_canonical_item(ja_id) is not None
+
+    def test_single_item_success(self, client, app):
+        response = client.post('/api/inventory/items', json=self._minimum_payload())
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        assert data['created_ja_ids'] == ['JA000010']
+        assert data['errors'] == []
+        self._assert_item_persisted(app, 'JA000010')
+
+    def test_bulk_success_assigns_sequential_ja_ids(self, client, app):
+        payload = self._minimum_payload(quantity_to_create=3)
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        assert data['created_ja_ids'] == ['JA000010', 'JA000011', 'JA000012']
+        for ja_id in data['created_ja_ids']:
+            self._assert_item_persisted(app, ja_id)
+
+    def test_missing_required_field_returns_400(self, client):
+        payload = self._minimum_payload()
+        del payload['location']
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'location' in data['error']
+        assert data['created_ja_ids'] == []
+        assert len(data['errors']) == 1
+
+    def test_invalid_material_returns_400(self, client, monkeypatch):
+        monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: ['Steel', 'Aluminum'])
+        payload = self._minimum_payload(material='Unobtainium')
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'Unobtainium' in data['error']
+
+    def test_quantity_out_of_range_low(self, client):
+        response = client.post('/api/inventory/items', json=self._minimum_payload(quantity_to_create=0))
+        assert response.status_code == 400
+        assert response.get_json()['success'] is False
+
+    def test_quantity_out_of_range_high(self, client):
+        response = client.post('/api/inventory/items', json=self._minimum_payload(quantity_to_create=101))
+        assert response.status_code == 400
+        assert response.get_json()['success'] is False
+
+    def test_non_dict_body_returns_400(self, client):
+        response = client.post('/api/inventory/items', json=['not', 'a', 'dict'])
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'JSON object' in data['error']
+
+    def test_missing_body_returns_400(self, client):
+        response = client.post('/api/inventory/items', data='', content_type='application/json')
+        assert response.status_code == 400
+        assert response.get_json()['success'] is False
+
+    def test_unknown_field_returns_400(self, client):
+        payload = self._minimum_payload()
+        payload['nonexistent_field'] = 'x'
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'nonexistent_field' in data['error']
+
+    def test_native_boolean_active_persisted(self, client, app):
+        payload = self._minimum_payload(active=True, precision=False)
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 200
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            item = _get_inventory_service().get_canonical_item('JA000010')
+        assert item.active is True
+        assert item.precision is False
+
+    def test_native_boolean_active_false_persisted(self, client, app):
+        payload = self._minimum_payload(active=False, precision=True)
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 200
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            item = _get_inventory_service().get_canonical_item('JA000010')
+        assert item.active is False
+        assert item.precision is True
+
+    def test_numeric_dimensions_in_json(self, client, app):
+        payload = self._minimum_payload()
+        # Replace string dimensions with numeric JSON values
+        payload['length'] = 12.5
+        payload['width'] = 3
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 200, response.get_json()
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            item = _get_inventory_service().get_canonical_item('JA000010')
+        assert float(item.length) == 12.5
+        assert float(item.width) == 3.0
+
+    def test_threading_fields_persisted(self, client, app):
+        payload = self._minimum_payload(
+            ja_id='JA000020',
+            item_type='Threaded Rod',
+            thread_series='UNC',
+            thread_handedness='RH',
+            thread_size='1/4-20',
+        )
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 200, response.get_json()
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            item = _get_inventory_service().get_canonical_item('JA000020')
+        assert item.thread_series == 'UNC'
+        assert item.thread_handedness == 'RH'
+        assert item.thread_size == '1/4-20'
+
+    def test_partial_failure_returns_207(self, client, app, monkeypatch):
+        from app.main.routes import _create_single_item as real_create
+
+        call_count = {'n': 0}
+
+        def flaky_create(service, form_data, bulk_context=None):
+            call_count['n'] += 1
+            # Fail the second item only
+            if call_count['n'] == 2:
+                return (False, form_data.get('ja_id'), 'simulated failure')
+            return real_create(service, form_data, bulk_context)
+
+        monkeypatch.setattr('app.main.routes._create_single_item', flaky_create)
+
+        payload = self._minimum_payload(quantity_to_create=3)
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 207
+        data = response.get_json()
+        assert data['success'] is False
+        assert len(data['created_ja_ids']) == 2
+        assert len(data['errors']) == 1
+        assert data['errors'][0]['message'] == 'simulated failure'
+
+    def test_complete_failure_returns_500(self, client, monkeypatch):
+        def always_fail(service, form_data, bulk_context=None):
+            return (False, form_data.get('ja_id'), 'simulated total failure')
+
+        monkeypatch.setattr('app.main.routes._create_single_item', always_fail)
+
+        payload = self._minimum_payload(quantity_to_create=2)
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data['success'] is False
+        assert data['created_ja_ids'] == []
+        assert len(data['errors']) == 2
+
+    def test_single_item_persistence_failure_returns_500(self, client, monkeypatch):
+        def always_fail(service, form_data, bulk_context=None):
+            return (False, form_data.get('ja_id'), 'boom')
+
+        monkeypatch.setattr('app.main.routes._create_single_item', always_fail)
+
+        response = client.post('/api/inventory/items', json=self._minimum_payload())
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'boom' in data['error']
+        assert data['created_ja_ids'] == []
+
+
+@pytest.mark.unit
+class TestFormAddItemRouteAfterRefactor:
+    """Regression tests confirming the form route still behaves as before."""
+
+    @pytest.fixture
+    def app(self, test_storage):
+        from app import create_app
+        from tests.test_config import TestConfig
+        app = create_app(TestConfig, storage_backend=test_storage)
+        return app
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    @pytest.fixture(autouse=True)
+    def _no_material_taxonomy(self, monkeypatch):
+        monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: [])
+
+    def _minimum_form(self, **overrides):
+        form = {
+            'ja_id': 'JA000050',
+            'item_type': 'Bar',
+            'shape': 'Round',
+            'material': 'Steel',
+            'location': 'Shelf 1',
+            'length': '100',
+            'width': '25',
+        }
+        form.update(overrides)
+        return form
+
+    def test_single_item_form_returns_redirect(self, client):
+        response = client.post('/inventory/add', data=self._minimum_form())
+        assert response.status_code == 302
+
+    def test_single_item_continue_redirects_back_to_add(self, client):
+        form = self._minimum_form(submit_type='continue')
+        response = client.post('/inventory/add', data=form)
+        assert response.status_code == 302
+        assert '/inventory/add' in response.headers['Location']
+
+    def test_form_validation_error_returns_json_400(self, client):
+        form = self._minimum_form()
+        del form['location']
+        response = client.post('/inventory/add', data=form)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'location' in data['error']
+
+    def test_bulk_form_returns_json_200(self, client):
+        form = self._minimum_form(quantity_to_create='2')
+        response = client.post('/inventory/add', data=form)
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        assert data['count'] == 2
+        assert len(data['ja_ids']) == 2
