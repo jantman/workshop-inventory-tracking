@@ -939,14 +939,17 @@ layer if exposed beyond the local host.
 Create one or more inventory items.
 
 Request body: a JSON object. Unknown top-level keys are rejected with
-a 400 so typos surface immediately. The full set of accepted fields
-follows.
+a 400 so typos surface immediately. **The server allocates JA IDs
+itself — do not send a `ja_id` field. Sending one is treated as an
+unknown field and the request is rejected with 400.** The allocated
+JA ID(s) come back in the response's `created_ja_ids` list.
+
+The full set of accepted fields follows.
 
 #### Required fields
 
 | Field       | Type   | Description |
 |-------------|--------|-------------|
-| `ja_id`     | string | Item identifier in canonical form `JA` followed by exactly six digits (e.g. `"JA000123"`). Lowercase is auto-uppercased. In bulk creation this is the *starting* ID; sequential IDs are allocated automatically starting at the maximum of this value and the next free ID. |
 | `item_type` | string | One of: `"Bar"`, `"Plate"`, `"Sheet"`, `"Tube"`, `"Threaded Rod"`, `"Angle"`, `"Channel"`. |
 | `shape`     | string | One of: `"Rectangular"`, `"Round"`, `"Square"`, `"Hex"`. |
 | `material`  | string | Material name. Validated against the materials taxonomy when one is configured; pass a name or alias from the taxonomy (e.g. `"Steel"`, `"4140"`, `"6061-T6"`, `"316"`). When the taxonomy is empty the field is accepted as-is. |
@@ -996,7 +999,7 @@ name in the error message.
 
 | Field                | Type    | Description |
 |----------------------|---------|-------------|
-| `quantity_to_create` | integer | Number of items to create with sequential JA IDs (1-100). Defaults to 1. When greater than 1 the supplied `ja_id` is the lowest assignable ID; the server picks the next free ID at or above that and allocates the rest in sequence. The provided field values are applied to every created item. |
+| `quantity_to_create` | integer | Number of items to create with sequential JA IDs (1-100). Defaults to 1. The server allocates the next free JA ID and assigns it to the first item, then increments for each subsequent item. The provided field values are applied to every created item. |
 
 #### Response
 
@@ -1033,9 +1036,10 @@ request tried to create." For single-item requests it is `0`.
 
 #### Example: minimal single-item request
 
+Request:
+
 ```json
 {
-  "ja_id": "JA000123",
   "item_type": "Bar",
   "shape": "Round",
   "material": "Steel",
@@ -1044,11 +1048,21 @@ request tried to create." For single-item requests it is `0`.
 }
 ```
 
+Response (the JA ID was allocated by the server):
+
+```json
+{
+  "success": true,
+  "created_ja_ids": ["JA000123"],
+  "errors": [],
+  "message": "Item added successfully"
+}
+```
+
 #### Example: fully-populated bulk request
 
 ```json
 {
-  "ja_id": "JA000200",
   "item_type": "Threaded Rod",
   "shape": "Round",
   "material": "316",
@@ -1071,6 +1085,10 @@ request tried to create." For single-item requests it is `0`.
 }
 ```
 
+The five JA IDs the server allocates are returned in
+`created_ja_ids` (e.g. `["JA000200", "JA000201", "JA000202",
+"JA000203", "JA000204"]`).
+
 ### `POST /api/items/<ja_id>/photos`
 
 Upload a photo for an existing item. Send a `multipart/form-data`
@@ -1092,7 +1110,6 @@ from app.api_client import WorkshopInventoryClient
 client = WorkshopInventoryClient("http://localhost:5000")
 
 result = client.create_item({
-    "ja_id": "JA000123",
     "item_type": "Bar",
     "shape": "Round",
     "material": "Steel",
@@ -1100,9 +1117,11 @@ result = client.create_item({
     "length": 12.5,
     "active": True,
 })
+# The server allocates JA IDs; read them back from the result.
 print(result.created_ja_ids, result.errors)
 
-photo = client.upload_photo("JA000123", file_path="part.jpg")
+ja_id = result.created_ja_ids[0]
+photo = client.upload_photo(ja_id, file_path="part.jpg")
 ```
 
 `create_item` and `upload_photo` return frozen dataclasses

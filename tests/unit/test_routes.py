@@ -1308,8 +1308,8 @@ class TestNormalizeJsonItemPayload:
     def test_none_values_dropped(self):
         from app.main.routes import _normalize_json_item_payload
 
-        result = _normalize_json_item_payload({'ja_id': 'JA000001', 'notes': None})
-        assert result == {'ja_id': 'JA000001'}
+        result = _normalize_json_item_payload({'item_type': 'Bar', 'notes': None})
+        assert result == {'item_type': 'Bar'}
 
     def test_unknown_field_rejected(self):
         from app.main.routes import _normalize_json_item_payload
@@ -1345,8 +1345,10 @@ class TestApiCreateItems:
         monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: [])
 
     def _minimum_payload(self, **overrides):
+        # Note: the JSON API does NOT accept ja_id from callers — the
+        # server allocates. So this fixture intentionally does not
+        # include it.
         payload = {
-            'ja_id': 'JA000010',
             'item_type': 'Bar',
             'shape': 'Round',
             'material': 'Steel',
@@ -1362,14 +1364,26 @@ class TestApiCreateItems:
         with app.app_context():
             assert _get_inventory_service().get_canonical_item(ja_id) is not None
 
-    def test_single_item_success(self, client, app):
+    def test_single_item_success_server_allocates_ja_id(self, client, app):
         response = client.post('/api/inventory/items', json=self._minimum_payload())
         assert response.status_code == 200
         data = response.get_json()
         assert data['success'] is True
-        assert data['created_ja_ids'] == ['JA000010']
+        # Server allocated the next free JA ID (JA000001 in an empty DB).
+        assert data['created_ja_ids'] == ['JA000001']
         assert data['errors'] == []
-        self._assert_item_persisted(app, 'JA000010')
+        self._assert_item_persisted(app, 'JA000001')
+
+    def test_ja_id_in_request_body_is_rejected(self, client):
+        # The server is the sole allocator of JA IDs. Sending one from
+        # JSON is treated as an unknown field (no-such-key) so callers
+        # get an immediate 400 rather than a silent override.
+        payload = self._minimum_payload()
+        payload['ja_id'] = 'JA000999'
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'ja_id' in data['error']
 
     def test_bulk_success_assigns_sequential_ja_ids(self, client, app):
         payload = self._minimum_payload(quantity_to_create=3)
@@ -1377,9 +1391,19 @@ class TestApiCreateItems:
         assert response.status_code == 200
         data = response.get_json()
         assert data['success'] is True
-        assert data['created_ja_ids'] == ['JA000010', 'JA000011', 'JA000012']
+        assert data['created_ja_ids'] == ['JA000001', 'JA000002', 'JA000003']
         for ja_id in data['created_ja_ids']:
             self._assert_item_persisted(app, ja_id)
+
+    def test_bulk_continues_from_existing_max(self, client, app):
+        # First batch creates 1-2 active items; second batch must
+        # continue at 3. (get_max_ja_id_number only considers active
+        # rows, so the items must be created active for the max to
+        # advance.)
+        client.post('/api/inventory/items', json=self._minimum_payload(quantity_to_create=2, active=True))
+        response = client.post('/api/inventory/items', json=self._minimum_payload(quantity_to_create=2, active=True))
+        assert response.status_code == 200
+        assert response.get_json()['created_ja_ids'] == ['JA000003', 'JA000004']
 
     def test_missing_required_field_returns_400(self, client):
         payload = self._minimum_payload()
@@ -1435,9 +1459,10 @@ class TestApiCreateItems:
         payload = self._minimum_payload(active=True, precision=False)
         response = client.post('/api/inventory/items', json=payload)
         assert response.status_code == 200
+        ja_id = response.get_json()['created_ja_ids'][0]
         from app.main.routes import _get_inventory_service
         with app.app_context():
-            item = _get_inventory_service().get_canonical_item('JA000010')
+            item = _get_inventory_service().get_canonical_item(ja_id)
         assert item.active is True
         assert item.precision is False
 
@@ -1445,9 +1470,10 @@ class TestApiCreateItems:
         payload = self._minimum_payload(active=False, precision=True)
         response = client.post('/api/inventory/items', json=payload)
         assert response.status_code == 200
+        ja_id = response.get_json()['created_ja_ids'][0]
         from app.main.routes import _get_inventory_service
         with app.app_context():
-            item = _get_inventory_service().get_canonical_item('JA000010')
+            item = _get_inventory_service().get_canonical_item(ja_id)
         assert item.active is False
         assert item.precision is True
 
@@ -1458,15 +1484,15 @@ class TestApiCreateItems:
         payload['width'] = 3
         response = client.post('/api/inventory/items', json=payload)
         assert response.status_code == 200, response.get_json()
+        ja_id = response.get_json()['created_ja_ids'][0]
         from app.main.routes import _get_inventory_service
         with app.app_context():
-            item = _get_inventory_service().get_canonical_item('JA000010')
+            item = _get_inventory_service().get_canonical_item(ja_id)
         assert float(item.length) == 12.5
         assert float(item.width) == 3.0
 
     def test_threading_fields_persisted(self, client, app):
         payload = self._minimum_payload(
-            ja_id='JA000020',
             item_type='Threaded Rod',
             thread_series='UNC',
             thread_handedness='RH',
@@ -1474,9 +1500,10 @@ class TestApiCreateItems:
         )
         response = client.post('/api/inventory/items', json=payload)
         assert response.status_code == 200, response.get_json()
+        ja_id = response.get_json()['created_ja_ids'][0]
         from app.main.routes import _get_inventory_service
         with app.app_context():
-            item = _get_inventory_service().get_canonical_item('JA000020')
+            item = _get_inventory_service().get_canonical_item(ja_id)
         assert item.thread_series == 'UNC'
         assert item.thread_handedness == 'RH'
         assert item.thread_size == '1/4-20'

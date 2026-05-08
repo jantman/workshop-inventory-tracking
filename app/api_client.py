@@ -83,12 +83,14 @@ class WorkshopInventoryClient:
         ``/api/inventory/items``. Unknown top-level keys are rejected
         by the server with a 400.
 
+        **JA IDs are allocated by the server.** Do not pass a ``ja_id``
+        field; doing so is treated as an unknown field and returns 400.
+        Read the allocated ID(s) back from
+        ``result.created_ja_ids``. For bulk creation, IDs are assigned
+        sequentially starting at the next free ID.
+
         **Required fields**
 
-        - ``ja_id`` (str): canonical form ``JA`` + 6 digits, e.g.
-          ``"JA000123"``. Lowercase is auto-uppercased. In bulk
-          creation this is the *starting* JA ID; the server picks the
-          next free ID at or above this value.
         - ``item_type`` (str): one of ``"Bar"``, ``"Plate"``,
           ``"Sheet"``, ``"Tube"``, ``"Threaded Rod"``, ``"Angle"``,
           ``"Channel"``.
@@ -138,8 +140,8 @@ class WorkshopInventoryClient:
 
         - ``quantity_to_create`` (int, 1-100, default 1): when greater
           than 1, the server allocates that many items with sequential
-          JA IDs starting at the next free ID at or above ``ja_id``.
-          The other fields are applied to every created item.
+          JA IDs starting at the next free ID. The other fields are
+          applied to every created item.
 
         **Returned ``CreateItemResult``**
 

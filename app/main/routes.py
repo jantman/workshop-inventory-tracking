@@ -395,7 +395,7 @@ def _process_item_creation(input_data: dict) -> dict[str, Any]:
 
 
 _JSON_ITEM_FIELDS = frozenset({
-    'ja_id', 'item_type', 'shape', 'material',
+    'item_type', 'shape', 'material',
     'length', 'width', 'thickness', 'wall_thickness', 'weight',
     'thread_series', 'thread_handedness', 'thread_size',
     'location', 'sub_location',
@@ -404,6 +404,10 @@ _JSON_ITEM_FIELDS = frozenset({
     'active', 'precision',
     'quantity_to_create',
 })
+# Note: 'ja_id' is intentionally NOT accepted from JSON callers. The
+# server always allocates the next free JA ID server-side, removing
+# the round-trip a client would otherwise have to make to learn the
+# next-free ID and the race that would imply.
 
 _JSON_BOOLEAN_FIELDS = frozenset({'active', 'precision'})
 
@@ -479,13 +483,31 @@ def api_create_items() -> Any:
         return jsonify({
             'success': False,
             'created_ja_ids': [],
-            'errors': [{
-                'index': 0,
-                'ja_id': json_body.get('ja_id') if isinstance(json_body, dict) else None,
-                'message': msg,
-            }],
+            'errors': [{'index': 0, 'ja_id': None, 'message': msg}],
             'error': msg,
         }), 400
+
+    # The server always allocates JA IDs for JSON callers. The shared
+    # helper expects ja_id to be present in input_data (it's required
+    # by the form path and used by _parse_item_from_form), so we
+    # allocate the next free ID and inject it before delegating. For
+    # bulk requests, the helper's own loop allocates each per-item ID;
+    # the value we set here becomes the floor for that loop, which
+    # equals what the loop would have computed itself.
+    try:
+        service = _get_inventory_service()
+        next_number = service.get_max_ja_id_number() + 1
+        normalized['ja_id'] = f'JA{next_number:06d}'
+    except Exception as e:
+        current_app.logger.error(
+            f'Failed to allocate JA ID for API request: {e}\n{traceback.format_exc()}'
+        )
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': None, 'message': str(e)}],
+            'error': f'Failed to allocate JA ID: {str(e)}',
+        }), 500
 
     try:
         result = _process_item_creation(normalized)
