@@ -1,5 +1,6 @@
 from flask import render_template, current_app, jsonify, abort, request, flash, redirect, url_for, send_file
 from datetime import datetime
+from typing import Any
 from app.main import bp
 from app import csrf
 from app.mariadb_storage import MariaDBStorage
@@ -169,36 +170,355 @@ def _add_item_with_logging(service, item, operation='add_item', context=None):
         return (False, item.ja_id, error_msg)
 
 
-def _create_single_item(service, form_data, bulk_context=None):
-    """
-    Helper function to create a single item from form data and log the operation.
+def _create_single_item(
+    service,
+    form_data: dict,
+    bulk_context: dict | None = None,
+) -> tuple[bool, str | None, str | None, str | None]:
+    """Parse, persist, and log a single add-item submission.
 
-    Args:
-        service: InventoryService instance
-        form_data: Dictionary of form data for the item
-        bulk_context: Optional dict with 'index' and 'total' for bulk creation logging
-
-    Returns:
-        Tuple of (success: bool, ja_id: str, error_message: str or None)
+    Returns ``(success, ja_id, error_message, error_kind)`` where
+    ``error_kind`` distinguishes user-input parse failures (the string
+    ``'validation_error'``) from backend persistence failures (the
+    string ``'error'``). It is ``None`` on success. Callers map
+    ``error_kind`` onto an HTTP status — parse failures should surface
+    as 400, persistence failures as 500.
     """
     try:
         item = _parse_item_from_form(form_data)
+    except (ValueError, InvalidOperation) as e:
+        error_msg = str(e)
+        current_app.logger.error(f'Validation error parsing item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg, 'validation_error')
+    except Exception as e:
+        # Unexpected parse-stage failure (not user input). Treat as a
+        # backend error rather than user-facing validation.
+        error_msg = str(e)
+        current_app.logger.error(f'Unexpected error parsing item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg, 'error')
 
-        # Build context for logging
-        context = None
-        if bulk_context:
-            context = {
-                'bulk_creation': True,
-                'bulk_index': bulk_context['index'],
-                'bulk_total': bulk_context['total']
-            }
+    context = None
+    if bulk_context:
+        context = {
+            'bulk_creation': True,
+            'bulk_index': bulk_context['index'],
+            'bulk_total': bulk_context['total'],
+        }
 
-        return _add_item_with_logging(service, item, 'add_item', context)
-
+    try:
+        success, ja_id, error_msg = _add_item_with_logging(service, item, 'add_item', context)
     except Exception as e:
         error_msg = str(e)
-        current_app.logger.error(f'Error creating item: {error_msg}')
-        return (False, form_data.get('ja_id'), error_msg)
+        current_app.logger.error(f'Error persisting item: {error_msg}')
+        return (False, form_data.get('ja_id'), error_msg, 'error')
+
+    return (success, ja_id, error_msg, None if success else 'error')
+
+
+def _process_item_creation(input_data: dict) -> dict[str, Any]:
+    """Run validation, parsing, and persistence for an add-item
+    submission, including bulk creation when ``quantity_to_create > 1``.
+    Audit logging is performed inside.
+
+    Args:
+        input_data: form-style dict (string keys/values) such as
+            ``request.form.to_dict()``. JSON callers should normalize
+            their payload via ``_normalize_json_item_payload`` first.
+
+    Returns:
+        dict with keys:
+            ``status`` - one of ``'ok'``, ``'partial'``,
+                ``'validation_error'``, ``'error'``.
+            ``created_ja_ids`` - list of successfully-created JA IDs.
+            ``errors`` - list of ``{'index', 'ja_id', 'message'}``
+                dicts. Indices are 1-based, matching the natural
+                "Nth attempted item" phrasing.
+            ``message`` - human-readable summary.
+            ``requested_quantity`` - quantity the caller asked for
+                (0 if validation failed before that field could be
+                parsed).
+    """
+    log_audit_operation('add_item', 'input',
+                        item_id=input_data.get('ja_id'),
+                        form_data=input_data)
+
+    def _validation_error(msg: str, requested_quantity: int = 0) -> dict[str, Any]:
+        log_audit_operation('add_item', 'error',
+                            item_id=input_data.get('ja_id'),
+                            error_details=msg)
+        return {
+            'status': 'validation_error',
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': input_data.get('ja_id'), 'message': msg}],
+            'message': msg,
+            'requested_quantity': requested_quantity,
+        }
+
+    required_fields = ['ja_id', 'item_type', 'shape', 'material', 'location']
+    missing_fields = [field for field in required_fields if not input_data.get(field)]
+    if missing_fields:
+        return _validation_error(f'Missing required fields: {", ".join(missing_fields)}')
+
+    material = input_data.get('material', '').strip()
+    valid_materials = _get_valid_materials()
+    valid_materials_lower = [m.lower() for m in (valid_materials or []) if m]
+    if material and valid_materials_lower and material.lower() not in valid_materials_lower:
+        return _validation_error(
+            f'Material "{material}" is not valid. Please select from materials taxonomy.'
+        )
+
+    try:
+        quantity_to_create = int(input_data.get('quantity_to_create', '1'))
+    except (TypeError, ValueError):
+        return _validation_error('Quantity to create must be a valid integer')
+
+    current_app.logger.info(f'Add item: quantity_to_create={quantity_to_create} from input_data')
+
+    if quantity_to_create < 1 or quantity_to_create > 100:
+        return _validation_error(
+            'Quantity to create must be between 1 and 100',
+            requested_quantity=quantity_to_create,
+        )
+
+    service = _get_inventory_service()
+
+    if quantity_to_create == 1:
+        success, ja_id, error_msg, error_kind = _create_single_item(service, input_data)
+        if success:
+            return {
+                'status': 'ok',
+                'created_ja_ids': [ja_id],
+                'errors': [],
+                'message': 'Item added successfully',
+                'requested_quantity': 1,
+            }
+        # Parse-time failures (invalid dimensions, etc.) are user input
+        # validation errors and surface as 400, not 500.
+        status = 'validation_error' if error_kind == 'validation_error' else 'error'
+        return {
+            'status': status,
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': ja_id, 'message': error_msg or 'Failed to add item'}],
+            'message': error_msg or 'Failed to add item',
+            'requested_quantity': 1,
+        }
+
+    current_app.logger.info(
+        f'Bulk creation: Creating {quantity_to_create} items starting from {input_data.get("ja_id")}'
+    )
+
+    next_number = service.get_max_ja_id_number() + 1
+
+    starting_ja_id = input_data.get('ja_id', '').strip()
+    if starting_ja_id and starting_ja_id.startswith('JA'):
+        try:
+            next_number = max(next_number, int(starting_ja_id[2:]))
+        except ValueError:
+            pass
+
+    created_ja_ids: list[str] = []
+    errors: list[dict[str, Any]] = []
+    error_kinds: list[str] = []
+
+    for i in range(quantity_to_create):
+        ja_id = f"JA{next_number:06d}"
+        next_number += 1
+        position = i + 1
+
+        item_input = dict(input_data)
+        item_input['ja_id'] = ja_id
+
+        bulk_context = {'index': position, 'total': quantity_to_create}
+        success, created_ja_id, error_msg, error_kind = _create_single_item(
+            service, item_input, bulk_context
+        )
+
+        if success:
+            created_ja_ids.append(created_ja_id)
+        else:
+            current_app.logger.error(
+                f'Failed to create item {position}/{quantity_to_create}: {ja_id} - {error_msg}'
+            )
+            errors.append({'index': position, 'ja_id': ja_id, 'message': error_msg or 'Unknown error'})
+            error_kinds.append(error_kind or 'error')
+
+    if len(created_ja_ids) == quantity_to_create:
+        first_ja_id = created_ja_ids[0]
+        last_ja_id = created_ja_ids[-1]
+        current_app.logger.info(
+            f'Bulk creation complete: Created {len(created_ja_ids)} items ({first_ja_id} - {last_ja_id})'
+        )
+        return {
+            'status': 'ok',
+            'created_ja_ids': created_ja_ids,
+            'errors': [],
+            'message': f'Successfully created {len(created_ja_ids)} items: {first_ja_id} - {last_ja_id}',
+            'requested_quantity': quantity_to_create,
+        }
+
+    if created_ja_ids:
+        msg = f'Created {len(created_ja_ids)} of {quantity_to_create} items. Some items failed.'
+        log_audit_operation('add_item', 'error',
+                            error_details=msg,
+                            form_data={
+                                'bulk_creation': True,
+                                'bulk_total': quantity_to_create,
+                                'bulk_succeeded': len(created_ja_ids),
+                            })
+        return {
+            'status': 'partial',
+            'created_ja_ids': created_ja_ids,
+            'errors': errors,
+            'message': msg,
+            'requested_quantity': quantity_to_create,
+        }
+
+    msg = 'Failed to create any items'
+    log_audit_operation('add_item', 'error',
+                        error_details=msg,
+                        form_data={
+                            'bulk_creation': True,
+                            'bulk_total': quantity_to_create,
+                        })
+    # If every failure was a parse-time validation problem, surface the
+    # whole request as a 400 rather than 500 — bulk requests share input
+    # data, so a parse failure on the first item is a request-level
+    # validation problem.
+    status = 'validation_error' if error_kinds and all(k == 'validation_error' for k in error_kinds) else 'error'
+    return {
+        'status': status,
+        'created_ja_ids': [],
+        'errors': errors or [{'index': 0, 'ja_id': None, 'message': msg}],
+        'message': msg,
+        'requested_quantity': quantity_to_create,
+    }
+
+
+_JSON_ITEM_FIELDS = frozenset({
+    'ja_id', 'item_type', 'shape', 'material',
+    'length', 'width', 'thickness', 'wall_thickness', 'weight',
+    'thread_series', 'thread_handedness', 'thread_size',
+    'location', 'sub_location',
+    'purchase_date', 'purchase_price', 'purchase_location',
+    'vendor', 'vendor_part_number', 'notes',
+    'active', 'precision',
+    'quantity_to_create',
+})
+
+_JSON_BOOLEAN_FIELDS = frozenset({'active', 'precision'})
+
+
+def _normalize_json_item_payload(json_body: Any) -> dict[str, str]:
+    """Convert a JSON request body into the form-style dict that
+    ``_process_item_creation`` and ``_parse_item_from_form`` expect.
+
+    Native booleans for ``active`` / ``precision`` are mapped to the
+    HTML checkbox semantics used by the form parser ("on" when true,
+    omitted when false). Numbers are coerced to strings for dimension
+    parsing. Unknown top-level keys raise ``ValueError`` so typos
+    surface as a 400 instead of being silently ignored. String inputs
+    on boolean fields are rejected outright: the form parser only
+    treats the literal ``"on"`` as truthy, so accepting unrestricted
+    strings here would silently misinterpret values like ``"true"``
+    or ``"yes"`` as false. JSON callers must send native booleans.
+    """
+    if not isinstance(json_body, dict):
+        raise ValueError('Request body must be a JSON object')
+
+    unknown = set(json_body.keys()) - _JSON_ITEM_FIELDS
+    if unknown:
+        raise ValueError(f'Unknown field(s): {", ".join(sorted(unknown))}')
+
+    normalized = {}
+    for key, value in json_body.items():
+        if value is None:
+            continue
+        if key in _JSON_BOOLEAN_FIELDS:
+            # Reject anything but a JSON boolean. Strings like "true" or
+            # "yes" would otherwise be silently interpreted as false by
+            # the form parser, which only recognizes the literal "on".
+            # ``isinstance(value, bool)`` correctly excludes plain ints
+            # (since 1/0 are not bool instances even though bool is an
+            # int subclass).
+            if isinstance(value, bool):
+                if value:
+                    normalized[key] = 'on'
+                continue
+            raise ValueError(
+                f'Field "{key}" must be a JSON boolean (true or false)'
+            )
+        normalized[key] = str(value)
+
+    return normalized
+
+
+@bp.route('/api/inventory/items', methods=['POST'])
+@csrf.exempt
+def api_create_items() -> Any:
+    """JSON API to create one or more inventory items.
+
+    Returns 200 on full success, 207 on partial success, 400 on
+    request-level validation errors, and 500 on unexpected failures.
+    The response body always contains ``created_ja_ids`` and
+    ``errors`` lists so callers can rely on a consistent shape.
+    """
+    json_body = request.get_json(silent=True)
+    if json_body is None:
+        msg = 'Request body must be a JSON object'
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': None, 'message': msg}],
+            'error': msg,
+        }), 400
+
+    try:
+        normalized = _normalize_json_item_payload(json_body)
+    except ValueError as e:
+        msg = str(e)
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{
+                'index': 0,
+                'ja_id': json_body.get('ja_id') if isinstance(json_body, dict) else None,
+                'message': msg,
+            }],
+            'error': msg,
+        }), 400
+
+    try:
+        result = _process_item_creation(normalized)
+    except Exception as e:
+        current_app.logger.error(
+            f'Unexpected error in API item creation: {e}\n{traceback.format_exc()}'
+        )
+        return jsonify({
+            'success': False,
+            'created_ja_ids': [],
+            'errors': [{'index': 0, 'ja_id': normalized.get('ja_id'), 'message': str(e)}],
+            'error': f'Unexpected error: {str(e)}',
+        }), 500
+
+    status_to_code = {
+        'ok': 200,
+        'partial': 207,
+        'validation_error': 400,
+        'error': 500,
+    }
+    http_status = status_to_code[result['status']]
+
+    response = {
+        'success': result['status'] == 'ok',
+        'created_ja_ids': result['created_ja_ids'],
+        'errors': result['errors'],
+    }
+    if result.get('message'):
+        response['message'] = result['message']
+    if result['status'] != 'ok':
+        response['error'] = result['message']
+
+    return jsonify(response), http_status
 
 
 @bp.route('/inventory/add', methods=['GET', 'POST'])
@@ -216,180 +536,55 @@ def inventory_add():
     
     # Handle POST request for adding item
     try:
-        # Get form data
         form_data = request.form.to_dict()
 
-        # AUDIT: Log input phase with complete form data
-        log_audit_operation('add_item', 'input',
-                          item_id=form_data.get('ja_id'),
-                          form_data=form_data)
-        
-        # Validate required fields
-        required_fields = ['ja_id', 'item_type', 'shape', 'material', 'location']
-        missing_fields = [field for field in required_fields if not form_data.get(field)]
-        
-        if missing_fields:
-            error_msg = f'Missing required fields: {", ".join(missing_fields)}'
-            # AUDIT: Log validation error
-            log_audit_operation('add_item', 'error', 
-                              item_id=form_data.get('ja_id'), 
-                              error_details=error_msg)
+        result = _process_item_creation(form_data)
+
+        if result['status'] == 'validation_error':
             return jsonify({
                 'success': False,
-                'error': error_msg
-            }), 400
-        
-        # Validate material is in taxonomy
-        material = form_data.get('material', '').strip()
-        valid_materials = _get_valid_materials()
-        # Defensive: handle case where valid_materials might be None or contain None values
-        valid_materials_lower = [m.lower() for m in (valid_materials or []) if m]
-
-        if material and valid_materials_lower and material.lower() not in valid_materials_lower:
-            error_msg = f'Material "{material}" is not valid. Please select from materials taxonomy.'
-            # AUDIT: Log validation error
-            log_audit_operation('add_item', 'error', 
-                              item_id=form_data.get('ja_id'), 
-                              error_details=error_msg)
-            return jsonify({
-                'success': False,
-                'error': error_msg
-            }), 400
-        
-        # Check for bulk creation (quantity_to_create > 1)
-        quantity_to_create = int(form_data.get('quantity_to_create', '1'))
-        current_app.logger.info(f'Add item: quantity_to_create={quantity_to_create} from form_data')
-
-        # Validate quantity range
-        if quantity_to_create < 1 or quantity_to_create > 100:
-            error_msg = 'Quantity to create must be between 1 and 100'
-            log_audit_operation('add_item', 'error',
-                              item_id=form_data.get('ja_id'),
-                              error_details=error_msg)
-            return jsonify({
-                'success': False,
-                'error': error_msg
+                'error': result['message'],
             }), 400
 
-        service = _get_inventory_service()
-        storage = _get_storage_backend()
+        quantity = result['requested_quantity']
 
-        if quantity_to_create == 1:
-            # Single item creation
-            success, ja_id, error_msg = _create_single_item(service, form_data)
-
-            if success:
-                flash('Item added successfully!', 'success')
-
-                # Check submission type
-                submit_type = request.form.get('submit_type')
-                current_app.logger.info(f'Add item workflow: submit_type="{submit_type}" for item {ja_id}')
-
-                if submit_type == 'continue':
-                    current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {ja_id}')
-                    log_audit_operation('add_item', 'continue_workflow',
-                                      item_id=ja_id)
-                    return redirect(url_for('main.inventory_add'))
-                else:
-                    current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {ja_id}')
-                    return redirect(url_for('main.inventory_list'))
-            else:
-                flash('Failed to add item. Please try again.', 'error')
-                return redirect(url_for('main.inventory_add'))
-        else:
-            # Bulk creation (quantity_to_create > 1)
-            current_app.logger.info(f'Bulk creation: Creating {quantity_to_create} items starting from {form_data.get("ja_id")}')
-
-            # Get next available JA IDs
-            all_items = service.get_all_items()
-            if all_items:
-                max_number = 0
-                for existing_item in all_items:
-                    ja_id = existing_item.ja_id
-                    if ja_id.startswith('JA') and len(ja_id) == 8:
-                        try:
-                            number = int(ja_id[2:])
-                            max_number = max(max_number, number)
-                        except ValueError:
-                            continue
-                next_number = max_number + 1
-            else:
-                next_number = 1
-
-            # Get the starting JA ID from form (user may have entered a specific one)
-            starting_ja_id = form_data.get('ja_id', '').strip()
-            if starting_ja_id and starting_ja_id.startswith('JA'):
-                try:
-                    starting_number = int(starting_ja_id[2:])
-                    # Use whichever is higher: user's choice or next available
-                    next_number = max(next_number, starting_number)
-                except ValueError:
-                    pass  # Use calculated next_number
-
-            created_ja_ids = []
-
-            # Create N items with sequential JA IDs
-            for i in range(quantity_to_create):
-                ja_id = f"JA{next_number:06d}"
-                next_number += 1
-
-                # Create a copy of form_data with the new JA ID
-                item_form_data = form_data.copy()
-                item_form_data['ja_id'] = ja_id
-
-                # Create the item using helper function
-                bulk_context = {'index': i+1, 'total': quantity_to_create}
-                success, created_ja_id, error_msg = _create_single_item(service, item_form_data, bulk_context)
-
-                if success:
-                    created_ja_ids.append(created_ja_id)
-                else:
-                    current_app.logger.error(f'Failed to create item {i+1}/{quantity_to_create}: {ja_id} - {error_msg}')
-
-            if len(created_ja_ids) == quantity_to_create:
-                # All items created successfully
-                first_ja_id = created_ja_ids[0]
-                last_ja_id = created_ja_ids[-1]
-
-                current_app.logger.info(f'Bulk creation complete: Created {len(created_ja_ids)} items ({first_ja_id} - {last_ja_id})')
-
-                # Return JSON response for bulk creation
+        if quantity > 1:
+            if result['status'] == 'ok':
                 return jsonify({
                     'success': True,
-                    'count': len(created_ja_ids),
-                    'ja_ids': created_ja_ids,
-                    'message': f'Successfully created {len(created_ja_ids)} items: {first_ja_id} - {last_ja_id}'
+                    'count': len(result['created_ja_ids']),
+                    'ja_ids': result['created_ja_ids'],
+                    'message': result['message'],
                 }), 200
-            elif len(created_ja_ids) > 0:
-                # Partial success
-                error_msg = f'Created {len(created_ja_ids)} of {quantity_to_create} items. Some items failed.'
-                log_audit_operation('add_item', 'error',
-                                  error_details=error_msg,
-                                  form_data={
-                                      'bulk_creation': True,
-                                      'bulk_total': quantity_to_create,
-                                      'bulk_succeeded': len(created_ja_ids)
-                                  })
+            if result['status'] == 'partial':
                 return jsonify({
                     'success': False,
-                    'count': len(created_ja_ids),
-                    'ja_ids': created_ja_ids,
-                    'error': error_msg
+                    'count': len(result['created_ja_ids']),
+                    'ja_ids': result['created_ja_ids'],
+                    'error': result['message'],
                 }), 500
-            else:
-                # Complete failure
-                error_msg = 'Failed to create any items'
-                log_audit_operation('add_item', 'error',
-                                  error_details=error_msg,
-                                  form_data={
-                                      'bulk_creation': True,
-                                      'bulk_total': quantity_to_create
-                                  })
-                return jsonify({
-                    'success': False,
-                    'error': error_msg
-                }), 500
-            
+            return jsonify({
+                'success': False,
+                'error': result['message'],
+            }), 500
+
+        if result['status'] == 'ok':
+            ja_id = result['created_ja_ids'][0]
+            flash('Item added successfully!', 'success')
+
+            submit_type = request.form.get('submit_type')
+            current_app.logger.info(f'Add item workflow: submit_type="{submit_type}" for item {ja_id}')
+
+            if submit_type == 'continue':
+                current_app.logger.info(f'Add & Continue: Redirecting to add form after successfully adding item {ja_id}')
+                log_audit_operation('add_item', 'continue_workflow', item_id=ja_id)
+                return redirect(url_for('main.inventory_add'))
+            current_app.logger.info(f'Normal Add: Redirecting to inventory list after adding item {ja_id}')
+            return redirect(url_for('main.inventory_list'))
+
+        flash('Failed to add item. Please try again.', 'error')
+        return redirect(url_for('main.inventory_add'))
+
     except ValueError as e:
         # AUDIT: Log validation exception
         log_audit_operation('add_item', 'error', 
@@ -549,21 +744,8 @@ def duplicate_item(ja_id):
             # Reload the item to get fresh data
             source_item = service.get_item(ja_id)
 
-        # Get next available JA IDs
-        all_items = service.get_all_items()
-        if all_items:
-            max_number = 0
-            for existing_item in all_items:
-                existing_ja_id = existing_item.ja_id
-                if existing_ja_id.startswith('JA') and len(existing_ja_id) == 8:
-                    try:
-                        number = int(existing_ja_id[2:])
-                        max_number = max(max_number, number)
-                    except ValueError:
-                        continue
-            next_number = max_number + 1
-        else:
-            next_number = 1
+        # Get next available JA ID via a single SQL aggregate
+        next_number = service.get_max_ja_id_number() + 1
 
         created_ja_ids = []
         photos_copied_per_item = 0  # Track photo count for success message
@@ -1348,29 +1530,9 @@ def get_next_ja_id():
     """Get the next available JA ID"""
     try:
         service = _get_inventory_service()
-        
-        # Get all items to find the highest JA ID
-        all_items = service.get_all_items()
-        
-        if not all_items:
-            # No items exist, start with JA000001
-            next_id = "JA000001"
-        else:
-            # Find the highest numeric part
-            max_number = 0
-            for item in all_items:
-                ja_id = item.ja_id
-                if ja_id.startswith('JA') and len(ja_id) == 8:
-                    try:
-                        number = int(ja_id[2:])
-                        max_number = max(max_number, number)
-                    except ValueError:
-                        continue
-            
-            # Generate next ID
-            next_number = max_number + 1
-            next_id = f"JA{next_number:06d}"
-        
+        next_number = service.get_max_ja_id_number() + 1
+        next_id = f"JA{next_number:06d}"
+
         return jsonify({
             'success': True,
             'next_ja_id': next_id

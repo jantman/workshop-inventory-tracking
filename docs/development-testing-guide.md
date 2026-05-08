@@ -421,6 +421,32 @@ The application uses a **single enhanced InventoryItem model** for both business
 - **MariaDBInventoryService**: Production implementation with MariaDB backend
 - **GoogleSheetsInventoryService**: Legacy implementation (maintained for compatibility)
 
+### Standalone API Client (`app/api_client.py`)
+
+The client module is intentionally self-contained: its only third-party
+import is `requests`. The file can be copied or vendored into other
+projects without dragging in any of the application's runtime
+dependencies (Flask, SQLAlchemy, etc.). When modifying it, keep that
+constraint in mind:
+
+- Do not import anything from the rest of the `app` package or from
+  the application's models. Stay on stdlib + `requests`.
+- Public surface (`WorkshopInventoryClient`, `CreateItemResult`,
+  `UploadPhotoResult`) is exported via `__all__`. Treat it as the
+  contract — adding fields to the result dataclasses is fine, but
+  renaming or removing them is a breaking change for any vendored
+  copy.
+- Unit tests live in `tests/unit/test_api_client.py` and mock
+  `requests.Session` directly so they run offline. End-to-end tests
+  in `tests/e2e/test_api_client.py` exercise the client against the
+  live test server.
+
+The module also provides a small `__main__` CLI for ad-hoc use:
+
+```bash
+python app/api_client.py --url http://localhost:5000 --input item.json
+```
+
 ## Development Workflow
 
 ### Running Tests During Development

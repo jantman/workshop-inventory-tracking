@@ -603,14 +603,53 @@ class InventoryService:
                 session.close()
     
     # Override parent class methods to use active-only logic
-    
+
     def get_item(self, ja_id: str) -> Optional[InventoryItem]:
         """Override to return active item only"""
         return self.get_active_item(ja_id)
-    
+
     def get_all_items(self, force_refresh: bool = False) -> List[InventoryItem]:
         """Override to return active items only"""
         return self.get_all_active_items()
+
+    def get_max_ja_id_number(self) -> int:
+        """Largest numeric suffix among active JA IDs of the canonical
+        ``JA`` + 6-digit form, or 0 if there are none.
+
+        Used to allocate the next sequential JA ID without loading every
+        item into memory. Scoped to active rows to match the historical
+        behavior of the per-route scanning loops it replaces.
+
+        Non-canonical IDs (anything that doesn't strictly match
+        ``JA[0-9]{6}``, including mixed alpha/numeric suffixes like
+        ``JA12ABCD``) are excluded from the aggregate. Casting such
+        suffixes to ``INTEGER`` would yield dialect-dependent values and
+        could change the computed max compared to the prior Python
+        ``int(...)`` + ``ValueError`` behavior. To stay portable across
+        SQLite (test) and MariaDB (production) without depending on
+        ``REGEXP``, we require each of the six suffix positions to be a
+        digit using a per-position ``BETWEEN '0' AND '9'`` predicate.
+        """
+        from sqlalchemy import cast, Integer, and_
+
+        session = self.Session()
+        try:
+            ja_id_col = InventoryItem.ja_id
+            suffix_expr = func.substr(ja_id_col, 3)
+            digit_filters = [
+                func.substr(ja_id_col, 2 + pos, 1).between('0', '9')
+                for pos in range(1, 7)
+            ]
+            result = session.query(
+                func.max(cast(suffix_expr, Integer))
+            ).filter(
+                InventoryItem.active == True,
+                ja_id_col.like('JA______'),
+                and_(*digit_filters),
+            ).scalar()
+            return int(result) if result is not None else 0
+        finally:
+            session.close()
     
     def get_valid_materials(self) -> List[str]:
         """
