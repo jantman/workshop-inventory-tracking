@@ -1280,17 +1280,24 @@ class TestNormalizeJsonItemPayload:
         result = _normalize_json_item_payload({'active': True, 'precision': False})
         assert result == {'active': 'on'}
 
-    def test_strings_pass_through_for_boolean_fields(self):
+    def test_strings_rejected_for_boolean_fields(self):
+        # Strings on boolean fields are rejected outright, including
+        # form-style "on"/"off" — JSON callers must send native booleans
+        # to avoid silent misinterpretation of "true" / "yes" / etc.
         from app.main.routes import _normalize_json_item_payload
 
-        result = _normalize_json_item_payload({'active': 'on', 'precision': 'off'})
-        assert result == {'active': 'on', 'precision': 'off'}
+        for value in ('on', 'off', 'true', 'false', 'yes', 'no', '1', '0', ''):
+            with pytest.raises(ValueError, match='active'):
+                _normalize_json_item_payload({'active': value})
 
-    def test_non_bool_non_str_for_boolean_field_rejected(self):
+    def test_int_rejected_for_boolean_field(self):
         from app.main.routes import _normalize_json_item_payload
 
         with pytest.raises(ValueError, match='active'):
             _normalize_json_item_payload({'active': 1})
+
+        with pytest.raises(ValueError, match='precision'):
+            _normalize_json_item_payload({'precision': 0})
 
     def test_numbers_coerced_to_strings(self):
         from app.main.routes import _normalize_json_item_payload

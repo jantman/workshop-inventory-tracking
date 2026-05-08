@@ -742,3 +742,89 @@ class TestMaterialDescendants:
             assert result[0] == "Steel"
 
             mock_session.close.assert_called_once()
+
+
+class TestGetMaxJaIdNumber:
+    """Real-SQL tests for get_max_ja_id_number against the test SQLite DB.
+
+    The ``inventory_items`` table has a CHECK constraint that blocks
+    non-canonical JA IDs at insert time, so under normal use the SQL
+    filter in ``get_max_ja_id_number`` is defense-in-depth. To exercise
+    the filter directly we suspend SQLite CHECK enforcement and insert
+    pathological rows.
+    """
+
+    @pytest.fixture
+    def service(self, test_storage):
+        return InventoryService(test_storage)
+
+    def _add_canonical(self, test_storage, ja_id, active=True):
+        from sqlalchemy.orm import sessionmaker
+        Session = sessionmaker(bind=test_storage.engine)
+        session = Session()
+        try:
+            row = InventoryItem(
+                ja_id=ja_id, item_type='Bar', shape='Round', material='Steel',
+                location='Test', length=Decimal('1'), width=Decimal('1'),
+                active=active,
+            )
+            session.add(row)
+            session.commit()
+        finally:
+            session.close()
+
+    def _add_bypassing_check(self, test_storage, ja_id, active=True):
+        """Insert a row of arbitrary shape, with SQLite CHECK constraints
+        temporarily disabled so we can plant a value the schema would
+        otherwise refuse.
+        """
+        from sqlalchemy import text
+        with test_storage.engine.begin() as conn:
+            conn.execute(text('PRAGMA ignore_check_constraints = 1'))
+            conn.execute(text(
+                "INSERT INTO inventory_items "
+                "(ja_id, item_type, shape, material, location, length, width, "
+                " active, precision, date_added, last_modified) "
+                "VALUES (:ja_id, 'Bar', 'Round', 'Steel', 'Test', 1, 1, "
+                ":active, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ), {'ja_id': ja_id, 'active': 1 if active else 0})
+            conn.execute(text('PRAGMA ignore_check_constraints = 0'))
+
+    def test_empty_db_returns_zero(self, service):
+        assert service.get_max_ja_id_number() == 0
+
+    def test_single_canonical_id(self, service, test_storage):
+        self._add_canonical(test_storage, 'JA000005')
+        assert service.get_max_ja_id_number() == 5
+
+    def test_picks_max_across_canonical_ids(self, service, test_storage):
+        self._add_canonical(test_storage, 'JA000005')
+        self._add_canonical(test_storage, 'JA000123')
+        self._add_canonical(test_storage, 'JA000050')
+        assert service.get_max_ja_id_number() == 123
+
+    def test_ignores_non_canonical_mixed_alpha_numeric_suffix(self, service, test_storage):
+        """A row like 'JA12ABCD' must not contribute to the max — its
+        suffix isn't strictly numeric. Casting to INTEGER would yield 12
+        on most engines; this is the regression the per-position digit
+        filter prevents.
+        """
+        self._add_canonical(test_storage, 'JA000005')
+        self._add_bypassing_check(test_storage, 'JA12ABCD')
+        assert service.get_max_ja_id_number() == 5
+
+    def test_ignores_non_canonical_all_alpha_suffix(self, service, test_storage):
+        self._add_canonical(test_storage, 'JA000005')
+        self._add_bypassing_check(test_storage, 'JAAAAAAA')
+        assert service.get_max_ja_id_number() == 5
+
+    def test_ignores_inactive_rows(self, service, test_storage):
+        self._add_canonical(test_storage, 'JA000005', active=True)
+        self._add_canonical(test_storage, 'JA999999', active=False)
+        assert service.get_max_ja_id_number() == 5
+
+    def test_ignores_wrong_length_ids(self, service, test_storage):
+        self._add_canonical(test_storage, 'JA000005')
+        self._add_bypassing_check(test_storage, 'JA1234567')  # 9 chars
+        self._add_bypassing_check(test_storage, 'JA00001')    # 7 chars
+        assert service.get_max_ja_id_number() == 5

@@ -387,7 +387,11 @@ def _normalize_json_item_payload(json_body):
     HTML checkbox semantics used by the form parser ("on" when true,
     omitted when false). Numbers are coerced to strings for dimension
     parsing. Unknown top-level keys raise ``ValueError`` so typos
-    surface as a 400 instead of being silently ignored.
+    surface as a 400 instead of being silently ignored. String inputs
+    on boolean fields are rejected outright: the form parser only
+    treats the literal ``"on"`` as truthy, so accepting unrestricted
+    strings here would silently misinterpret values like ``"true"``
+    or ``"yes"`` as false. JSON callers must send native booleans.
     """
     if not isinstance(json_body, dict):
         raise ValueError('Request body must be a JSON object')
@@ -401,15 +405,18 @@ def _normalize_json_item_payload(json_body):
         if value is None:
             continue
         if key in _JSON_BOOLEAN_FIELDS:
+            # Reject anything but a JSON boolean. Strings like "true" or
+            # "yes" would otherwise be silently interpreted as false by
+            # the form parser, which only recognizes the literal "on".
+            # ``isinstance(value, bool)`` correctly excludes plain ints
+            # (since 1/0 are not bool instances even though bool is an
+            # int subclass).
             if isinstance(value, bool):
                 if value:
                     normalized[key] = 'on'
                 continue
-            if isinstance(value, str):
-                normalized[key] = value
-                continue
             raise ValueError(
-                f'Field "{key}" must be a boolean, "on", or "off"'
+                f'Field "{key}" must be a JSON boolean (true or false)'
             )
         normalized[key] = str(value)
 

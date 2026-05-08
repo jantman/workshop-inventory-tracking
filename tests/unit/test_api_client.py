@@ -6,7 +6,6 @@ without depending on any of the application's runtime modules.
 
 from __future__ import annotations
 
-import io
 import json
 from unittest.mock import MagicMock
 
