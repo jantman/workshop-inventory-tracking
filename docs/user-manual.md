@@ -10,9 +10,10 @@
 6. [Advanced Search](#advanced-search)
 7. [Batch Operations](#batch-operations)
 8. [Data Export](#data-export)
-9. [Help and Utilities](#help-and-utilities)
-10. [Tips and Best Practices](#tips-and-best-practices)
-11. [Troubleshooting](#troubleshooting)
+9. [REST API](#rest-api)
+10. [Help and Utilities](#help-and-utilities)
+11. [Tips and Best Practices](#tips-and-best-practices)
+12. [Troubleshooting](#troubleshooting)
 
 ## Getting Started
 
@@ -923,6 +924,112 @@ curl -X POST http://localhost:5000/api/admin/export/validate \
 - Use include_inactive=false for faster inventory exports
 - Monitor system resources during large exports
 - Consider off-peak hours for major backup operations
+
+## REST API
+
+The application exposes a small set of JSON endpoints intended for
+programmatic clients (scripts, integrations, or the bundled Python
+client described below). The endpoints are served from the same Flask
+application as the web UI and share its database. They are exempt from
+CSRF and have no built-in authentication; protect them at the network
+layer if exposed beyond the local host.
+
+### `POST /api/inventory/items`
+
+Create one or more inventory items.
+
+Request body: a JSON object with the same field names accepted by the
+add-item form, with two conveniences for JSON callers:
+- `active` and `precision` accept native booleans (`true` / `false`)
+  in addition to the form's `"on"` / `"off"` strings.
+- Numeric fields (dimensions, `quantity_to_create`) accept JSON
+  numbers; they are coerced to strings before parsing.
+
+Bulk creation uses the same `quantity_to_create` field as the form
+(integer in the range 1-100). When greater than 1, sequential JA IDs
+are allocated automatically starting at the maximum of the requested
+`ja_id` and the next free ID.
+
+Unknown top-level keys are rejected with a 400 so typos surface
+immediately.
+
+Response shape (always JSON):
+
+```json
+{
+  "success": true,
+  "created_ja_ids": ["JA000123"],
+  "errors": [],
+  "message": "Item added successfully"
+}
+```
+
+Status codes:
+- `200 OK` - all requested items were created.
+- `207 Multi-Status` - bulk request succeeded for some items but not
+  all. `created_ja_ids` lists the ones that persisted; `errors` lists
+  the failures with `{index, ja_id, message}` entries.
+- `400 Bad Request` - the request itself was invalid (missing
+  required field, unknown JSON key, body not a JSON object, etc.).
+  Nothing was created.
+- `500 Internal Server Error` - unexpected backend failure; nothing
+  was created (or, in a bulk request, every item failed for the same
+  underlying reason).
+
+Example single-item request:
+
+```json
+{
+  "ja_id": "JA000123",
+  "item_type": "Bar",
+  "shape": "Round",
+  "material": "Steel",
+  "location": "Shelf A",
+  "length": 12.5,
+  "width": 1.0,
+  "active": true
+}
+```
+
+### `POST /api/items/<ja_id>/photos`
+
+Upload a photo for an existing item. Send a `multipart/form-data`
+request with the file in either a `file` or `photo` field. Returns
+`{success, photo, message}` on success; 400 on bad input; 500 on
+storage failure.
+
+### Python client
+
+A standalone Python client lives at `app/api_client.py`. It depends
+only on the `requests` library and exposes a `WorkshopInventoryClient`
+class with `create_item(...)` and `upload_photo(...)` methods. The
+client can be copied or vendored into other projects without pulling
+in any of the application's runtime dependencies.
+
+```python
+from app.api_client import WorkshopInventoryClient
+
+client = WorkshopInventoryClient("http://localhost:5000")
+
+result = client.create_item({
+    "ja_id": "JA000123",
+    "item_type": "Bar",
+    "shape": "Round",
+    "material": "Steel",
+    "location": "Shelf A",
+    "length": 12.5,
+    "active": True,
+})
+print(result.created_ja_ids, result.errors)
+
+photo = client.upload_photo("JA000123", file_path="part.jpg")
+```
+
+`create_item` and `upload_photo` return frozen dataclasses
+(`CreateItemResult`, `UploadPhotoResult`) carrying the parsed
+response. Network errors raise `requests.RequestException`; HTTP
+errors (4xx/5xx) populate the result's `errors` list and set
+`success=False` rather than raising.
 
 ## Help and Utilities
 

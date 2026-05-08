@@ -195,4 +195,26 @@ Goal: ship `app/api_client.py` with a `WorkshopInventoryClient` class plus tests
 
 ## Progress
 
-_Not started — awaiting plan approval._
+### Milestone 1 — JSON API endpoint and shared helper
+
+- [x] Task 1.1 — Extract `_process_item_creation` helper. (Rolled in
+      with Task 1.4 since the extraction and form-route refactor are
+      one indivisible change.)
+- [x] Task 1.2 — JSON input normalizer (`_normalize_json_item_payload`).
+- [x] Task 1.3 — `POST /api/inventory/items` route.
+- [x] Task 1.4 — Refactor `inventory_add` to consume the helper.
+      (Committed together with 1.1.)
+- [x] Task 1.5 — Unit tests for the new endpoint, normalizer, and
+      form-route regression suite.
+- [x] Task 1.6 — Documentation: user-manual REST API section,
+      deployment-guide security note, README mention.
+
+### Milestone 2 — Standalone Python client and tests
+
+- [ ] Task 2.1 — Implement `app/api_client.py`.
+- [ ] Task 2.2 — Unit tests for the client (mocked HTTP).
+- [ ] Task 2.3 — E2E test exercising the client against the live
+      test server.
+- [ ] Task 2.4 — Documentation update for the client (the user
+      manual already includes a usage example added in Task 1.6;
+      this task will fill in the development-testing-guide notes).

@@ -567,3 +567,21 @@ sudo journalctl -u workshop-inventory -f
 # Application health endpoint
 curl http://localhost:5000/health
 ```
+
+## Security Posture for `/api/*` Endpoints
+
+The application exposes a handful of JSON endpoints under `/api/*`
+(item creation, photo upload, search, batch move, etc.). These
+endpoints are intentionally:
+
+- **Exempt from CSRF** so non-browser clients can call them without
+  obtaining a token. The session-based form routes (e.g. the add-item
+  page) remain CSRF-protected.
+- **Unauthenticated** at the application layer. There is no built-in
+  user identity, API key, or token check.
+
+When deploying, restrict access to these endpoints at the network
+layer (e.g. bind the service to localhost behind a reverse proxy that
+enforces authentication, run only on a trusted internal network, or
+front the application with mTLS / basic auth). Treat the API surface
+as equivalent in trust to direct database access.
