@@ -222,11 +222,8 @@ Goal: ship `app/api_client.py` with a `WorkshopInventoryClient` class plus tests
 
 ### End-of-feature verification
 
-- [x] Full unit suite passing (`nox -s tests` — 275 passed prior to
-      Milestone 2 client tests; 296 passed after).
-- [x] Full e2e suite passing (`nox -s e2e` — 282 passed, 1 skipped
-      before Milestone 2; verified again after Milestone 2 with
-      additional 5 e2e tests for the client passing in isolation).
-- [ ] Final full e2e run after the entire Milestone 2 — pending.
+- [x] Full unit suite passing (`nox -s tests` — 296 passed).
+- [x] Full e2e suite passing (`nox -s e2e` — 287 passed, 1 skipped,
+      in 17m20s).
 - [ ] Human verification.
 - [ ] Move feature doc into `complete/` and open PR.
