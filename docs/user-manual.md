@@ -938,22 +938,69 @@ layer if exposed beyond the local host.
 
 Create one or more inventory items.
 
-Request body: a JSON object with the same field names accepted by the
-add-item form, with two conveniences for JSON callers:
-- `active` and `precision` accept native booleans (`true` / `false`)
-  in addition to the form's `"on"` / `"off"` strings.
-- Numeric fields (dimensions, `quantity_to_create`) accept JSON
-  numbers; they are coerced to strings before parsing.
+Request body: a JSON object. Unknown top-level keys are rejected with
+a 400 so typos surface immediately. The full set of accepted fields
+follows.
 
-Bulk creation uses the same `quantity_to_create` field as the form
-(integer in the range 1-100). When greater than 1, sequential JA IDs
-are allocated automatically starting at the maximum of the requested
-`ja_id` and the next free ID.
+#### Required fields
 
-Unknown top-level keys are rejected with a 400 so typos surface
-immediately.
+| Field       | Type   | Description |
+|-------------|--------|-------------|
+| `ja_id`     | string | Item identifier in canonical form `JA` followed by exactly six digits (e.g. `"JA000123"`). Lowercase is auto-uppercased. In bulk creation this is the *starting* ID; sequential IDs are allocated automatically starting at the maximum of this value and the next free ID. |
+| `item_type` | string | One of: `"Bar"`, `"Plate"`, `"Sheet"`, `"Tube"`, `"Threaded Rod"`, `"Angle"`, `"Channel"`. |
+| `shape`     | string | One of: `"Rectangular"`, `"Round"`, `"Square"`, `"Hex"`. |
+| `material`  | string | Material name. Validated against the materials taxonomy when one is configured; pass a name or alias from the taxonomy (e.g. `"Steel"`, `"4140"`, `"6061-T6"`, `"316"`). When the taxonomy is empty the field is accepted as-is. |
+| `location`  | string | Physical location label (e.g. `"Shelf A"`). Free-form. |
 
-Response shape (always JSON):
+#### Optional dimension fields (inches, except `weight` in pounds)
+
+| Field            | Type             | Description |
+|------------------|------------------|-------------|
+| `length`         | string \| number | Length in inches. Strings may be decimal (`"12.5"`), simple fraction (`"3/4"`), or mixed number (`"1 1/2"`). Numbers are coerced to string before parsing. |
+| `width`          | string \| number | Width / outer diameter in inches. Same parsing rules as `length`. |
+| `thickness`      | string \| number | Thickness in inches. Same parsing rules. |
+| `wall_thickness` | string \| number | Wall thickness for tubular shapes, in inches. Same parsing rules. |
+| `weight`         | string \| number | Weight in pounds. Same parsing rules. |
+
+An unparseable dimension (e.g. `"abc"`) returns 400 with the field
+name in the error message.
+
+#### Optional threading fields
+
+| Field               | Type   | Description |
+|---------------------|--------|-------------|
+| `thread_series`     | string | One of: `"UNC"`, `"UNF"`, `"UNEF"`, `"UNS"`, `"Metric"`, `"BSW"`, `"BSF"`, `"NPT"`, `"Acme"`, `"Trapezoidal"`, `"Square"`, `"Buttress"`, `"Custom"`, `"Other"`. Case-insensitive (uppercased before storage). The literal string `"None"` is treated as not provided, matching the HTML form. |
+| `thread_handedness` | string | `"RH"` (right-hand, the default if `thread_series` is set) or `"LH"` (left-hand). Case-insensitive. |
+| `thread_size`       | string | Thread designation, e.g. `"1/4-20"`, `"M10x1.5"`, `"3/8-16"`. |
+
+#### Optional location, purchase, and metadata fields
+
+| Field                | Type             | Description |
+|----------------------|------------------|-------------|
+| `sub_location`       | string           | Sub-location within the primary location. |
+| `purchase_date`      | string           | Date the item was purchased. Accepts ISO `YYYY-MM-DD`, US `MM/DD/YYYY`, or dotted `MM.DD.YYYY`. Unparseable values are silently stored as null (matching form behavior). |
+| `purchase_price`     | string \| number | Purchase price. Stored as-supplied. |
+| `purchase_location`  | string           | Where the item was purchased (vendor location, store name, etc.). |
+| `vendor`             | string           | Vendor name. |
+| `vendor_part_number` | string           | Vendor's part number. (This is the JSON field name; it is stored internally as `vendor_part`.) |
+| `notes`              | string           | Free-form notes. |
+
+#### Optional flags
+
+| Field       | Type    | Description |
+|-------------|---------|-------------|
+| `active`    | boolean | Whether the item is active. **JSON booleans only** (`true` / `false`); string values like `"on"`, `"true"`, `"yes"` are rejected with a 400. Defaults to `false` when omitted, matching the HTML form's unchecked-checkbox semantics — pass `true` explicitly to create an active item. |
+| `precision` | boolean | Whether the item carries precision dimensions. Same rules as `active`. Defaults to `false`. |
+
+#### Bulk creation
+
+| Field                | Type    | Description |
+|----------------------|---------|-------------|
+| `quantity_to_create` | integer | Number of items to create with sequential JA IDs (1-100). Defaults to 1. When greater than 1 the supplied `ja_id` is the lowest assignable ID; the server picks the next free ID at or above that and allocates the rest in sequence. The provided field values are applied to every created item. |
+
+#### Response
+
+Always JSON:
 
 ```json
 {
@@ -964,19 +1011,27 @@ Response shape (always JSON):
 }
 ```
 
-Status codes:
-- `200 OK` - all requested items were created.
-- `207 Multi-Status` - bulk request succeeded for some items but not
-  all. `created_ja_ids` lists the ones that persisted; `errors` lists
-  the failures with `{index, ja_id, message}` entries.
-- `400 Bad Request` - the request itself was invalid (missing
-  required field, unknown JSON key, body not a JSON object, etc.).
-  Nothing was created.
-- `500 Internal Server Error` - unexpected backend failure; nothing
-  was created (or, in a bulk request, every item failed for the same
-  underlying reason).
+Each entry in `errors` has the shape
+`{"index": <1-based attempt position>, "ja_id": <the JA ID that was attempted, may be null>, "message": "..."}`.
+The `index` is 1-based — `index: 2` means "the second item the bulk
+request tried to create." For single-item requests it is `0`.
 
-Example single-item request:
+#### Status codes
+
+- `200 OK` — all requested items were created.
+- `207 Multi-Status` — bulk request succeeded for some items but not
+  all. `created_ja_ids` lists the ones that persisted; `errors` lists
+  the failures.
+- `400 Bad Request` — request-level validation problem: missing
+  required field, unknown JSON key, malformed body, invalid enum
+  value, unparseable dimension, invalid material, etc. Nothing was
+  created. Also returned when every item in a bulk request failed
+  for a parse-time validation reason.
+- `500 Internal Server Error` — unexpected backend failure (e.g. DB
+  unreachable). Nothing was created (or, in a bulk request, no items
+  succeeded and at least one failure was a non-validation error).
+
+#### Example: minimal single-item request
 
 ```json
 {
@@ -985,9 +1040,34 @@ Example single-item request:
   "shape": "Round",
   "material": "Steel",
   "location": "Shelf A",
-  "length": 12.5,
-  "width": 1.0,
   "active": true
+}
+```
+
+#### Example: fully-populated bulk request
+
+```json
+{
+  "ja_id": "JA000200",
+  "item_type": "Threaded Rod",
+  "shape": "Round",
+  "material": "316",
+  "location": "Rack 3",
+  "sub_location": "Bin 7",
+  "length": "36",
+  "width": "1/4",
+  "thread_series": "UNC",
+  "thread_handedness": "RH",
+  "thread_size": "1/4-20",
+  "purchase_date": "2024-09-15",
+  "purchase_price": "8.95",
+  "purchase_location": "McMaster-Carr",
+  "vendor": "McMaster-Carr",
+  "vendor_part_number": "98990A030",
+  "notes": "Stocked for fixture builds.",
+  "active": true,
+  "precision": false,
+  "quantity_to_create": 5
 }
 ```
 

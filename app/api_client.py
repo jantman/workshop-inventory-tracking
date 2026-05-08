@@ -79,10 +79,90 @@ class WorkshopInventoryClient:
     def create_item(self, item: dict[str, Any]) -> CreateItemResult:
         """Create one or more inventory items.
 
-        ``item`` is a JSON-serializable dict matching the payload
-        accepted by ``POST /api/inventory/items``. Use the
-        ``quantity_to_create`` field (1-100) to create multiple items
-        with sequential JA IDs in a single call.
+        ``item`` is a JSON-serializable dict POSTed verbatim to
+        ``/api/inventory/items``. Unknown top-level keys are rejected
+        by the server with a 400.
+
+        **Required fields**
+
+        - ``ja_id`` (str): canonical form ``JA`` + 6 digits, e.g.
+          ``"JA000123"``. Lowercase is auto-uppercased. In bulk
+          creation this is the *starting* JA ID; the server picks the
+          next free ID at or above this value.
+        - ``item_type`` (str): one of ``"Bar"``, ``"Plate"``,
+          ``"Sheet"``, ``"Tube"``, ``"Threaded Rod"``, ``"Angle"``,
+          ``"Channel"``.
+        - ``shape`` (str): one of ``"Rectangular"``, ``"Round"``,
+          ``"Square"``, ``"Hex"``.
+        - ``material`` (str): material name. Validated against the
+          configured materials taxonomy when one is present (e.g.
+          ``"Steel"``, ``"4140"``, ``"6061-T6"``, ``"316"``).
+        - ``location`` (str): physical location label, free-form.
+
+        **Optional dimension fields** (str or number; inches except
+        ``weight`` in pounds; strings may be decimal ``"12.5"``, simple
+        fraction ``"3/4"``, or mixed number ``"1 1/2"``):
+
+        - ``length``, ``width``, ``thickness``, ``wall_thickness``,
+          ``weight``.
+
+        **Optional threading fields**
+
+        - ``thread_series`` (str): one of ``"UNC"``, ``"UNF"``,
+          ``"UNEF"``, ``"UNS"``, ``"Metric"``, ``"BSW"``, ``"BSF"``,
+          ``"NPT"``, ``"Acme"``, ``"Trapezoidal"``, ``"Square"``,
+          ``"Buttress"``, ``"Custom"``, ``"Other"``. Case-insensitive.
+          The literal ``"None"`` is treated as not provided.
+        - ``thread_handedness`` (str): ``"RH"`` (default) or ``"LH"``.
+        - ``thread_size`` (str): designation, e.g. ``"1/4-20"``,
+          ``"M10x1.5"``.
+
+        **Optional metadata fields** (all str unless noted):
+
+        - ``sub_location``: sub-location within ``location``.
+        - ``purchase_date``: ``YYYY-MM-DD``, ``MM/DD/YYYY``, or
+          ``MM.DD.YYYY``. Unparseable values are silently stored as
+          null.
+        - ``purchase_price`` (str or number).
+        - ``purchase_location``, ``vendor``, ``vendor_part_number``,
+          ``notes``.
+
+        **Optional flags** (boolean only — strings rejected):
+
+        - ``active`` (bool): defaults to ``False`` if omitted, matching
+          the HTML form's unchecked-checkbox semantics. Pass ``True``
+          to create an active item.
+        - ``precision`` (bool): defaults to ``False``.
+
+        **Bulk creation**
+
+        - ``quantity_to_create`` (int, 1-100, default 1): when greater
+          than 1, the server allocates that many items with sequential
+          JA IDs starting at the next free ID at or above ``ja_id``.
+          The other fields are applied to every created item.
+
+        **Returned ``CreateItemResult``**
+
+        - ``success`` (bool): ``True`` only when every requested item
+          was created. Any HTTP 4xx/5xx forces ``False`` regardless of
+          body content. 207 Multi-Status (partial bulk success) reports
+          ``False`` here, with both ``created_ja_ids`` and ``errors``
+          populated.
+        - ``created_ja_ids`` (list[str]): JA IDs that persisted.
+        - ``errors`` (list[dict]): each entry is
+          ``{"index": <1-based attempt position; 0 for single>,
+          "ja_id": <attempted JA ID, may be None>, "message": "..."}``.
+        - ``http_status`` (int): the raw HTTP status code (200 / 207 /
+          400 / 500).
+        - ``raw`` (dict): the parsed JSON response body, for callers
+          that need fields beyond the documented surface.
+
+        **Errors that bubble up as exceptions**
+
+        Network failures (connection refused, DNS, TLS, timeout, etc.)
+        propagate as ``requests.RequestException`` subclasses. HTTP
+        errors do *not* raise — they come back as a result with
+        ``success=False`` so callers can branch without try/except.
         """
         response = self.session.post(
             f'{self.base_url}/api/inventory/items',
@@ -125,9 +205,55 @@ class WorkshopInventoryClient:
     ) -> UploadPhotoResult:
         """Upload a photo for the given item.
 
-        Provide either ``file_path`` (the file is read from disk) or
-        ``file_data`` together with ``filename``. ``content_type`` is
-        auto-detected from the filename when not supplied.
+        POSTs a ``multipart/form-data`` request to
+        ``/api/items/<ja_id>/photos`` with the file in the ``file``
+        field.
+
+        **Arguments**
+
+        - ``ja_id`` (str): canonical-form JA ID of the item that owns
+          the photo (e.g. ``"JA000123"``). The item must already exist;
+          the server returns 400 / 500 otherwise.
+        - ``file_path`` (str or Path, optional): path to a file to
+          upload. Mutually exclusive with ``file_data``.
+        - ``file_data`` (bytes, optional): the raw file bytes to
+          upload. When supplied, ``filename`` is required. Mutually
+          exclusive with ``file_path``.
+        - ``filename`` (str, optional): the name to send to the server.
+          Required when ``file_data`` is supplied. Defaults to the
+          basename of ``file_path`` otherwise.
+        - ``content_type`` (str, optional): the MIME type to send. When
+          omitted it is guessed from ``filename`` via
+          ``mimetypes.guess_type`` and falls back to
+          ``application/octet-stream``. The server accepts standard
+          image content types (e.g. ``image/jpeg``, ``image/png``,
+          ``image/webp``) and ``application/pdf``.
+
+        **Returned ``UploadPhotoResult``**
+
+        - ``success`` (bool): ``True`` only on a 2xx response with
+          ``"success": true`` in the body. Any HTTP 4xx/5xx forces
+          ``False`` regardless of body content.
+        - ``photo`` (dict | None): the server's representation of the
+          stored photo on success — typically includes ``id``,
+          ``filename``, ``content_type``, ``file_size``, ``thumbnail``,
+          and timestamps. ``None`` on failure.
+        - ``errors`` (list[dict]): on failure, a single entry of the
+          form ``{"index": 0, "ja_id": <ja_id>, "message": "..."}``.
+          Empty on success.
+        - ``http_status`` (int): the raw HTTP status code.
+        - ``raw`` (dict): the parsed JSON response body.
+
+        **Argument-validation errors raised by the client itself**
+
+        - ``ValueError`` if neither ``file_path`` nor ``file_data`` is
+          given, if both are given, or if ``file_data`` is given
+          without ``filename``.
+
+        **Network errors**
+
+        Network failures propagate as ``requests.RequestException``
+        subclasses (same as ``create_item``).
         """
         if file_path is None and file_data is None:
             raise ValueError('Provide either file_path or file_data')
