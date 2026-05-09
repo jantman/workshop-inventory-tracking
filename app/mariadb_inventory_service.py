@@ -851,9 +851,13 @@ class InventoryService:
                 .replace('_', '\\_')
             )
 
+        # Note: unexpected exceptions are intentionally not swallowed
+        # here. The route wrapper catches Exception and returns HTTP
+        # 500 with the documented error response; swallowing here would
+        # silently convert a backend failure into a 200 with an empty
+        # suggestion list, breaking the documented status-code contract.
+        session = self.Session()
         try:
-            session = self.Session()
-
             base = session.query(column).filter(
                 column.isnot(None),
                 func.trim(column) != '',
@@ -903,12 +907,8 @@ class InventoryService:
 
             return unique[:limit]
 
-        except Exception as e:
-            logger.error(f"Error getting field suggestions for '{field}': {e}")
-            return []
         finally:
-            if 'session' in locals():
-                session.close()
+            session.close()
 
     def update_item(self, item: 'InventoryItem') -> bool:
         """

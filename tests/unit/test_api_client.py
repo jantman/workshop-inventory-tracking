@@ -414,6 +414,23 @@ class TestGetFieldSuggestions:
         params = session.get.call_args.kwargs['params']
         assert 'q' not in params
 
+    def test_non_int_limit_falls_back_to_default(self, client, session):
+        # Client contract: only network failures raise. A non-int
+        # limit must not raise locally — it falls back to the default
+        # so the server's HTTP error path is what callers see.
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'field': 'vendor', 'suggestions': []
+        })
+        client.get_field_suggestions('vendor', limit='oops')
+        assert session.get.call_args.kwargs['params']['limit'] == 10
+
+        session.get.reset_mock()
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'field': 'vendor', 'suggestions': []
+        })
+        client.get_field_suggestions('vendor', limit=None)
+        assert session.get.call_args.kwargs['params']['limit'] == 10
+
     def test_suggestable_fields_constant_exposed(self):
         assert 'thread_size' in SUGGESTABLE_FIELDS
         assert 'sub_location' in SUGGESTABLE_FIELDS

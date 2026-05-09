@@ -248,10 +248,12 @@ class WorkshopInventoryClient:
           than raising. ``SUGGESTABLE_FIELDS`` is exported for
           reference.
         - ``query`` (str, optional): case-insensitive substring filter.
-          When omitted, the server returns the most recent values up to
-          ``limit``.
+          When omitted, the server returns distinct values in
+          case-insensitive alphabetical order up to ``limit``.
         - ``limit`` (int, default 10): maximum number of suggestions.
-          Server clamps to ``[1, 50]``.
+          Server clamps to ``[1, 50]``. Non-int values are coerced to
+          the default of 10 rather than raising — the client only
+          raises for network failures.
         - ``location`` (str, optional): only meaningful when
           ``field == "sub_location"``. Restricts results to
           sub-locations recorded under the given location
@@ -276,7 +278,14 @@ class WorkshopInventoryClient:
         propagate as ``requests.RequestException`` subclasses. HTTP
         errors land as ``success=False`` rather than raising.
         """
-        params: dict[str, Any] = {'limit': int(limit)}
+        # Tolerate non-int limit by falling back to the default.
+        # The contract is: only network failures raise; everything
+        # else surfaces via success=False or server-side clamping.
+        try:
+            limit_value = int(limit)
+        except (TypeError, ValueError):
+            limit_value = 10
+        params: dict[str, Any] = {'limit': limit_value}
         if query is not None and query != '':
             params['q'] = query
         if location is not None and location != '':

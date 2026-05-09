@@ -1769,3 +1769,25 @@ class TestFieldSuggestionsRoute:
         assert response.status_code == 200
         assert 'Shelf A' in body['suggestions']
         assert 'Rack 3' in body['suggestions']
+
+    def test_backend_failure_returns_500_not_empty_200(
+        self, client, populated, monkeypatch
+    ):
+        # Documented contract: backend failures surface as HTTP 500.
+        # The service must NOT swallow exceptions and return [], which
+        # would silently turn a backend failure into a successful-looking
+        # 200 with an empty suggestion list.
+        from app.mariadb_inventory_service import InventoryService
+
+        def boom(self, *args, **kwargs):
+            raise RuntimeError('simulated database failure')
+
+        monkeypatch.setattr(
+            InventoryService, 'get_field_value_suggestions', boom
+        )
+
+        response = client.get('/api/inventory/field-suggestions/vendor')
+        assert response.status_code == 500
+        body = response.get_json()
+        assert body['success'] is False
+        assert 'error' in body

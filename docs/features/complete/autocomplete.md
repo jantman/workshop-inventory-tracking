@@ -21,7 +21,7 @@ On the Add Item and Edit Item forms, please make Thread Size, Purchase Location,
 `GET /api/inventory/field-suggestions/<field>`
 
 Query parameters:
-- `q` (optional): case-insensitive substring filter. If absent, returns the most recently used values.
+- `q` (optional): case-insensitive substring filter. If absent, returns distinct values in case-insensitive alphabetical order up to `limit`.
 - `limit` (optional, default 10, clamped 1-50).
 - `location` (optional, only meaningful when `field=sub_location`): scope suggestions to that location.
 
