@@ -31,15 +31,6 @@
         };
     }
 
-    function escapeHtml(s) {
-        return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
     class FieldAutocomplete {
         /**
          * @param {Object} opts
@@ -144,24 +135,28 @@
                 this.hide();
                 return;
             }
-            const html = suggestions
-                .map(
-                    (v, i) =>
-                        `<a class="dropdown-item" href="#" data-index="${i}" ` +
-                        `data-value="${escapeHtml(v)}">${escapeHtml(v)}</a>`
-                )
-                .join('');
-            this.dropdown.innerHTML = html;
-            this.dropdown.style.display = 'block';
-            this.activeIndex = -1;
-
-            this.dropdown.querySelectorAll('.dropdown-item').forEach((el) => {
-                el.addEventListener('mousedown', (e) => {
+            // Build dropdown items via DOM APIs rather than innerHTML.
+            // textContent escapes safely; dataset.value carries the
+            // raw string so selectValue writes the original (un-encoded)
+            // text back into the input — even if a suggestion contains
+            // characters like '&', '<', or quotes.
+            this.dropdown.replaceChildren();
+            suggestions.forEach((v, i) => {
+                const a = document.createElement('a');
+                a.className = 'dropdown-item';
+                a.href = '#';
+                a.dataset.index = String(i);
+                a.dataset.value = v;
+                a.textContent = v;
+                a.addEventListener('mousedown', (e) => {
                     // mousedown so we beat the input's blur->hide.
                     e.preventDefault();
-                    this.selectValue(el.dataset.value);
+                    this.selectValue(a.dataset.value);
                 });
+                this.dropdown.appendChild(a);
             });
+            this.dropdown.style.display = 'block';
+            this.activeIndex = -1;
         }
 
         selectValue(value) {

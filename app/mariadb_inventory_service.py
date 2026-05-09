@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, and_, desc, asc, func
+from sqlalchemy import create_engine, and_, desc, asc, func, case
 
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
@@ -799,14 +799,23 @@ class InventoryService:
         (active + history) so deactivated items still seed suggestions.
         NULL and empty values are excluded. Comparisons are case-insensitive.
 
-        Ordering: exact match first, then starts-with matches, then
-        contains matches, each tier alphabetized (case-insensitive).
+        Filtering, ordering, and the limit are pushed into SQL so the
+        method only materializes at most ``limit`` rows (plus a small
+        headroom for case-insensitive deduplication).
+
+        Ordering when ``query`` is supplied: exact match first, then
+        starts-with matches, then contains matches, each tier
+        alphabetized (case-insensitive).
+
+        Ordering when ``query`` is omitted: alphabetized
+        (case-insensitive).
 
         Args:
             field: One of the keys in ``FIELD_SUGGESTION_COLUMNS``. Any
                 other value raises ``ValueError``.
             query: Optional case-insensitive substring filter. When None
-                or empty, returns the most-frequent values up to ``limit``.
+                or empty, returns ``limit`` distinct values in
+                alphabetical order.
             limit: Maximum number of suggestions to return. Clamped to
                 [1, 50].
             location: Only meaningful when ``field == 'sub_location'``.
@@ -830,25 +839,59 @@ class InventoryService:
         limit = max(1, min(limit, 50))
 
         column = getattr(InventoryItem, column_name)
+        q = (query or '').strip().lower()
+
+        # Escape user-supplied LIKE wildcards so a query like "10%"
+        # doesn't act as a wildcard. SQLAlchemy's like() takes an
+        # escape character we declare here.
+        def _escape_like(s: str) -> str:
+            return (
+                s.replace('\\', '\\\\')
+                .replace('%', '\\%')
+                .replace('_', '\\_')
+            )
 
         try:
             session = self.Session()
 
-            base_query = session.query(column).filter(
+            base = session.query(column).filter(
                 column.isnot(None),
                 func.trim(column) != '',
             )
 
             if field == 'sub_location' and location:
-                base_query = base_query.filter(
+                base = base.filter(
                     func.lower(InventoryItem.location) == func.lower(location)
                 )
 
-            distinct_rows = base_query.distinct().all()
-            values = [row[0].strip() for row in distinct_rows if row[0] and row[0].strip()]
+            if q:
+                pattern = f'%{_escape_like(q)}%'
+                base = base.filter(
+                    func.lower(column).like(pattern, escape='\\')
+                )
+                rank = case(
+                    (func.lower(column) == q, 0),
+                    (func.lower(column).like(
+                        f'{_escape_like(q)}%', escape='\\'
+                    ), 1),
+                    else_=2,
+                )
+                base = base.order_by(rank, func.lower(column))
+            else:
+                base = base.order_by(func.lower(column))
 
-            # Deduplicate again post-strip (DB-side DISTINCT may have kept
-            # variants differing only in whitespace).
+            # Over-fetch slightly to give the post-DB case-insensitive
+            # dedup pass headroom: the DB DISTINCT depends on the
+            # column's collation, so two values differing only in case
+            # may both reach Python.
+            fetch_limit = limit * 3 + 10
+            rows = base.distinct().limit(fetch_limit).all()
+            values = [
+                row[0].strip()
+                for row in rows
+                if row[0] and row[0].strip()
+            ]
+
             seen_lower = set()
             unique = []
             for v in values:
@@ -858,25 +901,7 @@ class InventoryService:
                 seen_lower.add(key)
                 unique.append(v)
 
-            q = (query or '').strip().lower()
-            if not q:
-                return sorted(unique, key=lambda s: s.lower())[:limit]
-
-            exact = [v for v in unique if v.lower() == q]
-            starts = sorted(
-                [v for v in unique if v.lower() != q and v.lower().startswith(q)],
-                key=lambda s: s.lower(),
-            )
-            contains = sorted(
-                [v for v in unique
-                 if v.lower() != q
-                 and not v.lower().startswith(q)
-                 and q in v.lower()],
-                key=lambda s: s.lower(),
-            )
-
-            ordered = exact + starts + contains
-            return ordered[:limit]
+            return unique[:limit]
 
         except Exception as e:
             logger.error(f"Error getting field suggestions for '{field}': {e}")

@@ -1134,7 +1134,7 @@ endpoint at `/api/materials/suggestions`.
 
 | Parameter  | Type    | Description |
 |------------|---------|-------------|
-| `q`        | string  | Optional case-insensitive substring filter. When omitted, returns the most recent values up to `limit`. |
+| `q`        | string  | Optional case-insensitive substring filter. When omitted, returns distinct values in alphabetical order up to `limit`. |
 | `limit`    | integer | Maximum number of suggestions. Clamped to `[1, 50]`; defaults to 10. |
 | `location` | string  | Only meaningful when `<field>` is `sub_location`. Restricts results to sub-locations recorded under the given location (case-insensitive). Ignored for other fields. |
 

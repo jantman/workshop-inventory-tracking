@@ -425,10 +425,26 @@ class TestGetFieldSuggestions:
     def test_field_path_segment_is_url_encoded_in_endpoint(self, client, session):
         # Server only ever sees whitelisted simple identifiers in
         # practice, but the client must still construct the URL safely
-        # if a caller passes garbage.
+        # if a caller passes garbage. Spaces become %20, special chars
+        # are percent-encoded.
         session.get.return_value = _mock_response(400, {
             'success': False, 'error': 'Unsupported field'
         })
         client.get_field_suggestions('not a field')
-        # Verify the URL was constructed (request was attempted).
-        assert session.get.called
+        url = session.get.call_args.args[0]
+        assert (
+            url
+            == 'http://example.test/api/inventory/field-suggestions/not%20a%20field'
+        )
+
+        session.get.reset_mock()
+        session.get.return_value = _mock_response(400, {
+            'success': False, 'error': 'Unsupported field'
+        })
+        client.get_field_suggestions('a/b?c')
+        url = session.get.call_args.args[0]
+        # Slash, query-marker, and other reserved chars must be encoded.
+        assert (
+            url
+            == 'http://example.test/api/inventory/field-suggestions/a%2Fb%3Fc'
+        )

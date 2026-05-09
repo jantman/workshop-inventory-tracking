@@ -15,6 +15,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import requests
 
@@ -22,6 +23,7 @@ import requests
 __all__ = [
     'CreateItemResult',
     'FieldSuggestionsResult',
+    'SUGGESTABLE_FIELDS',
     'UploadPhotoResult',
     'WorkshopInventoryClient',
 ]
@@ -280,8 +282,14 @@ class WorkshopInventoryClient:
         if location is not None and location != '':
             params['location'] = location
 
+        # URL-encode the field path segment defensively. Production
+        # callers will pass plain identifiers from SUGGESTABLE_FIELDS,
+        # but a value containing spaces or reserved characters must
+        # not produce a malformed request URL.
+        encoded_field = quote(str(field), safe='')
+
         response = self.session.get(
-            f'{self.base_url}/api/inventory/field-suggestions/{field}',
+            f'{self.base_url}/api/inventory/field-suggestions/{encoded_field}',
             params=params,
             timeout=self.timeout,
         )
