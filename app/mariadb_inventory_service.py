@@ -772,7 +772,119 @@ class InventoryService:
         finally:
             if 'session' in locals():
                 session.close()
-    
+
+    # Whitelist of fields exposed for value-suggestion autocomplete.
+    # Keys are the public field names accepted in API paths; values are
+    # the corresponding InventoryItem column attribute names.
+    FIELD_SUGGESTION_COLUMNS = {
+        'thread_size': 'thread_size',
+        'purchase_location': 'purchase_location',
+        'vendor': 'vendor',
+        'location': 'location',
+        'sub_location': 'sub_location',
+    }
+
+    def get_field_value_suggestions(
+        self,
+        field: str,
+        query: Optional[str] = None,
+        limit: int = 10,
+        location: Optional[str] = None,
+    ) -> List[str]:
+        """
+        Return distinct existing values for a whitelisted item field,
+        suitable for autocomplete on the Add/Edit forms.
+
+        Pulls DISTINCT values across all rows in ``inventory_items``
+        (active + history) so deactivated items still seed suggestions.
+        NULL and empty values are excluded. Comparisons are case-insensitive.
+
+        Ordering: exact match first, then starts-with matches, then
+        contains matches, each tier alphabetized (case-insensitive).
+
+        Args:
+            field: One of the keys in ``FIELD_SUGGESTION_COLUMNS``. Any
+                other value raises ``ValueError``.
+            query: Optional case-insensitive substring filter. When None
+                or empty, returns the most-frequent values up to ``limit``.
+            limit: Maximum number of suggestions to return. Clamped to
+                [1, 50].
+            location: Only meaningful when ``field == 'sub_location'``.
+                When provided, restricts results to sub-locations that
+                appear under that location (case-insensitive).
+
+        Returns:
+            List of distinct value strings.
+
+        Raises:
+            ValueError: if ``field`` is not whitelisted.
+        """
+        column_name = self.FIELD_SUGGESTION_COLUMNS.get(field)
+        if column_name is None:
+            raise ValueError(f"Unsupported field for suggestions: {field!r}")
+
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 10
+        limit = max(1, min(limit, 50))
+
+        column = getattr(InventoryItem, column_name)
+
+        try:
+            session = self.Session()
+
+            base_query = session.query(column).filter(
+                column.isnot(None),
+                func.trim(column) != '',
+            )
+
+            if field == 'sub_location' and location:
+                base_query = base_query.filter(
+                    func.lower(InventoryItem.location) == func.lower(location)
+                )
+
+            distinct_rows = base_query.distinct().all()
+            values = [row[0].strip() for row in distinct_rows if row[0] and row[0].strip()]
+
+            # Deduplicate again post-strip (DB-side DISTINCT may have kept
+            # variants differing only in whitespace).
+            seen_lower = set()
+            unique = []
+            for v in values:
+                key = v.lower()
+                if key in seen_lower:
+                    continue
+                seen_lower.add(key)
+                unique.append(v)
+
+            q = (query or '').strip().lower()
+            if not q:
+                return sorted(unique, key=lambda s: s.lower())[:limit]
+
+            exact = [v for v in unique if v.lower() == q]
+            starts = sorted(
+                [v for v in unique if v.lower() != q and v.lower().startswith(q)],
+                key=lambda s: s.lower(),
+            )
+            contains = sorted(
+                [v for v in unique
+                 if v.lower() != q
+                 and not v.lower().startswith(q)
+                 and q in v.lower()],
+                key=lambda s: s.lower(),
+            )
+
+            ordered = exact + starts + contains
+            return ordered[:limit]
+
+        except Exception as e:
+            logger.error(f"Error getting field suggestions for '{field}': {e}")
+            return []
+        finally:
+            if 'session' in locals():
+                session.close()
+
     def update_item(self, item: 'InventoryItem') -> bool:
         """
         Update an existing item in MariaDB

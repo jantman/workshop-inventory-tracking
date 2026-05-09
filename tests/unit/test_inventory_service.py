@@ -420,6 +420,177 @@ class TestInventoryService:
         """Test error handling for invalid JA_ID operations"""
         result = service.deactivate_item('INVALID_ID')
         assert result is False
-        
+
         result = service.activate_item('INVALID_ID')
         assert result is False
+
+
+class TestFieldValueSuggestions:
+    """Tests for InventoryService.get_field_value_suggestions."""
+
+    @pytest.fixture
+    def service(self, test_storage, app):
+        return InventoryService(test_storage)
+
+    def _make_item(self, ja_id, **overrides):
+        defaults = dict(
+            item_type='Bar',
+            shape='Round',
+            material='Steel',
+            length=100,
+            width=10,
+            location='Shelf A',
+            active=True,
+            precision=False,
+        )
+        defaults.update(overrides)
+        return InventoryItem(ja_id=ja_id, **defaults)
+
+    @pytest.fixture
+    def populated(self, service):
+        # Active items
+        service.add_item(self._make_item(
+            'JA000001',
+            location='Shelf A', sub_location='Top',
+            vendor='McMaster-Carr', purchase_location='McMaster-Carr',
+            thread_size='1/4-20',
+        ))
+        service.add_item(self._make_item(
+            'JA000002',
+            location='Shelf A', sub_location='Bottom',
+            vendor='Online Metals', purchase_location='OnlineMetals.com',
+            thread_size='M10x1.5',
+        ))
+        service.add_item(self._make_item(
+            'JA000003',
+            location='Rack 3', sub_location='Bin 7',
+            vendor='Grainger', purchase_location='Grainger',
+            thread_size='1/2-13',
+        ))
+
+        # Inactive item to confirm history still seeds suggestions
+        service.add_item(self._make_item(
+            'JA000004',
+            location='Old Cabinet', sub_location='Drawer 1',
+            vendor='Discontinued Vendor',
+            purchase_location='Discontinued Place',
+            thread_size='3/8-16',
+        ))
+        service.deactivate_item('JA000004')
+
+        return service
+
+    @pytest.mark.unit
+    def test_unsupported_field_raises(self, service):
+        with pytest.raises(ValueError):
+            service.get_field_value_suggestions('material')
+        with pytest.raises(ValueError):
+            service.get_field_value_suggestions('not_a_field')
+
+    @pytest.mark.unit
+    def test_vendor_suggestions_include_inactive(self, populated):
+        result = populated.get_field_value_suggestions('vendor', limit=20)
+        assert 'McMaster-Carr' in result
+        assert 'Online Metals' in result
+        assert 'Grainger' in result
+        # Inactive item's vendor still seeds suggestions
+        assert 'Discontinued Vendor' in result
+
+    @pytest.mark.unit
+    def test_no_query_returns_alphabetized_distinct(self, populated):
+        result = populated.get_field_value_suggestions('location', limit=20)
+        # Distinct, sorted case-insensitively
+        assert result == sorted(result, key=str.lower)
+        # Distinct
+        assert len(result) == len(set(v.lower() for v in result))
+        assert 'Shelf A' in result  # appears twice in DB but once in result
+        assert 'Rack 3' in result
+        assert 'Old Cabinet' in result
+
+    @pytest.mark.unit
+    def test_query_filters_substring_case_insensitive(self, populated):
+        result = populated.get_field_value_suggestions('vendor', query='metal')
+        assert 'Online Metals' in result
+        assert 'McMaster-Carr' not in result
+
+    @pytest.mark.unit
+    def test_exact_match_first_then_starts_then_contains(self, populated):
+        # Add a few overlapping entries to exercise ordering
+        populated.add_item(self._make_item(
+            'JA000010', vendor='Steel', location='Shelf X',
+        ))
+        populated.add_item(self._make_item(
+            'JA000011', vendor='Steel Supply', location='Shelf Y',
+        ))
+        populated.add_item(self._make_item(
+            'JA000012', vendor='Acme Steel Inc', location='Shelf Z',
+        ))
+
+        result = populated.get_field_value_suggestions('vendor', query='steel')
+        # Exact match should come first
+        assert result[0] == 'Steel'
+        # Then starts-with
+        assert result[1] == 'Steel Supply'
+        # Then contains
+        assert result[2] == 'Acme Steel Inc'
+
+    @pytest.mark.unit
+    def test_limit_clamping(self, populated, service):
+        # Use an empty service so we control the corpus
+        for i in range(60):
+            service.add_item(self._make_item(
+                f'JA{200 + i:06d}', vendor=f'Vendor-{i:02d}'
+            ))
+        result = service.get_field_value_suggestions('vendor', limit=999)
+        assert len(result) == 50  # clamped to 50
+
+        result_zero = service.get_field_value_suggestions('vendor', limit=0)
+        assert len(result_zero) == 1  # clamped to 1
+
+    @pytest.mark.unit
+    def test_empty_and_whitespace_values_excluded(self, service):
+        service.add_item(self._make_item('JA000050', vendor='Real Vendor'))
+        # Item without vendor (None) — should not pollute suggestions
+        service.add_item(self._make_item('JA000051'))
+        result = service.get_field_value_suggestions('vendor')
+        assert result == ['Real Vendor']
+
+    @pytest.mark.unit
+    def test_sub_location_filtered_by_location(self, populated):
+        # Without filter: includes all sub-locations
+        unfiltered = populated.get_field_value_suggestions('sub_location', limit=20)
+        assert 'Top' in unfiltered
+        assert 'Bin 7' in unfiltered
+        assert 'Drawer 1' in unfiltered
+
+        # Scoped to "Shelf A" only
+        scoped = populated.get_field_value_suggestions(
+            'sub_location', location='Shelf A', limit=20
+        )
+        assert 'Top' in scoped
+        assert 'Bottom' in scoped
+        assert 'Bin 7' not in scoped
+        assert 'Drawer 1' not in scoped
+
+    @pytest.mark.unit
+    def test_sub_location_location_filter_case_insensitive(self, populated):
+        scoped = populated.get_field_value_suggestions(
+            'sub_location', location='shelf a', limit=20
+        )
+        assert 'Top' in scoped
+        assert 'Bottom' in scoped
+
+    @pytest.mark.unit
+    def test_thread_size_field(self, populated):
+        result = populated.get_field_value_suggestions('thread_size', limit=20)
+        assert '1/4-20' in result
+        assert 'M10x1.5' in result
+        assert '1/2-13' in result
+        assert '3/8-16' in result
+
+    @pytest.mark.unit
+    def test_purchase_location_field(self, populated):
+        result = populated.get_field_value_suggestions(
+            'purchase_location', query='mc'
+        )
+        assert any('McMaster' in v for v in result)
