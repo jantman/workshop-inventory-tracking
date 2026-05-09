@@ -432,10 +432,10 @@ constraint in mind:
 - Do not import anything from the rest of the `app` package or from
   the application's models. Stay on stdlib + `requests`.
 - Public surface (`WorkshopInventoryClient`, `CreateItemResult`,
-  `UploadPhotoResult`) is exported via `__all__`. Treat it as the
-  contract — adding fields to the result dataclasses is fine, but
-  renaming or removing them is a breaking change for any vendored
-  copy.
+  `UploadPhotoResult`, `FieldSuggestionsResult`, `SUGGESTABLE_FIELDS`)
+  is exported via `__all__`. Treat it as the contract — adding fields
+  to the result dataclasses is fine, but renaming or removing them is
+  a breaking change for any vendored copy.
 - Unit tests live in `tests/unit/test_api_client.py` and mock
   `requests.Session` directly so they run offline. End-to-end tests
   in `tests/e2e/test_api_client.py` exercise the client against the

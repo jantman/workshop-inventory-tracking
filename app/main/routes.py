@@ -1150,6 +1150,52 @@ def material_suggestions():
         }), 500
 
 
+@bp.route('/api/inventory/field-suggestions/<field>')
+def inventory_field_suggestions(field):
+    """Return distinct existing values for a whitelisted item field.
+
+    Used by the Add/Edit Item forms to autocomplete free-form fields
+    (Thread Size, Purchase Location, Vendor, Location, Sub-Location).
+    """
+    query = request.args.get('q', '').strip()
+    limit_raw = request.args.get('limit', '10')
+    location = request.args.get('location', '').strip() or None
+
+    try:
+        limit = int(limit_raw)
+    except (ValueError, TypeError):
+        limit = 10
+    limit = min(max(limit, 1), 50)
+
+    try:
+        service = _get_inventory_service()
+        suggestions = service.get_field_value_suggestions(
+            field,
+            query=query or None,
+            limit=limit,
+            location=location,
+        )
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 400
+    except Exception as e:
+        current_app.logger.error(
+            f'Error getting field suggestions for "{field}": {e}'
+        )
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get field suggestions',
+        }), 500
+
+    return jsonify({
+        'success': True,
+        'field': field,
+        'suggestions': suggestions,
+    })
+
+
 @bp.route('/api/materials/hierarchy')
 def materials_hierarchy():
     """Get hierarchical materials taxonomy (for testing)"""

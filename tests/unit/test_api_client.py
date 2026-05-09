@@ -14,6 +14,8 @@ import requests
 
 from app.api_client import (
     CreateItemResult,
+    FieldSuggestionsResult,
+    SUGGESTABLE_FIELDS,
     UploadPhotoResult,
     WorkshopInventoryClient,
 )
@@ -308,3 +310,158 @@ class TestSession:
         s = requests.Session()
         c = WorkshopInventoryClient('http://example.test', session=s)
         assert c.session is s
+
+
+class TestGetFieldSuggestions:
+    def test_success_no_query(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True,
+            'field': 'vendor',
+            'suggestions': ['Acme', 'McMaster-Carr'],
+        })
+
+        result = client.get_field_suggestions('vendor')
+
+        assert isinstance(result, FieldSuggestionsResult)
+        assert result.success is True
+        assert result.field == 'vendor'
+        assert result.suggestions == ['Acme', 'McMaster-Carr']
+        assert result.errors == []
+        assert result.http_status == 200
+
+        call_args = session.get.call_args
+        assert call_args.args[0] == (
+            'http://example.test/api/inventory/field-suggestions/vendor'
+        )
+        # Limit always sent; no q/location when not provided.
+        assert call_args.kwargs['params'] == {'limit': 10}
+
+    def test_success_with_query_and_limit(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True,
+            'field': 'vendor',
+            'suggestions': ['McMaster-Carr'],
+        })
+
+        result = client.get_field_suggestions('vendor', query='mc', limit=5)
+
+        assert result.success is True
+        assert result.suggestions == ['McMaster-Carr']
+        params = session.get.call_args.kwargs['params']
+        assert params == {'q': 'mc', 'limit': 5}
+
+    def test_sub_location_with_location_filter(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True,
+            'field': 'sub_location',
+            'suggestions': ['Top', 'Bottom'],
+        })
+
+        result = client.get_field_suggestions(
+            'sub_location', location='Shelf A'
+        )
+
+        assert result.success is True
+        params = session.get.call_args.kwargs['params']
+        assert params['location'] == 'Shelf A'
+
+    def test_unknown_field_returns_failure(self, client, session):
+        session.get.return_value = _mock_response(400, {
+            'success': False,
+            'error': "Unsupported field for suggestions: 'material'",
+        })
+
+        result = client.get_field_suggestions('material')
+
+        assert result.success is False
+        assert result.http_status == 400
+        assert result.suggestions == []
+        assert len(result.errors) == 1
+        assert 'material' in result.errors[0]['message']
+
+    def test_http_error_always_reports_failure(self, client, session):
+        session.get.return_value = _mock_response(500, {
+            'success': True,
+            'field': 'vendor',
+            'suggestions': ['ignored'],
+        })
+
+        result = client.get_field_suggestions('vendor')
+
+        assert result.success is False
+        assert result.http_status == 500
+        assert result.suggestions == []
+
+    def test_non_json_response_returns_failure(self, client, session):
+        session.get.return_value = _mock_response(502, None, text='Bad Gateway')
+
+        result = client.get_field_suggestions('vendor')
+
+        assert result.success is False
+        assert result.http_status == 502
+        assert result.suggestions == []
+
+    def test_connection_error_propagates(self, client, session):
+        session.get.side_effect = requests.ConnectionError('refused')
+        with pytest.raises(requests.ConnectionError):
+            client.get_field_suggestions('vendor')
+
+    def test_empty_query_not_sent(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'field': 'vendor', 'suggestions': []
+        })
+        client.get_field_suggestions('vendor', query='')
+        params = session.get.call_args.kwargs['params']
+        assert 'q' not in params
+
+    def test_non_int_limit_falls_back_to_default(self, client, session):
+        # Client contract: only network failures raise. A non-int
+        # limit must not raise locally — it falls back to the default
+        # so the server's HTTP error path is what callers see.
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'field': 'vendor', 'suggestions': []
+        })
+        client.get_field_suggestions('vendor', limit='oops')
+        assert session.get.call_args.kwargs['params']['limit'] == 10
+
+        session.get.reset_mock()
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'field': 'vendor', 'suggestions': []
+        })
+        client.get_field_suggestions('vendor', limit=None)
+        assert session.get.call_args.kwargs['params']['limit'] == 10
+
+    def test_suggestable_fields_constant_exposed(self):
+        assert 'thread_size' in SUGGESTABLE_FIELDS
+        assert 'sub_location' in SUGGESTABLE_FIELDS
+        assert 'vendor' in SUGGESTABLE_FIELDS
+        assert 'location' in SUGGESTABLE_FIELDS
+        assert 'purchase_location' in SUGGESTABLE_FIELDS
+        assert 'material' not in SUGGESTABLE_FIELDS
+
+    def test_field_path_segment_is_url_encoded_in_endpoint(self, client, session):
+        # Server only ever sees whitelisted simple identifiers in
+        # practice, but the client must still construct the URL safely
+        # if a caller passes garbage. Spaces become %20, special chars
+        # are percent-encoded.
+        session.get.return_value = _mock_response(400, {
+            'success': False, 'error': 'Unsupported field'
+        })
+        client.get_field_suggestions('not a field')
+        url = session.get.call_args.args[0]
+        assert (
+            url
+            == 'http://example.test/api/inventory/field-suggestions/not%20a%20field'
+        )
+
+        session.get.reset_mock()
+        session.get.return_value = _mock_response(400, {
+            'success': False, 'error': 'Unsupported field'
+        })
+        client.get_field_suggestions('a/b?c')
+        url = session.get.call_args.args[0]
+        # Slash, query-marker, and other reserved chars must be encoded.
+        assert (
+            url
+            == 'http://example.test/api/inventory/field-suggestions/a%2Fb%3Fc'
+        )

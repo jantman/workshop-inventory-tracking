@@ -1648,3 +1648,146 @@ class TestFormAddItemRouteAfterRefactor:
         assert data['success'] is True
         assert data['count'] == 2
         assert len(data['ja_ids']) == 2
+
+
+class TestFieldSuggestionsRoute:
+    """Tests for GET /api/inventory/field-suggestions/<field>."""
+
+    @pytest.fixture
+    def app(self, test_storage):
+        from app import create_app
+        from tests.test_config import TestConfig
+        app = create_app(TestConfig, storage_backend=test_storage)
+        return app
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    @pytest.fixture(autouse=True)
+    def _no_material_taxonomy(self, monkeypatch):
+        monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: [])
+
+    @pytest.fixture
+    def populated(self, app):
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        with app.app_context():
+            service = InventoryService(app.config['STORAGE_BACKEND'])
+            service.add_item(InventoryItem(
+                ja_id='JA000001', item_type='Bar', shape='Round',
+                material='Steel', length=100, width=10,
+                location='Shelf A', sub_location='Top',
+                vendor='McMaster-Carr', purchase_location='McMaster-Carr',
+                thread_size='1/4-20', active=True, precision=False,
+            ))
+            service.add_item(InventoryItem(
+                ja_id='JA000002', item_type='Bar', shape='Round',
+                material='Steel', length=100, width=10,
+                location='Shelf A', sub_location='Bottom',
+                vendor='Online Metals', purchase_location='OnlineMetals.com',
+                thread_size='M10x1.5', active=True, precision=False,
+            ))
+            service.add_item(InventoryItem(
+                ja_id='JA000003', item_type='Bar', shape='Round',
+                material='Steel', length=100, width=10,
+                location='Rack 3', sub_location='Bin 7',
+                vendor='Grainger', purchase_location='Grainger',
+                thread_size='1/2-13', active=True, precision=False,
+            ))
+        return app
+
+    def test_unknown_field_returns_400(self, client):
+        response = client.get('/api/inventory/field-suggestions/material')
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body['success'] is False
+        assert 'material' in body['error']
+
+    def test_vendor_suggestions(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/vendor')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['success'] is True
+        assert body['field'] == 'vendor'
+        assert 'McMaster-Carr' in body['suggestions']
+        assert 'Online Metals' in body['suggestions']
+        assert 'Grainger' in body['suggestions']
+
+    def test_query_filters_results(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/vendor?q=metal')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert 'Online Metals' in body['suggestions']
+        assert 'McMaster-Carr' not in body['suggestions']
+
+    def test_limit_clamping(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/vendor?limit=999')
+        assert response.status_code == 200
+        body = response.get_json()
+        # Only 3 vendors seeded, so length is bounded by data, not limit.
+        # We just confirm the endpoint accepts an out-of-range limit.
+        assert len(body['suggestions']) <= 50
+
+    def test_invalid_limit_falls_back_to_default(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/vendor?limit=abc')
+        assert response.status_code == 200
+
+    def test_sub_location_filtered_by_location(self, client, populated):
+        response = client.get(
+            '/api/inventory/field-suggestions/sub_location?location=Shelf%20A'
+        )
+        assert response.status_code == 200
+        body = response.get_json()
+        assert 'Top' in body['suggestions']
+        assert 'Bottom' in body['suggestions']
+        assert 'Bin 7' not in body['suggestions']
+
+    def test_sub_location_unfiltered(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/sub_location')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert 'Top' in body['suggestions']
+        assert 'Bin 7' in body['suggestions']
+
+    def test_thread_size_field(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/thread_size')
+        body = response.get_json()
+        assert response.status_code == 200
+        assert '1/4-20' in body['suggestions']
+        assert 'M10x1.5' in body['suggestions']
+
+    def test_purchase_location_field(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/purchase_location')
+        body = response.get_json()
+        assert response.status_code == 200
+        assert 'McMaster-Carr' in body['suggestions']
+
+    def test_location_field(self, client, populated):
+        response = client.get('/api/inventory/field-suggestions/location')
+        body = response.get_json()
+        assert response.status_code == 200
+        assert 'Shelf A' in body['suggestions']
+        assert 'Rack 3' in body['suggestions']
+
+    def test_backend_failure_returns_500_not_empty_200(
+        self, client, populated, monkeypatch
+    ):
+        # Documented contract: backend failures surface as HTTP 500.
+        # The service must NOT swallow exceptions and return [], which
+        # would silently turn a backend failure into a successful-looking
+        # 200 with an empty suggestion list.
+        from app.mariadb_inventory_service import InventoryService
+
+        def boom(self, *args, **kwargs):
+            raise RuntimeError('simulated database failure')
+
+        monkeypatch.setattr(
+            InventoryService, 'get_field_value_suggestions', boom
+        )
+
+        response = client.get('/api/inventory/field-suggestions/vendor')
+        assert response.status_code == 500
+        body = response.get_json()
+        assert body['success'] is False
+        assert 'error' in body

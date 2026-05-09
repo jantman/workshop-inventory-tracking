@@ -87,7 +87,14 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 - **Submit Code**: Scan ">>DONE<<" barcode to submit form
 
 ### Form Features
-- **Auto-complete**: Previous entries suggest values as you type
+- **Auto-complete**: Previous entries suggest values as you type. The
+  Thread Size, Purchase Location, Vendor, Location, and Sub-Location
+  fields show database-backed suggestions in a dropdown when focused
+  or typed into. Sub-Location suggestions are scoped to the currently
+  entered Location. Material has its own taxonomy-backed selector.
+  Programmatic clients can pull the same lists via the
+  [`/api/inventory/field-suggestions/<field>`](#get-apiinventoryfield-suggestionsfield)
+  endpoint.
 - **Auto-save**: Form data is preserved if page refreshes
 - **Validation**: Real-time feedback on field formats
 
@@ -1096,13 +1103,91 @@ request with the file in either a `file` or `photo` field. Returns
 `{success, photo, message}` on success; 400 on bad input; 500 on
 storage failure.
 
+### `GET /api/inventory/field-suggestions/<field>`
+
+Return distinct existing values currently recorded for a free-form
+inventory field. Powers the database-backed autocomplete on the Add
+and Edit Item forms; available for programmatic clients too.
+
+Suggestions are pulled from **all rows** in `inventory_items`,
+including inactive (history) rows, so deactivated items still seed
+suggestions. Empty/whitespace values are excluded. Comparisons are
+case-insensitive throughout.
+
+#### Path parameter — `<field>`
+
+Must be one of the following whitelisted field names. Any other value
+returns 400.
+
+| Field               | Description |
+|---------------------|-------------|
+| `thread_size`       | Thread designation (e.g. `1/4-20`, `M10x1.5`). |
+| `purchase_location` | Where items were purchased (vendor location, store name). |
+| `vendor`            | Vendor name. |
+| `location`          | Physical location label. |
+| `sub_location`      | Sub-location within a location. |
+
+Material is intentionally excluded — it has its own taxonomy-backed
+endpoint at `/api/materials/suggestions`.
+
+#### Query parameters
+
+| Parameter  | Type    | Description |
+|------------|---------|-------------|
+| `q`        | string  | Optional case-insensitive substring filter. When omitted, returns distinct values in alphabetical order up to `limit`. |
+| `limit`    | integer | Maximum number of suggestions. Clamped to `[1, 50]`; defaults to 10. |
+| `location` | string  | Only meaningful when `<field>` is `sub_location`. Restricts results to sub-locations recorded under the given location (case-insensitive). Ignored for other fields. |
+
+#### Ordering
+
+Returned in this priority order:
+
+1. Exact case-insensitive match (at most one entry).
+2. Starts-with matches, alphabetized.
+3. Substring matches, alphabetized.
+
+When `q` is omitted, results are alphabetized.
+
+#### Response
+
+```json
+{
+  "success": true,
+  "field": "vendor",
+  "suggestions": ["Grainger", "McMaster-Carr", "Online Metals"]
+}
+```
+
+#### Status codes
+
+- `200 OK` — suggestions returned (possibly empty list when nothing matches).
+- `400 Bad Request` — `<field>` is not whitelisted.
+- `500 Internal Server Error` — unexpected backend failure.
+
+#### Example
+
+```
+GET /api/inventory/field-suggestions/sub_location?location=Shelf%20A&limit=5
+```
+
+Returns sub-locations currently recorded under Location "Shelf A":
+
+```json
+{
+  "success": true,
+  "field": "sub_location",
+  "suggestions": ["Bottom Bin", "Top Bin"]
+}
+```
+
 ### Python client
 
 A standalone Python client lives at `app/api_client.py`. It depends
 only on the `requests` library and exposes a `WorkshopInventoryClient`
-class with `create_item(...)` and `upload_photo(...)` methods. The
-client can be copied or vendored into other projects without pulling
-in any of the application's runtime dependencies.
+class with `create_item(...)`, `upload_photo(...)`, and
+`get_field_suggestions(...)` methods. The client can be copied or
+vendored into other projects without pulling in any of the
+application's runtime dependencies.
 
 ```python
 from app.api_client import WorkshopInventoryClient
@@ -1122,13 +1207,27 @@ print(result.created_ja_ids, result.errors)
 
 ja_id = result.created_ja_ids[0]
 photo = client.upload_photo(ja_id, file_path="part.jpg")
+
+# Field-suggestion autocomplete:
+vendors = client.get_field_suggestions("vendor", query="mc")
+print(vendors.suggestions)  # e.g. ["McMaster-Carr"]
+
+# Sub-location scoped to a Location:
+subs = client.get_field_suggestions(
+    "sub_location", location="Shelf A", limit=20
+)
+print(subs.suggestions)
 ```
 
-`create_item` and `upload_photo` return frozen dataclasses
-(`CreateItemResult`, `UploadPhotoResult`) carrying the parsed
-response. Network errors raise `requests.RequestException`; HTTP
-errors (4xx/5xx) populate the result's `errors` list and set
-`success=False` rather than raising.
+`create_item`, `upload_photo`, and `get_field_suggestions` return
+frozen dataclasses (`CreateItemResult`, `UploadPhotoResult`,
+`FieldSuggestionsResult`) carrying the parsed response. Network errors
+raise `requests.RequestException`; HTTP errors (4xx/5xx) populate the
+result's `errors` list and set `success=False` rather than raising.
+
+The constant `SUGGESTABLE_FIELDS` (a tuple of the five whitelisted
+field names) is exported alongside the client for callers who want to
+validate field names before issuing a request.
 
 ## Help and Utilities
 

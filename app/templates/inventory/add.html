@@ -187,7 +187,11 @@
                     <div class="row">
                         <div class="col-md-4 mb-3">
                             <label for="thread_size" class="form-label">Thread Size</label>
-                            <input type="text" class="form-control" id="thread_size" name="thread_size">
+                            <div class="position-relative">
+                                <input type="text" class="form-control" id="thread_size" name="thread_size" autocomplete="off">
+                                <div id="thread_size-suggestions" class="dropdown-menu position-absolute w-100"
+                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            </div>
                         </div>
 
                         <div class="col-md-4 mb-3">
@@ -235,17 +239,25 @@
                 <div class="card-body">
                     <div class="mb-3">
                         <label for="location" class="form-label">Location *</label>
-                        <input type="text" class="form-control" id="location" name="location"
-                               required>
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="location" name="location"
+                                   required autocomplete="off">
+                            <div id="location-suggestions" class="dropdown-menu position-absolute w-100"
+                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                        </div>
                         <div class="invalid-feedback">
                             Please enter a location
                         </div>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="sub_location" class="form-label">Sub-Location</label>
-                        <input type="text" class="form-control" id="sub_location" name="sub_location" 
-                               >
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="sub_location" name="sub_location"
+                                   autocomplete="off">
+                            <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100"
+                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -272,14 +284,22 @@
                     
                     <div class="mb-3">
                         <label for="purchase_location" class="form-label">Purchase Location</label>
-                        <input type="text" class="form-control" id="purchase_location" name="purchase_location" 
-                               >
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="purchase_location" name="purchase_location"
+                                   autocomplete="off">
+                            <div id="purchase_location-suggestions" class="dropdown-menu position-absolute w-100"
+                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                        </div>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="vendor" class="form-label">Vendor</label>
-                        <input type="text" class="form-control" id="vendor" name="vendor" 
-                               >
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="vendor" name="vendor"
+                                   autocomplete="off">
+                            <div id="vendor-suggestions" class="dropdown-menu position-absolute w-100"
+                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                        </div>
                     </div>
                     
                     <div class="mb-3">
@@ -346,6 +366,7 @@ window.validMaterials = {{ valid_materials | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
 <script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/inventory-add.js') }}"></script>
 <script>

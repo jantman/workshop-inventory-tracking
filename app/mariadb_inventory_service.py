@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, and_, desc, asc, func
+from sqlalchemy import create_engine, and_, desc, asc, func, case
 
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
@@ -772,7 +772,144 @@ class InventoryService:
         finally:
             if 'session' in locals():
                 session.close()
-    
+
+    # Whitelist of fields exposed for value-suggestion autocomplete.
+    # Keys are the public field names accepted in API paths; values are
+    # the corresponding InventoryItem column attribute names.
+    FIELD_SUGGESTION_COLUMNS = {
+        'thread_size': 'thread_size',
+        'purchase_location': 'purchase_location',
+        'vendor': 'vendor',
+        'location': 'location',
+        'sub_location': 'sub_location',
+    }
+
+    def get_field_value_suggestions(
+        self,
+        field: str,
+        query: Optional[str] = None,
+        limit: int = 10,
+        location: Optional[str] = None,
+    ) -> List[str]:
+        """
+        Return distinct existing values for a whitelisted item field,
+        suitable for autocomplete on the Add/Edit forms.
+
+        Pulls DISTINCT values across all rows in ``inventory_items``
+        (active + history) so deactivated items still seed suggestions.
+        NULL and empty values are excluded. Comparisons are case-insensitive.
+
+        Filtering, ordering, and the limit are pushed into SQL so the
+        method only materializes at most ``limit`` rows (plus a small
+        headroom for case-insensitive deduplication).
+
+        Ordering when ``query`` is supplied: exact match first, then
+        starts-with matches, then contains matches, each tier
+        alphabetized (case-insensitive).
+
+        Ordering when ``query`` is omitted: alphabetized
+        (case-insensitive).
+
+        Args:
+            field: One of the keys in ``FIELD_SUGGESTION_COLUMNS``. Any
+                other value raises ``ValueError``.
+            query: Optional case-insensitive substring filter. When None
+                or empty, returns ``limit`` distinct values in
+                alphabetical order.
+            limit: Maximum number of suggestions to return. Clamped to
+                [1, 50].
+            location: Only meaningful when ``field == 'sub_location'``.
+                When provided, restricts results to sub-locations that
+                appear under that location (case-insensitive).
+
+        Returns:
+            List of distinct value strings.
+
+        Raises:
+            ValueError: if ``field`` is not whitelisted.
+        """
+        column_name = self.FIELD_SUGGESTION_COLUMNS.get(field)
+        if column_name is None:
+            raise ValueError(f"Unsupported field for suggestions: {field!r}")
+
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 10
+        limit = max(1, min(limit, 50))
+
+        column = getattr(InventoryItem, column_name)
+        q = (query or '').strip().lower()
+
+        # Escape user-supplied LIKE wildcards so a query like "10%"
+        # doesn't act as a wildcard. SQLAlchemy's like() takes an
+        # escape character we declare here.
+        def _escape_like(s: str) -> str:
+            return (
+                s.replace('\\', '\\\\')
+                .replace('%', '\\%')
+                .replace('_', '\\_')
+            )
+
+        # Note: unexpected exceptions are intentionally not swallowed
+        # here. The route wrapper catches Exception and returns HTTP
+        # 500 with the documented error response; swallowing here would
+        # silently convert a backend failure into a 200 with an empty
+        # suggestion list, breaking the documented status-code contract.
+        session = self.Session()
+        try:
+            base = session.query(column).filter(
+                column.isnot(None),
+                func.trim(column) != '',
+            )
+
+            if field == 'sub_location' and location:
+                base = base.filter(
+                    func.lower(InventoryItem.location) == func.lower(location)
+                )
+
+            if q:
+                pattern = f'%{_escape_like(q)}%'
+                base = base.filter(
+                    func.lower(column).like(pattern, escape='\\')
+                )
+                rank = case(
+                    (func.lower(column) == q, 0),
+                    (func.lower(column).like(
+                        f'{_escape_like(q)}%', escape='\\'
+                    ), 1),
+                    else_=2,
+                )
+                base = base.order_by(rank, func.lower(column))
+            else:
+                base = base.order_by(func.lower(column))
+
+            # Over-fetch slightly to give the post-DB case-insensitive
+            # dedup pass headroom: the DB DISTINCT depends on the
+            # column's collation, so two values differing only in case
+            # may both reach Python.
+            fetch_limit = limit * 3 + 10
+            rows = base.distinct().limit(fetch_limit).all()
+            values = [
+                row[0].strip()
+                for row in rows
+                if row[0] and row[0].strip()
+            ]
+
+            seen_lower = set()
+            unique = []
+            for v in values:
+                key = v.lower()
+                if key in seen_lower:
+                    continue
+                seen_lower.add(key)
+                unique.append(v)
+
+            return unique[:limit]
+
+        finally:
+            session.close()
+
     def update_item(self, item: 'InventoryItem') -> bool:
         """
         Update an existing item in MariaDB

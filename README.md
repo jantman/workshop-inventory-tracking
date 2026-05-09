@@ -16,7 +16,7 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 - **Barcode Scanner Integration**: Keyboard wedge barcode scanner support across all workflows
 - **Advanced Search & Filtering**: Range queries, compound filters, CSV export, and URL bookmarking
 - **Item History API**: RESTful endpoints for accessing complete item modification history
-- **REST API for Item Creation**: JSON endpoint for creating items programmatically, plus a standalone Python client (`app/api_client.py`) with only `requests` as a dependency
+- **REST API for Item Creation and Autocomplete**: JSON endpoints for creating items and querying autocomplete suggestions for free-form fields (thread size, purchase location, vendor, location, sub-location), plus a standalone Python client (`app/api_client.py`) with only `requests` as a dependency
 - **Thread System Management**: Standardized thread formats with semantic validation
 - **Professional UI/UX**: Bootstrap 5.3.2 responsive interface with 15+ keyboard shortcuts
 - **Performance Optimization**: Caching, batch operations, and monitoring capabilities
