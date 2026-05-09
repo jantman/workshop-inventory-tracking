@@ -70,3 +70,10 @@ Suggestions are returned in this priority order: exact match → starts-with mat
 2. Sub-location suggestions filter by the currently-entered Location.
 3. The endpoint is reachable, documented, exercised by `api_client.py`, and covered by unit + e2e tests.
 4. Full unit + e2e suites pass.
+
+## Progress
+
+- ✅ **AC-1: Backend API** — `GET /api/inventory/field-suggestions/<field>` with `InventoryService.get_field_value_suggestions()`. 21 new unit tests.
+- ✅ **AC-2: Frontend autocomplete** — `app/static/js/field-autocomplete.js` wired to all five inputs on Add and Edit forms.
+- ✅ **AC-3: API client + e2e** — `WorkshopInventoryClient.get_field_suggestions()` with `FieldSuggestionsResult`. 11 new client unit tests, 9 new e2e tests (2 API-level, 7 form-level).
+- ✅ **AC-4: Documentation and final test pass** — REST API section in `docs/user-manual.md` documents the new endpoint and Python-client method; the form-features reference notes which fields autocomplete; `README.md` headline updated; `docs/development-testing-guide.md` updated for the expanded api-client public surface. Full unit suite green (340 tests). Full e2e suite green (297 passed, 1 skipped, 0 failed; ~17min runtime).
