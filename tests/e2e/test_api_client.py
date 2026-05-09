@@ -119,6 +119,102 @@ class TestApiClientCreateItem:
 
 
 @pytest.mark.e2e
+class TestApiClientFieldSuggestions:
+    def test_field_suggestions_round_trip(self, client, live_server):
+        # Seed three items with distinct vendor / location / sub-location
+        # / thread_size values, then read them back through the client.
+        # The form parser only persists thread_size when thread_series
+        # is also present — match that contract here.
+        for idx, payload in enumerate([
+            {
+                'item_type': 'Threaded Rod', 'shape': 'Round',
+                'material': 'Steel', 'location': 'Suggest Shelf',
+                'sub_location': 'Top Bin',
+                'vendor': 'McMaster-Carr',
+                'purchase_location': 'McMaster-Carr',
+                'thread_series': 'UNC', 'thread_size': '1/4-20',
+                'length': 100, 'active': True,
+            },
+            {
+                'item_type': 'Threaded Rod', 'shape': 'Round',
+                'material': 'Steel', 'location': 'Suggest Shelf',
+                'sub_location': 'Bottom Bin',
+                'vendor': 'Online Metals',
+                'purchase_location': 'OnlineMetals.com',
+                'thread_series': 'Metric', 'thread_size': 'M10x1.5',
+                'length': 100, 'active': True,
+            },
+            {
+                'item_type': 'Threaded Rod', 'shape': 'Round',
+                'material': 'Steel', 'location': 'Suggest Rack',
+                'sub_location': 'Slot A',
+                'vendor': 'Grainger',
+                'purchase_location': 'Grainger',
+                'thread_series': 'UNC', 'thread_size': '1/2-13',
+                'length': 100, 'active': True,
+            },
+        ]):
+            create = client.create_item(payload)
+            assert create.success is True, create.errors
+
+        # vendor — no query
+        result = client.get_field_suggestions('vendor')
+        assert result.success is True, result.errors
+        assert result.field == 'vendor'
+        assert 'McMaster-Carr' in result.suggestions
+        assert 'Online Metals' in result.suggestions
+        assert 'Grainger' in result.suggestions
+
+        # vendor — substring filter
+        result = client.get_field_suggestions('vendor', query='metal')
+        assert result.success is True
+        assert any('Metal' in s for s in result.suggestions)
+        assert 'McMaster-Carr' not in result.suggestions
+
+        # location — distinct values
+        result = client.get_field_suggestions('location')
+        assert result.success is True
+        assert 'Suggest Shelf' in result.suggestions
+        assert 'Suggest Rack' in result.suggestions
+
+        # sub_location — unscoped sees all
+        result = client.get_field_suggestions('sub_location')
+        assert result.success is True
+        assert 'Top Bin' in result.suggestions
+        assert 'Bottom Bin' in result.suggestions
+        assert 'Slot A' in result.suggestions
+
+        # sub_location — scoped to "Suggest Shelf"
+        result = client.get_field_suggestions(
+            'sub_location', location='Suggest Shelf'
+        )
+        assert result.success is True
+        assert 'Top Bin' in result.suggestions
+        assert 'Bottom Bin' in result.suggestions
+        assert 'Slot A' not in result.suggestions
+
+        # thread_size
+        result = client.get_field_suggestions('thread_size')
+        assert result.success is True
+        assert '1/4-20' in result.suggestions
+        assert 'M10x1.5' in result.suggestions
+
+        # purchase_location
+        result = client.get_field_suggestions(
+            'purchase_location', query='Online'
+        )
+        assert result.success is True
+        assert any('Online' in s for s in result.suggestions)
+
+    def test_unknown_field_400(self, client):
+        result = client.get_field_suggestions('material')
+        assert result.success is False
+        assert result.http_status == 400
+        assert result.suggestions == []
+        assert any('material' in err.get('message', '') for err in result.errors)
+
+
+@pytest.mark.e2e
 class TestApiClientUploadPhoto:
     def test_upload_photo_for_existing_item(self, client, live_server, sample_image_path):
         create_result = client.create_item({
