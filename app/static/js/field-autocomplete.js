@@ -153,6 +153,12 @@
                     e.preventDefault();
                     this.selectValue(a.dataset.value);
                 });
+                // Belt-and-suspenders: even when mousedown ran, a click
+                // event still fires on the anchor afterward and would
+                // otherwise navigate to "#" (jumping the page to top).
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                });
                 this.dropdown.appendChild(a);
             });
             this.dropdown.style.display = 'block';
