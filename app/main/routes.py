@@ -733,6 +733,7 @@ def inventory_edit(ja_id):
         return redirect(url_for('main.inventory_list'))
 
 @bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])
+@csrf.exempt
 def duplicate_item(ja_id):
     """Duplicate an inventory item N times with sequential JA IDs"""
     try:
