@@ -5,11 +5,13 @@ Verifies the formatting of the shared inventory table's "Dimensions" column
 (rendered by formatFullDimensions in item-formatters.js) across both the
 inventory list (/inventory) and advanced search (/inventory/search) views.
 
-Two behaviors are covered:
+Behaviors covered:
   1. The length is NOT duplicated into the Dimensions column (it has its own
      dedicated Length column).
   2. When present and non-zero, the wall thickness is shown as an additional
      dimension.
+  3. The diameter symbol (⌀) is only used for round items; square/hex shapes
+     show the bare width.
 """
 
 import pytest
@@ -84,6 +86,29 @@ DIMENSION_ITEMS = [
         "location": "Test Storage A",
         "active": True,
     },
+    {
+        # Square tube -> width + wall thickness, NO diameter symbol: "2" × 0.188""
+        "ja_id": "JA070006",
+        "item_type": "Tube",
+        "shape": "Square",
+        "material": "Carbon Steel",
+        "length": "60",
+        "width": "2",
+        "wall_thickness": "0.188",
+        "location": "Test Storage A",
+        "active": True,
+    },
+    {
+        # Hex rod -> width across flats only, NO diameter symbol: "0.375""
+        "ja_id": "JA070007",
+        "item_type": "Rod",
+        "shape": "Hex",
+        "material": "Carbon Steel",
+        "length": "12",
+        "width": "0.375",
+        "location": "Test Storage A",
+        "active": True,
+    },
 ]
 
 # Expected Dimensions cell text keyed by JA ID.
@@ -93,6 +118,8 @@ EXPECTED_DIMENSIONS = {
     "JA070003": '3" × 0.5"',
     "JA070004": '8" × 4" × 0.125"',
     "JA070005": '🔩1/2-13 UNC ⌀0.5"',
+    "JA070006": '2" × 0.188"',
+    "JA070007": '0.375"',
 }
 
 # Expected Length cell text keyed by JA ID (length lives in its own column).
@@ -102,6 +129,8 @@ EXPECTED_LENGTH = {
     "JA070003": '24"',
     "JA070004": '72"',
     "JA070005": '36"',
+    "JA070006": '60"',
+    "JA070007": '12"',
 }
 
 

@@ -393,7 +393,7 @@ export class InventoryTable {
         `;
 
         // Dimensions column
-        html += `<td>${formatFullDimensions(item.dimensions, item.item_type, item.thread)}</td>`;
+        html += `<td>${formatFullDimensions(item.dimensions, item.item_type, item.thread, item.shape)}</td>`;
 
         // Length column
         html += `<td class="text-end">${formatDimensions(item.dimensions, item.item_type)}</td>`;
