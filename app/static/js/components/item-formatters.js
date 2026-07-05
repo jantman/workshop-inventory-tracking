@@ -8,22 +8,40 @@
 /**
  * Format full dimensions display including thread info and physical dimensions.
  *
- * @param {Object} dimensions - Dimensions object with length, width, thickness properties
+ * @param {Object} dimensions - Dimensions object with width, thickness and
+ *   wall_thickness properties. (The length property, if present, is ignored here
+ *   because length is rendered in its own dedicated column via formatDimensions.)
  * @param {string} itemType - Type of item (Bar, Tube, etc.) - currently unused but kept for API compatibility
  * @param {Object} thread - Thread object with size, series, handedness properties
+ * @param {string} [shape] - Item shape (Round, Square, Hex, Rectangular, ...).
+ *   The diameter symbol (⌀) is only prepended for round items. When omitted,
+ *   a single-width cross-section defaults to round for backwards compatibility.
  * @returns {string} HTML string with formatted dimensions
  *
  * @example
  * // Round bar with thread
- * formatFullDimensions({length: 12, width: 0.5}, 'Bar', {size: '1/2-13', series: 'UNC'})
- * // Returns: '🔩1/2-13 UNC ⌀0.5" × 12"'
+ * formatFullDimensions({length: 12, width: 0.5}, 'Bar', {size: '1/2-13', series: 'UNC'}, 'Round')
+ * // Returns: '🔩1/2-13 UNC ⌀0.5"'
  *
  * @example
  * // Rectangular plate
- * formatFullDimensions({length: 24, width: 12, thickness: 0.25}, 'Plate', null)
- * // Returns: '12" × 0.25" × 24"'
+ * formatFullDimensions({length: 24, width: 12, thickness: 0.25}, 'Plate', null, 'Rectangular')
+ * // Returns: '12" × 0.25"'
+ *
+ * @example
+ * // Round tube with wall thickness
+ * formatFullDimensions({length: 96, width: 2, wall_thickness: 0.125}, 'Tube', null, 'Round')
+ * // Returns: '⌀2" × 0.125"'
+ *
+ * @example
+ * // Square tube with wall thickness (no diameter symbol)
+ * formatFullDimensions({length: 60, width: 2, wall_thickness: 0.188}, 'Tube', null, 'Square')
+ * // Returns: '2" × 0.188"'
+ *
+ * @note The length is intentionally excluded here; it is shown in its own
+ *       dedicated Length column (see formatDimensions).
  */
-export function formatFullDimensions(dimensions, itemType, thread) {
+export function formatFullDimensions(dimensions, itemType, thread, shape) {
     if (!dimensions) return '<span class="text-muted">-</span>';
 
     const parts = [];
@@ -34,19 +52,31 @@ export function formatFullDimensions(dimensions, itemType, thread) {
         parts.push(threadDisplay);
     }
 
-    // Then show physical dimensions
-    if (dimensions.length) {
-        if (dimensions.width && dimensions.thickness) {
-            // Rectangular: width × thickness × length
-            parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
-        } else if (dimensions.width) {
-            // Round or Square: diameter/width × length
-            const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
-            parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
-        } else {
-            // Just length
-            parts.push(`${dimensions.length}"`);
+    // Then show the physical cross-section dimensions. Length is deliberately
+    // omitted (it has its own column); wall thickness is appended when present
+    // and non-zero.
+    const wallThickness = parseFloat(dimensions.wall_thickness);
+    const hasWallThickness = !isNaN(wallThickness) && wallThickness !== 0;
+
+    if (dimensions.width && dimensions.thickness) {
+        // Rectangular: width × thickness (× wall thickness)
+        let dims = `${dimensions.width}" × ${dimensions.thickness}"`;
+        if (hasWallThickness) {
+            dims += ` × ${dimensions.wall_thickness}"`;
         }
+        parts.push(dims);
+    } else if (dimensions.width) {
+        // Single cross-section width (× wall thickness). The diameter symbol (⌀)
+        // is only meaningful for round items; square/hex/etc. show the bare width.
+        // Default to round when the shape is unknown for backwards compatibility.
+        const isRound = shape ? shape.toString().toLowerCase() === 'round' : true;
+        const alreadyHasSymbol = dimensions.width.toString().includes('⌀');
+        const symbol = (isRound && !alreadyHasSymbol) ? '⌀' : '';
+        let dims = `${symbol}${dimensions.width}"`;
+        if (hasWallThickness) {
+            dims += ` × ${dimensions.wall_thickness}"`;
+        }
+        parts.push(dims);
     }
 
     return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
