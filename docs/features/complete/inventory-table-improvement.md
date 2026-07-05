@@ -22,16 +22,23 @@ are built client-side by `app/static/js/components/inventory-table.js`
 (`createRow`), which delegates the two relevant cells to helpers in
 `app/static/js/components/item-formatters.js`:
 
-- **Dimensions** column → `formatFullDimensions(dimensions, itemType, thread)`
+- **Dimensions** column → `formatFullDimensions(dimensions, itemType, thread, shape)`
 - **Length** column → `formatDimensions(dimensions, itemType)`
 
-`formatFullDimensions` currently appends the length to every physical-dimension
-string (e.g. rectangular `width" × thickness" × length"`, round/square
-`⌀width" × length"`, threaded rod `🔩thread ⌀diameter" × length"`), which is the
-same value shown in the dedicated Length column — hence the duplication. It never
-references `wall_thickness`, even though the field exists on the `Dimensions`
-model, is serialized to the frontend via `Dimensions.to_dict()`, and is returned
-by both `/api/inventory/list` and `/api/inventory/search`.
+> Note: the `shape` argument was added during PR review (see the "Only use the
+> diameter symbol for round shapes" note under Progress). The original plan below
+> reflects the initial two-part change; the shape-aware `⌀` behavior is documented
+> in item 1 and in Progress.
+
+`formatFullDimensions` originally appended the length to every physical-dimension
+string (e.g. rectangular `width" × thickness" × length"`, round `⌀width" × length"`,
+threaded rod `🔩thread ⌀diameter" × length"`), which is the same value shown in the
+dedicated Length column — hence the duplication. It never referenced
+`wall_thickness`, even though the field exists on the `Dimensions` model, is
+serialized to the frontend via `Dimensions.to_dict()`, and is returned by both
+`/api/inventory/list` and `/api/inventory/search`. It also prepended the diameter
+symbol (`⌀`) to any single-width cross-section — including square/hex shapes, which
+are not round — a pre-existing issue addressed as part of this work.
 
 ### Changes
 
@@ -40,8 +47,13 @@ by both `/api/inventory/list` and `/api/inventory/search`.
    - Append `wall_thickness` as an additional dimension when it is present and
      non-zero, so:
      - Rectangular: `width" × thickness"` → `width" × thickness" × wall_thickness"`
-     - Round / Square: `⌀width"` → `⌀width" × wall_thickness"`
+     - Round: `⌀width"` → `⌀width" × wall_thickness"`
+     - Square / Hex (single width): `width"` → `width" × wall_thickness"` (no `⌀`)
      - Threaded rod: `🔩thread ⌀diameter"` (+ wall thickness if present)
+   - Only prepend the diameter symbol (`⌀`) for round shapes. The function now
+     takes the item `shape` (passed from `inventory-table.js`); square/hex shapes
+     show the bare width. When `shape` is absent it defaults to round for
+     backwards compatibility. *(Added during PR review.)*
    - Update the function's JSDoc examples to match the new output.
    - `formatDimensions` (Length column) is unchanged — it already shows only length.
 
@@ -53,6 +65,9 @@ by both `/api/inventory/list` and `/api/inventory/search`.
      - Round tube (wall thickness): Dimensions = `⌀W" × WT"`.
      - Rectangular bar (no wall thickness): Dimensions = `W" × T"`, no length.
      - Rectangular tube (wall thickness): Dimensions = `W" × T" × WT"`.
+     - Threaded rod: Dimensions = `🔩size series ⌀W"`, no length. *(Added during PR review.)*
+     - Square tube (wall thickness): Dimensions = `W" × WT"`, no `⌀`. *(Added during PR review.)*
+     - Hex rod: Dimensions = `W"`, no `⌀`. *(Added during PR review.)*
      - In all cases the Dimensions cell does **not** contain the item's length value.
 
 3. **Documentation** — the user-manual / README text does not describe the exact
@@ -92,6 +107,18 @@ Implementation complete (commit prefix `Inventory Table Improvement - 1.1`):
    now show the corrected Dimensions column (e.g. `⌀2" × 0.125"` for a round tube,
    `2" × 2" × 0.125"` for an angle, and threaded rod `🔩1/2-13 UNC ⌀0.5"` with no
    duplicated length).
+
+### PR review follow-ups
+
+- **Threaded-rod + JSDoc** (commit `d1c4f9e`) — added a threaded-rod e2e case and
+  updated the `formatFullDimensions` `@param dimensions` docs to note `wall_thickness`
+  is used and `length` is ignored.
+- **Only use the diameter symbol for round shapes** (commit `fdceacb`) —
+  `formatFullDimensions` previously prepended `⌀` to any single-width cross-section,
+  mislabeling square tubes and hex rods as round (e.g. `⌀2" × 0.188"`). It now takes
+  the item `shape` and only prepends `⌀` for round items; square/hex show the bare
+  width (`2" × 0.188"`, `0.375"`). Added square-tube and hex-rod e2e cases and
+  regenerated the affected screenshots.
 
 ### Test results
 
