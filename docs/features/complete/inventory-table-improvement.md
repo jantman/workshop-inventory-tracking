@@ -98,4 +98,4 @@ Implementation complete (commit prefix `Inventory Table Improvement - 1.1`):
 - Unit suite (`nox -s tests`): **342 passed**.
 - E2E suite (`nox -s e2e`): **301 passed, 1 skipped** (full run, ~18 min).
 
-_Awaiting human verification before moving this document to `complete/` and opening a PR._
+Human-verified and complete. Document moved to `complete/`; changes pushed and a PR opened.
