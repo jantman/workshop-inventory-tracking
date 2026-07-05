@@ -74,4 +74,28 @@ by both `/api/inventory/list` and `/api/inventory/search`.
 
 ## Progress
 
-_Planning complete; awaiting human approval to begin implementation._
+Implementation complete (commit prefix `Inventory Table Improvement - 1.1`):
+
+1. **Done** — `formatFullDimensions` (`app/static/js/components/item-formatters.js`)
+   no longer emits the length in the Dimensions column and now appends
+   `wall_thickness` (when present and non-zero) as an additional dimension.
+   JSDoc examples updated. The Length-column helper is unchanged.
+2. **Done** — Added `tests/e2e/test_dimensions_display.py`, parametrized over the
+   list and search pages, asserting (a) the Dimensions column no longer duplicates
+   the length and (b) wall thickness is shown for round/rectangular tubes.
+3. **Done** — Reviewed docs; no prose described the exact table-cell format, so no
+   documentation changes were required. (`docs/deployment-guide.md` already notes
+   that Wall Thickness is shown "when available", which is now accurate.)
+4. **Done** — Regenerated screenshots via `nox -s screenshots_headless` and verified
+   with `nox -s screenshots_verify`. `readme/inventory_list.png`,
+   `user-manual/search_results.png`, and `user-manual/batch_operations_menu.png`
+   now show the corrected Dimensions column (e.g. `⌀2" × 0.125"` for a round tube,
+   `2" × 2" × 0.125"` for an angle, and threaded rod `🔩1/2-13 UNC ⌀0.5"` with no
+   duplicated length).
+
+### Test results
+
+- Unit suite (`nox -s tests`): **342 passed**.
+- E2E suite (`nox -s e2e`): **301 passed, 1 skipped** (full run, ~18 min).
+
+_Awaiting human verification before moving this document to `complete/` and opening a PR._

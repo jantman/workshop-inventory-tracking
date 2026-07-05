@@ -16,12 +16,20 @@
  * @example
  * // Round bar with thread
  * formatFullDimensions({length: 12, width: 0.5}, 'Bar', {size: '1/2-13', series: 'UNC'})
- * // Returns: '🔩1/2-13 UNC ⌀0.5" × 12"'
+ * // Returns: '🔩1/2-13 UNC ⌀0.5"'
  *
  * @example
  * // Rectangular plate
  * formatFullDimensions({length: 24, width: 12, thickness: 0.25}, 'Plate', null)
- * // Returns: '12" × 0.25" × 24"'
+ * // Returns: '12" × 0.25"'
+ *
+ * @example
+ * // Round tube with wall thickness
+ * formatFullDimensions({length: 96, width: 2, wall_thickness: 0.125}, 'Tube', null)
+ * // Returns: '⌀2" × 0.125"'
+ *
+ * @note The length is intentionally excluded here; it is shown in its own
+ *       dedicated Length column (see formatDimensions).
  */
 export function formatFullDimensions(dimensions, itemType, thread) {
     if (!dimensions) return '<span class="text-muted">-</span>';
@@ -34,19 +42,27 @@ export function formatFullDimensions(dimensions, itemType, thread) {
         parts.push(threadDisplay);
     }
 
-    // Then show physical dimensions
-    if (dimensions.length) {
-        if (dimensions.width && dimensions.thickness) {
-            // Rectangular: width × thickness × length
-            parts.push(`${dimensions.width}" × ${dimensions.thickness}" × ${dimensions.length}"`);
-        } else if (dimensions.width) {
-            // Round or Square: diameter/width × length
-            const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
-            parts.push(`${symbol}${dimensions.width}" × ${dimensions.length}"`);
-        } else {
-            // Just length
-            parts.push(`${dimensions.length}"`);
+    // Then show the physical cross-section dimensions. Length is deliberately
+    // omitted (it has its own column); wall thickness is appended when present
+    // and non-zero.
+    const wallThickness = parseFloat(dimensions.wall_thickness);
+    const hasWallThickness = !isNaN(wallThickness) && wallThickness !== 0;
+
+    if (dimensions.width && dimensions.thickness) {
+        // Rectangular: width × thickness (× wall thickness)
+        let dims = `${dimensions.width}" × ${dimensions.thickness}"`;
+        if (hasWallThickness) {
+            dims += ` × ${dimensions.wall_thickness}"`;
         }
+        parts.push(dims);
+    } else if (dimensions.width) {
+        // Round or Square: diameter/width (× wall thickness)
+        const symbol = dimensions.width.toString().includes('⌀') ? '' : '⌀';
+        let dims = `${symbol}${dimensions.width}"`;
+        if (hasWallThickness) {
+            dims += ` × ${dimensions.wall_thickness}"`;
+        }
+        parts.push(dims);
     }
 
     return parts.length > 0 ? parts.join(' ') : '<span class="text-muted">-</span>';
