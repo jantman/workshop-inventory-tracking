@@ -69,6 +69,21 @@ DIMENSION_ITEMS = [
         "location": "Test Storage A",
         "active": True,
     },
+    {
+        # Threaded rod -> thread prefix + diameter, no duplicated length:
+        # "🔩1/2-13 UNC ⌀0.5""
+        "ja_id": "JA070005",
+        "item_type": "Threaded Rod",
+        "shape": "Round",
+        "material": "Carbon Steel",
+        "length": "36",
+        "width": "0.5",
+        "thread_series": "UNC",
+        "thread_size": "1/2-13",
+        "thread_handedness": "RH",
+        "location": "Test Storage A",
+        "active": True,
+    },
 ]
 
 # Expected Dimensions cell text keyed by JA ID.
@@ -77,6 +92,7 @@ EXPECTED_DIMENSIONS = {
     "JA070002": '⌀2" × 0.125"',
     "JA070003": '3" × 0.5"',
     "JA070004": '8" × 4" × 0.125"',
+    "JA070005": '🔩1/2-13 UNC ⌀0.5"',
 }
 
 # Expected Length cell text keyed by JA ID (length lives in its own column).
@@ -85,6 +101,7 @@ EXPECTED_LENGTH = {
     "JA070002": '96"',
     "JA070003": '24"',
     "JA070004": '72"',
+    "JA070005": '36"',
 }
 
 

@@ -8,7 +8,9 @@
 /**
  * Format full dimensions display including thread info and physical dimensions.
  *
- * @param {Object} dimensions - Dimensions object with length, width, thickness properties
+ * @param {Object} dimensions - Dimensions object with width, thickness and
+ *   wall_thickness properties. (The length property, if present, is ignored here
+ *   because length is rendered in its own dedicated column via formatDimensions.)
  * @param {string} itemType - Type of item (Bar, Tube, etc.) - currently unused but kept for API compatibility
  * @param {Object} thread - Thread object with size, series, handedness properties
  * @returns {string} HTML string with formatted dimensions

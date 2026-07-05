@@ -176,7 +176,10 @@ class E2ETestServer:
                     location=item_data.get('location'),
                     notes=item_data.get('notes'),
                     precision=item_data.get('precision', False),
-                    active=item_data.get('active', True)
+                    active=item_data.get('active', True),
+                    thread_series=item_data.get('thread_series'),
+                    thread_handedness=item_data.get('thread_handedness'),
+                    thread_size=item_data.get('thread_size')
                 )
                 service.add_item(item)
         
