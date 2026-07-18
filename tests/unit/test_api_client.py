@@ -16,9 +16,47 @@ from app.api_client import (
     CreateItemResult,
     FieldSuggestionsResult,
     SUGGESTABLE_FIELDS,
+    TaxonomyResult,
     UploadPhotoResult,
     WorkshopInventoryClient,
 )
+
+
+def _sample_taxonomy() -> list[dict]:
+    """A minimal but representative nested taxonomy tree."""
+    return [
+        {
+            'id': 1,
+            'name': 'Steel',
+            'level': 1,
+            'active': True,
+            'notes': '',
+            'sort_order': 0,
+            'children': [
+                {
+                    'id': 5,
+                    'name': 'Alloy Steel',
+                    'level': 2,
+                    'parent': 'Steel',
+                    'active': True,
+                    'notes': '',
+                    'sort_order': 0,
+                    'children': [
+                        {
+                            'id': 9,
+                            'name': '4140',
+                            'level': 3,
+                            'parent': 'Alloy Steel',
+                            'active': True,
+                            'aliases': ['41400'],
+                            'notes': '',
+                            'sort_order': 0,
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
 
 
 def _mock_response(status_code: int, json_body: dict | list | None,
@@ -465,3 +503,104 @@ class TestGetFieldSuggestions:
             url
             == 'http://example.test/api/inventory/field-suggestions/a%2Fb%3Fc'
         )
+
+
+class TestGetTaxonomy:
+    def test_success(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True,
+            'taxonomy': _sample_taxonomy(),
+        })
+
+        result = client.get_taxonomy()
+
+        assert isinstance(result, TaxonomyResult)
+        assert result.success is True
+        assert result.http_status == 200
+        assert result.errors == []
+        assert len(result.taxonomy) == 1
+        category = result.taxonomy[0]
+        assert category['name'] == 'Steel'
+        assert category['level'] == 1
+        family = category['children'][0]
+        assert family['name'] == 'Alloy Steel'
+        assert family['parent'] == 'Steel'
+        material = family['children'][0]
+        assert material['name'] == '4140'
+        assert material['aliases'] == ['41400']
+
+        call_args = session.get.call_args
+        assert call_args.args[0] == 'http://example.test/api/taxonomy'
+        # include_inactive omitted by default.
+        assert call_args.kwargs['params'] == {}
+
+    def test_include_inactive_param_sent(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'taxonomy': [],
+        })
+
+        client.get_taxonomy(include_inactive=True)
+
+        params = session.get.call_args.kwargs['params']
+        assert params == {'include_inactive': 'true'}
+
+    def test_empty_taxonomy(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'taxonomy': [],
+        })
+
+        result = client.get_taxonomy()
+
+        assert result.success is True
+        assert result.taxonomy == []
+        assert result.errors == []
+
+    def test_http_error_always_reports_failure(self, client, session):
+        session.get.return_value = _mock_response(500, {
+            'success': True,
+            'taxonomy': _sample_taxonomy(),
+        })
+
+        result = client.get_taxonomy()
+
+        assert result.success is False
+        assert result.http_status == 500
+        assert result.taxonomy == []
+        assert len(result.errors) == 1
+
+    def test_server_error_body_normalized(self, client, session):
+        session.get.return_value = _mock_response(500, {
+            'success': False,
+            'error': 'Failed to get materials taxonomy',
+        })
+
+        result = client.get_taxonomy()
+
+        assert result.success is False
+        assert result.http_status == 500
+        assert result.taxonomy == []
+        assert result.errors[0]['message'] == 'Failed to get materials taxonomy'
+
+    def test_non_json_response_returns_failure(self, client, session):
+        session.get.return_value = _mock_response(502, None, text='Bad Gateway')
+
+        result = client.get_taxonomy()
+
+        assert result.success is False
+        assert result.http_status == 502
+        assert result.taxonomy == []
+
+    def test_non_list_taxonomy_coerced_to_empty(self, client, session):
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'taxonomy': 'not-a-list',
+        })
+
+        result = client.get_taxonomy()
+
+        assert result.success is True
+        assert result.taxonomy == []
+
+    def test_connection_error_propagates(self, client, session):
+        session.get.side_effect = requests.ConnectionError('refused')
+        with pytest.raises(requests.ConnectionError):
+            client.get_taxonomy()

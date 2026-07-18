@@ -1180,12 +1180,90 @@ Returns sub-locations currently recorded under Location "Shelf A":
 }
 ```
 
+### `GET /api/taxonomy`
+
+Return the full hierarchical materials taxonomy as a nested tree. This
+is the general-purpose endpoint for programmatic clients that need the
+materials taxonomy (the material names and aliases accepted by the
+`material` field on `POST /api/inventory/items`).
+
+The taxonomy has three levels: **Category** (level 1) → **Family**
+(level 2) → **Material** (level 3). Each level's nodes are returned
+under the `children` key of their parent.
+
+#### Query parameters
+
+| Parameter          | Type    | Description |
+|--------------------|---------|-------------|
+| `include_inactive` | boolean | When `true`, inactive taxonomy entries are included. Defaults to `false` (active entries only). |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "taxonomy": [
+    {
+      "id": 1,
+      "name": "Steel",
+      "level": 1,
+      "active": true,
+      "notes": "",
+      "sort_order": 0,
+      "children": [
+        {
+          "id": 5,
+          "name": "Alloy Steel",
+          "level": 2,
+          "parent": "Steel",
+          "active": true,
+          "notes": "",
+          "sort_order": 0,
+          "children": [
+            {
+              "id": 9,
+              "name": "4140",
+              "level": 3,
+              "parent": "Alloy Steel",
+              "active": true,
+              "aliases": ["41400"],
+              "notes": "",
+              "sort_order": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Node fields:
+
+| Field        | Levels        | Description |
+|--------------|---------------|-------------|
+| `id`         | all           | Database id of the taxonomy entry. |
+| `name`       | all           | The taxonomy name (used as the parent reference of child nodes). |
+| `level`      | all           | `1` = Category, `2` = Family, `3` = Material. |
+| `active`     | all           | Whether the entry is active. |
+| `notes`      | all           | Free-form notes (empty string if none). |
+| `sort_order` | all           | Ordering hint within the parent. |
+| `children`   | 1, 2          | List of child nodes (families under a category, materials under a family). |
+| `parent`     | 2, 3          | `name` of the parent node. |
+| `aliases`    | 3             | List of alias names for the material. |
+
+#### Status codes
+
+- `200 OK` — taxonomy returned (possibly an empty list when the
+  taxonomy is unconfigured).
+- `500 Internal Server Error` — unexpected backend failure.
+
 ### Python client
 
 A standalone Python client lives at `app/api_client.py`. It depends
 only on the `requests` library and exposes a `WorkshopInventoryClient`
-class with `create_item(...)`, `upload_photo(...)`, and
-`get_field_suggestions(...)` methods. The client can be copied or
+class with `create_item(...)`, `upload_photo(...)`,
+`get_field_suggestions(...)`, and `get_taxonomy(...)` methods. The client can be copied or
 vendored into other projects without pulling in any of the
 application's runtime dependencies.
 
@@ -1217,12 +1295,18 @@ subs = client.get_field_suggestions(
     "sub_location", location="Shelf A", limit=20
 )
 print(subs.suggestions)
+
+# Full materials taxonomy tree:
+taxonomy = client.get_taxonomy()
+for category in taxonomy.taxonomy:
+    print(category["name"], "->", [f["name"] for f in category["children"]])
 ```
 
-`create_item`, `upload_photo`, and `get_field_suggestions` return
-frozen dataclasses (`CreateItemResult`, `UploadPhotoResult`,
-`FieldSuggestionsResult`) carrying the parsed response. Network errors
-raise `requests.RequestException`; HTTP errors (4xx/5xx) populate the
+`create_item`, `upload_photo`, `get_field_suggestions`, and
+`get_taxonomy` return frozen dataclasses (`CreateItemResult`,
+`UploadPhotoResult`, `FieldSuggestionsResult`, `TaxonomyResult`)
+carrying the parsed response. Network errors raise
+`requests.RequestException`; HTTP errors (4xx/5xx) populate the
 result's `errors` list and set `success=False` rather than raising.
 
 The constant `SUGGESTABLE_FIELDS` (a tuple of the five whitelisted

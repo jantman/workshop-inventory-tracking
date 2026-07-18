@@ -1197,9 +1197,77 @@ def inventory_field_suggestions(field):
     })
 
 
+def _normalize_taxonomy_aliases(nodes: list[dict[str, Any]]) -> None:
+    """Recursively convert each node's ``aliases`` into a list.
+
+    ``get_taxonomy_overview`` passes the raw ``MaterialTaxonomy.aliases``
+    column through, which is a comma-separated string (or an empty list
+    when null). Mutates ``nodes`` in place so the public API returns
+    consistently list-typed aliases.
+    """
+    for node in nodes:
+        aliases = node.get('aliases')
+        if isinstance(aliases, str):
+            node['aliases'] = [a.strip() for a in aliases.split(',') if a.strip()]
+        children = node.get('children')
+        if isinstance(children, list):
+            _normalize_taxonomy_aliases(children)
+
+
+@bp.route('/api/taxonomy')
+def api_taxonomy():
+    """Return the full hierarchical materials taxonomy.
+
+    Reuses the canonical tree builder
+    (``MariaDBMaterialsAdminService.get_taxonomy_overview``) that powers
+    the admin interface, so callers get the same nested structure:
+    categories -> ``children`` (families) -> ``children`` (materials),
+    each node carrying ``id``, ``name``, ``level``, ``active``,
+    ``notes``, ``sort_order`` (plus ``parent`` on families/materials and
+    ``aliases`` on materials).
+
+    Query parameters:
+      * ``include_inactive`` (``true``/``false``, default ``false``):
+        when true, inactive taxonomy entries are included.
+    """
+    try:
+        from app.mariadb_materials_admin_service import MariaDBMaterialsAdminService
+
+        include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+
+        admin_service = MariaDBMaterialsAdminService(_get_storage_backend())
+        taxonomy = admin_service.get_taxonomy_overview(include_inactive=include_inactive)
+
+        # Normalize `aliases` into a proper list. The admin service
+        # passes the raw MaterialTaxonomy.aliases column through, which
+        # is a comma-separated string (or an empty list when null); for
+        # this public API we want consistent list-typed aliases.
+        _normalize_taxonomy_aliases(taxonomy)
+
+        return jsonify({
+            'success': True,
+            'taxonomy': taxonomy,
+        })
+
+    except Exception as e:
+        current_app.logger.error(
+            f'Error getting materials taxonomy: {e}\n{traceback.format_exc()}'
+        )
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get materials taxonomy'
+        }), 500
+
+
 @bp.route('/api/materials/hierarchy')
 def materials_hierarchy():
-    """Get hierarchical materials taxonomy (for testing)"""
+    """Get hierarchical materials taxonomy.
+
+    Powers the material-selector autocomplete UI
+    (``app/static/js/material-selector.js``); its response shape is
+    tailored to that frontend. Programmatic clients should prefer the
+    general-purpose ``GET /api/taxonomy`` endpoint instead.
+    """
     try:
         from app.database import MaterialTaxonomy
         from app.mariadb_storage import MariaDBStorage
