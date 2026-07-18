@@ -214,14 +214,16 @@ class TestApiClientFieldSuggestions:
         assert any('material' in err.get('message', '') for err in result.errors)
 
 
-def _find_node(nodes, name):
+def _find_node(nodes: list[dict], name: str) -> dict | None:
     """Depth-first search for a node with the given name in a tree."""
     for node in nodes:
         if node.get('name') == name:
             return node
-        found = _find_node(node.get('children', []), name)
-        if found is not None:
-            return found
+        children = node.get('children')
+        if isinstance(children, list):
+            found = _find_node(children, name)
+            if found is not None:
+                return found
     return None
 
 

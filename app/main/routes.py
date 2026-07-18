@@ -1197,7 +1197,7 @@ def inventory_field_suggestions(field):
     })
 
 
-def _normalize_taxonomy_aliases(nodes):
+def _normalize_taxonomy_aliases(nodes: list[dict[str, Any]]) -> None:
     """Recursively convert each node's ``aliases`` into a list.
 
     ``get_taxonomy_overview`` passes the raw ``MaterialTaxonomy.aliases``
@@ -1209,7 +1209,9 @@ def _normalize_taxonomy_aliases(nodes):
         aliases = node.get('aliases')
         if isinstance(aliases, str):
             node['aliases'] = [a.strip() for a in aliases.split(',') if a.strip()]
-        _normalize_taxonomy_aliases(node.get('children', []))
+        children = node.get('children')
+        if isinstance(children, list):
+            _normalize_taxonomy_aliases(children)
 
 
 @bp.route('/api/taxonomy')
@@ -1248,7 +1250,9 @@ def api_taxonomy():
         })
 
     except Exception as e:
-        current_app.logger.error(f'Error getting materials taxonomy: {e}')
+        current_app.logger.error(
+            f'Error getting materials taxonomy: {e}\n{traceback.format_exc()}'
+        )
         return jsonify({
             'success': False,
             'error': 'Failed to get materials taxonomy'
