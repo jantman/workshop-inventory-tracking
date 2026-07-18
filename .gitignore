@@ -214,3 +214,6 @@ __marimo__/
 
 test-debug-output/
 /prompt.md
+.bmad-loop/runs/
+.bmad-loop/cache/
+.bmad-loop/policy.toml
