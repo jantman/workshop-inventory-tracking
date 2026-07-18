@@ -24,6 +24,7 @@ __all__ = [
     'CreateItemResult',
     'FieldSuggestionsResult',
     'SUGGESTABLE_FIELDS',
+    'TaxonomyResult',
     'UploadPhotoResult',
     'WorkshopInventoryClient',
 ]
@@ -64,6 +65,17 @@ class FieldSuggestionsResult:
     success: bool
     field: str
     suggestions: list[str]
+    errors: list[dict[str, Any]]
+    http_status: int
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class TaxonomyResult:
+    """Outcome of a ``get_taxonomy`` call."""
+
+    success: bool
+    taxonomy: list[dict[str, Any]]
     errors: list[dict[str, Any]]
     http_status: int
     raw: dict[str, Any]
@@ -328,6 +340,84 @@ class WorkshopInventoryClient:
             success=success,
             field=str(body.get('field') or field),
             suggestions=suggestions,
+            errors=errors,
+            http_status=response.status_code,
+            raw=body,
+        )
+
+    def get_taxonomy(
+        self,
+        *,
+        include_inactive: bool = False,
+    ) -> TaxonomyResult:
+        """Fetch the full hierarchical materials taxonomy.
+
+        Calls ``GET /api/taxonomy`` and returns the nested taxonomy
+        tree: a list of category nodes, each with a ``children`` list of
+        family nodes, each with a ``children`` list of material nodes.
+
+        **Arguments**
+
+        - ``include_inactive`` (bool, default ``False``): when ``True``,
+          inactive taxonomy entries are included in the tree.
+
+        **Returned ``TaxonomyResult``**
+
+        - ``success`` (bool): ``True`` only on a 2xx response with
+          ``"success": true`` in the body. Any HTTP 4xx/5xx forces
+          ``False`` regardless of body content.
+        - ``taxonomy`` (list[dict]): the nested taxonomy tree. Each node
+          carries ``id``, ``name``, ``level`` (1=Category, 2=Family,
+          3=Material), ``active``, ``notes``, and ``sort_order``.
+          Family and material nodes also carry ``parent``; material
+          nodes also carry ``aliases``. Category and family nodes carry
+          a ``children`` list. Empty list on failure.
+        - ``errors`` (list[dict]): single-entry list on failure of the
+          shape ``{"index": 0, "ja_id": None, "message": "..."}``.
+          Empty on success.
+        - ``http_status`` (int): the raw HTTP status code.
+        - ``raw`` (dict): the parsed JSON response body.
+
+        **Network errors**
+
+        Network failures (connection refused, DNS, TLS, timeout)
+        propagate as ``requests.RequestException`` subclasses. HTTP
+        errors land as ``success=False`` rather than raising.
+        """
+        params: dict[str, Any] = {}
+        if include_inactive:
+            params['include_inactive'] = 'true'
+
+        response = self.session.get(
+            f'{self.base_url}/api/taxonomy',
+            params=params,
+            timeout=self.timeout,
+        )
+        body = self._safe_json(response)
+
+        if response.status_code >= 400:
+            success = False
+        else:
+            success = bool(body.get('success', False))
+
+        taxonomy: list[dict[str, Any]] = []
+        if success:
+            raw_taxonomy = body.get('taxonomy') or []
+            if isinstance(raw_taxonomy, list):
+                taxonomy = [node for node in raw_taxonomy if isinstance(node, dict)]
+
+        errors: list[dict[str, Any]] = []
+        if not success:
+            err_msg = (
+                body.get('error')
+                or body.get('message')
+                or f'HTTP {response.status_code}'
+            )
+            errors = [{'index': 0, 'ja_id': None, 'message': err_msg}]
+
+        return TaxonomyResult(
+            success=success,
+            taxonomy=taxonomy,
             errors=errors,
             http_status=response.status_code,
             raw=body,

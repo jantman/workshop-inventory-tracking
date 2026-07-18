@@ -214,6 +214,64 @@ class TestApiClientFieldSuggestions:
         assert any('material' in err.get('message', '') for err in result.errors)
 
 
+def _find_node(nodes, name):
+    """Depth-first search for a node with the given name in a tree."""
+    for node in nodes:
+        if node.get('name') == name:
+            return node
+        found = _find_node(node.get('children', []), name)
+        if found is not None:
+            return found
+    return None
+
+
+@pytest.mark.e2e
+class TestApiClientTaxonomy:
+    def test_get_taxonomy_round_trip(self, client, live_server):
+        result = client.get_taxonomy()
+
+        assert result.success is True, result.errors
+        assert result.http_status == 200
+        assert isinstance(result.taxonomy, list)
+        assert len(result.taxonomy) > 0
+
+        # The test server seeds Carbon Steel -> Medium Carbon Steel -> 4140.
+        category = _find_node(result.taxonomy, 'Carbon Steel')
+        assert category is not None, 'Carbon Steel category not found'
+        assert category['level'] == 1
+        assert 'children' in category
+
+        family = _find_node([category], 'Medium Carbon Steel')
+        assert family is not None
+        assert family['level'] == 2
+        assert family['parent'] == 'Carbon Steel'
+
+        material = _find_node([family], '4140')
+        assert material is not None
+        assert material['level'] == 3
+        assert material['parent'] == 'Medium Carbon Steel'
+        # Aliases are normalized to a proper list by the endpoint.
+        assert isinstance(material['aliases'], list)
+
+    def test_get_taxonomy_aliases_are_lists(self, client):
+        # '304' is seeded with aliases '304 Stainless,SS304'.
+        result = client.get_taxonomy()
+        assert result.success is True, result.errors
+
+        material = _find_node(result.taxonomy, '304')
+        assert material is not None
+        assert isinstance(material['aliases'], list)
+        assert 'SS304' in material['aliases']
+
+    def test_taxonomy_endpoint_envelope(self, client, live_server):
+        # Verify the raw HTTP envelope directly, independent of the client.
+        resp = requests.get(f'{live_server.url}/api/taxonomy', timeout=10)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body['success'] is True
+        assert isinstance(body['taxonomy'], list)
+
+
 @pytest.mark.e2e
 class TestApiClientUploadPhoto:
     def test_upload_photo_for_existing_item(self, client, live_server, sample_image_path):
