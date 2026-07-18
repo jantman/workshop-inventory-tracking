@@ -45,7 +45,7 @@ An API endpoint should be added, if not already present, to return the hierarchi
 
 ### Progress
 
-**Status: Implementation complete; all tests passing.** (Milestone `Taxonomy API - 1`)
+**Status: Complete and human-verified.** (Milestone `Taxonomy API - 1`)
 
 - ✅ Task 1 — Added `GET /api/taxonomy` (`app/main/routes.py`) reusing `MariaDBMaterialsAdminService.get_taxonomy_overview()`, with optional `include_inactive` query param and a `_normalize_taxonomy_aliases()` pass that converts the raw comma-separated `aliases` column into a proper list. Corrected the stale `(for testing)` docstring on `materials_hierarchy()`.
 - ✅ Task 2 — Added `TaxonomyResult` dataclass and `WorkshopInventoryClient.get_taxonomy(include_inactive=False)` to `app/api_client.py`; exported `TaxonomyResult` in `__all__`.
