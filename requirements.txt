@@ -11,5 +11,5 @@ SQLAlchemy==2.0.51
 alembic==1.18.5
 click==8.4.2
 pt-p710bt-label-maker @ git+https://github.com/jantman/pt-p710bt-label-maker.git@jantman
-Pillow>=11.0.0
-PyMuPDF==1.24.9
+Pillow>=12.3.0
+PyMuPDF==1.28.0
