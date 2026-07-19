@@ -514,13 +514,13 @@ def config_check():
 
     # Test database connection
     try:
-        from sqlalchemy import create_engine
+        from sqlalchemy import create_engine, text
         database_url = os.environ.get('SQLALCHEMY_DATABASE_URI') or AppConfig.SQLALCHEMY_DATABASE_URI
         engine = create_engine(database_url)
 
         # Test connection
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         click.echo("Database connection: OK")
 
     except Exception as e:
