@@ -32,12 +32,19 @@ def mariadb_testcontainer():
     except ImportError:
         pytest.skip("testcontainers not installed - run: pip install testcontainers[mysql]")
     
-    # Start MariaDB container with same config as CI
-    container = MySqlContainer("mariadb:10.11")
-    container = container.with_env("MYSQL_ROOT_PASSWORD", "test_root_password")
-    container = container.with_env("MYSQL_DATABASE", "workshop_inventory_test") 
-    container = container.with_env("MYSQL_USER", "inventory_test_user")
-    container = container.with_env("MYSQL_PASSWORD", "test_password")
+    # Start MariaDB container with same config as CI.
+    # testcontainers >= 4.9 takes credentials as constructor args and no longer
+    # honors .with_env("MYSQL_USER"/...) for them; it also defaults the SQLAlchemy
+    # dialect to bare "mysql://" (i.e. MySQLdb), so pymysql must be requested
+    # explicitly to match the driver the app uses.
+    container = MySqlContainer(
+        "mariadb:10.11",
+        dialect="pymysql",
+        username="inventory_test_user",
+        password="test_password",
+        root_password="test_root_password",
+        dbname="workshop_inventory_test",
+    )
     container = container.with_env("MARIADB_CHARACTER_SET_SERVER", "utf8mb4")
     container = container.with_env("MARIADB_COLLATION_SERVER", "utf8mb4_unicode_ci")
     
