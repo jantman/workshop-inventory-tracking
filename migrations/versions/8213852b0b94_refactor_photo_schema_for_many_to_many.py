@@ -283,13 +283,12 @@ def downgrade() -> None:
 
     print("Data rolled back successfully!")
 
-    # Step 3: Drop new tables
-    op.drop_index('ix_item_photo_associations_ja_id_order', table_name='item_photo_associations')
-    op.drop_index('ix_item_photo_associations_photo_id', table_name='item_photo_associations')
-    op.drop_index('ix_item_photo_associations_ja_id', table_name='item_photo_associations')
+    # Step 3: Drop new tables.
+    # drop_table also drops the table's own indexes, so we must NOT drop them
+    # individually first: MariaDB refuses to drop ix_item_photo_associations_photo_id
+    # while it still backs the foreign key to photos.id. Drop the child table
+    # (item_photo_associations) before the parent (photos).
     op.drop_table('item_photo_associations')
-
-    op.drop_index('ix_photos_sha256_hash', table_name='photos')
     op.drop_table('photos')
 
     print("Rollback completed successfully!")
