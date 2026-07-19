@@ -38,7 +38,7 @@ def mariadb_testcontainer():
     # dialect to bare "mysql://" (i.e. MySQLdb), so pymysql must be requested
     # explicitly to match the driver the app uses.
     container = MySqlContainer(
-        "mariadb:10.11",
+        "mariadb:11.8",
         dialect="pymysql",
         username="inventory_test_user",
         password="test_password",

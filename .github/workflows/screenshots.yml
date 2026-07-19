@@ -20,7 +20,7 @@ jobs:
 
     services:
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:11.8
         env:
           MYSQL_ROOT_PASSWORD: test_root_password
           MYSQL_DATABASE: workshop_inventory_test
