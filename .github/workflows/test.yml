@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     
     - name: Set up Python 3.13
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: "3.13"
 
@@ -26,7 +26,7 @@ jobs:
           bluetooth libbluetooth-dev
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -41,7 +41,7 @@ jobs:
       
     - name: Upload test artifacts on failure
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: unit-test-artifacts
         path: |
@@ -58,10 +58,10 @@ jobs:
       issues: write
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     
     - name: Set up Python 3.13
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: "3.13"
 
@@ -72,7 +72,7 @@ jobs:
           bluetooth libbluetooth-dev
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -86,7 +86,7 @@ jobs:
       run: nox -s coverage
     
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-reports
         path: |
@@ -130,7 +130,7 @@ jobs:
     
     - name: Comment PR with coverage
       if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       with:
         script: |
           const fs = require('fs');
@@ -188,15 +188,15 @@ jobs:
           --health-retries=3
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     
     - name: Set up Python 3.13
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: "3.13"
     
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -244,7 +244,7 @@ jobs:
     
     - name: Upload E2E artifacts on failure
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: e2e-test-artifacts
         path: |
@@ -258,7 +258,7 @@ jobs:
     
     - name: Upload E2E test results
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: e2e-results
         path: |
@@ -273,7 +273,7 @@ jobs:
     
     steps:
     - name: Test Summary
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       with:
         script: |
           const unitStatus = '${{ needs.unit-tests.result }}';
