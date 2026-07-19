@@ -457,7 +457,7 @@ The regeneration process:
 2. **Uses PyMuPDF** to generate JPEG thumbnails from the first page
 3. **Updates database** with new JPEG thumbnail and medium-size data
 4. **Preserves original PDF** data unchanged
-5. **Requires PyMuPDF** to be installed (`pip install PyMuPDF==1.24.9`)
+5. **Requires PyMuPDF** to be installed (`pip install PyMuPDF==1.28.0`)
 
 #### Best Practices
 

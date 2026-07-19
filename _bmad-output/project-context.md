@@ -25,7 +25,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Forms/CSRF:** Flask-WTF 1.3.0 (CSRF enabled in prod, disabled in tests)
 - **Frontend:** Server-rendered Jinja2 + Bootstrap 5.3.2 (`app/templates`, `app/static`)
 - **Testing:** nox + pytest 9.1.1, pytest-flask, pytest-playwright 0.8.0 + Playwright 1.61.0 (e2e), testcontainers[mysql] 4.14.2 (integration)
-- **Other:** PyMuPDF (PDF), Pillow (images), pt-p710bt-label-maker (Brother label printing via git dependency)
+- **Other:** PyMuPDF 1.28.0 (PDF), Pillow 12.3.0 (images), pt-p710bt-label-maker (Brother label printing via git dependency)
 - **Config:** python-dotenv 1.2.2 — settings loaded from `.env`; `SQLALCHEMY_DATABASE_URI` read directly
 
 ## Critical Implementation Rules
