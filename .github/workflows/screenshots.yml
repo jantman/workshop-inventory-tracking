@@ -38,12 +38,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 2  # Need history to compare
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
@@ -54,7 +54,7 @@ jobs:
             bluetooth libbluetooth-dev
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -121,7 +121,7 @@ jobs:
 
       - name: Upload regenerated screenshots
         if: steps.check_diff.outputs.status == 'outdated'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: regenerated-screenshots
           path: docs/images/screenshots/
@@ -129,7 +129,7 @@ jobs:
 
       - name: Comment on PR with screenshot info
         if: github.event_name == 'pull_request' && steps.check_diff.outputs.status == 'outdated'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.createComment({
