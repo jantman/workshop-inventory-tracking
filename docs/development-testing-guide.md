@@ -67,7 +67,7 @@ The project uses **Nox** for consistent test execution across environments. All 
 - **Multi-Row Scenarios**: Testing active item lookup and history functionality
 - **API Endpoints**: Testing item history API and data retrieval logic
 
-**Technology**: Playwright with Chromium browser + MariaDB 10.11 testcontainer
+**Technology**: Playwright with Chromium browser + MariaDB 11.8 testcontainer
 
 **Runtime**: ~10-15 seconds (plus initial Docker container startup)
 
@@ -344,7 +344,7 @@ git commit -m "Add screenshot for new feature"
 
 **Test Server**: Dedicated Flask server with test configuration that uses MariaDB (testcontainer locally, service in CI). Direct database writes ensure test data is immediately available.
 
-**MariaDB Testcontainer**: Automatically managed Docker container with MariaDB 10.11, same version as production. No manual setup required.
+**MariaDB Testcontainer**: Automatically managed Docker container with MariaDB 11.8, same major version as production. No manual setup required.
 
 **Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
 
