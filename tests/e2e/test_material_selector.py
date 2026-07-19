@@ -496,15 +496,27 @@ def test_material_selector_works_on_edit_form(page, live_server):
     
     # Should redirect to success or list page (inventory list)
     expect(page).to_have_url(re.compile(r'.*/inventory$'))
-    
-    # Navigate to edit the item we just created
-    page.goto(f'{live_server.url}/inventory/edit/JA999998')
-    
+
+    # Let the inventory list page finish loading before we navigate away, so its
+    # in-flight fetch isn't aborted mid-flight (that abort logs a red-herring
+    # "Error loading inventory: TypeError: Failed to fetch" console error).
+    page.wait_for_load_state('networkidle')
+
+    # Navigate to edit the item we just created. The MaterialSelector only wires
+    # up its focus handler after its taxonomy fetch (/api/materials/hierarchy)
+    # resolves, so wait for that response before interacting -- otherwise the
+    # click below can race initialization and the dropdown never opens.
+    with page.expect_response(re.compile(r'/api/materials/hierarchy')):
+        page.goto(f'{live_server.url}/inventory/edit/JA999998')
+
     # Material input should exist and be pre-filled
     material_input = page.locator('#material')
     expect(material_input).to_be_visible()
     expect(material_input).to_have_value('Steel')
-    
+
+    # Ensure the edit page (incl. MaterialSelector init) has fully settled.
+    page.wait_for_load_state('networkidle')
+
     # Clear and test MaterialSelector on edit form
     material_input.fill('')
     material_input.click()
