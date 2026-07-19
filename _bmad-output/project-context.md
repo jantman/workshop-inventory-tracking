@@ -18,15 +18,15 @@ _This file contains critical rules and patterns that AI agents must follow when 
 ## Technology Stack & Versions
 
 - **Language:** Python 3.13 (`nox` sessions pin `3.13`)
-- **Web framework:** Flask 3.0.0 + Werkzeug 3.0.1; app-factory pattern (`create_app()` in `app/__init__.py`)
-- **ORM:** SQLAlchemy **1.4.53** — NOT 2.x. Use 1.4 idioms (legacy `Query` API, `db.session.query(...)`). Do not write 2.0-style `select()` / `session.execute()` unless matching existing code.
-- **Migrations:** Alembic 1.13.1, driven through `manage.py db ...` (NOT Flask-Migrate)
-- **Database:** MariaDB/MySQL via PyMySQL 1.1.0 (primary). Google Sheets API (google-api-python-client 2.110.0) is **export-only / legacy**, not primary storage.
-- **Forms/CSRF:** Flask-WTF 1.2.1 (CSRF enabled in prod, disabled in tests)
+- **Web framework:** Flask 3.1.3 + Werkzeug 3.1.8; app-factory pattern (`create_app()` in `app/__init__.py`)
+- **ORM:** SQLAlchemy **2.0.51** (migrated from 1.4 in July 2026). The codebase uses the **legacy `Query` API** (`session.query(...)`), which remains fully supported in 2.0 — match the surrounding file's style. Writing 2.0-style `select()` / `session.execute()` is allowed for new code but prefer consistency with the existing service. Raw SQL strings passed to `.execute()` **must** be wrapped in `sqlalchemy.text(...)`.
+- **Migrations:** Alembic 1.18.5, driven through `manage.py db ...` (NOT Flask-Migrate)
+- **Database:** MariaDB/MySQL via PyMySQL 1.2.0 (primary). Google Sheets API (google-api-python-client 2.198.0) is **export-only / legacy**, not primary storage.
+- **Forms/CSRF:** Flask-WTF 1.3.0 (CSRF enabled in prod, disabled in tests)
 - **Frontend:** Server-rendered Jinja2 + Bootstrap 5.3.2 (`app/templates`, `app/static`)
-- **Testing:** nox + pytest 8.4.2, pytest-flask, Playwright 1.55.0 (e2e), testcontainers[mysql] 4.8.2 (integration), factory-boy/faker
+- **Testing:** nox + pytest 8.4.2, pytest-flask, Playwright 1.55.0 (e2e), testcontainers[mysql] 4.8.2 (integration)
 - **Other:** PyMuPDF (PDF), Pillow (images), pt-p710bt-label-maker (Brother label printing via git dependency)
-- **Config:** python-dotenv 1.0.0 — settings loaded from `.env`; `SQLALCHEMY_DATABASE_URI` read directly
+- **Config:** python-dotenv 1.2.2 — settings loaded from `.env`; `SQLALCHEMY_DATABASE_URI` read directly
 
 ## Critical Implementation Rules
 
@@ -74,7 +74,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 ### Critical Don't-Miss Rules
 
-- **Don't write SQLAlchemy 2.0 style** — this is 1.4.53. Use `session.query(...)`, not `session.execute(select(...))`, unless the file already does.
+- **Prefer the legacy `Query` API for consistency** — the codebase runs on SQLAlchemy 2.0.51 but overwhelmingly uses `session.query(...)`. Match the surrounding file; don't refactor working `query()` code to `select()` gratuitously. Always wrap raw SQL strings in `sqlalchemy.text(...)`.
 - **Don't bypass the `Storage`/service layers** by putting raw SQL or ORM queries in routes — go through `MariaDBStorage` + the `*_service.py` layer.
 - **Don't use `float` for measurements** — `Decimal` only (see item dimensions / `ROUND_HALF_UP`).
 - **Don't treat Google Sheets as live storage** — it's export/legacy only; MariaDB is the source of truth.
@@ -97,4 +97,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Update when the technology stack or storage/service patterns change.
 - Review periodically and remove rules that become obvious over time.
 
-Last Updated: 2026-07-18
+Last Updated: 2026-07-19
