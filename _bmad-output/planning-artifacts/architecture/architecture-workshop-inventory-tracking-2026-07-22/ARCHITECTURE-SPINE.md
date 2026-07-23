@@ -7,7 +7,7 @@ paradigm: 'layered (route → service → enhanced-ORM model) with app-factory d
 scope: 'The product-catalog & purchase-tracking enhancement to the existing workshop-inventory-tracking Flask app — the 10 epics of the PRD, governing where their code lives and the invariants they must share. Existing metal-stock functionality is out of scope except as a source of ratified conventions.'
 status: final
 created: '2026-07-22'
-updated: '2026-07-22'
+updated: '2026-07-23'
 binds: [epic-1-data-model, epic-2-identifiers, epic-3-taxonomy, epic-4-scan-routing, epic-5-stock, epic-6-labels, epic-7-capture, epic-8-search-attachments, epic-9-handheld, epic-10-equivalence]
 sources:
   - '_bmad-output/planning-artifacts/prds/prd-workshop-inventory-tracking-2026-07-21/prd.md'
@@ -112,7 +112,7 @@ Dependency direction is one-way down the layers (see *Structural Seed*).
 ### AD-16 — One AI-96/`WIT`/FNC1 grammar, one config source
 - **Binds:** Epics 2, 4, 6
 - **Prevents:** encoder and decoder drifting; FR12c silently violated by literal defaults
-- **Rule:** The GS1 element-string grammar is single-sourced in `app/utils/gs1.py`, exposing `encode(internal_id, *, ai, token)` **and** `decode(raw, *, ai, token) → InternalPayload|None` (decode absorbs FR37a FNC1 tolerance: GS `0x1D` / configured substitute / stripped). `scan_router` delegates rule-1 recognition to `gs1.decode()`; the label generator calls `gs1.encode()`. The AI number and token are read from **one** named config pair (`GS1_INTERNAL_AI`, `GS1_INTERNAL_TOKEN`) **in the service** and passed explicitly into both pure functions — **no literal defaults**. This makes FR12c ("one config change flips both encoder and router") mechanical.
+- **Rule:** The GS1 element-string grammar is single-sourced in `app/utils/gs1.py`, exposing `encode(internal_id, *, ai, token)` **and** `decode(raw, *, ai, token) → InternalPayload|None` (decode absorbs FR37a FNC1 tolerance: GS `0x1D` / configured substitute / stripped). `scan_router` delegates rule-1 recognition to `gs1.decode()`; the label generator calls `gs1.encode()`. The AI number and token are read from **one** named config pair (`GS1_INTERNAL_AI`, `GS1_INTERNAL_TOKEN`) **in the service** and passed explicitly into both pure functions — **no literal defaults**. This makes FR12c ("one config change flips both encoder and router") mechanical. **Deployed reality (Q1/Q7 spike, 2026-07-23):** the Tera HW0009 strips FNC1 and emits no AIM identifier, so a scanned internal symbol arrives as the bare string `<ai><token><id>` (e.g. `96WITTEST0001`); `decode()` recognizes it structurally by the `96WIT` (AI+token) prefix — the `WIT` token is what makes it self-identifying without FNC1 (FR12a). The FR37a tolerance for GS `0x1D` / a configured substitute stays in code for other scanners.
 
 ### AD-17 — Single free-text search entrypoint
 - **Binds:** Epics 4, 8
@@ -287,8 +287,7 @@ migrations/versions/
 
 ## Deferred
 
-- **Q1 — scanner 2D round-trip (blocking spike, gates Epic 4).** Whether the Tera HW0009 round-trips a GS1 DataMatrix `WIT…` payload recognizably (data chars intact; FNC1 as GS/substitute/stripped; AIM `]d1`). Hardware-empirical; resolve before building the internal-ID scan path. Owner: build spike.
-- **Q7 — pyStrich GS1 scan-test (blocking spike, gates Epic 6).** pyStrich's GS1 support is ~6 weeks old; print a sample and verify it scans/validates as a GS1 DataMatrix before relying on it. Fallback: `treepoem` + Ghostscript (documented in memlog). Owner: build spike.
+- **Q1 & Q7 — RESOLVED by hardware spike (2026-07-23), no longer blocking.** A pyStrich-generated GS1 DataMatrix (`96`+`WIT`+id) printed and physically scanned on the Tera HW0009. Q7: it scans, payload intact → pyStrich confirmed as the 2D renderer (add `pyStrich[png]` to `requirements.txt` in Epic 6); treepoem+Ghostscript fallback dropped. Q1: the scanner strips FNC1 and emits no AIM identifier → the internal route is recognized structurally by the `96WIT` prefix (see AD-16). AIM emission was deliberately **not** enabled (it is global and would break existing metal-stock JA-ID/location scanning). Details in `.memlog.md`.
 - **Full-text search *mechanism* (Epic 8).** LIKE vs MariaDB `FULLTEXT` vs ranking. The **entrypoint is fixed** (AD-17: one `search_products()` method that both the scan fallthrough and Epic-8 search call), so this carries **no cross-epic divergence** — only the internal implementation is deferred, decided in Epic 8 at build time. At hundreds–low-thousands of products, `LIKE`-based search likely suffices.
 - **Category storage depth.** Materialized-path string + canonical form are fixed; whether rename-with-descendants (FR17) needs a helper index or a `categories` table is an Epic-3 implementation detail, not a cross-epic invariant.
 - **Attachment size limits / PDF thumbnailing.** Whether to cap BLOB size or generate PyMuPDF thumbnails is an Epic-8 detail; the storage mechanism (AD-12) is fixed.

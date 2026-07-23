@@ -103,8 +103,3 @@ I keep using the catalog weekly and don't abandon it after a month; every label-
 - "Label-worthy" ≈ the roughly half of received items that today get a hand-printed label; distributor-labeled items are catalogued for search/reorder but need no printed label.
 - Order-time capture happens at or near ordering, so the capture-time listing price ≈ the price paid and order date defaults to the capture date (both remain editable).
 - The existing `field-suggestions` autocomplete source is extended to include Product locations, making the location/vendor vocabulary bidirectional (today it draws from metal-stock rows only).
-
-## Open Questions
-
-- **Q1 (blocking spike, gates CAP-4):** Does the Tera HW0009 scanner round-trip a GS1 DataMatrix `WIT…` payload recognizably — data characters intact, whether it transmits FNC1 as GS (0x1D), a substitute character, or stripped, and whether it emits the AIM `]d1` identifier? Resolve before building the internal-ID scan path.
-- **Q7 (blocking spike, gates CAP-6):** Does pyStrich's ~6-week-old GS1 output scan and verify as a valid GS1 DataMatrix on a real printed sample? If not, fall back to `treepoem`+Ghostscript. Resolve before label work.
