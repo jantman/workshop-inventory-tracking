@@ -1,0 +1,136 @@
+# generated: 2026-07-23 18:51:02
+# last_updated: 2026-07-23 18:51:02
+# project: workshop-inventory-tracking
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+#
+# Recommended delivery order (from epics.md / addendum §D):
+#   Epic 1 → 2 → 4 → 6 → 7 → 3 → 5 → 10 → 8 → 9
+#   (front-loads the identification loop: create → print label → scan back)
+#   This file lists epics in numeric order; the order above is the work sequence.
+#
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; sprint-status surfaces open ones
+
+generated: 2026-07-23 18:51:02
+last_updated: 2026-07-23 18:51:02
+project: workshop-inventory-tracking
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1 — Product & Purchase Foundation
+  epic-1: backlog
+  1-1-product-entity-and-migration: backlog
+  1-2-purchase-entity-and-migration: backlog
+  1-3-product-create-edit-detail: backlog
+  1-4-purchase-recording-and-history: backlog
+  1-5-attachments-on-product-or-purchase: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2 — Identifiers & Internal Encoding
+  epic-2: backlog
+  2-1-typed-identifier-entity-and-uniqueness: backlog
+  2-2-gtin-normalization-and-check-digit-validation: backlog
+  2-3-asin-identity-handling: backlog
+  2-4-internal-identifier-generation-and-gs1-ai-96-encoding: backlog
+  2-5-foreign-payload-rejection-and-ownership-text: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3 — Taxonomy & Tagging
+  epic-3: backlog
+  3-1-materialized-path-categories-with-inline-create: backlog
+  3-2-category-rename-with-descendants: backlog
+  3-3-free-form-tags: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4 — Scan Routing & ECIA
+  epic-4: backlog
+  4-1-wedge-scan-capture: backlog
+  4-2-pure-scan-classifier: backlog
+  4-3-service-scan-resolution: backlog
+  4-4-ecia-distributor-label-parsing: backlog
+  4-5-scan-outcome-routing-in-the-ui: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5 — Stock Tracking & Reorder Signals
+  epic-5: backlog
+  5-1-tri-state-quantity-and-location: backlog
+  5-2-reorder-threshold-and-derived-effective-low: backlog
+  5-3-manual-stock-status: backlog
+  5-4-derived-on-order-and-recently-received: backlog
+  5-5-receipt-clears-manual-low: backlog
+  5-6-unified-reorder-view: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6 — Label Generation & Printing
+  epic-6: backlog
+  6-1-datamatrix-rendering-dependency-and-encoder: backlog
+  6-2-2x4-and-1x2-label-templates: backlog
+  6-3-dual-encoding-and-reprint: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7 — Order-Time Capture
+  epic-7: backlog
+  7-1-capture-endpoint: backlog
+  7-2-de-dup-and-asin-confirm-not-merge: backlog
+  7-3-title-draft-and-authored-description: backlog
+  7-4-idempotent-capture: backlog
+  7-5-enrichment-no-op-hook: backlog
+  7-6-amazon-bookmarklet: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8 — Search & Retrieval
+  epic-8: backlog
+  8-1-full-text-search-entrypoint: backlog
+  8-2-faceted-filtering-and-bookmarkable-state: backlog
+  8-3-direct-url-product-view: backlog
+  epic-8-retrospective: optional
+
+  # Epic 9 — Handheld & Touch Readiness
+  epic-9: backlog
+  9-1-touch-equivalents-for-shortcuts: backlog
+  9-2-self-sufficient-scan-result-view: backlog
+  9-3-form-state-persistence: backlog
+  epic-9-retrospective: optional
+
+  # Epic 10 — Equivalent Products
+  epic-10: backlog
+  10-1-declare-and-undeclare-equivalence: backlog
+  10-2-equivalents-on-the-product-view: backlog
+  10-3-equivalence-in-the-reorder-view: backlog
+  epic-10-retrospective: optional
