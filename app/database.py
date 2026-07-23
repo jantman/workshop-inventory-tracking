@@ -6,7 +6,7 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -807,3 +807,64 @@ class ItemPhotoAssociation(Base):
         if self.photo:
             result['photo'] = self.photo.to_dict()
         return result
+
+
+# ---------------------------------------------------------------------------
+# Product Catalog subsystem (Epic 1+). New catalog entities live here on the
+# shared Base alongside metal-stock (AD-1); value objects/enums go in
+# app.models. Schema changes are Alembic migrations via manage.py db (AD-14).
+# ---------------------------------------------------------------------------
+
+
+class Product(Base):
+    """
+    Catalog product record (Story 1.1).
+
+    A Product is distinct from a Purchase and is creatable with no other
+    detail than a Label Description (FR3/FR4/FR61) — every field below except
+    the PK and timestamps is nullable to support backfill-forward creation.
+
+    Story 1.1 ships only the FR2 columns. Later stories/epics extend this
+    table via their own migrations: internal_id (Epic 2), stock/quantity/
+    location fields (Epic 5), equivalent_group_id (Epic 10).
+    """
+    __tablename__ = 'products'
+
+    # Integer surrogate PK (AD-3)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Core catalog fields (FR2) — all optional (FR3/FR4/FR61)
+    manufacturer = Column(String(255), nullable=True)
+    mpn = Column(String(255), nullable=True)  # Manufacturer Part Number
+    description = Column(String(255), nullable=True)  # Label Description
+    notes = Column(Text, nullable=True)
+
+    # Materialized-path category (canonical form handled in Epic 3);
+    # indexed for the segment-prefix filter used by Epics 3 and 8.
+    category_path = Column(String(512), nullable=True, index=True)
+
+    # Schemaless Specifications — the one sanctioned JSON column (NFR2).
+    # Generic sa.JSON maps to native JSON on MariaDB, serialized TEXT on SQLite.
+    attributes = Column(JSON, nullable=True)
+
+    # Timestamps (created_at/updated_at convention for all catalog tables)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return (f"<Product(id={self.id}, mpn='{self.mpn}', "
+                f"description='{self.description}')>")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'manufacturer': self.manufacturer,
+            'mpn': self.mpn,
+            'description': self.description,
+            'notes': self.notes,
+            'category_path': self.category_path,
+            'attributes': self.attributes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
