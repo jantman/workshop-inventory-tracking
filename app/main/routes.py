@@ -824,9 +824,55 @@ def product_detail(product_id):
     # would lazy-load on the detached Product).
     purchases = service.get_purchases_for_product(product_id)
     last_paid = service.get_last_paid_price(product_id)
+    attachments = service.get_attachments_for_product(product_id)
     return render_template('product/detail.html',
                            title=product.description or f'Product {product_id}',
-                           product=product, purchases=purchases, last_paid=last_paid)
+                           product=product, purchases=purchases, last_paid=last_paid,
+                           attachments=attachments)
+
+
+@bp.route('/products/<int:product_id>/attachments', methods=['POST'])
+def product_upload_attachment(product_id):
+    """Upload a file attachment to a Product (browser multipart form, CSRF-protected)."""
+    service = _get_catalog_service()
+    if service.get_product(product_id) is None:
+        abort(404)
+
+    file = request.files.get('file')
+    if file is None or file.filename == '':
+        flash('No file selected.', 'error')
+        return redirect(url_for('main.product_detail', product_id=product_id))
+
+    try:
+        service.add_attachment(
+            product_id=product_id,
+            filename=file.filename,
+            content=file.read(),
+            content_type=file.content_type,
+        )
+        flash('Attachment uploaded.', 'success')
+    except ValidationError as e:
+        flash(str(e), 'error')
+    except Exception as e:
+        current_app.logger.error(f'Error uploading attachment for product {product_id}: {e}\n{traceback.format_exc()}')
+        flash('An error occurred while uploading the attachment.', 'error')
+    return redirect(url_for('main.product_detail', product_id=product_id))
+
+
+@bp.route('/attachments/<int:attachment_id>')
+def serve_attachment(attachment_id):
+    """Serve an attachment's bytes (FR5). Inline-safe: the content-type
+    whitelist admits only PDF/raster images (no HTML/SVG)."""
+    import io
+    service = _get_catalog_service()
+    result = service.get_attachment_data(attachment_id)
+    if result is None:
+        abort(404)
+    content, content_type, filename = result
+    response = send_file(io.BytesIO(content), mimetype=content_type,
+                         as_attachment=False, download_name=filename)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 def _catalog_json_error(code, message, status, field=None):

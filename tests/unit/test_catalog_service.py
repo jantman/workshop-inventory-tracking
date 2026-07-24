@@ -176,3 +176,131 @@ class TestCatalogServicePurchases:
         pid = catalog_service.create_product(description='widget')
         catalog_service.record_purchase(pid, vendor='X', unit_price=None)
         assert catalog_service.get_last_paid_price(pid) is None
+
+
+_PDF_BYTES = b'%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'
+
+
+class TestCatalogServiceAttachments:
+
+    @pytest.mark.unit
+    def test_add_attachment_to_product(self, catalog_service):
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_attachment(
+            product_id=pid, filename='ds.pdf', content=_PDF_BYTES,
+            content_type='application/pdf')
+        assert snap['product_id'] == pid
+        assert snap['purchase_id'] is None
+        assert snap['filename'] == 'ds.pdf'
+        assert snap['file_size'] == len(_PDF_BYTES)
+        assert 'content' not in snap  # BLOB never serialized
+
+        rows = catalog_service.get_attachments_for_product(pid)
+        assert len(rows) == 1
+        assert rows[0].filename == 'ds.pdf'
+
+    @pytest.mark.unit
+    def test_add_attachment_to_purchase(self, catalog_service):
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.record_purchase(pid, vendor='DigiKey')
+        purchase_id = snap['id']
+        att = catalog_service.add_attachment(
+            purchase_id=purchase_id, filename='receipt.pdf', content=_PDF_BYTES,
+            content_type='application/pdf')
+        assert att['purchase_id'] == purchase_id
+        assert att['product_id'] is None
+
+    @pytest.mark.unit
+    def test_add_attachment_xor_both_owners_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.record_purchase(pid, vendor='X')
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=pid, purchase_id=snap['id'], filename='x.pdf',
+                content=_PDF_BYTES, content_type='application/pdf')
+
+    @pytest.mark.unit
+    def test_add_attachment_xor_no_owner_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                filename='x.pdf', content=_PDF_BYTES, content_type='application/pdf')
+
+    @pytest.mark.unit
+    def test_add_attachment_oversize_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        from app.mariadb_catalog_service import ATTACHMENT_MAX_SIZE
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=pid, filename='big.pdf',
+                content=b'x' * (ATTACHMENT_MAX_SIZE + 1),
+                content_type='application/pdf')
+
+    @pytest.mark.unit
+    def test_add_attachment_disallowed_type_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=pid, filename='x.svg', content=b'<svg/>',
+                content_type='image/svg+xml')
+
+    @pytest.mark.unit
+    def test_add_attachment_empty_content_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=pid, filename='x.pdf', content=b'',
+                content_type='application/pdf')
+
+    @pytest.mark.unit
+    def test_add_attachment_missing_owner_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=999999, filename='x.pdf', content=_PDF_BYTES,
+                content_type='application/pdf')
+
+    @pytest.mark.unit
+    def test_get_attachments_empty_and_ordered(self, catalog_service):
+        pid = catalog_service.create_product(description='widget')
+        assert catalog_service.get_attachments_for_product(pid) == []
+        catalog_service.add_attachment(product_id=pid, filename='a.pdf',
+                                       content=_PDF_BYTES, content_type='application/pdf')
+        catalog_service.add_attachment(product_id=pid, filename='b.pdf',
+                                       content=_PDF_BYTES, content_type='application/pdf')
+        rows = catalog_service.get_attachments_for_product(pid)
+        assert [r.filename for r in rows] == ['a.pdf', 'b.pdf']
+
+    @pytest.mark.unit
+    def test_get_attachments_defers_blob(self, catalog_service):
+        """AC #4: listing must NOT load the BLOB content column."""
+        from sqlalchemy import inspect
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.add_attachment(product_id=pid, filename='a.pdf',
+                                       content=_PDF_BYTES, content_type='application/pdf')
+        rows = catalog_service.get_attachments_for_product(pid)
+        # 'content' is deferred → reported as unloaded on the returned row.
+        assert 'content' in inspect(rows[0]).unloaded
+
+    @pytest.mark.unit
+    def test_add_attachment_overlong_filename_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=pid, filename='x' * 300 + '.pdf', content=_PDF_BYTES,
+                content_type='application/pdf')
+
+    @pytest.mark.unit
+    def test_get_attachment_data(self, catalog_service):
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_attachment(
+            product_id=pid, filename='ds.pdf', content=_PDF_BYTES,
+            content_type='application/pdf')
+        result = catalog_service.get_attachment_data(snap['id'])
+        assert result == (_PDF_BYTES, 'application/pdf', 'ds.pdf')
+        assert catalog_service.get_attachment_data(999999) is None

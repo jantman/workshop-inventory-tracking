@@ -84,6 +84,38 @@
             </div>
         </div>
 
+        <div class="card mb-3">
+            <div class="card-header">Attachments</div>
+            <div class="card-body">
+                {% if attachments %}
+                <ul class="list-group list-group-flush mb-3">
+                    {% for attachment in attachments %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <a href="{{ url_for('main.serve_attachment', attachment_id=attachment.id) }}" target="_blank" rel="noopener">
+                            <i class="bi bi-paperclip"></i> {{ attachment.filename }}
+                        </a>
+                        <span class="text-muted small">{{ attachment.content_type }} · {{ (attachment.file_size / 1024) | round(1) }} KB</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted">No attachments.</p>
+                {% endif %}
+
+                <form method="POST" enctype="multipart/form-data"
+                      action="{{ url_for('main.product_upload_attachment', product_id=product.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="input-group">
+                        <input type="file" name="file" class="form-control" required>
+                        <button type="submit" class="btn btn-outline-primary">
+                            <i class="bi bi-upload"></i> Upload
+                        </button>
+                    </div>
+                    <div class="form-text">PDF or image (JPEG, PNG, WebP, GIF), up to 16 MB.</div>
+                </form>
+            </div>
+        </div>
+
         <div class="text-muted small">
             {% if product.created_at %}<div>Created: {{ product.created_at.strftime('%Y-%m-%d %H:%M') }}</div>{% endif %}
             {% if product.updated_at %}<div>Updated: {{ product.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>{% endif %}
