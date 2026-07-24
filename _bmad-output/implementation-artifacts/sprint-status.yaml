@@ -60,7 +60,7 @@ development_status:
   1-3-product-create-edit-detail: done
   1-4-purchase-recording-and-history: done
   1-5-attachments-on-product-or-purchase: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # Epic 2 — Identifiers & Internal Encoding
   epic-2: backlog
@@ -134,3 +134,17 @@ development_status:
   10-2-equivalents-on-the-product-view: backlog
   10-3-equivalence-in-the-reorder-view: backlog
   epic-10-retrospective: optional
+
+action_items:
+  - epic: 1
+    action: "Bake a boundary-validation checklist into story-creation guardrails: guard string lengths, numeric ranges, and constraint preconditions as ValidationErrors before any DB write"
+    owner: "Amelia"
+    status: open
+  - epic: 1
+    action: "Keep the two-tier testing discipline explicit per schema story (unit-on-SQLite + migration-round-trip-on-MariaDB); note which invariants SQLite does/doesn't enforce"
+    owner: "Amelia"
+    status: open
+  - epic: 1
+    action: "Per-request SQLAlchemy engine/pool creation (systemic, shared with InventoryService) - deferred to a dedicated app-scope fix; not blocking Epic 2"
+    owner: "Amelia"
+    status: open
