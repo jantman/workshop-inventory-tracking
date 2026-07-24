@@ -121,6 +121,12 @@ class IdentifierType(Enum):
     so later stories can extend the set without a migration.
     """
     GTIN = "GTIN"
+    # Quarantine namespace (Story 2.2, FR10, AD-7): a value that fails GTIN
+    # check-digit validation may be retained here. It is GLOBAL (see
+    # VENDOR_SCOPED_IDENTIFIER_TYPES below) and stored exactly as entered —
+    # never normalized — so it shares no key space with GTIN and can never
+    # block a later valid GTIN.
+    GTIN_UNVALIDATED = "GTIN_UNVALIDATED"
     ASIN = "ASIN"
     FNSKU = "FNSKU"
     MPN = "MPN"

@@ -46,7 +46,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-07-23 18:51:02
-last_updated: 2026-07-24
+last_updated: 2026-07-24 (story 2-2 done)
 project: workshop-inventory-tracking
 project_key: NOKEY
 tracking_system: file-system
@@ -65,7 +65,7 @@ development_status:
   # Epic 2 — Identifiers & Internal Encoding
   epic-2: backlog
   2-1-typed-identifier-entity-and-uniqueness: done
-  2-2-gtin-normalization-and-check-digit-validation: backlog
+  2-2-gtin-normalization-and-check-digit-validation: done
   2-3-asin-identity-handling: backlog
   2-4-internal-identifier-generation-and-gs1-ai-96-encoding: backlog
   2-5-foreign-payload-rejection-and-ownership-text: backlog

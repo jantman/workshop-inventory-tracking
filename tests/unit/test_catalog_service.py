@@ -309,14 +309,24 @@ class TestCatalogServiceAttachments:
 class TestCatalogServiceIdentifiers:
 
     @pytest.mark.unit
-    @pytest.mark.parametrize('itype', ['GTIN', 'ASIN', 'FNSKU', 'MPN', 'VENDOR_SKU', 'INTERNAL'])
-    def test_add_each_type_persists(self, catalog_service, itype):
+    @pytest.mark.parametrize('itype, value, expected', [
+        # GTIN is normalized to its 14-digit key; every other type stores the
+        # value as entered. GTIN_UNVALIDATED is global and stored as-entered.
+        ('GTIN', '012345678905', '00012345678905'),
+        ('GTIN_UNVALIDATED', 'ABC123', 'ABC123'),
+        ('ASIN', 'ABC123', 'ABC123'),
+        ('FNSKU', 'ABC123', 'ABC123'),
+        ('MPN', 'ABC123', 'ABC123'),
+        ('VENDOR_SKU', 'ABC123', 'ABC123'),
+        ('INTERNAL', 'ABC123', 'ABC123'),
+    ])
+    def test_add_each_type_persists(self, catalog_service, itype, value, expected):
         pid = catalog_service.create_product(description='widget')
         snap = catalog_service.add_identifier(
-            pid, identifier_type=itype, value='ABC123', vendor='Acme')
+            pid, identifier_type=itype, value=value, vendor='Acme')
         assert snap['product_id'] == pid
         assert snap['identifier_type'] == itype
-        assert snap['value'] == 'ABC123'
+        assert snap['value'] == expected
         rows = catalog_service.get_identifiers_for_product(pid)
         assert len(rows) == 1
         assert rows[0].identifier_type == itype
@@ -372,12 +382,12 @@ class TestCatalogServiceIdentifiers:
         pid_a = catalog_service.create_product(description='product A')
         pid_b = catalog_service.create_product(description='product B')
         snap = catalog_service.add_identifier(
-            pid_a, identifier_type='GTIN', value='X', vendor='Acme')
+            pid_a, identifier_type='GTIN', value='012345678905', vendor='Acme')
         # GTIN is global → vendor ignored → vendor_scope is the '' sentinel.
         assert snap['vendor_scope'] == ''
         with pytest.raises(ValidationError):
             catalog_service.add_identifier(
-                pid_b, identifier_type='GTIN', value='X', vendor='Zed')
+                pid_b, identifier_type='GTIN', value='012345678905', vendor='Zed')
 
     @pytest.mark.unit
     @pytest.mark.parametrize('bad_value', ['', '   '])
@@ -402,9 +412,13 @@ class TestCatalogServiceIdentifiers:
 
     @pytest.mark.unit
     def test_non_string_value_coerced(self, catalog_service):
-        """A non-str value (e.g. an integer barcode) is coerced, not crashed."""
+        """A non-str value (e.g. an integer barcode) is coerced, not crashed.
+
+        Uses a non-GTIN type so the coercion behavior is exercised without GTIN
+        normalization interfering (GTIN normalization is covered separately).
+        """
         pid = catalog_service.create_product(description='widget')
-        snap = catalog_service.add_identifier(pid, identifier_type='GTIN', value=12345)
+        snap = catalog_service.add_identifier(pid, identifier_type='MPN', value=12345)
         assert snap['value'] == '12345'
 
     @pytest.mark.unit
@@ -420,6 +434,82 @@ class TestCatalogServiceIdentifiers:
         pid = catalog_service.create_product(description='widget')
         assert catalog_service.get_identifiers_for_product(pid) == []
         catalog_service.add_identifier(pid, identifier_type='MPN', value='first')
-        catalog_service.add_identifier(pid, identifier_type='GTIN', value='second')
+        catalog_service.add_identifier(pid, identifier_type='ASIN', value='second')
         rows = catalog_service.get_identifiers_for_product(pid)
         assert [r.value for r in rows] == ['first', 'second']
+
+    # --- GTIN normalization / validation / lookup (Story 2.2) ------------
+
+    @pytest.mark.unit
+    def test_gtin_stored_normalized_to_14(self, catalog_service):
+        """A valid UPC-A is stored (and snapshotted) as its 14-digit key."""
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_identifier(
+            pid, identifier_type='GTIN', value='012345678905')
+        assert snap['value'] == '00012345678905'
+        rows = catalog_service.get_identifiers_for_product(pid)
+        assert rows[0].value == '00012345678905'
+
+    @pytest.mark.unit
+    def test_gtin_cross_form_duplicate_rejected_names_product(self, catalog_service):
+        """A different encoding of the same GTIN collides on the shared key."""
+        from app.exceptions import ValidationError
+        from sqlalchemy.exc import IntegrityError
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        # A stores the GTIN-14 form; B tries the UPC-A form of the same number.
+        catalog_service.add_identifier(
+            pid_a, identifier_type='GTIN', value='00012345678905')
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.add_identifier(
+                pid_b, identifier_type='GTIN', value='012345678905')
+        assert not isinstance(exc_info.value, IntegrityError)
+        assert str(pid_a) in str(exc_info.value)
+
+    @pytest.mark.unit
+    def test_gtin_bad_check_digit_rejected_offers_unvalidated(self, catalog_service):
+        """A bad check digit is a caught ValidationError offering GTIN_UNVALIDATED."""
+        from app.exceptions import ValidationError
+        from app.utils.gtin import InvalidGtinError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.add_identifier(
+                pid, identifier_type='GTIN', value='012345678900')
+        # Never leaks the raw pure-module error.
+        assert not isinstance(exc_info.value, InvalidGtinError)
+        assert 'GTIN_UNVALIDATED' in str(exc_info.value)
+
+    @pytest.mark.unit
+    def test_gtin_unvalidated_stored_as_entered(self, catalog_service):
+        """GTIN_UNVALIDATED is never normalized/validated — stored verbatim."""
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_identifier(
+            pid, identifier_type='GTIN_UNVALIDATED', value='012345678900')
+        assert snap['value'] == '012345678900'
+        assert snap['vendor_scope'] == ''  # global, not vendor-scoped
+
+    @pytest.mark.unit
+    def test_unvalidated_does_not_block_later_valid_gtin(self, catalog_service):
+        """A quarantined value never squats a real GTIN slot on another product."""
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        # A holds the raw (check-digit-invalid) string as GTIN_UNVALIDATED...
+        catalog_service.add_identifier(
+            pid_a, identifier_type='GTIN_UNVALIDATED', value='012345678905')
+        # ...and a valid GTIN normalizing to the same digits still persists on B.
+        snap = catalog_service.add_identifier(
+            pid_b, identifier_type='GTIN', value='012345678905')
+        assert snap['value'] == '00012345678905'
+        assert catalog_service.find_product_id_by_gtin('012345678905') == pid_b
+
+    @pytest.mark.unit
+    def test_find_product_id_by_gtin_resolves_alternate_form(self, catalog_service):
+        """Any encoding resolves to the Product that owns the GTIN; misses → None."""
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.add_identifier(
+            pid, identifier_type='GTIN', value='00012345678905')
+        # Looked up via the UPC-A encoding of the same number.
+        assert catalog_service.find_product_id_by_gtin('012345678905') == pid
+        # Unknown-but-valid GTIN and an invalid input both return None (no raise).
+        assert catalog_service.find_product_id_by_gtin('00012345678929') is None
+        assert catalog_service.find_product_id_by_gtin('not-a-gtin') is None

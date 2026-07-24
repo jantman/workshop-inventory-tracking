@@ -22,6 +22,7 @@ from .database import Product, Purchase, Attachment, ProductIdentifier
 from .models import IdentifierType, VENDOR_SCOPED_IDENTIFIER_TYPES
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
+from .utils import gtin
 from config import Config
 
 
@@ -401,6 +402,22 @@ class CatalogService:
                 f'Identifier value is too long (max {IDENTIFIER_MAX_LENGTH} characters).',
                 field='value', value=value)
 
+        # --- Normalize + check-digit-validate GTIN (Story 2.2, FR9/FR10) ---
+        # Only GTIN is normalized: the stored, snapshotted, and
+        # uniqueness-checked value becomes the canonical 14-digit key, so every
+        # encoding of one product collides on the shared key. A check-digit
+        # failure is surfaced as a domain ValidationError (never a raw
+        # InvalidGtinError) that offers the GTIN_UNVALIDATED path.
+        # GTIN_UNVALIDATED is stored exactly as entered — never normalized.
+        if itype is IdentifierType.GTIN:
+            try:
+                value = gtin.normalize_gtin(value)
+            except gtin.InvalidGtinError as e:
+                raise ValidationError(
+                    f'{e} Store it as {IdentifierType.GTIN_UNVALIDATED.value} '
+                    f'to keep it without check-digit validation.',
+                    field='value', value=value)
+
         # --- Compute scope (AD-9) ---
         scope = (vendor or '').strip() if itype in VENDOR_SCOPED_IDENTIFIER_TYPES else ''
         if len(scope) > IDENTIFIER_MAX_LENGTH:
@@ -467,5 +484,31 @@ class CatalogService:
                     .filter(ProductIdentifier.product_id == product_id)
                     .order_by(ProductIdentifier.created_at.asc(), ProductIdentifier.id.asc())
                     .all())
+        finally:
+            session.close()
+
+    def find_product_id_by_gtin(self, value) -> Optional[int]:
+        """
+        Resolve any GTIN encoding to the owning Product's id, or None (Story
+        2.2, FR9).
+
+        The input is normalized to the canonical 14-digit key (matching how
+        add_identifier stores GTINs), so GTIN-8, UPC-A, EAN-13, and GTIN-14
+        forms of one product all resolve to the same Product. Returns None if
+        the input is not a valid GTIN (never raises) or no GTIN identifier
+        matches. GTIN_UNVALIDATED rows are outside the GTIN namespace and are
+        never matched.
+        """
+        try:
+            key = gtin.normalize_gtin('' if value is None else str(value))
+        except gtin.InvalidGtinError:
+            return None
+        session = self.Session()
+        try:
+            row = (session.query(ProductIdentifier)
+                   .filter(ProductIdentifier.identifier_type == IdentifierType.GTIN.value,
+                           ProductIdentifier.value == key)
+                   .first())
+            return row.product_id if row else None
         finally:
             session.close()
