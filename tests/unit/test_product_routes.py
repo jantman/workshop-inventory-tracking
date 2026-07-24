@@ -38,11 +38,18 @@ class TestProductRoutes:
         assert product.manufacturer is None
 
     def test_create_blank_description_rerenders_with_error(self, client, test_storage):
-        resp = client.post('/products/add', data={'description': '   '})
+        resp = client.post('/products/add', data={'description': '   ',
+                                                  'manufacturer': 'KeepMe'})
         assert resp.status_code == 200  # re-rendered form, not a redirect
-        assert b'Add Product' in resp.data
-        # nothing created
-        # (no product with id 1 should exist)
+        assert b'Label Description is required.' in resp.data
+        assert b'KeepMe' in resp.data  # typed input preserved on re-render
+        # nothing created (no product with id 1 should exist)
+        assert CatalogService(test_storage).get_product(1) is None
+
+    def test_create_overlong_field_rerenders_with_error(self, client, test_storage):
+        resp = client.post('/products/add', data={'description': 'x' * 300})
+        assert resp.status_code == 200
+        assert b'must be 255 characters or fewer' in resp.data
         assert CatalogService(test_storage).get_product(1) is None
 
     def test_detail_missing_is_404(self, client):
@@ -79,8 +86,21 @@ class TestProductRoutes:
 
     def test_edit_blank_description_rerenders(self, client, test_storage):
         pid = self._make_product(test_storage, description='keep me')
-        resp = client.post(f'/products/edit/{pid}', data={'description': ''})
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': '', 'manufacturer': 'TypedNotSaved'})
         assert resp.status_code == 200
-        # unchanged
+        assert b'Label Description is required.' in resp.data
+        # the user's in-flight edits survive the error re-render...
+        assert b'TypedNotSaved' in resp.data
+        # ...but nothing was written to the database
         product = CatalogService(test_storage).get_product(pid)
         assert product.description == 'keep me'
+        assert product.manufacturer is None
+
+    def test_edit_omitted_field_left_unchanged(self, client, test_storage):
+        """A POST body missing a field must not null the stored value."""
+        pid = self._make_product(test_storage, description='thing', manufacturer='TI')
+        resp = client.post(f'/products/edit/{pid}', data={'description': 'thing'})
+        assert resp.status_code == 302
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.manufacturer == 'TI'  # absent key != clear

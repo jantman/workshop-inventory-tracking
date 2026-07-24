@@ -18,8 +18,8 @@
                             <label for="description" class="form-label">Label Description *</label>
                             <input type="text"
                                    class="form-control{% if validation_errors and validation_errors.description %} is-invalid{% endif %}"
-                                   id="description" name="description"
-                                   value="{{ product.description or '' }}" required autocomplete="off">
+                                   id="description" name="description" maxlength="255"
+                                   value="{{ form_data.get('description', '') }}" required autocomplete="off">
                             <div class="invalid-feedback{% if validation_errors and validation_errors.description %} d-block{% endif %}">
                                 {% if validation_errors and validation_errors.description %}{{ validation_errors.description }}{% else %}A Label Description is required.{% endif %}
                             </div>
@@ -28,27 +28,30 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="manufacturer" class="form-label">Manufacturer</label>
-                            <input type="text" class="form-control" id="manufacturer" name="manufacturer"
-                                   value="{{ product.manufacturer or '' }}" autocomplete="off">
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.manufacturer %} is-invalid{% endif %}" id="manufacturer" name="manufacturer" maxlength="255"
+                                   value="{{ form_data.get('manufacturer', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.manufacturer %}<div class="invalid-feedback d-block">{{ validation_errors.manufacturer }}</div>{% endif %}
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="mpn" class="form-label">Manufacturer Part Number (MPN)</label>
-                            <input type="text" class="form-control" id="mpn" name="mpn"
-                                   value="{{ product.mpn or '' }}" autocomplete="off">
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.mpn %} is-invalid{% endif %}" id="mpn" name="mpn" maxlength="255"
+                                   value="{{ form_data.get('mpn', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.mpn %}<div class="invalid-feedback d-block">{{ validation_errors.mpn }}</div>{% endif %}
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-12 mb-3">
                             <label for="category_path" class="form-label">Category</label>
-                            <input type="text" class="form-control" id="category_path" name="category_path"
-                                   value="{{ product.category_path or '' }}" autocomplete="off"
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.category_path %} is-invalid{% endif %}" id="category_path" name="category_path" maxlength="512"
+                                   value="{{ form_data.get('category_path', '') }}" autocomplete="off"
                                    placeholder="e.g. electronics/power/regulators">
+                            {% if validation_errors and validation_errors.category_path %}<div class="invalid-feedback d-block">{{ validation_errors.category_path }}</div>{% endif %}
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-12 mb-3">
                             <label for="notes" class="form-label">Notes</label>
-                            <textarea class="form-control" id="notes" name="notes" rows="3">{{ product.notes or '' }}</textarea>
+                            <textarea class="form-control" id="notes" name="notes" rows="3">{{ form_data.get('notes', '') }}</textarea>
                         </div>
                     </div>
                 </div>

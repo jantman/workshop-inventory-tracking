@@ -57,7 +57,7 @@ development_status:
   epic-1: in-progress
   1-1-product-entity-and-migration: review
   1-2-purchase-entity-and-migration: review
-  1-3-product-create-edit-detail: review
+  1-3-product-create-edit-detail: done
   1-4-purchase-recording-and-history: backlog
   1-5-attachments-on-product-or-purchase: backlog
   epic-1-retrospective: optional

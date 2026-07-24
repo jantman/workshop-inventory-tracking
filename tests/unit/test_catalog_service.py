@@ -77,9 +77,23 @@ class TestCatalogServiceUpdate:
 
     @pytest.mark.unit
     def test_update_changes_persist(self, catalog_service):
+        from datetime import datetime
+        from sqlalchemy.orm import sessionmaker
+        from app.database import Product
+
         new_id = catalog_service.create_product(description='original')
-        before = catalog_service.get_product(new_id)
-        before_updated = before.updated_at
+
+        # Backdate updated_at so the onupdate bump is observable (func.now()
+        # has second resolution — asserting >= creation time is tautological).
+        backdated = datetime(2020, 1, 1, 12, 0, 0)
+        Session = sessionmaker(bind=catalog_service.engine)
+        session = Session()
+        try:
+            session.query(Product).filter(Product.id == new_id).update(
+                {'updated_at': backdated}, synchronize_session=False)
+            session.commit()
+        finally:
+            session.close()
 
         ok = catalog_service.update_product(new_id, description='changed', manufacturer='Bourns')
         assert ok is True
@@ -87,8 +101,8 @@ class TestCatalogServiceUpdate:
         after = catalog_service.get_product(new_id)
         assert after.description == 'changed'
         assert after.manufacturer == 'Bourns'
-        # updated_at should have advanced (or at least not regressed)
-        assert after.updated_at >= before_updated
+        # onupdate must have replaced the backdated timestamp
+        assert after.updated_at > backdated
 
     @pytest.mark.unit
     def test_update_missing_returns_false(self, catalog_service):

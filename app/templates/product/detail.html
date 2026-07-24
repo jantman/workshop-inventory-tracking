@@ -32,7 +32,8 @@
             </div>
         </div>
 
-        {% if product.attributes %}
+        {# `is mapping` guards against non-dict JSON (list/scalar) stored in the column #}
+        {% if product.attributes is mapping and product.attributes %}
         <div class="card mb-3">
             <div class="card-header">Specifications</div>
             <div class="card-body">

@@ -62,22 +62,19 @@ class CatalogService:
         """
         Return the Product with the given surrogate id, or None if not found.
 
-        This is a read-only query (no commit), so the returned detached ORM
-        object's scalar columns stay readable after the session closes. Do not
-        access relationship attributes (e.g. .purchases) on the result — that
-        would lazy-load on a detached instance (Story 1.4 concern).
+        None strictly means "no such product" — database errors propagate to
+        the caller (and Flask's error handlers) rather than masquerading as
+        not-found. This is a read-only query (no commit), so the returned
+        detached ORM object's scalar columns stay readable after the session
+        closes. Do not access relationship attributes (e.g. .purchases) on the
+        result — that would lazy-load on a detached instance (Story 1.4
+        concern).
         """
+        session = self.Session()
         try:
-            session = self.Session()
             return session.query(Product).filter(Product.id == product_id).first()
-        except Exception as e:
-            from .logging_config import log_audit_operation
-            log_audit_operation('get_product', 'error', item_id=str(product_id),
-                                error_details=str(e), logger_name='mariadb_catalog_service')
-            return None
         finally:
-            if 'session' in locals():
-                session.close()
+            session.close()
 
     def create_product(self, *, manufacturer=None, mpn=None, description=None,
                         notes=None, category_path=None, attributes=None) -> Optional[int]:
@@ -101,10 +98,17 @@ class CatalogService:
                 attributes=attributes,
             )
             session.add(product)
-            session.commit()
+            # Flush (assigns the PK, fires column defaults) and capture the id
+            # and audit snapshot BEFORE commit: a post-commit attribute access
+            # triggers a refresh SELECT that can fail even though the row was
+            # committed, which would falsely report failure and invite a
+            # duplicate-creating retry.
+            session.flush()
             new_id = product.id
+            audit_snapshot = product.to_dict()
+            session.commit()
             log_audit_operation('create_product', 'success', item_id=str(new_id),
-                                item_after=product.to_dict(),
+                                item_after=audit_snapshot,
                                 logger_name='mariadb_catalog_service')
             return new_id
         except Exception as e:
@@ -139,9 +143,12 @@ class CatalogService:
                     continue
                 setattr(product, key, value if key == 'attributes' else _clean(value))
 
+            # Flush and snapshot before commit (see create_product).
+            session.flush()
+            audit_snapshot = product.to_dict()
             session.commit()
             log_audit_operation('update_product', 'success', item_id=str(product_id),
-                                item_after=product.to_dict(),
+                                item_after=audit_snapshot,
                                 logger_name='mariadb_catalog_service')
             return True
         except Exception as e:

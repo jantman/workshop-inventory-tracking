@@ -4,7 +4,7 @@ baseline_commit: 3de56609a6223da14bdb3a5ee8f2253a2484f85f
 
 # Story 1.3: Product create/edit/detail
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -72,6 +72,19 @@ Ship exactly: the service, three routes (+ nav link), three templates, and their
   - [x] `venv/bin/nox -s tests` → **383 passed** (367 baseline + 16 new), 0 failures, no regressions. No MariaDB container needed (no schema change).
   - [x] E2E not added (optional for 1.3; NFR6 prioritizes scan/label E2E, delivered later). Route tests exercise the full render/flow via the Flask test client.
   - [x] Screenshots: product pages were **not** added to `tests/e2e/screenshot_config.yaml`, so no screenshot regen is required for this story (noted in Completion Notes).
+
+### Review Findings
+
+- [x] [Review][Patch] Edit POST non-success paths discard typed input (blank-description re-render fills from `product.*` not `form_data`; `not ok`/exception branches redirect and wipe input; error-branch title also differs from GET) [app/main/routes.py:815-838, app/templates/product/edit.html]
+- [x] [Review][Patch] DB errors masquerade as 404 — `get_product` swallows all exceptions to `None`, routes `abort(404)` for products that exist [app/mariadb_catalog_service.py:61-79]
+- [x] [Review][Patch] No length validation: >255-char description/manufacturer/mpn (>512 category) fails generically on strict MariaDB, succeeds on SQLite tests; templates lack `maxlength` [app/main/routes.py:747-838, app/templates/product/*.html]
+- [x] [Review][Patch] Partial POST nulls omitted fields — `update_product` receives `None` for absent form keys and wipes stored values; pass only keys present in the form [app/main/routes.py:820-828]
+- [x] [Review][Patch] `detail.html` 500s when `attributes` JSON is a non-dict (list/scalar passes the `{% if %}` guard, `.items()` raises) [app/templates/product/detail.html:35-44]
+- [x] [Review][Patch] `create_product` can report failure after a successful commit (post-commit `id`/`to_dict()` refresh may fail → retry duplicates); flush + capture before commit [app/mariadb_catalog_service.py:100-116]
+- [x] [Review][Patch] `mariadb_catalog_service` logger not registered in `setup_logging` — catalog audit records bypass the audit-enrichment handler config; route-level input audits also tagged with the service logger name [app/logging_config.py:127-145, app/main/routes.py:754,811]
+- [x] [Review][Patch] Weak test assertions — `updated_at >= before` is tautological at second resolution; blank-create route test doesn't assert the error message rendered [tests/unit/test_catalog_service.py, tests/unit/test_product_routes.py]
+- [x] [Review][Patch] Unused `Product` import in routes [app/main/routes.py:13]
+- [x] [Review][Defer] Per-request SQLAlchemy engine/pool creation — unconnected `MariaDBStorage()` in production makes `CatalogService` (and the pre-existing `InventoryService`) build an undisposed engine from `Config` per request, ignoring `storage.database_url` [app/mariadb_catalog_service.py:51-58] — deferred, pre-existing systemic pattern shared with InventoryService; needs an app-level engine-sharing fix covering both services
 
 ## Dev Notes
 
