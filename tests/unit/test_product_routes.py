@@ -104,3 +104,72 @@ class TestProductRoutes:
         assert resp.status_code == 302
         product = CatalogService(test_storage).get_product(pid)
         assert product.manufacturer == 'TI'  # absent key != clear
+
+
+@pytest.mark.unit
+class TestProductPurchases:
+    """Detail-page purchase history + the REST record endpoint (Story 1.4)."""
+
+    def _seed(self, test_storage):
+        from datetime import date
+        from decimal import Decimal
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='LM317')
+        svc.record_purchase(pid, vendor='DigiKey', order_date=date(2026, 7, 1),
+                            unit_price=Decimal('1.00'))
+        svc.record_purchase(pid, vendor='Mouser', order_date=date(2026, 7, 5),
+                            unit_price=Decimal('1.25'))
+        svc.record_purchase(pid, vendor='DigiKey', order_date=date(2026, 7, 9),
+                            unit_price=Decimal('1.50'))
+        return pid
+
+    def test_detail_shows_history_and_last_paid(self, client, test_storage):
+        pid = self._seed(test_storage)
+        resp = client.get(f'/products/{pid}')
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        # all three vendors present, chronological
+        assert body.index('Mouser') > body.index('DigiKey')  # first row is 2026-07-01 DigiKey
+        # last paid is the most recent price
+        assert '1.50' in body
+        assert 'Last paid' in body
+
+    def test_detail_no_purchases_empty_state(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='bare')
+        resp = client.get(f'/products/{pid}')
+        assert resp.status_code == 200
+        assert b'No purchases recorded' in resp.data
+
+    def test_record_purchase_endpoint_creates_201(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='widget')
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'vendor': 'DigiKey', 'unit_price': '2.34',
+                                 'quantity': 5, 'order_date': '2026-07-10'})
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['purchase']['vendor'] == 'DigiKey'
+        assert data['purchase']['product_id'] == pid
+        assert data['product_url'].endswith(f'/products/{pid}')
+        # persisted
+        assert len(CatalogService(test_storage).get_purchases_for_product(pid)) == 1
+
+    def test_record_purchase_missing_product_404_object_envelope(self, client):
+        resp = client.post('/api/products/999999/purchases', json={'vendor': 'X'})
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert data['success'] is False
+        # AD-13 object envelope, NOT a bare string
+        assert isinstance(data['error'], dict)
+        assert data['error']['code'] == 'not_found'
+
+    def test_record_purchase_invalid_unit_price_400_field(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='widget')
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'vendor': 'X', 'unit_price': 'not-a-number'})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data['success'] is False
+        assert data['error']['field'] == 'unit_price'
+        # nothing created
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []

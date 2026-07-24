@@ -11,11 +11,13 @@ stories extend this class (internal_id generation, scan resolution,
 search_products, capture, derived signals).
 """
 
-from typing import Optional
+from typing import List, Optional
+from datetime import date
+from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 
-from .database import Product
+from .database import Product, Purchase
 from .mariadb_storage import MariaDBStorage
 from config import Config
 
@@ -156,6 +158,98 @@ class CatalogService:
             log_audit_operation('update_product', 'error', item_id=str(product_id),
                                 error_details=str(e), logger_name='mariadb_catalog_service')
             return False
+        finally:
+            if 'session' in locals():
+                session.close()
+
+    # --- Purchases (Story 1.4) -------------------------------------------
+
+    def get_purchases_for_product(self, product_id: int) -> List[Purchase]:
+        """
+        Return the product's Purchases in chronological order (oldest first).
+
+        A dedicated query — NOT `product.purchases` relationship navigation,
+        which would lazy-load on the detached Product `get_product` returns
+        (DetachedInstanceError). Read-only, so the returned detached rows keep
+        their scalar columns for template rendering. Returns [] for an unknown
+        product.
+        """
+        session = self.Session()
+        try:
+            return (session.query(Purchase)
+                    .filter(Purchase.product_id == product_id)
+                    .order_by(Purchase.order_date.asc(), Purchase.id.asc())
+                    .all())
+        finally:
+            session.close()
+
+    def get_last_paid_price(self, product_id: int) -> Optional[Decimal]:
+        """
+        Return the unit_price of the most recent priced Purchase (by order_date,
+        tie-break id), or None if the product has no purchase with a price
+        (FR21 "Last paid"). Per-product; group-awareness is Epic 10.
+        """
+        session = self.Session()
+        try:
+            purchase = (session.query(Purchase)
+                        .filter(Purchase.product_id == product_id,
+                                Purchase.unit_price.isnot(None))
+                        .order_by(Purchase.order_date.desc(), Purchase.id.desc())
+                        .first())
+            return purchase.unit_price if purchase else None
+        finally:
+            session.close()
+
+    def record_purchase(self, product_id: int, *, vendor=None, vendor_sku=None,
+                        order_date=None, received_date=None, quantity=None,
+                        unit_price=None, order_number=None, source_url=None
+                        ) -> Optional[dict]:
+        """
+        Record a Purchase against an existing Product (FR18, FR22).
+
+        Returns the created purchase's to_dict() snapshot (captured before the
+        session closes, so the caller can echo the resource without a detached
+        re-fetch), or None if the product does not exist or the insert fails.
+        A missing order_date defaults to today (the server-side capture-date
+        convention; Epic 7 reuses it). Callers pass already-typed values
+        (Decimal price, date fields, int quantity); parsing is the route's job.
+        Does not accept request_key — idempotent capture is Epic 7.
+        """
+        from .logging_config import log_audit_operation
+        try:
+            session = self.Session()
+            product = session.query(Product).filter(Product.id == product_id).first()
+            if product is None:
+                log_audit_operation('record_purchase', 'error', item_id=str(product_id),
+                                    error_details='Product not found',
+                                    logger_name='mariadb_catalog_service')
+                return None
+
+            purchase = Purchase(
+                product_id=product_id,
+                vendor=_clean(vendor),
+                vendor_sku=_clean(vendor_sku),
+                order_date=order_date if order_date is not None else date.today(),
+                received_date=received_date,
+                quantity=quantity,
+                unit_price=unit_price,
+                order_number=_clean(order_number),
+                source_url=_clean(source_url),
+            )
+            session.add(purchase)
+            # Flush + snapshot before commit (see create_product rationale).
+            session.flush()
+            snapshot = purchase.to_dict()
+            session.commit()
+            log_audit_operation('record_purchase', 'success', item_id=str(product_id),
+                                item_after=snapshot, logger_name='mariadb_catalog_service')
+            return snapshot
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            log_audit_operation('record_purchase', 'error', item_id=str(product_id),
+                                error_details=str(e), logger_name='mariadb_catalog_service')
+            return None
         finally:
             if 'session' in locals():
                 session.close()

@@ -15,6 +15,7 @@ import requests
 from app.api_client import (
     CreateItemResult,
     FieldSuggestionsResult,
+    RecordPurchaseResult,
     SUGGESTABLE_FIELDS,
     TaxonomyResult,
     UploadPhotoResult,
@@ -82,6 +83,50 @@ def session():
 @pytest.fixture
 def client(session):
     return WorkshopInventoryClient('http://example.test', session=session)
+
+
+class TestRecordPurchase:
+    def test_success(self, client, session):
+        session.post.return_value = _mock_response(201, {
+            'success': True,
+            'purchase': {'id': 3, 'product_id': 7, 'vendor': 'DigiKey', 'unit_price': 2.34},
+            'product_url': 'http://example.test/products/7',
+        })
+
+        result = client.record_purchase(7, {'vendor': 'DigiKey', 'unit_price': '2.34'})
+
+        assert isinstance(result, RecordPurchaseResult)
+        assert result.success is True
+        assert result.purchase == {'id': 3, 'product_id': 7, 'vendor': 'DigiKey', 'unit_price': 2.34}
+        assert result.errors == []
+        assert result.http_status == 201
+
+        session.post.assert_called_once()
+        call_args = session.post.call_args
+        assert call_args.args[0] == 'http://example.test/api/products/7/purchases'
+        assert call_args.kwargs['json'] == {'vendor': 'DigiKey', 'unit_price': '2.34'}
+        assert call_args.kwargs['timeout'] == 30.0
+
+    def test_object_error_envelope_surfaces_message(self, client, session):
+        session.post.return_value = _mock_response(404, {
+            'success': False,
+            'error': {'code': 'not_found', 'message': 'Product 999 not found'},
+        })
+
+        result = client.record_purchase(999, {'vendor': 'X'})
+
+        assert result.success is False
+        assert result.http_status == 404
+        assert result.purchase is None
+        assert result.message == 'Product 999 not found'
+        assert result.errors[0]['code'] == 'not_found'
+
+    def test_non_json_error(self, client, session):
+        session.post.return_value = _mock_response(502, None, text='Bad Gateway')
+        result = client.record_purchase(7, {'vendor': 'X'})
+        assert result.success is False
+        assert result.http_status == 502
+        assert result.errors  # a synthesized error entry is present
 
 
 class TestCreateItem:
