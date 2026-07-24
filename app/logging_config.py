@@ -142,6 +142,11 @@ def setup_logging(app):
     inventory_logger = logging.getLogger('inventory')
     inventory_logger.addHandler(stdout_handler)
     inventory_logger.setLevel(log_level)
+
+    # Catalog service operations logger (Products/Purchases)
+    catalog_logger = logging.getLogger('mariadb_catalog_service')
+    catalog_logger.addHandler(stdout_handler)
+    catalog_logger.setLevel(log_level)
     
     # Log startup information
     app.logger.info(f'Workshop Inventory Tracking started - Debug: {app.debug}, Log Level: {logging.getLevelName(log_level)}')

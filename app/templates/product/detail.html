@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h3 mb-0">{{ product.description or 'Product' }}</h1>
+            <a href="{{ url_for('main.product_edit', product_id=product.id) }}" class="btn btn-outline-primary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Product Information</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Label Description</dt>
+                    <dd class="col-sm-9">{{ product.description or '—' }}</dd>
+
+                    <dt class="col-sm-3">Manufacturer</dt>
+                    <dd class="col-sm-9">{{ product.manufacturer or '—' }}</dd>
+
+                    <dt class="col-sm-3">MPN</dt>
+                    <dd class="col-sm-9">{{ product.mpn or '—' }}</dd>
+
+                    <dt class="col-sm-3">Category</dt>
+                    <dd class="col-sm-9">{{ product.category_path or '—' }}</dd>
+
+                    <dt class="col-sm-3">Notes</dt>
+                    <dd class="col-sm-9">{{ product.notes or '—' }}</dd>
+                </dl>
+            </div>
+        </div>
+
+        {# `is mapping` guards against non-dict JSON (list/scalar) stored in the column #}
+        {% if product.attributes is mapping and product.attributes %}
+        <div class="card mb-3">
+            <div class="card-header">Specifications</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    {% for key, value in product.attributes.items() %}
+                    <dt class="col-sm-3">{{ key }}</dt>
+                    <dd class="col-sm-9">{{ value }}</dd>
+                    {% endfor %}
+                </dl>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="text-muted small">
+            {% if product.created_at %}<div>Created: {{ product.created_at.strftime('%Y-%m-%d %H:%M') }}</div>{% endif %}
+            {% if product.updated_at %}<div>Updated: {{ product.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>{% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
