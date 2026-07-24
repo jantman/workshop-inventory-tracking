@@ -6,7 +6,7 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Date, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -851,6 +851,9 @@ class Product(Base):
     created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 
+    # One Product has zero or more Purchases (AD-3). ORM-only; no schema change.
+    purchases = relationship('Purchase', back_populates='product')
+
     def __repr__(self):
         return (f"<Product(id={self.id}, mpn='{self.mpn}', "
                 f"description='{self.description}')>")
@@ -865,6 +868,73 @@ class Product(Base):
             'notes': self.notes,
             'category_path': self.category_path,
             'attributes': self.attributes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class Purchase(Base):
+    """
+    Purchase record (Story 1.2) — an acquisition of a Product from a vendor.
+
+    A Purchase always belongs to exactly one Product (product_id NOT NULL);
+    every other business field is nullable to support backfill-forward and
+    partial order-time capture (FR61). A NULL received_date means the order is
+    still in flight (On Order, FR19). request_key is a nullable UNIQUE column
+    that provides the idempotency substrate for order-time capture (AD-9);
+    the idempotency behaviour itself lands in Epic 7.
+    """
+    __tablename__ = 'purchases'
+
+    # Integer surrogate PK (AD-3)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # A Purchase must belong to a Product (only NOT-NULL business column).
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=False, index=True)
+
+    # Order/acquisition fields (FR18) — all optional (backfill-forward, FR61)
+    vendor = Column(String(255), nullable=True)
+    vendor_sku = Column(String(255), nullable=True)
+    order_date = Column(Date, nullable=True)  # service defaults to capture date (Epic 7)
+    received_date = Column(Date, nullable=True)  # NULL = On Order (FR19)
+    quantity = Column(Integer, nullable=True)
+    unit_price = Column(Numeric(10, 2), nullable=True)  # Decimal money, never float
+    order_number = Column(String(255), nullable=True)
+    source_url = Column(String(1024), nullable=True)
+
+    # Idempotency key for order-time capture (AD-9). Nullable + UNIQUE:
+    # MariaDB and SQLite both allow multiple NULLs while rejecting duplicate
+    # non-null values, so unkeyed purchases coexist freely.
+    request_key = Column(String(255), nullable=True)
+
+    # Timestamps (created_at/updated_at convention for all catalog tables)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('request_key', name='uq_purchases_request_key'),
+    )
+
+    product = relationship('Product', back_populates='purchases')
+
+    def __repr__(self):
+        return (f"<Purchase(id={self.id}, product_id={self.product_id}, "
+                f"vendor='{self.vendor}', order_date={self.order_date})>")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'vendor': self.vendor,
+            'vendor_sku': self.vendor_sku,
+            'order_date': self.order_date.isoformat() if self.order_date else None,
+            'received_date': self.received_date.isoformat() if self.received_date else None,
+            'quantity': self.quantity,
+            'unit_price': float(self.unit_price) if self.unit_price is not None else None,
+            'order_number': self.order_number,
+            'source_url': self.source_url,
+            'request_key': self.request_key,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
