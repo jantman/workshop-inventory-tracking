@@ -275,6 +275,135 @@ class CatalogService:
             if 'session' in locals():
                 session.close()
 
+    def record_amazon_purchase(self, product_id: int, *, asin, vendor='Amazon',
+                               order_date=None, received_date=None, quantity=None,
+                               unit_price=None, order_number=None, source_url=None
+                               ) -> Optional[dict]:
+        """
+        Record an Amazon Purchase and index its ASIN in one transaction (FR11,
+        AD-9).
+
+        Unlike composing record_purchase + add_identifier (each of which commits
+        its own session), this writes both the Purchase (with vendor_sku = the
+        ASIN) and the ASIN-type ProductIdentifier on the SAME session and commits
+        once: on any conflict nothing is committed (no orphan Purchase). The ASIN
+        is vendor-scoped — its vendor_scope and the Purchase's vendor both come
+        from `vendor` (default 'Amazon') — and stored as entered (stripped only,
+        never normalized). Idempotent when this Product already carries the ASIN
+        (repeat buys record a new Purchase but not a second identifier); an ASIN
+        already indexed on a DIFFERENT Product is rejected as a caught
+        ValidationError naming that Product (never silently re-attached), leaving
+        neither Product's identity changed. Returns the Purchase's to_dict()
+        snapshot (captured before commit), mirroring record_purchase.
+        """
+        from .logging_config import log_audit_operation
+
+        # --- Validate ASIN (coerce non-str, strip; ASIN stored as entered) ---
+        asin = ('' if asin is None else str(asin)).strip()
+        if not asin:
+            raise ValidationError('ASIN must not be blank.',
+                                  field='asin', value=asin)
+        if len(asin) > IDENTIFIER_MAX_LENGTH:
+            raise ValidationError(
+                f'Identifier value is too long (max {IDENTIFIER_MAX_LENGTH} characters).',
+                field='value', value=asin)
+
+        # --- Compute scope (ASIN is vendor-scoped, AD-9) ---
+        scope = (vendor or '').strip()
+        if len(scope) > IDENTIFIER_MAX_LENGTH:
+            raise ValidationError(
+                f'Vendor is too long (max {IDENTIFIER_MAX_LENGTH} characters).',
+                field='vendor', value=scope)
+
+        itype = IdentifierType.ASIN
+
+        def _conflict_error(owner_product_id):
+            where = f" (vendor '{scope}')" if scope else ''
+            return ValidationError(
+                f"Identifier {itype.value} '{asin}'{where} already exists on "
+                f"product {owner_product_id}.", field='value', value=asin)
+
+        try:
+            session = self.Session()
+            if session.query(Product).filter(Product.id == product_id).first() is None:
+                raise ValidationError(f'Product not found (product:{product_id}).',
+                                      field='product_id', value=str(product_id))
+
+            # Resolve the ASIN index FIRST, flushing it on its own so a unique-index
+            # IntegrityError is unambiguously about the ASIN (not the Purchase).
+            # Reuse Story 2.1's vendor-scoped uniqueness.
+            existing = (session.query(ProductIdentifier)
+                        .filter_by(identifier_type=itype.value, value=asin, vendor_scope=scope)
+                        .first())
+            if existing is not None and existing.product_id != product_id:
+                # Owned by a DIFFERENT Product — reject, name it, write nothing.
+                raise _conflict_error(existing.product_id)
+            if existing is None:
+                # First sight of this ASIN — index it on THIS Product.
+                session.add(ProductIdentifier(
+                    product_id=product_id,
+                    identifier_type=itype.value,
+                    value=asin,
+                    vendor_scope=scope,
+                ))
+                try:
+                    session.flush()
+                except IntegrityError:
+                    # Lost a concurrent-insert race on the unique ASIN index. Roll
+                    # back the pending identifier, then re-read who owns it: a
+                    # DIFFERENT Product is a real conflict; the SAME Product means a
+                    # peer transaction indexed our ASIN first, so fall through and
+                    # record the Purchase idempotently. If nothing matches, it was
+                    # some other integrity failure — re-raise it, never mislabel it.
+                    session.rollback()
+                    conflict = (session.query(ProductIdentifier)
+                                .filter_by(identifier_type=itype.value, value=asin,
+                                           vendor_scope=scope)
+                                .first())
+                    if conflict is not None and conflict.product_id != product_id:
+                        raise _conflict_error(conflict.product_id)
+                    if conflict is None:
+                        raise
+            # else: this Product already carries the ASIN — idempotent, skip insert.
+
+            # Store the stripped vendor (== vendor_scope) so the Purchase and the
+            # ASIN identifier never disagree on the vendor string.
+            purchase = Purchase(
+                product_id=product_id,
+                vendor=(scope or None),
+                vendor_sku=asin,
+                order_date=order_date if order_date is not None else date.today(),
+                received_date=received_date,
+                quantity=quantity,
+                unit_price=unit_price,
+                order_number=_clean(order_number),
+                source_url=_clean(source_url),
+            )
+            session.add(purchase)
+            session.flush()
+
+            # Snapshot before commit (see create_product rationale).
+            snapshot = purchase.to_dict()
+            session.commit()
+            log_audit_operation('record_amazon_purchase', 'success',
+                                item_id=f'product:{product_id}', item_after=snapshot,
+                                logger_name='mariadb_catalog_service')
+            return snapshot
+        except ValidationError:
+            if 'session' in locals():
+                session.rollback()
+            raise
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            log_audit_operation('record_amazon_purchase', 'error',
+                                item_id=f'product:{product_id}', error_details=str(e),
+                                logger_name='mariadb_catalog_service')
+            raise
+        finally:
+            if 'session' in locals():
+                session.close()
+
     # --- Attachments (Story 1.5) -----------------------------------------
 
     def add_attachment(self, *, product_id=None, purchase_id=None, filename,

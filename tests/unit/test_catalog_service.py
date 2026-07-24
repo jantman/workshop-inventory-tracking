@@ -513,3 +513,134 @@ class TestCatalogServiceIdentifiers:
         # Unknown-but-valid GTIN and an invalid input both return None (no raise).
         assert catalog_service.find_product_id_by_gtin('00012345678929') is None
         assert catalog_service.find_product_id_by_gtin('not-a-gtin') is None
+
+
+class TestRecordAmazonPurchase:
+    """record_amazon_purchase: atomic Purchase-insert + ASIN-index (Story 2.3)."""
+
+    @pytest.mark.unit
+    def test_new_asin_persists_purchase_and_identifier(self, catalog_service):
+        """New ASIN, first sight → one Purchase (vendor_sku==ASIN, vendor=='Amazon')
+        and exactly one ASIN identifier (value==ASIN, vendor_scope=='Amazon')."""
+        from decimal import Decimal
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.record_amazon_purchase(
+            pid, asin='B01ABC2DEF', unit_price=Decimal('9.99'))
+        assert isinstance(snap, dict)
+        assert snap['product_id'] == pid
+        assert snap['vendor_sku'] == 'B01ABC2DEF'
+        assert snap['vendor'] == 'Amazon'
+
+        purchases = catalog_service.get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        assert purchases[0].vendor_sku == 'B01ABC2DEF'
+
+        ids = catalog_service.get_identifiers_for_product(pid)
+        assert len(ids) == 1
+        assert ids[0].identifier_type == 'ASIN'
+        assert ids[0].value == 'B01ABC2DEF'
+        assert ids[0].vendor_scope == 'Amazon'
+
+    @pytest.mark.unit
+    def test_repeat_buy_same_product_adds_purchase_not_identifier(self, catalog_service):
+        """Repeat buy for the same Product → a second Purchase row, but the ASIN
+        identifier count stays 1 (idempotent index)."""
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.record_amazon_purchase(pid, asin='B01ABC2DEF')
+        catalog_service.record_amazon_purchase(pid, asin='B01ABC2DEF')
+
+        assert len(catalog_service.get_purchases_for_product(pid)) == 2
+        ids = catalog_service.get_identifiers_for_product(pid)
+        assert len(ids) == 1
+        assert ids[0].value == 'B01ABC2DEF'
+
+    @pytest.mark.unit
+    def test_asin_on_different_product_rejected_writes_nothing(self, catalog_service):
+        """Same ASIN already on a DIFFERENT Product → ValidationError naming the
+        other Product; the caller gets NO Purchase and NO identifier."""
+        from app.exceptions import ValidationError
+        from sqlalchemy.exc import IntegrityError
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        catalog_service.record_amazon_purchase(pid_a, asin='B01ABC2DEF')
+
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.record_amazon_purchase(pid_b, asin='B01ABC2DEF')
+        # Caught domain error, NOT a raw IntegrityError...
+        assert not isinstance(exc_info.value, IntegrityError)
+        # ...naming the conflicting product (A).
+        assert str(pid_a) in str(exc_info.value)
+
+        # Nothing written for the caller B (no Purchase, no identifier).
+        assert catalog_service.get_purchases_for_product(pid_b) == []
+        assert catalog_service.get_identifiers_for_product(pid_b) == []
+
+    @pytest.mark.unit
+    def test_unknown_product_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.record_amazon_purchase(999999, asin='B01ABC2DEF')
+        assert exc_info.value.field == 'product_id'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('bad_asin', ['', '   ', None])
+    def test_blank_or_none_asin_rejected(self, catalog_service, bad_asin):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.record_amazon_purchase(pid, asin=bad_asin)
+        assert exc_info.value.field == 'asin'
+        # Rejected before any write.
+        assert catalog_service.get_purchases_for_product(pid) == []
+        assert catalog_service.get_identifiers_for_product(pid) == []
+
+    @pytest.mark.unit
+    def test_overlong_asin_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.record_amazon_purchase(pid, asin='x' * 256)
+        assert exc_info.value.field == 'value'
+
+    @pytest.mark.unit
+    def test_identity_independence_after_rejection(self, catalog_service):
+        """After B is rejected for reusing A's ASIN, A still carries its ASIN and
+        B carries none — a rejected ASIN cannot move Product identity."""
+        from app.exceptions import ValidationError
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        catalog_service.record_amazon_purchase(pid_a, asin='X0000ASIN1')
+
+        with pytest.raises(ValidationError):
+            catalog_service.record_amazon_purchase(pid_b, asin='X0000ASIN1')
+
+        ids_a = catalog_service.get_identifiers_for_product(pid_a)
+        assert [(i.identifier_type, i.value) for i in ids_a] == [('ASIN', 'X0000ASIN1')]
+        assert catalog_service.get_identifiers_for_product(pid_b) == []
+
+    @pytest.mark.unit
+    def test_optional_fields_and_nondefault_vendor_pass_through(self, catalog_service):
+        """All optional Purchase fields are persisted and a non-default vendor is
+        stored consistently on BOTH the Purchase and the ASIN identifier scope."""
+        from datetime import date
+        from decimal import Decimal
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.record_amazon_purchase(
+            pid, asin='B0PASSTHRU', vendor='Amazon US',
+            order_date=date(2026, 1, 2), received_date=date(2026, 1, 9),
+            quantity=3, unit_price=Decimal('4.25'),
+            order_number='111-2223334-5556667', source_url='https://example.test/dp/B0PASSTHRU')
+
+        p = catalog_service.get_purchases_for_product(pid)[0]
+        assert p.vendor == 'Amazon US'
+        assert p.vendor_sku == 'B0PASSTHRU'
+        assert p.order_date == date(2026, 1, 2)
+        assert p.received_date == date(2026, 1, 9)
+        assert p.quantity == 3
+        assert p.unit_price == Decimal('4.25')
+        assert p.order_number == '111-2223334-5556667'
+        assert p.source_url == 'https://example.test/dp/B0PASSTHRU'
+
+        ids = catalog_service.get_identifiers_for_product(pid)
+        assert len(ids) == 1
+        assert ids[0].vendor_scope == 'Amazon US'  # matches Purchase.vendor
