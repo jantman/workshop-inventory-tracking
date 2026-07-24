@@ -1,5 +1,5 @@
 from flask import render_template, current_app, jsonify, abort, request, flash, redirect, url_for, send_file
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any
 from app.main import bp
 from app import csrf
@@ -815,14 +815,92 @@ def product_add():
 
 @bp.route('/products/<int:product_id>')
 def product_detail(product_id):
-    """View a Product by its direct URL (FR6)."""
+    """View a Product by its direct URL (FR6), with purchase history (FR20/FR21)."""
     service = _get_catalog_service()
     product = service.get_product(product_id)
     if product is None:
         abort(404)
+    # Load purchases with a dedicated query (never product.purchases — that
+    # would lazy-load on the detached Product).
+    purchases = service.get_purchases_for_product(product_id)
+    last_paid = service.get_last_paid_price(product_id)
     return render_template('product/detail.html',
                            title=product.description or f'Product {product_id}',
-                           product=product)
+                           product=product, purchases=purchases, last_paid=last_paid)
+
+
+def _catalog_json_error(code, message, status, field=None):
+    """Build the fixed catalog JSON error envelope (AD-13): an OBJECT error,
+    unlike the legacy inventory routes' string `error`. Reused by all catalog
+    JSON endpoints (Epic 7 onward)."""
+    error = {'code': code, 'message': message}
+    if field:
+        error['field'] = field
+    return jsonify({'success': False, 'error': error}), status
+
+
+@bp.route('/api/products/<int:product_id>/purchases', methods=['POST'])
+@csrf.exempt
+def api_record_purchase(product_id):
+    """Record a Purchase against an existing Product (FR22). JSON API."""
+    service = _get_catalog_service()
+    if service.get_product(product_id) is None:
+        return _catalog_json_error('not_found', f'Product {product_id} not found', 404)
+
+    body = request.get_json(silent=True) or {}
+
+    # Parse/validate typed fields at the boundary; the service takes typed values.
+    try:
+        unit_price = body.get('unit_price')
+        unit_price = Decimal(str(unit_price)) if unit_price not in (None, '') else None
+    except (InvalidOperation, ValueError):
+        return _catalog_json_error('invalid_field', 'unit_price must be a decimal number', 400, field='unit_price')
+
+    try:
+        quantity = body.get('quantity')
+        quantity = int(quantity) if quantity not in (None, '') else None
+    except (TypeError, ValueError):
+        return _catalog_json_error('invalid_field', 'quantity must be an integer', 400, field='quantity')
+
+    def _parse_date(value, field):
+        if value in (None, ''):
+            return None, None
+        try:
+            return date.fromisoformat(str(value)), None
+        except ValueError:
+            return None, _catalog_json_error('invalid_field', f'{field} must be an ISO date (YYYY-MM-DD)', 400, field=field)
+
+    order_date, err = _parse_date(body.get('order_date'), 'order_date')
+    if err:
+        return err
+    received_date, err = _parse_date(body.get('received_date'), 'received_date')
+    if err:
+        return err
+
+    try:
+        snapshot = service.record_purchase(
+            product_id,
+            vendor=body.get('vendor'),
+            vendor_sku=body.get('vendor_sku'),
+            order_date=order_date,
+            received_date=received_date,
+            quantity=quantity,
+            unit_price=unit_price,
+            order_number=body.get('order_number'),
+            source_url=body.get('source_url'),
+        )
+    except Exception as e:
+        current_app.logger.error(f'Error recording purchase for product {product_id}: {e}\n{traceback.format_exc()}')
+        return _catalog_json_error('server_error', 'Failed to record purchase', 500)
+
+    if snapshot is None:
+        return _catalog_json_error('server_error', 'Failed to record purchase', 500)
+
+    return jsonify({
+        'success': True,
+        'purchase': snapshot,
+        'product_url': url_for('main.product_detail', product_id=product_id),
+    }), 201
 
 
 @bp.route('/products/edit/<int:product_id>', methods=['GET', 'POST'])

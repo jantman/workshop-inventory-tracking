@@ -23,6 +23,7 @@ import requests
 __all__ = [
     'CreateItemResult',
     'FieldSuggestionsResult',
+    'RecordPurchaseResult',
     'SUGGESTABLE_FIELDS',
     'TaxonomyResult',
     'UploadPhotoResult',
@@ -94,6 +95,26 @@ class UploadPhotoResult:
     @property
     def message(self) -> str | None:
         return self.raw.get('message')
+
+
+@dataclass(frozen=True)
+class RecordPurchaseResult:
+    """Outcome of a ``record_purchase`` call."""
+
+    success: bool
+    purchase: dict[str, Any] | None
+    errors: list[dict[str, Any]]
+    http_status: int
+    raw: dict[str, Any]
+
+    @property
+    def message(self) -> str | None:
+        # Catalog routes use the AD-13 OBJECT error envelope
+        # ({error: {code, message, field?}}), unlike the legacy string form.
+        error = self.raw.get('error')
+        if isinstance(error, dict):
+            return error.get('message')
+        return error or self.raw.get('message')
 
 
 class WorkshopInventoryClient:
@@ -530,6 +551,53 @@ class WorkshopInventoryClient:
         return UploadPhotoResult(
             success=success,
             photo=body.get('photo') if isinstance(body.get('photo'), dict) else None,
+            errors=errors,
+            http_status=response.status_code,
+            raw=body,
+        )
+
+    def record_purchase(
+        self, product_id: int, purchase: dict[str, Any]
+    ) -> RecordPurchaseResult:
+        """Record a Purchase against an existing Product.
+
+        POSTs ``purchase`` (vendor, vendor_sku, order_date, received_date,
+        quantity, unit_price, order_number, source_url) to
+        ``/api/products/<product_id>/purchases`` and returns the outcome.
+        """
+        response = self.session.post(
+            f'{self.base_url}/api/products/{product_id}/purchases',
+            json=purchase,
+            timeout=self.timeout,
+        )
+        body = self._safe_json(response)
+
+        # HTTP error → never report success, regardless of body content.
+        if response.status_code >= 400:
+            success = False
+        else:
+            success = bool(body.get('success', False))
+
+        errors: list[dict[str, Any]] = []
+        if not success:
+            # Catalog routes use the AD-13 OBJECT error envelope; _safe_json's
+            # own fallback uses a string 'error'. Handle both.
+            error = body.get('error')
+            if isinstance(error, dict):
+                err_msg = error.get('message') or f'HTTP {response.status_code}'
+                entry: dict[str, Any] = {'index': 0, 'message': err_msg}
+                if error.get('code'):
+                    entry['code'] = error['code']
+                if error.get('field'):
+                    entry['field'] = error['field']
+            else:
+                err_msg = error or body.get('message') or f'HTTP {response.status_code}'
+                entry = {'index': 0, 'message': err_msg}
+            errors = [entry]
+
+        return RecordPurchaseResult(
+            success=success,
+            purchase=body.get('purchase') if isinstance(body.get('purchase'), dict) else None,
             errors=errors,
             http_status=response.status_code,
             raw=body,

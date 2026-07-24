@@ -114,3 +114,65 @@ class TestCatalogServiceUpdate:
         catalog_service.update_product(new_id, manufacturer='')
         product = catalog_service.get_product(new_id)
         assert product.manufacturer is None
+
+
+class TestCatalogServicePurchases:
+
+    @pytest.mark.unit
+    def test_record_purchase_creates_and_attaches(self, catalog_service):
+        from datetime import date
+        from decimal import Decimal
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.record_purchase(
+            pid, vendor='DigiKey', unit_price=Decimal('1.50'),
+            quantity=10, order_date=date(2026, 7, 1))
+        assert isinstance(snap, dict)
+        assert snap['product_id'] == pid
+        assert snap['vendor'] == 'DigiKey'
+
+        purchases = catalog_service.get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        assert purchases[0].vendor == 'DigiKey'
+        assert purchases[0].product_id == pid
+
+    @pytest.mark.unit
+    def test_record_purchase_defaults_order_date_to_today(self, catalog_service):
+        from datetime import date
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.record_purchase(pid, vendor='Mouser')
+        assert snap['order_date'] == date.today().isoformat()
+
+    @pytest.mark.unit
+    def test_record_purchase_missing_product_returns_none(self, catalog_service):
+        assert catalog_service.record_purchase(999999, vendor='X') is None
+
+    @pytest.mark.unit
+    def test_get_purchases_chronological_order(self, catalog_service):
+        from datetime import date
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.record_purchase(pid, vendor='B', order_date=date(2026, 7, 5))
+        catalog_service.record_purchase(pid, vendor='A', order_date=date(2026, 7, 1))
+        catalog_service.record_purchase(pid, vendor='C', order_date=date(2026, 7, 9))
+        purchases = catalog_service.get_purchases_for_product(pid)
+        assert [p.vendor for p in purchases] == ['A', 'B', 'C']
+
+    @pytest.mark.unit
+    def test_get_purchases_empty_for_unknown_product(self, catalog_service):
+        assert catalog_service.get_purchases_for_product(999999) == []
+
+    @pytest.mark.unit
+    def test_get_last_paid_price_most_recent_priced(self, catalog_service):
+        from datetime import date
+        from decimal import Decimal
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.record_purchase(pid, order_date=date(2026, 7, 1), unit_price=Decimal('1.00'))
+        catalog_service.record_purchase(pid, order_date=date(2026, 7, 9), unit_price=Decimal('2.50'))
+        # a later-dated purchase with NO price must be skipped
+        catalog_service.record_purchase(pid, order_date=date(2026, 7, 12), unit_price=None)
+        assert catalog_service.get_last_paid_price(pid) == Decimal('2.50')
+
+    @pytest.mark.unit
+    def test_get_last_paid_price_none_when_unpriced(self, catalog_service):
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.record_purchase(pid, vendor='X', unit_price=None)
+        assert catalog_service.get_last_paid_price(pid) is None
