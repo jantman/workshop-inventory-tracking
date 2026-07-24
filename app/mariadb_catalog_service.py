@@ -17,7 +17,6 @@ from sqlalchemy import create_engine
 
 from .database import Product
 from .mariadb_storage import MariaDBStorage
-from .exceptions import ValidationError
 from config import Config
 
 
