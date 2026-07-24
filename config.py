@@ -26,6 +26,16 @@ class Config:
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ['true', '1', 'yes']
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 
+    # GS1 internal-identifier grammar (Story 2.4, FR12c, AD-16). The single
+    # named pair the service passes into app/utils/gs1.py's encode/decode, so
+    # one config change moves encoder and scan router together. app/utils/gs1.py
+    # carries no literal defaults of its own.
+    # `or` rather than a get() default: a key present but empty in .env would
+    # otherwise override the default with '', which gs1.py rejects — turning a
+    # stray blank line into a hard failure of every label and every scan.
+    GS1_INTERNAL_AI = os.environ.get('GS1_INTERNAL_AI') or '96'
+    GS1_INTERNAL_TOKEN = os.environ.get('GS1_INTERNAL_TOKEN') or 'WIT'
+
 
 class TestConfig(Config):
     """Test configuration using MariaDB test database"""

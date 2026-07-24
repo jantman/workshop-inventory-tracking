@@ -167,3 +167,12 @@ class TestPureModuleHasNoAppImports:
         for forbidden in ('import flask', 'from flask', 'sqlalchemy',
                           'from app', 'import app'):
             assert forbidden not in text
+        # The absolute forms above leave the hole that actually matters: every
+        # intra-package import in this app is relative, so the realistic purity
+        # violation is `from ..database import Product` — which matches none of
+        # those five literals and would sail through. Checked per line at the
+        # start of the statement rather than as a substring, because 'from .'
+        # also occurs in prose (gtin.py has "a bare AttributeError from
+        # .strip()") where it is not an import at all.
+        for line in text.splitlines():
+            assert not line.lstrip().startswith('from .'), line

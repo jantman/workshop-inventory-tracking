@@ -67,7 +67,7 @@ development_status:
   2-1-typed-identifier-entity-and-uniqueness: done
   2-2-gtin-normalization-and-check-digit-validation: done
   2-3-asin-identity-handling: done
-  2-4-internal-identifier-generation-and-gs1-ai-96-encoding: backlog
+  2-4-internal-identifier-generation-and-gs1-ai-96-encoding: done
   2-5-foreign-payload-rejection-and-ownership-text: backlog
   epic-2-retrospective: optional
 

@@ -23,11 +23,11 @@ class TestProductModel:
 
     @pytest.mark.unit
     def test_tablename_and_columns(self):
-        """Product maps to the 'products' table with exactly the FR2 columns."""
+        """Product maps to 'products' with the FR2 columns + internal_id (2.4)."""
         assert Product.__tablename__ == 'products'
         cols = set(Product.__table__.columns.keys())
         assert cols == {
-            'id', 'manufacturer', 'mpn', 'description', 'notes',
+            'id', 'internal_id', 'manufacturer', 'mpn', 'description', 'notes',
             'category_path', 'attributes', 'created_at', 'updated_at',
         }
 
@@ -37,6 +37,7 @@ class TestProductModel:
         session = _make_session(test_storage)
         try:
             product = Product(
+                internal_id='PR0D000001',
                 manufacturer='Texas Instruments',
                 mpn='LM317T',
                 description='LM317 adjustable voltage regulator, TO-220',
@@ -65,7 +66,8 @@ class TestProductModel:
         session = _make_session(test_storage)
         try:
             specs = {'voltage': '12V', 'pins': 8, 'rohs': True, 'tags': ['a', 'b']}
-            product = Product(description='Widget', attributes=specs)
+            product = Product(internal_id='PR0D000002', description='Widget',
+                              attributes=specs)
             session.add(product)
             session.commit()
             product_id = product.id
@@ -80,10 +82,14 @@ class TestProductModel:
 
     @pytest.mark.unit
     def test_optional_fields_default_none(self, test_storage):
-        """All FR2 fields except the PK/timestamps accept NULL (backfill-forward)."""
+        """All FR2 fields except the PK/timestamps/internal_id accept NULL.
+
+        internal_id is the one NOT NULL business column (Story 2.4): it has no
+        DB default, so it must always be supplied by its sole writer.
+        """
         session = _make_session(test_storage)
         try:
-            product = Product()  # no fields supplied at all
+            product = Product(internal_id='PR0D000003')  # no other field at all
             session.add(product)
             session.commit()
             product_id = product.id
@@ -104,7 +110,7 @@ class TestProductModel:
         """created_at and updated_at populate automatically on insert."""
         session = _make_session(test_storage)
         try:
-            product = Product(description='Timestamped')
+            product = Product(internal_id='PR0D000004', description='Timestamped')
             session.add(product)
             session.commit()
 
@@ -119,6 +125,7 @@ class TestProductModel:
         session = _make_session(test_storage)
         try:
             product = Product(
+                internal_id='PR0D000005',
                 manufacturer='Bourns',
                 mpn='3386P-1-103',
                 description='10k trimmer potentiometer',
@@ -130,9 +137,10 @@ class TestProductModel:
 
             d = product.to_dict()
             assert set(d.keys()) == {
-                'id', 'manufacturer', 'mpn', 'description', 'notes',
+                'id', 'internal_id', 'manufacturer', 'mpn', 'description', 'notes',
                 'category_path', 'attributes', 'created_at', 'updated_at',
             }
+            assert d['internal_id'] == 'PR0D000005'
             assert d['manufacturer'] == 'Bourns'
             assert d['mpn'] == '3386P-1-103'
             assert d['attributes'] == {'resistance': '10k'}
@@ -145,7 +153,8 @@ class TestProductModel:
     @pytest.mark.unit
     def test_repr(self):
         """__repr__ is informative and does not raise."""
-        product = Product(mpn='LM317T', description='regulator')
+        product = Product(internal_id='PR0D000006', mpn='LM317T',
+                          description='regulator')
         r = repr(product)
         assert 'Product' in r
         assert 'LM317T' in r

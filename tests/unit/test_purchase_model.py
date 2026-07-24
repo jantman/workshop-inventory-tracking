@@ -7,6 +7,8 @@ Alembic migration or DB-level FK enforcement (SQLite has foreign_keys OFF by
 default) — keep the ORM columns and the migration DDL in sync.
 """
 
+import itertools
+
 import pytest
 from datetime import date
 from decimal import Decimal
@@ -23,8 +25,17 @@ def _make_session(test_storage):
     return Session()
 
 
+_product_counter = itertools.count(1)
+
+
 def _make_product(session, **kwargs):
-    """Persist and return a Product to hang purchases off of."""
+    """Persist and return a Product to hang purchases off of.
+
+    internal_id is NOT NULL with no DB default (Story 2.4), so this helper
+    supplies a distinct placeholder per call — the real generator lives in
+    CatalogService.create_product and is exercised there.
+    """
+    kwargs.setdefault('internal_id', f'H0STPR0D{next(_product_counter):02d}')
     product = Product(description=kwargs.pop('description', 'Host product'), **kwargs)
     session.add(product)
     session.commit()

@@ -6,11 +6,12 @@ identifiers, scan resolution, search, capture, derived stock signals). All
 catalog queries and mutations go through this service (AD-2); routes contain no
 ORM/SQL and build the HTTP response themselves.
 
-Story 1.3 introduces the create / read / update surface for Products. Later
-stories extend this class (internal_id generation, scan resolution,
-search_products, capture, derived signals).
+Story 1.3 introduces the create / read / update surface for Products; Story 2.4
+makes create_product the sole writer of the generated internal_id. Later stories
+extend this class (scan resolution, search_products, capture, derived signals).
 """
 
+import logging
 from typing import List, Optional, Tuple
 from datetime import date
 from decimal import Decimal
@@ -22,15 +23,26 @@ from .database import Product, Purchase, Attachment, ProductIdentifier
 from .models import IdentifierType, VENDOR_SCOPED_IDENTIFIER_TYPES
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
-from .utils import gtin
+from .utils import gtin, gs1
+from .utils import internal_id as internal_id_util
 from config import Config
 
+# The logger setup_logging() already configures for this module.
+logger = logging.getLogger('mariadb_catalog_service')
 
-# Product fields the create/update surface accepts (Story 1.3 scope: FR2 minus
-# internal_id/stock/equivalence, which arrive in later epics).
+
+# Product fields the create/update surface accepts. internal_id is deliberately
+# ABSENT (Story 2.4): it is assigned once by create_product and is immutable, so
+# update_product silently ignores any attempt to change it.
 _PRODUCT_FIELDS = (
     'manufacturer', 'mpn', 'description', 'notes', 'category_path', 'attributes',
 )
+
+# How many internal-id candidates create_product will try before giving up
+# (Story 2.4, AD-8). The candidate space is ~1.1e15, so a single collision is
+# already vanishingly unlikely; this budget exists so a pathological or
+# mis-seeded generator fails loudly instead of looping forever.
+INTERNAL_ID_MAX_ATTEMPTS = 5
 
 # Attachment policy (Story 1.5). Whitelist is enforced only here (single source
 # of truth); the DB carries the structural XOR + positive-size CHECKs.
@@ -98,6 +110,29 @@ class CatalogService:
         finally:
             session.close()
 
+    def _internal_id_is_taken(self, session, candidate: str) -> bool:
+        """
+        Return True if `candidate` is already held by a Product or by an
+        INTERNAL identifier row (Story 2.4).
+
+        Used to classify an IntegrityError raised while inserting a new
+        Product: only a genuine collision on one of those two unique
+        constraints justifies a retry. Must run after the failed flush has been
+        rolled back, so the session can query again.
+        """
+        if (session.query(Product)
+                .filter(Product.internal_id == candidate).first()) is not None:
+            return True
+        # Matches the unique constraint exactly — (type, value, vendor_scope) —
+        # so a row that could not have caused this flush to fail is never read
+        # as a collision (which would burn the retry budget and hide the real
+        # integrity error behind a fabricated one). INTERNAL is global, so the
+        # scope the derived row is written with is always ''.
+        return (session.query(ProductIdentifier)
+                .filter_by(identifier_type=IdentifierType.INTERNAL.value,
+                           value=candidate, vendor_scope='')
+                .first()) is not None
+
     def create_product(self, *, manufacturer=None, mpn=None, description=None,
                         notes=None, category_path=None, attributes=None) -> Optional[int]:
         """
@@ -107,27 +142,81 @@ class CatalogService:
         (the route requires a Label Description); blank strings are coerced to
         NULL. Returns the id (captured before the session closes) rather than
         the ORM object to avoid detached-attribute access downstream.
+
+        This is the SOLE writer of products.internal_id (Story 2.4, AD-8). It
+        draws a candidate from the pure generator, writes the Product AND its
+        derived INTERNAL ProductIdentifier row (global scope, same value) on one
+        session, and lets the UNIQUE constraints arbitrate: a collision rolls the
+        whole attempt back and retries with a fresh candidate, so either both
+        rows land or neither does. An IntegrityError that is NOT a collision on
+        that candidate is re-raised rather than mislabelled. Exhausting
+        INTERNAL_ID_MAX_ATTEMPTS falls into the established failure contract
+        below (audit-log 'error', return None) having written nothing.
         """
         from .logging_config import log_audit_operation
         try:
             session = self.Session()
-            product = Product(
-                manufacturer=_clean(manufacturer),
-                mpn=_clean(mpn),
-                description=_clean(description),
-                notes=_clean(notes),
-                category_path=_clean(category_path),
-                attributes=attributes,
-            )
-            session.add(product)
-            # Flush (assigns the PK, fires column defaults) and capture the id
-            # and audit snapshot BEFORE commit: a post-commit attribute access
-            # triggers a refresh SELECT that can fail even though the row was
-            # committed, which would falsely report failure and invite a
-            # duplicate-creating retry.
-            session.flush()
+            for attempt in range(INTERNAL_ID_MAX_ATTEMPTS):
+                candidate = internal_id_util.generate_internal_id()
+                product = Product(
+                    internal_id=candidate,
+                    manufacturer=_clean(manufacturer),
+                    mpn=_clean(mpn),
+                    description=_clean(description),
+                    notes=_clean(notes),
+                    category_path=_clean(category_path),
+                    attributes=attributes,
+                )
+                session.add(product)
+                # The derived read index (FR7): same transactional step, same
+                # value, global scope (INTERNAL is not vendor-scoped, AD-9).
+                # Linking by relationship lets the one flush assign the FK.
+                session.add(ProductIdentifier(
+                    product=product,
+                    identifier_type=IdentifierType.INTERNAL.value,
+                    value=candidate,
+                    vendor_scope='',
+                ))
+                try:
+                    # Flush (assigns the PK, fires column defaults) and capture
+                    # the id and audit snapshot BEFORE commit: a post-commit
+                    # attribute access triggers a refresh SELECT that can fail
+                    # even though the row was committed, which would falsely
+                    # report failure and invite a duplicate-creating retry.
+                    session.flush()
+                    break
+                except IntegrityError:
+                    # Roll the whole attempt back (Product AND identifier), then
+                    # confirm the candidate really is taken. If it is not, this
+                    # was some other integrity failure — re-raise it rather than
+                    # retry forever against a condition retrying cannot fix.
+                    session.rollback()
+                    if not self._internal_id_is_taken(session, candidate):
+                        raise
+                    # A real collision is a ~1-in-1.1e15 event, so even one is
+                    # worth a line: retrying silently means a degenerate
+                    # generator (a truncated ALPHABET, a monkeypatch left in
+                    # place, a shortened length) shows up only as the eventual
+                    # exhausted-retry failure, with nothing recorded about the
+                    # near misses that led there. The audit log carries only
+                    # 'success' on the attempt that lands.
+                    logger.warning(
+                        'internal_id collision on attempt %d/%d (candidate %r '
+                        'already in use); retrying with a fresh candidate',
+                        attempt + 1, INTERNAL_ID_MAX_ATTEMPTS, candidate)
+            else:
+                raise RuntimeError(
+                    f'Could not generate a unique internal_id after '
+                    f'{INTERNAL_ID_MAX_ATTEMPTS} attempts.')
             new_id = product.id
             audit_snapshot = product.to_dict()
+            # The retry loop covers flush-time failures only, which is where
+            # both backends surface a UNIQUE violation: MariaDB/InnoDB and
+            # SQLite evaluate these constraints per statement, not deferred to
+            # COMMIT. A collision raised here instead would fall to the generic
+            # handler below (audit 'error', return None) rather than retrying —
+            # correct, just less forgiving. Revisit if a deferred-constraint
+            # backend is ever introduced.
             session.commit()
             log_audit_operation('create_product', 'success', item_id=str(new_id),
                                 item_after=audit_snapshot,
@@ -508,6 +597,11 @@ class CatalogService:
         ValidationError naming the conflicting Product — never a raw
         IntegrityError. Invalid type, blank value, and unknown product are
         also rejected with ValidationError before insert.
+
+        INTERNAL is NOT addable here (Story 2.4, FR7): that row is derived by
+        create_product from products.internal_id in one transaction, and letting
+        it be added or replaced by hand is exactly how the index would come to
+        disagree with the column it mirrors.
         """
         from .logging_config import log_audit_operation
 
@@ -520,6 +614,12 @@ class CatalogService:
             except ValueError:
                 raise ValidationError(f'Invalid identifier type: {identifier_type!r}.',
                                       field='identifier_type', value=str(identifier_type))
+
+        if itype is IdentifierType.INTERNAL:
+            raise ValidationError(
+                f'{IdentifierType.INTERNAL.value} identifiers are generated with '
+                f'the product and cannot be added or changed by hand.',
+                field='identifier_type', value=itype.value)
 
         # --- Validate value (coerce non-str input, e.g. an integer barcode) ---
         value = ('' if value is None else str(value)).strip()
@@ -615,6 +715,32 @@ class CatalogService:
                     .all())
         finally:
             session.close()
+
+    def encode_internal_payload(self, internal_id: str) -> str:
+        """
+        Return the GS1 element string for an internal identifier (Story 2.4,
+        FR12/FR12b).
+
+        This is the single config seam (AD-16): the AI and token come from the
+        one named pair (GS1_INTERNAL_AI / GS1_INTERNAL_TOKEN) and are passed
+        explicitly into app/utils/gs1.py, which holds no literal defaults. One
+        config change therefore moves the encoder and every decoder together,
+        with no code edit (FR12c). The pair is read from Config on every call
+        rather than captured at import, so nothing here caches a stale grammar
+        — though Config itself reads the environment once, at import, so a
+        changed .env still needs a process restart.
+
+        Raises:
+            ValidationError: if the id (or the configured grammar) cannot be
+                encoded — the pure module's InvalidGs1PayloadError never leaks.
+        """
+        try:
+            return gs1.encode(internal_id,
+                              ai=Config.GS1_INTERNAL_AI,
+                              token=Config.GS1_INTERNAL_TOKEN)
+        except gs1.InvalidGs1PayloadError as e:
+            raise ValidationError(str(e), field='internal_id',
+                                  value=str(internal_id))
 
     def find_product_id_by_gtin(self, value) -> Optional[int]:
         """

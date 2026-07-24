@@ -15,6 +15,18 @@ def catalog_service(test_storage):
     return CatalogService(test_storage)
 
 
+def _added_identifiers(catalog_service, product_id):
+    """The product's identifiers EXCLUDING the derived INTERNAL row.
+
+    Since Story 2.4 every Product created through the service also carries one
+    INTERNAL identifier derived from products.internal_id. These tests are about
+    identifiers the caller added, so the derived row is filtered out here (it is
+    asserted on directly in TestInternalIdGeneration).
+    """
+    return [row for row in catalog_service.get_identifiers_for_product(product_id)
+            if row.identifier_type != 'INTERNAL']
+
+
 class TestCatalogServiceCreate:
 
     @pytest.mark.unit
@@ -318,7 +330,8 @@ class TestCatalogServiceIdentifiers:
         ('FNSKU', 'ABC123', 'ABC123'),
         ('MPN', 'ABC123', 'ABC123'),
         ('VENDOR_SKU', 'ABC123', 'ABC123'),
-        ('INTERNAL', 'ABC123', 'ABC123'),
+        # INTERNAL is deliberately absent: it is generated with the Product and
+        # rejected here (Story 2.4) — see test_manual_internal_add_rejected.
     ])
     def test_add_each_type_persists(self, catalog_service, itype, value, expected):
         pid = catalog_service.create_product(description='widget')
@@ -327,9 +340,12 @@ class TestCatalogServiceIdentifiers:
         assert snap['product_id'] == pid
         assert snap['identifier_type'] == itype
         assert snap['value'] == expected
-        rows = catalog_service.get_identifiers_for_product(pid)
+        rows = _added_identifiers(catalog_service, pid)
         assert len(rows) == 1
         assert rows[0].identifier_type == itype
+        # Unfiltered total: exactly the derived INTERNAL row plus this one. The
+        # filtered helper must never be able to hide a spurious/duplicated row.
+        assert len(catalog_service.get_identifiers_for_product(pid)) == 2
 
     @pytest.mark.unit
     def test_add_identifier_accepts_enum_member(self, catalog_service):
@@ -432,11 +448,14 @@ class TestCatalogServiceIdentifiers:
     @pytest.mark.unit
     def test_get_identifiers_empty_and_ordered(self, catalog_service):
         pid = catalog_service.create_product(description='widget')
-        assert catalog_service.get_identifiers_for_product(pid) == []
+        assert _added_identifiers(catalog_service, pid) == []
+        # A brand-new Product carries exactly one row overall: the derived one.
+        assert len(catalog_service.get_identifiers_for_product(pid)) == 1
         catalog_service.add_identifier(pid, identifier_type='MPN', value='first')
         catalog_service.add_identifier(pid, identifier_type='ASIN', value='second')
-        rows = catalog_service.get_identifiers_for_product(pid)
+        rows = _added_identifiers(catalog_service, pid)
         assert [r.value for r in rows] == ['first', 'second']
+        assert len(catalog_service.get_identifiers_for_product(pid)) == 3
 
     # --- GTIN normalization / validation / lookup (Story 2.2) ------------
 
@@ -447,7 +466,7 @@ class TestCatalogServiceIdentifiers:
         snap = catalog_service.add_identifier(
             pid, identifier_type='GTIN', value='012345678905')
         assert snap['value'] == '00012345678905'
-        rows = catalog_service.get_identifiers_for_product(pid)
+        rows = _added_identifiers(catalog_service, pid)
         assert rows[0].value == '00012345678905'
 
     @pytest.mark.unit
@@ -535,11 +554,16 @@ class TestRecordAmazonPurchase:
         assert len(purchases) == 1
         assert purchases[0].vendor_sku == 'B01ABC2DEF'
 
-        ids = catalog_service.get_identifiers_for_product(pid)
+        ids = _added_identifiers(catalog_service, pid)
         assert len(ids) == 1
         assert ids[0].identifier_type == 'ASIN'
         assert ids[0].value == 'B01ABC2DEF'
         assert ids[0].vendor_scope == 'Amazon'
+
+        # Unfiltered total: the derived INTERNAL row and this ASIN, nothing
+        # else — the filtered helper elsewhere must not hide a spurious row.
+        all_ids = catalog_service.get_identifiers_for_product(pid)
+        assert sorted(i.identifier_type for i in all_ids) == ['ASIN', 'INTERNAL']
 
     @pytest.mark.unit
     def test_repeat_buy_same_product_adds_purchase_not_identifier(self, catalog_service):
@@ -550,7 +574,7 @@ class TestRecordAmazonPurchase:
         catalog_service.record_amazon_purchase(pid, asin='B01ABC2DEF')
 
         assert len(catalog_service.get_purchases_for_product(pid)) == 2
-        ids = catalog_service.get_identifiers_for_product(pid)
+        ids = _added_identifiers(catalog_service, pid)
         assert len(ids) == 1
         assert ids[0].value == 'B01ABC2DEF'
 
@@ -573,7 +597,11 @@ class TestRecordAmazonPurchase:
 
         # Nothing written for the caller B (no Purchase, no identifier).
         assert catalog_service.get_purchases_for_product(pid_b) == []
-        assert catalog_service.get_identifiers_for_product(pid_b) == []
+        assert _added_identifiers(catalog_service, pid_b) == []
+        # Unfiltered: the rejected path left B with its one derived row and
+        # nothing else. Asserting only on the filtered list would not notice a
+        # spurious or duplicated INTERNAL row written on the way out.
+        assert len(catalog_service.get_identifiers_for_product(pid_b)) == 1
 
     @pytest.mark.unit
     def test_unknown_product_rejected(self, catalog_service):
@@ -592,7 +620,9 @@ class TestRecordAmazonPurchase:
         assert exc_info.value.field == 'asin'
         # Rejected before any write.
         assert catalog_service.get_purchases_for_product(pid) == []
-        assert catalog_service.get_identifiers_for_product(pid) == []
+        assert _added_identifiers(catalog_service, pid) == []
+        # Unfiltered: still exactly the one derived row from create_product.
+        assert len(catalog_service.get_identifiers_for_product(pid)) == 1
 
     @pytest.mark.unit
     def test_overlong_asin_rejected(self, catalog_service):
@@ -614,9 +644,13 @@ class TestRecordAmazonPurchase:
         with pytest.raises(ValidationError):
             catalog_service.record_amazon_purchase(pid_b, asin='X0000ASIN1')
 
-        ids_a = catalog_service.get_identifiers_for_product(pid_a)
+        ids_a = _added_identifiers(catalog_service, pid_a)
         assert [(i.identifier_type, i.value) for i in ids_a] == [('ASIN', 'X0000ASIN1')]
-        assert catalog_service.get_identifiers_for_product(pid_b) == []
+        assert _added_identifiers(catalog_service, pid_b) == []
+        # Unfiltered totals: A holds its derived row plus the ASIN, B holds only
+        # its derived row. A rejected ASIN moves neither product's row count.
+        assert len(catalog_service.get_identifiers_for_product(pid_a)) == 2
+        assert len(catalog_service.get_identifiers_for_product(pid_b)) == 1
 
     @pytest.mark.unit
     def test_optional_fields_and_nondefault_vendor_pass_through(self, catalog_service):
@@ -641,6 +675,292 @@ class TestRecordAmazonPurchase:
         assert p.order_number == '111-2223334-5556667'
         assert p.source_url == 'https://example.test/dp/B0PASSTHRU'
 
-        ids = catalog_service.get_identifiers_for_product(pid)
+        ids = _added_identifiers(catalog_service, pid)
         assert len(ids) == 1
         assert ids[0].vendor_scope == 'Amazon US'  # matches Purchase.vendor
+
+
+class TestInternalIdGeneration:
+    """create_product as the sole internal_id writer (Story 2.4, FR12, AD-8)."""
+
+    @staticmethod
+    def _products_with(catalog_service, value):
+        """Every Product row holding `value` in internal_id."""
+        from app.database import Product
+        session = catalog_service.Session()
+        try:
+            return (session.query(Product)
+                    .filter(Product.internal_id == value).all())
+        finally:
+            session.close()
+
+    @staticmethod
+    def _internal_rows(catalog_service, value=None):
+        """Every INTERNAL identifier row (optionally filtered by value)."""
+        from app.database import ProductIdentifier
+        session = catalog_service.Session()
+        try:
+            q = (session.query(ProductIdentifier)
+                 .filter(ProductIdentifier.identifier_type == 'INTERNAL'))
+            if value is not None:
+                q = q.filter(ProductIdentifier.value == value)
+            return q.all()
+        finally:
+            session.close()
+
+    @staticmethod
+    def _product_count(catalog_service):
+        from app.database import Product
+        session = catalog_service.Session()
+        try:
+            return session.query(Product).count()
+        finally:
+            session.close()
+
+    @pytest.mark.unit
+    def test_new_product_gets_valid_internal_id_and_derived_row(self, catalog_service):
+        """A saved Product carries a valid internal_id and exactly one derived
+        INTERNAL identifier row with the identical value and global scope."""
+        from app.utils.internal_id import is_valid_internal_id
+
+        pid = catalog_service.create_product(description='LM317')
+        product = catalog_service.get_product(pid)
+        assert is_valid_internal_id(product.internal_id)
+
+        rows = [r for r in catalog_service.get_identifiers_for_product(pid)
+                if r.identifier_type == 'INTERNAL']
+        assert len(rows) == 1
+        assert rows[0].value == product.internal_id
+        assert rows[0].vendor_scope == ''   # INTERNAL is global (AD-9)
+
+    @pytest.mark.unit
+    def test_to_dict_carries_internal_id(self, catalog_service):
+        pid = catalog_service.create_product(description='LM317')
+        product = catalog_service.get_product(pid)
+        assert product.to_dict()['internal_id'] == product.internal_id
+
+    @pytest.mark.unit
+    def test_each_product_gets_a_distinct_internal_id(self, catalog_service):
+        ids = {catalog_service.get_product(
+            catalog_service.create_product(description=f'w{n}')).internal_id
+            for n in range(25)}
+        assert len(ids) == 25
+
+    @pytest.mark.unit
+    def test_no_db_default_supplies_internal_id(self):
+        """The column has no default/server_default — the service is sole writer."""
+        from app.database import Product
+        column = Product.__table__.columns['internal_id']
+        assert column.default is None
+        assert column.server_default is None
+        assert column.nullable is False
+        assert 'uq_products_internal_id' in {
+            c.name for c in Product.__table__.constraints if c.name}
+
+    @pytest.mark.unit
+    def test_collision_retries_with_a_fresh_candidate(self, catalog_service, monkeypatch):
+        """A taken candidate is retried; the Product lands on the fresh value and
+        the already-stored one is neither duplicated nor orphaned."""
+        first = catalog_service.create_product(description='product A')
+        taken = catalog_service.get_product(first).internal_id
+
+        candidates = iter([taken, taken, 'FRESH00001'])
+        monkeypatch.setattr('app.utils.internal_id.generate_internal_id',
+                            lambda **kw: next(candidates))
+
+        second = catalog_service.create_product(description='product B')
+        assert isinstance(second, int)
+        assert catalog_service.get_product(second).internal_id == 'FRESH00001'
+
+        # The colliding value is still held by exactly one Product (A) and one
+        # identifier row — no duplicate, no orphan from the rolled-back attempts.
+        holders = self._products_with(catalog_service, taken)
+        assert [p.id for p in holders] == [first]
+        assert len(self._internal_rows(catalog_service, taken)) == 1
+        assert len(self._internal_rows(catalog_service, 'FRESH00001')) == 1
+
+    @pytest.mark.unit
+    def test_collision_on_the_derived_identifier_row_also_retries(self, catalog_service, monkeypatch):
+        """The retry covers BOTH unique constraints: an INTERNAL identifier row
+        whose value no Product holds still forces a fresh candidate."""
+        from app.database import ProductIdentifier
+        host = catalog_service.create_product(description='host')
+        session = catalog_service.Session()
+        try:
+            session.add(ProductIdentifier(product_id=host, identifier_type='INTERNAL',
+                                          value='SQ8ATTED91', vendor_scope=''))
+            session.commit()
+        finally:
+            session.close()
+
+        candidates = iter(['SQ8ATTED91', 'FRESH00002'])
+        monkeypatch.setattr('app.utils.internal_id.generate_internal_id',
+                            lambda **kw: next(candidates))
+
+        pid = catalog_service.create_product(description='product B')
+        assert catalog_service.get_product(pid).internal_id == 'FRESH00002'
+        assert len(self._internal_rows(catalog_service, 'SQ8ATTED91')) == 1
+
+    @pytest.mark.unit
+    def test_retry_budget_exhausted_writes_nothing_and_audits_error(
+            self, catalog_service, monkeypatch):
+        """A generator stuck on a taken value gives up: None, nothing written,
+        and the failure is audit-logged as an error."""
+        import app.logging_config as logging_config
+        from app.mariadb_catalog_service import INTERNAL_ID_MAX_ATTEMPTS
+
+        first = catalog_service.create_product(description='product A')
+        taken = catalog_service.get_product(first).internal_id
+        before = self._product_count(catalog_service)
+
+        calls = []
+        monkeypatch.setattr('app.utils.internal_id.generate_internal_id',
+                            lambda **kw: calls.append(1) or taken)
+        audit = []
+        monkeypatch.setattr(logging_config, 'log_audit_operation',
+                            lambda op, status, **kw: audit.append((op, status)))
+
+        assert catalog_service.create_product(description='doomed') is None
+        assert ('create_product', 'error') in audit
+        assert len(calls) == INTERNAL_ID_MAX_ATTEMPTS
+
+        # Nothing landed: no extra Product, and the taken value is still single.
+        assert self._product_count(catalog_service) == before
+        assert len(self._internal_rows(catalog_service, taken)) == 1
+
+    @pytest.mark.unit
+    def test_foreign_integrity_error_is_reraised_not_retried(
+            self, catalog_service, monkeypatch):
+        """An IntegrityError that is NOT an internal-id collision is re-raised
+        (surfacing as create_product's None + audit error), never mislabelled as
+        a collision and never retried."""
+        import app.logging_config as logging_config
+        from sqlalchemy.exc import IntegrityError
+
+        real_session_factory = catalog_service.Session
+        flush_calls = []
+
+        class _FlushAlwaysFails:
+            """Proxies a real session but fails every flush with a foreign
+            IntegrityError, so the candidate lookup finds nothing taken."""
+
+            def __init__(self, session):
+                self._session = session
+
+            def __getattr__(self, name):
+                return getattr(self._session, name)
+
+            def flush(self, *args, **kwargs):
+                flush_calls.append(1)
+                raise IntegrityError('INSERT INTO products', {},
+                                     Exception('FOREIGN KEY constraint failed'))
+
+        monkeypatch.setattr(catalog_service, 'Session',
+                            lambda: _FlushAlwaysFails(real_session_factory()))
+        gen_calls = []
+        monkeypatch.setattr(
+            'app.utils.internal_id.generate_internal_id',
+            lambda **kw: (gen_calls.append(1) or 'F0RE1GN001'))
+        audit = []
+        monkeypatch.setattr(logging_config, 'log_audit_operation',
+                            lambda op, status, **kw: audit.append((op, status, kw)))
+
+        assert catalog_service.create_product(description='doomed') is None
+        # Exactly one attempt — a non-collision failure is not retried.
+        assert flush_calls == [1]
+        assert gen_calls == [1]
+        op, status, kw = audit[-1]
+        assert (op, status) == ('create_product', 'error')
+        # The raw DB error is what surfaced, not a fabricated collision message.
+        assert 'FOREIGN KEY' in kw['error_details']
+        assert self._products_with(catalog_service, 'F0RE1GN001') == []
+
+    @pytest.mark.unit
+    def test_manual_internal_add_rejected(self, catalog_service):
+        """add_identifier can never create or replace the derived INTERNAL row."""
+        from app.exceptions import ValidationError
+        from app.models import IdentifierType
+        pid = catalog_service.create_product(description='widget')
+        stored = self._internal_rows(catalog_service)
+
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.add_identifier(pid, identifier_type='INTERNAL', value='X')
+        assert exc_info.value.field == 'identifier_type'
+
+        # ...and the enum member is rejected identically.
+        with pytest.raises(ValidationError):
+            catalog_service.add_identifier(pid, identifier_type=IdentifierType.INTERNAL,
+                                           value='X')
+        # Nothing written by either attempt.
+        assert [(r.product_id, r.value) for r in self._internal_rows(catalog_service)] == \
+               [(r.product_id, r.value) for r in stored]
+
+    @pytest.mark.unit
+    def test_update_product_cannot_change_internal_id(self, catalog_service):
+        """internal_id is outside _PRODUCT_FIELDS: the update is ignored, not an error."""
+        pid = catalog_service.create_product(description='widget')
+        original = catalog_service.get_product(pid).internal_id
+
+        assert catalog_service.update_product(pid, internal_id='HACKED',
+                                              description='renamed') is True
+        product = catalog_service.get_product(pid)
+        assert product.internal_id == original
+        assert product.description == 'renamed'   # the legitimate field did apply
+
+
+class TestEncodeInternalPayload:
+    """The AD-16 config seam: one config pair drives the whole grammar."""
+
+    @pytest.mark.unit
+    def test_encodes_with_the_configured_grammar(self, catalog_service):
+        assert catalog_service.encode_internal_payload('ABC1234567') == \
+            '\x1d96WITABC1234567'
+
+    @pytest.mark.unit
+    def test_token_change_flips_output_with_no_code_edit(self, catalog_service, monkeypatch):
+        from config import Config
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_TOKEN', 'ZZZ')
+        assert catalog_service.encode_internal_payload('ABC1234567') == \
+            '\x1d96ZZZABC1234567'
+
+    @pytest.mark.unit
+    def test_ai_change_flips_output_with_no_code_edit(self, catalog_service, monkeypatch):
+        from config import Config
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', '97')
+        assert catalog_service.encode_internal_payload('ABC1234567') == \
+            '\x1d97WITABC1234567'
+
+    @pytest.mark.unit
+    def test_round_trips_through_decode_under_the_configured_grammar(self, catalog_service):
+        from config import Config
+        from app.utils import gs1
+
+        pid = catalog_service.create_product(description='widget')
+        internal_id = catalog_service.get_product(pid).internal_id
+        payload = gs1.decode(catalog_service.encode_internal_payload(internal_id),
+                             ai=Config.GS1_INTERNAL_AI, token=Config.GS1_INTERNAL_TOKEN)
+        assert payload is not None
+        assert payload.internal_id == internal_id
+
+    @pytest.mark.unit
+    def test_bad_id_surfaces_as_validationerror_not_the_pure_error(self, catalog_service):
+        from app.exceptions import ValidationError
+        from app.utils import gs1
+        from app.utils.gs1 import InvalidGs1PayloadError
+        from config import Config
+        # The pure module must genuinely reject this input, or the test below
+        # proves nothing about translation — it would pass just as well against
+        # a service that validated the id itself and never called gs1.encode.
+        with pytest.raises(InvalidGs1PayloadError) as pure_exc:
+            gs1.encode('', ai=Config.GS1_INTERNAL_AI,
+                       token=Config.GS1_INTERNAL_TOKEN)
+
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.encode_internal_payload('')
+        # ValidationError and InvalidGs1PayloadError are unrelated classes, so
+        # an isinstance check alone can never fail. What must hold is that the
+        # pure error was caught and re-raised carrying its message: the service
+        # translates, it does not swallow or reword.
+        assert not isinstance(exc_info.value, InvalidGs1PayloadError)
+        assert str(pure_exc.value) in str(exc_info.value)
+        assert exc_info.value.field == 'internal_id'

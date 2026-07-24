@@ -824,14 +824,22 @@ class Product(Base):
     detail than a Label Description (FR3/FR4/FR61) — every field below except
     the PK and timestamps is nullable to support backfill-forward creation.
 
-    Story 1.1 ships only the FR2 columns. Later stories/epics extend this
-    table via their own migrations: internal_id (Epic 2), stock/quantity/
+    Story 1.1 shipped the FR2 columns and Story 2.4 added internal_id. Later
+    stories/epics extend this table via their own migrations: stock/quantity/
     location fields (Epic 5), equivalent_group_id (Epic 10).
     """
     __tablename__ = 'products'
 
     # Integer surrogate PK (AD-3)
     id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # System-generated business key (Story 2.4, FR12, AD-3/AD-8) used for
+    # labels, scan lookup and direct URLs — never a foreign-key join target.
+    # Deliberately carries NO default/server_default of any kind: CatalogService
+    # .create_product is the sole writer, generating a candidate via
+    # app/utils/internal_id.py and retrying when this UNIQUE constraint rejects
+    # it. A DB-side default would create a second writer and defeat that.
+    internal_id = Column(String(32), nullable=False)
 
     # Core catalog fields (FR2) — all optional (FR3/FR4/FR61)
     manufacturer = Column(String(255), nullable=True)
@@ -854,6 +862,10 @@ class Product(Base):
     # One Product has zero or more Purchases (AD-3). ORM-only; no schema change.
     purchases = relationship('Purchase', back_populates='product')
 
+    __table_args__ = (
+        UniqueConstraint('internal_id', name='uq_products_internal_id'),
+    )
+
     def __repr__(self):
         return (f"<Product(id={self.id}, mpn='{self.mpn}', "
                 f"description='{self.description}')>")
@@ -862,6 +874,7 @@ class Product(Base):
         """Convert to dictionary for API responses"""
         return {
             'id': self.id,
+            'internal_id': self.internal_id,
             'manufacturer': self.manufacturer,
             'mpn': self.mpn,
             'description': self.description,
