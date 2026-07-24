@@ -304,3 +304,122 @@ class TestCatalogServiceAttachments:
         result = catalog_service.get_attachment_data(snap['id'])
         assert result == (_PDF_BYTES, 'application/pdf', 'ds.pdf')
         assert catalog_service.get_attachment_data(999999) is None
+
+
+class TestCatalogServiceIdentifiers:
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('itype', ['GTIN', 'ASIN', 'FNSKU', 'MPN', 'VENDOR_SKU', 'INTERNAL'])
+    def test_add_each_type_persists(self, catalog_service, itype):
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_identifier(
+            pid, identifier_type=itype, value='ABC123', vendor='Acme')
+        assert snap['product_id'] == pid
+        assert snap['identifier_type'] == itype
+        assert snap['value'] == 'ABC123'
+        rows = catalog_service.get_identifiers_for_product(pid)
+        assert len(rows) == 1
+        assert rows[0].identifier_type == itype
+
+    @pytest.mark.unit
+    def test_add_identifier_accepts_enum_member(self, catalog_service):
+        from app.models import IdentifierType
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_identifier(
+            pid, identifier_type=IdentifierType.MPN, value='LM317')
+        assert snap['identifier_type'] == 'MPN'
+
+    @pytest.mark.unit
+    def test_duplicate_global_pair_rejected_names_product(self, catalog_service):
+        from app.exceptions import ValidationError
+        from sqlalchemy.exc import IntegrityError
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        catalog_service.add_identifier(pid_a, identifier_type='GTIN', value='00012345678905')
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.add_identifier(pid_b, identifier_type='GTIN', value='00012345678905')
+        # Caught domain error, NOT an IntegrityError...
+        assert not isinstance(exc_info.value, IntegrityError)
+        # ...naming the conflicting product (A).
+        assert str(pid_a) in str(exc_info.value)
+
+    @pytest.mark.unit
+    def test_same_vendor_sku_different_vendors_both_persist(self, catalog_service):
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        snap_a = catalog_service.add_identifier(
+            pid_a, identifier_type='VENDOR_SKU', value='X', vendor='Acme')
+        snap_b = catalog_service.add_identifier(
+            pid_b, identifier_type='VENDOR_SKU', value='X', vendor='Zed')
+        assert snap_a['vendor_scope'] == 'Acme'
+        assert snap_b['vendor_scope'] == 'Zed'
+
+    @pytest.mark.unit
+    def test_same_vendor_sku_same_vendor_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        catalog_service.add_identifier(
+            pid_a, identifier_type='VENDOR_SKU', value='X', vendor='Acme')
+        with pytest.raises(ValidationError) as exc_info:
+            catalog_service.add_identifier(
+                pid_b, identifier_type='VENDOR_SKU', value='X', vendor='Acme')
+        assert str(pid_a) in str(exc_info.value)
+
+    @pytest.mark.unit
+    def test_gtin_ignores_vendor_arg(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid_a = catalog_service.create_product(description='product A')
+        pid_b = catalog_service.create_product(description='product B')
+        snap = catalog_service.add_identifier(
+            pid_a, identifier_type='GTIN', value='X', vendor='Acme')
+        # GTIN is global → vendor ignored → vendor_scope is the '' sentinel.
+        assert snap['vendor_scope'] == ''
+        with pytest.raises(ValidationError):
+            catalog_service.add_identifier(
+                pid_b, identifier_type='GTIN', value='X', vendor='Zed')
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('bad_value', ['', '   '])
+    def test_blank_value_rejected(self, catalog_service, bad_value):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_identifier(pid, identifier_type='MPN', value=bad_value)
+
+    @pytest.mark.unit
+    def test_invalid_type_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_identifier(pid, identifier_type='NOPE', value='ABC')
+
+    @pytest.mark.unit
+    def test_unknown_product_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        with pytest.raises(ValidationError):
+            catalog_service.add_identifier(999999, identifier_type='MPN', value='ABC')
+
+    @pytest.mark.unit
+    def test_non_string_value_coerced(self, catalog_service):
+        """A non-str value (e.g. an integer barcode) is coerced, not crashed."""
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_identifier(pid, identifier_type='GTIN', value=12345)
+        assert snap['value'] == '12345'
+
+    @pytest.mark.unit
+    def test_overlong_value_rejected_as_validation_error(self, catalog_service):
+        """A value beyond the column length is a clean ValidationError, not a raw DB error."""
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_identifier(pid, identifier_type='MPN', value='x' * 256)
+
+    @pytest.mark.unit
+    def test_get_identifiers_empty_and_ordered(self, catalog_service):
+        pid = catalog_service.create_product(description='widget')
+        assert catalog_service.get_identifiers_for_product(pid) == []
+        catalog_service.add_identifier(pid, identifier_type='MPN', value='first')
+        catalog_service.add_identifier(pid, identifier_type='GTIN', value='second')
+        rows = catalog_service.get_identifiers_for_product(pid)
+        assert [r.value for r in rows] == ['first', 'second']

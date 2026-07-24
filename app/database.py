@@ -993,3 +993,61 @@ class Attachment(Base):
             'file_size': self.file_size,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class ProductIdentifier(Base):
+    """
+    A typed identifier (barcode, ASIN, part number, etc.) attached to a Product
+    (Story 2.1, FR7/FR8). A Product may have many identifiers, each a typed
+    (identifier_type, value) pair, so the product can be looked up by any code
+    printed on the part or its packaging.
+
+    Uniqueness is DB-enforced (AD-9) by uq_product_identifiers_type_value_scope
+    over (identifier_type, value, vendor_scope). vendor_scope is the empty-string
+    sentinel '' for global types and the supplied vendor for vendor-scoped types
+    (VENDOR_SKU/ASIN/FNSKU). It is NEVER nullable: MySQL/SQLite allow multiple
+    NULLs in a UNIQUE index, which would silently defeat global uniqueness.
+
+    CatalogService catches the UNIQUE violation and raises a caught
+    ValidationError naming the conflicting Product, never a raw IntegrityError.
+    """
+    __tablename__ = 'product_identifiers'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=False, index=True)
+
+    # Stored as the IdentifierType string value in a plain String (not a DB ENUM)
+    # so later stories extend the set without a migration.
+    identifier_type = Column(String(32), nullable=False)
+    value = Column(String(255), nullable=False)
+
+    # Empty-string sentinel for global types; the vendor for vendor-scoped types.
+    # NEVER nullable (see class docstring).
+    vendor_scope = Column(String(255), nullable=False, server_default='')
+
+    created_at = Column(DateTime, nullable=False, default=func.now())  # write-once
+
+    __table_args__ = (
+        UniqueConstraint('identifier_type', 'value', 'vendor_scope',
+                         name='uq_product_identifiers_type_value_scope'),
+    )
+
+    # One-directional (no back_populates → Product is untouched).
+    product = relationship('Product')
+
+    def __repr__(self):
+        return (f"<ProductIdentifier(id={self.id}, product_id={self.product_id}, "
+                f"identifier_type='{self.identifier_type}', value='{self.value}', "
+                f"vendor_scope='{self.vendor_scope}')>")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses."""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'identifier_type': self.identifier_type,
+            'value': self.value,
+            'vendor_scope': self.vendor_scope,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

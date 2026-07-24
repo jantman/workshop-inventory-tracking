@@ -16,8 +16,10 @@ from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker, defer
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 
-from .database import Product, Purchase, Attachment
+from .database import Product, Purchase, Attachment, ProductIdentifier
+from .models import IdentifierType, VENDOR_SCOPED_IDENTIFIER_TYPES
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
 from config import Config
@@ -40,6 +42,11 @@ ATTACHMENT_ALLOWED_TYPES = {
 # ValidationError, never a raw DB error at insert time).
 ATTACHMENT_MAX_SIZE = 16 * 1024 * 1024 - 1
 ATTACHMENT_MAX_FILENAME = 255  # matches the filename column length
+
+# Identifier bounds (Story 2.1). Guarded here as ValidationErrors before any DB
+# write so oversize surfaces cleanly, never as a raw DataError at flush time
+# (SQLite silently stores overlong strings; MariaDB strict mode rejects them).
+IDENTIFIER_MAX_LENGTH = 255  # matches the value / vendor_scope column lengths
 
 
 def _clean(value):
@@ -357,5 +364,108 @@ class CatalogService:
             if att is None:
                 return None
             return att.content, att.content_type, att.filename
+        finally:
+            session.close()
+
+    def add_identifier(self, product_id, *, identifier_type, value, vendor=None) -> dict:
+        """
+        Attach a typed (identifier_type, value) identifier to a Product (FR7).
+        Returns the created row's to_dict() snapshot.
+
+        Uniqueness is DB-enforced over (identifier_type, value, vendor_scope)
+        (AD-9): VENDOR_SKU/ASIN/FNSKU are vendor-scoped; every other type is
+        global (vendor_scope=''). A duplicate surfaces as a caught
+        ValidationError naming the conflicting Product — never a raw
+        IntegrityError. Invalid type, blank value, and unknown product are
+        also rejected with ValidationError before insert.
+        """
+        from .logging_config import log_audit_operation
+
+        # --- Coerce/validate identifier_type ---
+        if isinstance(identifier_type, IdentifierType):
+            itype = identifier_type
+        else:
+            try:
+                itype = IdentifierType(identifier_type)
+            except ValueError:
+                raise ValidationError(f'Invalid identifier type: {identifier_type!r}.',
+                                      field='identifier_type', value=str(identifier_type))
+
+        # --- Validate value (coerce non-str input, e.g. an integer barcode) ---
+        value = ('' if value is None else str(value)).strip()
+        if not value:
+            raise ValidationError('Identifier value must not be blank.',
+                                  field='value', value=value)
+        if len(value) > IDENTIFIER_MAX_LENGTH:
+            raise ValidationError(
+                f'Identifier value is too long (max {IDENTIFIER_MAX_LENGTH} characters).',
+                field='value', value=value)
+
+        # --- Compute scope (AD-9) ---
+        scope = (vendor or '').strip() if itype in VENDOR_SCOPED_IDENTIFIER_TYPES else ''
+        if len(scope) > IDENTIFIER_MAX_LENGTH:
+            raise ValidationError(
+                f'Vendor is too long (max {IDENTIFIER_MAX_LENGTH} characters).',
+                field='vendor', value=scope)
+
+        try:
+            session = self.Session()
+            if session.query(Product).filter(Product.id == product_id).first() is None:
+                raise ValidationError(f'Product not found (product:{product_id}).',
+                                      field='product_id', value=str(product_id))
+
+            identifier = ProductIdentifier(
+                product_id=product_id,
+                identifier_type=itype.value,
+                value=value,
+                vendor_scope=scope,
+            )
+            session.add(identifier)
+            try:
+                session.flush()
+            except IntegrityError:
+                # Rollback the failed flush so the conflict lookup can run, then
+                # confirm this really was the uniqueness violation. If no
+                # matching row exists it was some other integrity failure (e.g.
+                # a concurrently-deleted product breaking the FK) — re-raise it
+                # rather than mislabel it as a duplicate.
+                session.rollback()
+                existing = (session.query(ProductIdentifier)
+                            .filter_by(identifier_type=itype.value, value=value, vendor_scope=scope)
+                            .first())
+                if existing is None:
+                    raise
+                where = f" (vendor '{scope}')" if scope else ''
+                raise ValidationError(
+                    f"Identifier {itype.value} '{value}'{where} already exists on "
+                    f"product {existing.product_id}.", field='value', value=value)
+
+            snapshot = identifier.to_dict()
+            session.commit()
+            log_audit_operation('add_identifier', 'success', item_id=f'product:{product_id}',
+                                item_after=snapshot, logger_name='mariadb_catalog_service')
+            return snapshot
+        except ValidationError:
+            if 'session' in locals():
+                session.rollback()
+            raise
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            log_audit_operation('add_identifier', 'error', item_id=f'product:{product_id}',
+                                error_details=str(e), logger_name='mariadb_catalog_service')
+            raise
+        finally:
+            if 'session' in locals():
+                session.close()
+
+    def get_identifiers_for_product(self, product_id: int) -> List[ProductIdentifier]:
+        """Return a product's identifiers, oldest first. [] if none."""
+        session = self.Session()
+        try:
+            return (session.query(ProductIdentifier)
+                    .filter(ProductIdentifier.product_id == product_id)
+                    .order_by(ProductIdentifier.created_at.asc(), ProductIdentifier.id.asc())
+                    .all())
         finally:
             session.close()

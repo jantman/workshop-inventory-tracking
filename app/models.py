@@ -114,6 +114,29 @@ class ThreadHandedness(Enum):
     LEFT = "LH"   # Left-hand thread
 
 
+class IdentifierType(Enum):
+    """
+    Closed set of product identifier types (Story 2.1, FR7). Stored as the
+    string value (== the member name) in a plain String column, NOT a DB ENUM,
+    so later stories can extend the set without a migration.
+    """
+    GTIN = "GTIN"
+    ASIN = "ASIN"
+    FNSKU = "FNSKU"
+    MPN = "MPN"
+    VENDOR_SKU = "VENDOR_SKU"
+    INTERNAL = "INTERNAL"
+
+
+# Scoping authority (AD-9): these types are vendor-scoped for uniqueness;
+# every other IdentifierType is global (vendor_scope == '').
+VENDOR_SCOPED_IDENTIFIER_TYPES = frozenset({
+    IdentifierType.VENDOR_SKU,
+    IdentifierType.ASIN,
+    IdentifierType.FNSKU,
+})
+
+
 # Thread size to series mapping for auto-population
 THREAD_SIZE_SERIES_MAPPING = {
     "UNC": ["#0-80", "#1-64", "#2-56", "#3-48", "#4-40", "#5-40", "#6-32", "#8-32", "#10-24", "#12-24",

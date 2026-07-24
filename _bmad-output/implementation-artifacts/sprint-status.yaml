@@ -64,7 +64,7 @@ development_status:
 
   # Epic 2 — Identifiers & Internal Encoding
   epic-2: backlog
-  2-1-typed-identifier-entity-and-uniqueness: backlog
+  2-1-typed-identifier-entity-and-uniqueness: done
   2-2-gtin-normalization-and-check-digit-validation: backlog
   2-3-asin-identity-handling: backlog
   2-4-internal-identifier-generation-and-gs1-ai-96-encoding: backlog
