@@ -742,6 +742,35 @@ class CatalogService:
             raise ValidationError(str(e), field='internal_id',
                                   value=str(internal_id))
 
+    def ownership_label_text(self) -> str:
+        """
+        Return the configured ownership/return text for a label (Story 2.5,
+        FR12d).
+
+        The counterpart of encode_internal_payload, and deliberately its
+        structural opposite. FR12d says ownership/return information is
+        human-readable label text and never an encoded element string, so this
+        is the one place that text comes from: Epic 6 composites the return
+        value into the label's text region, while the symbol beside it carries
+        only what encode_internal_payload produced. What keeps the two regions
+        apart is that nothing passes this value into gs1.encode — not the shape
+        of the text itself. A typical return-to string is unencodable because it
+        carries spaces, but a short compact one ('ReturnTo:J.Antman') is not, so
+        that is a backstop rather than the guarantee.
+
+        Config.LABEL_OWNER_TEXT is read on every call rather than captured at
+        import, mirroring the GS1 pair above (Config itself still reads the
+        environment once, so a changed .env needs a process restart). The value
+        is stripped; unset, blank or whitespace-only yields '', meaning the
+        label simply has no ownership region — a valid configuration, not an
+        error. No length or wrapping rule is applied: that depends on media
+        geometry, which belongs to the label renderer.
+
+        Returns:
+            The ownership text, stripped, or '' when none is configured.
+        """
+        return (Config.LABEL_OWNER_TEXT or '').strip()
+
     def find_product_id_by_gtin(self, value) -> Optional[int]:
         """
         Resolve any GTIN encoding to the owning Product's id, or None (Story

@@ -964,3 +964,110 @@ class TestEncodeInternalPayload:
         assert not isinstance(exc_info.value, InvalidGs1PayloadError)
         assert str(pure_exc.value) in str(exc_info.value)
         assert exc_info.value.field == 'internal_id'
+
+
+class TestOwnershipLabelText:
+    """The FR12d seam (Story 2.5): ownership text is label text, never a symbol."""
+
+    @pytest.mark.unit
+    def test_returns_the_configured_text(self, catalog_service, monkeypatch):
+        from config import Config
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT',
+                            'If found, return to J. Antman — 555-0100')
+        assert catalog_service.ownership_label_text() == \
+            'If found, return to J. Antman — 555-0100'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('configured', [
+        '',        # key present but empty in .env — config's `or ''` idiom
+        '   ',     # whitespace only
+        '\t\n',    # ...in any form
+    ])
+    def test_unset_or_blank_means_no_ownership_region_not_an_error(
+            self, catalog_service, monkeypatch, configured):
+        """A label with no ownership region is a valid configuration."""
+        from config import Config
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT', configured)
+        assert catalog_service.ownership_label_text() == ''
+
+    @pytest.mark.unit
+    def test_config_reads_the_environment_variable_of_that_name(self):
+        """The one piece of wiring that can silently be wrong is the env-var
+        name itself: every other test here monkeypatches Config directly, so a
+        typo ('LABEL_OWNER_TXT') would leave them all passing against a key that
+        is never read. Asserted against config.py's source rather than by
+        reloading the module — reloading rebinds config.Config to a new class
+        while mariadb_catalog_service still holds the old one, which silently
+        breaks every sibling test that patches the attribute. Same text-scan
+        approach as the purity guards in test_gs1.py/test_gtin.py.
+
+        Two limits, stated so nobody reads more into a pass than is there: a
+        source scan cannot prove the expression is evaluated, and it matches
+        wherever in the file the assignment sits. The `vars(Config)` assertion
+        below covers the second — the attribute must be defined on Config
+        itself, not inherited or parked on a subclass nothing reads. Quote style
+        is deliberately not pinned; only the name and the idiom are."""
+        import re
+
+        import config
+
+        assert 'LABEL_OWNER_TEXT' in vars(config.Config), \
+            'LABEL_OWNER_TEXT must be defined on Config itself'
+
+        with open(config.__file__, encoding='utf-8') as handle:
+            source = handle.read()
+
+        assert re.search(
+            r"""^\s*LABEL_OWNER_TEXT\s*=\s*os\.environ\.get\(\s*"""
+            r"""(['"])LABEL_OWNER_TEXT\1\s*\)\s*or\s*(['"])\2""",
+            source, re.MULTILINE), \
+            'Config.LABEL_OWNER_TEXT must read the env var of the same name ' \
+            "via the `os.environ.get(...) or ''` idiom"
+
+    @pytest.mark.unit
+    def test_surrounding_whitespace_is_stripped(self, catalog_service, monkeypatch):
+        """A '.env' value padded by an editor prints as the operator intended."""
+        from config import Config
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT', '  Return to: Workshop \n')
+        assert catalog_service.ownership_label_text() == 'Return to: Workshop'
+
+    @pytest.mark.unit
+    def test_config_is_read_on_every_call_not_captured_at_import(
+            self, catalog_service, monkeypatch):
+        from config import Config
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT', 'First')
+        assert catalog_service.ownership_label_text() == 'First'
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT', 'Second')
+        assert catalog_service.ownership_label_text() == 'Second'
+
+    @pytest.mark.unit
+    def test_the_two_label_regions_are_disjoint(self, catalog_service, monkeypatch):
+        """FR12d: with ownership text configured, the element string is still
+        exactly FNC1 + AI + token + id, and the text is reachable only from the
+        other seam. The regions cannot bleed into one another."""
+        from config import Config
+        owner = 'If found, return to J. Antman — 555-0100'
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT', owner)
+
+        payload = catalog_service.encode_internal_payload('ABC1234567')
+        # Exact equality is the assertion; it already implies the text is
+        # absent. Asserting substrings on top of it would add nothing but the
+        # appearance of coverage — and '43' in particular is not an invariant
+        # here at all, since '4' and '3' are both in the internal-id alphabet.
+        assert payload == '\x1d96WITABC1234567'
+        assert catalog_service.ownership_label_text() == owner
+
+    @pytest.mark.unit
+    def test_the_ownership_text_is_itself_unencodable(self, catalog_service, monkeypatch):
+        """The guarantee is structural, not a convention: the very string this
+        seam returns is one gs1.encode refuses, so it can never be mistaken for
+        the symbol's contents."""
+        from app.exceptions import ValidationError
+        from config import Config
+        monkeypatch.setattr(Config, 'LABEL_OWNER_TEXT',
+                            'If found, return to J. Antman — 555-0100')
+
+        text = catalog_service.ownership_label_text()
+        assert text                                  # the case is non-vacuous
+        with pytest.raises(ValidationError):
+            catalog_service.encode_internal_payload(text)

@@ -44,14 +44,53 @@ also tolerates surrounding whitespace, including the trailing CR/LF that a
 keyboard-wedge scanner appends. `decode` never raises on `raw` (NFR8): a
 scan is untrusted input, and unrecognized input is a None, not an exception.
 
+The bounded data field
+----------------------
+AI 96 sits in the GS1 company-internal series (90-99). That series' data field
+was `X..30` until GSCN 16-000528 ("AI 91 to 99 - Data Length Extension",
+effective 2017-07-31) raised it to `X..90`, which is the current General
+Specifications limit. `MAX_DATA_FIELD_LENGTH` deliberately pins the older, three
+times tighter 30 rather than tracking the ceiling: this grammar's whole data
+field is a 3-character token plus a 10-character id, so 30 is already more than
+double anything it can legitimately produce, and the tighter bound dismisses a
+garbled or hostile scan that much sooner. Both sides of the pair enforce it
+(Story 2.5).
+
+It is a bound on the element string's own field, not on our id: the id's shape
+(its length, its alphabet) belongs to `app/utils/internal_id.py` and is
+deliberately not duplicated here, because an encoder that re-derives the id's
+rules is the drift AD-16 exists to prevent. Raising the constant to 90 would
+stay standards-conformant; adding `is_valid_internal_id` here would not be the
+same kind of change at all. The bound has teeth either way — without it, any
+foreign scan that happens to open with `96WIT` yields an unbounded `internal_id`
+that a future resolver (Epic 4) would carry into a DB query, and that the
+UNTRUSTED `raw` field would carry into logs today.
+
+Ownership text is not encoded (FR12d)
+-------------------------------------
+Ownership/return information is human-readable label text only, composited into
+the label's text region by Epic 6 and reached through
+`CatalogService.ownership_label_text()`. No 43xx element string is ever
+produced: rather than leave that a documented intention, both `encode` and
+`decode` refuse outright any grammar whose element string would open `43`, so
+the negative is a machine-checked invariant. There is exactly one encoder and
+its AI comes from config, so a reconfigured `GS1_INTERNAL_AI` was the only way
+such a string could ever have appeared; it now fails loudly at the first encode.
+
+The invariant is about the AI, not about the text. Nothing stops a caller from
+handing ownership text to `encode` as an `internal_id` — a string with a space
+in it is refused, but a short one like `ReturnTo:J.Antman` is not. What holds
+the two regions apart is that no code path passes `ownership_label_text()` into
+this module at all; the character rule is a backstop for the common case, not
+the guarantee.
+
 Future extensibility:
 --------------------
 `decode` deliberately does NOT strip an AIM symbology identifier (e.g. `]d1`) —
 per FR37 that belongs to the scan classifier, which inspects the prefix before
-delegating here. Ownership/return information is human-readable label text
-only; no 43xx element strings are ever produced (FR12d). A renderer that needs
-the bare data field without FNC1 should gain a parameter on `encode` here
-rather than re-deriving the grammar somewhere else.
+delegating here. A renderer that needs the bare data field without FNC1 should
+gain a parameter on `encode` here rather than re-deriving the grammar somewhere
+else.
 """
 
 from dataclasses import dataclass
@@ -59,6 +98,22 @@ from typing import Any, Optional
 
 # FNC1 is transmitted as the ASCII group separator (GS, 0x1D).
 FNC1 = '\x1d'
+
+# The most characters the single variable-length data field (token + id) may
+# carry. The GS1 company-internal series (AIs 90-99) permits `X..90` since GSCN
+# 16-000528 (2017); 30 is this module's deliberately tighter cap — see "The
+# bounded data field" above. Raising it is a standards-conformant change; the
+# constant exists so that decision is made in one place.
+MAX_DATA_FIELD_LENGTH = 30
+
+# No element string may open with this prefix. FR12d: ownership / return
+# information is human-readable label text, never an encoded element string, and
+# the 43xx logistics AIs are where such information would otherwise be carried.
+# Matched against the AI+token marker rather than the AI alone — the marker is
+# what an element string actually opens with, so one comparison catches both a
+# 43xx AI and a split configuration (ai='4', token='311') that assembles the
+# identical string. Matched as a prefix, so the whole 43nn range goes at once.
+_FORBIDDEN_AI_PREFIX = '43'
 
 
 def _is_encodable_id_char(char: str) -> bool:
@@ -78,13 +133,22 @@ def _is_encodable_id_char(char: str) -> bool:
 class InvalidGs1PayloadError(ValueError):
     """
     Raised when a payload cannot be encoded: a blank/padded/non-string `ai` or
-    `token`, or an `internal_id` that is blank, not a string, or carries a
+    `token`, a grammar whose marker opens `43` (FR12d), a token that leaves no
+    room for an id, an `internal_id` that is blank, not a string, or carries a
     character outside printable ASCII (a rule `ai` and `token` are held to as
-    well — every part of the element string must be encodable). A plain `ValueError` subclass so this module
-    stays free of any framework dependency; callers translate it into a domain
-    error. Note that `decode` never raises this for its `raw` argument — only
-    for a mis-configured `ai`/`token`, which is a programming/config fault
-    rather than untrusted scan data.
+    well — every part of the element string must be encodable), or a data field
+    longer than `MAX_DATA_FIELD_LENGTH`. A plain `ValueError` subclass so this
+    module stays free of any framework dependency; callers translate it into a
+    domain error.
+
+    The split is by *source*, not by condition: a fault in the configured
+    grammar raises out of both functions, while anything wrong with `raw` — an
+    oversized data field included — is only ever a None from `decode`, which
+    never raises on scan data (NFR8). So an overlong payload is an exception
+    when `encode` is asked to build it and a None when `decode` is asked to
+    recognize it, and a scanned string opening `43` is simply foreign: it fails
+    the marker match like any other non-matching payload, with the
+    `_FORBIDDEN_AI_PREFIX` rule never consulted.
     """
 
 
@@ -154,6 +218,70 @@ def _require_grammar_part(name: str, value: Any) -> str:
     return value
 
 
+def _require_grammar(ai: Any, token: Any) -> str:
+    """
+    Validate the configured grammar as a whole and return its marker.
+
+    Everything `_require_grammar_part` demands of each half, plus the two rules
+    that only make sense once the halves are put together.
+
+    Args:
+        ai: The supplied Application Identifier.
+        token: The supplied token.
+
+    Returns:
+        The marker `ai + token` — the exact prefix every element string under
+        this grammar opens with.
+
+    Raises:
+        InvalidGs1PayloadError: if either half is malformed on its own, if the
+            marker opens `43`, or if the token leaves no room for an id.
+
+            **The 43 rule.** The 43xx AIs are GS1's logistics series — 4311 is
+            return-to contact name, and the rest of the range carries the same
+            kind of ship-to/return-to data — and FR12d's testable consequence is
+            the negative "no 43xx element string is ever encoded". Enforcing it
+            here converts that intention into an invariant: the grammar comes
+            from config, so a reconfigured `GS1_INTERNAL_AI` was the only route
+            by which such a string could have been produced, and it now fails at
+            the first encode rather than printing a symbol that misrepresents
+            ownership as machine-readable data. It is checked against the
+            **marker** rather than the AI alone, so the split configuration
+            `ai='4', token='311'` — which assembles the identical element string
+            — cannot slip past it. Matching the marker does over-bar slightly:
+            a single-character `ai='4'` with a token opening `3` is refused even
+            though no 43xx AI is involved. That is accepted deliberately, since
+            the PRD addendum rejected AI 4311 outright and nothing the addendum
+            leaves legitimate lands in the over-barred corner — but it is the
+            price of one comparison, not literally zero. Only a leading `43` is
+            barred (FR12c preserved), and `decode` applies the same rule so the
+            pair stays closed.
+
+            **The token-room rule.** A token at or beyond
+            `MAX_DATA_FIELD_LENGTH` leaves no characters for an id, so `encode`
+            could never produce a payload and `decode` would return None for
+            every scan of a genuine label — a total, silent outage of both
+            directions. This module's standing choice is that a malformed
+            grammar fails loudly at once rather than degrading into "nothing
+            scans", so it is rejected here.
+    """
+    _require_grammar_part('ai', ai)
+    _require_grammar_part('token', token)
+
+    marker = ai + token
+    if marker[:2] == _FORBIDDEN_AI_PREFIX:
+        raise InvalidGs1PayloadError(
+            f'no element string may open {_FORBIDDEN_AI_PREFIX}xx: ownership '
+            f'and return information is human-readable label text only and is '
+            f'never encoded as an element string (FR12d); ai={ai!r} and '
+            f'token={token!r} would build {marker!r}.')
+    if len(token) >= MAX_DATA_FIELD_LENGTH:
+        raise InvalidGs1PayloadError(
+            f'token must be shorter than the {MAX_DATA_FIELD_LENGTH}-character '
+            f'data field so an id can follow it, got {len(token)}: {token!r}.')
+    return marker
+
+
 def encode(internal_id: str, *, ai: str, token: str) -> str:
     """
     Build the single GS1 element string for an internal identifier.
@@ -166,23 +294,25 @@ def encode(internal_id: str, *, ai: str, token: str) -> str:
         internal_id: The identifier to encode.
         ai: The Application Identifier. Keyword-only, no default (FR12c).
         token: The literal opening the data field. Keyword-only, no default.
+            Together `ai` and `token` must not build a marker opening `43`
+            (FR12d).
 
     Returns:
         The element string, ready to be rendered as a symbol.
 
     Raises:
-        InvalidGs1PayloadError: if `ai` or `token` is blank/non-string/padded or
-            carries an unencodable character, or if `internal_id` is blank, not
-            a string, or contains a control or whitespace character (which
-            includes FNC1 itself — an embedded separator would silently split
-            the data field).
+        InvalidGs1PayloadError: if the grammar is malformed — see
+            `_require_grammar` — or if `internal_id` is blank, not a string, or
+            contains a control or whitespace character (which includes FNC1
+            itself — an embedded separator would silently split the data
+            field), or if the resulting data field (`token + internal_id`) is
+            longer than `MAX_DATA_FIELD_LENGTH`.
 
     Examples:
         >>> encode('ABC1234567', ai='96', token='WIT') == '\\x1d96WITABC1234567'
         True
     """
-    _require_grammar_part('ai', ai)
-    _require_grammar_part('token', token)
+    marker = _require_grammar(ai, token)
 
     if not isinstance(internal_id, str):
         # Non-str input fails as InvalidGs1PayloadError, never a raw TypeError
@@ -200,8 +330,22 @@ def encode(internal_id: str, *, ai: str, token: str) -> str:
         raise InvalidGs1PayloadError(
             f'internal_id must contain only printable ASCII, with no '
             f'whitespace or control characters: {internal_id!r}.')
+    # The bound is on the whole data field, token included, because the token is
+    # what the AI's format counts: `96WIT...` is one field of `len(token) +
+    # len(internal_id)` characters, not two. This is a rule about the element
+    # string's field, not about the id's shape — see the module docstring for
+    # why that distinction is load-bearing.
+    if len(token) + len(internal_id) > MAX_DATA_FIELD_LENGTH:
+        raise InvalidGs1PayloadError(
+            f'the data field (token + internal_id) must be at most '
+            f'{MAX_DATA_FIELD_LENGTH} characters, got '
+            f'{len(token) + len(internal_id)}: {internal_id!r}.')
 
-    return FNC1 + ai + token + internal_id
+    # Built from the marker `_require_grammar` returned, which is the same value
+    # `decode` matches against. The two functions therefore agree on what an
+    # element string opens with by construction rather than by both spelling out
+    # `ai + token` — the encoder/decoder drift AD-16 exists to prevent.
+    return FNC1 + marker + internal_id
 
 
 def decode(raw: Any, *, ai: str, token: str,
@@ -214,8 +358,9 @@ def decode(raw: Any, *, ai: str, token: str,
     Steps: non-string returns None; surrounding whitespace (including a
     scanner's trailing CR/LF) is stripped; one leading FNC1 — the GS character
     or `fnc1_substitute` — is removed if present; the remainder must open with
-    exactly `ai + token` and leave behind an identifier that is non-empty and
-    printable ASCII (the same character rule `encode` enforces, so the pair
+    exactly `ai + token` and leave behind a data field that is within
+    `MAX_DATA_FIELD_LENGTH` and an identifier that is non-empty and
+    printable ASCII (the same rules `encode` enforces, so the pair
     round-trips).
 
     Args:
@@ -223,6 +368,8 @@ def decode(raw: Any, *, ai: str, token: str,
         ai: The Application Identifier to match. Keyword-only, no default.
         token: The literal the data field must open with. Keyword-only, no
             default; a payload without it is foreign and yields None (FR12a).
+            `ai + token` must not open `43` (FR12d) — barred here purely to keep
+            the pair closed with `encode`, which is where the invariant bites.
         fnc1_substitute: An extra single character some scanners emit in place
             of GS. Optional; None means only GS (or nothing) is recognized.
             Validated like the rest of the grammar — a multi-character value
@@ -232,8 +379,9 @@ def decode(raw: Any, *, ai: str, token: str,
         An `InternalPayload` if the input matches the grammar, else None.
 
     Raises:
-        InvalidGs1PayloadError: only if `ai`, `token` or `fnc1_substitute` is
-            malformed (a configuration fault, never a property of `raw`).
+        InvalidGs1PayloadError: only if the grammar (`ai`, `token`, or
+            `fnc1_substitute`) is malformed — a configuration fault, never a
+            property of `raw`. See `_require_grammar`.
 
     Examples:
         >>> decode('96WITABC1234567', ai='96', token='WIT').internal_id
@@ -241,8 +389,7 @@ def decode(raw: Any, *, ai: str, token: str,
         >>> decode('0109506000134352', ai='96', token='WIT') is None
         True
     """
-    _require_grammar_part('ai', ai)
-    _require_grammar_part('token', token)
+    marker = _require_grammar(ai, token)
     if fnc1_substitute is not None:
         # The third grammar knob, held to the same standard as ai/token — but
         # checked here rather than by _require_grammar_part, which forbids
@@ -272,11 +419,21 @@ def decode(raw: Any, *, ai: str, token: str,
             candidate = candidate[len(prefix):]
             break
 
-    marker = ai + token
     if not candidate.startswith(marker):
         return None
 
     internal_id = candidate[len(marker):]
+    if len(token) + len(internal_id) > MAX_DATA_FIELD_LENGTH:
+        # Checked before the character scan below and before any payload is
+        # built, so a 100 KB scan that happens to open with `96WIT` is dismissed
+        # on its length rather than walked character by character. That is a
+        # bound on the work done here, not on the memory: `raw.strip()` and the
+        # slice above have already copied the input twice, and shortcutting that
+        # would mean length-checking `raw` itself, before the FNC1 and
+        # whitespace tolerance this module exists to provide. An overlong data
+        # field exceeds what this grammar can encode, so it is a foreign
+        # payload — a None, never an exception (NFR8).
+        return None
     if not internal_id:
         # AI + token with an empty data field is not an identifier (FR12a).
         return None

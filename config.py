@@ -36,6 +36,18 @@ class Config:
     GS1_INTERNAL_AI = os.environ.get('GS1_INTERNAL_AI') or '96'
     GS1_INTERNAL_TOKEN = os.environ.get('GS1_INTERNAL_TOKEN') or 'WIT'
 
+    # Ownership / return information for labels (Story 2.5, FR12d). Read through
+    # CatalogService.ownership_label_text(); Epic 6 composites it into the
+    # label's HUMAN-READABLE text region. It is never encoded: no code path
+    # passes this value to gs1.encode, and no 43xx element string — the GS1
+    # logistics AIs where such data would otherwise be carried — can be built at
+    # all. Unset or blank means no ownership region, which is a valid
+    # configuration rather than an error — hence `or ''` in the same idiom as
+    # the GS1 pair above, so a key present but empty reads as unset. A
+    # whitespace-only value is truthy and survives this line; the service strips
+    # it, which is where blank-after-trimming is normalized.
+    LABEL_OWNER_TEXT = os.environ.get('LABEL_OWNER_TEXT') or ''
+
 
 class TestConfig(Config):
     """Test configuration using MariaDB test database"""
