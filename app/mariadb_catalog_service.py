@@ -11,14 +11,15 @@ stories extend this class (internal_id generation, scan resolution,
 search_products, capture, derived signals).
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import date
 from decimal import Decimal
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, defer
 from sqlalchemy import create_engine
 
-from .database import Product, Purchase
+from .database import Product, Purchase, Attachment
 from .mariadb_storage import MariaDBStorage
+from .exceptions import ValidationError
 from config import Config
 
 
@@ -27,6 +28,14 @@ from config import Config
 _PRODUCT_FIELDS = (
     'manufacturer', 'mpn', 'description', 'notes', 'category_path', 'attributes',
 )
+
+# Attachment policy (Story 1.5). Whitelist is enforced only here (single source
+# of truth); the DB carries the structural XOR + positive-size CHECKs.
+# image/svg+xml is deliberately excluded (script-carrying → inline-XSS vector).
+ATTACHMENT_ALLOWED_TYPES = {
+    'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+}
+ATTACHMENT_MAX_SIZE = 16 * 1024 * 1024  # MEDIUMBLOB ceiling
 
 
 def _clean(value):
@@ -253,3 +262,92 @@ class CatalogService:
         finally:
             if 'session' in locals():
                 session.close()
+
+    # --- Attachments (Story 1.5) -----------------------------------------
+
+    def add_attachment(self, *, product_id=None, purchase_id=None, filename,
+                       content, content_type) -> dict:
+        """
+        Store a file attachment owned by exactly one of a Product or Purchase
+        (AD-12). Returns the created attachment's BLOB-free to_dict() snapshot.
+
+        Validation failures are raised as ValidationError (caught domain errors,
+        not raw IntegrityError): the XOR one-owner rule, empty/oversize content,
+        disallowed content_type, and a non-existent owner.
+        """
+        from .logging_config import log_audit_operation
+
+        # --- Validation (app-level invariants) ---
+        if (product_id is None) == (purchase_id is None):
+            raise ValidationError('An attachment must have exactly one owner '
+                                  '(a product or a purchase, not both or neither).')
+        if not content:
+            raise ValidationError('Attachment content is empty.')
+        if len(content) > ATTACHMENT_MAX_SIZE:
+            raise ValidationError(
+                f'Attachment exceeds the maximum size of {ATTACHMENT_MAX_SIZE // (1024 * 1024)} MB.')
+        if content_type not in ATTACHMENT_ALLOWED_TYPES:
+            raise ValidationError(f'Unsupported attachment type: {content_type}.')
+
+        owner_label = f'product:{product_id}' if product_id is not None else f'purchase:{purchase_id}'
+        try:
+            session = self.Session()
+            owner_cls = Product if product_id is not None else Purchase
+            owner_id = product_id if product_id is not None else purchase_id
+            if session.query(owner_cls).filter(owner_cls.id == owner_id).first() is None:
+                raise ValidationError(f'Owner not found ({owner_label}).')
+
+            attachment = Attachment(
+                product_id=product_id,
+                purchase_id=purchase_id,
+                filename=(filename or '').strip() or 'attachment',
+                content_type=content_type,
+                file_size=len(content),
+                content=content,
+            )
+            session.add(attachment)
+            session.flush()
+            snapshot = attachment.to_dict()
+            session.commit()
+            log_audit_operation('add_attachment', 'success', item_id=owner_label,
+                                item_after=snapshot, logger_name='mariadb_catalog_service')
+            return snapshot
+        except ValidationError:
+            if 'session' in locals():
+                session.rollback()
+            raise
+        except Exception as e:
+            if 'session' in locals():
+                session.rollback()
+            log_audit_operation('add_attachment', 'error', item_id=owner_label,
+                                error_details=str(e), logger_name='mariadb_catalog_service')
+            raise
+        finally:
+            if 'session' in locals():
+                session.close()
+
+    def get_attachments_for_product(self, product_id: int) -> List[Attachment]:
+        """
+        Return a product's attachments (metadata only — the BLOB is deferred so
+        listing never pulls megabytes into memory), oldest first. [] if none.
+        """
+        session = self.Session()
+        try:
+            return (session.query(Attachment)
+                    .options(defer(Attachment.content))
+                    .filter(Attachment.product_id == product_id)
+                    .order_by(Attachment.created_at.asc(), Attachment.id.asc())
+                    .all())
+        finally:
+            session.close()
+
+    def get_attachment_data(self, attachment_id: int) -> Optional[Tuple[bytes, str, str]]:
+        """Return (content_bytes, content_type, filename) for serving, or None."""
+        session = self.Session()
+        try:
+            att = session.query(Attachment).filter(Attachment.id == attachment_id).first()
+            if att is None:
+                return None
+            return att.content, att.content_type, att.filename
+        finally:
+            session.close()

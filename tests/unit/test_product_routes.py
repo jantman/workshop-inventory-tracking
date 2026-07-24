@@ -173,3 +173,61 @@ class TestProductPurchases:
         assert data['error']['field'] == 'unit_price'
         # nothing created
         assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+
+_PDF = b'%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'
+
+
+@pytest.mark.unit
+class TestProductAttachments:
+    """Attachment upload/serve + detail-page card (Story 1.5)."""
+
+    def test_detail_shows_attachments_card_and_form(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='widget')
+        resp = client.get(f'/products/{pid}')
+        assert resp.status_code == 200
+        body = resp.data
+        assert b'Attachments' in body
+        assert b'enctype="multipart/form-data"' in body
+        assert b'No attachments' in body  # empty state
+
+    def test_upload_attachment_multipart(self, client, test_storage):
+        import io
+        pid = CatalogService(test_storage).create_product(description='widget')
+        resp = client.post(
+            f'/products/{pid}/attachments',
+            data={'file': (io.BytesIO(_PDF), 'datasheet.pdf')},
+            content_type='multipart/form-data',
+        )
+        assert resp.status_code == 302
+        rows = CatalogService(test_storage).get_attachments_for_product(pid)
+        assert len(rows) == 1
+        assert rows[0].filename == 'datasheet.pdf'
+
+    def test_upload_no_file_flashes_and_creates_nothing(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='widget')
+        resp = client.post(f'/products/{pid}/attachments', data={},
+                           content_type='multipart/form-data', follow_redirects=True)
+        assert resp.status_code == 200
+        assert CatalogService(test_storage).get_attachments_for_product(pid) == []
+
+    def test_upload_to_missing_product_404(self, client):
+        import io
+        resp = client.post('/products/999999/attachments',
+                           data={'file': (io.BytesIO(_PDF), 'x.pdf')},
+                           content_type='multipart/form-data')
+        assert resp.status_code == 404
+
+    def test_serve_attachment_returns_bytes_and_content_type(self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='widget')
+        snap = svc.add_attachment(product_id=pid, filename='ds.pdf', content=_PDF,
+                                  content_type='application/pdf')
+        resp = client.get(f'/attachments/{snap["id"]}')
+        assert resp.status_code == 200
+        assert resp.data == _PDF
+        assert resp.headers['Content-Type'] == 'application/pdf'
+        assert resp.headers.get('X-Content-Type-Options') == 'nosniff'
+
+    def test_serve_missing_attachment_404(self, client):
+        assert client.get('/attachments/999999').status_code == 404

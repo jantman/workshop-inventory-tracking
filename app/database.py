@@ -938,3 +938,58 @@ class Purchase(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class Attachment(Base):
+    """
+    File attachment (datasheet, diagram, photo) owned by exactly one of a
+    Product or a Purchase (Story 1.5). Bytes are stored in a DB BLOB column
+    (AD-12), backed up with the database — matching the Photo precedent.
+
+    The XOR one-owner rule is enforced both by the CHECK constraint below and
+    by an application invariant in CatalogService (which raises a caught
+    ValidationError, never a raw IntegrityError).
+    """
+    __tablename__ = 'attachments'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Exactly one owner (XOR) — enforced by ck_attachment_one_owner.
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=True, index=True)
+    purchase_id = Column(Integer, ForeignKey('purchases.id'), nullable=True, index=True)
+
+    filename = Column(String(255), nullable=False)
+    content_type = Column(String(100), nullable=False)  # MIME (realizes the ERD 'kind')
+    file_size = Column(Integer, nullable=False)
+
+    # BLOB bytes: MEDIUMBLOB (16MB) on MySQL/MariaDB, LargeBinary on SQLite tests.
+    content = Column(LargeBinary().with_variant(MEDIUMBLOB, 'mysql'), nullable=False)
+
+    created_at = Column(DateTime, nullable=False, default=func.now())  # write-once
+
+    __table_args__ = (
+        # AD-12: exactly one of product_id / purchase_id is non-null.
+        CheckConstraint('(product_id IS NULL) <> (purchase_id IS NULL)',
+                        name='ck_attachment_one_owner'),
+        CheckConstraint('file_size > 0', name='ck_attachment_positive_file_size'),
+    )
+
+    # One-directional (no back_populates → Product/Purchase are untouched).
+    product = relationship('Product')
+    purchase = relationship('Purchase')
+
+    def __repr__(self):
+        return (f"<Attachment(id={self.id}, product_id={self.product_id}, "
+                f"purchase_id={self.purchase_id}, filename='{self.filename}')>")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses (EXCLUDES the BLOB content)."""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'purchase_id': self.purchase_id,
+            'filename': self.filename,
+            'content_type': self.content_type,
+            'file_size': self.file_size,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
