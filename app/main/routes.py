@@ -6,10 +6,11 @@ from app import csrf
 from app.mariadb_storage import MariaDBStorage
 # Using unified InventoryService (MariaDB-based implementation)
 from app.mariadb_inventory_service import InventoryService
+from app.mariadb_catalog_service import CatalogService
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
-from app.database import InventoryItem
+from app.database import InventoryItem, Product
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
@@ -73,9 +74,13 @@ def _detect_item_changes(item_before, item_after):
 def _get_inventory_service():
     """Get the MariaDB inventory service (only supported backend)"""
     storage = _get_storage_backend()
-    
+
     # All storage now uses MariaDB backend
     return InventoryService(storage)
+
+def _get_catalog_service():
+    """Get the MariaDB catalog service (Products, Purchases, etc.)"""
+    return CatalogService(_get_storage_backend())
 
 def _get_photo_info(ja_id):
     """Get photo information for an item"""
@@ -731,6 +736,107 @@ def inventory_edit(ja_id):
         current_app.logger.error(f'Error updating item {ja_id}: {e}\n{traceback.format_exc()}')
         flash('An error occurred while updating the item. Please try again.', 'error')
         return redirect(url_for('main.inventory_list'))
+
+# ---------------------------------------------------------------------------
+# Product catalog pages (Story 1.3). Browser HTML forms — CSRF-protected,
+# flash + redirect. Business logic lives in CatalogService (AD-2). Detail is
+# keyed on the integer PK; internal_id-keyed URLs arrive in Epic 8.
+# ---------------------------------------------------------------------------
+
+@bp.route('/products/add', methods=['GET', 'POST'])
+def product_add():
+    """Create a Product from the catalog UI."""
+    if request.method == 'GET':
+        return render_template('product/add.html', title='Add Product',
+                               validation_errors={}, form_data={})
+
+    form_data = request.form.to_dict()
+    log_audit_operation('product_add', 'input', form_data=form_data,
+                        logger_name='mariadb_catalog_service')
+
+    description = (form_data.get('description') or '').strip()
+    if not description:
+        error_msg = 'Label Description is required.'
+        return render_template('product/add.html', title='Add Product',
+                               validation_errors={'description': error_msg},
+                               form_data=form_data)
+
+    try:
+        service = _get_catalog_service()
+        new_id = service.create_product(
+            description=description,
+            manufacturer=form_data.get('manufacturer'),
+            mpn=form_data.get('mpn'),
+            category_path=form_data.get('category_path'),
+            notes=form_data.get('notes'),
+        )
+        if not new_id:
+            flash('Failed to create product. Please try again.', 'error')
+            return render_template('product/add.html', title='Add Product',
+                                   validation_errors={}, form_data=form_data)
+        flash('Product created successfully!', 'success')
+        return redirect(url_for('main.product_detail', product_id=new_id))
+    except Exception as e:
+        current_app.logger.error(f'Error creating product: {e}\n{traceback.format_exc()}')
+        flash('An error occurred while creating the product. Please try again.', 'error')
+        return render_template('product/add.html', title='Add Product',
+                               validation_errors={}, form_data=form_data)
+
+
+@bp.route('/products/<int:product_id>')
+def product_detail(product_id):
+    """View a Product by its direct URL (FR6)."""
+    service = _get_catalog_service()
+    product = service.get_product(product_id)
+    if product is None:
+        abort(404)
+    return render_template('product/detail.html',
+                           title=product.description or f'Product {product_id}',
+                           product=product)
+
+
+@bp.route('/products/edit/<int:product_id>', methods=['GET', 'POST'])
+def product_edit(product_id):
+    """Edit a Product from the catalog UI."""
+    service = _get_catalog_service()
+    product = service.get_product(product_id)
+    if product is None:
+        abort(404)
+
+    if request.method == 'GET':
+        return render_template('product/edit.html', title=f'Edit {product.description or product_id}',
+                               product=product, validation_errors={})
+
+    form_data = request.form.to_dict()
+    log_audit_operation('product_edit', 'input', item_id=str(product_id),
+                        form_data=form_data, logger_name='mariadb_catalog_service')
+
+    description = (form_data.get('description') or '').strip()
+    if not description:
+        error_msg = 'Label Description is required.'
+        return render_template('product/edit.html', title=f'Edit {product_id}',
+                               product=product,
+                               validation_errors={'description': error_msg})
+
+    try:
+        ok = service.update_product(
+            product_id,
+            description=description,
+            manufacturer=form_data.get('manufacturer'),
+            mpn=form_data.get('mpn'),
+            category_path=form_data.get('category_path'),
+            notes=form_data.get('notes'),
+        )
+        if not ok:
+            flash('Failed to update product. Please try again.', 'error')
+            return redirect(url_for('main.product_edit', product_id=product_id))
+        flash('Product updated successfully!', 'success')
+        return redirect(url_for('main.product_detail', product_id=product_id))
+    except Exception as e:
+        current_app.logger.error(f'Error updating product {product_id}: {e}\n{traceback.format_exc()}')
+        flash('An error occurred while updating the product. Please try again.', 'error')
+        return redirect(url_for('main.product_edit', product_id=product_id))
+
 
 @bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])
 @csrf.exempt
