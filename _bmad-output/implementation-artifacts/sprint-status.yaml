@@ -54,12 +54,12 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # Epic 1 — Product & Purchase Foundation
-  epic-1: in-progress
+  epic-1: done
   1-1-product-entity-and-migration: done
   1-2-purchase-entity-and-migration: done
   1-3-product-create-edit-detail: done
   1-4-purchase-recording-and-history: done
-  1-5-attachments-on-product-or-purchase: review
+  1-5-attachments-on-product-or-purchase: done
   epic-1-retrospective: optional
 
   # Epic 2 — Identifiers & Internal Encoding
