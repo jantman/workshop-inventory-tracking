@@ -35,7 +35,11 @@ _PRODUCT_FIELDS = (
 ATTACHMENT_ALLOWED_TYPES = {
     'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif',
 }
-ATTACHMENT_MAX_SIZE = 16 * 1024 * 1024  # MEDIUMBLOB ceiling
+# Exact MEDIUMBLOB ceiling: 2**24 - 1 bytes. Using the full column capacity
+# while rejecting anything the DB can't store (so oversize surfaces as a clean
+# ValidationError, never a raw DB error at insert time).
+ATTACHMENT_MAX_SIZE = 16 * 1024 * 1024 - 1
+ATTACHMENT_MAX_FILENAME = 255  # matches the filename column length
 
 
 def _clean(value):
@@ -285,9 +289,13 @@ class CatalogService:
             raise ValidationError('Attachment content is empty.')
         if len(content) > ATTACHMENT_MAX_SIZE:
             raise ValidationError(
-                f'Attachment exceeds the maximum size of {ATTACHMENT_MAX_SIZE // (1024 * 1024)} MB.')
+                f'Attachment exceeds the maximum size of {round(ATTACHMENT_MAX_SIZE / (1024 * 1024))} MB.')
         if content_type not in ATTACHMENT_ALLOWED_TYPES:
             raise ValidationError(f'Unsupported attachment type: {content_type}.')
+        clean_filename = (filename or '').strip() or 'attachment'
+        if len(clean_filename) > ATTACHMENT_MAX_FILENAME:
+            raise ValidationError(
+                f'Filename is too long (max {ATTACHMENT_MAX_FILENAME} characters).')
 
         owner_label = f'product:{product_id}' if product_id is not None else f'purchase:{purchase_id}'
         try:
@@ -300,7 +308,7 @@ class CatalogService:
             attachment = Attachment(
                 product_id=product_id,
                 purchase_id=purchase_id,
-                filename=(filename or '').strip() or 'attachment',
+                filename=clean_filename,
                 content_type=content_type,
                 file_size=len(content),
                 content=content,

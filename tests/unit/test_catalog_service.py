@@ -276,6 +276,26 @@ class TestCatalogServiceAttachments:
         assert [r.filename for r in rows] == ['a.pdf', 'b.pdf']
 
     @pytest.mark.unit
+    def test_get_attachments_defers_blob(self, catalog_service):
+        """AC #4: listing must NOT load the BLOB content column."""
+        from sqlalchemy import inspect
+        pid = catalog_service.create_product(description='widget')
+        catalog_service.add_attachment(product_id=pid, filename='a.pdf',
+                                       content=_PDF_BYTES, content_type='application/pdf')
+        rows = catalog_service.get_attachments_for_product(pid)
+        # 'content' is deferred → reported as unloaded on the returned row.
+        assert 'content' in inspect(rows[0]).unloaded
+
+    @pytest.mark.unit
+    def test_add_attachment_overlong_filename_rejected(self, catalog_service):
+        from app.exceptions import ValidationError
+        pid = catalog_service.create_product(description='widget')
+        with pytest.raises(ValidationError):
+            catalog_service.add_attachment(
+                product_id=pid, filename='x' * 300 + '.pdf', content=_PDF_BYTES,
+                content_type='application/pdf')
+
+    @pytest.mark.unit
     def test_get_attachment_data(self, catalog_service):
         pid = catalog_service.create_product(description='widget')
         snap = catalog_service.add_attachment(
