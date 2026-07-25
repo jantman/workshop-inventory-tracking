@@ -14,6 +14,9 @@ from app.mariadb_catalog_service import (
 from app.taxonomy import type_shape_validator
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.database import InventoryItem
+# Story 3.2: routes call the pure category util for segment-boundary logic —
+# they never re-derive it (AD-4).
+from app.utils import category as category_util
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
@@ -1000,6 +1003,207 @@ def product_edit(product_id):
         flash('An error occurred while updating the product. Please try again.', 'error')
         return render_template('product/edit.html', title=title, product=product,
                                form_data=form_data, validation_errors={})
+
+
+# ---------------------------------------------------------------------------
+# Category management pages (Story 3.2, FR17). The category tree is the
+# distinct set of assigned products.category_path values, so these pages are
+# views over CatalogService — no ORM here, and every path comparison goes
+# through app/utils/category.py rather than a bare startswith (AD-1/AD-2/AD-4).
+# ---------------------------------------------------------------------------
+
+
+def _is_canonical_path(path):
+    """
+    True when `path` is exactly what normalization would have stored.
+
+    Story 3.1's backfill migration deliberately LEAVES a row it could not
+    normalize (a SQLite-era value past 512 characters, or one whose canonical
+    form is longer than the original) exactly as it found it, so a stored
+    category_path is not guaranteed canonical — while every helper in
+    `app/utils/category.py` assumes it is. This is the one guard that keeps
+    such a row away from them, asked through the util so no canonicality rule
+    is re-derived here (AD-4).
+    """
+    try:
+        return category_util.normalize_category_path(path) == path
+    except category_util.InvalidCategoryPathError:
+        return False
+
+
+def _category_tree(service):
+    """
+    Build the listing's rows: every node of the category tree, including the
+    INTERIOR ones no product is filed at directly.
+
+    `list_category_paths()` returns only paths products actually carry, so a
+    catalog whose sole product sits at `electronics/power/dc-dc` yields exactly
+    one row — and without this, `electronics/power` (the node FR17's own
+    acceptance criterion renames) would have no row and therefore no Rename
+    link. The interior nodes are recovered with `ancestor_paths`.
+
+    Returns a list of (path, direct_count, subtree_count, is_canonical) sorted
+    by SEGMENT, not by byte: plain string ordering sorts `electronics-old`
+    between `electronics` and `electronics/power` (because `-` < `/`), tearing
+    a parent away from its children on a page that presents itself as a tree.
+
+    `is_canonical` is False only for a legacy row Story 3.1's backfill left in
+    place. Such a row is still listed, but it carries no Rename link: the
+    rename form normalizes whatever `?path=` it is given, so the link would
+    resolve to a DIFFERENT path than the row it sits on — and where that
+    normalized path also exists (a stored `Electronics/Power` beside the
+    canonical `electronics/power`), submitting the form would rename a
+    category the operator never selected.
+    """
+    assigned = service.list_category_paths()
+    direct = {path: count for path, count in assigned}
+    nodes = set(direct)
+    for path in direct:
+        # A non-canonical legacy row is still listed as its own node — this
+        # page is where the operator would find it — but it contributes no
+        # interior ones: `ancestor_paths('/a/b')` yields an EMPTY ancestor,
+        # which `is_descendant_path` then refuses with an
+        # InvalidCategoryPathError no handler catches, 500-ing the whole
+        # listing. A doubled separator likewise invents a phantom `a/` node
+        # beside the real `a`, with its own Rename link.
+        if _is_canonical_path(path):
+            nodes.update(category_util.ancestor_paths(path))
+    rows = [
+        (node, direct.get(node, 0),
+         sum(count for path, count in assigned
+             if category_util.is_descendant_path(path, node)),
+         _is_canonical_path(node))
+        for node in nodes
+    ]
+    rows.sort(key=lambda row: row[0].split(category_util.CATEGORY_PATH_SEPARATOR))
+    return rows
+
+
+def _category_rename_preview(service, raw_path):
+    """
+    Resolve a `?path=` (or posted `old_path`) into what a rename would move.
+
+    Returns (source, affected, total) where `source` is the canonical source
+    path or None when the value carries no path at all, `affected` is the list
+    of (path, product_count) rows at or under it, and `total` is their product
+    count. A zero `total` means the node holds nothing — there is nothing to
+    rename.
+
+    The source node itself is ALWAYS listed, even when no product is filed at
+    it directly: it is the node being renamed, so a table headed "What Will
+    Move" that omits it is silent about the very path the operator named —
+    which is exactly the interior-node case FR17's own acceptance criterion
+    uses.
+    """
+    try:
+        source = category_util.normalize_category_path(raw_path)
+    except category_util.InvalidCategoryPathError:
+        # Unstorable, therefore matching no stored path: the same "no such
+        # category" answer as any other miss.
+        source = None
+    if source is None:
+        return None, [], 0
+    affected = [(path, count) for path, count in service.list_category_paths()
+                if category_util.is_descendant_path(path, source)]
+    total = sum(count for _, count in affected)
+    if total and not any(path == source for path, _ in affected):
+        affected.insert(0, (source, 0))
+    return source, affected, total
+
+
+@bp.route('/products/categories')
+def category_list():
+    """List every category tree node with its product counts (FR17)."""
+    service = _get_catalog_service()
+    return render_template('product/categories.html', title='Categories',
+                           categories=_category_tree(service))
+
+
+@bp.route('/products/categories/rename', methods=['GET', 'POST'])
+def category_rename():
+    """Rename a category path, carrying its descendants (FR17).
+
+    The GET previews exactly which paths move and how many products go with
+    them — the preview IS the confirmation. The POST hands both values to
+    CatalogService, which does the whole subtree in one transaction and
+    explains any refusal as a ValidationError.
+    """
+    service = _get_catalog_service()
+
+    if request.method == 'GET':
+        raw_path = request.args.get('path', '')
+        if not raw_path.strip():
+            # Reached without picking a row (a bookmark, or a hand-typed URL);
+            # "no products are filed under ''" would describe the wrong problem.
+            flash('Pick a category to rename.', 'error')
+            return redirect(url_for('main.category_list'))
+        if not _is_canonical_path(raw_path):
+            # The preview NORMALIZES whatever it is given and then matches
+            # stored paths exactly, so a non-canonical value can only resolve
+            # to a different path than the one named — either to nothing (a
+            # redirect contradicting the counts the listing just showed) or,
+            # where the canonical twin also exists, to a real category the
+            # operator never selected, which the POST would then rename. The
+            # listing already withholds the link; this refuses the URL.
+            flash(f'Category "{raw_path}" is not stored in canonical form, so '
+                  f'it cannot be renamed here — refile its products from the '
+                  f'product form instead.', 'error')
+            return redirect(url_for('main.category_list'))
+        source, affected, total = _category_rename_preview(service, raw_path)
+        if not total:
+            flash(f'No products are filed under category "{raw_path}".', 'error')
+            return redirect(url_for('main.category_list'))
+        return render_template('product/category_rename.html',
+                               title=f'Rename {source}', source=source,
+                               affected=affected, total=total, new_path='',
+                               error_field=None, error_message=None,
+                               preview_failed=False)
+
+    form_data = request.form.to_dict()
+    log_audit_operation('category_rename', 'input', form_data=form_data)
+    raw_old = form_data.get('old_path', '')
+    new_path = form_data.get('new_path', '')
+
+    def _rerender(message, error_field='new_path'):
+        preview_failed = False
+        try:
+            source, affected, total = _category_rename_preview(service, raw_old)
+        except Exception:
+            # The preview is a second trip to the database, so on a backend
+            # failure it fails too — and re-raising here would replace the
+            # message the operator needs with a 500 page. The template is told
+            # the preview is UNKNOWN rather than empty: rendering "no products
+            # are filed under this category" next to a database error would
+            # state, as fact, something never established — and read as if the
+            # operator's category had vanished.
+            source, affected, total = None, [], 0
+            preview_failed = True
+        return render_template('product/category_rename.html',
+                               title=f'Rename {source or raw_old}',
+                               source=source or raw_old, affected=affected,
+                               total=total, new_path=new_path,
+                               error_field=error_field, error_message=message,
+                               preview_failed=preview_failed)
+
+    try:
+        updated = service.rename_category_path(raw_old, new_path)
+    except ValidationError as e:
+        # A refused rename re-renders the form with the reason and the typed
+        # destination intact; nothing was written (the service is atomic). The
+        # service says which value it refused, so the form marks that field
+        # rather than always blaming the destination.
+        return _rerender(str(e), error_field=e.field or 'new_path')
+    except Exception as e:
+        current_app.logger.error(f'Error renaming category {raw_old!r}: {e}\n{traceback.format_exc()}')
+        return _rerender('An error occurred while renaming the category. '
+                         'Please try again.', error_field=None)
+
+    # Both values normalized cleanly (the rename succeeded), so the flash can
+    # report the canonical forms actually stored.
+    flash(f'Renamed category "{category_util.normalize_category_path(raw_old)}" '
+          f'to "{category_util.normalize_category_path(new_path)}" — '
+          f'{updated} product(s) updated.', 'success')
+    return redirect(url_for('main.category_list'))
 
 
 @bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])

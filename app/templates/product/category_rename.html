@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{# Story 3.2 (FR17): rename with descendants. The preview below IS the
+   confirmation — everything the submit will move is listed before it is
+   submitted. Deliberately no autocomplete on the new path: the destination
+   must NOT already exist, so offering existing paths would contradict the
+   operation. #}
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h3 mb-0"><i class="bi bi-pencil"></i> Rename Category</h1>
+        </div>
+
+        {% if error_message %}
+        <div class="alert alert-danger" role="alert" id="rename-error">{{ error_message }}</div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('main.category_rename') }}" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            {# No feedback element for old_path: it is a HIDDEN input, so there
+               is no field to mark, and repeating the alert above it would just
+               print the same sentence twice on a form this short. #}
+            <input type="hidden" name="old_path" value="{{ source }}"/>
+
+            <div class="card mb-3">
+                <div class="card-header">What Will Move</div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Category</dt>
+                        <dd class="col-sm-9"><code id="rename-source">{{ source }}</code></dd>
+
+                        <dt class="col-sm-3">Products affected</dt>
+                        <dd class="col-sm-9" id="rename-total">{% if preview_failed %}unknown{% else %}{{ total }}{% endif %}</dd>
+                    </dl>
+
+                    {% if affected %}
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0" id="affected-table">
+                            <thead>
+                                <tr>
+                                    <th>Path</th>
+                                    <th class="text-end">Products</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for path, count in affected %}
+                                <tr>
+                                    <td><code>{{ path }}</code></td>
+                                    <td class="text-end">{{ count }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="form-text mb-0">
+                        Every path listed above moves under the new path, and every
+                        product filed under them is refiled in one transaction.
+                    </p>
+                    {% elif preview_failed %}
+                    {# The preview could not be read at all. Saying "no products
+                       are filed here" would assert something never established
+                       — and beside a backend-failure message it reads as if the
+                       category had been emptied. #}
+                    <p class="text-muted mb-0" id="preview-unavailable">
+                        The category could not be read, so what would move is unknown.
+                    </p>
+                    {% else %}
+                    <p class="text-muted mb-0">No products are filed under this category.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">New Path</div>
+                <div class="card-body">
+                    <label for="new_path" class="form-label">New Category Path *</label>
+                    {# is-invalid follows the field the service actually
+                       refused: a rejected SOURCE path must not paint the
+                       destination input red. #}
+                    <input type="text"
+                           class="form-control{% if error_field == 'new_path' %} is-invalid{% endif %}"
+                           id="new_path" name="new_path" maxlength="512"
+                           value="{{ new_path }}" required autocomplete="off"
+                           {% if error_field == 'new_path' %}aria-describedby="new_path-error"{% endif %}
+                           placeholder="e.g. electronics/psu">
+                    {# Points at the alert rather than restating it: the message
+                       is one sentence and the alert is directly above, so
+                       printing it twice reads as two separate problems. This
+                       element still exists so `aria-describedby` has a target
+                       and the input's invalid state is announced. #}
+                    {% if error_field == 'new_path' %}
+                    <div class="invalid-feedback d-block" id="new_path-error">
+                        This path was rejected — see the message at the top of the page.
+                    </div>
+                    {% endif %}
+                    <div class="form-text">
+                        Normalized the same way as the product form: lowercase,
+                        <code>/</code>-separated, no leading or trailing slash. The
+                        path must not already exist.
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                <a href="{{ url_for('main.category_list') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-circle"></i> Rename Category
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

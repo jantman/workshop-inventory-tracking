@@ -1354,3 +1354,485 @@ class TestCatalogFieldValueSuggestions:
         """The create affordance's source of truth: what WOULD be stored."""
         assert catalog_service.normalize_suggestion_value(
             'category_path', raw) == expected
+
+
+def _rename_error(catalog_service, old_path, new_path):
+    """Attempt a rename expected to be REFUSED; return the ValidationError.
+
+    Centralizes the local `app.exceptions` import the rest of this module uses
+    per-test, since every rejection row of Story 3.2's matrix needs it.
+    """
+    from app.exceptions import ValidationError
+    with pytest.raises(ValidationError) as exc_info:
+        catalog_service.rename_category_path(old_path, new_path)
+    return exc_info.value
+
+
+def _paths(catalog_service, ids):
+    """The stored category_path of each product id, in order."""
+    return [catalog_service.get_product(pid).category_path for pid in ids]
+
+
+def _force_category_path(catalog_service, product_id, value):
+    """Write a raw category_path, bypassing the service's normalization.
+
+    The only way to reproduce a legacy row carrying '' where create_product
+    would have stored NULL (Story 3.1 backfilled these, but the listing must
+    still exclude one if it turns up).
+    """
+    from app.database import Product
+    session = catalog_service.Session()
+    try:
+        (session.query(Product).filter(Product.id == product_id)
+         .update({Product.category_path: value}))
+        session.commit()
+    finally:
+        session.close()
+
+
+class TestListCategoryPaths:
+    """The category tree has no node table, so its listing is the distinct set
+    of assigned paths with their counts (Story 3.2, FR17)."""
+
+    @pytest.mark.unit
+    def test_empty_catalog_lists_nothing(self, catalog_service):
+        assert catalog_service.list_category_paths() == []
+
+    @pytest.mark.unit
+    def test_counts_exclude_null_and_blank_paths(self, catalog_service):
+        """The matrix row: a/b (x2), a (x1), one NULL and one '' row."""
+        for path in ('a/b', 'a/b', 'a'):
+            catalog_service.create_product(description='seed', category_path=path)
+        catalog_service.create_product(description='no category')
+        blank_id = catalog_service.create_product(description='legacy blank')
+        _force_category_path(catalog_service, blank_id, '')
+
+        assert catalog_service.list_category_paths() == [('a', 1), ('a/b', 2)]
+
+    @pytest.mark.unit
+    def test_paths_are_alphabetical(self, catalog_service):
+        for path in ('thermal/heat', 'a/b', 'electronics/power', 'a'):
+            catalog_service.create_product(description='seed', category_path=path)
+        assert [path for path, _ in catalog_service.list_category_paths()] == [
+            'a', 'a/b', 'electronics/power', 'thermal/heat']
+
+    @pytest.mark.unit
+    def test_the_count_is_per_exact_path_not_per_subtree(self, catalog_service):
+        """Descendants are their own rows; the rename preview sums them."""
+        for path in ('a', 'a/b', 'a/b/c'):
+            catalog_service.create_product(description='seed', category_path=path)
+        assert catalog_service.list_category_paths() == [
+            ('a', 1), ('a/b', 1), ('a/b/c', 1)]
+
+
+class TestCategoryRename:
+    """Renaming a path carries its descendants and every product filed under
+    them, atomically; a rename onto an existing node is refused rather than
+    merging two branches (Story 3.2, FR17)."""
+
+    @pytest.mark.unit
+    def test_rename_carries_descendants(self, catalog_service):
+        """The AC's case: electronics/power -> electronics/psu takes
+        electronics/power/dc-dc with it and leaves everything else alone."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+        child = catalog_service.create_product(description='converter',
+                                               category_path='electronics/power/dc-dc')
+        sibling = catalog_service.create_product(description='cable',
+                                                 category_path='electronics/cables')
+        uncategorized = catalog_service.create_product(description='misc')
+
+        assert catalog_service.rename_category_path(
+            'electronics/power', 'electronics/psu') == 2
+
+        assert _paths(catalog_service, [node, child, sibling]) == [
+            'electronics/psu', 'electronics/psu/dc-dc', 'electronics/cables']
+        assert catalog_service.get_product(uncategorized).category_path is None
+
+    @pytest.mark.unit
+    def test_a_string_prefix_is_not_a_path_prefix(self, catalog_service):
+        """The AC: renaming thermal/heat must not touch thermal/heatgun-parts."""
+        node = catalog_service.create_product(description='sink',
+                                              category_path='thermal/heat')
+        near_miss = catalog_service.create_product(description='gun',
+                                                   category_path='thermal/heatgun-parts')
+
+        assert catalog_service.rename_category_path('thermal/heat',
+                                                    'thermal/cooling') == 1
+        assert _paths(catalog_service, [node, near_miss]) == [
+            'thermal/cooling', 'thermal/heatgun-parts']
+
+    @pytest.mark.unit
+    def test_both_arguments_are_normalized(self, catalog_service):
+        """The matrix row: ' /Electronics/Power/ ' -> 'Electronics / PSU'."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+
+        assert catalog_service.rename_category_path(
+            ' /Electronics/Power/ ', 'Electronics / PSU') == 1
+        assert catalog_service.get_product(node).category_path == 'electronics/psu'
+
+    @pytest.mark.unit
+    def test_like_wildcards_in_a_path_are_escaped(self, catalog_service):
+        """Canonical paths legitimately contain `_` and `%`, so the subtree
+        LIKE must escape them — an unescaped `power\\_supplies/%` would drag
+        `powerxsupplies/dc` along, and `50%/%` would drag `50off/a`."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='power_supplies')
+        child = catalog_service.create_product(description='dc',
+                                               category_path='power_supplies/dc')
+        underscore_decoy = catalog_service.create_product(
+            description='decoy', category_path='powerxsupplies/dc')
+        percent_decoy = catalog_service.create_product(description='decoy',
+                                                       category_path='50off/a')
+        catalog_service.create_product(description='pct', category_path='50%/a')
+
+        assert catalog_service.rename_category_path('power_supplies', 'psu') == 2
+        assert _paths(catalog_service, [node, child, underscore_decoy]) == [
+            'psu', 'psu/dc', 'powerxsupplies/dc']
+
+        assert catalog_service.rename_category_path('50%', 'discounted') == 1
+        assert catalog_service.get_product(percent_decoy).category_path == '50off/a'
+
+    @pytest.mark.unit
+    def test_destination_sharing_a_parent_is_allowed(self, catalog_service):
+        """electronics/psu is a fresh node even though electronics/cables
+        exists — a shared parent is not a collision."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+        sibling = catalog_service.create_product(description='cable',
+                                                 category_path='electronics/cables')
+
+        assert catalog_service.rename_category_path(
+            'electronics/power', 'electronics/psu') == 1
+        assert _paths(catalog_service, [node, sibling]) == [
+            'electronics/psu', 'electronics/cables']
+
+    @pytest.mark.unit
+    def test_rename_into_its_own_subtree_is_allowed(self, catalog_service):
+        """a -> a/b is well-defined and reversible: the source subtree is
+        excluded from the collision check, so it cannot block itself."""
+        node = catalog_service.create_product(description='node', category_path='a')
+        child = catalog_service.create_product(description='child', category_path='a/x')
+
+        assert catalog_service.rename_category_path('a', 'a/b') == 2
+        assert _paths(catalog_service, [node, child]) == ['a/b', 'a/b/x']
+
+    @pytest.mark.unit
+    def test_promote_onto_a_free_node_is_allowed(self, catalog_service):
+        """a/b -> a when only the subtree lives under a."""
+        child = catalog_service.create_product(description='c', category_path='a/b/c')
+
+        assert catalog_service.rename_category_path('a/b', 'a') == 1
+        assert catalog_service.get_product(child).category_path == 'a/c'
+
+    @pytest.mark.unit
+    def test_the_whole_subtree_commits_once(self, catalog_service, monkeypatch):
+        """The subtree moves in ONE transaction — not a commit per row."""
+        commits = []
+        session_factory = catalog_service.Session
+
+        def counting_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_commit = session.commit
+
+            def commit():
+                commits.append(1)
+                return real_commit()
+
+            session.commit = commit
+            return session
+
+        for path in ('a', 'a/b', 'a/b/c', 'a/d'):
+            catalog_service.create_product(description='seed', category_path=path)
+        monkeypatch.setattr(catalog_service, 'Session', counting_factory)
+
+        assert catalog_service.rename_category_path('a', 'z') == 4
+        assert commits == [1]
+
+    # --- Rejections: every one leaves the database untouched ---------------
+
+    @pytest.mark.unit
+    def test_missing_source_is_rejected(self, catalog_service):
+        other = catalog_service.create_product(description='x', category_path='a/b')
+
+        error = _rename_error(catalog_service, 'nosuch/path', 'x')
+        assert error.field == 'old_path'
+        assert 'nosuch/path' in str(error)
+        assert catalog_service.get_product(other).category_path == 'a/b'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('occupied', [
+        'electronics/psu',       # the destination node itself
+        'electronics/psu/xyz',   # a product below the destination node
+    ])
+    def test_existing_destination_node_is_rejected(self, catalog_service, occupied):
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+        blocker = catalog_service.create_product(description='other',
+                                                 category_path=occupied)
+
+        error = _rename_error(catalog_service, 'electronics/power',
+                              'electronics/psu')
+        assert error.field == 'new_path'
+        assert 'electronics/psu' in str(error)
+        assert '1 product' in str(error)
+        assert _paths(catalog_service, [node, blocker]) == [
+            'electronics/power', occupied]
+
+    @pytest.mark.unit
+    def test_promote_onto_an_occupied_node_is_rejected(self, catalog_service):
+        """The matrix row: rows a/b/c and a/other; a/b -> a merges them."""
+        child = catalog_service.create_product(description='c', category_path='a/b/c')
+        blocker = catalog_service.create_product(description='o', category_path='a/other')
+
+        error = _rename_error(catalog_service, 'a/b', 'a')
+        assert error.field == 'new_path'
+        assert _paths(catalog_service, [child, blocker]) == ['a/b/c', 'a/other']
+
+    @pytest.mark.unit
+    def test_no_op_rename_is_rejected(self, catalog_service):
+        """Same path after normalization — nothing to do, so say so."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+
+        error = _rename_error(catalog_service, 'electronics/power',
+                              'Electronics/Power/')
+        assert error.field == 'new_path'
+        assert catalog_service.get_product(node).category_path == 'electronics/power'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('old_path, new_path, field', [
+        ('', 'x', 'old_path'),          # empty source
+        ('   ', 'x', 'old_path'),       # whitespace source
+        ('/', 'x', 'old_path'),         # separators-only source
+        (None, 'x', 'old_path'),        # absent source
+        ('a', '', 'new_path'),          # empty destination
+        ('a', '   ', 'new_path'),       # whitespace destination
+        ('a', '/', 'new_path'),         # separators-only destination
+        ('a', None, 'new_path'),        # absent destination
+    ])
+    def test_blank_arguments_are_rejected(self, catalog_service, old_path,
+                                          new_path, field):
+        node = catalog_service.create_product(description='x', category_path='a')
+
+        error = _rename_error(catalog_service, old_path, new_path)
+        assert error.field == field
+        assert catalog_service.get_product(node).category_path == 'a'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('old_path, new_path, field', [
+        (5, 'x', 'old_path'),                # non-string source
+        ('a', ['x'], 'new_path'),            # non-string destination
+        ('a' * 600, 'x', 'old_path'),        # unstorable source
+        ('a', 'b' * 600, 'new_path'),        # unstorable destination
+    ])
+    def test_non_string_and_over_length_arguments_are_rejected(
+            self, catalog_service, old_path, new_path, field):
+        """A request error, not a 500: the util's InvalidCategoryPathError is
+        converted rather than allowed to escape."""
+        node = catalog_service.create_product(description='x', category_path='a')
+
+        error = _rename_error(catalog_service, old_path, new_path)
+        assert error.field == field
+        assert catalog_service.get_product(node).category_path == 'a'
+
+    @pytest.mark.unit
+    def test_a_descendant_that_would_exceed_the_column_is_rejected(
+            self, catalog_service):
+        """Checked for EVERY moving row before anything is written, so the
+        node itself does not land while its descendant cannot."""
+        deep_path = 'a/' + 'c' * 500
+        node = catalog_service.create_product(description='node', category_path='a')
+        child = catalog_service.create_product(description='deep',
+                                               category_path=deep_path)
+
+        error = _rename_error(catalog_service, 'a', 'b' * 500)
+        assert error.field == 'new_path'
+        # The offending row is NAMED. A product already past the column width
+        # (Story 3.1's backfill leaves those in place) refuses every rename of
+        # its branch, and a message about the destination alone sends the
+        # operator hunting for a shorter path instead of for one product.
+        assert f'(product {child}).' in str(error)
+        assert _paths(catalog_service, [node, child]) == ['a', deep_path]
+
+    @pytest.mark.unit
+    def test_the_destination_boundary_is_a_segment_boundary_too(
+            self, catalog_service):
+        """The near-miss rule applies to the collision scan, not just the
+        subtree scan: thermal/heatgun-parts does not occupy thermal/heat."""
+        node = catalog_service.create_product(description='sink',
+                                              category_path='thermal/sinks')
+        near_miss = catalog_service.create_product(description='gun',
+                                                   category_path='thermal/heatgun-parts')
+
+        assert catalog_service.rename_category_path('thermal/sinks',
+                                                    'thermal/heat') == 1
+        assert _paths(catalog_service, [node, near_miss]) == [
+            'thermal/heat', 'thermal/heatgun-parts']
+
+    @pytest.mark.unit
+    def test_wildcards_in_the_destination_are_escaped_too(self, catalog_service):
+        """An unescaped `_` in the DESTINATION pattern would match any single
+        character, inventing blockers out of unrelated siblings."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='power/source')
+        decoy = catalog_service.create_product(description='decoy',
+                                               category_path='dc_dc/other')
+
+        assert catalog_service.rename_category_path('power/source',
+                                                    'dc_dc/psu') == 1
+        assert _paths(catalog_service, [node, decoy]) == [
+            'dc_dc/psu', 'dc_dc/other']
+
+    @pytest.mark.unit
+    def test_a_blocker_sitting_at_exactly_the_destination_node(
+            self, catalog_service):
+        """The promote case with the parent itself occupied — the merge the
+        subtree-exclusion carve-out must still refuse."""
+        node = catalog_service.create_product(description='child',
+                                              category_path='a/b')
+        parent = catalog_service.create_product(description='parent',
+                                                category_path='a')
+
+        error = _rename_error(catalog_service, 'a/b', 'a')
+        assert error.field == 'new_path'
+        assert 'already exists' in str(error)
+        assert _paths(catalog_service, [node, parent]) == ['a/b', 'a']
+
+    @pytest.mark.unit
+    def test_updated_at_is_bumped_on_every_moved_row(self, catalog_service):
+        """Unlike the Story 3.1 data migration (which runs against a table stub
+        deliberately carrying no onupdate), a rename is an ordinary ORM write
+        and must leave the audit trail an edit leaves."""
+        from datetime import datetime
+        from app.database import Product as ProductRow
+
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+        child = catalog_service.create_product(description='converter',
+                                               category_path='electronics/power/dc-dc')
+
+        # `updated_at` defaults to func.now(), which SQLite resolves to whole
+        # seconds — a rename microseconds after the insert would land in the
+        # same second and make a `>` assertion pass or fail by luck. Backdating
+        # first makes the bump unambiguous.
+        stale = datetime(2020, 1, 1, 0, 0, 0)
+        session = catalog_service.Session()
+        try:
+            session.query(ProductRow).update({ProductRow.updated_at: stale})
+            session.commit()
+        finally:
+            session.close()
+
+        catalog_service.rename_category_path('electronics/power',
+                                             'electronics/psu')
+        # EVERY moved row, not just the node the operator named.
+        for product_id in (node, child):
+            assert catalog_service.get_product(product_id).updated_at > stale
+
+    @pytest.mark.unit
+    def test_a_row_neither_predicate_claims_is_refused_not_dropped(
+            self, catalog_service, monkeypatch):
+        """MariaDB's case-insensitive collation can hand back a row the
+        case-sensitive Python predicate then rejects. Silently dropping it
+        would strand it at the old path — or, on the destination side, let
+        through exactly the branch merge this method refuses. SQLite's binary
+        collation cannot produce one, so the fold is simulated."""
+        import app.utils.category as category_mod
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+        stray = catalog_service.create_product(description='stray',
+                                               category_path='electronics/power/x')
+
+        real_is_descendant = category_mod.is_descendant_path
+
+        def _case_sensitive_miss(candidate, ancestor):
+            # Stand in for a stored value the collation folded onto the
+            # subtree but that the predicate does not recognize.
+            if candidate == 'electronics/power/x':
+                return False
+            return real_is_descendant(candidate, ancestor)
+
+        monkeypatch.setattr('app.mariadb_catalog_service.category_util.is_descendant_path',
+                            _case_sensitive_miss)
+
+        error = _rename_error(catalog_service, 'electronics/power',
+                              'electronics/psu')
+        assert error.field == 'old_path'
+        assert 'non-canonical' in str(error)
+        assert str(stray) in str(error)
+        assert _paths(catalog_service, [node, stray]) == [
+            'electronics/power', 'electronics/power/x']
+
+    @pytest.mark.unit
+    def test_the_unclaimed_list_states_that_it_was_truncated(
+            self, catalog_service, monkeypatch):
+        """An operator who fixes the twenty named products and hits the same
+        error again must be told the list was only ever partial."""
+        import app.utils.category as category_mod
+        strays = [catalog_service.create_product(
+            description=f'stray {i}', category_path=f'electronics/power/x{i}')
+            for i in range(25)]
+        catalog_service.create_product(description='node',
+                                       category_path='electronics/power')
+
+        real_is_descendant = category_mod.is_descendant_path
+
+        def _case_sensitive_miss(candidate, ancestor):
+            if candidate.startswith('electronics/power/x'):
+                return False
+            return real_is_descendant(candidate, ancestor)
+
+        monkeypatch.setattr('app.mariadb_catalog_service.category_util.is_descendant_path',
+                            _case_sensitive_miss)
+
+        error = _rename_error(catalog_service, 'electronics/power',
+                              'electronics/psu')
+        assert '25 in total' in str(error)
+        assert str(strays[0]) in str(error)
+
+    @pytest.mark.unit
+    def test_a_failed_audit_log_cannot_mask_the_failure_it_records(
+            self, catalog_service, monkeypatch):
+        """The error arm's audit call must not REPLACE the exception it was
+        asked to record — the caller would see 'audit sink down' instead of the
+        database failure that actually killed the rename, and the real cause
+        would appear nowhere at all."""
+        catalog_service.create_product(description='psu',
+                                       category_path='electronics/power')
+
+        def _write_boom(*args, **kwargs):
+            raise RuntimeError('the real database failure')
+
+        def _audit_boom(*args, **kwargs):
+            raise RuntimeError('audit sink down')
+
+        # Fail inside the transaction, then fail the audit call that records it.
+        monkeypatch.setattr(
+            'app.mariadb_catalog_service.category_util.rewrite_category_path',
+            _write_boom)
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _audit_boom)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            catalog_service.rename_category_path('electronics/power',
+                                                 'electronics/psu')
+        assert 'the real database failure' in str(exc_info.value)
+
+    @pytest.mark.unit
+    def test_a_failed_audit_log_cannot_undo_a_committed_rename(
+            self, catalog_service, monkeypatch):
+        """Past the commit the rename HAS happened; raising here would make the
+        route tell the operator to retry a rename that already succeeded."""
+        node = catalog_service.create_product(description='psu',
+                                              category_path='electronics/power')
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('audit sink down')
+
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _boom)
+
+        assert catalog_service.rename_category_path(
+            'electronics/power', 'electronics/psu') == 1
+        assert (catalog_service.get_product(node).category_path
+                == 'electronics/psu')

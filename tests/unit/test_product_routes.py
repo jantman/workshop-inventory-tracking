@@ -317,3 +317,330 @@ class TestProductCategoryPath(object):
             assert page.status_code == 200
             assert b'id="category_path-suggestions"' in page.data
             assert b'field-autocomplete.js' in page.data
+
+
+@pytest.mark.unit
+class TestCategoryPages(object):
+    """The operator's rename path below the browser (Story 3.2, FR17): the
+    listing is the tree's only visible surface, and the rename form's preview
+    is the confirmation."""
+
+    def _make_product(self, test_storage, **kwargs):
+        kwargs.setdefault('description', 'Seed product')
+        return CatalogService(test_storage).create_product(**kwargs)
+
+    def _row(self, body, path):
+        """The listing row for `path` alone, so a count assertion cannot be
+        satisfied by an identical number in some other row."""
+        marker = f'<code>{path}</code>'.encode()
+        assert marker in body, f'no listing row for {path}'
+        start = body.index(marker)
+        return body[start:body.index(b'</tr>', start)]
+
+    def _force_category_path(self, test_storage, product_id, value):
+        """Write a raw category_path, bypassing the service's normalization.
+
+        The only way to reproduce a legacy row that Story 3.1's backfill
+        migration deliberately LEFT non-canonical (it skips any value it cannot
+        normalize and prints the ids for a manual decision).
+        """
+        from app.database import Product
+        service = CatalogService(test_storage)
+        session = service.Session()
+        try:
+            (session.query(Product).filter(Product.id == product_id)
+             .update({Product.category_path: value}))
+            session.commit()
+        finally:
+            session.close()
+
+    def test_listing_renders_paths_and_counts(self, client, test_storage):
+        for path in ('electronics/power', 'electronics/power', 'thermal/heat'):
+            self._make_product(test_storage, category_path=path)
+        self._make_product(test_storage)  # no category — never listed
+
+        resp = client.get('/products/categories')
+        assert resp.status_code == 200
+        assert b'electronics/power' in resp.data
+        assert b'thermal/heat' in resp.data
+        # Each row carries a Rename link keyed on its own path.
+        assert b'/products/categories/rename?path=electronics/power' in resp.data
+        # Two products are filed at electronics/power itself; thermal/heat has
+        # one. Read off each path's own row, not the page as a whole.
+        assert self._row(resp.data, 'electronics/power').count(b'>2<') == 2
+        assert self._row(resp.data, 'thermal/heat').count(b'>1<') == 2
+
+    def test_listing_includes_interior_nodes_no_product_is_filed_at(
+            self, client, test_storage):
+        """The tree is stored as its leaves, so the node FR17's own acceptance
+        criterion renames may carry no product of its own — it still needs a
+        row and a Rename link."""
+        self._make_product(test_storage, category_path='electronics/power/dc-dc')
+
+        resp = client.get('/products/categories')
+        assert resp.status_code == 200
+        # Both ancestors are listed, each with its own rename affordance.
+        assert b'<code>electronics</code>' in resp.data
+        assert b'<code>electronics/power</code>' in resp.data
+        assert b'/products/categories/rename?path=electronics/power' in resp.data
+        # Filed-here 0, but the subtree holds the one product.
+        row = self._row(resp.data, 'electronics/power')
+        assert b'>0<' in row and b'>1<' in row
+
+    def test_listing_orders_by_segment_not_by_byte(self, client, test_storage):
+        """`-` (0x2D) sorts below `/` (0x2F), so plain string ordering would
+        wedge `electronics-old` between a parent and its child."""
+        for path in ('electronics/power', 'electronics-old'):
+            self._make_product(test_storage, category_path=path)
+
+        body = client.get('/products/categories').data
+        parent = body.index(b'<code>electronics</code>')
+        child = body.index(b'<code>electronics/power</code>')
+        sibling = body.index(b'<code>electronics-old</code>')
+        assert parent < child < sibling
+
+    def test_listing_empty_state(self, client, test_storage):
+        self._make_product(test_storage)
+        resp = client.get('/products/categories')
+        assert resp.status_code == 200
+        assert b'No categories yet' in resp.data
+
+    def test_rename_form_previews_the_subtree(self, client, test_storage):
+        self._make_product(test_storage, category_path='electronics/power')
+        self._make_product(test_storage, category_path='electronics/power/dc-dc')
+        self._make_product(test_storage, category_path='electronics/cables')
+
+        resp = client.get('/products/categories/rename?path=electronics/power')
+        assert resp.status_code == 200
+        assert b'electronics/power/dc-dc' in resp.data
+        # The sibling is outside the subtree, so it is not previewed as moving.
+        assert b'electronics/cables' not in resp.data
+        # Two products move, and the destination input starts empty — read off
+        # the input's OWN tag: `value=""` asserted page-wide is satisfied by
+        # any other empty attribute, so the test would pass with the source
+        # path pre-filled.
+        assert b'id="rename-total">2<' in resp.data
+        start = resp.data.index(b'id="new_path"')
+        new_path_tag = resp.data[start:resp.data.index(b'>', start)]
+        assert b'value=""' in new_path_tag
+        # Nothing was refused, so no field is marked invalid.
+        assert b'is-invalid' not in resp.data
+
+    def test_rename_form_with_an_unknown_path_redirects(self, client, test_storage):
+        self._make_product(test_storage, category_path='electronics/power')
+        resp = client.get('/products/categories/rename?path=nosuch')
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith('/products/categories')
+
+    def test_rename_post_persists_and_redirects(self, client, test_storage):
+        node = self._make_product(test_storage, category_path='electronics/power')
+        child = self._make_product(test_storage,
+                                   category_path='electronics/power/dc-dc')
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': 'Electronics / PSU'})
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith('/products/categories')
+
+        service = CatalogService(test_storage)
+        assert service.get_product(node).category_path == 'electronics/psu'
+        assert service.get_product(child).category_path == 'electronics/psu/dc-dc'
+
+        # The flash names both paths and how many products moved.
+        listing = client.get(resp.headers['Location'])
+        assert b'electronics/psu' in listing.data
+        assert b'2 product(s) updated' in listing.data
+
+    def test_rename_post_on_a_collision_rerenders_and_changes_nothing(
+            self, client, test_storage):
+        node = self._make_product(test_storage, category_path='electronics/power')
+        blocker = self._make_product(test_storage, category_path='electronics/psu')
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': 'electronics/psu'})
+        assert resp.status_code == 200  # re-rendered form, not a redirect
+        assert b'already exists and holds 1 product(s)' in resp.data
+        assert b'value="electronics/psu"' in resp.data  # submitted value retained
+
+        service = CatalogService(test_storage)
+        assert service.get_product(node).category_path == 'electronics/power'
+        assert service.get_product(blocker).category_path == 'electronics/psu'
+
+    def test_rename_form_with_no_path_argument_says_so(self, client, test_storage):
+        """`No products are filed under category ""` would name the wrong
+        problem: nothing was picked."""
+        self._make_product(test_storage, category_path='electronics/power')
+        resp = client.get('/products/categories/rename', follow_redirects=True)
+        assert resp.status_code == 200
+        assert b'Pick a category to rename' in resp.data
+
+    def test_rename_form_marks_the_field_the_service_refused(
+            self, client, test_storage):
+        """A rejected SOURCE path must not paint the destination input red."""
+        self._make_product(test_storage, category_path='electronics/power')
+
+        refused_source = client.post('/products/categories/rename',
+                                     data={'old_path': 'nosuch',
+                                           'new_path': 'electronics/psu'})
+        assert refused_source.status_code == 200
+        assert b'No products are filed under' in refused_source.data
+        assert b'is-invalid' not in refused_source.data
+
+        refused_destination = client.post('/products/categories/rename',
+                                          data={'old_path': 'electronics/power',
+                                                'new_path': 'electronics/power'})
+        assert refused_destination.status_code == 200
+        assert b'is-invalid' in refused_destination.data
+        assert b'id="new_path-error"' in refused_destination.data
+
+    def test_rename_post_reports_a_backend_failure_without_a_second_error(
+            self, client, test_storage, monkeypatch):
+        """The generic failure branch also re-runs the preview, which would
+        raise again on a dead backend — the operator must still get a page."""
+        self._make_product(test_storage, category_path='electronics/power')
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        monkeypatch.setattr(CatalogService, 'rename_category_path', _boom)
+        monkeypatch.setattr(CatalogService, 'list_category_paths', _boom)
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': 'electronics/psu'})
+        assert resp.status_code == 200
+        assert b'An error occurred while renaming the category' in resp.data
+        # ...and nothing the page could not establish. "No products are filed
+        # under this category" / "Products affected: 0" beside a backend error
+        # reads as if the operator's category had just been emptied.
+        assert b'No products are filed under this category' not in resp.data
+        assert b'id="rename-total">0<' not in resp.data
+        assert b'id="preview-unavailable"' in resp.data
+
+    def test_renaming_an_interior_node_carries_its_only_child(
+            self, client, test_storage):
+        """The epic's own scenario: products assigned UNDER a segment that
+        holds none of its own."""
+        child = self._make_product(test_storage,
+                                   category_path='electronics/power/dc-dc')
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': 'electronics/psu'})
+        assert resp.status_code == 302
+        assert (CatalogService(test_storage).get_product(child).category_path
+                == 'electronics/psu/dc-dc')
+
+    @pytest.mark.parametrize('stored', [
+        '/electronics/power',      # leading separator -> an EMPTY ancestor
+        'electronics//power',      # doubled separator -> a phantom node
+        'Electronics/Power',       # never lowercased
+        ' electronics/power ',     # never stripped
+    ])
+    def test_listing_survives_a_non_canonical_legacy_path(
+            self, client, test_storage, stored):
+        """Story 3.1's backfill leaves any row it could not normalize exactly
+        as it found it, so a stored path is NOT guaranteed canonical — and this
+        page is where the operator would go looking for one. Deriving interior
+        nodes from `/a/b` yields an empty ancestor that `is_descendant_path`
+        refuses, 500-ing the listing itself."""
+        product = self._make_product(test_storage, category_path='seed/path')
+        self._force_category_path(test_storage, product, stored)
+
+        resp = client.get('/products/categories')
+        assert resp.status_code == 200
+        # The bad row is still listed — hiding it would leave the operator no
+        # way to find it — but it contributes no interior nodes of its own.
+        assert f'<code>{stored}</code>'.encode() in resp.data
+
+    def test_a_doubled_separator_invents_no_phantom_sibling_node(
+            self, client, test_storage):
+        """`ancestor_paths('a//b')` would offer a node `a/` beside the real
+        `a`, with its own Rename link that normalizes back to `a` — clicking it
+        would move a subtree the operator never selected."""
+        self._make_product(test_storage, category_path='electronics/power')
+        legacy = self._make_product(test_storage, category_path='seed/path')
+        self._force_category_path(test_storage, legacy, 'electronics//old')
+
+        resp = client.get('/products/categories')
+        assert resp.status_code == 200
+        assert b'<code>electronics</code>' in resp.data       # the real node
+        assert b'<code>electronics/</code>' not in resp.data  # the phantom
+
+    def test_a_non_canonical_row_offers_no_rename_link(
+            self, client, test_storage):
+        """The rename form normalizes whatever `?path=` it is handed, so a link
+        built from a non-canonical row points at a DIFFERENT path than the row
+        it sits on. The row stays listed — this page is where the operator
+        finds it — but without an action it cannot perform."""
+        self._make_product(test_storage, category_path='electronics/power')
+        legacy = self._make_product(test_storage, category_path='seed/path')
+        self._force_category_path(test_storage, legacy, 'Electronics/Power')
+
+        resp = client.get('/products/categories')
+        assert resp.status_code == 200
+        row = self._row(resp.data, 'Electronics/Power')
+        assert b'Not canonical' in row
+        assert b'/products/categories/rename?path=' not in row
+        # The canonical row beside it keeps its link.
+        canonical_row = self._row(resp.data, 'electronics/power')
+        assert b'Not canonical' not in canonical_row
+        assert b'/products/categories/rename?path=electronics/power' in canonical_row
+
+    def test_a_non_canonical_path_cannot_rename_its_canonical_twin(
+            self, client, test_storage):
+        """The failure the withheld link exists to prevent: `?path=` is
+        normalized before anything is matched, so a legacy `Electronics/Power`
+        resolves onto the REAL `electronics/power` — previewing, and on submit
+        renaming, a category the operator never selected."""
+        node = self._make_product(test_storage, category_path='electronics/power')
+        legacy = self._make_product(test_storage, category_path='seed/path')
+        self._force_category_path(test_storage, legacy, 'Electronics/Power')
+
+        resp = client.get('/products/categories/rename?path=Electronics/Power',
+                          follow_redirects=True)
+        assert resp.status_code == 200
+        assert b'is not stored in canonical form' in resp.data
+        # No form was rendered at all, so the twin's subtree was never offered.
+        assert b'id="rename-source"' not in resp.data
+        assert (CatalogService(test_storage).get_product(node).category_path
+                == 'electronics/power')
+
+    def test_rename_preview_lists_the_interior_node_being_renamed(
+            self, client, test_storage):
+        """The table is headed "What Will Move" — and the node the operator
+        named moves, even when no product is filed at it directly (FR17's own
+        acceptance criterion renames exactly such a node)."""
+        self._make_product(test_storage, category_path='electronics/power/dc-dc')
+
+        resp = client.get('/products/categories/rename?path=electronics/power')
+        assert resp.status_code == 200
+        table = resp.data[resp.data.index(b'id="affected-table"'):]
+        assert b'<code>electronics/power</code>' in table
+        assert b'<code>electronics/power/dc-dc</code>' in table
+        assert b'id="rename-total">1<' in resp.data
+
+    def test_rename_form_reports_a_rejection_exactly_once(
+            self, client, test_storage):
+        """One rejection is one problem: printing the same sentence in the
+        alert AND under the input reads as two."""
+        self._make_product(test_storage, category_path='electronics/power')
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': 'electronics/power'})
+        assert resp.status_code == 200
+        message = b'is already this category&#39;s path'
+        assert resp.data.count(message) == 1
+        # The field is still marked, and still has something to describe it.
+        assert b'is-invalid' in resp.data
+        assert b'id="new_path-error"' in resp.data
+
+    def test_the_navbar_offers_the_categories_page(self, client):
+        """The one nav change: a second item in the existing Products dropdown."""
+        resp = client.get('/products/add')
+        assert resp.status_code == 200
+        assert b'Manage Categories' in resp.data
+        assert b'href="/products/categories"' in resp.data

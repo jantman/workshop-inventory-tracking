@@ -12,11 +12,11 @@ extend this class (scan resolution, search_products, capture, derived signals).
 """
 
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker, defer
-from sqlalchemy import create_engine, case, func
+from sqlalchemy import create_engine, case, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from .database import Product, Purchase, Attachment, ProductIdentifier
@@ -502,6 +502,281 @@ class CatalogService:
 
         finally:
             session.close()
+
+    # --- Category tree (Story 3.2) ----------------------------------------
+
+    def list_category_paths(self) -> List[Tuple[str, int]]:
+        """
+        Return every assigned category path with the number of products filed
+        directly under it, alphabetically (Story 3.2, FR17).
+
+        This is the category tree's only listing: there is no node table, so
+        the tree IS the distinct set of assigned products.category_path values
+        (the same source get_field_value_suggestions draws on). NULL and blank
+        paths are excluded — they mean "no category", not a node named ''.
+
+        The count is per exact path, not per subtree: a row for `a` counts the
+        products filed at `a` alone, and its descendants appear as their own
+        rows. Callers that want a subtree total add the rows up through
+        `is_descendant_path` (the rename preview does exactly that).
+
+        Grouping happens in PYTHON, not in SQL. Under MariaDB's default
+        case-insensitive PAD SPACE collation, `GROUP BY category_path` folds
+        `Electronics/Power`, `electronics/power ` and `electronics/power` into
+        ONE group with an arbitrary representative spelling and a summed count
+        — hiding a distinct stored path from the one page that exists to
+        surface it, and attributing its products to a row a rename would not
+        move. Story 3.1's backfill migration documents avoiding exactly this
+        (it reads rows individually rather than `SELECT DISTINCT`), and its
+        skipped rows are precisely the non-canonical values that make the two
+        spellings coexist. The SQL narrows; Python decides — the same division
+        rename_category_path makes with its LIKE.
+
+        Returns:
+            List of (canonical_path, product_count) tuples, ordered by path.
+        """
+        session = self.Session()
+        try:
+            rows = (session.query(Product.category_path)
+                    .filter(Product.category_path.isnot(None),
+                            func.trim(Product.category_path) != '')
+                    .all())
+            counts: Dict[str, int] = {}
+            for (path,) in rows:
+                # Re-decided here rather than trusted from the filter above:
+                # the blank test is a string comparison too.
+                if path is None or not path.strip():
+                    continue
+                counts[path] = counts.get(path, 0) + 1
+            return sorted(counts.items())
+        finally:
+            session.close()
+
+    def rename_category_path(self, old_path, new_path) -> int:
+        """
+        Rename a category path, carrying its descendants and every product
+        filed under them, and return how many products were updated (Story
+        3.2, FR17).
+
+        Both arguments are normalized first, so the operator may type
+        `' /Electronics/Power/ '` for the stored `electronics/power`. The whole
+        subtree — the node and every path under it, on the segment boundary
+        `app/utils/category.py` defines — is loaded on ONE session, rewritten
+        row by row, and committed ONCE: either every affected product moves or
+        none does. Products outside the subtree (siblings, near-miss string
+        prefixes like `thermal/heatgun-parts` under a `thermal/heat` rename)
+        and every NULL/blank row are never touched.
+
+        A rename onto a node that ALREADY EXISTS is rejected rather than
+        silently merging the two branches. "Already exists" means some product
+        OUTSIDE the source subtree sits at or under the destination — which is
+        what still allows a promote (`a/b` -> `a` when only the subtree lives
+        under `a`) and a rename INTO the subtree (`a` -> `a/b`), both
+        well-defined and reversible.
+
+        That rejection is a check-then-write, not a database constraint: there
+        is no uniqueness to enforce (many products legitimately share a path),
+        so a product inserted at the destination by a CONCURRENT writer between
+        the SELECT and the COMMIT would still slip through. This is a
+        single-operator workshop application; the guarantee is against the
+        operator's own mistakes, not against a race.
+
+        Unlike create_product/update_product, failures are RAISED, not
+        swallowed into a False: a refused rename is an operator-facing
+        decision that has to explain itself.
+
+        Args:
+            old_path: The category to rename, as typed.
+            new_path: The path it becomes, as typed.
+
+        Returns:
+            The number of products whose category_path was rewritten.
+
+        Raises:
+            ValidationError: with field='old_path' when the source is blank,
+                unstorable or holds no products; with field='new_path' when
+                the destination is blank, unstorable, identical to the source,
+                already occupied, or would push a rewritten descendant past
+                the column width. Nothing is written in any of those cases.
+        """
+        from .logging_config import log_audit_operation
+
+        # --- Argument checks run BEFORE the session is opened: they are pure,
+        # they can be answered without the database, and keeping them out here
+        # means the handlers below never have to ask whether a session exists.
+        # (A rejection is a request error, not a 500: the util's ValueError
+        # never leaks out.) ---
+        try:
+            old_canonical = category_util.normalize_category_path(old_path)
+        except category_util.InvalidCategoryPathError as e:
+            raise ValidationError(str(e), field='old_path', value=str(old_path))
+        try:
+            new_canonical = category_util.normalize_category_path(new_path)
+        except category_util.InvalidCategoryPathError as e:
+            raise ValidationError(str(e), field='new_path', value=str(new_path))
+
+        if old_canonical is None:
+            raise ValidationError(
+                'Select a category to rename.',
+                field='old_path', value=str(old_path))
+        if new_canonical is None:
+            raise ValidationError(
+                'Enter the new category path.',
+                field='new_path', value=str(new_path))
+        if old_canonical == new_canonical:
+            # Refused on the arguments alone, whether or not the path exists.
+            raise ValidationError(
+                f"'{new_canonical}' is already this category's path — "
+                f'nothing to rename.',
+                field='new_path', value=new_canonical)
+
+        # Keyed on the CANONICAL source, matching the `changes` payload below:
+        # keying on the value as typed would file the same category's history
+        # under `category: /Electronics/Power/ ` and `category:electronics/power`
+        # depending on how the operator spelled it that day.
+        audit_id = f'category:{old_canonical}'
+
+        escape = category_util.CATEGORY_LIKE_ESCAPE_CHAR
+        session = self.Session()
+        try:
+            # One query for both subtrees; the pure predicate — not the LIKE —
+            # decides which row belongs to which. The LIKE narrows the scan to
+            # the two subtrees, the predicate is the authority on segment
+            # boundaries.
+            rows = (session.query(Product)
+                    # Only category_path is read and written here, so the row's
+                    # TEXT column stays on the server — the same reason
+                    # get_attachments defers Attachment.content. A top-level
+                    # rename otherwise drags every product's notes blob across
+                    # to change one varchar per row.
+                    .options(defer(Product.notes))
+                    .filter(Product.category_path.isnot(None),
+                            func.trim(Product.category_path) != '')
+                    .filter(or_(
+                        Product.category_path == old_canonical,
+                        Product.category_path.like(
+                            category_util.descendant_like_pattern(old_canonical),
+                            escape=escape),
+                        Product.category_path == new_canonical,
+                        Product.category_path.like(
+                            category_util.descendant_like_pattern(new_canonical),
+                            escape=escape),
+                    ))
+                    .all())
+
+            moving = [p for p in rows
+                      if category_util.is_descendant_path(p.category_path,
+                                                          old_canonical)]
+            # Excluding the source subtree is what makes a promote legal while
+            # still rejecting a merge onto an occupied node.
+            blockers = [p for p in rows
+                        if category_util.is_descendant_path(p.category_path,
+                                                            new_canonical)
+                        and not category_util.is_descendant_path(
+                            p.category_path, old_canonical)]
+
+            # A row the SQL matched but NEITHER predicate claims can only be a
+            # non-canonical value that a case-insensitive collation folded onto
+            # one of the two paths (MariaDB is _ci; the Python predicate is
+            # not). Story 3.1's backfill makes those vanishingly rare — only a
+            # value that cannot be normalized survives it — but silently
+            # dropping one would leave a row stranded at the old path, or let
+            # through exactly the branch merge this method exists to refuse.
+            # So it is reported instead of ignored.
+            claimed = {id(p) for p in moving} | {id(p) for p in blockers}
+            unclaimed = [p for p in rows if id(p) not in claimed]
+            if unclaimed:
+                # The id list is capped, but the cap is STATED: an operator who
+                # fixes the twenty named rows and hits the identical-looking
+                # error again would otherwise have no way to know the list was
+                # ever partial (the Story 3.1 migration reports its own skipped
+                # rows the same way).
+                shown = ', '.join(str(p.id) for p in unclaimed[:20])
+                if len(unclaimed) > 20:
+                    shown += f', ... ({len(unclaimed)} in total)'
+                raise ValidationError(
+                    f'Cannot rename: product(s) {shown} carry a '
+                    f'non-canonical category path that overlaps this rename. '
+                    f'Fix those products first.',
+                    field='old_path', value=old_canonical)
+            if not moving:
+                raise ValidationError(
+                    f"No products are filed under category "
+                    f"'{old_canonical}'.",
+                    field='old_path', value=old_canonical)
+            if blockers:
+                raise ValidationError(
+                    f"Category '{new_canonical}' already exists and holds "
+                    f'{len(blockers)} product(s). Rename it or pick another '
+                    f'path — merging two branches is not supported.',
+                    field='new_path', value=new_canonical)
+
+            # Compute EVERY rewrite before assigning any, so an over-length
+            # descendant is refused with nothing written.
+            rewrites = []
+            for product in moving:
+                try:
+                    rewrites.append((product,
+                                     category_util.rewrite_category_path(
+                                         product.category_path,
+                                         old_canonical, new_canonical)))
+                except category_util.InvalidCategoryPathError as e:
+                    # Name the product. A row that is ALREADY past the column
+                    # width (Story 3.1's backfill leaves those in place) fails
+                    # this check for every destination that is not shorter than
+                    # the source, so a message about `new_path` alone sends the
+                    # operator hunting for a shorter destination when the fix
+                    # is one specific product.
+                    raise ValidationError(
+                        f'{e} (product {product.id}).',
+                        field='new_path', value=new_canonical)
+
+            for product, rewritten in rewrites:
+                product.category_path = rewritten
+
+            session.commit()
+        except ValidationError:
+            # A refused rename is ordinary validation, not an operational
+            # failure — same as add_attachment, it rolls back and re-raises
+            # without an audit-error record.
+            session.rollback()
+            raise
+        except Exception as e:
+            session.rollback()
+            try:
+                log_audit_operation('rename_category_path', 'error',
+                                    item_id=audit_id, error_details=str(e),
+                                    logger_name='mariadb_catalog_service')
+            except Exception as audit_err:
+                # An audit sink that is down must not REPLACE the failure it was
+                # asked to record: the caller would then see 'audit sink down'
+                # in place of the database error that actually killed the
+                # rename, and the real cause would appear nowhere at all. Same
+                # guarantee the success path already gives.
+                logger.warning(
+                    f'Category rename {old_canonical!r} -> {new_canonical!r} '
+                    f'failed, and its audit log failed too: {audit_err}')
+            raise
+        finally:
+            session.close()
+
+        # Past the commit the rename HAS happened. Audit-logging therefore sits
+        # outside the try and cannot raise: the caller renders a failure
+        # message from any exception, and telling the operator to retry a
+        # rename that already succeeded would send them to a source path that
+        # no longer exists.
+        try:
+            log_audit_operation('rename_category_path', 'success',
+                                item_id=audit_id,
+                                changes={'old_path': old_canonical,
+                                         'new_path': new_canonical,
+                                         'products_updated': len(rewrites)},
+                                logger_name='mariadb_catalog_service')
+        except Exception as e:
+            logger.warning(
+                f'Category rename {old_canonical!r} -> {new_canonical!r} '
+                f'committed, but its audit log failed: {e}')
+        return len(rewrites)
 
     # --- Purchases (Story 1.4) -------------------------------------------
 

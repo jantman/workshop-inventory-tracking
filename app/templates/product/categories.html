@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{# Story 3.2 (FR17): the category tree's first visible surface. The tree is the
+   distinct set of assigned products.category_path values, so an empty table
+   means no product carries a category yet — not a missing taxonomy.
+
+   Rows include INTERIOR nodes that no product is filed at directly (their
+   "Filed here" count is 0): they are real, renameable nodes, and a tree stored
+   only as its leaves would otherwise hide the very segment FR17 renames. #}
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h3 mb-0"><i class="bi bi-diagram-3"></i> Categories</h1>
+            <a href="{{ url_for('main.product_add') }}" class="btn btn-outline-primary">
+                <i class="bi bi-plus-circle"></i> Add Product
+            </a>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Assigned Category Paths</div>
+            <div class="card-body">
+                {% if categories %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0" id="category-table">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th class="text-end">Filed here</th>
+                                <th class="text-end">In subtree</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for path, direct_count, subtree_count, is_canonical in categories %}
+                            <tr>
+                                <td><code>{{ path }}</code></td>
+                                <td class="text-end">{{ direct_count }}</td>
+                                <td class="text-end">{{ subtree_count }}</td>
+                                <td class="text-end">
+                                    {% if is_canonical %}
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                       href="{{ url_for('main.category_rename', path=path) }}">
+                                        <i class="bi bi-pencil"></i> Rename
+                                    </a>
+                                    {% else %}
+                                    {# A legacy row Story 3.1's backfill left non-canonical.
+                                       The rename form normalizes its input, so a link here
+                                       would point at a DIFFERENT path than this row — and
+                                       where that path also exists, submitting it would move
+                                       a category the operator never picked. The row stays
+                                       visible (this page is where it is found); only the
+                                       action it cannot perform is withheld. #}
+                                    <span class="badge text-bg-warning" title="Stored in a non-canonical form, so it cannot be renamed here — edit its products from the product form to refile them.">
+                                        Not canonical
+                                    </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">
+                    No categories yet. Categories are created by typing one on the
+                    product form — the tree accretes purely from use.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
