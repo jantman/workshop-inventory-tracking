@@ -153,8 +153,12 @@ class ScanKind(Enum):
         INTERNAL: A label this system printed — a GS1 element string under the
             configured AI + token grammar, recognized by `app/utils/gs1.py`.
         ECIA: An ISO/IEC 15434 format-06 distributor envelope (DigiKey,
-            Mouser). Only the envelope's header is recognized in Story 4.2;
-            Story 4.4 parses the records inside it.
+            Mouser) whose records `app/utils/ecia.py` could read at least one
+            recognized data identifier out of; they arrive on `ecia_fields`. An
+            envelope with a valid header but nothing readable inside it is
+            deliberately NOT this kind — it degrades to `FREE_TEXT` carrying
+            the raw scan (AD-5, NFR8), because this kind exists so a consumer
+            can pre-fill a form from named fields.
         GTIN: A bare manufacturer trade-item number in any of the four accepted
             forms, validated and normalized by `app/utils/gtin.py`.
         FREE_TEXT: Anything else. The fallthrough, never an error.
@@ -472,8 +476,8 @@ class ScanClassification:
     `frozen=True` alone would be a shallow promise, and `ecia_fields` is the
     one field that will ever hold a mutable object: `dataclass` blocks
     rebinding the attribute but not `c.ecia_fields['P'] = ...` through it, so
-    Story 4.4's parsed dict would have been shared and writable by every
-    consumer while the docstring claimed otherwise. `__post_init__` therefore
+    the parser's dict would be shared and writable by every consumer while the
+    docstring claimed otherwise. `__post_init__` therefore
     copies any mapping and wraps the copy in a `MappingProxyType` — a
     read-only view — so the no-defensive-copying promise is true for all four
     fields rather than three. The copy is unconditional, including when the
@@ -481,8 +485,8 @@ class ScanClassification:
     as-is would leave the dict behind it a live write channel into a
     supposedly frozen classification.
 
-    Two consequences of holding a mapping, both of which bite Story 4.4 rather
-    than this one, so both are pinned by tests:
+    Two consequences of holding a mapping, both of which are now reachable from
+    anything `classify()` returns for an envelope, and both pinned by tests:
 
     1. A classification carrying `ecia_fields` is NOT hashable (a mapping is
        not), so do not put one in a set or use it as a dict key.
@@ -494,9 +498,11 @@ class ScanClassification:
        field, converting `ecia_fields` with `dict(...)` itself.
 
     Beyond freezing, `__post_init__` enforces every structural invariant this
-    docstring asserts, and the set is closed: each field's own type, plus the
-    two cross-field rules that tie `normalized_value` and `ecia_fields` to
-    `kind`. Requiring all four fields stops a call site building a
+    docstring asserts of the CLASS, and that set is closed: each field's own
+    type, plus the two cross-field rules that tie `normalized_value` and
+    `ecia_fields` to `kind`. Statements below about what a given `kind` carries
+    in practice are properties of `classify()`, the sole producer, and are
+    labelled as such where they appear — `ecia_fields` has one. Requiring all four fields stops a call site building a
     half-populated classification; these stop it building a self-contradictory
     one — a `GTIN` with nothing to look up, an `ECIA` carrying a normalized
     value it says it does not have — which is the failure mode Stories
@@ -520,13 +526,21 @@ class ScanClassification:
               an ECIA envelope's content lives in `ecia_fields` and free text
               is searched as it arrived, via `raw`.
         ecia_fields: The MH10.8.2 data identifiers parsed out of an ECIA
-            envelope, keyed exactly `P`, `1P`, `Q`, `K`, `1K`, `9D`, `10D`.
-            **Always `None` in Story 4.2**, which recognizes the envelope's
-            header and stops; Story 4.4's parser is what populates it. The
-            field is part of the frozen shape rather than a placeholder — it is
-            here now precisely so Stories 4.3/4.5/7/9 can be written against
-            one contract that does not change under them when 4.4 lands. It is
-            `None` for every non-`ECIA` kind, permanently.
+            envelope, keyed exactly `P`, `1P`, `Q`, `K`, `1K`, `9D`, `10D` —
+            a subset of those seven, since a label carries only the ones it
+            prints. `classify()` populates it by delegating to
+            `app/utils/ecia.py`, and every value is the string as scanned: no
+            date parsing, no quantity coercion, no trimming (Epic 7 and Story
+            4.5 interpret, this shape only carries). Because the classifier is
+            the only producer and it degrades a readable-header/unreadable-body
+            envelope to `FREE_TEXT`, every `ECIA` classification IN PRACTICE
+            carries a non-empty mapping. That is a property of `classify()`,
+            NOT an invariant of this class and not one `__post_init__` checks:
+            constructed directly, `ECIA` with `{}` and `ECIA` with `None` are
+            both accepted. So a consumer reading it defensively
+            (`classification.ecia_fields or {}`, which covers both) is reading
+            the contract, not distrusting the classifier. It is `None` for
+            every non-`ECIA` kind, permanently.
         raw: The scan exactly as `classify()` received it — including any AIM
             symbology prefix, which is stripped only to choose a rule and never
             removed from this field. UNTRUSTED, in the same sense as
@@ -688,19 +702,20 @@ class ScanResolution:
        the same product are unequal. Do not use one as a dict key or set member
        either, but not because hashing reliably fails: `frozen=True`
        synthesizes `__hash__` over the fields, so a resolution hashes fine
-       whenever its classification's `ecia_fields` is None — which is every
-       resolution this story can produce — and the value it returns is built
-       from the ORM rows' identity hashes, so it says nothing about what was
-       resolved. Once Story 4.4 fills `ecia_fields`, the SAME call starts
-       raising `TypeError: unhashable type: 'dict'` (the mapping rule
-       `ScanClassification` already documents). A key that works until one
-       arm of a four-way branch is exercised is worse than one that never
-       works.
+       whenever its classification's `ecia_fields` is None — every non-`ECIA`
+       kind, permanently — and the value it returns is built from the ORM rows'
+       identity hashes, so it says nothing about what was resolved. Since
+       Story 4.4 populates `ecia_fields`, the SAME call raises `TypeError:
+       unhashable type: 'dict'` for a distributor-label scan (the mapping rule
+       `ScanClassification` already documents). That is a live hazard rather
+       than a future one: a key that works until one arm of a four-way branch
+       is exercised is worse than one that never works.
     2. `dataclasses.asdict()` and `copy.deepcopy()` do not work on one. `asdict`
        recurses into the nested `ScanClassification`, which raises `TypeError:
-       cannot pickle 'mappingproxy' object` once Story 4.4 populates
-       `ecia_fields`, and both would in any case try to copy detached ORM rows.
-       A serializer must build its payload field by field.
+       cannot pickle 'mappingproxy' object` for an `ECIA` resolution now that
+       Story 4.4 populates `ecia_fields`, and both would in any case try to
+       copy detached ORM rows. A serializer must build its payload field by
+       field.
     """
 
     classification: ScanClassification

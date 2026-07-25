@@ -16,7 +16,8 @@ Exactly four rules, tried in this order, first match wins, and rule 4 always
 matches — so every scan is classified and none dead-ends:
 
 1. An internal element string under the configured grammar -> `INTERNAL`.
-2. An ISO/IEC 15434 format-06 envelope header            -> `ECIA`.
+2. An ISO/IEC 15434 format-06 envelope carrying at least
+   one recognized data identifier                        -> `ECIA`.
 3. A bare, check-digit-valid trade item number           -> `GTIN`.
 4. Anything else                                         -> `FREE_TEXT`.
 
@@ -26,6 +27,18 @@ check-digit-valid all-digit string, so an ordering is required and "ours wins"
 is the only safe one — a label this shop printed must never resolve to somebody
 else's trade item. Rule 2 precedes rule 3 only because an envelope is never
 all-digits; the ordering there is documentation, not arbitration.
+
+Rule 2 is the one rule that can recognize its own shape and still decline. A
+valid format-06 header wrapping nothing this system can read — an empty
+message, or records in no identifier grammar — does NOT classify `ECIA`: it
+falls through to rules 3 and 4 and lands on `FREE_TEXT` carrying the raw scan
+(AD-5, NFR8). `ECIA` exists so a consumer can pre-fill a form from named
+fields, and answering it with no fields would put the operator on a screen that
+says "distributor label" about a scan nothing could be read from, while
+`free_text` puts the raw scan into a search — which is what "surfaced for
+manual handling" means everywhere else in this epic. The consequence worth
+stating: `kind is ECIA` implies `ecia_fields` is a NON-EMPTY mapping, because
+this module is its only producer.
 
 What this module deliberately does not do
 -----------------------------------------
@@ -43,10 +56,14 @@ What this module deliberately does not do
 - **No check-digit or 14-digit arithmetic (AD-16 again).** Rule 3 asks
   `gtin.is_valid_gtin` and `gtin.normalize_gtin`; the accepted lengths, the
   mod-10 weights and the canonical key length all stay in `app/utils/gtin.py`.
-- **No ECIA field parsing.** Rule 2 recognizes the *header* and stops.
-  Extracting `P` / `1P` / `Q` / `K` / `1K` / `9D` / `10D` is Story 4.4's, which
-  is also where a valid header with unparseable contents degrades back to free
-  text. The two halves satisfy NFR8 jointly.
+- **No format-06 grammar of its own (AD-16 again).** Rule 2 is delegated whole
+  to `app/utils/ecia.py`, which owns the message header, envelope recognition
+  and the MH10.8.2 identifier grammar. This module never re-derives the header
+  and never reads a data record; it asks `ecia.is_envelope` and
+  `ecia.parse_fields` and decides only what their answers mean for routing. A
+  second copy of the header literal is exactly the defect this repo keeps
+  finding in itself, so there is exactly one copy anywhere under `app/`, and it
+  is `ecia.py`'s.
 - **No trimming of its own.** `classify()` never trims. Its caller has already
   applied the single cleaning rule (`_clean_scan_input` in
   `app/main/routes.py`, which trims space/tab/CR/LF and nothing else, because a
@@ -69,7 +86,7 @@ What this module deliberately does not do
   cleaner exists precisely to preserve the separators an envelope is built
   from. Net effect: a wedge that prefixes a GS routes an internal label
   correctly (`'\x1d' + internal` -> INTERNAL) and misroutes a distributor
-  label (`'\x1d[)>' RS '06'...` -> FREE_TEXT), because rule 2 anchors on the
+  label (`'\x1d' + envelope` -> FREE_TEXT), because rule 2 anchors on the
   header and judges the scan as it arrived. Neither this module nor the
   cleaner can close that alone — absorbing separators here would re-open the
   trim rule this module refuses to own, and stripping them in the cleaner
@@ -82,10 +99,14 @@ What this module deliberately does not do
   candidate this module classifies (AIM prefix removed) is not carried on the
   result: AD-15 freezes exactly four fields and `raw` is the verbatim scan. A
   consumer that needs to *use* the scan text rather than classify it — Story
-  4.3 searching free text, Story 4.4 parsing an envelope — must call the
-  exported `strip_aim_prefix()` on `raw` first, or it will search for and parse
-  a string that still begins `]d1`. That helper is public for exactly this
-  reason; re-deriving the AIM shape in a second place is what it prevents.
+  4.3's resolver searching free text, for instance — must call the exported
+  `strip_aim_prefix()` on `raw` first, or it will search for a string that
+  still begins `]d1`. That helper is public for exactly this reason;
+  re-deriving the AIM shape in a second place is what it prevents. The envelope
+  parse is the one case a consumer does NOT have to do this for: `classify()`
+  runs `ecia.parse_fields` on the AIM-stripped candidate itself and carries the
+  result on `ecia_fields`, so `']d1' + envelope` yields exactly the fields the
+  bare envelope does and nothing downstream re-parses `raw`.
 
 Never raises on scan data (NFR8)
 --------------------------------
@@ -103,22 +124,9 @@ import re
 from typing import Any
 
 from app.models import ScanClassification, ScanKind
+from app.utils import ecia
 from app.utils import gs1
 from app.utils import gtin
-
-# The ISO/IEC 15434 message header for format 06 — '[)>' RS '06'. The format
-# indicator is exactly two digits, so a different one (or a missing RS) is a
-# different message envelope, not this one. Vector: tests/unit/test_gs1.py.
-_ECIA_HEADER = '[)>\x1e06'
-
-# What may legally follow that header. GS (\x1d) opens the first data record;
-# RS (\x1e) closes an empty message. Nothing else may abut the format
-# indicator: ISO/IEC 15434 is header RS format-indicator GS ... RS EOT, so a
-# character glued straight onto the indicator means the two-digit indicator was
-# never actually delimited and the string only *resembles* an envelope. Calling
-# such a string 'ecia' would hand Story 4.4 something it cannot parse when
-# free text is the honest answer.
-_ECIA_SEPARATORS = ('\x1d', '\x1e')
 
 # An AIM symbology identifier: ']' + one ASCII letter (the code character,
 # identifying the symbology) + one digit (the modifier). Anchored and exactly
@@ -201,30 +209,6 @@ def strip_aim_prefix(value: str) -> str:
     return value[3:] if _AIM_PREFIX_RE.match(value) else value
 
 
-def _is_ecia_envelope(value: str) -> bool:
-    """
-    True if `value` opens with a well-formed ISO/IEC 15434 format-06 header.
-
-    The header alone is judged, not the contents — see the module docstring for
-    where the 4.2/4.4 boundary falls. A header with no body at all is still an
-    envelope (a legal, empty message); Story 4.4 is what degrades it.
-
-    Args:
-        value: The candidate string, AIM prefix already removed.
-
-    Returns:
-        True for a format-06 envelope, False for a truncated header, a
-        different format indicator, or a header not delimited from what
-        follows it.
-    """
-    if not value.startswith(_ECIA_HEADER):
-        return False
-    rest = value[len(_ECIA_HEADER):]
-    # End-of-string is accepted for the same reason a separator is: both mean
-    # the two-digit format indicator ended where the standard says it ends.
-    return not rest or rest[0] in _ECIA_SEPARATORS
-
-
 def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
     """
     Classify one captured scan by structure (FR36, FR37).
@@ -244,7 +228,10 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
             Keyword-only, no default, same source as `ai`.
 
     Returns:
-        A `ScanClassification`. `ecia_fields` is always None in this story.
+        A `ScanClassification`. `ecia_fields` is a non-empty mapping when
+        `kind` is `ECIA` and None for every other kind — an envelope with
+        nothing readable in it degrades to `FREE_TEXT` rather than to an empty
+        mapping (see the module docstring).
 
     Raises:
         TypeError: if `raw` is not a `str`. A non-string is a caller fault —
@@ -307,14 +294,29 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
             raw=raw,
         )
 
-    # Rule 2 — a distributor envelope. Header only; nothing to normalize.
-    if _is_ecia_envelope(candidate):
-        return ScanClassification(
-            kind=ScanKind.ECIA,
-            normalized_value=None,
-            ecia_fields=None,
-            raw=raw,
-        )
+    # Rule 2 — a distributor envelope. Delegated whole to the format-06 grammar
+    # module, exactly as rule 1 is delegated to gs1 and rule 3 to gtin: this
+    # module asks both questions and arbitrates, and re-derives neither.
+    # Nothing to normalize — an envelope's content is its fields.
+    #
+    # The `if fields` is the NFR8 degradation, not an optimization: a valid
+    # header carrying nothing recognized falls out of this branch and lands on
+    # rule 4 with the raw scan, because an `ECIA` classification with nothing
+    # in it is a kind whose whole purpose (pre-filling a form) has no input.
+    # Neither call can raise on a `str`, so no rule below is reachable only by
+    # luck.
+    if ecia.is_envelope(candidate):
+        fields = ecia.parse_fields(candidate)
+        if fields:
+            return ScanClassification(
+                kind=ScanKind.ECIA,
+                normalized_value=None,
+                # A fresh dict per call, which `__post_init__` copies into a
+                # read-only proxy — so two classifications of one scan share
+                # no mutable state.
+                ecia_fields=fields,
+                raw=raw,
+            )
 
     # Rule 3 — a bare manufacturer trade item number. The ASCII-digit guard is
     # load-bearing rather than a restatement of what `is_valid_gtin` checks:

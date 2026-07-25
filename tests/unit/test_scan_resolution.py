@@ -34,8 +34,9 @@ half of the epic that performs lookup. They use the real SQLite
 `catalog_service` fixture and create every product through `create_product()`;
 there are no mocks of the service or the ORM. The only monkeypatching is of
 `Config` (to prove the AD-16 seam) and of the service's own `Session` /
-`search_products` (to prove that the ECIA arm issues no query at all, which no
-assertion about the *result* could show).
+`search_products` (to prove WHICH text an arm searched, and that an envelope
+carrying no part number issues no query at all — neither of which an assertion
+about the *result* could show).
 
 Classification precedence itself is `tests/unit/test_scan_router.py`'s subject
 and is deliberately not re-tested here.
@@ -69,7 +70,35 @@ from config import Config
 # cannot hide in the tests that are supposed to be guarding against one.
 
 # The repo's canonical ECIA vectors (tests/unit/test_gs1.py, test_scan_router.py).
+# ECIA_FULL carries `1P` = 'ABC' (the supplier part number, tried first) and
+# `P` = '12345' (the customer part number, tried second).
 ECIA_FULL = '[)>\x1e06\x1dP12345\x1d1PABC\x1dQ10\x1d\x1e\x04'
+ECIA_FULL_SUPPLIER_PN = 'ABC'
+ECIA_FULL_CUSTOMER_PN = '12345'
+
+
+def _envelope(*records: str) -> str:
+    """An ISO/IEC 15434 format-06 message carrying `records` verbatim.
+
+    Assembled rather than written out per test so that a vector says which data
+    identifiers it carries and nothing else. The grammar itself is
+    tests/unit/test_ecia.py's subject; here it is only a way to state input.
+    """
+    return '[)>\x1e06' + ''.join(f'\x1d{record}' for record in records) + '\x1d\x1e\x04'
+
+
+# A manufacturer part number for the fallthrough-search assertions. It contains
+# a character the internal-id alphabet does not (`app/utils/internal_id.py` is
+# Crockford base-32, digits and letters only), so a generated `internal_id` can
+# never substring-match it and the hit lists below are deterministic rather
+# than one-in-a-few-thousand flaky.
+MPN = 'RC0805-10K'
+
+# A distributor's own part number, for the cases where `1P` and `P` must hold
+# two DIFFERENT numbers. Hyphenated for the same determinism reason as `MPN`,
+# and sharing no substring with it, so a search on one can never return a
+# product carrying the other.
+CUSTOMER_MPN = '296-1234-ND'
 
 # One trade item number per accepted encoding family, each with the canonical
 # 14-digit key `gtin.normalize_gtin` folds every form of it onto.
@@ -197,19 +226,25 @@ class TestScanResolutionShape:
             assert f.default_factory is dataclasses.MISSING
 
     @pytest.mark.unit
-    def test_hashing_works_today_and_stops_working_at_story_four_four(self):
+    def test_hashing_works_without_ecia_fields_and_raises_with_them(
+            self, catalog_service):
         """The class docstring used to say a resolution "is not usefully
         hashable", which was wrong in both directions and worth pinning rather
         than re-asserting in prose.
 
-        `frozen=True` synthesizes `__hash__`, so hashing SUCCEEDS for every
-        resolution this story can produce — `ecia_fields` is None on all four
-        arms until Story 4.4's parser exists — and the value it returns is
-        built from the ORM rows' identity hashes, so it says nothing about what
-        was resolved. The moment `ecia_fields` is populated the same call
-        starts raising, which is the failure mode a dict key would hit only on
-        the ECIA branch. Both halves are asserted here so that whichever one
-        changes, the docstring is forced to change with it."""
+        `frozen=True` synthesizes `__hash__`, so hashing SUCCEEDS for any
+        resolution whose classification carries no `ecia_fields` — and the
+        value it returns is built from the ORM rows' identity hashes, so it
+        says nothing about what was resolved. A resolution carrying a parsed
+        envelope raises instead, because a mapping is not hashable. Both halves
+        are asserted here so that whichever one changes, the docstring is
+        forced to change with it.
+
+        The third assertion is the one that matters now rather than in the
+        abstract: a consumer holding the return value of `resolve_scan` on a
+        real distributor label — not a hand-built instance — cannot put it in a
+        set or use it as a dict key. That was unreachable before Story 4.4,
+        because no arm could produce a populated `ecia_fields`."""
         resolvable = ScanResolution(classification=self._classification(),
                                     product=None, free_text_hits=())
         assert isinstance(hash(resolvable), int)
@@ -217,10 +252,13 @@ class TestScanResolutionShape:
         with_envelope = ScanResolution(
             classification=ScanClassification(
                 kind=ScanKind.ECIA, normalized_value=None,
-                ecia_fields={'P': '12345'}, raw='[)>'),
+                ecia_fields={'P': ECIA_FULL_CUSTOMER_PN}, raw='[)>'),
             product=None, free_text_hits=())
         with pytest.raises(TypeError):
             hash(with_envelope)
+
+        with pytest.raises(TypeError):
+            hash(catalog_service.resolve_scan(ECIA_FULL))
 
     @pytest.mark.unit
     @pytest.mark.parametrize('bad', [None, 'free_text', ScanKind.FREE_TEXT, 42,
@@ -556,36 +594,547 @@ class TestGtinResolution:
         assert dead_end.free_text_hits == ()
 
 
-class TestEciaIsStoryFourFour:
-    """The ECIA arm is deliberately empty until Story 4.4's parser exists."""
+def _count_sessions(catalog_service, monkeypatch):
+    """Record every session the service opens, still opening it.
+
+    Some rows of the I/O matrix are claims about whether a query was ISSUED,
+    not about what came back — and an assertion on an empty result would pass
+    just as well against an arm that queried and found nothing.
+    """
+    opened = []
+    real_session = catalog_service.Session
+
+    def counting_session(*args, **kwargs):
+        opened.append(1)
+        return real_session(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_service, 'Session', counting_session)
+    return opened
+
+
+class TestEciaResolution:
+    """Rule 2, FR38/FR39: a distributor label resolves on the part numbers
+    `app/utils/ecia.py` read off it.
+
+    Both candidates (`1P` then `P`) are tried against both places a
+    manufacturer part number lives — the `products.mpn` column and an `MPN`
+    identifier row — because which physical number a distributor prints in
+    which identifier is a property of that label, not of this system.
+    """
 
     @pytest.mark.unit
-    def test_an_envelope_resolves_to_nothing(self, catalog_service, product):
+    def test_the_parsed_fields_reach_the_resolution(self, catalog_service):
+        """The seam Story 4.5 consumes: the envelope's contents arrive on the
+        classification, so a create form can pre-fill without re-parsing the
+        raw scan (FR38, AD-15)."""
         r = catalog_service.resolve_scan(ECIA_FULL)
+
         assert r.classification.kind is ScanKind.ECIA
+        assert dict(r.classification.ecia_fields) == {
+            'P': ECIA_FULL_CUSTOMER_PN, '1P': ECIA_FULL_SUPPLIER_PN, 'Q': '10'}
+
+    @pytest.mark.unit
+    def test_a_supplier_part_number_matching_the_mpn_column_resolves(
+            self, catalog_service):
+        pid = catalog_service.create_product(description='plain',
+                                             mpn=ECIA_FULL_SUPPLIER_PN)
+
+        r = catalog_service.resolve_scan(ECIA_FULL)
+
+        assert r.classification.kind is ScanKind.ECIA
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_a_supplier_part_number_matching_an_mpn_identifier_row_resolves(
+            self, catalog_service, product):
+        """Both places are searched, in one query. A product whose part number
+        was recorded as a typed identifier rather than in the column must
+        resolve identically — the two are equally legitimate homes for it."""
+        catalog_service.add_identifier(product.id,
+                                       identifier_type=IdentifierType.MPN,
+                                       value=ECIA_FULL_SUPPLIER_PN)
+
+        r = catalog_service.resolve_scan(ECIA_FULL)
+
+        assert r.product is not None and r.product.id == product.id
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_the_customer_part_number_resolves_when_the_supplier_one_misses(
+            self, catalog_service):
+        """The arm deliberately does not decide which of `1P` and `P` holds the
+        manufacturer part number: a rule that hard-coded one would fail
+        silently on any label that does it the other way, the scan would
+        resolve to nothing, and the operator would create a duplicate."""
+        pid = catalog_service.create_product(description='plain',
+                                             mpn=ECIA_FULL_CUSTOMER_PN)
+
+        r = catalog_service.resolve_scan(ECIA_FULL)
+
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('stored', ['abc', 'AbC', 'ABC'])
+    def test_the_match_is_case_folded(self, catalog_service, stored):
+        """`func.lower()` explicitly on both sides, as `search_products` folds:
+        without it SQLite's binary default collation would make this lookup
+        case-sensitive under the unit suite and case-insensitive in
+        production."""
+        pid = catalog_service.create_product(description='plain', mpn=stored)
+
+        r = catalog_service.resolve_scan(ECIA_FULL)
+
+        assert r.product is not None and r.product.id == pid
+
+    @pytest.mark.unit
+    def test_a_non_ascii_part_number_matches_itself(self, catalog_service):
+        """The case a fold-only comparison could not answer: `str.lower()` is
+        full-Unicode and SQLite's `LOWER()` is not, so `lower(col) == lower(v)`
+        can never be true for a non-ASCII value and a byte-identical stored
+        part number matched NOTHING — an exact lookup failing on an exact
+        value. The unfolded equality disjunct beside the folded one closes it
+        on every backend."""
+        pid = catalog_service.create_product(description='plain', mpn='WÜRTH-1')
+
+        r = catalog_service.resolve_scan(_envelope('1PWÜRTH-1'))
+
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_non_ascii_case_insensitivity_is_still_out_of_reach(
+            self, catalog_service):
+        """The other half, pinned in the direction it fails: the fix above buys
+        byte-identical matching, not non-ASCII case-insensitivity. Under SQLite
+        a differently-cased 'ü' misses the lookup AND the substring search that
+        follows, because both sides fold ASCII-only. Closing it needs an
+        engine-level collation or Epic 8's mechanism decision; deferred, and
+        stated here so the docstring cannot quietly claim more."""
+        catalog_service.create_product(description='plain', mpn='WÜRTH-1')
+
+        r = catalog_service.resolve_scan(_envelope('1Pwürth-1'))
+
         assert r.product is None
         assert r.free_text_hits == ()
 
     @pytest.mark.unit
-    def test_no_query_is_issued_at_all(self, catalog_service, monkeypatch):
-        """An empty result is not the claim — "nothing was asked" is. Searching
-        the raw envelope (control characters, record separators and all) would
-        be a query with no meaning that Story 4.4 would immediately replace, so
-        both the search entrypoint and the session factory are watched."""
+    def test_a_padded_part_number_still_matches_exactly(self, catalog_service):
+        """The parser keeps a value exactly as the label carried it, which is
+        right for Story 4.5's pre-fill — but an untrimmed candidate can only
+        ever MISS the exact lookup while `search_products`, which strips its
+        own query, silently succeeds. A padded label would therefore degrade to
+        a hit list for no reason. The arm trims what it queries BY; the
+        classification still carries what was printed."""
+        pid = catalog_service.create_product(description='plain', mpn=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P {MPN} '))
+
+        assert r.product is not None and r.product.id == pid
+        assert dict(r.classification.ecia_fields)['1P'] == f' {MPN} '
+
+    @pytest.mark.unit
+    def test_a_whitespace_only_identifier_never_becomes_the_candidate(
+            self, catalog_service, monkeypatch):
+        """A blank-but-present `1P` is truthy, so before trimming it became
+        `candidates[0]` and the fallthrough searched for nothing — dead-ending
+        a label whose OTHER identifier was perfectly usable."""
+        pid = catalog_service.create_product(description=f'reel of {MPN}')
+        calls = _spy_on_search(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(_envelope('1P   ', f'P{MPN}'))
+
+        assert calls == [MPN]
+        assert [p.id for p in r.free_text_hits] == [pid]
+
+    @pytest.mark.unit
+    def test_a_trailer_delivered_without_its_rs_still_resolves(
+            self, catalog_service):
+        """The `RS EOT` trailer's two characters arrive as separate keystrokes,
+        so `<data> EOT` with no RS is a reachable shape — and it used to glue
+        `'\\x04'` onto the part number, which is not whitespace and so survived
+        the candidate trim, turning a product stored character-for-character
+        into no product AND no hits. `app/utils/ecia.py` ends the body at
+        either terminator now; asserted here as well as in the parser's own
+        suite because this is where the cost was paid."""
+        pid = catalog_service.create_product(description='plain', mpn=MPN)
+
+        r = catalog_service.resolve_scan(f'[)>\x1e06\x1d1P{MPN}\x04')
+
+        assert dict(r.classification.ecia_fields) == {'1P': MPN}
+        assert r.product is not None and r.product.id == pid
+
+    @pytest.mark.unit
+    def test_the_same_number_in_both_identifiers_resolves(self, catalog_service):
+        """The routine single-source part, where a distributor prints one
+        number in both fields. One candidate after the dedupe, one product,
+        no false ambiguity."""
+        pid = catalog_service.create_product(description='plain', mpn=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}', f'P{MPN}'))
+
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_the_match_is_exact_not_substring(self, catalog_service):
+        """A part number that merely CONTAINS the scanned one is a different
+        part. It is still reachable — through the fallthrough search, which is
+        a substring match — so the operator lands on it as a candidate rather
+        than having it silently chosen for them."""
+        pid = catalog_service.create_product(description='plain',
+                                             mpn=f'{MPN}-1PCT')
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.classification.kind is ScanKind.ECIA
+        assert r.product is None
+        assert [p.id for p in r.free_text_hits] == [pid]
+
+    @pytest.mark.unit
+    def test_two_products_sharing_a_part_number_resolve_to_neither(
+            self, catalog_service):
+        """`products.mpn` is nullable and carries no unique constraint, so any
+        number of products can hold the same one (a re-order under a second
+        catalog entry, an equivalent part). Returning the oldest of several
+        would be a wrong answer rather than a thin one; the ambiguous set comes
+        back as hits and Story 4.5 renders a choice.
+
+        The column is the only home where a REPEAT is reachable: `MPN`
+        identifier rows are global-scoped, so
+        `uq_product_identifiers_type_value_scope` forbids a second product
+        holding the same value and `add_identifier` raises there. The other
+        ambiguity is cross-home, and
+        `test_an_ambiguity_across_the_two_homes_also_falls_through` covers
+        it."""
+        first = catalog_service.create_product(description='first', mpn=MPN)
+        second = catalog_service.create_product(description='second', mpn=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is None
+        assert [p.id for p in r.free_text_hits] == sorted([first, second])
+
+    @pytest.mark.unit
+    def test_an_ambiguity_across_the_two_homes_also_falls_through(
+            self, catalog_service, product):
+        """The same rule when the two matches are of different kinds — one on
+        the column, one on an identifier row. A lookup that queried the two
+        places separately and took the first non-empty answer would resolve
+        this to a product instead."""
+        other = catalog_service.create_product(description='other', mpn=MPN)
+        catalog_service.add_identifier(product.id,
+                                       identifier_type=IdentifierType.MPN,
+                                       value=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is None
+        assert sorted(p.id for p in r.free_text_hits) == sorted([product.id, other])
+
+    @pytest.mark.unit
+    def test_a_product_matching_in_both_homes_at_once_still_resolves(
+            self, catalog_service):
+        """The EXISTS-not-join half of the same idiom `search_products` uses:
+        one product matching on its column AND on an identifier row must count
+        as ONE match, or it would look like an ambiguity and fall through."""
+        pid = catalog_service.create_product(description='plain', mpn=MPN)
+        catalog_service.add_identifier(pid, identifier_type=IdentifierType.MPN,
+                                       value=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_a_miss_falls_through_searching_the_first_candidate(
+            self, catalog_service, product, monkeypatch):
+        """FR36: a parsed label matching no product becomes a search within the
+        same scan — on the part number, never on the raw envelope, whose
+        control characters and record separators no column can contain. `1P`
+        leads because the ECIA spec makes the supplier part number the required
+        field, and that ordering matters only here."""
+        calls = _spy_on_search(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(ECIA_FULL)
+
+        assert r.classification.kind is ScanKind.ECIA
+        assert r.product is None
+        assert calls == [ECIA_FULL_SUPPLIER_PN]
+        assert ECIA_FULL not in calls
+
+    @pytest.mark.unit
+    def test_a_miss_whose_part_number_appears_in_a_description_finds_it(
+            self, catalog_service):
+        """Behavioral proof of the same thing: only a search on the parsed part
+        number can reach this product."""
+        pid = catalog_service.create_product(description=f'reel of {MPN}')
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is None
+        assert [p.id for p in r.free_text_hits] == [pid]
+
+    @pytest.mark.unit
+    def test_a_unique_supplier_hit_is_lost_when_the_customer_number_collides(
+            self, catalog_service):
+        """Pinned, not endorsed — the first of two consequences of "one query
+        over both candidates".
+
+        The row count is over the UNION of the candidates, so `1P` matching
+        exactly one product and `P` matching a DIFFERENT one reads as an
+        ambiguity and resolves to neither, even though the supplier part number
+        — the field the ECIA spec makes required — was unambiguous. `1P` leads
+        the candidate list but takes no precedence in the query. The operator
+        still reaches the right product, as a hit rather than a landing.
+        Closing this means querying per candidate, which the frozen intent
+        contract for this arm forbids; deferred, and pinned here so the
+        behavior cannot change unnoticed."""
+        wanted = catalog_service.create_product(description='wanted', mpn=MPN)
+        catalog_service.create_product(description='unrelated',
+                                       mpn=CUSTOMER_MPN)
+
+        r = catalog_service.resolve_scan(
+            _envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
+
+        assert r.product is None
+        assert [p.id for p in r.free_text_hits] == [wanted]
+
+    @pytest.mark.unit
+    def test_a_product_reachable_only_by_the_customer_number_dead_ends(
+            self, catalog_service):
+        """The second consequence: only the FIRST candidate is searched, so a
+        product reachable only by the second one comes back with no product and
+        no hits. Presence of an extra identifier makes this label resolve to
+        LESS than the same label carrying `P` alone — which the second half
+        asserts, because "it dead-ends" is only a defect if the product was
+        reachable at all. Same root, same deferral."""
+        pid = catalog_service.create_product(description=f'reel of {CUSTOMER_MPN}')
+
+        dead_end = catalog_service.resolve_scan(
+            _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}'))
+        assert dead_end.product is None
+        assert dead_end.free_text_hits == ()
+
+        reachable = catalog_service.resolve_scan(_envelope(f'P{CUSTOMER_MPN}'))
+        assert [p.id for p in reachable.free_text_hits] == [pid]
+
+    @pytest.mark.unit
+    def test_an_envelope_with_no_part_number_issues_no_query_at_all(
+            self, catalog_service, product, monkeypatch):
+        """A legal terminal state and the one place `resolve_scan` still
+        answers without searching: an envelope carrying only quantity, order
+        and date identifiers has no part number, so there is no question a
+        part-number search could be asking. An empty result is not the claim —
+        "nothing was asked" is — so both the search entrypoint and the session
+        factory are watched."""
         searches = _spy_on_search(catalog_service, monkeypatch)
-        sessions = []
-        real_session = catalog_service.Session
+        sessions = _count_sessions(catalog_service, monkeypatch)
 
-        def counting_session(*args, **kwargs):
-            sessions.append(1)
-            return real_session(*args, **kwargs)
+        r = catalog_service.resolve_scan(_envelope('Q10', '9D2612'))
 
-        monkeypatch.setattr(catalog_service, 'Session', counting_session)
-
-        catalog_service.resolve_scan(ECIA_FULL)
-
+        assert r.classification.kind is ScanKind.ECIA
+        assert dict(r.classification.ecia_fields) == {'Q': '10', '9D': '2612'}
+        assert r.product is None
+        assert r.free_text_hits == ()
         assert searches == []
         assert sessions == []
+
+    @pytest.mark.unit
+    def test_a_blank_part_number_reaches_the_same_terminal_state(
+            self, catalog_service, product, monkeypatch):
+        """The precondition for "no query at all" is no NON-BLANK part-number
+        identifier, not no part-number identifier — a distinction the trim
+        introduced and the docstring now states. A `1P` holding only spaces IS
+        a part-number identifier and does reach `ecia_fields`, but it is
+        trimmed away before the candidates are counted, so the label answers
+        with no product, no hits and no query, exactly as a `Q`/`9D`-only one
+        does. Asserted because the two look nothing alike from the outside and
+        a reader planning around the zero-query state needs both."""
+        searches = _spy_on_search(catalog_service, monkeypatch)
+        sessions = _count_sessions(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(_envelope('1P   '))
+
+        assert r.classification.kind is ScanKind.ECIA
+        assert dict(r.classification.ecia_fields) == {'1P': '   '}
+        assert r.product is None
+        assert r.free_text_hits == ()
+        assert searches == []
+        assert sessions == []
+
+    @pytest.mark.unit
+    def test_two_exact_matches_are_discarded_while_the_other_candidate_is_searched(
+            self, catalog_service, monkeypatch):
+        """The third consequence of "one query over both candidates, one search
+        on the first", and the worst of the three: `1P` matches nothing while
+        `P` matches two products EXACTLY, so the union is ambiguous and both
+        exact matches are dropped, and then the fallthrough searches `1P` and
+        finds nothing. The arm held two exact matches and answered with no
+        product and no hits.
+
+        The control is the assertion that makes it a defect rather than a
+        preference: the SAME label carrying `P` alone returns both products as
+        hits, so the extra identifier made the label resolve to less."""
+        first = catalog_service.create_product(description='w1', mpn=MPN)
+        second = catalog_service.create_product(description='w2', mpn=MPN)
+        searches = _spy_on_search(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(_envelope('1PSUP-99999', f'P{MPN}'))
+
+        assert r.product is None
+        assert r.free_text_hits == ()
+        assert searches == ['SUP-99999']
+
+        control = catalog_service.resolve_scan(_envelope(f'P{MPN}'))
+        assert control.product is None
+        assert [p.id for p in control.free_text_hits] == [first, second]
+
+    @pytest.mark.unit
+    def test_a_lookup_that_hits_opens_exactly_one_session(
+            self, catalog_service, monkeypatch):
+        """The session-count rule the docstring states: one for the lookup, and
+        no second one because a hit never reaches the fallthrough. Both
+        candidates are tried in that ONE query rather than in one query each."""
+        catalog_service.create_product(description='plain', mpn=MPN)
+        sessions = _count_sessions(catalog_service, monkeypatch)
+
+        assert catalog_service.resolve_scan(
+            _envelope(f'1P{MPN}')).product is not None
+        assert len(sessions) == 1
+
+    @pytest.mark.unit
+    def test_a_vendor_sku_identifier_row_is_never_matched(
+            self, catalog_service, product):
+        """A distributor part number in `P` is conceptually a vendor SKU, but
+        `VENDOR_SKU` is vendor-scoped (AD-9): its uniqueness is per vendor, so
+        an unscoped exact match could resolve a DigiKey label to a product
+        identified by an identical Mouser number. The scan carries no vendor,
+        so the row is reachable only through the fallthrough search."""
+        catalog_service.add_identifier(product.id,
+                                       identifier_type=IdentifierType.VENDOR_SKU,
+                                       value=MPN, vendor='Acme')
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is None
+        assert [p.id for p in r.free_text_hits] == [product.id]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '[)>\x1e06',                          # a legal but empty message
+        '[)>\x1e06\x1d!!!garbage!!!',         # a valid header, an unreadable body
+        ']d1[)>\x1e06\x1d!!!garbage!!!',      # ...behind an AIM identifier
+    ])
+    def test_a_degraded_envelope_lands_on_the_free_text_arm(
+            self, catalog_service, product, monkeypatch, raw):
+        """AD-5/NFR8: an envelope nothing could be read out of is not `ecia` at
+        all — the classifier degrades it — so it arrives here as free text and
+        is searched as scanned (AIM prefix stripped). It lands somewhere and it
+        never raises, which is the whole of "surfaced for manual handling"."""
+        calls = _spy_on_search(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(raw)
+
+        assert r.classification.kind is ScanKind.FREE_TEXT
+        assert r.classification.ecia_fields is None
+        assert r.classification.raw == raw
+        assert calls == [scan_router.strip_aim_prefix(raw)]
+
+    @pytest.mark.unit
+    def test_a_degraded_envelope_can_still_reach_a_product(
+            self, catalog_service):
+        """The half the spy cannot show: the raw scan really is searched, so an
+        operator whose label parsed badly still lands on a record if anything
+        in the catalog carries that text."""
+        pid = catalog_service.create_product(description='plain',
+                                             notes='[)>\x1e06\x1d!!!garbage!!!')
+
+        r = catalog_service.resolve_scan('[)>\x1e06\x1d!!!garbage!!!')
+
+        assert [p.id for p in r.free_text_hits] == [pid]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '[)>\x1e06\x1d1P' + '\x00' * 10 + '\x1e\x04',   # a NUL-bearing part number
+        '[)>\x1e06\x1d1P\ud800\x1e\x04',                # ...and a lone surrogate
+        '[)>\x1e06\x1d1P' + '9' * SEARCH_QUERY_MAX_LENGTH,   # a field value ON the pattern bound
+        '[)>\x1e06\x1d1P' + '9' * (SEARCH_QUERY_MAX_LENGTH + 1),  # ...and one past it
+        '[)>\x1e06' + '\x1d' * 4096,                    # four kilobytes of empty records
+        '[)>\x1e06\x1dP%\x1d1P_\x1e\x04',               # bare LIKE wildcards as part numbers
+    ])
+    def test_a_hostile_envelope_still_yields_a_resolution(
+            self, catalog_service, product, raw):
+        """NFR8, and the half that actually failed elsewhere in this module:
+        never "every product". Whatever the label carries, resolution answers
+        with a `ScanResolution` and never with the whole catalog.
+
+        Read `test_which_hostile_vectors_actually_reach_the_lookup` before
+        trusting this parametrization as ECIA-arm coverage: three of these six
+        vectors never reach the lookup, and one of those three is not even an
+        ECIA scan. That test names each one and where it is answered."""
+        catalog_service.create_product(description='an unrelated widget',
+                                       manufacturer='ACME', mpn='XYZ-1')
+
+        r = catalog_service.resolve_scan(raw)
+
+        assert isinstance(r, ScanResolution)
+        assert r.classification.raw == raw
+        assert r.product is None
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, kind, reaches_the_lookup', [
+        ('[)>\x1e06\x1d1P' + '\x00' * 10 + '\x1e\x04',
+         ScanKind.ECIA, False),                                  # NUL
+        ('[)>\x1e06\x1d1P\ud800\x1e\x04',
+         ScanKind.ECIA, False),                                  # lone surrogate
+        ('[)>\x1e06' + '\x1d' * 4096,
+         ScanKind.FREE_TEXT, True),                              # empty records
+        ('[)>\x1e06\x1d1P' + '9' * SEARCH_QUERY_MAX_LENGTH,
+         ScanKind.ECIA, True),
+        ('[)>\x1e06\x1d1P' + '9' * (SEARCH_QUERY_MAX_LENGTH + 1),
+         ScanKind.ECIA, True),
+        ('[)>\x1e06\x1dP%\x1d1P_\x1e\x04',
+         ScanKind.ECIA, True),                                   # LIKE wildcards
+    ])
+    def test_which_hostile_vectors_actually_reach_the_lookup(
+            self, catalog_service, product, monkeypatch, raw, kind,
+            reaches_the_lookup):
+        """Where each hostile vector is answered, asserted rather than assumed.
+        Every vector the class above parametrizes appears here, in the same
+        order, so the two lists cannot drift apart silently.
+
+        Two things divert a vector before this story's lookup, and the class
+        above cannot tell either from a real ECIA-arm pass.
+
+        `_is_storable_text(raw)` judges the WHOLE envelope and runs before the
+        four-way branch, so a NUL or a lone surrogate anywhere in the scan is
+        answered with no product and no hits without the ECIA arm ever running.
+        That is worth pinning in both directions, because the deferred-work
+        ledger proposes moving that guard from `raw` to the text each arm
+        binds: on the day it moves, those two vectors start reaching a query
+        built from a lone surrogate, and this test goes red where the one above
+        would stay green.
+
+        And four kilobytes of empty records is not an ECIA scan at all. Every
+        element is empty, so `parse_fields` recognizes nothing and rule 2
+        degrades it to `FREE_TEXT` (AD-5, NFR8) — it exercises the free-text
+        arm, which does open a session. Asserting the kind here is the point:
+        without it the vector reads as ECIA-arm coverage in a class that says
+        it is."""
+        catalog_service.create_product(description='an unrelated widget',
+                                       manufacturer='ACME', mpn='XYZ-1')
+        sessions = _count_sessions(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(raw)
+
+        assert r.classification.kind is kind
+        assert bool(sessions) is reaches_the_lookup
+        assert r.product is None
+        assert r.free_text_hits == ()
 
 
 class TestFallthrough:

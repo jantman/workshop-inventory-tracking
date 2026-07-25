@@ -46,7 +46,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-07-23 18:51:02
-last_updated: 2026-07-25 (story 4-3 done)
+last_updated: 2026-07-25 (story 4-4 done)
 project: workshop-inventory-tracking
 project_key: NOKEY
 tracking_system: file-system
@@ -83,7 +83,7 @@ development_status:
   4-1-wedge-scan-capture: done
   4-2-pure-scan-classifier: done
   4-3-service-scan-resolution: done
-  4-4-ecia-distributor-label-parsing: backlog
+  4-4-ecia-distributor-label-parsing: done
   4-5-scan-outcome-routing-in-the-ui: backlog
   epic-4-retrospective: optional
 

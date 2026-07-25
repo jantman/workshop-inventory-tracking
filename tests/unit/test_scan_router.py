@@ -36,7 +36,7 @@ import pytest
 
 from app import models
 from app.models import ScanClassification, ScanKind
-from app.utils import scan_router
+from app.utils import ecia, scan_router
 from app.utils.gs1 import MAX_DATA_FIELD_LENGTH, InvalidGs1PayloadError
 from app.utils.gtin import is_valid_gtin
 from app.utils.scan_router import classify, strip_aim_prefix
@@ -77,7 +77,7 @@ class TestScanClassificationShape:
     @pytest.mark.parametrize('field_name', [
         'kind',                 # which rule matched
         'normalized_value',     # the canonical form, or None
-        'ecia_fields',          # Story 4.4 populates it; None until then
+        'ecia_fields',          # the parsed MH10.8.2 identifiers, or None
         'raw',                  # the verbatim scan
     ])
     def test_every_field_is_mutation_proof(self, field_name):
@@ -190,24 +190,50 @@ class TestInternalRecognition:
 
 
 class TestEciaEnvelopeRecognition:
-    """FR36 rule 2: the ISO/IEC 15434 format-06 header, and only the header."""
+    """FR36 rule 2: an ISO/IEC 15434 format-06 envelope that something could
+    actually be read out of. The header is recognized and the records are
+    parsed by `app/utils/ecia.py` (whose own grammar tests are
+    tests/unit/test_ecia.py); this class pins what `classify()` does with the
+    two answers."""
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
         ECIA_SHORT,                            # the short repo vector
         ECIA_FULL,                             # the full P/1P/Q record vector
         ']d1' + ECIA_SHORT,                    # FR37: behind an AIM identifier
-        '[)>\x1e06',                           # header with no body — a legal empty envelope
-        '[)>\x1e06\x1e',                       # header closed immediately by RS
-        '[)>\x1e06\x1dP123',                   # no trailing RS/EOT — 4.4's problem, not 4.2's
-        '[)>\x1e06\x1d!!!garbage!!!',          # malformed CONTENTS still classify ecia (4.4 degrades)
+        '[)>\x1e06\x1dP123',                   # no trailing RS/EOT
+        '[)>\x1e06\x1d1TLOT9\x1dP123',         # an unrecognized identifier alongside a known one
     ])
-    def test_format_06_header_classifies_ecia(self, raw):
+    def test_an_envelope_carrying_a_recognized_identifier_classifies_ecia(self, raw):
         assert classify(raw, ai=AI, token=TOKEN).kind is ScanKind.ECIA
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
-        '[)>06\x1dP123',                       # RS missing after '[)>'
+        '[)>\x1e06',                           # header with no body — a legal but empty message
+        '[)>\x1e06\x1e',                       # header closed immediately by RS
+        '[)>\x1e06\x1d',                       # ...and by a bare GS
+        '[)>\x1e06\x1d!!!garbage!!!',          # a valid header, an unreadable body
+        '[)>\x1e06\x1d1TLOT9\x1d4LUS\x1e\x04',  # only identifiers this system has no field for
+        '[)>\x1e06\x1dQ\x1e\x04',              # a recognized identifier with an empty value
+        ']d1[)>\x1e06',                        # ...and the same behind an AIM prefix
+    ])
+    def test_an_envelope_carrying_nothing_recognized_degrades_to_free_text(self, raw):
+        """NFR8/AD-5, and the one behavior this story CHANGES: at `035f226`
+        these classified `ecia` with no fields. `ECIA` exists so a consumer can
+        pre-fill a form from named fields, so answering it with none would put
+        the operator on a screen that says "distributor label" about a scan
+        nothing could be read from. `free_text` puts the raw scan into a search
+        instead, which is what "surfaced for manual handling" means everywhere
+        else in this epic."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.FREE_TEXT
+        assert c.ecia_fields is None
+        assert c.normalized_value is None
+        assert c.raw == raw
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '[)>06\x1dP123',                       # RS missing after the message-header characters
         '[)>\x1e05\x1dP123',                   # format 05, not 06
         '[)>\x1e06P123',                       # indicator not delimited — only resembles an envelope
         '[)>\x1e0612345',                      # ...same, with digits abutting the indicator
@@ -218,16 +244,53 @@ class TestEciaEnvelopeRecognition:
         'PRE[)>\x1e06\x1dP123',                # header not at the front
     ])
     def test_damaged_or_foreign_headers_fall_through_to_free_text(self, raw):
-        """NFR8: never an exception, and never a false `ecia` handed to 4.4."""
+        """NFR8: never an exception, and never a false `ecia` handed to 4.5."""
         assert classify(raw, ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
 
     @pytest.mark.unit
-    @pytest.mark.parametrize('raw', [ECIA_SHORT, ECIA_FULL, '[)>\x1e06'])
-    def test_ecia_carries_no_normalized_value_and_no_fields_yet(self, raw):
+    @pytest.mark.parametrize('raw', [
+        ECIA_SHORT,                            # the short repo vector
+        ECIA_FULL,                             # the full P/1P/Q record vector
+        ']d1' + ECIA_FULL,                     # FR37: the parse runs on the stripped candidate
+        '[)>\x1e06\x1dP123',                   # no trailer
+    ])
+    def test_ecia_carries_the_parsed_fields_and_no_normalized_value(self, raw):
+        """The fields are whatever the grammar module reads out of the
+        AIM-STRIPPED candidate — asserted against `ecia.parse_fields` rather
+        than against a written-out dict, so this test cannot drift from the
+        single source of truth it delegates to."""
         c = classify(raw, ai=AI, token=TOKEN)
         assert c.normalized_value is None
-        assert c.ecia_fields is None            # Story 4.4 populates this, not 4.2
         assert c.raw == raw
+        expected = ecia.parse_fields(strip_aim_prefix(raw))
+        assert expected                        # or this vector belongs above
+        assert dict(c.ecia_fields) == expected
+
+    @pytest.mark.unit
+    def test_the_canonical_vector_yields_the_ad15_keys(self):
+        """One end-to-end statement of what a DigiKey label actually produces,
+        so the delegation above is not the only thing pinning it."""
+        c = classify(ECIA_FULL, ai=AI, token=TOKEN)
+        assert dict(c.ecia_fields) == {'P': '12345', '1P': 'ABC', 'Q': '10'}
+
+    @pytest.mark.unit
+    def test_an_aim_prefix_changes_nothing_but_raw(self):
+        bare = classify(ECIA_FULL, ai=AI, token=TOKEN)
+        prefixed = classify(']d1' + ECIA_FULL, ai=AI, token=TOKEN)
+        assert dict(prefixed.ecia_fields) == dict(bare.ecia_fields)
+        assert prefixed.raw.startswith(']d1')
+
+    @pytest.mark.unit
+    def test_the_fields_are_read_only_and_not_shared_between_calls(self):
+        """`__post_init__` copies the parser's fresh dict into a proxy, so two
+        classifications of one scan share no mutable state and neither can be
+        written through."""
+        first = classify(ECIA_FULL, ai=AI, token=TOKEN)
+        second = classify(ECIA_FULL, ai=AI, token=TOKEN)
+        assert first.ecia_fields is not second.ecia_fields
+        assert first.ecia_fields == second.ecia_fields
+        with pytest.raises(TypeError):
+            first.ecia_fields['P'] = 'MUTATED'
 
 
 class TestGtinRecognition:
@@ -370,12 +433,18 @@ class TestPrecedenceOrder:
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
         INTERNAL_SCAN,                          # internal
-        ECIA_FULL,                              # ecia — 4.4 fills the fields, not 4.2
         GTIN13,                                 # gtin
         'RES 10K 0805 1%',                      # free text
+        '[)>\x1e06',                            # an envelope that degraded to free text
     ])
-    def test_ecia_fields_is_none_for_every_kind_in_this_story(self, raw):
-        assert classify(raw, ai=AI, token=TOKEN).ecia_fields is None
+    def test_ecia_fields_is_none_for_every_non_ecia_kind(self, raw):
+        """AD-15's permanent rule, and `__post_init__` enforces it — but only
+        the classifier can be wrong about which kind a scan is, and the
+        degraded envelope is the vector where a sloppy rule 2 would leak an
+        empty mapping onto a `FREE_TEXT` result."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is not ScanKind.ECIA
+        assert c.ecia_fields is None
 
 
 class TestAimSymbologyPrefix:
@@ -593,7 +662,9 @@ class TestModulePurity:
     the whole suite green. These read the source instead."""
 
     SOURCE_PATH = Path(scan_router.__file__)
-    ALLOWED_APP_UTILS_NAMES = frozenset({'gs1', 'gtin'})
+    # One name per delegated rule: rule 1 to `gs1`, rule 2 to `ecia`, rule 3 to
+    # `gtin`. Rule 4 has no grammar to delegate.
+    ALLOWED_APP_UTILS_NAMES = frozenset({'ecia', 'gs1', 'gtin'})
 
     def _tree(self):
         return ast.parse(self.SOURCE_PATH.read_text(encoding='utf-8'))
@@ -806,9 +877,14 @@ class TestWhitespaceAsymmetryBetweenRules:
 
 class TestAimPrefixIsExportedForConsumers:
     """AD-15 freezes four fields, so the AIM-stripped candidate is not carried
-    on the result — `raw` is the verbatim scan. Story 4.3 searching free text
-    and Story 4.4 parsing an envelope therefore have to strip it themselves,
-    and must not re-derive the shape to do it."""
+    on the result — `raw` is the verbatim scan. A consumer that needs to USE
+    the scan text therefore has to strip it, and must not re-derive the shape
+    to do it: Story 4.3's resolver calls this helper before searching free
+    text. The envelope parse is the one exception, and it is why the helper is
+    public rather than why it is needed twice — `classify()` runs
+    `ecia.parse_fields` on the AIM-stripped candidate itself (Story 4.4), so
+    `ecia_fields` is already correct for `']d1' + envelope` and nothing
+    downstream re-parses `raw`."""
 
     @pytest.mark.unit
     def test_strip_aim_prefix_is_public(self):
@@ -873,9 +949,9 @@ class TestEciaFieldsIsReadOnly:
     `frozen=True` blocks rebinding the attribute, not mutation through it.
     `ecia_fields` is the only field that will ever hold a mutable object, so
     without the wrap the "pass it around without defensive copying" promise
-    would become false the moment Story 4.4 populates it — and holding a
-    mapping has two consequences (unhashable, unpicklable) that are pinned
-    here rather than discovered there."""
+    would be false for every distributor scan — and holding a mapping has two
+    consequences (unhashable, unpicklable) that Story 4.5's serializer has to
+    know about, so they are pinned here rather than discovered in a 500."""
 
     @pytest.mark.unit
     def test_a_populated_mapping_cannot_be_mutated_through_the_instance(self):
@@ -906,10 +982,12 @@ class TestEciaFieldsIsReadOnly:
 
     @pytest.mark.unit
     def test_a_classification_without_ecia_fields_is_still_hashable(self):
-        """The documented consequence, pinned in both directions: every
-        classification `classify()` produces today hashes — usably, i.e. equal
-        values land in one set slot — and one carrying a mapping does not, so
-        nobody discovers that in Story 4.4."""
+        """The documented consequence, pinned in both directions: a
+        classification with no `ecia_fields` hashes usably — equal values land
+        in one set slot — and one carrying a mapping does not, whether it was
+        hand-built or came straight out of `classify()`. A consumer keying a
+        cache or a set on a classification therefore works for three kinds and
+        raises on the fourth."""
         a = classify(GTIN13, ai=AI, token=TOKEN)
         b = classify(GTIN13, ai=AI, token=TOKEN)
         assert hash(a) == hash(b)
@@ -917,6 +995,8 @@ class TestEciaFieldsIsReadOnly:
         with pytest.raises(TypeError):
             hash(ScanClassification(kind=ScanKind.ECIA, normalized_value=None,
                                     ecia_fields={'P': '123'}, raw='x'))
+        with pytest.raises(TypeError):
+            hash(classify(ECIA_FULL, ai=AI, token=TOKEN))
 
     @pytest.mark.unit
     @pytest.mark.parametrize('convert', [
@@ -936,10 +1016,31 @@ class TestEciaFieldsIsReadOnly:
 
     @pytest.mark.unit
     @pytest.mark.parametrize('convert', [dataclasses.asdict, copy.deepcopy])
-    def test_both_still_work_for_every_classification_this_story_produces(self, convert):
-        """The other side of it: `ecia_fields` is None until Story 4.4, so
-        nothing `classify()` returns today is affected."""
-        assert convert(classify(GTIN13, ai=AI, token=TOKEN)) is not None
+    @pytest.mark.parametrize('raw', [
+        INTERNAL_SCAN,                          # internal
+        GTIN13,                                 # gtin
+        'RES 10K 0805 1%',                      # free text
+        '[)>\x1e06',                            # an envelope that degraded to free text
+    ])
+    def test_both_still_work_for_every_classification_without_fields(
+            self, convert, raw):
+        """The other side of it: `ecia_fields` is None on every kind but
+        `ECIA`, so nothing but a real distributor label is affected."""
+        assert convert(classify(raw, ai=AI, token=TOKEN)) is not None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('convert', [dataclasses.asdict, copy.deepcopy])
+    def test_both_now_break_for_a_classification_classify_itself_produces(
+            self, convert):
+        """The hazard the test above predicted for Story 4.5, now reachable
+        from an ordinary scan rather than only from a hand-built instance: a
+        `mappingproxy` cannot be pickled, so the obvious route from this frozen
+        dataclass to JSON raises. A serializer must build its payload field by
+        field and convert `ecia_fields` with `dict(...)`."""
+        c = classify(ECIA_FULL, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.ECIA
+        with pytest.raises(TypeError):
+            convert(c)
 
     @pytest.mark.unit
     def test_an_incoming_proxy_is_copied_rather_than_adopted(self):

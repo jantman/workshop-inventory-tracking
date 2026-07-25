@@ -2076,10 +2076,16 @@ class CatalogService:
         Classifies `raw` with the pure `app/utils/scan_router.classify()`, looks
         the result up where a lookup is defined, and falls through to
         `search_products` when nothing matched — so no scan dead-ends (FR36),
-        with the single, deliberate exception of the `ecia` arm, which Story
-        4.4 owns and which returns no product and no hits until its parser
-        exists (see the per-arm list below). Returns a `ScanResolution` in
-        every case.
+        with two deliberate exceptions, both of which answer without a lookup
+        AND without a search: text that cannot be stored (the guard below), and
+        an `ecia` envelope carrying no part number at all (only
+        quantity/order/date identifiers), for which no part-number search could
+        mean anything. Returns a `ScanResolution` in every case.
+
+        "No dead ends" is a promise about the PATH, not a guarantee of hits:
+        several arms can legitimately return no product and no hits, and the
+        per-arm list below names each one it knows of, because Story 4.5 turns
+        that state into a pre-filled create form rather than an error.
 
         **The config seam (AD-16).** `Config.GS1_INTERNAL_AI` and
         `Config.GS1_INTERNAL_TOKEN` are read here, in the body, on every call,
@@ -2128,12 +2134,112 @@ class CatalogService:
           `GTIN_UNVALIDATED` at write time or Epic 8's mechanism, both outside
           this story.
         - `free_text`: no lookup; searches the AIM-stripped raw.
-        - `ecia`: no lookup and no search — `product=None`, `free_text_hits=()`.
-          Story 4.4 owns this arm. Searching a raw format-06 envelope (control
-          characters, record separators and all) would be a query with no
-          meaning that 4.4 would immediately replace with a lookup on the parsed
-          `1P`/`P`; returning nothing is honest, and Story 4.5 still lands the
-          operator somewhere (NFR8).
+        - `ecia` (Story 4.4, FR38): looks up the part numbers
+          `app/utils/ecia.py` parsed off the label — `1P` first (the supplier
+          part number, which the ECIA spec makes the required field), then `P`
+          — never the raw envelope, whose control characters and record
+          separators would be a query with no meaning. Which of the two a given
+          distributor prints the manufacturer part number in is a property of
+          that label, not of this system, so BOTH are tried against BOTH places
+          a part number lives: the `products.mpn` column and an `MPN`
+          identifier row. Values are trimmed and de-duplicated first, and the
+          match is an equality one — never a substring. Be precise about what
+          "equality" reaches, because it is not the same on both backends and
+          this arm returns a single product rather than a hit list: the
+          predicate is `column = value OR LOWER(column) = LOWER(value)`, which
+          under SQLite (the only backend any test here runs) means
+          byte-identical or ASCII-case-folded, and under MariaDB's
+          `utf8mb4_unicode_ci` means whatever that collation equates —
+          accent-insensitive and PAD SPACE, since `LOWER()` does not change
+          MariaDB's comparison collation. So `WURTH-1` can land on a product
+          stored `WÜRTH-1` in production and cannot in the unit suite. That is
+          the same backend divergence `search_products` documents and the
+          ledger records; it is wider here only in consequence, because there
+          it adds a hit and here it can pick the landing. Exactly one product
+          matching resolves to it; zero OR more than one resolves to nothing
+          and falls through to a search on the FIRST candidate, because two
+          products genuinely can share a part number and silently returning the
+          oldest of several would answer a question nobody asked. Be exact
+          about WHERE the sharing is possible, because the two homes are not
+          alike: `products.mpn` is nullable and carries no unique constraint,
+          so any number of products may hold the same one. Two MPN identifier
+          ROWS cannot collide — `MPN` is global-scoped (`vendor_scope=''`) and
+          `uq_product_identifiers_type_value_scope` is over
+          `(identifier_type, value, vendor_scope)`, so the DB rejects the
+          second, which is why `add_identifier` raises `ValidationError` there.
+          Global scoping is what makes an identifier row UNIQUE across
+          products, not what makes it shareable. The second real ambiguity is
+          therefore a CROSS-home one: one product's `mpn` column colliding with
+          another product's `MPN` identifier row, which nothing constrains and
+          which `test_an_ambiguity_across_the_two_homes_also_falls_through`
+          pins. Those two are the whole set.
+          An envelope carrying no NON-BLANK part-number identifier is answered
+          with no product and no hits, without any query — normally a label
+          carrying only `Q`/`K`/`9D`, but a `1P` holding nothing but spaces
+          reaches the same terminal state, since the candidates are trimmed
+          before they are counted.
+
+          Three consequences of "one query over both candidates, one search on
+          the first", all real and none hypothetical, so a caller can plan
+          around them rather than discover them:
+
+          1. The count is over the UNION of the candidates, so a unique `1P`
+             hit is discarded when `P` happens to match a DIFFERENT product —
+             the arm sees two rows and calls it ambiguous. `1P` leads the
+             candidate list but does not take precedence in the query. The
+             right product USUALLY still reaches the operator, since it is in
+             the `1P` search that follows, but as a hit rather than a landing —
+             and not always: that search is bounded at
+             `SEARCH_RESULTS_DEFAULT_LIMIT` rows ordered by id, so an exact
+             match sitting behind enough substring matches on the same text is
+             dropped from the list entirely. "Ambiguous falls through to hits"
+             is therefore a statement about which QUERY runs, not a guarantee
+             that the exact matches are in what comes back.
+          2. Only the first candidate is searched, so a product reachable ONLY
+             by the second one — a `P` value in a description, say, with `1P`
+             matching nothing anywhere — comes back with no product and no
+             hits. Presence of an extra identifier makes that label resolve to
+             LESS than the same label carrying `P` alone.
+          3. The two compose into the worst case, which is neither of them: if
+             `1P` matches nothing and `P` matches two products EXACTLY, the
+             union is ambiguous so both exact matches are discarded, and the
+             fallthrough then searches `1P` and finds nothing. The arm holds
+             two exact matches in hand and answers with no product and no hits.
+             The same label carrying `P` alone returns both as hits.
+
+          All three are recorded in the deferred-work ledger; closing any of
+          them changes the frozen intent contract for this arm, whose fix is
+          the same in every case — query per candidate in order and take the
+          first unambiguous answer, at a cost of one more query.
+
+          Two exclusions a reader would otherwise have to diff the model to
+          find. (1) `VENDOR_SKU` identifier rows are not consulted, even though
+          a distributor part number in `P` is conceptually one: `VENDOR_SKU` is
+          vendor-scoped (AD-9), so its uniqueness is per vendor and an unscoped
+          exact match could resolve a DigiKey label to a product identified by
+          an identical Mouser number. The scan carries no vendor and FR39 names
+          MPN as what a distributor scan pre-fills. `IdentifierType.MPN` is
+          global-scoped, so this lookup correctly needs no `vendor_scope`
+          filter. (2) The ASCII-case fold is one of the two disjuncts per
+          candidate rather than the only one — see `_matches` in the arm for
+          why a byte-identical comparison runs beside it, and for what
+          non-ASCII case-insensitivity still does not do under SQLite.
+
+          A note on the `free_text` arm above, since this arm's first sentence
+          reads as though it contradicts it: an envelope whose records are
+          unreadable never reaches here at all. `classify()` degrades it to
+          `free_text` (AD-5, NFR8), and that arm then does search the raw
+          envelope, separators and all. That is not the same thing as searching
+          the envelope INSTEAD of a parsed part number — it is what "surface
+          the raw scan for manual handling" means when there is nothing else
+          left, and it usually returns nothing, which Story 4.5 lands on a
+          create form. Note the asymmetry it creates: a label carrying only
+          `Q`/`9D` classifies `ECIA` and terminates here with no query, while a
+          label carrying only identifiers this system has no field for (`1T`,
+          `4L`) classifies `free_text` and gets that raw search. Both are "a
+          distributor label with no part number"; they differ because the first
+          is recognized-and-useless and the second is unrecognized, and only
+          the first can be told apart from damage.
 
         Text that gets *used* is AIM-stripped first via the exported
         `scan_router.strip_aim_prefix()`, never re-derived here.
@@ -2142,15 +2248,17 @@ class CatalogService:
         Read-only, like `search_products`: there is no commit, no rollback and
         no audit log, so scan resolution is idempotent by construction. Session
         count per scan is one for a lookup that hits, one for a `free_text`
-        scan (the search), and two for an `internal`/`gtin` MISS (the lookup,
-        then `search_products`' own) — minus any search that answers without
-        querying. `search_products` returns `[]` for text that is blank,
-        unstorable or over-long before it opens anything, so `ecia`, an
-        unencodable scan and an empty scan all open ZERO, and a lookup miss
-        whose fallthrough text is blank opens one rather than two. The Product
-        and every Product in `free_text_hits` are therefore detached rows:
-        scalar columns stay readable, relationship attributes must not be
-        touched.
+        scan (the search), and two for an `internal`/`gtin`/`ecia` MISS (the
+        lookup, then `search_products`' own) — minus any search that answers
+        without querying. `search_products` returns `[]` for text that is
+        blank, unstorable or over-long before it opens anything, so an
+        unencodable scan and an empty scan open ZERO, and a lookup miss whose
+        fallthrough text is blank opens one rather than two. The `ecia` arm
+        opens one for its lookup, or ZERO when the envelope carries no
+        part-number identifier and it therefore neither looks up nor searches.
+        The Product and every Product in `free_text_hits` are therefore
+        detached rows: scalar columns stay readable, relationship attributes
+        must not be touched.
 
         Args:
             raw: The scan text, already cleaned by the caller.
@@ -2233,9 +2341,118 @@ class CatalogService:
             fallthrough_text = scan_router.strip_aim_prefix(classification.raw)
 
         elif kind is ScanKind.ECIA:
-            # Story 4.4's arm — see the docstring. No query is issued at all.
-            return ScanResolution(classification=classification, product=None,
-                                  free_text_hits=())
+            # The candidate part numbers, in the order the docstring states:
+            # `1P` first because the ECIA spec makes the supplier part number
+            # the required field, then `P`. Which of the two a given
+            # distributor prints the MANUFACTURER part number in is a property
+            # of that distributor's label, not of this system, so both are
+            # tried — hard-coding "1P is the MPN" would fail silently on any
+            # label that does it the other way and the operator would create a
+            # duplicate product. Read defensively (`or {}`) because
+            # `ScanClassification` permits `ECIA` with None even though
+            # `classify()` never produces it.
+            fields = classification.ecia_fields or {}
+            # Trimmed and de-duplicated on the way in. `parse_fields` keeps a
+            # value exactly as the label carried it, which is right for the
+            # parser — Story 4.5 pre-fills a form from those fields and must
+            # show what was printed — but a part number is never legitimately
+            # surrounded by spaces, and an untrimmed candidate can only ever
+            # MISS the exact lookup while the fallthrough silently succeeds
+            # (`search_products` strips its own query), so a padded label would
+            # degrade to a hit list for no reason. Trimming also removes the
+            # whitespace-only candidate, which is truthy and would otherwise
+            # become `candidates[0]` and search for nothing, dead-ending a
+            # label whose OTHER identifier was perfectly usable. The dedupe is
+            # for the routine single-source part that prints the same number in
+            # both fields: without it the same predicate is emitted twice.
+            candidates = list(dict.fromkeys(
+                value.strip()
+                for value in (fields.get('1P'), fields.get('P'))
+                if value and value.strip()))
+            if not candidates:
+                # An envelope carrying only quantity/order/date identifiers.
+                # A legal terminal state, and the one place `resolve_scan`
+                # still answers without searching: there is no part number, so
+                # there is no question a part-number search could be asking.
+                return ScanResolution(classification=classification,
+                                      product=None, free_text_hits=())
+
+            def _matches(column):
+                # TWO disjuncts per candidate, and both are load-bearing.
+                #
+                # `func.lower()` on both sides, explicitly, is the same
+                # construction `search_products` uses and for the same reason:
+                # SQLite's default collation is binary, so relying on the
+                # column's collation would make this lookup case-SENSITIVE
+                # under the unit suite and case-insensitive in production.
+                #
+                # But that fold is ASCII-only on SQLite — `str.lower()` is
+                # full-Unicode while SQLite's `LOWER()` leaves non-ASCII
+                # untouched — so the two sides of a folded comparison can never
+                # agree for a non-ASCII part number, and a stored 'WÜRTH-1'
+                # scanned as the byte-identical 'WÜRTH-1' matched NOTHING: an
+                # exact lookup failing on an exact value. The unfolded equality
+                # closes that. Under SQLite it adds exactly the rows a
+                # byte-identical value should have matched all along and
+                # nothing else, because that backend's default collation is
+                # binary; what it does NOT buy there is non-ASCII
+                # case-INsensitivity ('würth-1' still misses), which needs an
+                # engine-level collation or Epic 8's mechanism decision.
+                #
+                # Under MariaDB it is NOT a byte comparison and this disjunct
+                # is not the narrow one: `=` runs under the column's
+                # `utf8mb4_unicode_ci` collation, which is case- AND
+                # accent-insensitive and PAD SPACE, and `LOWER()` does not
+                # change that, so both disjuncts are collation-folded and
+                # 'WURTH-1' can equal a stored 'WÜRTH-1'. The docstring states
+                # the consequence: what "equality" reaches here is
+                # backend-dependent, and this arm picks a landing rather than
+                # adding a hit, so the divergence `search_products` already
+                # records costs more in this seam than in that one.
+                return or_(*(
+                    predicate
+                    for value in candidates
+                    for predicate in (column == value,
+                                      func.lower(column) == value.lower())))
+
+            # An EXISTS rather than a join, for the reason search_products
+            # states: a product matching on both its `mpn` column and an
+            # identifier row (or on two identifier rows) must appear ONCE,
+            # without a SQL DISTINCT. Only IdentifierType.MPN is consulted.
+            # VENDOR_SKU rows are deliberately outside this lookup — see the
+            # docstring.
+            identifier_match = (
+                exists()
+                .where(ProductIdentifier.product_id == Product.id)
+                .where(ProductIdentifier.identifier_type ==
+                       IdentifierType.MPN.value)
+                .where(_matches(ProductIdentifier.value))
+            )
+
+            session = self.Session()
+            try:
+                # limit(2) because the only question is "exactly one, or not",
+                # and fetching the rest would only cost rows nothing reads. Two
+                # rows are genuinely reachable: `products.mpn` carries no
+                # unique constraint, and a product's `mpn` column can collide
+                # with a DIFFERENT product's MPN identifier row, which nothing
+                # cross-checks. NOT two identifier rows — `MPN` is
+                # global-scoped, so `uq_product_identifiers_type_value_scope`
+                # already forbids that pair (see the docstring).
+                matches = (session.query(Product)
+                           .filter(or_(_matches(Product.mpn),
+                                       identifier_match))
+                           .order_by(Product.id.asc())
+                           .limit(2)
+                           .all())
+            finally:
+                session.close()
+            # Zero OR more than one is "no product": silently returning the
+            # oldest of several would answer a question nobody asked. The
+            # fallthrough below covers both, and since `search_products`
+            # searches `mpn` too, an ambiguous set comes back as hits.
+            product = matches[0] if len(matches) == 1 else None
+            fallthrough_text = candidates[0]
 
         else:
             # ScanKind.FREE_TEXT, rule 4 — the fallthrough that always matches,
