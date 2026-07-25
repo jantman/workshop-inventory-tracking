@@ -189,7 +189,7 @@ class TestScanCaptureEndpoint:
         assert data['error']['field'] == 'raw'
         assert str(MAX_SCAN_LENGTH) in data['error']['message']
 
-    def test_max_scan_length_is_4096(self, client):
+    def test_max_scan_length_is_4096(self):
         """The documented bound; changing it is a deliberate contract change."""
         assert MAX_SCAN_LENGTH == 4096
 

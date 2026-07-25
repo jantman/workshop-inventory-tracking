@@ -47,13 +47,24 @@ const ScanCapture = {
             // A scan arriving while the previous POST is still in flight is
             // ignored — but never SILENTLY. A silent drop is indistinguishable
             // from a captured scan, which is exactly how a scan gets lost.
+            //
+            // The dropped burst's CHARACTERS are already in the field, appended
+            // to the text still in flight ("SCAN1SCAN2"). Leaving them there is
+            // worse than dropping the scan: the operator's rescan would append
+            // again and POST the concatenation as one valid scan. Selecting the
+            // residue makes the next burst's first keystroke overwrite it.
             if (this.isSubmitting) {
                 this.notify('Previous scan still in progress - rescan this item.', 'warning');
+                this.selectIfActive();
                 return;
             }
 
-            // Blank / whitespace-only Enter is a no-op: send nothing.
-            if (!this.input.value.trim()) return;
+            // Blank Enter is a no-op: send nothing. The blank test must use the
+            // SERVER's trim set, not JS trim() — trim() also strips \x0b, \x0c,
+            // \u00a0 (NBSP) and \ufeff (BOM), which the server deliberately keeps. A
+            // payload made only of those would be dropped here with no request and
+            // no toast, while the server would have accepted it.
+            if (!this.stripOuter(this.input.value)) return;
 
             this.submitScan(this.input.value);
         });
@@ -87,11 +98,18 @@ const ScanCapture = {
             response => response.json()
                 .catch(() => null)
                 .then(data => ({ ok: response.ok, data })),
-            () => ({ networkError: true })
+            error => ({ networkError: true, aborted: !!error && error.name === 'AbortError' })
         )
         .then(result => {
             if (result.networkError) {
-                this.handleFailure(rawText, 'Scan failed: could not reach the server.');
+                // An abort is NOT the same as an unreachable server: the
+                // request may have been received and processed, and only the
+                // response was too slow. Saying "could not reach the server"
+                // would invite a rescan of something already accepted — which
+                // matters once Stories 4.3/4.5 give this endpoint side effects.
+                this.handleFailure(rawText, result.aborted
+                    ? 'Scan timed out - the server may or may not have received it.'
+                    : 'Scan failed: could not reach the server.');
             } else if (result.ok && result.data && result.data.success) {
                 this.handleSuccess(rawText);
             } else {
@@ -120,7 +138,13 @@ const ScanCapture = {
      * still show the cleared-field "accepted" signal — a lost scan.
      */
     handleSuccess: function(rawText) {
-        if (this.input.value !== rawText) return;   // newer keystrokes win
+        if (this.input.value !== rawText) {
+            // Newer keystrokes win — but they sit on top of the accepted text
+            // ("SCAN1SCAN2"). Select the residue so the next burst overwrites
+            // it instead of concatenating onto it.
+            this.selectIfActive();
+            return;
+        }
 
         this.input.value = '';
         this.refocus();
@@ -133,13 +157,23 @@ const ScanCapture = {
      * fired.
      *
      * Restoring is likewise conditional: if the operator has already started
-     * a fresh scan, overwriting it would trade one lost scan for another.
+     * a fresh scan, overwriting it would trade one lost scan for another. On
+     * that branch the failed text is put in the TOAST instead — otherwise it
+     * exists nowhere on either side (the server logs it only at debug) while
+     * the message still claims it was kept.
      */
     handleFailure: function(rawText, message) {
         if (this.input.value === '' || this.input.value === rawText) {
             this.input.value = rawText;
-            this.refocus();
-            this.input.select();
+            // select() focuses the element as a side effect, so it must run
+            // ONLY when refocus() decided focusing was allowed. Calling it
+            // unconditionally would yank focus back from whatever field the
+            // operator moved to — exactly what refocus() exists to prevent.
+            if (this.refocus()) {
+                this.input.select();
+            }
+        } else {
+            message = `${message} Unrestored scan: ${this.escapeHtml(rawText)}`;
         }
 
         this.notify(message, 'danger');
@@ -147,11 +181,28 @@ const ScanCapture = {
 
     // Never yank focus back from wherever the operator has moved in the
     // meantime — a late response must not steal keystrokes from another field.
+    // Returns whether focus was (or already was) on the scan field.
     refocus: function() {
         const active = document.activeElement;
         if (active === this.input || active === document.body || active === null) {
             this.input.focus();
+            return true;
         }
+        return false;
+    },
+
+    // Select the field's contents, but only when it already has focus —
+    // select() focuses as a side effect and must never steal focus.
+    selectIfActive: function() {
+        if (document.activeElement === this.input) {
+            this.input.select();
+        }
+    },
+
+    // The server's trim rule, mirrored EXACTLY (routes.py `_SCAN_TRIM`).
+    // Used only to decide "is this blank"; the value posted is never trimmed.
+    stripOuter: function(value) {
+        return value.replace(/^[ \t\r\n]+/, '').replace(/[ \t\r\n]+$/, '');
     },
 
     notify: function(message, level) {
@@ -173,6 +224,9 @@ const ScanCapture = {
         return 'Scan failed. The scanned text has been kept for retry.';
     },
 
+    // TEXT-NODE CONTEXT ONLY. This escapes &, < and > — which is what
+    // showToast's `<div class="toast-body">${message}</div>` needs — but NOT
+    // quotes. Stories 4.2/4.3 must not reuse it for an attribute position.
     escapeHtml: function(text) {
         const div = document.createElement('div');
         div.textContent = String(text);

@@ -14,6 +14,8 @@ Covers the global #scan-input navbar field:
 These tests mutate no data, so they are trivially safe under --reruns.
 """
 
+import json
+
 import pytest
 from playwright.sync_api import expect
 
@@ -77,10 +79,17 @@ class TestScanFieldPresence:
         assert page.locator('#scan-input[name*="search"]').count() == 0
         assert page.locator('#scan-input[type="search"]').count() == 0
 
-    def test_scan_capture_script_is_loaded(self, page, live_server):
-        """scan-capture.js is a global <script>, like main.js."""
+    def test_scan_capture_script_is_loaded_and_bound(self, page, live_server):
+        """scan-capture.js is a global <script>, like main.js.
+
+        The export happens at parse time and is true even when `init()` bailed
+        out at `if (!this.input) return;`, so assert the binding too — that is
+        the property the field actually depends on.
+        """
         page.goto(f'{live_server.url}/')
         assert page.evaluate('() => typeof window.ScanCapture') == 'object'
+        assert page.evaluate(
+            "() => window.ScanCapture.input === document.getElementById('scan-input')") is True
 
 
 @pytest.mark.e2e
@@ -130,7 +139,12 @@ class TestWedgeScanCapture:
         expect(scan_input).to_be_focused(timeout=5000)
 
     def test_two_consecutive_scans_each_post_once(self, page, live_server):
-        """The field is ready for the next scan immediately."""
+        """The field is ready for the next scan immediately.
+
+        Asserts the payloads, not just the count: two requests both carrying
+        FIRST-SCAN is precisely the residue bug a consecutive-scan test exists
+        to catch, and a count-only assertion cannot see it.
+        """
         page.goto(f'{live_server.url}/')
         calls = record_scan_requests(page)
 
@@ -140,7 +154,7 @@ class TestWedgeScanCapture:
             simulate_wedge_scan(page, 'SECOND-SCAN')
 
         page.wait_for_timeout(500)
-        assert len(calls) == 2
+        assert [json.loads(c)['raw'] for c in calls] == ['FIRST-SCAN', 'SECOND-SCAN']
 
     def test_blank_enter_sends_no_request(self, page, live_server):
         """Nothing was scanned, so nothing is transmitted."""
@@ -168,6 +182,25 @@ class TestWedgeScanCapture:
         page.wait_for_timeout(1000)
 
         assert calls == []
+
+    def test_blank_gate_uses_the_servers_trim_set_not_js_trim(self, page, live_server):
+        """The client's "is this blank" test must match `_SCAN_TRIM` exactly.
+
+        JS `trim()` strips the full Unicode whitespace set, including \\x0b,
+        \\x0c, NBSP and BOM - all of which the server deliberately KEEPS (see
+        test_other_control_characters_are_also_never_trimmed). Gating on
+        `trim()` would silently drop a payload the server would have accepted,
+        with no request and no toast (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+
+        kept = page.evaluate("""() => ['\\x0b', '\\x0c', '\\u00a0', '\\ufeff', '\\x1e']
+            .filter(c => window.ScanCapture.stripOuter(c) === c)""")
+        assert kept == ['\x0b', '\x0c', '\u00a0', '\ufeff', '\x1e']
+
+        trimmed = page.evaluate(
+            "() => [' ', '\\t', '\\r', '\\n'].map(c => window.ScanCapture.stripOuter(c))")
+        assert trimmed == ['', '', '', '']
 
     def test_second_enter_while_in_flight_is_ignored_but_not_silently(
             self, page, live_server):
@@ -197,6 +230,61 @@ class TestWedgeScanCapture:
         page.wait_for_timeout(1500)
 
         assert len(calls) == 1
+
+    def test_typed_ahead_burst_does_not_concatenate_onto_the_next_scan(
+            self, page, live_server):
+        """The dropped burst's CHARACTERS, not just its Enter, must not survive.
+
+        A real wedge types before it sends Enter, so a double-scan leaves the
+        field holding 'SCAN1SCAN2'. If that residue is left un-selected, the
+        operator's rescan appends again and POSTs the concatenation as one
+        valid scan - a silently WRONG scan, which is worse than a lost one
+        (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        calls = record_scan_requests(page)
+
+        # Simulate the wedge faithfully: first burst + Enter, then the second
+        # burst's characters land while the first POST is still in flight.
+        page.evaluate("""() => {
+            window.__slowResolve = null;
+            // Keep the original: `fetch` is an OWN property of window in
+            // Chromium, so `delete window.fetch` removes it outright.
+            window.__realFetch = window.fetch;
+            window.fetch = () => new Promise(r => { window.__slowResolve = r; });
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'SCAN1';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            el.value = 'SCAN1SCAN2';            // second burst types in
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+        }""")
+
+        expect(page.locator('.toast.text-bg-warning')).to_be_visible(timeout=5000)
+
+        # The residue is selected, so the next keystroke replaces it.
+        selected = page.evaluate("""() => {
+            const el = document.getElementById('scan-input');
+            return el.selectionStart === 0 && el.selectionEnd === el.value.length;
+        }""")
+        assert selected is True
+
+        # Let the first POST land, then scan again for real.
+        page.evaluate("""() => {
+            window.__slowResolve(new Response(
+                JSON.stringify({success: true, raw: 'SCAN1', outcome: 'unrouted'}),
+                {status: 200, headers: {'Content-Type': 'application/json'}}));
+            window.fetch = window.__realFetch;
+        }""")
+        page.wait_for_timeout(300)
+
+        with page.expect_response('**/api/scan'):
+            page.locator(SCAN_INPUT).type('SCAN3')
+            page.locator(SCAN_INPUT).press('Enter')
+
+        assert [json.loads(c)['raw'] for c in calls] == ['SCAN3']
 
 
 @pytest.mark.e2e
@@ -234,6 +322,63 @@ class TestScanFailureHandling:
 
         expect(page.locator(SCAN_INPUT)).to_have_value('OFFLINE-SCAN', timeout=5000)
         expect(page.locator('.toast.text-bg-danger')).to_be_visible(timeout=5000)
+
+    def test_unrestorable_scan_text_is_surfaced_in_the_toast(self, page, live_server):
+        """When the field already holds a fresh scan, the failed text cannot be
+        restored into it - so it must appear somewhere.
+
+        Otherwise it exists nowhere on either side while the toast still tells
+        the operator the scan was kept: a lost scan wearing a kept-scan label
+        (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.__slowReject = null;
+            window.fetch = () => new Promise((_, rej) => { window.__slowReject = rej; });
+        }""")
+
+        page.evaluate("""() => {
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'FAILED-SCAN';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            el.value = 'A-FRESH-SCAN';          // operator has moved on
+            window.__slowReject(new TypeError('network'));
+        }""")
+
+        toast = page.locator('.toast.text-bg-danger')
+        expect(toast).to_be_visible(timeout=5000)
+        assert 'FAILED-SCAN' in toast.inner_text()
+        # The fresh scan is not overwritten by the failed one.
+        expect(page.locator(SCAN_INPUT)).to_have_value('A-FRESH-SCAN', timeout=5000)
+
+    def test_timeout_is_not_reported_as_an_unreachable_server(self, page, live_server):
+        """An abort means the outcome is UNKNOWN - the server may have taken
+        the scan. Telling the operator it was unreachable invites a rescan of
+        something already accepted, which matters once Stories 4.3/4.5 give
+        this endpoint side effects.
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.ScanCapture.config.timeoutMs = 200;
+            // Honour the abort signal the way a real fetch does.
+            window.fetch = (url, opts) => new Promise((_, reject) => {
+                opts.signal.addEventListener('abort', () => {
+                    const e = new Error('aborted');
+                    e.name = 'AbortError';
+                    reject(e);
+                });
+            });
+        }""")
+
+        simulate_wedge_scan(page, 'TIMED-OUT-SCAN')
+
+        toast = page.locator('.toast.text-bg-danger')
+        expect(toast).to_be_visible(timeout=5000)
+        assert 'timed out' in toast.inner_text().lower()
+        assert 'could not reach' not in toast.inner_text().lower()
+        expect(page.locator(SCAN_INPUT)).to_have_value('TIMED-OUT-SCAN', timeout=5000)
 
     def test_server_error_message_is_escaped_not_rendered(self, page, live_server):
         """`showToast` interpolates into innerHTML, so the server-supplied
@@ -307,6 +452,32 @@ class TestLateResponseDoesNotClobberTheOperator:
         page.wait_for_timeout(1200)
 
         expect(page.locator(JA_ID_INPUT)).to_be_focused(timeout=5000)
+
+    def test_late_failure_does_not_steal_focus_from_another_field(
+            self, page, live_server):
+        """The FAILURE path must respect the same guard as the success path.
+
+        `select()` focuses the element as a side effect, so calling it outside
+        the refocus guard would yank focus back from the JA ID field the
+        operator moved to - the very defect refocus() exists to prevent, just
+        via a different call.
+        """
+        page.goto(f'{live_server.url}/inventory')
+        page.evaluate("""(delayMs) => {
+            window.fetch = () => new Promise(resolve => setTimeout(
+                () => resolve(new Response(
+                    JSON.stringify({success: false, error: {code: 'invalid_field',
+                        message: 'nope', field: 'raw'}}),
+                    {status: 400, headers: {'Content-Type': 'application/json'}})),
+                delayMs));
+        }""", 400)
+
+        self._press_enter(page, 'AAA')
+        page.locator(JA_ID_INPUT).focus()
+        page.wait_for_timeout(1200)
+
+        expect(page.locator(JA_ID_INPUT)).to_be_focused(timeout=5000)
+        expect(page.locator('.toast.text-bg-danger')).to_be_visible(timeout=5000)
 
 
 @pytest.mark.e2e

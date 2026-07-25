@@ -1098,7 +1098,11 @@ def api_scan():
             'Scan rejected: `raw` absent or not a string (got %s)', type(raw).__name__)
         return _catalog_json_error('invalid_field', 'raw must be a string', 400, field='raw')
 
-    # Bound the transmitted value, before trimming: this is a transport limit.
+    # Bound the captured value, before trimming. Note what this does NOT do:
+    # the body has already been read and parsed by get_json() above, and len()
+    # counts code points rather than bytes, so this is a payload sanity bound,
+    # not a transport/memory guard. Bounding the request body itself is an
+    # app-wide MAX_CONTENT_LENGTH concern and is tracked as deferred work.
     if len(raw) > MAX_SCAN_LENGTH:
         current_app.logger.warning(
             'Scan rejected: %d characters exceeds the %d limit', len(raw), MAX_SCAN_LENGTH)
@@ -1115,8 +1119,12 @@ def api_scan():
     # The only server-side record that a scan arrived. Logged at debug because
     # a rapid-scanning operator generates one of these per item; it is the
     # entire diagnostic value of a transport-only endpoint when a scanner
-    # starts emitting something unexpected.
-    current_app.logger.debug('Scan captured: %d characters, outcome=unrouted', len(cleaned))
+    # starts emitting something unexpected. `repr` because the whole question
+    # a wedge investigation asks is "which bytes actually arrived" — a bare
+    # character count cannot answer it, and control characters would otherwise
+    # be invisible in the log. Barcodes here carry no personal data.
+    current_app.logger.debug(
+        'Scan captured: %d characters %r, outcome=unrouted', len(cleaned), cleaned)
 
     return jsonify({'success': True, 'raw': cleaned, 'outcome': 'unrouted'}), 200
 
