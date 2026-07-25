@@ -80,7 +80,7 @@ development_status:
 
   # Epic 4 — Scan Routing & ECIA
   epic-4: backlog
-  4-1-wedge-scan-capture: backlog
+  4-1-wedge-scan-capture: done
   4-2-pure-scan-classifier: backlog
   4-3-service-scan-resolution: backlog
   4-4-ecia-distributor-label-parsing: backlog
