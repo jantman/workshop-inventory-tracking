@@ -2,13 +2,17 @@
 Route tests for the wedge-scan capture endpoint, POST /api/scan (Story 4.1, FR35).
 
 Uses the `client` fixture. The endpoint touches no database and constructs no
-service, so no storage fixture is needed anywhere in this module — that is
-itself part of the contract: resolution is Story 4.3's.
+service — that is itself part of the contract, asserted by
+`test_endpoint_constructs_no_catalog_service`: resolution is Story 4.3's. The
+one exception is the CSRF test that builds a second app with protection
+genuinely enabled, which needs a storage backend to construct the app at all.
 """
+
+import logging
 
 import pytest
 
-from app.main.routes import MAX_SCAN_LENGTH, _clean_scan_input
+from app.main.routes import MAX_SCAN_LENGTH, _SCAN_LOG_CHARS, _clean_scan_input
 
 
 @pytest.mark.unit
@@ -276,3 +280,51 @@ class TestScanCaptureEndpoint:
         """Story 4.1 resolves nothing; 4.2/4.3 add to this shape, not this story."""
         data = client.post('/api/scan', json={'raw': '0123'}).get_json()
         assert set(data.keys()) == {'success', 'raw', 'outcome'}
+
+
+@pytest.mark.unit
+class TestScanLogging:
+    """The only server-side record that a scan arrived.
+
+    Pinned rather than merely present: this is the one endpoint whose entire
+    purpose is "did the scan get here", so a log line that can be deleted
+    without turning a test red is a diagnostic that will quietly disappear.
+    """
+
+    def test_captured_scan_is_logged_with_its_bytes(self, client, app, caplog):
+        """`repr`, not a character count - a wedge investigation asks which
+        bytes actually arrived, and control characters are invisible otherwise.
+        """
+        with caplog.at_level(logging.DEBUG, logger=app.logger.name):
+            assert client.post('/api/scan', json={'raw': 'P\x1d123'}).status_code == 200
+
+        captured = [r.getMessage() for r in caplog.records if 'Scan captured' in r.getMessage()]
+        assert captured, 'a captured scan must leave a server-side record'
+        assert '\\x1d' in captured[0]
+
+    @pytest.mark.parametrize('body, fragment', [
+        ({'raw': '   '}, 'blank after trimming'),          # scanner emitting only its suffix
+        ({'raw': 'x' * (MAX_SCAN_LENGTH + 1)}, 'exceeds'),  # runaway payload
+        ({}, 'not a string'),                              # malformed client
+    ])
+    def test_every_rejection_path_logs_a_warning(self, client, app, caplog, body, fragment):
+        """A rejected scan the operator has to ask about must be findable."""
+        with caplog.at_level(logging.DEBUG, logger=app.logger.name):
+            assert client.post('/api/scan', json=body).status_code == 400
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(fragment in message for message in warnings), warnings
+
+    def test_logged_scan_is_bounded(self, client, app, caplog):
+        """The endpoint is CSRF-exempt and unthrottled, and `repr` of control
+        characters is several times longer than the payload - so what reaches
+        the log is truncated rather than echoed at whatever length was sent.
+        """
+        raw = 'y' * MAX_SCAN_LENGTH
+        with caplog.at_level(logging.DEBUG, logger=app.logger.name):
+            assert client.post('/api/scan', json={'raw': raw}).status_code == 200
+
+        captured = [r.getMessage() for r in caplog.records if 'Scan captured' in r.getMessage()]
+        assert captured
+        assert 'y' * (_SCAN_LOG_CHARS + 1) not in captured[0]
+        assert str(MAX_SCAN_LENGTH) in captured[0]      # the true length is still recorded

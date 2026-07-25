@@ -36,6 +36,15 @@ const ScanCapture = {
     // Text known to be two scans run together. Never submittable.
     mergedResidue: null,
 
+    // Text the CLIENT itself put back in the field after a failure. Submitting
+    // it again is a legitimate retry; submitting something that EXTENDS it is a
+    // later burst's characters sitting on top of it.
+    retainedText: null,
+
+    // The field value already announced as a dropped burst, so a CR+LF wedge's
+    // second Return does not warn about the same drop twice.
+    warnedText: null,
+
     init: function() {
         this.input = document.getElementById('scan-input');
         if (!this.input) return;
@@ -68,39 +77,47 @@ const ScanCapture = {
                 // double-processing it once Stories 4.3/4.5 add side effects.
                 if (this.input.value === this.inFlightText) return;
 
+                // The same CR+LF suffix sends its second Return after a burst
+                // that WAS dropped, and the field is unchanged since the drop
+                // was announced. One dropped burst, one warning.
+                if (this.input.value === this.warnedText) return;
+
                 // The field has GROWN, so this is a second burst and its scan
                 // is genuinely dropped — announced, never silently, because a
                 // silent drop is indistinguishable from a captured scan.
-                this.notify('Previous scan still in progress - rescan this item.', 'warning');
+                this.warnedText = this.input.value;
                 if (this.inFlightText && this.input.value.startsWith(this.inFlightText)) {
                     // The dropped burst's CHARACTERS sit on top of the text
-                    // still in flight ("SCAN1SCAN2").
+                    // still in flight ("SCAN1SCAN2"). This burst is complete —
+                    // its Enter is what brought us here — so selecting is safe.
                     this.flagMergedResidue();
                 } else {
                     // The operator cleared the field first, so what is there is
                     // a clean scan — dropped, but not contaminated.
                     this.selectIfActive();
                 }
+                this.notify('Previous scan still in progress - rescan this item.', 'warning');
                 return;
             }
 
-            // The residue of a dropped burst ("SCAN1SCAN2") must never be
-            // submitted. Selecting it only protects the path where the next
-            // burst TYPES over it; a bare Enter — the obvious response to
-            // "rescan this item", and what a repeat-trigger scanner emits —
-            // would otherwise POST the concatenation as one valid 200 scan. A
-            // silently WRONG scan is worse than the lost scan the guard exists
-            // to prevent.
-            if (this.isMergedResidue(this.input.value)) {
+            // Two scans run together ("SCAN1SCAN2") must never be submitted.
+            // Selecting the residue only protects the path where the next burst
+            // TYPES over it; a bare Enter — the obvious response to "rescan this
+            // item", and what a repeat-trigger scanner emits — would otherwise
+            // POST the concatenation as one valid 200 scan. A silently WRONG
+            // scan is worse than the lost scan the guard exists to prevent.
+            if (this.isContaminated(this.input.value)) {
+                const refused = this.input.value;
                 this.input.value = '';
-                this.mergedResidue = null;
+                this.forgetFieldText();
                 this.notify(
-                    'That text was two scans run together and was not sent - scan again.',
+                    'That text was two scans run together and was not sent - scan again. ' +
+                        `Discarded: ${this.printable(refused)}`,
                     'danger');
                 this.refocus();
                 return;
             }
-            this.mergedResidue = null;
+            this.forgetFieldText();
 
             // Blank Enter is a no-op: send nothing. The blank test must use the
             // SERVER's trim set, not JS trim() — trim() also strips \x0b, \x0c,
@@ -116,17 +133,51 @@ const ScanCapture = {
     /**
      * Remember a concatenation so a later bare Enter cannot submit it, and
      * select it so the next burst's first keystroke overwrites it.
+     *
+     * Only safe from the keydown path, where the burst that produced the value
+     * has finished (its Enter is what got us here). From an asynchronous
+     * response handler the burst may still be typing, and selecting mid-burst
+     * would make its remaining keystrokes REPLACE the field — leaving a
+     * truncated payload that no longer matches the residue and would submit.
+     * Those paths use markMergedResidue instead.
      */
     flagMergedResidue: function() {
-        this.mergedResidue = this.input.value;
+        this.markMergedResidue();
         this.selectIfActive();
     },
 
-    // startsWith, not equality: if focus had already left the field,
-    // selectIfActive could not select it, so a later burst appends to the
-    // residue rather than replacing it.
-    isMergedResidue: function(value) {
-        return !!this.mergedResidue && value.startsWith(this.mergedResidue);
+    // Record a concatenation without touching the selection. The value may
+    // still be growing, which the startsWith match in isContaminated absorbs.
+    markMergedResidue: function() {
+        this.mergedResidue = this.input.value;
+    },
+
+    /**
+     * Is this value known to be more than one scan?
+     *
+     * Two records, because the two cases differ on equality:
+     * - `mergedResidue` is already a concatenation, so submitting it unchanged
+     *   is exactly the silently-wrong scan to refuse. startsWith, not equality:
+     *   if focus had left the field the residue could not be selected, so a
+     *   later burst appends to it rather than replacing it.
+     * - `retainedText` is a single failed scan the client put back for retry,
+     *   so submitting it unchanged is legitimate. Only a value that STRICTLY
+     *   extends it carries a later burst's characters on top.
+     */
+    isContaminated: function(value) {
+        if (this.mergedResidue && value.startsWith(this.mergedResidue)) return true;
+
+        return !!this.retainedText &&
+            value.length > this.retainedText.length &&
+            value.startsWith(this.retainedText);
+    },
+
+    // Forget what the client knows about the field's current contents, because
+    // the operator has replaced it with something unrelated.
+    forgetFieldText: function() {
+        this.mergedResidue = null;
+        this.retainedText = null;
+        this.warnedText = null;
     },
 
     /**
@@ -186,8 +237,11 @@ const ScanCapture = {
         .catch(error => {
             // Only reachable if a handler above threw. Do not claim a network
             // failure and do not touch the field: the server's verdict is
-            // unknown and the operator's field state is whatever it left.
+            // unknown and the operator's field state is whatever it left. Say
+            // so anyway — silence here is indistinguishable from a scan that
+            // never fired, which is the reason the failure toast is mandatory.
             console.error('Scan handler error:', error);
+            this.notify('Scan status unknown - check before rescanning.', 'danger');
         })
         .finally(() => {
             clearTimeout(timer);
@@ -208,17 +262,26 @@ const ScanCapture = {
     handleSuccess: function(rawText) {
         if (this.input.value !== rawText) {
             // Newer keystrokes win. If they sit ON TOP of the text the server
-            // just accepted ("SCAN1SCAN2") the field is contaminated, so flag
-            // it as unsubmittable and select it. If the operator cleared the
-            // field first, what is there is a clean scan — leave it alone.
+            // just accepted ("SCAN1SCAN2") the field is contaminated, so record
+            // it as unsubmittable. If the operator cleared the field first,
+            // what is there is a clean scan — leave it alone.
             if (this.input.value.startsWith(rawText)) {
-                this.flagMergedResidue();
+                this.markMergedResidue();
+                // The field cannot be cleared, so THIS scan has no success
+                // signal at all — and the refusal the operator's next Enter
+                // earns talks about the field, not about the item already
+                // captured. Silence here reads as "never fired" and invites a
+                // rescan of something the server has taken.
+                this.notify(
+                    'Scan accepted. The field now holds two scans run together' +
+                        ' - scan the next item again.',
+                    'warning');
             }
             return;
         }
 
         this.input.value = '';
-        this.mergedResidue = null;
+        this.forgetFieldText();
         this.refocus();
     },
 
@@ -238,6 +301,12 @@ const ScanCapture = {
         if (this.input.value === '' || this.input.value === rawText) {
             this.input.value = rawText;
             this.mergedResidue = null;
+            this.warnedText = null;
+            // Remember what the client itself left in the field. The selection
+            // below is gone the moment the operator clicks anywhere, and a burst
+            // arriving after that APPENDS — so the retry text needs the same
+            // concatenation guard the dropped-burst residue has.
+            this.retainedText = rawText;
             // select() focuses the element as a side effect, so it must run
             // ONLY when refocus() decided focusing was allowed. Calling it
             // unconditionally would yank focus back from whatever field the
@@ -246,7 +315,14 @@ const ScanCapture = {
                 this.input.select();
             }
         } else {
-            message = `${message} Unrestored scan: ${rawText}`;
+            // A burst is typing into the field right now, and its characters
+            // sit on top of the failed text. The Enter it is about to send must
+            // not POST that concatenation, so record it before the Enter
+            // arrives — without selecting, which would truncate the burst.
+            if (this.input.value.startsWith(rawText)) {
+                this.markMergedResidue();
+            }
+            message = `${message} Unrestored scan: ${this.printable(rawText)}`;
         }
 
         this.notify(message, 'danger');
@@ -257,7 +333,13 @@ const ScanCapture = {
     // Returns whether focus was (or already was) on the scan field.
     refocus: function() {
         const active = document.activeElement;
-        if (active === this.input || active === document.body || active === null) {
+        // documentElement and a DETACHED node are both "nothing is focused"
+        // states a browser really reports — the latter after the element the
+        // operator was on is removed, which a dismissed toast's own close
+        // button does. Treating them as another field would leave the scan
+        // field unfocused and the next burst going nowhere.
+        if (!active || active === this.input || active === document.body ||
+                active === document.documentElement || !document.contains(active)) {
             this.input.focus();
             return true;
         }
@@ -282,27 +364,51 @@ const ScanCapture = {
      * The SINGLE escaping boundary. `showToast` interpolates its argument into
      * innerHTML, so every message is escaped here and every caller passes plain
      * text — including server-supplied strings and the scanned payload itself,
-     * which a printed label makes attacker-suppliable physical input.
+     * which a printed label makes attacker-suppliable physical input. Escaping
+     * per call site would leave nothing at the call site to distinguish an
+     * already-escaped string from a raw one.
      *
-     * Escaping at each call site instead (as this file did) leaves nothing at
-     * the call site to distinguish an already-escaped string from a raw one,
-     * which is exactly how Stories 4.2/4.3 would reintroduce the injection.
+     * `showToast` needs the Bootstrap bundle, which is loaded from a CDN. If it
+     * throws, the operator loses the toast — but a scan-state mutation must
+     * never be skipped because the notification failed, so nothing here
+     * propagates. Callers still mutate state BEFORE notifying.
      */
     notify: function(message, level) {
-        if (window.WorkshopInventory && window.WorkshopInventory.utils) {
-            window.WorkshopInventory.utils.showToast(this.escapeHtml(message), level);
-        } else {
-            console.error(message);
+        try {
+            if (window.WorkshopInventory && window.WorkshopInventory.utils) {
+                window.WorkshopInventory.utils.showToast(this.escapeHtml(message), level);
+                return;
+            }
+        } catch (error) {
+            console.error('Scan toast failed:', error);
         }
+        console.error(message);
     },
 
     // AD-13 object-error envelope: {success: false, error: {code, message, field?}}
-    // Returns PLAIN TEXT; `notify` escapes it.
+    // Returns PLAIN TEXT; `notify` escapes it. The message is server-supplied,
+    // so its type is checked and its length bounded rather than trusted — an
+    // object would render as "[object Object]" and a long one would push the
+    // toast off the screen.
     errorMessage: function(data) {
-        if (data && data.error && data.error.message) {
-            return `Scan failed: ${data.error.message}`;
+        const message = data && data.error && data.error.message;
+        if (typeof message === 'string' && message) {
+            return `Scan failed: ${message.slice(0, 200)}`;
         }
         return 'Scan failed. The scanned text has been kept for retry.';
+    },
+
+    /**
+     * Render control characters visibly, the way the server logs `repr`.
+     *
+     * A toast that tells the operator to read the text off must not put an
+     * ISO/IEC 15434 envelope's GS/RS/EOT into the DOM, where they render as
+     * nothing and the message becomes a claim about text that is not there.
+     */
+    printable: function(text) {
+        return String(text).replace(
+            /[\x00-\x1f\x7f]/g,
+            (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
     },
 
     // TEXT-NODE CONTEXT ONLY. This escapes &, < and > — which is what

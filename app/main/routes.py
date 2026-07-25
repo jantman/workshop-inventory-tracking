@@ -1061,6 +1061,12 @@ MAX_SCAN_LENGTH = 4096
 # and Story 4.4's parser would see a truncated record.
 _SCAN_TRIM = ' \t\r\n'
 
+# How much of a captured scan reaches the log. The endpoint is CSRF-exempt and
+# unthrottled, and `repr` of a control-character-heavy payload is several times
+# longer than the payload itself, so an unbounded log line is an amplification
+# any client can drive. A real payload is well under this.
+_SCAN_LOG_CHARS = 512
+
 
 def _clean_scan_input(value):
     """Strip leading/trailing space, tab, CR and LF from a captured scan.
@@ -1105,7 +1111,8 @@ def api_scan():
     # app-wide MAX_CONTENT_LENGTH concern and is tracked as deferred work.
     if len(raw) > MAX_SCAN_LENGTH:
         current_app.logger.warning(
-            'Scan rejected: %d characters exceeds the %d limit', len(raw), MAX_SCAN_LENGTH)
+            'Scan rejected: %d characters exceeds the %d limit, starts %r',
+            len(raw), MAX_SCAN_LENGTH, raw[:_SCAN_LOG_CHARS])
         return _catalog_json_error(
             'invalid_field',
             f'raw must be {MAX_SCAN_LENGTH} characters or fewer',
@@ -1113,7 +1120,11 @@ def api_scan():
 
     cleaned = _clean_scan_input(raw)
     if not cleaned:
-        current_app.logger.warning('Scan rejected: blank after trimming')
+        # `repr` of what arrived, not just "blank": a scanner that has started
+        # emitting only its suffix is one of the two likeliest real faults, and
+        # a message with no bytes in it cannot tell that from an empty POST.
+        current_app.logger.warning(
+            'Scan rejected: blank after trimming %r', raw[:_SCAN_LOG_CHARS])
         return _catalog_json_error('invalid_field', 'raw must not be empty', 400, field='raw')
 
     # The only server-side record that a scan arrived. Logged at debug because
@@ -1122,9 +1133,11 @@ def api_scan():
     # starts emitting something unexpected. `repr` because the whole question
     # a wedge investigation asks is "which bytes actually arrived" — a bare
     # character count cannot answer it, and control characters would otherwise
-    # be invisible in the log. Barcodes here carry no personal data.
+    # be invisible in the log. Barcodes here carry no personal data. The length
+    # is logged alongside, so a truncated line is recognisable as one.
     current_app.logger.debug(
-        'Scan captured: %d characters %r, outcome=unrouted', len(cleaned), cleaned)
+        'Scan captured: %d characters %r, outcome=unrouted',
+        len(cleaned), cleaned[:_SCAN_LOG_CHARS])
 
     return jsonify({'success': True, 'raw': cleaned, 'outcome': 'unrouted'}), 200
 

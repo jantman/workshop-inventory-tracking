@@ -303,10 +303,42 @@ class TestWedgeScanCapture:
                 'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
         }""")
 
-        expect(page.locator('.toast.text-bg-warning')).to_be_visible(timeout=5000)
+        # `.first`: the accepted first scan raises a second warning of its own
+        # once its response lands, because the field it cannot clear is merged.
+        expect(page.locator('.toast.text-bg-warning').first).to_be_visible(timeout=5000)
         page.wait_for_timeout(1500)
 
         assert [json.loads(c)['raw'] for c in calls] == ['SCAN-ONE']
+
+    def test_one_dropped_burst_warns_once_even_with_a_crlf_suffix(
+            self, page, live_server):
+        """A CR+LF wedge sends two Returns per burst, including the burst that
+        gets dropped.
+
+        Comparing only against the text in flight takes the "field has GROWN"
+        branch twice, so one dropped item produced two identical "rescan this
+        item" toasts - noise on the exact path that has to be trusted (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.fetch = () => new Promise(() => {});   // never settles
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'BURST-ONE';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));  // CR
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));  // LF
+            el.value = 'BURST-ONEBURST-TWO';       // second burst, dropped
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));  // CR
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));  // LF
+        }""")
+
+        expect(page.locator('.toast.text-bg-warning')).to_be_visible(timeout=5000)
+        page.wait_for_timeout(600)
+        assert page.locator('.toast.text-bg-warning').count() == 1
 
     def test_bare_enter_on_merged_residue_is_refused_not_posted(
             self, page, live_server):
@@ -338,7 +370,7 @@ class TestWedgeScanCapture:
                 {status: 200, headers: {'Content-Type': 'application/json'}}));
         }""")
 
-        expect(page.locator('.toast.text-bg-warning')).to_be_visible(timeout=5000)
+        expect(page.locator('.toast.text-bg-warning').first).to_be_visible(timeout=5000)
         page.wait_for_timeout(300)
 
         # The operator does the obvious thing with the retained text.
@@ -347,7 +379,46 @@ class TestWedgeScanCapture:
 
         assert page.evaluate('() => window.__posts') == ['SCAN1']   # never SCAN1SCAN2
         expect(page.locator(SCAN_INPUT)).to_have_value('', timeout=5000)
-        expect(page.locator('.toast.text-bg-danger')).to_be_visible(timeout=5000)
+        danger = page.locator('.toast.text-bg-danger')
+        expect(danger).to_be_visible(timeout=5000)
+        # Refusing the text also erases it, so - like the unrestorable failed
+        # scan - it has to exist somewhere the operator can still read.
+        assert 'two scans run together' in danger.inner_text()
+        assert 'SCAN1SCAN2' in danger.inner_text()
+
+    def test_accepted_scan_says_so_when_the_field_cannot_be_cleared(
+            self, page, live_server):
+        """A cleared field is the only success signal, so the branch that cannot
+        clear it must speak.
+
+        Silence there is indistinguishable from a scan that never fired - the
+        same reason the failure toast is mandatory - and the refusal the
+        operator's next Enter earns talks about the field, not about the item
+        already captured. Believing it was not captured is what produces the
+        double-scan once Stories 4.3/4.5 add side effects (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.__resolve = null;
+            window.fetch = () => new Promise(r => { window.__resolve = r; });
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'ACCEPTED';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            // Typed ahead, no second Enter - so the in-flight guard never runs
+            // and this branch is the only thing that can say anything.
+            el.value = 'ACCEPTEDNEXT';
+            window.__resolve(new Response(
+                JSON.stringify({success: true, raw: 'ACCEPTED', outcome: 'unrouted'}),
+                {status: 200, headers: {'Content-Type': 'application/json'}}));
+        }""")
+
+        toast = page.locator('.toast.text-bg-warning')
+        expect(toast).to_be_visible(timeout=5000)
+        assert 'accepted' in toast.inner_text().lower()
+        # The typed-ahead characters are not erased by the confirmation.
+        expect(page.locator(SCAN_INPUT)).to_have_value('ACCEPTEDNEXT', timeout=5000)
 
     def test_ime_composition_enter_does_not_submit(self, page, live_server):
         """An IME commit fires Enter too; it ends a composition, not a scan.
@@ -443,7 +514,12 @@ class TestScanFailureHandling:
         scan_input = page.locator(SCAN_INPUT)
         expect(scan_input).to_have_value('LOST-SCAN-GUARD', timeout=5000)
         expect(scan_input).to_be_focused(timeout=5000)
-        expect(page.locator('.toast.text-bg-danger')).to_be_visible(timeout=5000)
+        toast = page.locator('.toast.text-bg-danger')
+        expect(toast).to_be_visible(timeout=5000)
+        # The message, not just the colour: showing the merged-residue refusal
+        # here (or any unrelated danger toast the page raised) would otherwise
+        # satisfy this assertion.
+        assert 'raw must be a string' in toast.inner_text()
 
         selected = page.evaluate("""() => {
             const el = document.getElementById('scan-input');
@@ -459,7 +535,84 @@ class TestScanFailureHandling:
         simulate_wedge_scan(page, 'OFFLINE-SCAN')
 
         expect(page.locator(SCAN_INPUT)).to_have_value('OFFLINE-SCAN', timeout=5000)
-        expect(page.locator('.toast.text-bg-danger')).to_be_visible(timeout=5000)
+        toast = page.locator('.toast.text-bg-danger')
+        expect(toast).to_be_visible(timeout=5000)
+        assert 'could not reach the server' in toast.inner_text()
+
+    def test_restored_text_does_not_concatenate_onto_the_next_burst(
+            self, page, live_server):
+        """The selection is the ONLY thing keeping a failed scan's restored text
+        from merging with the next burst, and a click destroys it.
+
+        The retry text is the value the operator is most likely to be looking
+        at, so this is the likeliest route to the silently WRONG scan the
+        residue machinery exists to refuse - and the one path that machinery did
+        not cover, because the restore explicitly cleared the flag (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.__posts = [];
+            window.fetch = (url, opts) => {
+                window.__posts.push(JSON.parse(opts.body).raw);
+                return Promise.resolve(new Response(
+                    JSON.stringify({success: false, error: {code: 'invalid_field',
+                        message: 'nope', field: 'raw'}}),
+                    {status: 400, headers: {'Content-Type': 'application/json'}}));
+            };
+        }""")
+
+        simulate_wedge_scan(page, 'FAILED-ONE')
+        expect(page.locator(SCAN_INPUT)).to_have_value('FAILED-ONE', timeout=5000)
+
+        # The operator glances at another field and comes back: the selection is
+        # gone, so the next burst APPENDS rather than replacing.
+        page.locator(JA_ID_INPUT).click()
+        page.locator(SCAN_INPUT).click()
+        page.locator(SCAN_INPUT).press('End')
+        page.locator(SCAN_INPUT).type('SCAN-TWO')
+        page.locator(SCAN_INPUT).press('Enter')
+        page.wait_for_timeout(600)
+
+        assert page.evaluate('() => window.__posts') == ['FAILED-ONE']
+        expect(page.locator(SCAN_INPUT)).to_have_value('', timeout=5000)
+        assert 'two scans run together' in page.locator(
+            '.toast.text-bg-danger').last.inner_text()
+
+    def test_failure_landing_mid_burst_refuses_the_concatenation(
+            self, page, live_server):
+        """A wedge types its characters BEFORE its Enter, so a failure can land
+        in the gap between them.
+
+        On that branch the failed text is not restored - it goes into the toast -
+        and nothing else marked the field, so the Enter the burst is about to
+        send would POST 'FIRSTSECOND' as one valid scan (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.__posts = [];
+            window.__reject = null;
+            window.fetch = (url, opts) => {
+                window.__posts.push(JSON.parse(opts.body).raw);
+                return new Promise((_, rej) => { window.__reject = rej; });
+            };
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'FIRST';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            el.value = 'FIRSTSECOND';      // second burst's characters, no Enter yet
+            window.__reject(new TypeError('network'));
+        }""")
+        page.wait_for_timeout(300)
+
+        # Now the second burst sends its terminator.
+        page.locator(SCAN_INPUT).press('Enter')
+        page.wait_for_timeout(500)
+
+        assert page.evaluate('() => window.__posts') == ['FIRST']
+        expect(page.locator(SCAN_INPUT)).to_have_value('', timeout=5000)
+        assert 'two scans run together' in page.locator(
+            '.toast.text-bg-danger').last.inner_text()
 
     def test_unrestorable_scan_text_is_surfaced_in_the_toast(self, page, live_server):
         """When the field already holds a fresh scan, the failed text cannot be
