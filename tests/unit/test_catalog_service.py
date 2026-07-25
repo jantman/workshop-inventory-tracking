@@ -1328,6 +1328,45 @@ class TestCatalogFieldValueSuggestions:
             catalog_service.get_field_value_suggestions('notes', query='x')
 
     @pytest.mark.unit
+    def test_a_child_table_field_without_a_rule_still_fails_loudly(
+        self, catalog_service, monkeypatch
+    ):
+        """The sibling above can only stage a PRODUCT column, so it cannot see
+        the failure mode the second registry introduced.
+
+        `_FIELD_SUGGESTION_MODELS` (Story 3.3) defaults to Product, so a field
+        whose column lives on a child table — as `tags` -> `tag` does — and
+        that is registered in only one of the two maps resolves
+        `getattr(Product, 'tag')` and raises AttributeError, which the route
+        turns into a 500. The wiring error must state itself instead.
+        """
+        from app import mariadb_catalog_service as svc
+
+        monkeypatch.setitem(svc.FIELD_SUGGESTION_COLUMNS, 'identifier_value',
+                            'value')
+
+        with pytest.raises(NotImplementedError):
+            catalog_service.get_field_value_suggestions('identifier_value',
+                                                        query='x')
+
+    @pytest.mark.unit
+    def test_every_whitelisted_field_resolves_to_a_real_column(self):
+        """The two registries must agree. Nothing else checks that a field
+        added to FIELD_SUGGESTION_COLUMNS from a child table also got its
+        _FIELD_SUGGESTION_MODELS entry — and the whitelist is what the ONE
+        endpoint dispatches on, so a mismatch is a 500 on a live field."""
+        from app.database import Product
+        from app.mariadb_catalog_service import (FIELD_SUGGESTION_COLUMNS,
+                                                 _FIELD_SUGGESTION_MODELS)
+
+        assert set(_FIELD_SUGGESTION_MODELS) <= set(FIELD_SUGGESTION_COLUMNS)
+        for field, column_name in FIELD_SUGGESTION_COLUMNS.items():
+            model = _FIELD_SUGGESTION_MODELS.get(field, Product)
+            assert hasattr(model, column_name), (
+                f'{field!r} maps to {model.__name__}.{column_name}, '
+                f'which does not exist')
+
+    @pytest.mark.unit
     def test_the_client_whitelist_mirrors_both_server_whitelists(self):
         """app/api_client.py's SUGGESTABLE_FIELDS documents itself as the
         union of BOTH sources behind the one endpoint (AD-13). Nothing but
@@ -1836,3 +1875,838 @@ class TestCategoryRename:
             'electronics/power', 'electronics/psu') == 1
         assert (catalog_service.get_product(node).category_path
                 == 'electronics/psu')
+
+
+def _tag_error(catalog_service, product_id, tags):
+    """Attempt a retag expected to be REFUSED; return the ValidationError.
+
+    Centralizes the local `app.exceptions` import the rest of this module uses
+    per-test, since every rejection row of Story 3.3's matrix needs it.
+    """
+    from app.exceptions import ValidationError
+    with pytest.raises(ValidationError) as exc_info:
+        catalog_service.set_product_tags(product_id, tags)
+    return exc_info.value
+
+
+def _tag_rows(catalog_service, product_id):
+    """The raw product_tags rows for a product, oldest first.
+
+    Read through the ORM rather than get_tags_for_product where a test needs
+    the row IDENTITY (the diff keeps an unchanged tag's row and its created_at,
+    which a list of strings cannot show).
+    """
+    from app.database import ProductTag
+    session = catalog_service.Session()
+    try:
+        return (session.query(ProductTag)
+                .filter(ProductTag.product_id == product_id)
+                .order_by(ProductTag.id.asc())
+                .all())
+    finally:
+        session.close()
+
+
+class TestProductTags:
+    """Replace-all, diffed, idempotent tag assignment (Story 3.3, FR16)."""
+
+    @pytest.mark.unit
+    def test_assign_tags_to_an_untagged_product(self, catalog_service):
+        """The matrix row: mixed case de-duplicates, the result comes back
+        sorted."""
+        pid = catalog_service.create_product(description='heat sink')
+
+        assert catalog_service.set_product_tags(
+            pid, ['SSR', 'ssr', 'rectifier']) == ['rectifier', 'ssr']
+        assert catalog_service.get_tags_for_product(pid) == ['rectifier', 'ssr']
+        assert len(_tag_rows(catalog_service, pid)) == 2
+
+    @pytest.mark.unit
+    def test_tags_are_stored_in_canonical_form(self, catalog_service):
+        pid = catalog_service.create_product(description='p')
+
+        assert catalog_service.set_product_tags(
+            pid, ['  SSR  Relay ']) == ['ssr relay']
+        assert catalog_service.get_tags_for_product(pid) == ['ssr relay']
+
+    @pytest.mark.unit
+    def test_the_comma_separated_form_field_is_accepted_directly(self, catalog_service):
+        """The route parses the field itself, but a programmatic caller may
+        hand over the raw string — both reach the same canonical list."""
+        pid = catalog_service.create_product(description='p')
+
+        assert catalog_service.set_product_tags(
+            pid, ' SSR, rectifier ,, ssr ') == ['rectifier', 'ssr']
+
+    @pytest.mark.unit
+    def test_replace_all_keeps_unchanged_rows_and_diffs_the_rest(self, catalog_service):
+        """The matrix row: a deleted, b KEPT (same row), c inserted."""
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['a', 'b'])
+        kept_row_id = {row.tag: row.id for row in _tag_rows(catalog_service, pid)}['b']
+
+        assert catalog_service.set_product_tags(pid, ['b', 'c']) == ['b', 'c']
+        rows = {row.tag: row.id for row in _tag_rows(catalog_service, pid)}
+        assert set(rows) == {'b', 'c'}
+        # Diffed, not delete-all-then-insert: b's row (and its created_at)
+        # survived untouched.
+        assert rows['b'] == kept_row_id
+
+    @pytest.mark.unit
+    def test_re_applying_the_same_list_writes_nothing(self, catalog_service):
+        """Idempotence is the route's whole retry story: saving the form again
+        is always safe."""
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr', 'rectifier'])
+        before = [(row.id, row.tag) for row in _tag_rows(catalog_service, pid)]
+
+        assert catalog_service.set_product_tags(
+            pid, ['ssr', 'rectifier']) == ['rectifier', 'ssr']
+        assert [(row.id, row.tag)
+                for row in _tag_rows(catalog_service, pid)] == before
+
+    @pytest.mark.unit
+    def test_clearing_removes_every_row(self, catalog_service):
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr', 'rectifier'])
+
+        assert catalog_service.set_product_tags(pid, []) == []
+        assert catalog_service.get_tags_for_product(pid) == []
+        assert _tag_rows(catalog_service, pid) == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('empty', [
+        [],        # an explicitly empty list
+        '',        # the cleared form field
+        '   ',     # whitespace only
+        ',',       # a bare separator
+        None,      # nothing at all
+    ])
+    def test_every_empty_form_clears(self, catalog_service, empty):
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr'])
+
+        assert catalog_service.set_product_tags(pid, empty) == []
+        assert catalog_service.get_tags_for_product(pid) == []
+
+    @pytest.mark.unit
+    def test_one_products_tags_never_touch_anothers(self, catalog_service):
+        first = catalog_service.create_product(description='a')
+        second = catalog_service.create_product(description='b')
+        catalog_service.set_product_tags(first, ['ssr'])
+        catalog_service.set_product_tags(second, ['ssr'])
+
+        catalog_service.set_product_tags(first, [])
+        assert catalog_service.get_tags_for_product(second) == ['ssr']
+
+    @pytest.mark.unit
+    def test_the_whole_replace_commits_once(self, catalog_service, monkeypatch):
+        """Deletes and inserts land in ONE transaction — not a commit per row."""
+        commits = []
+        session_factory = catalog_service.Session
+
+        def counting_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_commit = session.commit
+
+            def commit():
+                commits.append(1)
+                return real_commit()
+
+            session.commit = commit
+            return session
+
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['a', 'b', 'c'])
+        monkeypatch.setattr(catalog_service, 'Session', counting_factory)
+
+        assert catalog_service.set_product_tags(pid, ['b', 'c', 'd', 'e']) == [
+            'b', 'c', 'd', 'e']
+        assert commits == [1]
+
+    @pytest.mark.unit
+    def test_reading_back_an_untagged_product(self, catalog_service):
+        pid = catalog_service.create_product(description='p')
+        assert catalog_service.get_tags_for_product(pid) == []
+
+    @pytest.mark.unit
+    def test_reading_back_an_unknown_product(self, catalog_service):
+        """A read of a product that does not exist is [] — untagged, not an
+        error; nothing carries tags for it either way."""
+        assert catalog_service.get_tags_for_product(999999) == []
+
+    # --- Rejections: every one leaves the rows untouched --------------------
+
+    @pytest.mark.unit
+    def test_unknown_product_is_rejected(self, catalog_service):
+        error = _tag_error(catalog_service, 999999, ['x'])
+        assert error.field == 'product_id'
+        assert _tag_rows(catalog_service, 999999) == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('tags', [
+        5,                  # not a string and not iterable
+        object(),           # ditto
+        [5, 'ssr'],         # iterable, but carries a non-string
+    ])
+    def test_a_non_iterable_argument_is_a_validation_error_not_a_typeerror(
+            self, catalog_service, tags):
+        """The method's contract is that it raises ValidationError and nothing
+        else. A bare TypeError out of the iteration would reach the route's
+        generic handler as a 500 instead of a message."""
+        pid = catalog_service.create_product(description='p')
+        error = _tag_error(catalog_service, pid, tags)
+        assert error.field == 'tags'
+        assert _tag_rows(catalog_service, pid) == []
+
+    @pytest.mark.unit
+    def test_an_over_length_tag_is_rejected_and_changes_nothing(self, catalog_service):
+        from app.utils.tag import MAX_TAG_LENGTH
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr'])
+
+        error = _tag_error(catalog_service, pid,
+                           ['rectifier', 'a' * (MAX_TAG_LENGTH + 1)])
+        assert error.field == 'tags'
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    def test_a_tag_containing_the_separator_is_rejected(self, catalog_service):
+        """Handed as a LIST element, so nothing splits it first — the form's
+        round trip could not survive it."""
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr'])
+
+        error = _tag_error(catalog_service, pid, ['a,b'])
+        assert error.field == 'tags'
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    def test_too_many_tags_is_rejected_before_any_write(self, catalog_service):
+        from app.utils.tag import MAX_TAGS_PER_PRODUCT
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr'])
+
+        error = _tag_error(catalog_service, pid,
+                           [f't{i}' for i in range(MAX_TAGS_PER_PRODUCT + 1)])
+        assert error.field == 'tags'
+        assert str(MAX_TAGS_PER_PRODUCT) in str(error)
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    def test_a_non_string_tag_is_rejected(self, catalog_service):
+        pid = catalog_service.create_product(description='p')
+        error = _tag_error(catalog_service, pid, [5])
+        assert error.field == 'tags'
+
+    @pytest.mark.unit
+    def test_a_uniqueness_violation_surfaces_as_a_validation_error(
+            self, catalog_service, monkeypatch):
+        """A UNIQUE violation on (product_id, tag) must reach the operator as
+        a sentence naming the conflict — never a raw IntegrityError or a 500.
+
+        In production the trigger is the collation: utf8mb4_unicode_ci folds
+        accents, so 'café' and 'cafe' — two DISTINCT canonical tags in Python —
+        collide on the index there and not under SQLite's binary one. That
+        exact folding is unreproducible here: the confirmation query compares
+        with `==`, so the row it can find under SQLite is the IDENTICAL
+        spelling — which is the concurrent-writer shape, and the arm this test
+        therefore exercises. (The folded-spelling arm, where the row found is
+        spelled differently and is named as conflicting, is MariaDB-only.)
+        Either way the requirement is the same: a named ValidationError, and
+        nothing of this save's own written.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+
+        pid = catalog_service.create_product(description='p')
+        session_factory = catalog_service.Session
+
+        def colliding_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag) for obj in session.new):
+                    return real_flush(*a, **kw)
+                # The index already holds an equal-under-collation row: the
+                # insert is refused, and the row is there for the re-query.
+                planted = session_factory()
+                try:
+                    planted.add(ProductTag(product_id=pid, tag='café'))
+                    planted.commit()
+                finally:
+                    planted.close()
+                raise IntegrityError('INSERT', {}, Exception('duplicate'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', colliding_factory)
+
+        error = _tag_error(catalog_service, pid, ['café', 'ssr'])
+        assert error.field == 'tags'
+        assert 'café' in str(error)
+        # The race is RETRYABLE — the identical list succeeds once the other
+        # transaction is done — and the route reads exactly this to decide
+        # whether to tell the operator to change their tags. It also carries
+        # no advice of its own: the route owns the advice, and the two halves
+        # contradicted each other when both wrote some.
+        assert getattr(error, 'retryable', False) is True
+        assert 'again' not in str(error).lower()
+
+        monkeypatch.undo()
+        # The service itself wrote nothing: its OTHER pending insert ('ssr')
+        # was rolled back with the failed one, leaving only the planted row.
+        assert catalog_service.get_tags_for_product(pid) == ['café']
+
+    @pytest.mark.unit
+    def test_two_new_tags_colliding_with_each_other_is_a_validation_error(
+            self, catalog_service, monkeypatch):
+        """The matrix's own scenario: set_product_tags(id, ['café', 'cafe']) on
+        an untagged product.
+
+        Both rows are NEW, so the rollback that precedes the conflict lookup
+        removes them both and the lookup finds nothing to name — which is how
+        this case escaped as a raw IntegrityError (a 500) while the
+        one-committed-one-new case was handled. The product is still there, so
+        the only thing the index can have refused is one requested tag against
+        another.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+
+        pid = catalog_service.create_product(description='p')
+        session_factory = catalog_service.Session
+
+        def colliding_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag) for obj in session.new):
+                    return real_flush(*a, **kw)
+                # Nothing is planted: this stands in for the collation folding
+                # two of the INCOMING rows onto each other.
+                raise IntegrityError('INSERT', {}, Exception('duplicate'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', colliding_factory)
+
+        error = _tag_error(catalog_service, pid, ['café', 'cafe'])
+        assert error.field == 'tags'
+        assert 'café' in str(error) and 'cafe' in str(error)
+        assert 'Remove one' in str(error)
+        # NOT retryable: the same list is refused forever, so the route must
+        # ask for a different tag rather than another save.
+        assert getattr(error, 'retryable', False) is False
+
+        monkeypatch.undo()
+        assert catalog_service.get_tags_for_product(pid) == []
+
+    @pytest.mark.unit
+    def test_the_collision_message_names_a_readable_number_of_tags(
+            self, catalog_service, monkeypatch):
+        """A collision among a PASTED list must not render a flash naming
+        every tag in it.
+
+        The arm above names the tags it cannot tell apart, which is right for
+        the two-tag case it was written for — but the same branch is reached
+        for a list of MAX_TAGS_PER_PRODUCT, and a Bootstrap alert naming fifty
+        tags is no more actionable than one naming none.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+        from app.mariadb_catalog_service import MAX_TAGS_NAMED_IN_ERROR
+        from app.utils.tag import MAX_TAGS_PER_PRODUCT
+
+        pid = catalog_service.create_product(description='p')
+        session_factory = catalog_service.Session
+
+        def colliding_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag) for obj in session.new):
+                    return real_flush(*a, **kw)
+                raise IntegrityError('INSERT', {}, Exception('duplicate'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', colliding_factory)
+
+        requested = [f'tag{i:02d}' for i in range(MAX_TAGS_PER_PRODUCT)]
+        error = _tag_error(catalog_service, pid, requested)
+
+        message = str(error)
+        named = [t for t in requested if f"'{t}'" in message]
+        assert len(named) == MAX_TAGS_NAMED_IN_ERROR
+        # The ones it dropped are accounted for, not silently missing.
+        assert f'{MAX_TAGS_PER_PRODUCT - MAX_TAGS_NAMED_IN_ERROR} more' in message
+
+    @pytest.mark.unit
+    def test_deletes_are_flushed_before_inserts(self, catalog_service):
+        """A replace must emit its DELETEs before its INSERTs.
+
+        SQLAlchemy's unit of work orders inserts first, so replacing 'café'
+        with 'cafe' would insert the new row while the old one is still
+        present — a collision with a row on its way out, under MariaDB's
+        accent-folding unique index. SQLite cannot reproduce the folding, but
+        the statement ORDER the fix turns on is observable anywhere, and it is
+        what the IntegrityError handler's conflict lookup also depends on.
+        """
+        from sqlalchemy import event
+
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['old'])
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            verb = statement.strip().split(None, 1)[0].upper()
+            if verb in ('INSERT', 'DELETE') and 'product_tags' in statement:
+                statements.append(verb)
+
+        event.listen(catalog_service.engine, 'before_cursor_execute', record)
+        try:
+            catalog_service.set_product_tags(pid, ['new'])
+        finally:
+            event.remove(catalog_service.engine, 'before_cursor_execute',
+                         record)
+
+        assert statements == ['DELETE', 'INSERT'], (
+            f'expected the delete to precede the insert, got {statements}')
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('requested', [
+        ['ssr'],                # one insert — nothing to collide with anyway
+        ['ssr', 'rectifier'],   # two inserts — the shape that WAS mislabelled
+    ])
+    def test_an_integrity_error_that_is_not_a_duplicate_is_re_raised(
+            self, catalog_service, monkeypatch, requested):
+        """Mislabelling an FK failure as a duplicate would send the operator
+        hunting for a tag conflict that does not exist — and, because a
+        ValidationError is deliberately not audited, would erase a real
+        operational failure from the audit log.
+
+        The flush is failed only once ProductTag rows are pending, so the error
+        lands in the guarded flush rather than in the autoflush of the
+        product-existence query that precedes it.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+
+        pid = catalog_service.create_product(description='p')
+
+        session_factory = catalog_service.Session
+
+        def failing_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag) for obj in session.new):
+                    return real_flush(*a, **kw)
+                raise IntegrityError(
+                    'INSERT', {},
+                    Exception('foreign key constraint fails'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', failing_factory)
+
+        with pytest.raises(IntegrityError):
+            catalog_service.set_product_tags(pid, requested)
+
+        monkeypatch.undo()
+        assert catalog_service.get_tags_for_product(pid) == []
+
+    @pytest.mark.unit
+    def test_a_non_duplicate_failure_is_audited_as_an_error(
+            self, catalog_service, monkeypatch):
+        """The audit record is the only trace an operational failure leaves.
+
+        A ValidationError skips it by design (a refused retag is not an
+        operational failure), so misclassifying an infrastructure failure as one
+        would lose the record entirely.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+
+        pid = catalog_service.create_product(description='p')
+        session_factory = catalog_service.Session
+
+        def failing_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag) for obj in session.new):
+                    return real_flush(*a, **kw)
+                raise IntegrityError('INSERT', {},
+                                     Exception('foreign key constraint fails'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', failing_factory)
+
+        recorded = []
+        monkeypatch.setattr(
+            'app.logging_config.log_audit_operation',
+            lambda op, status, **kw: recorded.append((op, status)))
+
+        with pytest.raises(IntegrityError):
+            catalog_service.set_product_tags(pid, ['ssr', 'rectifier'])
+
+        assert ('set_product_tags', 'error') in recorded
+
+    @pytest.mark.unit
+    def test_a_failed_audit_log_cannot_undo_a_committed_retag(
+            self, catalog_service, monkeypatch):
+        """Past the commit the tags HAVE changed; raising here would tell the
+        operator to redo a write that already succeeded."""
+        pid = catalog_service.create_product(description='p')
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('audit sink down')
+
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _boom)
+
+        assert catalog_service.set_product_tags(pid, ['ssr']) == ['ssr']
+        monkeypatch.undo()
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+
+class TestListTags:
+    """The tag vocabulary has no table, so its listing is the distinct set of
+    assigned tags with their product counts (Story 3.3, FR16)."""
+
+    @pytest.mark.unit
+    def test_empty_catalog_lists_nothing(self, catalog_service):
+        assert catalog_service.list_tags() == []
+
+    @pytest.mark.unit
+    def test_counts_products_per_tag(self, catalog_service):
+        """The matrix row: 3 products, two tagged ssr, one rectifier, one
+        untagged."""
+        first = catalog_service.create_product(description='a')
+        second = catalog_service.create_product(description='b')
+        third = catalog_service.create_product(description='c')
+        catalog_service.create_product(description='untagged')
+        catalog_service.set_product_tags(first, ['ssr'])
+        catalog_service.set_product_tags(second, ['ssr'])
+        catalog_service.set_product_tags(third, ['rectifier'])
+
+        assert catalog_service.list_tags() == [('rectifier', 1), ('ssr', 2)]
+
+    @pytest.mark.unit
+    def test_tags_are_alphabetical(self, catalog_service):
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['zener', 'ssr', 'a tag'])
+
+        assert [tag for tag, _ in catalog_service.list_tags()] == [
+            'a tag', 'ssr', 'zener']
+
+    @pytest.mark.unit
+    def test_a_tag_disappears_when_the_last_product_drops_it(self, catalog_service):
+        """The vocabulary accretes purely from use — and recedes the same way."""
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr'])
+        assert catalog_service.list_tags() == [('ssr', 1)]
+
+        catalog_service.set_product_tags(pid, [])
+        assert catalog_service.list_tags() == []
+
+    @pytest.mark.unit
+    def test_the_counting_happens_in_python_not_in_sql(self, catalog_service):
+        """SQL narrows, Python decides — the division `list_category_paths`
+        states and the reason this method loops instead of grouping.
+
+        `GROUP BY tag` under MariaDB's folding collation merges 'café' and
+        'cafe' into ONE row with an arbitrary representative spelling and a
+        summed count, hiding a distinct stored tag from the only page that
+        exists to surface it. SQLite cannot reproduce the folding, so the
+        mechanism would otherwise be untested in either direction — but the
+        ABSENCE of the grouping is observable anywhere, and that is the whole
+        mechanism. Without this, a later 'simplification' to func.count() keeps
+        the suite green and silently loses tags in production.
+        """
+        from sqlalchemy import event
+
+        pid = catalog_service.create_product(description='p')
+        catalog_service.set_product_tags(pid, ['ssr'])
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if 'product_tags' in statement.lower():
+                statements.append(' '.join(statement.split()).upper())
+
+        event.listen(catalog_service.engine, 'before_cursor_execute', record)
+        try:
+            assert catalog_service.list_tags() == [('ssr', 1)]
+        finally:
+            event.remove(catalog_service.engine, 'before_cursor_execute',
+                         record)
+
+        assert statements, 'list_tags emitted no product_tags query at all'
+        for statement in statements:
+            assert 'GROUP BY' not in statement, statement
+            assert 'COUNT(' not in statement, statement
+            assert 'DISTINCT' not in statement, statement
+
+
+class TestFindProductsByTag:
+    """FR16's filter: exactly the tagged products, regardless of category."""
+
+    @pytest.fixture
+    def heat_sinks(self, catalog_service):
+        """The acceptance scenario: three heat sinks at thermal/heat-sinks,
+        two tagged ssr and one rectifier, PLUS a fourth ssr-tagged product
+        filed somewhere else entirely."""
+        first = catalog_service.create_product(
+            description='Heat sink A', category_path='thermal/heat-sinks')
+        second = catalog_service.create_product(
+            description='Heat sink B', category_path='thermal/heat-sinks')
+        third = catalog_service.create_product(
+            description='Heat sink C', category_path='thermal/heat-sinks')
+        outsider = catalog_service.create_product(
+            description='Relay module', category_path='electronics/relays')
+        catalog_service.set_product_tags(first, ['ssr'])
+        catalog_service.set_product_tags(second, ['ssr'])
+        catalog_service.set_product_tags(third, ['rectifier'])
+        catalog_service.set_product_tags(outsider, ['ssr'])
+        return {'first': first, 'second': second, 'third': third,
+                'outsider': outsider}
+
+    @pytest.mark.unit
+    def test_the_filter_crosses_the_category_tree(self, catalog_service, heat_sinks):
+        """THE acceptance criterion (FR16): the ssr products are returned
+        whatever their categories, and the rectifier one is not."""
+        result = catalog_service.find_products_by_tag('ssr')
+
+        assert [p.id for p in result] == [heat_sinks['first'],
+                                          heat_sinks['second'],
+                                          heat_sinks['outsider']]
+        assert {p.category_path for p in result} == {'thermal/heat-sinks',
+                                                     'electronics/relays'}
+
+    @pytest.mark.unit
+    def test_results_are_ordered_by_description(self, catalog_service):
+        pid_c = catalog_service.create_product(description='ccc')
+        pid_a = catalog_service.create_product(description='aaa')
+        pid_b = catalog_service.create_product(description='bbb')
+        for pid in (pid_c, pid_a, pid_b):
+            catalog_service.set_product_tags(pid, ['ssr'])
+
+        assert [p.id for p in catalog_service.find_products_by_tag('ssr')] == [
+            pid_a, pid_b, pid_c]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        'ssr',           # canonical
+        '  SSR ',        # padded and upper-cased
+        'SSR',           # upper-cased
+        ' ssr  ',        # padded
+    ])
+    def test_the_argument_is_normalized(self, catalog_service, heat_sinks, query):
+        assert len(catalog_service.find_products_by_tag(query)) == 3
+
+    @pytest.mark.unit
+    def test_an_untagged_product_is_never_returned(self, catalog_service):
+        catalog_service.create_product(description='untagged')
+        assert catalog_service.find_products_by_tag('ssr') == []
+
+    @pytest.mark.unit
+    def test_an_unused_tag_returns_nothing(self, catalog_service, heat_sinks):
+        """An empty result is an answer, not an error."""
+        assert catalog_service.find_products_by_tag('nosuchtag') == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        '',              # blank
+        '   ',           # whitespace only
+        None,            # absent
+        'a' * 200,       # over-length: no stored tag could equal it
+        'a,b',           # comma-bearing: likewise unstorable
+    ])
+    def test_an_unusable_argument_matches_nothing_not_everything(
+            self, catalog_service, heat_sinks, query):
+        """Reading a rejected or empty argument as 'no filter' would hand back
+        the whole catalog."""
+        assert catalog_service.find_products_by_tag(query) == []
+
+    @pytest.mark.unit
+    def test_a_product_is_returned_once_even_with_other_tags(self, catalog_service):
+        pid = catalog_service.create_product(description='multi')
+        catalog_service.set_product_tags(pid, ['ssr', 'rectifier', 'relay'])
+
+        assert [p.id for p in catalog_service.find_products_by_tag('ssr')] == [pid]
+
+    @pytest.mark.unit
+    def test_a_row_the_sql_matched_but_python_rejects_is_dropped(
+            self, catalog_service, monkeypatch):
+        """SQL narrows, Python decides — the post-query equality re-check.
+
+        Under utf8mb4_unicode_ci the `ProductTag.tag == 'cafe'` filter ALSO
+        matches a stored 'café', so the query hands back a product that does
+        not carry the requested tag; returning it would put a product under a
+        tag it was never given. SQLite's binary collation cannot produce that
+        row, so it is staged — what the guard does with it is the same either
+        way, and without this the re-check is dead code in the whole suite.
+        """
+        from app.database import Product
+
+        pid = catalog_service.create_product(description='Cafe grinder')
+        catalog_service.set_product_tags(pid, ['café'])
+        # Baseline: with the binary collation, nothing matches 'cafe' at all.
+        assert catalog_service.find_products_by_tag('cafe') == []
+
+        real_session_factory = catalog_service.Session
+
+        class _FoldingQuery:
+            """Stands in for the query a folding collation would answer."""
+
+            def __init__(self, rows):
+                self._rows = rows
+
+            def join(self, *args, **kwargs):
+                return self
+
+            def filter(self, *args, **kwargs):
+                return self
+
+            def order_by(self, *args, **kwargs):
+                return self
+
+            def all(self):
+                return self._rows
+
+        def folding_factory(*args, **kwargs):
+            session = real_session_factory(*args, **kwargs)
+            real_query = session.query
+
+            def query(*entities, **kwargs_):
+                if entities and entities[0] is Product:
+                    product = real_query(Product).filter(
+                        Product.id == pid).first()
+                    # The collation folded 'café' onto the requested 'cafe'.
+                    return _FoldingQuery([(product, 'café')])
+                return real_query(*entities, **kwargs_)
+
+            session.query = query
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', folding_factory)
+
+        assert catalog_service.find_products_by_tag('cafe') == []
+
+
+class TestTagFieldValueSuggestions:
+    """The tag vocabulary served through the ONE suggestions endpoint
+    (Story 3.3, FR15/FR16, AD-14)."""
+
+    @pytest.fixture
+    def populated(self, catalog_service):
+        pid = catalog_service.create_product(description='seed')
+        catalog_service.set_product_tags(
+            pid, ['ssr', 'ssr relay', 'rectifier', 'heat sink'])
+        return catalog_service
+
+    @pytest.mark.unit
+    def test_blank_query_returns_all_distinct_alphabetically(self, populated):
+        assert populated.get_field_value_suggestions('tags') == [
+            'heat sink', 'rectifier', 'ssr', 'ssr relay']
+
+    @pytest.mark.unit
+    def test_distinct_values_only(self, catalog_service):
+        """The same tag on three products is one suggestion."""
+        for _ in range(3):
+            pid = catalog_service.create_product(description='dup')
+            catalog_service.set_product_tags(pid, ['ssr'])
+        assert catalog_service.get_field_value_suggestions('tags') == ['ssr']
+
+    @pytest.mark.unit
+    def test_the_matrix_ranking_row(self, populated):
+        """tags ssr / ssr relay / rectifier; a query of 'ss'."""
+        assert populated.get_field_value_suggestions('tags', query='ss') == [
+            'ssr', 'ssr relay']
+
+    @pytest.mark.unit
+    def test_ranking_is_exact_then_startswith_then_contains(self, catalog_service):
+        pid = catalog_service.create_product(description='seed')
+        catalog_service.set_product_tags(
+            pid, ['relay ssr', 'ssr relay', 'ssr'])
+
+        assert catalog_service.get_field_value_suggestions(
+            'tags', query='ssr') == [
+                'ssr',          # exact
+                'ssr relay',    # starts-with
+                'relay ssr',    # contains
+            ]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', ['SSR', 'ssr', '  SSR  '])
+    def test_matching_is_case_insensitive_and_normalized(self, populated, query):
+        assert populated.get_field_value_suggestions('tags', query=query) == [
+            'ssr', 'ssr relay']
+
+    @pytest.mark.unit
+    def test_like_metacharacters_are_escaped(self, catalog_service):
+        pid = catalog_service.create_product(description='seed')
+        catalog_service.set_product_tags(pid, ['a%b', 'axb'])
+        assert catalog_service.get_field_value_suggestions(
+            'tags', query='a%b') == ['a%b']
+
+    @pytest.mark.unit
+    def test_limit_is_honored(self, populated):
+        assert len(populated.get_field_value_suggestions('tags', limit=2)) == 2
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        'a' * 200,   # over-length: unstorable, therefore unmatchable
+        'a,b',       # comma-bearing: likewise
+    ])
+    def test_an_unmatchable_query_returns_nothing_not_everything(
+            self, populated, query):
+        assert populated.get_field_value_suggestions('tags', query=query) == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', ['', '   ', '\t'])
+    def test_a_query_carrying_no_tag_means_no_filter(self, populated, query):
+        assert populated.get_field_value_suggestions(
+            'tags', query=query
+        ) == populated.get_field_value_suggestions('tags')
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, expected', [
+        ('SSR', 'ssr'),                    # case folded
+        ('  SSR  Relay ', 'ssr relay'),    # trimmed and collapsed
+        ('nosuchtag', 'nosuchtag'),        # no-match still canonical
+        ('', None),                        # blank -> null
+        ('   ', None),                     # whitespace -> null
+        (None, None),                      # absent -> null
+        ('a' * 200, None),                 # unstorable -> no create
+        ('a,b', None),                     # comma-bearing -> no create
+    ])
+    def test_normalize_suggestion_value(self, catalog_service, raw, expected):
+        """The create affordance's source of truth: what WOULD be stored."""
+        assert catalog_service.normalize_suggestion_value('tags', raw) == expected
+
+    @pytest.mark.unit
+    def test_the_tag_vocabulary_is_not_the_category_vocabulary(self, catalog_service):
+        """The two whitelisted catalog fields read DIFFERENT tables — a wiring
+        slip that served one from the other would be invisible otherwise."""
+        pid = catalog_service.create_product(description='seed',
+                                             category_path='electronics/power')
+        catalog_service.set_product_tags(pid, ['ssr'])
+
+        assert catalog_service.get_field_value_suggestions('tags') == ['ssr']
+        assert catalog_service.get_field_value_suggestions('category_path') == [
+            'electronics/power']

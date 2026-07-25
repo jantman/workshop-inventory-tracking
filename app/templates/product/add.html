@@ -54,6 +54,23 @@
                     </div>
                     <div class="row">
                         <div class="col-md-12 mb-3">
+                            <label for="tags" class="form-label">Tags</label>
+                            <div class="position-relative">
+                                {# No maxlength: this input holds a LIST, not a value.
+                                   app/utils/tag.py bounds each tag and the count, and
+                                   the server is the only enforcer. #}
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.tags %} is-invalid{% endif %}" id="tags" name="tags"
+                                       value="{{ form_data.get('tags', '') }}" autocomplete="off"
+                                       placeholder="e.g. ssr, heat sink">
+                                <div id="tags-suggestions" class="dropdown-menu position-absolute w-100"
+                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            </div>
+                            <div class="form-text">Separate tags with commas. Tags are stored lowercase.</div>
+                            {% if validation_errors and validation_errors.tags %}<div class="invalid-feedback d-block">{{ validation_errors.tags }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
                             <label for="notes" class="form-label">Notes</label>
                             <textarea class="form-control" id="notes" name="notes" rows="3">{{ form_data.get('notes', '') }}</textarea>
                         </div>

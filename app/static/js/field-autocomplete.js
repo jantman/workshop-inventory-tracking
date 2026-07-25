@@ -5,7 +5,9 @@
  * polling /api/inventory/field-suggestions/<field>. Used for the five
  * fields covered by the Autocomplete feature: thread_size,
  * purchase_location, vendor, location, sub_location — plus the product
- * form's category_path (Story 3.1), which opts into the create variant.
+ * form's category_path (Story 3.1), which opts into the create variant,
+ * and its tags field (Story 3.3), which additionally opts into
+ * multi-value mode via `multiValueSeparator`.
  *
  * Sub-location autocomplete optionally scopes its query by the value
  * of a related Location input (`locationFieldId`), so a user already
@@ -69,6 +71,18 @@
          *                                          `normalized`. Default false,
          *                                          so existing instances are
          *                                          unaffected.
+         * @param {string} [opts.multiValueSeparator]
+         *                                        — when set, the input holds a
+         *                                          LIST of values separated by
+         *                                          this character (Story 3.3's
+         *                                          tags field). Only the
+         *                                          fragment after the last
+         *                                          separator is queried, and
+         *                                          selecting an entry replaces
+         *                                          only that fragment. Unset by
+         *                                          default, so every
+         *                                          single-value instance is
+         *                                          byte-for-byte unaffected.
          */
         constructor(opts) {
             this.input = document.getElementById(opts.inputId);
@@ -80,6 +94,10 @@
             this.field = opts.field;
             this.limit = opts.limit || DEFAULT_LIMIT;
             this.allowCreate = opts.allowCreate === true;
+            // Null unless the field opted into multi-value mode; every
+            // branch below is guarded on it, so the single-value instances
+            // take exactly the code path they always did.
+            this.multiValueSeparator = opts.multiValueSeparator || null;
             // The server-supplied canonical form of the current query, or
             // null. Never computed here.
             this.createCandidate = null;
@@ -154,11 +172,54 @@
             });
         }
 
+        /**
+         * The part of the input the dropdown is about.
+         *
+         * For an ordinary field that is the whole value. In multi-value mode
+         * it is only the fragment after the last separator — the value the
+         * user is typing right now — so the server is asked about one value
+         * and can echo its canonical form, exactly as for a single-value
+         * field. Returns {prefix, fragment}: `prefix` is everything before
+         * that fragment, separator included, and is carried across untouched.
+         */
+        currentFragment() {
+            const value = this.input.value || '';
+            if (!this.multiValueSeparator) {
+                return { prefix: '', fragment: value, suffix: '' };
+            }
+            const sep = this.multiValueSeparator;
+            // The fragment is the one the CARET sits in, not simply the last
+            // one in the field. Keying off lastIndexOf alone means that
+            // editing the first of `ssr, rectifier` queries `rectifier` and
+            // then replaces it on selection — discarding the edit and
+            // silently overwriting a tag the operator never touched.
+            const caret = Number.isInteger(this.input.selectionStart)
+                ? this.input.selectionStart
+                : value.length;
+            const start = caret === 0 ? 0 : value.lastIndexOf(sep, caret - 1) + 1;
+            const nextSep = value.indexOf(sep, caret);
+            const end = nextSep < 0 ? value.length : nextSep;
+            return {
+                prefix: value.slice(0, start),
+                fragment: value.slice(start, end),
+                suffix: value.slice(end),
+            };
+        }
+
         buildUrl() {
             const params = new URLSearchParams();
-            const q = (this.input.value || '').trim();
+            const q = this.currentFragment().fragment.trim();
             if (q) params.append('q', q);
-            params.append('limit', String(this.limit));
+            // In multi-value mode render() drops every suggestion the field
+            // already carries elsewhere, and that filtering happens AFTER the
+            // server applied its limit — so a field already holding the top
+            // matches would get a dropdown of one or two entries, or none at
+            // all, hiding a stored value the operator was reaching for. Ask
+            // for enough extra rows to cover what the filter removes; the
+            // server clamps the limit, and render() trims back to `limit`.
+            const overFetch = this.multiValueSeparator
+                ? this.otherValues().length : 0;
+            params.append('limit', String(this.limit + overFetch));
             if (this.locationField) {
                 const loc = (this.locationField.value || '').trim();
                 if (loc) params.append('location', loc);
@@ -235,12 +296,51 @@
             return a;
         }
 
+        /**
+         * The values the field already carries OTHER than the fragment being
+         * edited. Empty for a single-value input.
+         *
+         * Offering one of these would produce a visible duplicate — the server
+         * de-duplicates on save, so the field would show the operator
+         * something that is not what gets stored. Comparison (in render()) is
+         * case-insensitive on the trimmed text, because on the ADD form every
+         * value here is what the operator typed, in whatever case they typed
+         * it: `SSR, ss` would otherwise be completed to `SSR, ssr, `, the
+         * exact duplicate this filter exists to prevent. Lowercasing is a
+         * display-side comparison only — nothing here is stored, and the
+         * canonical form still comes from the server's echo.
+         */
+        otherValues() {
+            if (!this.multiValueSeparator) return [];
+            const { prefix, suffix } = this.currentFragment();
+            return `${prefix}${suffix}`
+                .split(this.multiValueSeparator)
+                .map((v) => v.trim())
+                .filter(Boolean);
+        }
+
         render(suggestions) {
+            const taken = this.otherValues();
+            if (taken.length) {
+                const takenLower = taken.map((v) => v.toLowerCase());
+                suggestions = suggestions.filter(
+                    (s) => !takenLower.includes(String(s).toLowerCase())
+                );
+            }
+            // buildUrl over-fetched to cover what the filter above removes;
+            // the dropdown still shows at most `limit` entries.
+            suggestions = suggestions.slice(0, this.limit);
             // A create entry is offered only when the field opted in, the
-            // server gave us a canonical value, and that value is not
-            // already among the suggestions (comparison on the canonical
-            // form, which the server also produced).
-            const candidate = this.allowCreate ? this.createCandidate : null;
+            // server gave us a canonical value, that value is not already
+            // among the suggestions (comparison on the canonical form, which
+            // the server also produced), and — in multi-value mode — the
+            // field does not already carry it elsewhere.
+            const candidate = this.allowCreate && this.createCandidate &&
+                !taken.some(
+                    (v) => v.toLowerCase() ===
+                        String(this.createCandidate).toLowerCase()
+                )
+                ? this.createCandidate : null;
             const showCreate = Boolean(candidate) &&
                 !suggestions.some(
                     (s) => s.toLowerCase() === String(candidate).toLowerCase()
@@ -267,7 +367,38 @@
         }
 
         selectValue(value) {
-            this.input.value = value;
+            if (this.multiValueSeparator) {
+                // Replace only the fragment being edited; every other value in
+                // the field survives untouched, whether it sits before or
+                // after the caret. A trailing separator and space are appended
+                // only when this fragment IS the last one, so the operator can
+                // keep typing without reaching for the comma key — while
+                // editing a middle value doesn't inject a stray empty one.
+                // Read at SELECTION time, not captured when the dropdown was
+                // rendered. A render can lag the caret — the immediate fetch a
+                // focus starts resolves after the value has already changed —
+                // so a captured range describes where the caret WAS, and
+                // completing a middle tag from a lagging dropdown would
+                // replace the last one instead. The live caret is the only
+                // reading that is true at the moment the operator acts.
+                const { prefix, suffix } = this.currentFragment();
+                const tail = suffix || `${this.multiValueSeparator} `;
+                const head = `${prefix}${prefix ? ' ' : ''}${value}`;
+                this.input.value = `${head}${tail}`;
+                // Assigning .value parks the caret at the END of the field in
+                // every browser, which would undo the whole point of editing a
+                // MIDDLE value: the next keystroke would land on the last tag
+                // instead of after the one just completed. Put it back where
+                // the operator was — past the appended separator when this
+                // fragment really was the last one, so typing continues into
+                // the next tag either way.
+                const caret = suffix ? head.length : this.input.value.length;
+                if (typeof this.input.setSelectionRange === 'function') {
+                    this.input.setSelectionRange(caret, caret);
+                }
+            } else {
+                this.input.value = value;
+            }
             // Selecting ends the interaction, so nothing may re-open the
             // dropdown behind the user's back — which, for a create entry
             // sitting over the Save button, could swallow the submit click.
@@ -373,6 +504,16 @@
                 inputId: 'category_path',
                 field: 'category_path',
                 allowCreate: true,
+            },
+            // Product form Tags (Story 3.3): one input holding a
+            // comma-separated LIST, so it opts into multi-value mode as well
+            // as create — the tag vocabulary accretes purely from use, and a
+            // novel tag must be assignable without leaving the form.
+            {
+                inputId: 'tags',
+                field: 'tags',
+                allowCreate: true,
+                multiValueSeparator: ',',
             },
         ];
 

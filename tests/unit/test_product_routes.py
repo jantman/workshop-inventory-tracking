@@ -6,6 +6,7 @@ Uses the `client` fixture (CSRF disabled in TestConfig, so POSTs need no token).
 
 import pytest
 
+from app.exceptions import ValidationError
 from app.mariadb_catalog_service import CatalogService
 
 
@@ -644,3 +645,415 @@ class TestCategoryPages(object):
         assert resp.status_code == 200
         assert b'Manage Categories' in resp.data
         assert b'href="/products/categories"' in resp.data
+
+
+@pytest.mark.unit
+class TestProductTagsOnForm(object):
+    """The tag field on the product add/edit forms and its rendering on the
+    detail page (Story 3.3, FR16)."""
+
+    def _make_product(self, test_storage, **kwargs):
+        kwargs.setdefault('description', 'Seed product')
+        return CatalogService(test_storage).create_product(**kwargs)
+
+    def _tags(self, test_storage, product_id):
+        return CatalogService(test_storage).get_tags_for_product(product_id)
+
+    def _product_count(self, test_storage):
+        """How many products exist. Proving a refused form created NOTHING by
+        asking whether id 1 is absent only works while the sequence happens to
+        start there, and silently stops proving anything once a test seeds a
+        product first."""
+        from app.database import Product
+        session = CatalogService(test_storage).Session()
+        try:
+            return session.query(Product).count()
+        finally:
+            session.close()
+
+    def test_the_form_offers_a_tags_input_wired_to_the_component(
+            self, client, test_storage):
+        """Wiring is by id convention alone: the input plus its sibling
+        dropdown div are the whole JS contract."""
+        pid = self._make_product(test_storage)
+        for url in ('/products/add', f'/products/edit/{pid}'):
+            page = client.get(url)
+            assert page.status_code == 200
+            assert b'id="tags"' in page.data
+            assert b'id="tags-suggestions"' in page.data
+            assert b'field-autocomplete.js' in page.data
+            # The hint that the field holds a comma-separated list.
+            assert b'Separate tags with commas' in page.data
+
+    def test_add_with_tags_stores_them_and_redirects(self, client, test_storage):
+        resp = client.post('/products/add',
+                           data={'description': 'Heat sink',
+                                 'tags': 'SSR, rectifier, ssr'})
+        assert resp.status_code == 302
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        # De-duplicated on the canonical form: two rows, not three.
+        assert self._tags(test_storage, product_id) == ['rectifier', 'ssr']
+
+        detail = client.get(resp.headers['Location'])
+        assert detail.status_code == 200
+        assert b'Product created successfully!' in detail.data
+        assert b'rectifier' in detail.data
+        assert b'ssr' in detail.data
+
+    def test_add_without_the_tags_key_stores_none(self, client, test_storage):
+        resp = client.post('/products/add', data={'description': 'Untagged'})
+        assert resp.status_code == 302
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert self._tags(test_storage, product_id) == []
+
+    def test_add_with_an_invalid_tag_rerenders_and_creates_nothing(
+            self, client, test_storage):
+        """The matrix row: a 65-character tag. Validation is PURE and runs
+        before any write, so no product is created."""
+        from app.utils.tag import MAX_TAG_LENGTH
+
+        before = self._product_count(test_storage)
+        bad_tag = 'a' * (MAX_TAG_LENGTH + 1)
+        resp = client.post('/products/add',
+                           data={'description': 'Heat sink',
+                                 'tags': bad_tag})
+        assert resp.status_code == 200  # re-rendered form, not a redirect
+        # The util's own message, rendered verbatim on the field.
+        assert b'Tag is too long' in resp.data
+        assert b'is-invalid' in resp.data
+        assert self._product_count(test_storage) == before
+        # The submitted value survives the re-render, so the operator's other
+        # in-flight edits are not thrown away with the bad tag.
+        start = resp.data.index(b'id="tags"')
+        assert bad_tag.encode() in resp.data[start:resp.data.index(b'>', start)]
+
+    def test_add_with_a_comma_bearing_tag_is_ordinary_typing_noise(
+            self, client, test_storage):
+        """A doubled/trailing separator is dropped, not refused — only the
+        single-tag entry point rejects an embedded comma."""
+        resp = client.post('/products/add',
+                           data={'description': 'Heat sink',
+                                 'tags': 'ssr,,rectifier,'})
+        assert resp.status_code == 302
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert self._tags(test_storage, product_id) == ['rectifier', 'ssr']
+
+    def test_add_with_too_many_tags_rerenders_and_creates_nothing(
+            self, client, test_storage):
+        from app.utils.tag import MAX_TAGS_PER_PRODUCT
+
+        before = self._product_count(test_storage)
+        resp = client.post('/products/add',
+                           data={'description': 'Heat sink',
+                                 'tags': ','.join(
+                                     f't{i}' for i in
+                                     range(MAX_TAGS_PER_PRODUCT + 1))})
+        assert resp.status_code == 200
+        assert b'Too many tags' in resp.data
+        assert self._product_count(test_storage) == before
+
+    def test_edit_form_round_trips_the_stored_tags(self, client, test_storage):
+        """The matrix row: a product tagged ssr and rectifier shows
+        `rectifier, ssr` in the input."""
+        pid = self._make_product(test_storage, description='Heat sink')
+        CatalogService(test_storage).set_product_tags(pid, ['ssr', 'rectifier'])
+
+        resp = client.get(f'/products/edit/{pid}')
+        assert resp.status_code == 200
+        start = resp.data.index(b'id="tags"')
+        tags_tag = resp.data[start:resp.data.index(b'>', start)]
+        assert b'value="rectifier, ssr"' in tags_tag
+
+    def test_edit_form_leaves_the_input_empty_for_an_untagged_product(
+            self, client, test_storage):
+        pid = self._make_product(test_storage)
+        resp = client.get(f'/products/edit/{pid}')
+        start = resp.data.index(b'id="tags"')
+        tags_tag = resp.data[start:resp.data.index(b'>', start)]
+        assert b'value=""' in tags_tag
+
+    def test_edit_replaces_the_whole_set(self, client, test_storage):
+        pid = self._make_product(test_storage, description='Heat sink')
+        CatalogService(test_storage).set_product_tags(pid, ['a', 'b'])
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Heat sink', 'tags': 'b, c'})
+        assert resp.status_code == 302
+        assert self._tags(test_storage, pid) == ['b', 'c']
+
+    def test_edit_with_an_empty_tags_field_clears_every_tag(
+            self, client, test_storage):
+        pid = self._make_product(test_storage, description='Heat sink')
+        CatalogService(test_storage).set_product_tags(pid, ['ssr', 'rectifier'])
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Heat sink', 'tags': ''})
+        assert resp.status_code == 302
+        assert self._tags(test_storage, pid) == []
+
+    def test_edit_omitting_the_tags_key_leaves_them_alone(
+            self, client, test_storage):
+        """Absent means "not provided" — the existing partial-update rule."""
+        pid = self._make_product(test_storage, description='Heat sink')
+        CatalogService(test_storage).set_product_tags(pid, ['ssr', 'rectifier'])
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Heat sink'})
+        assert resp.status_code == 302
+        assert self._tags(test_storage, pid) == ['rectifier', 'ssr']
+
+    def test_edit_with_an_invalid_tag_rerenders_and_changes_nothing(
+            self, client, test_storage):
+        from app.utils.tag import MAX_TAG_LENGTH
+
+        pid = self._make_product(test_storage, description='Heat sink')
+        CatalogService(test_storage).set_product_tags(pid, ['ssr'])
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Renamed',
+                                 'tags': 'a' * (MAX_TAG_LENGTH + 1)})
+        assert resp.status_code == 200
+        assert b'Tag is too long' in resp.data
+        # Neither the product nor its tags were touched.
+        service = CatalogService(test_storage)
+        assert service.get_product(pid).description == 'Heat sink'
+        assert service.get_tags_for_product(pid) == ['ssr']
+
+    def test_a_post_save_tag_failure_redirects_with_an_error_flash(
+            self, client, test_storage, monkeypatch):
+        """The product and its tags are two transactions, so an infrastructure
+        failure can land between them. The operator is told the truth — the
+        product saved, the tags did not — and sent to the detail page where the
+        product demonstrably exists, never a form claiming the save failed."""
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        monkeypatch.setattr(CatalogService, 'set_product_tags', _boom)
+
+        resp = client.post('/products/add',
+                           data={'description': 'Heat sink', 'tags': 'ssr'})
+        assert resp.status_code == 302
+        assert '/products/' in resp.headers['Location']
+
+        monkeypatch.undo()
+        detail = client.get(resp.headers['Location'])
+        assert detail.status_code == 200
+        assert b'the product was saved, but its tags were not' in \
+            detail.data.lower()
+        # Never a success flash beside it, and never a claim the product failed.
+        assert b'Product created successfully!' not in detail.data
+        assert b'Failed to create product' not in detail.data
+
+    def test_a_post_save_tag_failure_on_edit_redirects_too(
+            self, client, test_storage, monkeypatch):
+        pid = self._make_product(test_storage, description='Heat sink')
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        monkeypatch.setattr(CatalogService, 'set_product_tags', _boom)
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Heat sink', 'tags': 'ssr'})
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith(f'/products/{pid}')
+
+        monkeypatch.undo()
+        detail = client.get(resp.headers['Location'])
+        assert b'the product was saved, but its tags were not' in \
+            detail.data.lower()
+        assert b'Product updated successfully!' not in detail.data
+
+    @pytest.mark.parametrize('field, retryable, advice', [
+        ('tags', False, b'enter different tags'),        # collation collision
+        ('tags', True, b'enter its tags again'),         # concurrent-save race
+        ('product_id', False, b'enter its tags again'),  # a retry could succeed
+    ])
+    def test_a_refused_tag_write_gets_advice_that_can_work(
+            self, client, test_storage, monkeypatch, field, retryable, advice):
+        """A refused tag write is not the same failure as a backend outage —
+        and not every refusal on the `tags` field is the same failure either.
+
+        `_validate_product_form` refuses everything a pure check can see, so a
+        ValidationError from the service means the DATABASE refused the list.
+        A collation collision is refused forever, so the operator must CHANGE a
+        tag; the concurrent-save race is refused once, so the identical list
+        works and demanding a change would send them chasing a conflict that no
+        longer exists. Keying on the field alone cannot tell them apart, which
+        is why the service marks the race `retryable`.
+
+        No kind may say "save again": the edit form repopulates its tags from
+        the database, which does not hold what the operator typed.
+        """
+        def _refuse(*args, **kwargs):
+            error = ValidationError('nope', field=field, value='x')
+            if retryable:
+                error.retryable = True
+            raise error
+
+        monkeypatch.setattr(CatalogService, 'set_product_tags', _refuse)
+
+        resp = client.post('/products/add',
+                           data={'description': 'Heat sink', 'tags': 'ssr'})
+        assert resp.status_code == 302
+
+        monkeypatch.undo()
+        detail = client.get(resp.headers['Location'])
+        assert b'the product was saved, but its tags were not' in \
+            detail.data.lower()
+        assert advice in detail.data
+        # Case-insensitive: the service composes half of this sentence, and
+        # its half starts a sentence ("Save them again.").
+        assert b'save again' not in detail.data.lower()
+        assert b'save them again' not in detail.data.lower()
+
+    def test_detail_renders_tags_as_filter_links(self, client, test_storage):
+        pid = self._make_product(test_storage, description='Heat sink')
+        CatalogService(test_storage).set_product_tags(pid, ['ssr', 'heat sink'])
+
+        resp = client.get(f'/products/{pid}')
+        assert resp.status_code == 200
+        assert b'/products/tags/filter?tag=ssr' in resp.data
+        # A canonical tag may contain spaces, hence the query parameter.
+        assert b'/products/tags/filter?tag=heat+sink' in resp.data
+
+    def test_detail_shows_the_fallback_for_an_untagged_product(
+            self, client, test_storage):
+        pid = self._make_product(test_storage)
+        resp = client.get(f'/products/{pid}')
+        assert resp.status_code == 200
+        start = resp.data.index(b'id="product-tags"')
+        cell = resp.data[start:resp.data.index(b'</dd>', start)]
+        assert '—'.encode() in cell
+        assert b'/products/tags/filter' not in cell
+
+
+@pytest.mark.unit
+class TestTagPages(object):
+    """The operator's tag retrieval path below the browser (Story 3.3,
+    FR16): the listing is the vocabulary's only visible surface, and the
+    filter page is FR16's answer."""
+
+    def _make_product(self, test_storage, tags=None, **kwargs):
+        kwargs.setdefault('description', 'Seed product')
+        service = CatalogService(test_storage)
+        product_id = service.create_product(**kwargs)
+        if tags:
+            service.set_product_tags(product_id, tags)
+        return product_id
+
+    def _row(self, body, tag):
+        """The listing row for `tag` alone, so a count assertion cannot be
+        satisfied by an identical number in some other row."""
+        marker = f'<code>{tag}</code>'.encode()
+        assert marker in body, f'no listing row for {tag}'
+        start = body.index(marker)
+        return body[start:body.index(b'</tr>', start)]
+
+    def test_listing_renders_tags_and_counts(self, client, test_storage):
+        self._make_product(test_storage, tags=['ssr'])
+        self._make_product(test_storage, tags=['ssr'])
+        self._make_product(test_storage, tags=['rectifier'])
+        self._make_product(test_storage)  # untagged — never listed
+
+        resp = client.get('/products/tags')
+        assert resp.status_code == 200
+        # Each row carries a link keyed on its own tag.
+        assert b'/products/tags/filter?tag=ssr' in resp.data
+        # Two products carry ssr; one carries rectifier. Read off each tag's
+        # own row, not the page as a whole.
+        assert b'>2<' in self._row(resp.data, 'ssr')
+        assert b'>1<' in self._row(resp.data, 'rectifier')
+
+    def test_listing_empty_state(self, client, test_storage):
+        """A fresh install offers no tags — the vocabulary accretes from use."""
+        self._make_product(test_storage)
+        resp = client.get('/products/tags')
+        assert resp.status_code == 200
+        assert b'No tags yet' in resp.data
+        assert b'accretes purely from use' in resp.data
+
+    def test_filter_returns_exactly_the_tagged_products(self, client, test_storage):
+        """THE acceptance criterion (FR16): three heat sinks at
+        thermal/heat-sinks with two tagged ssr and one rectifier, plus a fourth
+        ssr product filed elsewhere — the filter crosses the tree."""
+        self._make_product(test_storage, description='Heat sink A',
+                           category_path='thermal/heat-sinks', tags=['ssr'])
+        self._make_product(test_storage, description='Heat sink B',
+                           category_path='thermal/heat-sinks', tags=['ssr'])
+        self._make_product(test_storage, description='Heat sink C',
+                           category_path='thermal/heat-sinks',
+                           tags=['rectifier'])
+        outsider = self._make_product(test_storage, description='Relay module',
+                                      category_path='electronics/relays',
+                                      tags=['ssr'])
+
+        resp = client.get('/products/tags/filter?tag=ssr')
+        assert resp.status_code == 200
+        assert b'Heat sink A' in resp.data
+        assert b'Heat sink B' in resp.data
+        assert b'Relay module' in resp.data
+        # The rectifier product is NOT listed, whatever its category.
+        assert b'Heat sink C' not in resp.data
+        # Each row links to its own detail page.
+        assert f'/products/{outsider}"'.encode() in resp.data
+
+    def test_filter_normalizes_its_argument(self, client, test_storage):
+        self._make_product(test_storage, description='Heat sink A', tags=['ssr'])
+        resp = client.get('/products/tags/filter?tag=++SSR+')
+        assert resp.status_code == 200
+        assert b'Heat sink A' in resp.data
+
+    def test_filter_on_an_unused_tag_renders_a_named_empty_state(
+            self, client, test_storage):
+        """An empty result is an answer, not an error."""
+        self._make_product(test_storage, description='Heat sink A', tags=['ssr'])
+
+        resp = client.get('/products/tags/filter?tag=nosuchtag')
+        assert resp.status_code == 200
+        assert b'id="tag-empty-state"' in resp.data
+        assert b'nosuchtag' in resp.data
+        assert b'Heat sink A' not in resp.data
+
+    @pytest.mark.parametrize('query', [
+        '',                     # ?tag= present but blank
+        '?tag=',                # ditto, spelled out
+        '?tag=+++',             # whitespace only
+    ])
+    def test_filter_with_no_tag_redirects_asking_for_one(
+            self, client, test_storage, query):
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get(f'/products/tags/filter{query}')
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith('/products/tags')
+
+        listing = client.get(resp.headers['Location'])
+        assert b'Pick a tag to filter by' in listing.data
+
+    @pytest.mark.parametrize('query', [
+        '?tag=' + 'a' * 200,    # over-length: unstorable, so unmatchable
+        '?tag=a%2Cb',           # comma-bearing: likewise
+    ])
+    def test_filter_with_an_unusable_tag_names_that_problem(
+            self, client, test_storage, query):
+        """A truncated or hand-edited link is a different problem from an
+        absent one: telling someone who supplied a tag to "pick a tag" reports
+        the wrong thing about a URL they can see contains one."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get(f'/products/tags/filter{query}')
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith('/products/tags')
+
+        listing = client.get(resp.headers['Location'])
+        assert b'not a usable tag' in listing.data
+        assert b'Pick a tag to filter by' not in listing.data
+
+    def test_the_navbar_offers_the_tags_page(self, client):
+        """The only nav change: a third item in the Products dropdown."""
+        resp = client.get('/products/add')
+        assert resp.status_code == 200
+        assert b'Browse Tags' in resp.data
+        assert b'href="/products/tags"' in resp.data

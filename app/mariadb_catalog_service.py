@@ -19,13 +19,14 @@ from sqlalchemy.orm import sessionmaker, defer
 from sqlalchemy import create_engine, case, func, or_
 from sqlalchemy.exc import IntegrityError
 
-from .database import Product, Purchase, Attachment, ProductIdentifier
+from .database import Product, Purchase, Attachment, ProductIdentifier, ProductTag
 from .models import IdentifierType, VENDOR_SCOPED_IDENTIFIER_TYPES
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
 from .utils import gtin, gs1
 from .utils import category as category_util
 from .utils import internal_id as internal_id_util
+from .utils import tag as tag_util
 from config import Config
 
 # The logger setup_logging() already configures for this module.
@@ -63,16 +64,31 @@ ATTACHMENT_MAX_FILENAME = 255  # matches the filename column length
 IDENTIFIER_MAX_LENGTH = 255  # matches the value / vendor_scope column lengths
 
 # Catalog-side whitelist of fields exposed for value-suggestion autocomplete
-# (Story 3.1). Deliberately shaped exactly like
-# InventoryService.FIELD_SUGGESTION_COLUMNS — public field name -> Product
-# column attribute name — so the ONE endpoint
+# (Stories 3.1, 3.3). Deliberately shaped exactly like
+# InventoryService.FIELD_SUGGESTION_COLUMNS — public field name -> column
+# attribute name (see _FIELD_SUGGESTION_MODELS for the class it lives on) — so
+# the ONE endpoint
 # (/api/inventory/field-suggestions/<field>) can dispatch on membership without
 # a second URL or a parallel field set (AD-14). No products query belongs in
 # the inventory service, which is why this lives here rather than there
 # (AD-1/AD-2).
 FIELD_SUGGESTION_COLUMNS = {
     'category_path': 'category_path',
+    'tags': 'tag',
 }
+
+# Which mapped class each whitelisted field's column lives on. Product is the
+# default because the whitelist began as Product columns alone; `tags` (Story
+# 3.3) is the first entry sourced from a child table, and resolving the class
+# here is what lets FIELD_SUGGESTION_COLUMNS stay a flat field -> column-name
+# map that the ONE endpoint can still dispatch on by membership.
+_FIELD_SUGGESTION_MODELS = {
+    'tags': ProductTag,
+}
+
+# How many tags a collision message may name before it starts summarizing. A
+# flash listing every one of MAX_TAGS_PER_PRODUCT (50) tags is not actionable.
+MAX_TAGS_NAMED_IN_ERROR = 8
 
 
 def _clean(value):
@@ -346,8 +362,18 @@ class CatalogService:
                 return category_util.normalize_category_path(value)
             except category_util.InvalidCategoryPathError:
                 return None
-        # Unreachable while category_path is the only whitelisted field, and
-        # deliberately loud rather than a plausible-looking fallback: a second
+        if field == 'tags':
+            # The input carries a LIST, but only the fragment after the last
+            # separator is ever sent as `q` (the multi-value autocomplete
+            # option), so the echo is the canonical form of ONE tag. An
+            # over-length or comma-bearing query cannot become a stored tag,
+            # so it yields None and no create is offered — same rule as an
+            # unstorable category path.
+            try:
+                return tag_util.normalize_tag(value)
+            except tag_util.InvalidTagError:
+                return None
+        # Deliberately loud rather than a plausible-looking fallback: a further
         # catalog field needs its OWN normalizer here. Falling back to _clean
         # would echo a non-canonical value, which get_field_value_suggestions
         # lowercases anyway and which the browser's create check assumes is
@@ -362,7 +388,7 @@ class CatalogService:
         limit: int = 10,
     ) -> List[str]:
         """
-        Return distinct existing values for a whitelisted Product field,
+        Return distinct existing values for a whitelisted catalog field,
         suitable for autocomplete on the product Add/Edit forms (FR14, FR15).
 
         The category "tree" IS the distinct set of assigned
@@ -370,7 +396,9 @@ class CatalogService:
         DISTINCT query is the whole vocabulary source. It accretes purely from
         use: nothing is offered until some product carries it, and ancestors
         are not synthesized (typing `a/b/c` makes `a/b/c` available, not bare
-        `a`).
+        `a`). The tag vocabulary (Story 3.3, `tags`) works the same way over
+        product_tags.tag: there is no vocabulary table, and a tag stops being
+        offered when the last product drops it.
 
         (Both orderings sort on LOWER(category_path) and a filtered lookup is
         a leading-wildcard LIKE, so neither can use the column's index — this
@@ -413,7 +441,6 @@ class CatalogService:
             limit = 10
         limit = max(1, min(limit, 50))
 
-        column = getattr(Product, column_name)
         # Normalizing the query (rather than a bare .strip().lower()) is what
         # lets a half-typed 'Electronics / Pow' find 'electronics/power'.
         #
@@ -428,16 +455,35 @@ class CatalogService:
                 q = category_util.normalize_category_path(query) or ''
             except category_util.InvalidCategoryPathError:
                 return []
+        elif field == 'tags':
+            # Same division as above: a query the util REJECTS (over-length,
+            # or carrying the separator) is unmatchable, because no stored tag
+            # can equal it — the answer is "nothing", not "the whole tag
+            # vocabulary". A query that merely normalizes AWAY ('', '   ')
+            # carries no tag content and means "no filter".
+            try:
+                q = tag_util.normalize_tag(query) or ''
+            except tag_util.InvalidTagError:
+                return []
         else:
-            # Unreachable while category_path is the only whitelisted field.
             # NOT a fallback to normalize_suggestion_value: that method answers
             # a different question (what to ECHO, where a rejected query is
             # None) and reading its None here would mean "no filter" — the
-            # whole-vocabulary leak the branch above exists to prevent. A
-            # second catalog field registers its matching rule here, next to
+            # whole-vocabulary leak the branches above exist to prevent. A
+            # further catalog field registers its matching rule here, next to
             # its echo rule in normalize_suggestion_value.
             raise NotImplementedError(
                 f'No suggestion matching rule registered for {field!r}')
+
+        # Resolved AFTER the dispatch above, deliberately. A field whitelisted
+        # without its `_FIELD_SUGGESTION_MODELS` entry resolves against Product
+        # by default, and for a column that lives on a child table (as `tag`
+        # does) that getattr raises AttributeError — a 500 through the route's
+        # generic handler, hiding the wiring error the NotImplementedError
+        # above exists to state plainly. Ordering it this way means the loud
+        # failure wins whichever half of the registration was forgotten.
+        column = getattr(_FIELD_SUGGESTION_MODELS.get(field, Product),
+                         column_name)
 
         # Escape user-supplied LIKE wildcards so a query like "10%" doesn't act
         # as a wildcard. SQLAlchemy's like() takes an escape character we
@@ -777,6 +823,400 @@ class CatalogService:
                 f'Category rename {old_canonical!r} -> {new_canonical!r} '
                 f'committed, but its audit log failed: {e}')
         return len(rewrites)
+
+    # --- Product tags (Story 3.3) -----------------------------------------
+
+    @staticmethod
+    def _is_duplicate_key_violation(exc: IntegrityError) -> bool:
+        """
+        Return True when an IntegrityError is a UNIQUE/PRIMARY KEY violation
+        rather than some other integrity failure (Story 3.3).
+
+        `set_product_tags` translates a duplicate-key failure into an
+        operator-facing ValidationError naming the colliding tags, so it has to
+        know that is what happened: every other integrity failure (an FK broken
+        by a concurrently-deleted product, a column constraint, a storage-level
+        error) must keep its own identity and reach the audit log. The
+        re-query the handler performs cannot make that distinction — after a
+        rolled-back flush of NEW rows there is nothing committed to find, so an
+        unrelated failure looks exactly like a collation collision.
+
+        SQLAlchemy exposes no portable error classification, so the DBAPI error
+        itself is inspected: MariaDB/MySQL report errno 1062 (ER_DUP_ENTRY,
+        "Duplicate entry ... for key ..."), SQLite reports "UNIQUE constraint
+        failed". Matching is deliberately loose — a false positive only costs a
+        more specific message for a failure that would have been re-raised.
+        """
+        orig = getattr(exc, 'orig', None)
+        args = getattr(orig, 'args', ()) or ()
+        if args and args[0] == 1062:  # MySQL/MariaDB ER_DUP_ENTRY
+            return True
+        text = str(orig if orig is not None else exc).lower()
+        return 'duplicate' in text or 'unique constraint' in text
+
+    def _canonical_tags(self, tags) -> List[str]:
+        """
+        Return the canonical, de-duplicated tag list for a caller-supplied
+        value, or raise ValidationError (Story 3.3, FR16).
+
+        Accepts either the raw comma-separated form field (a string) or an
+        already-split iterable, because both callers exist: the route parses
+        the field itself so an operator's typo is refused BEFORE the product is
+        written, while a programmatic caller passes a list. Either way the
+        canonical form comes from app/utils/tag.py alone — nothing here splits,
+        trims or lowercases a tag (AD-4).
+        """
+        try:
+            if tags is None:
+                canonical = []
+            elif isinstance(tags, str):
+                canonical = tag_util.parse_tag_list(tags)
+            else:
+                # De-duplicated on the canonical form, first-seen order, so
+                # ['SSR', 'ssr'] is one tag rather than a uniqueness violation
+                # the operator would have to decode from an error page — the
+                # same rule parse_tag_list applies to the string form.
+                canonical = []
+                seen = set()
+                for raw in tags:
+                    value = tag_util.normalize_tag(raw)
+                    if value is None or value in seen:
+                        continue
+                    seen.add(value)
+                    canonical.append(value)
+        except tag_util.InvalidTagError as e:
+            raise ValidationError(str(e), field='tags', value=str(tags))
+        except TypeError as e:
+            # A non-iterable, non-string argument (5, an object) is a caller
+            # fault, but this method's contract is that it raises
+            # ValidationError and nothing else — a bare TypeError from the for
+            # loop would reach the route's generic 500 handler instead.
+            raise ValidationError(f'Tags must be a string, an iterable of '
+                                  f'strings, or None: {e}',
+                                  field='tags', value=str(tags))
+
+        if len(canonical) > tag_util.MAX_TAGS_PER_PRODUCT:
+            raise ValidationError(
+                f'Too many tags: {len(canonical)} '
+                f'(max {tag_util.MAX_TAGS_PER_PRODUCT} per product).',
+                field='tags', value=str(tags))
+        return canonical
+
+    def get_tags_for_product(self, product_id: int) -> List[str]:
+        """
+        Return a product's tags alphabetically. [] for an untagged or unknown
+        product (Story 3.3, FR16).
+
+        A dedicated query — NOT relationship navigation, which would lazy-load
+        on the detached Product `get_product` returns. Read-only, so the plain
+        strings it hands back stay usable after the session closes.
+        """
+        session = self.Session()
+        try:
+            rows = (session.query(ProductTag.tag)
+                    .filter(ProductTag.product_id == product_id)
+                    .all())
+            return sorted(row[0] for row in rows)
+        finally:
+            session.close()
+
+    def set_product_tags(self, product_id, tags) -> List[str]:
+        """
+        Replace a product's whole tag set and return the stored tags, sorted
+        (Story 3.3, FR16).
+
+        REPLACE-ALL, because that is what the form submits: there is no
+        per-tag add/remove UI, so the field's whole value is the requested set
+        and `[]` clears every tag. The stored rows are DIFFED against it rather
+        than deleted and re-inserted, so an unchanged tag keeps its row (and
+        its created_at) and re-submitting an unchanged form writes nothing.
+        That also makes the operation idempotent, which is the route's whole
+        retry story: the only way to recover from a failed tag write is to save
+        the form again, and doing so is always safe.
+
+        Everything the arguments alone can decide is decided BEFORE the session
+        opens, so an operator-caused rejection never leaves a half-written
+        transaction. The remaining rejections (unknown product, a collation
+        collision) roll back and raise. Unlike create_product/update_product,
+        failures are RAISED, not swallowed into a False: a refused tag write is
+        an operator-facing decision that has to explain itself.
+
+        Args:
+            product_id: The product to retag.
+            tags: The complete requested tag set — the raw comma-separated
+                form field, or an iterable of tags.
+
+        Returns:
+            The product's tags after the write, sorted alphabetically.
+
+        Raises:
+            ValidationError: with field='tags' when a tag is unusable, when
+                there are too many, when two requested tags collide under the
+                database's collation, or when a concurrent save wrote one of
+                them first; with field='product_id' when the product does not
+                exist. Nothing is written in any of those cases. Any OTHER
+                integrity failure keeps its own identity and is re-raised.
+
+                The concurrent-save case additionally carries `retryable=True`:
+                the requested list is fine and succeeds on the next attempt,
+                unlike a collision, which is refused for as long as the tags
+                stay as they are. Callers deciding what to tell an operator
+                must read that rather than the field alone.
+        """
+        from .logging_config import log_audit_operation
+
+        # Pure argument checks first: they need no database, and keeping them
+        # out here means the handlers below never have to ask whether a session
+        # exists. (A rejection is a request error, not a 500: the util's
+        # ValueError never leaks out.)
+        requested = self._canonical_tags(tags)
+
+        session = self.Session()
+        try:
+            if session.query(Product).filter(
+                    Product.id == product_id).first() is None:
+                raise ValidationError(f'Product not found (product:{product_id}).',
+                                      field='product_id', value=str(product_id))
+
+            current = {row.tag: row
+                       for row in session.query(ProductTag)
+                       .filter(ProductTag.product_id == product_id)}
+            removed = sorted(set(current) - set(requested))
+            added = [t for t in requested if t not in current]
+
+            for tag in removed:
+                session.delete(current[tag])
+            if removed:
+                # Deletes are flushed FIRST, deliberately: SQLAlchemy's unit of
+                # work emits inserts before deletes, so replacing 'café' with
+                # 'cafe' would insert the new row while the old one is still
+                # present — and under MariaDB's accent-folding unique index
+                # that is a collision with a row on its way out. Same
+                # transaction either way; only the statement order changes.
+                session.flush()
+            for tag in added:
+                session.add(ProductTag(product_id=product_id, tag=tag))
+
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                # Reachable on MariaDB and not on SQLite: utf8mb4_unicode_ci
+                # folds accents, so 'café' and 'cafe' — two DISTINCT canonical
+                # tags in Python — collide on uq_product_tags_product_tag
+                # there. Roll the failed flush back so the conflict lookup can
+                # run, then work out which of the three shapes this is.
+                session.rollback()
+                if not self._is_duplicate_key_violation(exc):
+                    # Not a uniqueness violation at all (a concurrently-deleted
+                    # product breaking the FK, a column constraint, a disk-level
+                    # failure). Nothing below can diagnose it, and dressing it
+                    # up as a tag collision would send the operator hunting for
+                    # a conflict that does not exist AND erase the failure from
+                    # the audit log, since a ValidationError is deliberately not
+                    # audited. It is re-raised as the operational failure it is.
+                    raise
+                concurrent: List[str] = []
+                for tag in added:
+                    existing = (session.query(ProductTag)
+                                .filter(ProductTag.product_id == product_id,
+                                        ProductTag.tag == tag)
+                                .first())
+                    if existing is None:
+                        continue
+                    if existing.tag == tag:
+                        # The very row this save is adding: a concurrent writer
+                        # committed the identical tag first. Not a collation
+                        # collision, and no sentence naming a tag as
+                        # conflicting with itself — but not silently fine
+                        # either, because this save's OTHER rows rolled back
+                        # with it. Reported below as the retryable race it is.
+                        concurrent.append(tag)
+                        continue
+                    raise ValidationError(
+                        f"Tag '{tag}' conflicts with '{existing.tag}', "
+                        f'which this product already carries — the '
+                        f'database treats them as the same tag.',
+                        field='tags', value=tag)
+                if session.query(Product).filter(
+                        Product.id == product_id).first() is None:
+                    # The FK target vanished mid-write. Re-raised: the product
+                    # is gone, so there is no tag advice worth giving.
+                    raise
+                if concurrent:
+                    listed = ', '.join(f"'{t}'" for t in concurrent)
+                    error = ValidationError(
+                        f'Another save added {listed} to this product at the '
+                        f'same time, so these tags were not written.',
+                        field='tags', value=', '.join(added))
+                    # RETRYABLE, unlike the two collisions below: nothing about
+                    # the requested list is wrong, so the IDENTICAL list
+                    # succeeds once the racing transaction is done. Saying so
+                    # on the exception is what stops the route telling the
+                    # operator to change tags that were never the problem —
+                    # the field alone cannot distinguish the two.
+                    error.retryable = True
+                    raise error
+                if len(added) > 1:
+                    # A duplicate-key violation, nothing COMMITTED conflicts and
+                    # the FK target is still there, so the collision is between
+                    # the tags this save is adding: the database folds two of
+                    # them onto each other. Which pair cannot be read off a
+                    # rolled-back flush, so all of them are named — the operator
+                    # has to drop one either way. Without this the
+                    # IntegrityError escaped as a 500 for exactly the
+                    # both-tags-new case this method exists to refuse cleanly.
+                    #
+                    # Naming ALL of them is bounded, not exhaustive: with
+                    # MAX_TAGS_PER_PRODUCT at 50, a pasted list would render a
+                    # flash naming fifty tags, which is no more actionable than
+                    # naming none. The first few plus a count is.
+                    shown = added[:MAX_TAGS_NAMED_IN_ERROR]
+                    listed = ', '.join(f"'{t}'" for t in shown)
+                    if len(added) > len(shown):
+                        listed += f' (and {len(added) - len(shown)} more)'
+                    raise ValidationError(
+                        f'These tags cannot be saved together: the database '
+                        f'treats two of {listed} as the same tag. Remove one '
+                        f'of them.',
+                        field='tags', value=', '.join(added))
+                # A single insert with nothing committed to conflict with:
+                # unexplained, so it keeps its own identity rather than being
+                # mislabelled as a duplicate the operator could act on.
+                raise
+
+            session.commit()
+        except ValidationError:
+            # A refused retag is ordinary validation, not an operational
+            # failure — same as add_identifier, it rolls back and re-raises
+            # without an audit-error record.
+            session.rollback()
+            raise
+        except Exception as e:
+            session.rollback()
+            try:
+                log_audit_operation('set_product_tags', 'error',
+                                    item_id=f'product:{product_id}',
+                                    error_details=str(e),
+                                    logger_name='mariadb_catalog_service')
+            except Exception as audit_err:
+                # An audit sink that is down must not REPLACE the failure it
+                # was asked to record.
+                logger.warning(
+                    f'Tag write for product {product_id} failed, and its '
+                    f'audit log failed too: {audit_err}')
+            raise
+        finally:
+            session.close()
+
+        # Past the commit the tags HAVE changed, so audit-logging sits outside
+        # the try and cannot raise: the caller renders a failure message from
+        # any exception, and reporting a failure for a write that succeeded
+        # would send the operator to fix something that is already right.
+        #
+        # A save that changed nothing writes no record: the route calls this on
+        # every product edit that carries the field, so auditing a no-op would
+        # file a tag event against every edit and bury the real ones.
+        if added or removed:
+            try:
+                log_audit_operation('set_product_tags', 'success',
+                                    item_id=f'product:{product_id}',
+                                    changes={'tags': requested,
+                                             'added': added,
+                                             'removed': removed},
+                                    logger_name='mariadb_catalog_service')
+            except Exception as e:
+                logger.warning(
+                    f'Tag write for product {product_id} committed, but its '
+                    f'audit log failed: {e}')
+        return sorted(requested)
+
+    def list_tags(self) -> List[Tuple[str, int]]:
+        """
+        Return every assigned tag with the number of products carrying it,
+        alphabetically (Story 3.3, FR16).
+
+        This is the tag vocabulary's only listing: there is no vocabulary
+        table, so the vocabulary IS the distinct set of assigned
+        product_tags.tag values. A tag appears the moment a product carries it
+        and disappears when the last one drops it.
+
+        Grouping happens in PYTHON, not in SQL, for the reason
+        `list_category_paths` states: under MariaDB's case- and
+        accent-insensitive collation `GROUP BY tag` would fold 'café' and
+        'cafe' into ONE group with an arbitrary representative spelling and a
+        summed count — hiding a distinct stored tag from the one page that
+        exists to surface it. The SQL narrows; Python decides.
+
+        Returns:
+            List of (tag, product_count) tuples, ordered by tag.
+        """
+        session = self.Session()
+        try:
+            rows = session.query(ProductTag.tag).all()
+            counts: Dict[str, int] = {}
+            for (tag,) in rows:
+                if not tag:
+                    continue
+                # One row per (product_id, tag) pair is guaranteed by the
+                # unique constraint, so counting rows counts products.
+                counts[tag] = counts.get(tag, 0) + 1
+            return sorted(counts.items())
+        finally:
+            session.close()
+
+    def find_products_by_tag(self, tag) -> List[Product]:
+        """
+        Return exactly the products carrying `tag`, ordered by description,
+        REGARDLESS of their categories (Story 3.3, FR16).
+
+        This is FR16's filter. The argument is normalized first, so the
+        operator may type `'  SSR '` for the stored `ssr`. A value that carries
+        no tag at all, or that no stored tag could equal (over-length,
+        comma-bearing), yields [] — unmatchable, never "no filter": reading it
+        as an absent argument would hand back the whole catalog.
+
+        The tag equality is re-checked in PYTHON after the query, for the same
+        reason `list_tags` counts there: the SQL comparison runs under the
+        column's collation, which on MariaDB matches 'cafe' against a stored
+        'café'. The SQL narrows to a candidate set; Python decides which rows
+        actually carry the tag.
+
+        Read-only (no commit), so the detached Product rows keep their scalar
+        columns for template rendering. Do not access relationship attributes
+        on them.
+
+        Args:
+            tag: The tag to filter by, as typed.
+
+        Returns:
+            The matching Products, ordered by description then id. [] when the
+            argument is unusable or nothing carries the tag — an empty result
+            is an answer, not an error.
+        """
+        try:
+            canonical = tag_util.normalize_tag(tag)
+        except tag_util.InvalidTagError:
+            return []
+        if canonical is None:
+            return []
+
+        session = self.Session()
+        try:
+            rows = (session.query(Product, ProductTag.tag)
+                    .join(ProductTag, ProductTag.product_id == Product.id)
+                    .filter(ProductTag.tag == canonical)
+                    .order_by(Product.description.asc(), Product.id.asc())
+                    .all())
+            products = []
+            seen = set()
+            for product, stored_tag in rows:
+                if stored_tag != canonical or product.id in seen:
+                    continue
+                seen.add(product.id)
+                products.append(product)
+            return products
+        finally:
+            session.close()
 
     # --- Purchases (Story 1.4) -------------------------------------------
 

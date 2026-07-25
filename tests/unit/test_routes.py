@@ -1860,6 +1860,73 @@ class TestFieldSuggestionsRoute:
             '/api/inventory/field-suggestions/category_path?limit=1')
         assert len(response.get_json()['suggestions']) == 1
 
+    # --- Catalog-sourced tags (Story 3.3, FR16, AD-14) -------------------
+    # The tag vocabulary reaches the browser through the SAME endpoint,
+    # dispatched on whitelist membership alone. These cases pin the wiring
+    # the multi-value autocomplete depends on: a `tags` field is served, and
+    # it carries the `normalized` echo the `+ Create` entry is built from.
+
+    @pytest.fixture
+    def tagged_products(self, app):
+        from app.mariadb_catalog_service import CatalogService
+        with app.app_context():
+            service = CatalogService(app.config['STORAGE_BACKEND'])
+            for description, tags in (('a', ['SSR']),
+                                      ('b', ['ssr relay']),
+                                      ('c', ['rectifier']),
+                                      ('d', [])):
+                product_id = service.create_product(description=description)
+                if tags:
+                    service.set_product_tags(product_id, tags)
+        return app
+
+    @pytest.mark.unit
+    def test_tags_response_shape(self, client, tagged_products):
+        response = client.get('/api/inventory/field-suggestions/tags?q=SS')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body == {
+            'success': True,
+            'field': 'tags',
+            'suggestions': ['ssr', 'ssr relay'],
+            'normalized': 'ss',
+        }
+
+    @pytest.mark.unit
+    def test_tags_blank_query_lists_all_alphabetically(self, client, tagged_products):
+        response = client.get('/api/inventory/field-suggestions/tags')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['suggestions'] == ['rectifier', 'ssr', 'ssr relay']
+        assert body['normalized'] is None
+
+    @pytest.mark.unit
+    def test_tags_no_match_still_echoes_normalized(self, client, tagged_products):
+        """The create affordance's source of truth for a novel tag: no
+        suggestions, but the canonical form of what the operator typed."""
+        response = client.get(
+            '/api/inventory/field-suggestions/tags?q=++Zzz++Nope+')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['suggestions'] == []
+        assert body['normalized'] == 'zzz nope'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        'a,b',       # carries the list separator — could never be one tag
+        'z' * 65,    # past MAX_TAG_LENGTH — could never be stored
+    ])
+    def test_tags_unusable_query_offers_no_create(self, client, tagged_products,
+                                                  query):
+        """An unmatchable query means "nothing", never "no filter", and there
+        is nothing for the operator to create either."""
+        response = client.get(
+            f'/api/inventory/field-suggestions/tags?q={query}')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['suggestions'] == []
+        assert body['normalized'] is None
+
     @pytest.mark.unit
     @pytest.mark.parametrize('url', [
         '/api/inventory/field-suggestions/vendor',

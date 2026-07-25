@@ -1064,3 +1064,55 @@ class ProductIdentifier(Base):
             'vendor_scope': self.vendor_scope,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class ProductTag(Base):
+    """
+    A free-form tag assigned to a Product (Story 3.3, FR16). Tags cut across
+    the category tree: a Product carries zero or more of them, independent of
+    its category_path, so a set a hierarchy cannot express is still retrievable.
+
+    There is NO global tag vocabulary table — the vocabulary is the distinct set
+    of assigned `tag` values, accreting purely from use, and a tag disappears
+    when the last product drops it.
+
+    `tag` always holds the canonical form app/utils/tag.py defines (trimmed,
+    internal whitespace collapsed, lowercase); CatalogService.set_product_tags
+    is the sole writer and normalizes before insert.
+
+    uq_product_tags_product_tag is FR16's "a tag is unique per Product". Note
+    MariaDB's utf8mb4_unicode_ci also folds accents, so `café` and `cafe` —
+    distinct canonical tags in Python — collide there and not under SQLite's
+    binary collation; CatalogService catches that UNIQUE violation and raises a
+    caught ValidationError, never a raw IntegrityError.
+    """
+    __tablename__ = 'product_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=False, index=True)
+
+    # Indexed for the by-tag filter (FR16); MAX_TAG_LENGTH mirrors this width.
+    tag = Column(String(64), nullable=False, index=True)
+
+    created_at = Column(DateTime, nullable=False, default=func.now())  # write-once
+
+    __table_args__ = (
+        UniqueConstraint('product_id', 'tag', name='uq_product_tags_product_tag'),
+    )
+
+    # One-directional (no back_populates → Product is untouched).
+    product = relationship('Product')
+
+    def __repr__(self):
+        return (f"<ProductTag(id={self.id}, product_id={self.product_id}, "
+                f"tag='{self.tag}')>")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses."""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'tag': self.tag,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

@@ -75,7 +75,7 @@ development_status:
   epic-3: backlog
   3-1-materialized-path-categories-with-inline-create: done
   3-2-category-rename-with-descendants: done
-  3-3-free-form-tags: backlog
+  3-3-free-form-tags: done
   epic-3-retrospective: optional
 
   # Epic 4 — Scan Routing & ECIA

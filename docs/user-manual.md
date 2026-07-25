@@ -1107,16 +1107,19 @@ storage failure.
 
 Return distinct existing values currently recorded for a free-form
 field. Powers the database-backed autocomplete on the Add and Edit
-Item forms and on the product form's Category field; available for
-programmatic clients too.
+Item forms and on the product form's Category and Tags fields;
+available for programmatic clients too.
 
 One endpoint serves two sources. For the item fields, suggestions are
 pulled from **all rows** in `inventory_items`, including inactive
 (history) rows, so deactivated items still seed suggestions. For
 `category_path`, they are pulled from the `products` table — the
 category tree *is* the set of paths products are filed under, so a path
-is offered only once some product uses it. Empty/whitespace values are
-excluded. Comparisons are case-insensitive throughout.
+is offered only once some product uses it. For `tags`, they come from
+the `product_tags` table, which likewise *is* the tag vocabulary: a tag
+is offered only once some product carries it, and it disappears when the
+last product drops it. Empty/whitespace values are excluded.
+Comparisons are case-insensitive throughout.
 
 #### Path parameter — `<field>`
 
@@ -1131,6 +1134,7 @@ returns 400.
 | `location`          | Physical location label. |
 | `sub_location`      | Sub-location within a location. |
 | `category_path`     | Product category path (e.g. `electronics/power/regulators`). Sourced from `products`, not `inventory_items`. |
+| `tags`              | Product tag (e.g. `ssr`). Sourced from `product_tags`, not `inventory_items`. Canonical form is lowercase with internal whitespace collapsed; a tag never contains a comma. |
 
 Material is intentionally excluded — it has its own taxonomy-backed
 endpoint at `/api/materials/suggestions`.
@@ -1163,14 +1167,18 @@ When `q` is omitted, results are alphabetized.
 }
 ```
 
-For `category_path` only, the body carries one extra key, `normalized`
-— the canonical form of `q` (lowercase, `/`-separated, no leading,
-trailing or repeated separators), i.e. the exact value that would be
-stored if the operator created it. It is `null` when `q` is omitted or
-carries no path (e.g. `/` or whitespace), and also when `q` could never
-be stored at all — a value longer than 512 characters once
-canonicalized — in which case `suggestions` is an empty list rather
-than the unfiltered vocabulary. Item fields never include this key.
+For the product-sourced fields (`category_path` and `tags`) only, the
+body carries one extra key, `normalized` — the canonical form of `q`,
+i.e. the exact value that would be stored if the operator created it.
+For `category_path` that is lowercase, `/`-separated, with no leading,
+trailing or repeated separators; for `tags` it is lowercase with
+surrounding whitespace trimmed and internal runs collapsed to one space.
+It is `null` when `q` is omitted or carries no value at all (e.g. `/` or
+whitespace for a path, blank for a tag), and also when `q` could never
+be stored — a canonicalized path longer than 512 characters, or a tag
+longer than 64 characters or containing a comma — in which case
+`suggestions` is an empty list rather than the unfiltered vocabulary.
+Item fields never include this key.
 
 ```json
 {

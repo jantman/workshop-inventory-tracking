@@ -26,6 +26,18 @@
                     <dt class="col-sm-3">Category</dt>
                     <dd class="col-sm-9">{{ product.category_path or '—' }}</dd>
 
+                    {# Story 3.3 (FR16): each tag links to the products carrying it,
+                       so a tag is a retrieval affordance rather than decoration. #}
+                    <dt class="col-sm-3">Tags</dt>
+                    <dd class="col-sm-9" id="product-tags">
+                        {% if tags %}
+                        {% for tag in tags %}
+                        <a class="badge text-bg-secondary text-decoration-none me-1"
+                           href="{{ url_for('main.tag_filter', tag=tag) }}">{{ tag }}</a>
+                        {% endfor %}
+                        {% else %}—{% endif %}
+                    </dd>
+
                     <dt class="col-sm-3">Notes</dt>
                     <dd class="col-sm-9">{{ product.notes or '—' }}</dd>
                 </dl>

@@ -17,6 +17,9 @@ from app.database import InventoryItem
 # Story 3.2: routes call the pure category util for segment-boundary logic —
 # they never re-derive it (AD-4).
 from app.utils import category as category_util
+# Story 3.3: same rule for tags — the canonical form and the comma-separated
+# list are the pure util's business, never re-derived here (AD-4).
+from app.utils import tag as tag_util
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
@@ -767,16 +770,93 @@ def _validate_product_form(form_data):
         value = (form_data.get(field) or '').strip()
         if value and len(value) > limit and field not in errors:
             errors[field] = f'{label} must be {limit} characters or fewer.'
+    if 'tags' in form_data:
+        # Parsed here — PURELY, before anything is written — so an unusable
+        # tag re-renders the form and no product is ever created (Story 3.3).
+        # The util's message is operator-readable and rendered verbatim.
+        try:
+            tag_util.parse_tag_list(form_data.get('tags'))
+        except tag_util.InvalidTagError as e:
+            errors['tags'] = str(e)
     return errors
 
 
-def _product_form_data(product):
-    """Build the form_data mapping for rendering edit.html from a Product."""
+def _form_tags(form_data):
+    """The canonical tag list a VALIDATED product form carries.
+
+    None when the POST omitted the `tags` key entirely — absent means "not
+    provided", not "clear them" (the same partial-update rule product_edit
+    applies to every other optional field). A present-but-empty field is an
+    empty list, which clears.
+    """
+    if 'tags' not in form_data:
+        return None
+    return tag_util.parse_tag_list(form_data.get('tags'))
+
+
+def _apply_product_tags(service, product_id, tags):
+    """Write a just-saved product's tags; return an operator-facing message
+    when the write failed, or None on success.
+
+    The product and its tags are two transactions (create_product owns a retry
+    loop over its own session), so a failure can land between them. Either way
+    it is reported honestly — the product saved, the tags did not — but the two
+    kinds need DIFFERENT advice:
+
+    - A backend failure is transient, so writing the tags again fixes it (the
+      replace is idempotent). So is the concurrent-writer race, which the
+      service marks `retryable` — another save reached the same product first
+      and rolled this one back, but nothing about the requested list is wrong.
+    - A `ValidationError` on the tags field that is NOT marked retryable is a
+      collision. `_validate_product_form` refuses everything a pure check can
+      see, but the database's collation can still fold two tags Python keeps
+      distinct (`café`/`cafe` under utf8mb4_unicode_ci), and re-submitting the
+      identical list reproduces that refusal forever. The operator has to
+      CHANGE a tag, so the message says so rather than telling them to retry a
+      save that cannot succeed. Keying on the field ALONE would sweep the race
+      into this arm and demand a change that fixes nothing.
+
+    Every message asks the operator to ENTER tags again, never merely to save
+    again: nothing kept what they typed. The edit form repopulates its tag field
+    from the database, which by definition does not hold the tags this write
+    just failed to store, so a bare re-save would write the OLD set (or none at
+    all) and report success.
+    """
+    try:
+        service.set_product_tags(product_id, tags)
+        return None
+    except ValidationError as e:
+        # warning, not error: a refused retag is ordinary operator input, and
+        # the service is careful to skip the audit record for exactly that
+        # reason. Logging it as an operational failure here would undo the
+        # distinction one layer up.
+        current_app.logger.warning(
+            f'Tag write refused for product {product_id}: {e}')
+        if e.field == 'tags' and not getattr(e, 'retryable', False):
+            return (f'The product was saved, but its tags were not: {e} '
+                    f'Edit the product and enter different tags.')
+        return (f'The product was saved, but its tags were not: {e} '
+                f'Edit the product and enter its tags again.')
+    except Exception as e:
+        current_app.logger.error(
+            f'Error writing tags for product {product_id}: {e}\n{traceback.format_exc()}')
+        return ('The product was saved, but its tags were not. Edit the '
+                'product and enter its tags again.')
+
+
+def _product_form_data(product, tags=None):
+    """Build the form_data mapping for rendering edit.html from a Product.
+
+    `tags` comes from a dedicated service call (they live in their own table,
+    and the Product is detached), and is rendered back into the single
+    comma-separated field the form submits.
+    """
     return {
         'description': product.description or '',
         'manufacturer': product.manufacturer or '',
         'mpn': product.mpn or '',
         'category_path': product.category_path or '',
+        'tags': tag_util.format_tag_list(tags),
         'notes': product.notes or '',
     }
 
@@ -797,6 +877,11 @@ def product_add():
                                validation_errors=validation_errors,
                                form_data=form_data)
 
+    # Parsed BEFORE the write, not after: _validate_product_form has already
+    # proved this cannot raise, and doing it inside the try below would let a
+    # tag rejection surface as "An error occurred while creating the product".
+    tags = _form_tags(form_data)
+
     try:
         service = _get_catalog_service()
         new_id = service.create_product(
@@ -810,6 +895,15 @@ def product_add():
             flash('Failed to create product. Please try again.', 'error')
             return render_template('product/add.html', title='Add Product',
                                    validation_errors={}, form_data=form_data)
+        if tags:
+            # A brand-new product carries no tags, so an empty list is a no-op
+            # and is not worth a transaction.
+            tag_error = _apply_product_tags(service, new_id, tags)
+            if tag_error:
+                # The product demonstrably exists, so the operator is sent to
+                # it rather than back to a form claiming the save failed.
+                flash(tag_error, 'error')
+                return redirect(url_for('main.product_detail', product_id=new_id))
         flash('Product created successfully!', 'success')
         return redirect(url_for('main.product_detail', product_id=new_id))
     except Exception as e:
@@ -831,10 +925,11 @@ def product_detail(product_id):
     purchases = service.get_purchases_for_product(product_id)
     last_paid = service.get_last_paid_price(product_id)
     attachments = service.get_attachments_for_product(product_id)
+    tags = service.get_tags_for_product(product_id)
     return render_template('product/detail.html',
                            title=product.description or f'Product {product_id}',
                            product=product, purchases=purchases, last_paid=last_paid,
-                           attachments=attachments)
+                           attachments=attachments, tags=tags)
 
 
 @bp.route('/products/<int:product_id>/attachments', methods=['POST'])
@@ -966,9 +1061,11 @@ def product_edit(product_id):
     title = f'Edit {product.description or product_id}'
 
     if request.method == 'GET':
-        return render_template('product/edit.html', title=title, product=product,
-                               form_data=_product_form_data(product),
-                               validation_errors={})
+        return render_template(
+            'product/edit.html', title=title, product=product,
+            form_data=_product_form_data(
+                product, service.get_tags_for_product(product_id)),
+            validation_errors={})
 
     form_data = request.form.to_dict()
     log_audit_operation('product_edit', 'input', item_id=str(product_id),
@@ -981,6 +1078,9 @@ def product_edit(product_id):
         return render_template('product/edit.html', title=title, product=product,
                                form_data=form_data,
                                validation_errors=validation_errors)
+
+    # Parsed before the write, for the reason product_add gives.
+    tags = _form_tags(form_data)
 
     try:
         # Only update fields actually present in the POST body: an absent key
@@ -996,6 +1096,13 @@ def product_edit(product_id):
             flash('Failed to update product. Please try again.', 'error')
             return render_template('product/edit.html', title=title, product=product,
                                    form_data=form_data, validation_errors={})
+        if tags is not None:
+            # Present-but-empty clears every tag; an ABSENT key leaves them
+            # alone, the same partial-update rule as the fields above.
+            tag_error = _apply_product_tags(service, product_id, tags)
+            if tag_error:
+                flash(tag_error, 'error')
+                return redirect(url_for('main.product_detail', product_id=product_id))
         flash('Product updated successfully!', 'success')
         return redirect(url_for('main.product_detail', product_id=product_id))
     except Exception as e:
@@ -1204,6 +1311,54 @@ def category_rename():
           f'to "{category_util.normalize_category_path(new_path)}" — '
           f'{updated} product(s) updated.', 'success')
     return redirect(url_for('main.category_list'))
+
+
+# ---------------------------------------------------------------------------
+# Tag pages (Story 3.3, FR16). Tags cut ACROSS the category tree, so the filter
+# page is the retrieval surface a hierarchy cannot express. There is no tag
+# vocabulary table: the vocabulary is the distinct set of assigned tags, so
+# these are views over CatalogService — no ORM here, and every tag string goes
+# through app/utils/tag.py (AD-1/AD-2/AD-4).
+# ---------------------------------------------------------------------------
+
+
+@bp.route('/products/tags')
+def tag_list():
+    """List every assigned tag with the number of products carrying it (FR16)."""
+    service = _get_catalog_service()
+    return render_template('product/tags.html', title='Tags',
+                           tags=service.list_tags())
+
+
+@bp.route('/products/tags/filter')
+def tag_filter():
+    """List exactly the products carrying one tag, whatever their categories
+    (FR16).
+
+    The tag is a QUERY parameter rather than a path segment because a canonical
+    tag may contain spaces and `/`. Exactly one tag: multi-tag and combined
+    category+tag faceting belong to Epic 8.
+    """
+    raw_tag = request.args.get('tag', '')
+    try:
+        tag = tag_util.normalize_tag(raw_tag)
+    except tag_util.InvalidTagError:
+        # Unstorable (over-length, or carrying the separator), therefore
+        # matching no stored tag — but it is a malformed request rather than an
+        # empty answer, so it goes back to the listing instead of rendering an
+        # empty state under a tag nothing could ever carry. It is named as the
+        # unusable tag it is: "pick a tag" would report the wrong problem to
+        # someone who followed a truncated or hand-edited link.
+        flash('That is not a usable tag, so nothing could carry it. '
+              'Pick one from the list.', 'error')
+        return redirect(url_for('main.tag_list'))
+    if tag is None:
+        flash('Pick a tag to filter by.', 'error')
+        return redirect(url_for('main.tag_list'))
+
+    products = _get_catalog_service().find_products_by_tag(tag)
+    return render_template('product/tag_products.html', title=f'Tag: {tag}',
+                           tag=tag, products=products)
 
 
 @bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])

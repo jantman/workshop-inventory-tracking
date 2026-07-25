@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{# Story 3.3 (FR16): the tag filter's result. Tags cut ACROSS the category
+   tree, so the Category column is shown to make that visible — these products
+   are listed because of their tag, whatever their categories. An empty result
+   is an answer, not an error: nothing carries this tag (any more). #}
+{% block content %}
+<div class="row">
+    <div class="col-lg-10">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h3 mb-0"><i class="bi bi-tags"></i> Tag: <code id="filter-tag">{{ tag }}</code></h1>
+            <a href="{{ url_for('main.tag_list') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> All Tags
+            </a>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Tagged Products</div>
+            <div class="card-body">
+                {% if products %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0" id="tagged-product-table">
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>Manufacturer / MPN</th>
+                                <th>Category</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in products %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('main.product_detail', product_id=product.id) }}">
+                                        {{ product.description or 'Product %s'|format(product.id) }}
+                                    </a>
+                                </td>
+                                <td>
+                                    {{ product.manufacturer or '—' }}
+                                    {% if product.mpn %}<span class="text-muted">/ {{ product.mpn }}</span>{% endif %}
+                                </td>
+                                <td>{% if product.category_path %}<code>{{ product.category_path }}</code>{% else %}—{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0" id="tag-empty-state">
+                    No products are tagged &quot;{{ tag }}&quot;. A tag exists only
+                    while some product carries it.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

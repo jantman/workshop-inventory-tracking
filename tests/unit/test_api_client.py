@@ -521,6 +521,7 @@ class TestGetFieldSuggestions:
         assert 'location' in SUGGESTABLE_FIELDS
         assert 'purchase_location' in SUGGESTABLE_FIELDS
         assert 'category_path' in SUGGESTABLE_FIELDS  # catalog-sourced (Story 3.1)
+        assert 'tags' in SUGGESTABLE_FIELDS           # catalog-sourced (Story 3.3)
         assert 'material' not in SUGGESTABLE_FIELDS
 
     def test_normalized_is_exposed_for_catalog_fields_only(self, client, session):
