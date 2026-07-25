@@ -5,11 +5,13 @@ These models define the structure and validation rules for inventory items,
 including support for different materials, shapes, and threading specifications.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timedelta
 from enum import Enum
+from types import MappingProxyType
 import re
 
 def parse_date_value(date_value: Union[str, int, float]) -> Optional[datetime]:
@@ -132,6 +134,35 @@ class IdentifierType(Enum):
     MPN = "MPN"
     VENDOR_SKU = "VENDOR_SKU"
     INTERNAL = "INTERNAL"
+
+
+class ScanKind(Enum):
+    """
+    The four structural kinds a captured scan can be classified as (Story 4.2,
+    FR36). Exhaustive and ordered: `app/utils/scan_router.py` tries them in the
+    order below and `FREE_TEXT` always matches, so every scan gets exactly one
+    kind and no scan dead-ends.
+
+    Unlike `IdentifierType` above, these values are lowercase and are NEVER
+    persisted. A `ScanKind` is a wire value: Story 4.5's JSON response and Epic
+    7's capture path serialize it beside the existing lowercase
+    `outcome: 'unrouted'` (`app/main/routes.py`), and AD-15 spells the four
+    kinds lowercase.
+
+    Members:
+        INTERNAL: A label this system printed — a GS1 element string under the
+            configured AI + token grammar, recognized by `app/utils/gs1.py`.
+        ECIA: An ISO/IEC 15434 format-06 distributor envelope (DigiKey,
+            Mouser). Only the envelope's header is recognized in Story 4.2;
+            Story 4.4 parses the records inside it.
+        GTIN: A bare manufacturer trade-item number in any of the four accepted
+            forms, validated and normalized by `app/utils/gtin.py`.
+        FREE_TEXT: Anything else. The fallthrough, never an error.
+    """
+    INTERNAL = "internal"
+    ECIA = "ecia"
+    GTIN = "gtin"
+    FREE_TEXT = "free_text"
 
 
 # Scoping authority (AD-9): these types are vendor-scoped for uniqueness;
@@ -412,5 +443,180 @@ class Dimensions:
             wall_thickness=Decimal(data['wall_thickness']) if data.get('wall_thickness') else None,
             weight=Decimal(data['weight']) if data.get('weight') else None,
         )
+
+
+# The two scan kinds that name a canonical form and therefore must carry one
+# (Story 4.2, AD-15). `ECIA` and `FREE_TEXT` normalize to nothing: an
+# envelope's content lives in `ecia_fields` and free text is searched as it
+# arrived, via `raw`.
+_KINDS_CARRYING_A_NORMALIZED_VALUE = frozenset({ScanKind.INTERNAL, ScanKind.GTIN})
+
+
+@dataclass(frozen=True)
+class ScanClassification:
+    """
+    The structural verdict on one captured scan (Story 4.2, FR36, AD-15).
+
+    Produced by `app/utils/scan_router.classify()` and by nothing else. This is
+    the frozen contract every scan consumer depends on — Story 4.3's
+    `resolve_scan`, Story 4.5's UI routing, Epic 7's order-time capture and
+    Epic 9's scan-result view — so it is deliberately small, has no behavior,
+    and carries no reference to a Product, a session, or a request.
+
+    Frozen so a classification can be passed around without defensive copying:
+    a consumer that needs a different verdict must classify again, not mutate
+    this one. All four fields are required and none has a default, so no call
+    site can construct a half-populated classification and every construction
+    states the kind's contract explicitly.
+
+    `frozen=True` alone would be a shallow promise, and `ecia_fields` is the
+    one field that will ever hold a mutable object: `dataclass` blocks
+    rebinding the attribute but not `c.ecia_fields['P'] = ...` through it, so
+    Story 4.4's parsed dict would have been shared and writable by every
+    consumer while the docstring claimed otherwise. `__post_init__` therefore
+    copies any mapping and wraps the copy in a `MappingProxyType` — a
+    read-only view — so the no-defensive-copying promise is true for all four
+    fields rather than three. The copy is unconditional, including when the
+    caller already passed a proxy: a proxy is a *view*, so accepting one
+    as-is would leave the dict behind it a live write channel into a
+    supposedly frozen classification.
+
+    Two consequences of holding a mapping, both of which bite Story 4.4 rather
+    than this one, so both are pinned by tests:
+
+    1. A classification carrying `ecia_fields` is NOT hashable (a mapping is
+       not), so do not put one in a set or use it as a dict key.
+       Classifications with `ecia_fields=None` hash normally.
+    2. `dataclasses.asdict()` and `copy.deepcopy()` both raise `TypeError:
+       cannot pickle 'mappingproxy' object` on one. That matters because
+       `asdict` is the obvious route from this frozen dataclass to the JSON
+       Story 4.5 serializes: a serializer must build its payload field by
+       field, converting `ecia_fields` with `dict(...)` itself.
+
+    Beyond freezing, `__post_init__` enforces every structural invariant this
+    docstring asserts, and the set is closed: each field's own type, plus the
+    two cross-field rules that tie `normalized_value` and `ecia_fields` to
+    `kind`. Requiring all four fields stops a call site building a
+    half-populated classification; these stop it building a self-contradictory
+    one — a `GTIN` with nothing to look up, an `ECIA` carrying a normalized
+    value it says it does not have — which is the failure mode Stories
+    4.3/4.5/7/9 would actually hit. Partial enforcement would be the worst of
+    the three options: it reads as "validated" at the call site while leaving
+    the highest-consequence hole open.
+
+    Attributes:
+        kind: Which of the four FR36 rules matched. Always set.
+        normalized_value: The canonical form of what was scanned, in the shape
+            the matching kind defines:
+
+            - `INTERNAL`: the token-stripped internal id — exactly the string
+              `gs1.decode()` returns as `InternalPayload.internal_id`, which is
+              exactly what Story 2.4 stored in `product_identifiers`. A
+              resolver must not strip it again.
+            - `GTIN`: the canonical 14-digit, left-zero-padded key from
+              `gtin.normalize_gtin()`. Lookup is against that namespace, so all
+              four GTIN forms of one product resolve to one row.
+            - `ECIA` and `FREE_TEXT`: `None`. There is nothing to normalize —
+              an ECIA envelope's content lives in `ecia_fields` and free text
+              is searched as it arrived, via `raw`.
+        ecia_fields: The MH10.8.2 data identifiers parsed out of an ECIA
+            envelope, keyed exactly `P`, `1P`, `Q`, `K`, `1K`, `9D`, `10D`.
+            **Always `None` in Story 4.2**, which recognizes the envelope's
+            header and stops; Story 4.4's parser is what populates it. The
+            field is part of the frozen shape rather than a placeholder — it is
+            here now precisely so Stories 4.3/4.5/7/9 can be written against
+            one contract that does not change under them when 4.4 lands. It is
+            `None` for every non-`ECIA` kind, permanently.
+        raw: The scan exactly as `classify()` received it — including any AIM
+            symbology prefix, which is stripped only to choose a rule and never
+            removed from this field. UNTRUSTED, in the same sense as
+            `gs1.InternalPayload.raw`: it is arbitrary scanner output, is not
+            character-filtered, and may carry control characters. Escape it
+            (`repr` / `!r`) before writing it to a log — interpolating it raw
+            is a log-forging vector — and never interpolate it into SQL or
+            markup.
+    """
+
+    kind: ScanKind
+    normalized_value: Optional[str]
+    ecia_fields: Optional[Mapping[str, str]]
+    raw: str
+
+    def __post_init__(self):
+        """Validate the shape, then make `ecia_fields` genuinely read-only.
+
+        Type faults raise `TypeError` and combination faults raise
+        `ValueError`, and the type check always runs first so the message names
+        what is actually wrong: a non-mapping is a non-mapping whatever `kind`
+        says.
+
+        `object.__setattr__` is how a frozen dataclass normalizes a field —
+        plain assignment would raise `FrozenInstanceError` against its own
+        `__setattr__`.
+        """
+        if not isinstance(self.kind, ScanKind):
+            raise TypeError(
+                f'kind must be a ScanKind, got {type(self.kind).__name__}: '
+                f'{self.kind!r}.')
+
+        # `raw` is what a consumer searches, logs and re-parses. `classify()`
+        # rejects a non-str scan at its own door, but it is not the only way to
+        # reach this constructor, and a non-str here surfaces as an
+        # AttributeError deep inside Story 4.3 or 4.4 rather than at the build.
+        if not isinstance(self.raw, str):
+            raise TypeError(
+                f'raw must be a str, got {type(self.raw).__name__}.')
+
+        value = self.normalized_value
+        if value is not None and not isinstance(value, str):
+            raise TypeError(
+                f'normalized_value must be a str or None, got '
+                f'{type(value).__name__}.')
+        # The Attributes block above says INTERNAL and GTIN each name a
+        # canonical form and ECIA and FREE_TEXT normalize to nothing. Both
+        # halves are load-bearing: a GTIN with no normalized_value is a lookup
+        # keyed on None in Story 4.3, and a FREE_TEXT carrying one invites a
+        # resolver to prefer it over the search `raw` is meant to drive.
+        if value is None and self.kind in _KINDS_CARRYING_A_NORMALIZED_VALUE:
+            raise ValueError(
+                f'kind={self.kind.name} names a canonical form, so '
+                f'normalized_value is required; got None.')
+        if value is not None and self.kind not in _KINDS_CARRYING_A_NORMALIZED_VALUE:
+            raise ValueError(
+                f'kind={self.kind.name} normalizes to nothing, so '
+                f'normalized_value must be None.')
+
+        fields = self.ecia_fields
+        # Checked before `dict(fields)`, which would otherwise coerce a
+        # sequence of pairs (`['ab', 'cd']` -> `{'a': 'b', 'c': 'd'}`) into a
+        # silently wrong classification, or leak `dict()`'s own message for a
+        # str/int and never name the field that was wrong.
+        if fields is not None and not isinstance(fields, Mapping):
+            raise TypeError(
+                f'ecia_fields must be a mapping of MH10.8.2 data identifiers '
+                f'or None, got {type(fields).__name__}.')
+        if fields is not None and self.kind is not ScanKind.ECIA:
+            raise ValueError(
+                f'ecia_fields is only meaningful for ScanKind.ECIA; got '
+                f'kind={self.kind.name} with ecia_fields set.')
+        if fields is None:
+            return
+
+        # `Mapping[str, str]` is the declared type and the Attributes block
+        # names the seven legal keys, so the container check alone was not the
+        # contract. A non-str key lands in Story 4.5's JSON as something
+        # `json.dumps` either rejects or silently stringifies, and a mutable
+        # value would leave the read-only promise false one level down —
+        # `c.ecia_fields['P'].append(...)` still reaching through the proxy.
+        for key, item in fields.items():
+            if not isinstance(key, str) or not isinstance(item, str):
+                raise TypeError(
+                    f'ecia_fields must map str data identifiers to str '
+                    f'values, got {type(key).__name__} -> '
+                    f'{type(item).__name__}.')
+
+        # Copied unconditionally — see the class docstring on why an incoming
+        # MappingProxyType is not trusted as-is.
+        object.__setattr__(self, 'ecia_fields', MappingProxyType(dict(fields)))
 
 
