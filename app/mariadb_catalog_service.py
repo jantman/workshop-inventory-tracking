@@ -12,20 +12,23 @@ extend this class (scan resolution, search_products, capture, derived signals).
 """
 
 import logging
+from collections.abc import Mapping
 from typing import Dict, List, Optional, Tuple
 from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker, defer
-from sqlalchemy import create_engine, case, func, or_
+from sqlalchemy import create_engine, case, exists, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from .database import Product, Purchase, Attachment, ProductIdentifier, ProductTag
-from .models import IdentifierType, VENDOR_SCOPED_IDENTIFIER_TYPES
+from .models import (IdentifierType, ScanKind, ScanResolution,
+                     VENDOR_SCOPED_IDENTIFIER_TYPES)
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
 from .utils import gtin, gs1
 from .utils import category as category_util
 from .utils import internal_id as internal_id_util
+from .utils import scan_router
 from .utils import tag as tag_util
 from config import Config
 
@@ -90,6 +93,30 @@ _FIELD_SUGGESTION_MODELS = {
 # flash listing every one of MAX_TAGS_PER_PRODUCT (50) tags is not actionable.
 MAX_TAGS_NAMED_IN_ERROR = 8
 
+# Free-text search bounds (Story 4.3, AD-17). No requirement caps the number of
+# results a search may return, so this bound is a deliberate choice rather than
+# a stated one: every sibling listing method in this class fetches unbounded
+# (deferred-work ledger, "catalog vocabulary listings and the tag filter result
+# page fetch and render without any bound"), and a scan fallthrough that
+# materializes the whole catalog into a UI list would be that same defect with a
+# new entry point. Epic 8 owns paging, which is what makes a larger result set
+# navigable rather than merely fetched; until then the default is what one
+# screen of scan results can usefully show and the max is the ceiling a caller
+# may ask for.
+SEARCH_RESULTS_DEFAULT_LIMIT = 50
+SEARCH_RESULTS_MAX_LIMIT = 200
+
+# Longest query search_products will build a LIKE pattern from. Not a cleaning
+# rule and not a second copy of the route's scan trim (`MAX_SCAN_LENGTH` stays
+# in app/main/routes.py): it is a database-safety bound, because a LIKE pattern
+# has a length limit that a search box has no reason to respect. SQLite raises
+# `OperationalError: LIKE or GLOB pattern too complex` past
+# SQLITE_MAX_LIKE_PATTERN_LENGTH (50000, and escaping doubles the query's
+# metacharacters on the way there), which would break NFR8's "no scan text
+# raises" on the only backend the suite runs. 4096 is far under that on both
+# backends and coincides with the route's own scan cap, so no scan can reach it.
+SEARCH_QUERY_MAX_LENGTH = 4096
+
 
 def _clean(value):
     """Trim strings and coerce blank strings to None (backfill-forward: absent
@@ -98,6 +125,70 @@ def _clean(value):
         value = value.strip()
         return value or None
     return value
+
+
+def _escape_like_wildcards(value: str) -> str:
+    """
+    Escape the LIKE metacharacters in user-supplied text against `\\`.
+
+    So a query like `10%` matches the literal string `10%` instead of acting as
+    a wildcard. Every caller must pass the same escape character to
+    SQLAlchemy's `.like(..., escape='\\')`.
+
+    Module-level rather than nested in one method because this file now has two
+    callers (`get_field_value_suggestions` and `search_products`) and the
+    ledger already records LIKE escaping as duplicated between this file and
+    `app/utils/category.py`'s `descendant_like_pattern`; a third independent
+    copy inside one module is the version of that defect worth not writing.
+    (Kept local to this file rather than imported from the inventory side, so
+    neither service has to import the other across the AD-1 seam.)
+    """
+    return (
+        value.replace('\\', '\\\\')
+        .replace('%', '\\%')
+        .replace('_', '\\_')
+    )
+
+
+def _is_storable_text(value: str) -> bool:
+    """
+    Whether `value` can reach the database intact and mean what it says
+    (Story 4.3, NFR8). Two character classes make that false:
+
+    - An UNPAIRED SURROGATE, which Python permits in a `str` but which has no
+      UTF-8 encoding, so a driver raises `UnicodeEncodeError` when binding it
+      as a parameter. A caller that must not raise on arbitrary text has to
+      answer such a query without querying.
+    - A NUL (`\\x00`). It binds without error, but SQLite's `LIKE` reads its
+      pattern as a C string and stops at the first NUL, so the pattern that
+      actually runs is a PREFIX of the one built — and since every pattern
+      here is wrapped in `%…%`, a leading NUL degenerates to the bare `%` that
+      matches EVERY row. Verified: with five products stored,
+      `search_products('\\x00')` returned all five, and `'a\\x00b'` ran as
+      `'%a'` and returned the rows *ending* in `a`. Both are the silent
+      wrong-answer failure that `search_products`' length bound refuses to
+      make by truncating; NUL was making it one character class over. The
+      divergence is backend-specific in the direction the unit suite cannot
+      see — PyMySQL escapes `\\0` in the emitted literal, so MariaDB compares
+      the whole pattern and answers nothing.
+
+    In both cases the honest answer is the no-match one, reached without a
+    query: no value this application stores can equal or contain text that
+    cannot be sent or cannot be compared whole.
+
+    The surrogate half is observed under SQLite, the only backend any test in
+    this repo runs `CatalogService` against; PyMySQL encodes bound parameters
+    to the connection charset and is expected to raise the same way, but that
+    is inferred rather than measured, and the absent MariaDB coverage is an
+    open ledger entry.
+    """
+    if '\x00' in value:
+        return False
+    try:
+        value.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 class CatalogService:
@@ -485,17 +576,6 @@ class CatalogService:
         column = getattr(_FIELD_SUGGESTION_MODELS.get(field, Product),
                          column_name)
 
-        # Escape user-supplied LIKE wildcards so a query like "10%" doesn't act
-        # as a wildcard. SQLAlchemy's like() takes an escape character we
-        # declare here. (Same helper as the inventory service — kept local so
-        # neither side has to import the other across the AD-1 seam.)
-        def _escape_like(s: str) -> str:
-            return (
-                s.replace('\\', '\\\\')
-                .replace('%', '\\%')
-                .replace('_', '\\_')
-            )
-
         # Unexpected exceptions are intentionally not swallowed here: the route
         # wrapper catches Exception and returns HTTP 500, and swallowing would
         # turn a backend failure into a 200 with an empty suggestion list.
@@ -507,14 +587,14 @@ class CatalogService:
             )
 
             if q:
-                pattern = f'%{_escape_like(q)}%'
+                pattern = f'%{_escape_like_wildcards(q)}%'
                 base = base.filter(
                     func.lower(column).like(pattern, escape='\\')
                 )
                 rank = case(
                     (func.lower(column) == q, 0),
                     (func.lower(column).like(
-                        f'{_escape_like(q)}%', escape='\\'
+                        f'{_escape_like_wildcards(q)}%', escape='\\'
                     ), 1),
                     else_=2,
                 )
@@ -1742,3 +1822,437 @@ class CatalogService:
             return row.product_id if row else None
         finally:
             session.close()
+
+    # --- Scan resolution & search (Story 4.3) ------------------------------
+
+    def search_products(self, query, filters=None, *,
+                        limit: int = SEARCH_RESULTS_DEFAULT_LIMIT) -> List[Product]:
+        """
+        Free-text search across the catalog (Story 4.3, AD-17, FR36).
+
+        AD-17's SOLE free-text search implementation: the scan fallthrough in
+        `resolve_scan` below calls it today and Epic 8's search page calls the
+        same method later, so there is never a second search path to keep in
+        agreement. `query` is matched case-insensitively as a CONTIGUOUS
+        substring — there is no tokenization, so `'RES 0805'` does not match a
+        product described `'RES 10K 0805 1%'` and a one-character query matches
+        most of the catalog. That is a property of the mechanism AD-17 defers
+        to Epic 8, it is pinned by `TestSearchProducts` and recorded in the
+        ledger, and it is worth knowing before treating the FR36 fallthrough as
+        a working search. The match runs against six columns, in four groups:
+
+        - `products.internal_id` (the label this shop printed),
+        - `products.description`, `products.notes`,
+        - `products.manufacturer`, `products.mpn`,
+        - `product_identifiers.value`, EVERY identifier type — including
+          `GTIN_UNVALIDATED`, which is outside the GTIN lookup namespace (AD-7)
+          and is therefore only ever reachable through this search. "Reachable"
+          means reachable by SUBSTRING, which for a `GTIN_UNVALIDATED` row is
+          one-directional: it is stored exactly as it was typed, so scanning
+          `'9506000134352'` finds a row stored as `'09506000134352'`, and
+          scanning the ITF-14 form of a row stored in its 13-digit form finds
+          nothing at all — the added leading zero is not a substring of what
+          is stored. That asymmetry is pinned by `TestGtinResolution` and
+          deferred; closing it needs either normalization at write time or the
+          Epic 8 mechanism.
+
+        What is deliberately NOT searched, so a reader does not have to diff
+        this list against the `Product` model: `products.category_path`,
+        `products.attributes` and the `product_tags` rows. AD-17 hands the
+        field set to Epic 8 along with the mechanism, and widening it here
+        would change what the fixed signature means without changing the
+        signature.
+
+        The *mechanism* is deliberately the simplest thing that satisfies the
+        fallthrough. AD-17 defers ranking, relevance ordering, pagination,
+        faceting and FULLTEXT to Epic 8; the signature here is what is fixed
+        now, so Epic 8 can change the mechanism behind it without touching a
+        call site. Results come back in ascending `products.id` — insertion
+        order, deterministic and stable across repeated calls — which is an
+        arbitrary-but-fixed order, not a relevance one.
+
+        Results are additionally capped at `limit`. Note what ordering plus a
+        cap amounts to: ascending id is not merely a display order, it is the
+        SELECTION rule for which matches survive the cap, and the row cut first
+        is the most recently created product — plausibly the one the operator
+        just added. The result carries no total and no truncation flag, so a
+        caller cannot say "showing 50 of 61". Both are deferred: a signal would
+        have to reach `ScanResolution`, whose three fields AD-15 freezes.
+
+        Four implementation choices worth stating, because each has a wrong
+        obvious alternative:
+
+        - Identifier values are matched with a correlated `EXISTS` rather than a
+          join. `Product` has no `identifiers` relationship (every child model
+          here is one-directional), and a join would return one row per matching
+          identifier — so a product carrying three matching identifiers would
+          appear three times. `EXISTS` collapses that to one row WITHOUT a SQL
+          `DISTINCT`, which matters: under MariaDB's folding collation
+          `DISTINCT` drops rows Python should have judged (the same hazard the
+          ledger records against `get_field_value_suggestions`).
+        - `func.lower()` is applied explicitly on both sides rather than
+          relying on the column collation, so that ASCII case-insensitivity
+          holds on SQLite (whose default collation is binary and would
+          otherwise make the unit suite case-SENSITIVE) as well as on MariaDB.
+          Be precise about what this does NOT buy: it is an ASCII fold only,
+          and the two backends still disagree outside that range. SQLite's
+          built-in `LOWER()` leaves non-ASCII untouched, so a product described
+          `'WÜRTH'` is unreachable by any casing of that word under the unit
+          suite, while MariaDB's `utf8mb4_unicode_ci` folds `Ü`/`ü` — and
+          `LOWER()` does not change MariaDB's comparison collation, so there an
+          accent-insensitive `cafe`/`café` match survives too. The divergence
+          is the one already recorded at `app/database.py:1084-1088`; it is
+          pinned by `TestSearchProducts` and deferred rather than papered over,
+          because closing it means either a custom SQLite collation (an
+          app-level engine change) or the Epic 8 mechanism decision AD-17
+          defers.
+        - No `IS NOT NULL` guard is needed on the nullable columns: `LIKE`
+          against `NULL` yields `NULL`, which `OR` treats as not-true, so a
+          product with a NULL description simply fails that disjunct.
+        - The leading `%` means no index can be used and this scans the table.
+          That is acceptable at the working set the PRD describes (hundreds to
+          low thousands of products) and is precisely the cost Epic 8's chosen
+          mechanism is expected to remove.
+
+        Read-only: no commit, no audit log. The returned Products are detached
+        ORM rows — their scalar columns stay readable, but do NOT touch a
+        relationship attribute (e.g. `.purchases`) on them, which would
+        lazy-load on a detached instance and raise.
+
+        Args:
+            query: The text to search for — a `str`, or None meaning "no
+                query". Stripped with a bare `str.strip()`, which is WIDER than
+                the route's `_clean_scan_input` (that one strips only
+                `' \\t\\r\\n'`, deliberately preserving the separators an ECIA
+                envelope is built from): here a leading GS or RS is noise in a
+                search box, not structure. This is the one cleaning
+                `resolve_scan` inherits by delegating here, and it is a
+                property of the search entrypoint rather than a second copy of
+                the scan trim rule. A blank, whitespace-only or None query
+                returns `[]` rather than the whole catalog, as does text that
+                cannot reach the database intact (`_is_storable_text`:
+                unpaired surrogates and NULs) and text longer than
+                SEARCH_QUERY_MAX_LENGTH, which no LIKE pattern can safely
+                carry. LIKE wildcards in it (`%`, `_`, `\\`) are escaped and
+                match literally.
+            filters: Reserved for Epic 8's faceted filtering (AD-17). None or an
+                empty mapping means "no filters"; anything else raises — see
+                Raises.
+            limit: Maximum number of products returned. Clamped to
+                [1, SEARCH_RESULTS_MAX_LIMIT]; a non-integer — `bool` included,
+                despite being an int subclass — falls back to
+                SEARCH_RESULTS_DEFAULT_LIMIT, mirroring
+                `get_field_value_suggestions`.
+
+        Returns:
+            Matching Products, ascending by id, at most `limit` of them.
+
+        Raises:
+            TypeError: if `filters` is neither None nor a Mapping, or if
+                `query` is neither None nor a `str`. Both are caller faults
+                that would otherwise degrade silently — see the guards below.
+            NotImplementedError: if `filters` is a non-empty Mapping. Story 4.3
+                fixes the parameter so Epic 8 changes no call sites, but
+                implements no filter; silently ignoring one would hand a caller
+                unfiltered rows it believes are filtered. Story 8.2 is where it
+                lands.
+        """
+        # ALL the type checks first, then the combination check — the taxonomy
+        # `ScanResolution.__post_init__` uses, and the order the Raises: block
+        # above presents. Both arguments are checked before either verdict is
+        # reached, so `search_products(b'zebra', {'a': 1})` reports the wrong
+        # type it was handed rather than the unimplemented feature it also
+        # asked for; a caller fixing the second would otherwise hit the first
+        # on the next run.
+        #
+        # A non-`str` query is refused, not coerced. `str(b'zebra')` is
+        # `"b'zebra'"` and a transport that forgot to decode would look like a
+        # catalog with no matches; but bytes are not the only shape with that
+        # failure, and they are not the worst. `str(object())` is `'<object
+        # object at 0x7f...>'`, a query derived from a memory address that
+        # differs between runs, and `str(10)` searched `'10'` and returned real
+        # rows for `'10K'` — a wrong-typed caller getting plausible hits is
+        # worse than one getting none. `resolve_scan` rejects a non-`str` at
+        # its own door (via `classify`); the sibling entrypoint Epic 8 calls is
+        # held to the same contract. None stays legal and means "no query" —
+        # the I/O matrix pins `None` alongside `''` and `'   '`.
+        if query is not None and not isinstance(query, str):
+            raise TypeError(
+                f'query must be str or None, not {type(query).__name__} — '
+                f'decode or convert it rather than searching its repr.')
+        # A non-Mapping `filters` must be named rather than reaching the
+        # message builder below: `sorted(5)` raises a bare TypeError instead of
+        # the documented NotImplementedError, and `sorted('abc')` explodes a
+        # string into characters — the same coercion trap
+        # `ScanResolution.__post_init__` rejects one module over.
+        if filters is not None and not isinstance(filters, Mapping):
+            raise TypeError(
+                f'filters must be a mapping of facet name to value, got '
+                f'{type(filters).__name__}.')
+
+        if filters:
+            # `sorted(map(repr, ...))` rather than `sorted(...)`: keys of mixed
+            # types are not mutually comparable, and `sorted({1: 'a', 'b': 2})`
+            # raises a bare `TypeError: '<' not supported between instances of
+            # 'str' and 'int'` from inside the message builder — the very
+            # substitution of a bare TypeError for the documented exception
+            # that the guard above exists to prevent.
+            raise NotImplementedError(
+                f'search_products filters are Story 8.2 (AD-17); this story '
+                f'fixes the parameter but implements no filter. Got: '
+                f'{sorted(map(repr, filters))}.')
+
+        q = ('' if query is None else query).strip()
+        if not q:
+            return []
+        # A LIKE pattern has a length ceiling the caller has no reason to know
+        # about: past it SQLite raises OperationalError, which would escape a
+        # method contracted never to raise on scan text (NFR8). Answering `[]`
+        # rather than truncating: a truncated pattern answers a DIFFERENT
+        # question — it returns rows that do not contain the query — and
+        # silently returning wrong hits is the failure this method's type guard
+        # above already refuses to make. Unreachable from a scan (the route
+        # caps input at 4096 before `resolve_scan` ever sees it); reachable
+        # from Epic 8's search box, which is why the bound lives here.
+        if len(q) > SEARCH_QUERY_MAX_LENGTH:
+            return []
+        # Same reason `resolve_scan` guards its scan text: text carrying an
+        # unpaired surrogate cannot be bound at all, and text carrying a NUL
+        # cannot be compared whole — SQLite truncates the LIKE pattern there,
+        # so `'\x00'` alone would return the ENTIRE catalog and `'a\x00b'`
+        # would return the rows ending in `a`. Nothing stored can equal or
+        # contain either, so `[]` is the correct answer and not merely a safe
+        # one; see `_is_storable_text`. This check runs before the pattern is
+        # built, because the defect is in the pattern.
+        if not _is_storable_text(q):
+            return []
+
+        # OverflowError joins the tuple because `int(float('inf'))` raises it
+        # rather than ValueError, and the docstring promises every non-integer
+        # falls back rather than escaping. `bool` is checked first and by type,
+        # because it IS an int: `int(True)` is 1, so a caller passing a flag or
+        # a truthiness-coerced request argument got exactly one row back from a
+        # method documented to fall back to the default.
+        if isinstance(limit, bool):
+            limit = SEARCH_RESULTS_DEFAULT_LIMIT
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError, OverflowError):
+            limit = SEARCH_RESULTS_DEFAULT_LIMIT
+        limit = max(1, min(limit, SEARCH_RESULTS_MAX_LIMIT))
+
+        pattern = f'%{_escape_like_wildcards(q.lower())}%'
+
+        def _matches(column):
+            return func.lower(column).like(pattern, escape='\\')
+
+        identifier_match = (
+            exists()
+            .where(ProductIdentifier.product_id == Product.id)
+            .where(_matches(ProductIdentifier.value))
+        )
+
+        session = self.Session()
+        try:
+            return (session.query(Product)
+                    .filter(or_(
+                        _matches(Product.internal_id),
+                        _matches(Product.description),
+                        _matches(Product.notes),
+                        _matches(Product.manufacturer),
+                        _matches(Product.mpn),
+                        identifier_match,
+                    ))
+                    .order_by(Product.id.asc())
+                    .limit(limit)
+                    .all())
+        finally:
+            session.close()
+
+    def resolve_scan(self, raw) -> ScanResolution:
+        """
+        Resolve one captured scan against the catalog (Story 4.3, FR36, AD-15).
+
+        Classifies `raw` with the pure `app/utils/scan_router.classify()`, looks
+        the result up where a lookup is defined, and falls through to
+        `search_products` when nothing matched — so no scan dead-ends (FR36),
+        with the single, deliberate exception of the `ecia` arm, which Story
+        4.4 owns and which returns no product and no hits until its parser
+        exists (see the per-arm list below). Returns a `ScanResolution` in
+        every case.
+
+        **The config seam (AD-16).** `Config.GS1_INTERNAL_AI` and
+        `Config.GS1_INTERNAL_TOKEN` are read here, in the body, on every call,
+        and passed explicitly into the pure classifier — exactly as
+        `encode_internal_payload` above passes them into `gs1.encode`. Neither
+        this method nor the classifier holds a literal default, so one config
+        change moves the label encoder and the scan router together with no code
+        edit. The pair is never captured at import or cached on `self` (Config
+        itself reads the environment once, so a changed .env still needs a
+        process restart).
+
+        **`raw` arrives already cleaned**, the same contract `classify()`
+        states: the caller (`app/main/routes.py`'s `_clean_scan_input`) owns
+        the scan trim rule and the scan length bound. This method restates
+        neither — a service that re-cleaned its scan input would be a third
+        copy of that rule rather than a shared one. Be precise about what that
+        does and does not mean: `raw` is classified exactly as handed over, and
+        the text that reaches a LOOKUP is untouched apart from the AIM strip.
+        The text that reaches the fallthrough SEARCH is additionally subject to
+        whatever `search_products` does to a query — a bare `str.strip()` and a
+        pattern-length bound — because that is search-entrypoint behavior every
+        caller of it gets, not a scan rule re-implemented here.
+
+        **What each arm searches, and why it differs:**
+
+        - `internal`: looks up `products.internal_id` (AD-3 makes it the
+          scan-lookup business key). On a miss it searches
+          `classification.normalized_value` — the bare, token-stripped id, which
+          is what the column actually stores. The `<ai><token>` prefix is an
+          encoding artifact present in no column, so searching the raw scan
+          would find nothing by construction.
+        - `gtin`: looks up a `GTIN` identifier row on
+          `classification.normalized_value`, which the classifier already
+          normalized to the canonical 14-digit key (AD-7: lookup is against the
+          normalized-14 namespace, and `GTIN_UNVALIDATED` rows are outside it
+          and are never matched by this arm). On a miss it searches the
+          AIM-stripped raw digits as scanned, NOT the 14-digit key: the key was
+          just searched exactly, so re-searching it adds nothing, while the
+          scanned form can substring-match a `GTIN_UNVALIDATED` row, which is
+          stored exactly as it was typed. "Can" is the operative word — the
+          match is a substring one, so it bridges the encodings in only one
+          direction. Scanning a shorter form finds a row stored in a longer,
+          zero-padded one; scanning the padded form of a row stored short does
+          NOT, and that scan is a genuine FR36 dead end (no product, no hits).
+          Deferred rather than patched: the fix is normalizing
+          `GTIN_UNVALIDATED` at write time or Epic 8's mechanism, both outside
+          this story.
+        - `free_text`: no lookup; searches the AIM-stripped raw.
+        - `ecia`: no lookup and no search — `product=None`, `free_text_hits=()`.
+          Story 4.4 owns this arm. Searching a raw format-06 envelope (control
+          characters, record separators and all) would be a query with no
+          meaning that 4.4 would immediately replace with a lookup on the parsed
+          `1P`/`P`; returning nothing is honest, and Story 4.5 still lands the
+          operator somewhere (NFR8).
+
+        Text that gets *used* is AIM-stripped first via the exported
+        `scan_router.strip_aim_prefix()`, never re-derived here.
+        `classification.raw` deliberately keeps the prefix.
+
+        Read-only, like `search_products`: there is no commit, no rollback and
+        no audit log, so scan resolution is idempotent by construction. Session
+        count per scan is one for a lookup that hits, one for a `free_text`
+        scan (the search), and two for an `internal`/`gtin` MISS (the lookup,
+        then `search_products`' own) — minus any search that answers without
+        querying. `search_products` returns `[]` for text that is blank,
+        unstorable or over-long before it opens anything, so `ecia`, an
+        unencodable scan and an empty scan all open ZERO, and a lookup miss
+        whose fallthrough text is blank opens one rather than two. The Product
+        and every Product in `free_text_hits` are therefore detached rows:
+        scalar columns stay readable, relationship attributes must not be
+        touched.
+
+        Args:
+            raw: The scan text, already cleaned by the caller.
+
+        Returns:
+            A `ScanResolution`. Never None.
+
+        Raises:
+            TypeError: propagated from `classify` when `raw` is not a `str` — a
+                caller fault, not a scan.
+            gs1.InvalidGs1PayloadError: propagated UNCHANGED when the configured
+                grammar is malformed. This is the one place this file
+                deliberately does not do what `encode_internal_payload` does:
+                that method translates the same exception into a
+                `ValidationError` because its bad input is a user-supplied id,
+                whereas here the input is a *deployment* fault. Translating it
+                would dress a broken configuration up as a rejected scan, and
+                swallowing it would silently disable rule 1 so every label this
+                shop ever printed would quietly start resolving as free text.
+
+            Database errors also propagate, as they do from every read method
+            here — a backend failure must not masquerade as "no match".
+        """
+        classification = scan_router.classify(
+            raw,
+            ai=Config.GS1_INTERNAL_AI,
+            token=Config.GS1_INTERNAL_TOKEN,
+        )
+        kind = classification.kind
+
+        # NFR8 is a promise about `resolve_scan`, not only about the pure
+        # classifier: no `str` scan may raise, and none may quietly answer a
+        # different question. Classification alone cannot break either, but
+        # this method is the first to send scan text to a database. Text that
+        # will not encode to UTF-8 makes the driver raise UnicodeEncodeError on
+        # the way out — verified with a lone surrogate ('\ud800'), which
+        # `_clean_scan_input` passes through untouched. Text carrying a NUL
+        # binds fine and then compares WRONG, because SQLite truncates a LIKE
+        # pattern at the first NUL: '\x00' * 4096 — the classic wedge no-read,
+        # and a vector this suite already had — resolved to every product in
+        # the catalog. No stored value can equal or contain either shape, so
+        # the honest answer is the no-match one, reached without a query.
+        # Checking `raw` covers every arm: a GTIN candidate is all ASCII digits
+        # by construction, and any other arm's text is derived from `raw`.
+        if not _is_storable_text(raw):
+            return ScanResolution(classification=classification, product=None,
+                                  free_text_hits=())
+
+        if kind is ScanKind.INTERNAL:
+            session = self.Session()
+            try:
+                product = (session.query(Product)
+                           .filter(Product.internal_id ==
+                                   classification.normalized_value)
+                           .first())
+            finally:
+                session.close()
+            fallthrough_text = classification.normalized_value
+
+        elif kind is ScanKind.GTIN:
+            session = self.Session()
+            try:
+                # The same (type, value) namespace find_product_id_by_gtin
+                # queries, inline rather than by delegation: that method takes
+                # an unnormalized value and would re-run normalize_gtin on a key
+                # the classifier already normalized, returns an id rather than a
+                # row, and opens a third session per scan. The duplication is
+                # one filter pair, and TestNamespaceAgreement pins the two
+                # against drift.
+                product = (session.query(Product)
+                           .join(ProductIdentifier,
+                                 ProductIdentifier.product_id == Product.id)
+                           .filter(ProductIdentifier.identifier_type ==
+                                   IdentifierType.GTIN.value,
+                                   ProductIdentifier.value ==
+                                   classification.normalized_value)
+                           .first())
+            finally:
+                session.close()
+            fallthrough_text = scan_router.strip_aim_prefix(classification.raw)
+
+        elif kind is ScanKind.ECIA:
+            # Story 4.4's arm — see the docstring. No query is issued at all.
+            return ScanResolution(classification=classification, product=None,
+                                  free_text_hits=())
+
+        else:
+            # ScanKind.FREE_TEXT, rule 4 — the fallthrough that always matches,
+            # so there is nothing to look up and the search always runs.
+            product = None
+            fallthrough_text = scan_router.strip_aim_prefix(classification.raw)
+
+        if product is not None:
+            return ScanResolution(classification=classification,
+                                  product=product, free_text_hits=())
+
+        # FR36: a miss is never a dead end — it becomes a search, within the
+        # same scan, through AD-17's single entrypoint. search_products manages
+        # its own session and returns [] for a blank query (an empty scan), so
+        # this never degenerates into "every product".
+        return ScanResolution(
+            classification=classification,
+            product=None,
+            free_text_hits=tuple(self.search_products(fallthrough_text)),
+        )

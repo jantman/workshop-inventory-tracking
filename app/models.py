@@ -5,9 +5,9 @@ These models define the structure and validation rules for inventory items,
 including support for different materials, shapes, and threading specifications.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Tuple, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timedelta
 from enum import Enum
@@ -620,3 +620,160 @@ class ScanClassification:
         object.__setattr__(self, 'ecia_fields', MappingProxyType(dict(fields)))
 
 
+@dataclass(frozen=True)
+class ScanResolution:
+    """
+    What one classified scan resolved to in the catalog (Story 4.3, FR36,
+    AD-15).
+
+    The second of AD-15's two frozen shapes and the counterpart of
+    `ScanClassification` above: that one says *what was scanned*, this one says
+    *what it turned out to be*. Produced by
+    `mariadb_catalog_service.CatalogService.resolve_scan()` and by nothing else,
+    and — like the classification it carries — it is the contract Story 4.5's
+    UI routing, Epic 7's order-time capture and Epic 9's scan-result view are
+    written against, so it is deliberately small and has no behavior.
+
+    All three fields are required and none has a default, matching the posture
+    `ScanClassification` sets: no call site can build a half-populated
+    resolution, and every construction states the outcome explicitly rather
+    than letting an omitted field mean "no match".
+
+    FR36's no-dead-end rule is what the three fields together express. Exactly
+    one of two things is true of any resolution: either the scan matched a
+    record (`product` set, `free_text_hits` empty), or it did not (`product`
+    None, `free_text_hits` holding whatever the free-text fallthrough found —
+    possibly nothing). "Matched *and* searched" is not a state a resolution can
+    represent, and `__post_init__` rejects it, because a consumer shown both
+    would have to invent a precedence rule the requirements never state. Both
+    "no product and no hits" and "no product and some hits" are legal terminal
+    states: Story 4.5 renders the first as a pre-filled create form (FR40) and
+    the second as search results.
+
+    Attributes:
+        classification: The `ScanClassification` this resolution answers —
+            always set, always the verdict `classify()` returned for this exact
+            scan, so a consumer never has to re-classify to learn the kind or
+            recover the raw text.
+        product: The matched Product, or None. It holds an
+            `app.database.Product` ORM row that is **detached** — `resolve_scan`
+            is read-only and closes its session before returning, so the row's
+            scalar columns stay readable but touching a relationship attribute
+            (e.g. `.purchases`) raises `DetachedInstanceError`. There is
+            deliberately no `isinstance` check on it: `app/models.py` is a leaf
+            module that imports nothing from `app.` (pinned by
+            `test_models_stays_a_leaf_module`), and importing `Product` here
+            would close the `models` -> `database` -> `models` cycle that test
+            exists to forbid. The annotation is therefore loose and this
+            docstring is the contract. What CAN be checked without that import
+            is checked: a `str`, `bytes`, `Mapping` or `Sequence` is refused,
+            which catches the swapped-argument case (the hits list handed to
+            this field) that no other guard would see.
+        free_text_hits: The products the AD-17 free-text search returned for
+            this scan, oldest id first, as a tuple. Same detached-row rule as
+            `product`. Empty whenever `product` is set — a resolution that
+            matched did not search — and legitimately empty when it is not,
+            which is the "nothing matched anything" terminal state above. The
+            annotation names the post-normalization type: the constructor
+            accepts an ordered sequence that is not a `str`/`bytes`/`Mapping`
+            and copies it into a tuple, so the list a caller passed in can be
+            mutated afterwards without changing the resolution. A set or a
+            generator is refused rather than copied, because neither can carry
+            the order this attribute promises.
+
+    Two consequences worth stating, both inherited from what the fields hold:
+
+    1. A resolution is not usefully comparable — it holds ORM rows, whose
+       `__eq__` is identity, so two resolutions built from separate queries for
+       the same product are unequal. Do not use one as a dict key or set member
+       either, but not because hashing reliably fails: `frozen=True`
+       synthesizes `__hash__` over the fields, so a resolution hashes fine
+       whenever its classification's `ecia_fields` is None — which is every
+       resolution this story can produce — and the value it returns is built
+       from the ORM rows' identity hashes, so it says nothing about what was
+       resolved. Once Story 4.4 fills `ecia_fields`, the SAME call starts
+       raising `TypeError: unhashable type: 'dict'` (the mapping rule
+       `ScanClassification` already documents). A key that works until one
+       arm of a four-way branch is exercised is worse than one that never
+       works.
+    2. `dataclasses.asdict()` and `copy.deepcopy()` do not work on one. `asdict`
+       recurses into the nested `ScanClassification`, which raises `TypeError:
+       cannot pickle 'mappingproxy' object` once Story 4.4 populates
+       `ecia_fields`, and both would in any case try to copy detached ORM rows.
+       A serializer must build its payload field by field.
+    """
+
+    classification: ScanClassification
+    product: Optional[Any]
+    free_text_hits: Tuple[Any, ...]
+
+    def __post_init__(self):
+        """Validate the shape, then make `free_text_hits` a private tuple.
+
+        Same taxonomy as `ScanClassification.__post_init__` above, and for the
+        same reasons: `TypeError` for a wrong type, `ValueError` for an illegal
+        combination, every message naming the field and the offending
+        `type(x).__name__`, and the type checks running first so a message
+        describes what is actually wrong rather than which cross-field rule it
+        happened to trip.
+        """
+        if not isinstance(self.classification, ScanClassification):
+            raise TypeError(
+                f'classification must be a ScanClassification, got '
+                f'{type(self.classification).__name__}.')
+
+        # `product` cannot be checked POSITIVELY (no `Product` import here —
+        # see the class docstring), but it can be checked negatively, and the
+        # obvious wrong values are worth refusing rather than freezing into a
+        # shape Stories 4.4/4.5 and Epics 7/8/9 dereference as a row. The
+        # realistic producer error is the arguments swapped — the hits list
+        # passed as `product` — which every check below would otherwise wave
+        # through, since the combination rule only looks at `free_text_hits`.
+        # A `Product` is not a Sequence, Mapping, str or bytes, so nothing this
+        # field is meant to hold lands here.
+        if isinstance(self.product, (str, bytes, bytearray, Mapping, Sequence)):
+            raise TypeError(
+                f'product must be a single matched product or None, got '
+                f'{type(self.product).__name__} — a sequence here is the hits '
+                f'list passed to the wrong field.')
+
+        hits = self.free_text_hits
+        # Rejected before `tuple(hits)`, which would otherwise explode a string
+        # into its characters and a mapping into its keys — the same coercion
+        # trap `ecia_fields` guards against one class up. A single product
+        # passed where a sequence was meant is the realistic caller error, and
+        # a `Product` is not a Sequence, so it lands on the branch below rather
+        # than silently becoming a one-element anything.
+        if isinstance(hits, (str, bytes, bytearray, Mapping)):
+            raise TypeError(
+                f'free_text_hits must be a sequence of products, not a '
+                f'{type(hits).__name__} — a string or mapping would be '
+                f'exploded into elements.')
+        # A Sequence, not merely an Iterable: the attribute documents an order
+        # ("oldest id first") and only an ordered container can honor it. A set
+        # is iterable and would be accepted by a looser check, then copied into
+        # a tuple in whatever order the hash table happened to yield — an order
+        # that varies per process. So would a one-shot generator, which reads
+        # as a sequence at the call site but cannot be re-read by the producer
+        # afterwards. Both are rejected here rather than silently producing a
+        # resolution whose stated ordering is false.
+        if not isinstance(hits, Sequence):
+            raise TypeError(
+                f'free_text_hits must be a sequence of products (its order is '
+                f'part of the contract), got {type(hits).__name__}.')
+
+        # Copied unconditionally, including when the caller already passed a
+        # tuple: `search_products` returns a list, and holding that list would
+        # leave the caller a live write channel into a supposedly frozen
+        # resolution (the aliasing lesson `ecia_fields` learned one class up).
+        object.__setattr__(self, 'free_text_hits', tuple(hits))
+
+        # Checked against the COPY, not the argument, so a one-shot iterator is
+        # judged on what was actually kept. A resolution cannot both match and
+        # fall through: FR36 falls through only when the lookup missed, so the
+        # two being set together means the producer conflated the arms.
+        if self.product is not None and self.free_text_hits:
+            raise ValueError(
+                f'a resolution that matched a product did not fall through to '
+                f'search, so free_text_hits must be empty; got '
+                f'{len(self.free_text_hits)} hits alongside a product.')
