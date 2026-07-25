@@ -1050,6 +1050,77 @@ def api_record_purchase(product_id):
     }), 201
 
 
+# Story 4.1 (FR35): upper bound on a captured scan. Far longer than any real
+# wedge payload (a full ISO/IEC 15434 format-06 envelope is a few hundred
+# characters); it exists only so a runaway paste is refused, not echoed back.
+MAX_SCAN_LENGTH = 4096
+
+# The ONLY characters trimmed off a captured scan. Deliberately NOT str.strip()
+# with no argument: Python treats \x1c-\x1f as whitespace, so a bare .strip()
+# would eat the trailing RS (\x1e) that terminates an ISO/IEC 15434 envelope
+# and Story 4.4's parser would see a truncated record.
+_SCAN_TRIM = ' \t\r\n'
+
+
+def _clean_scan_input(value):
+    """Strip leading/trailing space, tab, CR and LF from a captured scan.
+
+    Every other byte — GS (\\x1d), RS (\\x1e), EOT (\\x04), interior
+    whitespace, letter case — survives untouched (FR35).
+    """
+    return value.strip(_SCAN_TRIM)
+
+
+@bp.route('/api/scan', methods=['POST'])
+@csrf.exempt
+def api_scan():
+    """Receive one keyboard-wedge scan verbatim (FR35).
+
+    Deliberately dumb, and the seam later stories widen: no classification
+    (Story 4.2 owns `scan_router`), no lookup (Story 4.3 owns `resolve_scan`),
+    no service and no database. It validates the payload, applies the single
+    whitespace rule above, and echoes the cleaned text back with
+    `outcome: 'unrouted'` — a routed outcome replaces that value without any
+    change to the request shape, the field, or the client transport.
+
+    Errors use the AD-13 object-error envelope exclusively.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        # A JSON array/scalar body, or no/invalid JSON at all — treated as an
+        # absent `raw`, never a 500.
+        body = {}
+
+    raw = body.get('raw')
+    if not isinstance(raw, str):
+        # No coercion: an int, None, or a list is a malformed client, not a scan.
+        current_app.logger.warning(
+            'Scan rejected: `raw` absent or not a string (got %s)', type(raw).__name__)
+        return _catalog_json_error('invalid_field', 'raw must be a string', 400, field='raw')
+
+    # Bound the transmitted value, before trimming: this is a transport limit.
+    if len(raw) > MAX_SCAN_LENGTH:
+        current_app.logger.warning(
+            'Scan rejected: %d characters exceeds the %d limit', len(raw), MAX_SCAN_LENGTH)
+        return _catalog_json_error(
+            'invalid_field',
+            f'raw must be {MAX_SCAN_LENGTH} characters or fewer',
+            400, field='raw')
+
+    cleaned = _clean_scan_input(raw)
+    if not cleaned:
+        current_app.logger.warning('Scan rejected: blank after trimming')
+        return _catalog_json_error('invalid_field', 'raw must not be empty', 400, field='raw')
+
+    # The only server-side record that a scan arrived. Logged at debug because
+    # a rapid-scanning operator generates one of these per item; it is the
+    # entire diagnostic value of a transport-only endpoint when a scanner
+    # starts emitting something unexpected.
+    current_app.logger.debug('Scan captured: %d characters, outcome=unrouted', len(cleaned))
+
+    return jsonify({'success': True, 'raw': cleaned, 'outcome': 'unrouted'}), 200
+
+
 @bp.route('/products/edit/<int:product_id>', methods=['GET', 'POST'])
 def product_edit(product_id):
     """Edit a Product from the catalog UI."""
