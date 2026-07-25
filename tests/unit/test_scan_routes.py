@@ -189,6 +189,23 @@ class TestScanCaptureEndpoint:
         assert data['error']['field'] == 'raw'
         assert str(MAX_SCAN_LENGTH) in data['error']['message']
 
+    def test_outer_whitespace_counts_toward_the_length_limit(self, client):
+        """The bound is checked BEFORE trimming, deliberately.
+
+        It bounds the payload the client actually sent, not the scan hiding
+        inside it, so a mostly-padding body is refused even though its content
+        is nine characters. Pinned because the check's position relative to
+        `_clean_scan_input` is otherwise invisible.
+        """
+        padded = ' ' * MAX_SCAN_LENGTH + 'STOCKCODE'
+        resp = client.post('/api/scan', json={'raw': padded})
+        assert resp.status_code == 400
+        assert resp.get_json()['error']['field'] == 'raw'
+
+        # ...and the same content, unpadded, is a perfectly good scan.
+        assert client.post(
+            '/api/scan', json={'raw': 'STOCKCODE'}).get_json()['raw'] == 'STOCKCODE'
+
     def test_max_scan_length_is_4096(self):
         """The documented bound; changing it is a deliberate contract change."""
         assert MAX_SCAN_LENGTH == 4096
@@ -209,6 +226,51 @@ class TestScanCaptureEndpoint:
         from app.main.routes import api_scan
 
         assert f'{api_scan.__module__}.{api_scan.__name__}' in csrf._exempt_views
+
+    def test_csrf_exemption_holds_with_protection_actually_enabled(self, test_storage):
+        """Behavioral proof the registry check above cannot give.
+
+        `TestConfig` sets `WTF_CSRF_ENABLED = False` (config.py:77), so the
+        `client` fixture would accept a tokenless POST whether or not the route
+        carries `@csrf.exempt`. Build an app with protection genuinely on, and
+        prove it is on with a control route before trusting the 200.
+        """
+        from app import create_app
+        from config import TestConfig
+
+        class CsrfEnabledConfig(TestConfig):
+            WTF_CSRF_ENABLED = True
+
+        app = create_app(CsrfEnabledConfig, storage_backend=test_storage)
+
+        @app.route('/__csrf_control__', methods=['POST'])
+        def _csrf_control():                       # pragma: no cover - never reached
+            return 'reached'
+
+        client = app.test_client()
+
+        # Control: an unexempted route in this same app IS rejected, so the
+        # protection is real and the assertion below means something.
+        assert client.post('/__csrf_control__').status_code == 400
+
+        resp = client.post('/api/scan', json={'raw': '0123'})
+        assert resp.status_code == 200
+        assert resp.get_json()['raw'] == '0123'
+
+    def test_endpoint_constructs_no_catalog_service(self, client, monkeypatch):
+        """The story's stated contract: no service, no database.
+
+        Asserted rather than merely described, so wiring `_get_catalog_service`
+        in during Story 4.2/4.3 is a deliberate act that turns a test red
+        instead of a comment quietly going stale.
+        """
+        calls = []
+        monkeypatch.setattr(
+            'app.main.routes._get_catalog_service',
+            lambda *args, **kwargs: calls.append(True))
+
+        assert client.post('/api/scan', json={'raw': '0123'}).status_code == 200
+        assert calls == []
 
     def test_response_has_no_resolution_fields(self, client):
         """Story 4.1 resolves nothing; 4.2/4.3 add to this shape, not this story."""

@@ -64,9 +64,15 @@ class TestScanFieldPresence:
         '/inventory',         # metal-stock list
         '/products/add',      # catalog create form
         '/inventory/move',    # a page that already owns its own scan input
-    ], ids=['home', 'inventory_list', 'product_add', 'inventory_move'])
+        '/no-such-page',      # the 404 page - errors/404.html extends base.html too
+    ], ids=['home', 'inventory_list', 'product_add', 'inventory_move', 'error_404'])
     def test_scan_input_present_on_every_page(self, page, live_server, path):
-        """The field comes from base.html, so no template was touched for it."""
+        """The field comes from base.html, so no template was touched for it.
+
+        The error page is included deliberately: it is a page an operator lands
+        on without choosing to, and it is the one most easily missed by a
+        route-driven check.
+        """
         page.goto(f'{live_server.url}{path}')
         expect(page.locator(SCAN_INPUT)).to_be_visible(timeout=5000)
 
@@ -202,34 +208,166 @@ class TestWedgeScanCapture:
             "() => [' ', '\\t', '\\r', '\\n'].map(c => window.ScanCapture.stripOuter(c))")
         assert trimmed == ['', '', '', '']
 
-    def test_second_enter_while_in_flight_is_ignored_but_not_silently(
+    @pytest.mark.parametrize('typed', [
+        '  0123  ',                 # plain outer spaces
+        '\t STOCK \t',              # tabs and spaces, both in the trim set
+        'a b\tc',                   # interior whitespace, kept by both sides
+        '\u00a0NBSP\u00a0',       # NBSP: JS trim() strips it, both rules keep it
+        '\ufeffBOM',               # BOM: likewise
+        '\x0bVT\x0c',               # VT/FF: str.strip() strips them, both rules keep them
+    ], ids=['spaces', 'tabs', 'interior', 'nbsp', 'bom', 'vt_ff'])
+    def test_server_echo_matches_the_clients_own_trim_rule(
+            self, page, live_server, typed):
+        """The two implementations of the trim rule, compared end to end.
+
+        `_SCAN_TRIM` and `ScanCapture.stripOuter` are separate copies of one
+        rule, and the client never reads `data.raw` - so nothing else in the
+        suite would notice them diverging; each side is only ever pinned
+        against its own expectations. This drives the real field and compares
+        the server's echo against the client's own function (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+
+        # Value set directly so control characters reach the field byte-exact;
+        # the terminator below is still a real key press.
+        page.evaluate("""(v) => {
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = v;
+        }""", typed)
+
+        with page.expect_response('**/api/scan') as response_info:
+            page.locator(SCAN_INPUT).press('Enter')
+
+        expected = page.evaluate('(v) => window.ScanCapture.stripOuter(v)', typed)
+        assert response_info.value.json()['raw'] == expected
+
+    def test_crlf_terminator_posts_once_and_is_not_called_a_dropped_scan(
             self, page, live_server):
-        """A fast double-scan must not produce two overlapping requests.
+        """ONE scan can send TWO Enter presses, and that is not a double-scan.
+
+        HID has no separate LF key, so a wedge programmed with a CR+LF suffix
+        emits Return twice in the same burst; the second always lands inside
+        the first one's in-flight window. Treating it as a dropped scan would
+        put a "rescan this item" warning on every single scan and invite the
+        operator to double-process an item that was captured (FR35).
+
+        The keys here are REAL browser input - only `fetch` is stubbed, to make
+        the in-flight window deterministic rather than a race against the
+        server.
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.__posts = [];
+            window.fetch = (url, opts) => {
+                window.__posts.push(JSON.parse(opts.body).raw);
+                return new Promise(resolve => setTimeout(() => resolve(new Response(
+                    JSON.stringify({success: true, raw: 'CRLF-SCAN', outcome: 'unrouted'}),
+                    {status: 200, headers: {'Content-Type': 'application/json'}})), 400));
+            };
+        }""")
+
+        scan_input = page.locator(SCAN_INPUT)
+        scan_input.focus()
+        scan_input.type('CRLF-SCAN')
+        scan_input.press('Enter')            # CR
+        scan_input.press('Enter')            # LF, same burst, field unchanged
+        page.wait_for_timeout(1200)
+
+        assert page.evaluate('() => window.__posts') == ['CRLF-SCAN']
+        assert page.locator('.toast.text-bg-warning').count() == 0
+        expect(scan_input).to_have_value('', timeout=5000)
+
+    def test_second_burst_while_in_flight_is_dropped_but_not_silently(
+            self, page, live_server):
+        """A second burst - one that GREW the field - is a genuine second scan.
 
         Both keydowns are dispatched inside one synchronous JS task, so the
-        second is guaranteed to arrive while the fetch promise is pending -
-        which a timing-based double press could not guarantee.
+        second is guaranteed to arrive while the fetch promise is pending.
 
-        The dropped scan must be announced: a silently ignored Enter followed
-        by the field clearing on the FIRST scan's response is indistinguishable
-        from a captured scan, which is how a scan gets lost (FR35).
+        Unlike the duplicate terminator above, this scan really is dropped, and
+        a silent drop followed by the field clearing on the FIRST scan's
+        response is indistinguishable from a captured scan (FR35).
         """
         page.goto(f'{live_server.url}/')
         calls = record_scan_requests(page)
 
         page.evaluate("""() => {
             const el = document.getElementById('scan-input');
-            el.value = 'DOUBLE-SCAN';
-            const press = () => el.dispatchEvent(new KeyboardEvent(
+            el.focus();
+            el.value = 'SCAN-ONE';
+            el.dispatchEvent(new KeyboardEvent(
                 'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
-            press();
-            press();
+            el.value = 'SCAN-ONESCAN-TWO';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
         }""")
 
         expect(page.locator('.toast.text-bg-warning')).to_be_visible(timeout=5000)
         page.wait_for_timeout(1500)
 
-        assert len(calls) == 1
+        assert [json.loads(c)['raw'] for c in calls] == ['SCAN-ONE']
+
+    def test_bare_enter_on_merged_residue_is_refused_not_posted(
+            self, page, live_server):
+        """Selecting the residue only closes the path where the next burst TYPES.
+
+        A bare Enter - the obvious response to "rescan this item", and what a
+        repeat-trigger scanner emits - would otherwise POST 'SCAN1SCAN2' as one
+        valid 200 scan. A silently WRONG scan is worse than the lost scan the
+        in-flight guard exists to prevent (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""() => {
+            window.__posts = [];
+            window.__resolve = null;
+            window.fetch = (url, opts) => {
+                window.__posts.push(JSON.parse(opts.body).raw);
+                return new Promise(r => { window.__resolve = r; });
+            };
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'SCAN1';
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            el.value = 'SCAN1SCAN2';         // second burst types in
+            el.dispatchEvent(new KeyboardEvent(
+                'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            window.__resolve(new Response(
+                JSON.stringify({success: true, raw: 'SCAN1', outcome: 'unrouted'}),
+                {status: 200, headers: {'Content-Type': 'application/json'}}));
+        }""")
+
+        expect(page.locator('.toast.text-bg-warning')).to_be_visible(timeout=5000)
+        page.wait_for_timeout(300)
+
+        # The operator does the obvious thing with the retained text.
+        page.locator(SCAN_INPUT).press('Enter')
+        page.wait_for_timeout(500)
+
+        assert page.evaluate('() => window.__posts') == ['SCAN1']   # never SCAN1SCAN2
+        expect(page.locator(SCAN_INPUT)).to_have_value('', timeout=5000)
+        expect(page.locator('.toast.text-bg-danger')).to_be_visible(timeout=5000)
+
+    def test_ime_composition_enter_does_not_submit(self, page, live_server):
+        """An IME commit fires Enter too; it ends a composition, not a scan.
+
+        Acting on it would post a partial string (FR35).
+        """
+        page.goto(f'{live_server.url}/')
+        calls = record_scan_requests(page)
+
+        page.evaluate("""() => {
+            const el = document.getElementById('scan-input');
+            el.focus();
+            el.value = 'PARTIAL';
+            el.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Enter', isComposing: true, bubbles: true, cancelable: true}));
+        }""")
+        page.wait_for_timeout(800)
+
+        assert calls == []
+        expect(page.locator(SCAN_INPUT)).to_have_value('PARTIAL', timeout=5000)
 
     def test_typed_ahead_burst_does_not_concatenate_onto_the_next_scan(
             self, page, live_server):
