@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker, defer
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, case, func
 from sqlalchemy.exc import IntegrityError
 
 from .database import Product, Purchase, Attachment, ProductIdentifier
@@ -24,6 +24,7 @@ from .models import IdentifierType, VENDOR_SCOPED_IDENTIFIER_TYPES
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
 from .utils import gtin, gs1
+from .utils import category as category_util
 from .utils import internal_id as internal_id_util
 from config import Config
 
@@ -60,6 +61,18 @@ ATTACHMENT_MAX_FILENAME = 255  # matches the filename column length
 # write so oversize surfaces cleanly, never as a raw DataError at flush time
 # (SQLite silently stores overlong strings; MariaDB strict mode rejects them).
 IDENTIFIER_MAX_LENGTH = 255  # matches the value / vendor_scope column lengths
+
+# Catalog-side whitelist of fields exposed for value-suggestion autocomplete
+# (Story 3.1). Deliberately shaped exactly like
+# InventoryService.FIELD_SUGGESTION_COLUMNS — public field name -> Product
+# column attribute name — so the ONE endpoint
+# (/api/inventory/field-suggestions/<field>) can dispatch on membership without
+# a second URL or a parallel field set (AD-14). No products query belongs in
+# the inventory service, which is why this lives here rather than there
+# (AD-1/AD-2).
+FIELD_SUGGESTION_COLUMNS = {
+    'category_path': 'category_path',
+}
 
 
 def _clean(value):
@@ -164,7 +177,12 @@ class CatalogService:
                     mpn=_clean(mpn),
                     description=_clean(description),
                     notes=_clean(notes),
-                    category_path=_clean(category_path),
+                    # Story 3.1: create_product and update_product are the only
+                    # writers of category_path, so normalizing here (and only
+                    # here) is what makes "every stored path is canonical or
+                    # NULL" true. normalize_category_path subsumes _clean for
+                    # this field — blank normalizes to None.
+                    category_path=category_util.normalize_category_path(category_path),
                     attributes=attributes,
                 )
                 session.add(product)
@@ -238,6 +256,10 @@ class CatalogService:
         product does not exist or the update fails. Only recognized product
         fields are applied; blank strings become NULL. `updated_at` is bumped
         automatically by the model's onupdate.
+
+        Together with create_product this is one of the only two writers of
+        products.category_path, so a supplied value is canonicalized through
+        app/utils/category.py on the way in (Story 3.1) — see the field loop.
         """
         from .logging_config import log_audit_operation
         try:
@@ -252,7 +274,17 @@ class CatalogService:
             for key, value in fields.items():
                 if key not in _PRODUCT_FIELDS:
                     continue
-                setattr(product, key, value if key == 'attributes' else _clean(value))
+                if key == 'attributes':
+                    cleaned = value
+                elif key == 'category_path':
+                    # Story 3.1: the other write path onto category_path, so it
+                    # canonicalizes too (a blank still clears to NULL — that is
+                    # normalize's own contract, not a special case here). A key
+                    # ABSENT from `fields` is untouched, as before.
+                    cleaned = category_util.normalize_category_path(value)
+                else:
+                    cleaned = _clean(value)
+                setattr(product, key, cleaned)
 
             # Flush and snapshot before commit (see create_product).
             session.flush()
@@ -271,6 +303,205 @@ class CatalogService:
         finally:
             if 'session' in locals():
                 session.close()
+
+    # --- Field-value suggestions (Story 3.1) ------------------------------
+
+    def normalize_suggestion_value(self, field: str, value) -> Optional[str]:
+        """
+        Return the canonical form of a raw suggestion query for a catalog
+        field, or None when it carries nothing (Story 3.1, FR14).
+
+        This is what the endpoint echoes back as `normalized`, and it is the
+        create affordance's source of truth: the browser displays the string
+        that would actually be STORED if the operator accepted the create,
+        instead of reimplementing normalization in JavaScript where it could
+        silently drift from app/utils/category.py (AD-4).
+
+        An over-length query cannot become a stored path, so it yields None
+        (no create offered) rather than raising — a suggestion lookup is a
+        read, and a rejected query is nothing the operator could create.
+        Note this is the ECHO only: `get_field_value_suggestions` treats the
+        same query as unmatchable and returns no rows, rather than reading
+        the None as "no filter".
+
+        Args:
+            field: One of the keys in the module-level
+                FIELD_SUGGESTION_COLUMNS. Any other value raises ValueError,
+                mirroring get_field_value_suggestions.
+            value: The raw query as typed, or None.
+
+        Returns:
+            The canonical value, or None.
+
+        Raises:
+            ValueError: if `field` is not whitelisted.
+            NotImplementedError: if `field` IS whitelisted but has no
+                normalizer registered below — a wiring error, not a request
+                error, so it is deliberately not the route's 400 path.
+        """
+        if FIELD_SUGGESTION_COLUMNS.get(field) is None:
+            raise ValueError(f"Unsupported field for suggestions: {field!r}")
+        if field == 'category_path':
+            try:
+                return category_util.normalize_category_path(value)
+            except category_util.InvalidCategoryPathError:
+                return None
+        # Unreachable while category_path is the only whitelisted field, and
+        # deliberately loud rather than a plausible-looking fallback: a second
+        # catalog field needs its OWN normalizer here. Falling back to _clean
+        # would echo a non-canonical value, which get_field_value_suggestions
+        # lowercases anyway and which the browser's create check assumes is
+        # already canonical.
+        raise NotImplementedError(
+            f'No suggestion normalizer registered for {field!r}')
+
+    def get_field_value_suggestions(
+        self,
+        field: str,
+        query: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[str]:
+        """
+        Return distinct existing values for a whitelisted Product field,
+        suitable for autocomplete on the product Add/Edit forms (FR14, FR15).
+
+        The category "tree" IS the distinct set of assigned
+        products.category_path values — there is no node table — so this
+        DISTINCT query is the whole vocabulary source. It accretes purely from
+        use: nothing is offered until some product carries it, and ancestors
+        are not synthesized (typing `a/b/c` makes `a/b/c` available, not bare
+        `a`).
+
+        (Both orderings sort on LOWER(category_path) and a filtered lookup is
+        a leading-wildcard LIKE, so neither can use the column's index — this
+        scans, which is fine at this table's size. The index earns its keep on
+        the equality and prefix lookups Story 3.2 and Epic 8 will add.)
+
+        Deliberately mirrors InventoryService.get_field_value_suggestions in
+        name, signature, ValueError-on-unknown-field, [1, 50] limit clamp, LIKE
+        escaping, and exact -> starts-with -> contains ranking, so the shared
+        endpoint can dispatch on the whitelist alone (AD-14). It takes no
+        `location` argument: that parameter is meaningful only for the
+        inventory sub_location field.
+
+        NULL and blank values are excluded and comparison is case-insensitive.
+        The query is canonicalized before matching (so `Elec` and `elec` behave
+        identically, and `Electronics / Power` matches the stored
+        `electronics/power`).
+
+        Args:
+            field: One of the keys in the module-level FIELD_SUGGESTION_COLUMNS.
+            query: Optional filter, normalized then matched case-insensitively
+                as a substring. When None or empty, returns `limit` distinct
+                values in alphabetical order.
+            limit: Maximum number of suggestions. Clamped to [1, 50];
+                non-integer values fall back to 10.
+
+        Returns:
+            List of distinct canonical value strings.
+
+        Raises:
+            ValueError: if `field` is not whitelisted.
+        """
+        column_name = FIELD_SUGGESTION_COLUMNS.get(field)
+        if column_name is None:
+            raise ValueError(f"Unsupported field for suggestions: {field!r}")
+
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 10
+        limit = max(1, min(limit, 50))
+
+        column = getattr(Product, column_name)
+        # Normalizing the query (rather than a bare .strip().lower()) is what
+        # lets a half-typed 'Electronics / Pow' find 'electronics/power'.
+        #
+        # A query the util REJECTS (over-length) is unmatchable: no stored path
+        # can equal it, so the answer is "nothing", not "no filter". Reading
+        # the None as an absent query here would silently drop the filter and
+        # return the entire vocabulary. A query that merely normalizes AWAY
+        # ('', '   ', '/', '///') is different: it carries no path content at
+        # all, so it means "no filter", same as an omitted q.
+        if field == 'category_path':
+            try:
+                q = category_util.normalize_category_path(query) or ''
+            except category_util.InvalidCategoryPathError:
+                return []
+        else:
+            # Unreachable while category_path is the only whitelisted field.
+            # NOT a fallback to normalize_suggestion_value: that method answers
+            # a different question (what to ECHO, where a rejected query is
+            # None) and reading its None here would mean "no filter" — the
+            # whole-vocabulary leak the branch above exists to prevent. A
+            # second catalog field registers its matching rule here, next to
+            # its echo rule in normalize_suggestion_value.
+            raise NotImplementedError(
+                f'No suggestion matching rule registered for {field!r}')
+
+        # Escape user-supplied LIKE wildcards so a query like "10%" doesn't act
+        # as a wildcard. SQLAlchemy's like() takes an escape character we
+        # declare here. (Same helper as the inventory service — kept local so
+        # neither side has to import the other across the AD-1 seam.)
+        def _escape_like(s: str) -> str:
+            return (
+                s.replace('\\', '\\\\')
+                .replace('%', '\\%')
+                .replace('_', '\\_')
+            )
+
+        # Unexpected exceptions are intentionally not swallowed here: the route
+        # wrapper catches Exception and returns HTTP 500, and swallowing would
+        # turn a backend failure into a 200 with an empty suggestion list.
+        session = self.Session()
+        try:
+            base = session.query(column).filter(
+                column.isnot(None),
+                func.trim(column) != '',
+            )
+
+            if q:
+                pattern = f'%{_escape_like(q)}%'
+                base = base.filter(
+                    func.lower(column).like(pattern, escape='\\')
+                )
+                rank = case(
+                    (func.lower(column) == q, 0),
+                    (func.lower(column).like(
+                        f'{_escape_like(q)}%', escape='\\'
+                    ), 1),
+                    else_=2,
+                )
+                base = base.order_by(rank, func.lower(column))
+            else:
+                base = base.order_by(func.lower(column))
+
+            # Over-fetch slightly to give the post-DB case-insensitive dedup
+            # pass headroom: the DB DISTINCT depends on the column's collation,
+            # so two values differing only in case may both reach Python.
+            # Stored paths are canonical (lowercase) since this story, but rows
+            # written before the data migration ran must not double up.
+            fetch_limit = limit * 3 + 10
+            rows = base.distinct().limit(fetch_limit).all()
+            values = [
+                row[0].strip()
+                for row in rows
+                if row[0] and row[0].strip()
+            ]
+
+            seen_lower = set()
+            unique = []
+            for v in values:
+                key = v.lower()
+                if key in seen_lower:
+                    continue
+                seen_lower.add(key)
+                unique.append(v)
+
+            return unique[:limit]
+
+        finally:
+            session.close()
 
     # --- Purchases (Story 1.4) -------------------------------------------
 

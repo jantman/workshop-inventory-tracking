@@ -231,3 +231,89 @@ class TestProductAttachments:
 
     def test_serve_missing_attachment_404(self, client):
         assert client.get('/attachments/999999').status_code == 404
+
+
+@pytest.mark.unit
+class TestProductCategoryPath(object):
+    """The category field's FR13 path end-to-end below the browser: what the
+    operator types is stored canonical, shown canonical, and prefilled
+    canonical (Story 3.1)."""
+
+    def _make_product(self, test_storage, **kwargs):
+        kwargs.setdefault('description', 'Seed product')
+        return CatalogService(test_storage).create_product(**kwargs)
+
+    @pytest.mark.parametrize('typed, stored', [
+        ('Electronics/Power/DC-DC Converters',
+         'electronics/power/dc-dc converters'),                # the AC's case
+        ('Electronics/Power/', 'electronics/power'),           # trailing slash
+        ('/electronics//power/', 'electronics/power'),         # slash noise
+        (' Thermal / Heat Sinks ', 'thermal/heat sinks'),      # spacing
+        ('   ', None),                                         # blank -> NULL
+    ])
+    def test_add_form_post_persists_canonical(self, client, test_storage, typed, stored):
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': typed})
+        assert resp.status_code == 302
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(product_id)
+        assert product.category_path == stored
+
+    def test_detail_page_shows_the_canonical_path(self, client, test_storage):
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': 'Electronics/Power/'})
+        detail = client.get(resp.headers['Location'])
+        assert detail.status_code == 200
+        assert b'electronics/power' in detail.data
+        # The stored value is what the page renders — assert on the row itself
+        # rather than on the whole page, which contains unrelated markup that
+        # could coincidentally carry the typed spelling.
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(product_id)
+        assert product.category_path == 'electronics/power'
+
+    def test_edit_form_prefills_the_canonical_value(self, client, test_storage):
+        pid = self._make_product(test_storage, category_path='Electronics/Power/')
+        form = client.get(f'/products/edit/{pid}')
+        assert form.status_code == 200
+        assert b'value="electronics/power"' in form.data
+
+    def test_edit_post_persists_canonical(self, client, test_storage):
+        pid = self._make_product(test_storage, category_path='seed/path')
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'thing',
+                                 'category_path': ' /Thermal/Heat Sinks '})
+        assert resp.status_code == 302
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.category_path == 'thermal/heat sinks'
+
+    def test_edit_post_with_blank_clears_the_category(self, client, test_storage):
+        pid = self._make_product(test_storage, category_path='seed/path')
+        client.post(f'/products/edit/{pid}', data={'description': 'thing',
+                                                   'category_path': '   '})
+        assert CatalogService(test_storage).get_product(pid).category_path is None
+
+    def test_edit_omitting_category_leaves_it_unchanged(self, client, test_storage):
+        pid = self._make_product(test_storage, category_path='Electronics/Power')
+        client.post(f'/products/edit/{pid}', data={'description': 'thing'})
+        assert (CatalogService(test_storage).get_product(pid).category_path
+                == 'electronics/power')
+
+    def test_overlong_category_still_rejected_by_the_existing_message(
+            self, client, test_storage):
+        """No new user-facing validation error for shape — the route's
+        pre-existing 512-character limit is untouched."""
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': 'a' * 513})
+        assert resp.status_code == 200  # re-rendered form, not a redirect
+        assert b'Category must be 512 characters or fewer.' in resp.data
+
+    def test_forms_carry_the_autocomplete_wiring(self, client, test_storage):
+        """The category input is wired to the shared component (FR14): a
+        dropdown container plus the script that auto-initializes it."""
+        pid = self._make_product(test_storage)
+        for url in ('/products/add', f'/products/edit/{pid}'):
+            page = client.get(url)
+            assert page.status_code == 200
+            assert b'id="category_path-suggestions"' in page.data
+            assert b'field-autocomplete.js' in page.data

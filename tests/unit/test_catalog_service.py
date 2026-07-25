@@ -1071,3 +1071,286 @@ class TestOwnershipLabelText:
         assert text                                  # the case is non-vacuous
         with pytest.raises(ValidationError):
             catalog_service.encode_internal_payload(text)
+
+
+class TestCategoryPathNormalization:
+    """create_product / update_product are the sole writers of
+    products.category_path, so this is where "every stored path is canonical or
+    NULL" is enforced (Story 3.1, FR13, AD-4)."""
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('typed, stored', [
+        ('electronics/power', 'electronics/power'),           # already canonical
+        ('Electronics/Power/', 'electronics/power'),          # case + trailing
+        ('/electronics//power/', 'electronics/power'),        # slash noise
+        ('Electronics / Power / DC-DC', 'electronics/power/dc-dc'),  # spacing
+        ('Power Supplies/DC DC', 'power supplies/dc dc'),     # intra-segment
+        ('  thermal/heat-sinks  ', 'thermal/heat-sinks'),     # outer whitespace
+        ('', None),                                           # blank -> NULL
+        ('   ', None),                                        # whitespace -> NULL
+        ('/', None),                                          # separators -> NULL
+        (None, None),                                         # omitted -> NULL
+    ])
+    def test_create_stores_canonical(self, catalog_service, typed, stored):
+        new_id = catalog_service.create_product(description='x', category_path=typed)
+        assert catalog_service.get_product(new_id).category_path == stored
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('typed, stored', [
+        (' /Thermal/Heat Sinks ', 'thermal/heat sinks'),      # noisy -> canonical
+        ('electronics/power', 'electronics/power'),           # already canonical
+        ('   ', None),                                        # blank clears
+        ('', None),                                           # empty clears
+    ])
+    def test_update_stores_canonical(self, catalog_service, typed, stored):
+        new_id = catalog_service.create_product(description='x',
+                                                category_path='seed/path')
+        assert catalog_service.update_product(new_id, category_path=typed) is True
+        assert catalog_service.get_product(new_id).category_path == stored
+
+    @pytest.mark.unit
+    def test_update_omitting_the_field_leaves_it_unchanged(self, catalog_service):
+        """An absent key means "not provided", not "clear this" (existing rule)."""
+        new_id = catalog_service.create_product(description='x',
+                                                category_path='Electronics/Power')
+        assert catalog_service.update_product(new_id, description='y') is True
+        product = catalog_service.get_product(new_id)
+        assert product.description == 'y'
+        assert product.category_path == 'electronics/power'
+
+    @pytest.mark.unit
+    def test_stored_value_is_idempotent_under_re_save(self, catalog_service):
+        """Re-saving a product's own stored path must not change it."""
+        new_id = catalog_service.create_product(description='x',
+                                                category_path='Electronics/Power/')
+        stored = catalog_service.get_product(new_id).category_path
+        catalog_service.update_product(new_id, category_path=stored)
+        assert catalog_service.get_product(new_id).category_path == stored
+
+
+class TestCatalogFieldValueSuggestions:
+    """The category vocabulary is the distinct set of stored category_path
+    values — no node table (Story 3.1, FR14, FR15). Mirrors the inventory
+    suggestion contract so one endpoint can serve both (AD-14)."""
+
+    @pytest.fixture
+    def populated(self, catalog_service):
+        for path in ('Electronics/Power', 'Electronics/Power/DC-DC Converters',
+                     'Thermal/Heat Sinks', 'fasteners/screws', ''):
+            catalog_service.create_product(description='seed', category_path=path)
+        return catalog_service
+
+    @pytest.mark.unit
+    def test_unknown_field_raises_value_error(self, catalog_service):
+        with pytest.raises(ValueError):
+            catalog_service.get_field_value_suggestions('vendor')
+
+    @pytest.mark.unit
+    def test_unknown_field_raises_on_normalize_too(self, catalog_service):
+        with pytest.raises(ValueError):
+            catalog_service.normalize_suggestion_value('vendor', 'x')
+
+    @pytest.mark.unit
+    def test_blank_query_returns_all_distinct_alphabetically(self, populated):
+        result = populated.get_field_value_suggestions('category_path')
+        assert result == [
+            'electronics/power',
+            'electronics/power/dc-dc converters',
+            'fasteners/screws',
+            'thermal/heat sinks',
+        ]
+
+    @pytest.mark.unit
+    def test_null_and_blank_paths_never_offered(self, populated):
+        result = populated.get_field_value_suggestions('category_path')
+        assert None not in result
+        assert '' not in result
+
+    @pytest.mark.unit
+    def test_distinct_values_only(self, catalog_service):
+        for _ in range(3):
+            catalog_service.create_product(description='dup',
+                                           category_path='Electronics/Power')
+        assert catalog_service.get_field_value_suggestions('category_path') == [
+            'electronics/power']
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query, expected', [
+        ('Elec', ['electronics/power', 'electronics/power/dc-dc converters']),
+        ('elec', ['electronics/power', 'electronics/power/dc-dc converters']),
+        ('Electronics / Power', ['electronics/power',
+                                 'electronics/power/dc-dc converters']),
+        ('heat', ['thermal/heat sinks']),
+        ('screws', ['fasteners/screws']),
+        ('Zzz/Nope', []),
+    ])
+    def test_query_filters_on_the_normalized_form(self, populated, query, expected):
+        assert populated.get_field_value_suggestions(
+            'category_path', query=query) == expected
+
+    @pytest.mark.unit
+    def test_ranking_is_exact_then_startswith_then_contains(self, catalog_service):
+        for path in ('power/supplies', 'electronics/power', 'power'):
+            catalog_service.create_product(description='seed', category_path=path)
+        assert catalog_service.get_field_value_suggestions(
+            'category_path', query='power') == [
+                'power',                # exact
+                'power/supplies',       # starts-with
+                'electronics/power',    # contains
+            ]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('limit, expected_len', [
+        (1, 1),      # honored
+        (2, 2),      # honored
+        (999, 4),    # clamped to 50, then bounded by the data
+        ('abc', 4),  # non-int falls back to 10, bounded by the data
+        (None, 4),   # None falls back to 10 too
+        (0, 1),      # clamped up to 1
+        (-5, 1),     # negative clamped up to 1
+    ])
+    def test_limit_clamp(self, populated, limit, expected_len):
+        result = populated.get_field_value_suggestions('category_path', limit=limit)
+        assert len(result) == expected_len
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('kwargs, expected_len', [
+        ({'limit': 999}, 50),    # clamped down to the 50 ceiling
+        ({'limit': 'abc'}, 10),  # non-int falls back to the default of 10
+        ({'limit': None}, 10),   # None falls back too
+        ({}, 10),                # omitted -> the same default
+    ])
+    def test_limit_ceiling_and_default_with_a_deeper_vocabulary(
+        self, catalog_service, kwargs, expected_len
+    ):
+        """The 50 ceiling and the 10 default need more stored paths than they
+        return, or the assertion only measures the fixture.
+
+        `test_limit_clamp` above runs against four distinct paths, so its 999,
+        'abc' and None cases would pass identically with no clamp and no
+        default at all. Seeding 60 paths is what makes those two numbers
+        observable.
+        """
+        for i in range(60):
+            catalog_service.create_product(description='seed',
+                                           category_path=f'bulk/p{i:03d}')
+
+        result = catalog_service.get_field_value_suggestions(
+            'category_path', **kwargs)
+        assert len(result) == expected_len
+
+    @pytest.mark.unit
+    def test_case_insensitive_dedup_of_pre_migration_rows(self, catalog_service):
+        """Rows written before the data migration may differ only in case; the
+        vocabulary must offer one of them, not both."""
+        from sqlalchemy.orm import sessionmaker
+        from app.database import Product
+
+        catalog_service.create_product(description='a',
+                                       category_path='electronics/power')
+        second = catalog_service.create_product(description='b',
+                                                category_path='seed/other')
+        Session = sessionmaker(bind=catalog_service.engine)
+        session = Session()
+        try:
+            # Write a non-canonical value directly, bypassing the service (only
+            # a pre-existing row could look like this).
+            session.query(Product).filter(Product.id == second).update(
+                {'category_path': 'Electronics/Power'}, synchronize_session=False)
+            session.commit()
+        finally:
+            session.close()
+
+        result = catalog_service.get_field_value_suggestions('category_path')
+        assert len(result) == 1
+        assert result[0].lower() == 'electronics/power'
+
+    @pytest.mark.unit
+    def test_like_metacharacters_are_escaped(self, catalog_service):
+        catalog_service.create_product(description='a', category_path='a%b')
+        catalog_service.create_product(description='b', category_path='axb')
+        assert catalog_service.get_field_value_suggestions(
+            'category_path', query='a%b') == ['a%b']
+
+    @pytest.mark.unit
+    def test_unmatchable_query_returns_nothing_not_everything(self, populated):
+        """A query the util rejects (over-length) cannot equal any stored path,
+        so it matches nothing. Reading its None as 'no query' would silently
+        drop the filter and hand back the whole vocabulary."""
+        assert populated.get_field_value_suggestions(
+            'category_path', query='a' * 600) == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        '/',      # separators only
+        '///',    # ditto, repeated
+        ' / / ',  # ditto, with whitespace
+        '   ',    # whitespace only
+    ])
+    def test_query_carrying_no_path_means_no_filter(self, populated, query):
+        """Distinct from the rejected case above: these carry no path content
+        at all, so they mean the same as an omitted q — the unfiltered list."""
+        assert populated.get_field_value_suggestions(
+            'category_path', query=query
+        ) == populated.get_field_value_suggestions('category_path')
+
+    @pytest.mark.unit
+    def test_the_two_suggestion_whitelists_are_disjoint(self):
+        """The one endpoint dispatches on whitelist membership, so a name in
+        both maps would silently route an item field at the products table."""
+        from app.mariadb_catalog_service import FIELD_SUGGESTION_COLUMNS
+        from app.mariadb_inventory_service import InventoryService
+        assert not (set(FIELD_SUGGESTION_COLUMNS)
+                    & set(InventoryService.FIELD_SUGGESTION_COLUMNS))
+
+    @pytest.mark.unit
+    def test_a_whitelisted_field_without_a_rule_fails_loudly(
+        self, catalog_service, monkeypatch
+    ):
+        """Both catalog methods refuse a field that was added to the whitelist
+        but given no category-specific rule.
+
+        Unreachable while category_path is the only entry, which is exactly
+        why it is pinned: the failure mode it guards is a Story 3.3 tag field
+        landing in the whitelist and silently inheriting category semantics —
+        echoing a non-canonical value, or leaking the whole vocabulary because
+        a rejected query read as "no filter". NotImplementedError, not
+        ValueError: this is a wiring error, so it must NOT become the route's
+        400 "unsupported field" answer.
+        """
+        from app import mariadb_catalog_service as svc
+
+        monkeypatch.setitem(svc.FIELD_SUGGESTION_COLUMNS, 'notes', 'notes')
+
+        with pytest.raises(NotImplementedError):
+            catalog_service.normalize_suggestion_value('notes', 'x')
+        with pytest.raises(NotImplementedError):
+            catalog_service.get_field_value_suggestions('notes', query='x')
+
+    @pytest.mark.unit
+    def test_the_client_whitelist_mirrors_both_server_whitelists(self):
+        """app/api_client.py's SUGGESTABLE_FIELDS documents itself as the
+        union of BOTH sources behind the one endpoint (AD-13). Nothing but
+        this keeps that true when either side gains or loses a field."""
+        from app.api_client import SUGGESTABLE_FIELDS
+        from app.mariadb_catalog_service import FIELD_SUGGESTION_COLUMNS
+        from app.mariadb_inventory_service import InventoryService
+        assert set(SUGGESTABLE_FIELDS) == (
+            set(FIELD_SUGGESTION_COLUMNS)
+            | set(InventoryService.FIELD_SUGGESTION_COLUMNS)
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, expected', [
+        ('Elec', 'elec'),                            # case folded
+        ('Electronics/Power/', 'electronics/power'), # trailing slash dropped
+        ('Zzz/Nope', 'zzz/nope'),                    # no-match still canonical
+        ('', None),                                  # blank -> null
+        ('   ', None),                               # whitespace -> null
+        (None, None),                                # absent -> null
+        ('a' * 600, None),                           # unstorable -> no create
+    ])
+    def test_normalize_suggestion_value(self, catalog_service, raw, expected):
+        """The create affordance's source of truth: what WOULD be stored."""
+        assert catalog_service.normalize_suggestion_value(
+            'category_path', raw) == expected

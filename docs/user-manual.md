@@ -1106,13 +1106,17 @@ storage failure.
 ### `GET /api/inventory/field-suggestions/<field>`
 
 Return distinct existing values currently recorded for a free-form
-inventory field. Powers the database-backed autocomplete on the Add
-and Edit Item forms; available for programmatic clients too.
+field. Powers the database-backed autocomplete on the Add and Edit
+Item forms and on the product form's Category field; available for
+programmatic clients too.
 
-Suggestions are pulled from **all rows** in `inventory_items`,
-including inactive (history) rows, so deactivated items still seed
-suggestions. Empty/whitespace values are excluded. Comparisons are
-case-insensitive throughout.
+One endpoint serves two sources. For the item fields, suggestions are
+pulled from **all rows** in `inventory_items`, including inactive
+(history) rows, so deactivated items still seed suggestions. For
+`category_path`, they are pulled from the `products` table — the
+category tree *is* the set of paths products are filed under, so a path
+is offered only once some product uses it. Empty/whitespace values are
+excluded. Comparisons are case-insensitive throughout.
 
 #### Path parameter — `<field>`
 
@@ -1126,6 +1130,7 @@ returns 400.
 | `vendor`            | Vendor name. |
 | `location`          | Physical location label. |
 | `sub_location`      | Sub-location within a location. |
+| `category_path`     | Product category path (e.g. `electronics/power/regulators`). Sourced from `products`, not `inventory_items`. |
 
 Material is intentionally excluded — it has its own taxonomy-backed
 endpoint at `/api/materials/suggestions`.
@@ -1155,6 +1160,24 @@ When `q` is omitted, results are alphabetized.
   "success": true,
   "field": "vendor",
   "suggestions": ["Grainger", "McMaster-Carr", "Online Metals"]
+}
+```
+
+For `category_path` only, the body carries one extra key, `normalized`
+— the canonical form of `q` (lowercase, `/`-separated, no leading,
+trailing or repeated separators), i.e. the exact value that would be
+stored if the operator created it. It is `null` when `q` is omitted or
+carries no path (e.g. `/` or whitespace), and also when `q` could never
+be stored at all — a value longer than 512 characters once
+canonicalized — in which case `suggestions` is an empty list rather
+than the unfiltered vocabulary. Item fields never include this key.
+
+```json
+{
+  "success": true,
+  "field": "category_path",
+  "suggestions": ["electronics/power/regulators"],
+  "normalized": "electronics/power"
 }
 ```
 
@@ -1309,8 +1332,8 @@ carrying the parsed response. Network errors raise
 `requests.RequestException`; HTTP errors (4xx/5xx) populate the
 result's `errors` list and set `success=False` rather than raising.
 
-The constant `SUGGESTABLE_FIELDS` (a tuple of the five whitelisted
-field names) is exported alongside the client for callers who want to
+The constant `SUGGESTABLE_FIELDS` (a tuple of the whitelisted field
+names) is exported alongside the client for callers who want to
 validate field names before issuing a request.
 
 ## Help and Utilities

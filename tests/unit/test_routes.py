@@ -1791,3 +1791,110 @@ class TestFieldSuggestionsRoute:
         body = response.get_json()
         assert body['success'] is False
         assert 'error' in body
+
+    # --- Catalog-sourced category_path (Story 3.1, FR14, AD-14) ----------
+    # ONE endpoint, two sources: these cases exercise the catalog branch and
+    # guard the five pre-existing fields against picking up its extra key.
+
+    @pytest.fixture
+    def products(self, app):
+        from app.mariadb_catalog_service import CatalogService
+        with app.app_context():
+            service = CatalogService(app.config['STORAGE_BACKEND'])
+            for path in ('Electronics/Power', 'Electronics/Power/DC-DC',
+                         'Thermal/Heat Sinks', ''):
+                service.create_product(description='seed', category_path=path)
+        return app
+
+    @pytest.mark.unit
+    def test_category_path_response_shape(self, client, products):
+        response = client.get(
+            '/api/inventory/field-suggestions/category_path?q=Elec')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body == {
+            'success': True,
+            'field': 'category_path',
+            'suggestions': ['electronics/power', 'electronics/power/dc-dc'],
+            'normalized': 'elec',
+        }
+
+    @pytest.mark.unit
+    def test_category_path_blank_query_lists_all_alphabetically(self, client, products):
+        response = client.get('/api/inventory/field-suggestions/category_path')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['suggestions'] == ['electronics/power',
+                                       'electronics/power/dc-dc',
+                                       'thermal/heat sinks']
+        assert body['normalized'] is None
+
+    @pytest.mark.unit
+    def test_category_path_no_match_still_echoes_normalized(self, client, products):
+        """The create affordance's source of truth: no suggestions, but the
+        canonical form of what the operator typed."""
+        response = client.get(
+            '/api/inventory/field-suggestions/category_path?q=Zzz/Nope/')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['suggestions'] == []
+        assert body['normalized'] == 'zzz/nope'
+
+    @pytest.mark.unit
+    def test_category_path_limit_clamped(self, client, products):
+        response = client.get(
+            '/api/inventory/field-suggestions/category_path?limit=999')
+        assert response.status_code == 200
+        assert len(response.get_json()['suggestions']) <= 50
+
+    @pytest.mark.unit
+    def test_category_path_invalid_limit_falls_back(self, client, products):
+        response = client.get(
+            '/api/inventory/field-suggestions/category_path?limit=abc')
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+    @pytest.mark.unit
+    def test_category_path_limit_of_one_is_honored(self, client, products):
+        response = client.get(
+            '/api/inventory/field-suggestions/category_path?limit=1')
+        assert len(response.get_json()['suggestions']) == 1
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('url', [
+        '/api/inventory/field-suggestions/vendor',
+        '/api/inventory/field-suggestions/vendor?q=metal',
+        '/api/inventory/field-suggestions/thread_size',
+        '/api/inventory/field-suggestions/location',
+        '/api/inventory/field-suggestions/purchase_location',
+        '/api/inventory/field-suggestions/sub_location?location=Shelf%20A',
+    ])
+    def test_item_fields_never_carry_normalized(self, client, populated, url):
+        """Regression guard for the shared endpoint's existing consumers: the
+        new key appears ONLY for catalog-sourced fields (NFR9)."""
+        response = client.get(url)
+        assert response.status_code == 200
+        body = response.get_json()
+        assert 'normalized' not in body
+        assert set(body) == {'success', 'field', 'suggestions'}
+
+    @pytest.mark.unit
+    def test_unknown_field_still_400_after_the_split(self, client, products):
+        response = client.get('/api/inventory/field-suggestions/notafield')
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body['success'] is False
+        assert 'normalized' not in body
+
+    @pytest.mark.unit
+    def test_catalog_backend_failure_returns_500(self, client, products, monkeypatch):
+        from app.mariadb_catalog_service import CatalogService
+
+        def boom(self, *args, **kwargs):
+            raise RuntimeError('simulated database failure')
+
+        monkeypatch.setattr(CatalogService, 'get_field_value_suggestions', boom)
+
+        response = client.get('/api/inventory/field-suggestions/category_path')
+        assert response.status_code == 500
+        assert response.get_json()['success'] is False

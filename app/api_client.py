@@ -31,16 +31,19 @@ __all__ = [
 ]
 
 
-# Whitelist matching the server's
-# `InventoryService.FIELD_SUGGESTION_COLUMNS`. Used purely as
-# documentation for callers; the server is the source of truth and
-# rejects unknown values with HTTP 400.
+# Whitelist mirroring BOTH server-side sources behind the one
+# field-suggestions endpoint: `InventoryService.FIELD_SUGGESTION_COLUMNS`
+# (item fields) and `mariadb_catalog_service.FIELD_SUGGESTION_COLUMNS`
+# (product fields, Story 3.1). Used purely as documentation for callers;
+# the server is the source of truth and rejects unknown values with
+# HTTP 400.
 SUGGESTABLE_FIELDS = (
     'thread_size',
     'purchase_location',
     'vendor',
     'location',
     'sub_location',
+    'category_path',
 )
 
 
@@ -69,6 +72,17 @@ class FieldSuggestionsResult:
     errors: list[dict[str, Any]]
     http_status: int
     raw: dict[str, Any]
+
+    @property
+    def normalized(self) -> str | None:
+        """Canonical form of the query, for fields that define one.
+
+        Only catalog-sourced fields (``category_path``) echo this; it is
+        the value that would actually be stored, so a client offering an
+        inline-create affordance displays this rather than deriving it.
+        None for every item field, and when the query carries nothing.
+        """
+        return self.raw.get('normalized')
 
 
 @dataclass(frozen=True)
@@ -265,7 +279,7 @@ class WorkshopInventoryClient:
         limit: int = 10,
         location: str | None = None,
     ) -> FieldSuggestionsResult:
-        """Fetch autocomplete suggestions for a free-form item field.
+        """Fetch autocomplete suggestions for a free-form field.
 
         Calls ``GET /api/inventory/field-suggestions/<field>`` and
         returns distinct values currently recorded in the database for
@@ -276,10 +290,11 @@ class WorkshopInventoryClient:
 
         - ``field`` (str): one of ``"thread_size"``,
           ``"purchase_location"``, ``"vendor"``, ``"location"``,
-          ``"sub_location"``. The server returns 400 for any other
+          ``"sub_location"`` (item fields) or ``"category_path"``
+          (product categories). The server returns 400 for any other
           value; the client surfaces that as ``success=False`` rather
           than raising. ``SUGGESTABLE_FIELDS`` is exported for
-          reference.
+          reference and mirrors both server-side whitelists.
         - ``query`` (str, optional): case-insensitive substring filter.
           When omitted, the server returns distinct values in
           case-insensitive alphabetical order up to ``limit``.
@@ -303,7 +318,10 @@ class WorkshopInventoryClient:
         - ``errors`` (list[dict]): single-entry list on failure of the
           shape ``{"index": 0, "ja_id": None, "message": "..."}``.
         - ``http_status`` (int): the raw HTTP status code.
-        - ``raw`` (dict): the parsed JSON response body.
+        - ``raw`` (dict): the parsed JSON response body. Catalog-sourced
+          fields (``"category_path"``) add a ``"normalized"`` key there
+          — the canonical form of ``query``, or ``None`` — which item
+          fields never carry.
 
         **Network errors**
 

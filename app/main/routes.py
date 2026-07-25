@@ -6,7 +6,10 @@ from app import csrf
 from app.mariadb_storage import MariaDBStorage
 # Using unified InventoryService (MariaDB-based implementation)
 from app.mariadb_inventory_service import InventoryService
-from app.mariadb_catalog_service import CatalogService
+from app.mariadb_catalog_service import (
+    CatalogService,
+    FIELD_SUGGESTION_COLUMNS as CATALOG_FIELD_SUGGESTION_COLUMNS,
+)
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
@@ -1420,10 +1423,19 @@ def material_suggestions():
 
 @bp.route('/api/inventory/field-suggestions/<field>')
 def inventory_field_suggestions(field):
-    """Return distinct existing values for a whitelisted item field.
+    """Return distinct existing values for a whitelisted field.
 
     Used by the Add/Edit Item forms to autocomplete free-form fields
-    (Thread Size, Purchase Location, Vendor, Location, Sub-Location).
+    (Thread Size, Purchase Location, Vendor, Location, Sub-Location), and
+    since Story 3.1 by the product form's Category field.
+
+    ONE endpoint, two sources (AD-14): fields in the catalog whitelist are
+    served by CatalogService (products), everything else by InventoryService
+    (inventory_items) exactly as before. Catalog-sourced responses carry an
+    extra `normalized` key — the canonical form of the query, which the
+    autocomplete-with-create UI displays so the browser never reimplements
+    normalization. The five pre-existing fields keep byte-identical request
+    handling and response bodies, `normalized` included (i.e. absent).
     """
     query = request.args.get('q', '').strip()
     limit_raw = request.args.get('limit', '10')
@@ -1435,14 +1447,26 @@ def inventory_field_suggestions(field):
         limit = 10
     limit = min(max(limit, 1), 50)
 
+    is_catalog_field = field in CATALOG_FIELD_SUGGESTION_COLUMNS
+    normalized = None
+
     try:
-        service = _get_inventory_service()
-        suggestions = service.get_field_value_suggestions(
-            field,
-            query=query or None,
-            limit=limit,
-            location=location,
-        )
+        if is_catalog_field:
+            service = _get_catalog_service()
+            suggestions = service.get_field_value_suggestions(
+                field,
+                query=query or None,
+                limit=limit,
+            )
+            normalized = service.normalize_suggestion_value(field, query)
+        else:
+            service = _get_inventory_service()
+            suggestions = service.get_field_value_suggestions(
+                field,
+                query=query or None,
+                limit=limit,
+                location=location,
+            )
     except ValueError as e:
         return jsonify({
             'success': False,
@@ -1457,11 +1481,14 @@ def inventory_field_suggestions(field):
             'error': 'Failed to get field suggestions',
         }), 500
 
-    return jsonify({
+    body = {
         'success': True,
         'field': field,
         'suggestions': suggestions,
-    })
+    }
+    if is_catalog_field:
+        body['normalized'] = normalized
+    return jsonify(body)
 
 
 def _normalize_taxonomy_aliases(nodes: list[dict[str, Any]]) -> None:

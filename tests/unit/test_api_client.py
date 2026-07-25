@@ -520,7 +520,27 @@ class TestGetFieldSuggestions:
         assert 'vendor' in SUGGESTABLE_FIELDS
         assert 'location' in SUGGESTABLE_FIELDS
         assert 'purchase_location' in SUGGESTABLE_FIELDS
+        assert 'category_path' in SUGGESTABLE_FIELDS  # catalog-sourced (Story 3.1)
         assert 'material' not in SUGGESTABLE_FIELDS
+
+    def test_normalized_is_exposed_for_catalog_fields_only(self, client, session):
+        """`normalized` is a first-class accessor, not a raw-dict dig, and it
+        is None for the item fields that never send the key (Story 3.1)."""
+        session.get.return_value = _mock_response(200, {
+            'success': True,
+            'field': 'category_path',
+            'suggestions': ['electronics/power/regulators'],
+            'normalized': 'electronics/power',
+        })
+        result = client.get_field_suggestions('category_path', query='Electronics / Power')
+        assert result.success is True
+        assert result.normalized == 'electronics/power'
+
+        session.get.reset_mock()
+        session.get.return_value = _mock_response(200, {
+            'success': True, 'field': 'vendor', 'suggestions': ['Grainger']
+        })
+        assert client.get_field_suggestions('vendor', query='Grain').normalized is None
 
     def test_field_path_segment_is_url_encoded_in_endpoint(self, client, session):
         # Server only ever sees whitelisted simple identifiers in

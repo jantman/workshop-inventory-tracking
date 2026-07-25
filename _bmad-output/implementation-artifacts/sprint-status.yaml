@@ -73,7 +73,7 @@ development_status:
 
   # Epic 3 — Taxonomy & Tagging
   epic-3: backlog
-  3-1-materialized-path-categories-with-inline-create: backlog
+  3-1-materialized-path-categories-with-inline-create: done
   3-2-category-rename-with-descendants: backlog
   3-3-free-form-tags: backlog
   epic-3-retrospective: optional

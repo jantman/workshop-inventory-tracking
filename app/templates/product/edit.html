@@ -42,9 +42,13 @@
                     <div class="row">
                         <div class="col-md-12 mb-3">
                             <label for="category_path" class="form-label">Category</label>
-                            <input type="text" class="form-control{% if validation_errors and validation_errors.category_path %} is-invalid{% endif %}" id="category_path" name="category_path" maxlength="512"
-                                   value="{{ form_data.get('category_path', '') }}" autocomplete="off"
-                                   placeholder="e.g. electronics/power/regulators">
+                            <div class="position-relative">
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.category_path %} is-invalid{% endif %}" id="category_path" name="category_path" maxlength="512"
+                                       value="{{ form_data.get('category_path', '') }}" autocomplete="off"
+                                       placeholder="e.g. electronics/power/regulators">
+                                <div id="category_path-suggestions" class="dropdown-menu position-absolute w-100"
+                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            </div>
                             {% if validation_errors and validation_errors.category_path %}<div class="invalid-feedback d-block">{{ validation_errors.category_path }}</div>{% endif %}
                         </div>
                     </div>
@@ -68,4 +72,8 @@
         </form>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
 {% endblock %}
