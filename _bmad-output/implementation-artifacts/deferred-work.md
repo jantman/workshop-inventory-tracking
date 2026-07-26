@@ -341,7 +341,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-2-category-rename-with-des
 location: `app/utils/category.py` (`descendant_like_pattern`), `app/mariadb_catalog_service.py:446-451` (`_escape_like` inside `get_field_value_suggestions`)
 reason: LIKE-wildcard escaping now has two independent implementations in `app/mariadb_catalog_service.py` — the util's `descendant_like_pattern` and the nested `_escape_like` inside `get_field_value_suggestions` — which agree today and are free to drift.
 evidence: `app/utils/category.py`'s `descendant_like_pattern` escapes `\`, `%` and `_` against `CATEGORY_LIKE_ESCAPE_CHAR`, while `get_field_value_suggestions`' local `_escape_like` (`app/mariadb_catalog_service.py:446-451`) performs the identical three replacements against a hardcoded `'\\'`, and both feed `.like(..., escape=...)` in the same class. Story 3.2's stated goal was exactly one implementation of path/prefix logic; the escaping half stayed duplicated only because the story's own "Never" list forbids changing `get_field_value_suggestions` (a Story 3.1 surface with a byte-identical-response contract). Closing it means exporting the literal-escaper from the pure util and rewiring the Story 3.1 caller onto it, re-verifying that the five inventory suggestion fields' responses are unchanged.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-suggestion-query-and-like-escaping
 
 ### DW-43: Form routes audit-log `request.form.to_dict()` verbatim, so every POST's CSRF token is written into the audit log
 origin: migrated from legacy ledger ("3-2-category-rename-with-descendants.md"), 2026-07-26
@@ -399,7 +400,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-3-free-form-tags.md`
 location: `app/mariadb_catalog_service.py` (`get_field_value_suggestions` query)
 reason: `get_field_value_suggestions` applies `DISTINCT` in SQL, so under MariaDB's folding collation two distinct stored values (`café`/`cafe`, and any case variant predating Story 3.1's data migration) collapse to one row and one spelling is never offered — the exact hazard the Python-side dedup pass below it was written to survive.
 evidence: `app/mariadb_catalog_service.py`'s suggestion query ends `base.distinct().limit(fetch_limit).all()`, and its own comment states "the DB DISTINCT depends on the column's collation, so two values differing only in case may both reach Python" — which is the harmless direction. The harmful one is not handled: when the collation *does* fold them, the row is gone before Python sees it, and the over-fetch cannot restore it. This predates Story 3.3 (it has applied to all five inventory fields and to `category_path` since Story 3.1) and Story 3.3 only registered one more field against it. The fix is the same "SQL narrows, Python decides" move `list_category_paths` and `list_tags` already make — drop `.distinct()` and let the existing dedup pass do the work — but it changes suggestion behavior for six shipped fields at once, so it is a deliberate cross-field change rather than one story's.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-suggestion-query-and-like-escaping
 
 ### DW-50: No test at any level runs `CatalogService` against MariaDB, so every collation-dependent mechanism is verified only by staging the failure under SQLite
 origin: migrated from legacy ledger ("3-3-free-form-tags.md"), 2026-07-26
@@ -634,7 +636,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-3-service-scan-resolution.
 location: `app/mariadb_catalog_service.py:475-600` (`get_field_value_suggestions`; pattern built at `:590` and `:597`), `_escape_like_wildcards`, `_is_storable_text`
 reason: `get_field_value_suggestions` has the same NUL-in-a-LIKE-pattern defect the Story 4.3 review fixed in `search_products`, and it predates that story — a suggestion query containing `\x00` returns rows that do not match it.
 evidence: SQLite reads a LIKE pattern as a C string and stops at the first NUL, so a pattern built as `'%' + escaped + '%'` silently becomes a prefix of itself: measured in `search_products` before the fix, `'\x00'` returned the entire catalog and `'a\x00b'` ran as `'%a'` and returned the rows ending in `a`. `get_field_value_suggestions` (`app/mariadb_catalog_service.py:475-600`, pattern built at `:590` and `:597`) builds its pattern the same way, through the same `_escape_like_wildcards` helper Story 4.3 extracted, and applies no `_is_storable_text` guard — the guard was written for the scan path and only the scan path calls it. Story 4.3 did not cause this (the nested `_escape_like` and the suggestion query both predate `dd06934`; the extraction was behavior-preserving) and did not widen it, which is why it is deferred rather than patched: the suggestion endpoint is a different consumer with a different blank/no-match contract, fixing it means deciding whether unstorable text there should answer `[]` or be rejected, and that decision belongs with whoever owns that endpoint's callers. Reachability is lower than the scan path's — the input is a typed admin form field rather than a wedge — but it is not zero, and the same one-line guard closes it. Note the direction of the divergence, which is what makes this class of defect expensive to find: PyMySQL escapes `\0` in the emitted literal, so MariaDB answers correctly and only SQLite — the sole backend any test here runs — is wrong.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-suggestion-query-and-like-escaping
 
 ### DW-78: `resolve_scan`'s ECIA arm counts matches over the union of both candidate part numbers, so a unique `1P` hit is discarded as a false ambiguity
 origin: migrated from legacy ledger ("4-4-ecia-distributor-label-parsing.md"), 2026-07-26
@@ -779,4 +782,22 @@ origin: review-budget-followup
 source_spec: `spec-request-body-size-limit.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-95: The five inventory suggestion fields bound storability but not length, so an arbitrarily long `q` becomes an arbitrarily long LIKE pattern
+origin: spec-suggestion-query-and-like-escaping-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-suggestion-query-and-like-escaping.md`
+location: `app/mariadb_inventory_service.py` (`get_field_value_suggestions`), `app/main/routes.py` (`inventory_field_suggestions`, the `q` read)
+severity: low
+summary: `search_products` treats storability and length as one pair of guards (`SEARCH_QUERY_MAX_LENGTH`, on the stated reasoning that no LIKE pattern can safely carry unbounded text), but the suggestions endpoint received only the storability half, so the five item fields accept a `q` of any size and build a `%…%` pattern from it.
+evidence: The route applies only `.strip()` to `q` and passes it through; `get_field_value_suggestions` clamps `limit` and now refuses unstorable text, but never checks length. `escape_like_literal` then doubles every metacharacter, so a multi-KB `q` of `%` becomes a multi-KB pattern matched against every row. The two catalog fields are incidentally covered because `normalize_category_path`/`normalize_tag` reject over-length input and the method answers `[]`, so only the five inventory fields are unbounded. Entirely pre-existing -- the endpoint never had a length bound on either half -- and surfaced by this change only because it made the storability half total and removed the SQL row ceiling (see the unbounded-suggestion-read entry from the same spec), which amplifies the cost. Closing it means one length guard at the same entry point as the storability guard, ideally the same constant the search path already uses.
+status: open
+
+### DW-96: The suggestion `ORDER BY` tiebreak is total only under SQLite's binary collation, so which spelling of a case variant is offered stays plan-dependent on MariaDB
+origin: spec-suggestion-query-and-like-escaping-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-suggestion-query-and-like-escaping.md`
+location: `app/mariadb_catalog_service.py` and `app/mariadb_inventory_service.py` (`get_field_value_suggestions`, `order_by(rank, func.lower(column), column)`)
+severity: low
+summary: The `column` tiebreak added alongside the DISTINCT removal is meant to stop the query plan from deciding which spelling of a duplicated value the operator is offered, but under MariaDB's folding `_ci` collation the tiebreak column compares case- and accent-insensitively too, so `McMaster` and `mcmaster` tie on both sort keys and the first-seen-casing dedup still keeps whichever the plan emitted first.
+evidence: The same collation folding that this change cites as the reason to drop the SQL `DISTINCT` (`utf8mb4_unicode_ci`, reasoned about elsewhere in `mariadb_catalog_service.py` for `set_product_tags` and `rename_category_path`) applies to `ORDER BY` as well. SQLite's BINARY collation makes the tiebreak effective, so the whole unit suite agrees with the code comment and production does not -- the same SQLite-only-correct blind spot the DISTINCT tests' own docstrings identify. The nondeterminism is pre-existing in effect: before this change the folding `DISTINCT` collapsed the variants into one row and the database chose the survivor. The code comments in both services now state the limitation rather than claiming totality. Closing it needs a `COLLATE utf8mb4_bin` tiebreak behind a dialect branch, which the SQLite-only unit suite cannot verify -- the same dialect-branch decision as the collation-safe-dedup option recorded for the unbounded suggestion read.
 status: open

@@ -594,3 +594,131 @@ class TestFieldValueSuggestions:
             'purchase_location', query='mc'
         )
         assert any('McMaster' in v for v in result)
+
+    @pytest.mark.unit
+    def test_duplicate_volume_cannot_starve_the_distinct_values(self, service):
+        """Guards the design that replaced the DISTINCT, not DW-49 itself: it
+        passed before this change too, because a fetch ceiling applied AFTER a
+        SQL DISTINCT counts values. Without the DISTINCT it counts ROWS, so
+        restoring a ceiling in the old `limit * 3 + 10` range makes 100 items
+        sharing one vendor fill it and return `['a']` where ten distinct
+        suggestions exist. The 110 seeded rows cannot catch an arbitrarily
+        large ceiling — see the catalog twin of this test."""
+        for i in range(100):
+            service.add_item(self._make_item(f'JA{300 + i:06d}', vendor='a'))
+        for offset, letter in enumerate('bcdefghijk'):
+            service.add_item(
+                self._make_item(f'JA{500 + offset:06d}', vendor=letter))
+
+        assert service.get_field_value_suggestions(
+            'vendor', limit=10) == list('abcdefghij')
+
+    @pytest.mark.unit
+    def test_the_suggestion_sql_carries_no_distinct(self, populated):
+        """DW-49's mechanism, asserted the only way SQLite can show it.
+
+        Under MariaDB's folding collation a SQL DISTINCT collapses `café` and
+        `cafe` — and any case variant — into ONE row BEFORE the Python
+        case-insensitive pass that exists to decide exactly those cases, so one
+        of two genuinely distinct stored vendors is never offered, and
+        over-fetching cannot restore a row the database already dropped.
+        SQLite's BINARY collation never folds, so the wrong answer is
+        unreproducible here — but the ABSENCE of the DISTINCT is observable
+        anywhere, and that is the whole mechanism."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if 'inventory_items' in statement.lower():
+                statements.append(' '.join(statement.split()).upper())
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions('vendor',
+                                                         query='metal')
+            assert populated.get_field_value_suggestions('vendor')
+            assert populated.get_field_value_suggestions(
+                'sub_location', location='Shelf A')
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements, 'the suggestion query emitted no inventory SQL'
+        for statement in statements:
+            assert 'DISTINCT' not in statement, statement
+            # GROUP BY folds under the same collation and would reintroduce
+            # the identical defect while keeping the DISTINCT assertion green.
+            assert 'GROUP BY' not in statement, statement
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('field', ['vendor', 'thread_size',
+                                       'purchase_location', 'location',
+                                       'sub_location'])
+    @pytest.mark.parametrize('query', [
+        '\x00',      # alone: the LIKE pattern degenerates to a bare `%`
+        'a\x00b',    # embedded: the pattern truncates to `%a`
+        '\ud800',    # an unpaired surrogate: no UTF-8 encoding at all
+        'a\ud800b',  # ...embedded
+    ])
+    def test_unstorable_query_answers_nothing_without_querying(
+            self, populated, field, query):
+        """DW-77 for the five item fields of the shared endpoint: a NUL
+        truncates the LIKE pattern at the driver, so `'\\x00'` would offer
+        EVERY stored value and `'a\\x00b'` would answer a different question;
+        an unpaired surrogate cannot be bound at all and would raise
+        UnicodeEncodeError out of an endpoint contracted to answer 200. Both
+        are answered `[]` before the session opens, which the emitted-SQL spy
+        asserts — a guard that ran after the query would still be a query."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                field, query=query) == []
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements == [], statements
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('location', ['\x00', 'a\x00b', '\ud800',
+                                          'a\ud800b'])
+    def test_unstorable_location_answers_nothing_without_querying(
+            self, populated, location):
+        """The sub_location narrowing is built from operator text too, and it
+        is held to the same rule as the query — same sentence, same `[]`, same
+        absence of a query."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                'sub_location', location=location) == []
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements == [], statements
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('field', ['vendor', 'thread_size',
+                                       'purchase_location', 'location'])
+    def test_an_ignored_location_cannot_zero_another_field(
+            self, populated, field):
+        """`location` is documented as meaningful only for sub_location, and
+        the storability guard is held to that same condition. Guarding it
+        unconditionally would let an argument the query never reads turn a
+        working vendor lookup into an empty one."""
+        unfiltered = populated.get_field_value_suggestions(field)
+        assert unfiltered, 'fixture seeds nothing for this field'
+        assert populated.get_field_value_suggestions(
+            field, location='a\x00b') == unfiltered

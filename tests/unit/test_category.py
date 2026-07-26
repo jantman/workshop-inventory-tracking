@@ -368,17 +368,24 @@ class TestAncestorPaths:
 
 class TestPureModuleHasNoAppImports:
 
-    @pytest.mark.unit
-    def test_module_imports_only_stdlib(self):
-        """The pure module must not pull in Flask/SQLAlchemy/app packages."""
-        import app.utils.category as category_mod
+    # The ONLY intra-package imports this module may make: siblings under
+    # app/utils/ that are themselves pure by these same rules, which the second
+    # test below verifies rather than assumes. `sql_text` holds the
+    # application's one LIKE-literal escaper (DW-42); this module carried an
+    # independent copy of it until that duplication was removed, and the seam
+    # that removed it is an import of a pure sibling, not a dependency on
+    # anything with a database or a framework in it.
+    PURE_SIBLINGS = ('sql_text',)
 
-        source = category_mod.__file__
-        with open(source, 'r') as fh:
+    @staticmethod
+    def _assert_pure(path, allowed_siblings):
+        """Assert the module at `path` pulls in nothing but the standard
+        library and the named pure siblings."""
+        with open(path, 'r') as fh:
             text = fh.read()
         for forbidden in ('import flask', 'from flask', 'sqlalchemy',
                           'from app', 'import app'):
-            assert forbidden not in text
+            assert forbidden not in text, f'{path}: {forbidden}'
         # The absolute forms above leave the hole that actually matters: every
         # intra-package import in this app is relative, so the realistic purity
         # violation is `from ..database import Product` — which matches none of
@@ -386,5 +393,34 @@ class TestPureModuleHasNoAppImports:
         # start of the statement rather than as a substring, because 'from .'
         # also occurs in prose (gtin.py has "a bare AttributeError from
         # .strip()") where it is not an import at all.
+        #
+        # A `from .<sibling> import` naming an allowed sibling is the ONE
+        # exception, and it is not a loophole: a parent-package import
+        # (`from ..`) still fails on the leading `from ..` never matching
+        # `from .<sibling> import`, and every allowed sibling is put through
+        # this same function.
+        allowed_prefixes = tuple(f'from .{sibling} import '
+                                 for sibling in allowed_siblings)
         for line in text.splitlines():
-            assert not line.lstrip().startswith('from .'), line
+            stripped = line.lstrip()
+            if not stripped.startswith('from .'):
+                continue
+            assert stripped.startswith(allowed_prefixes), f'{path}: {line}'
+
+    @pytest.mark.unit
+    def test_module_imports_only_stdlib(self):
+        """The pure module must not pull in Flask/SQLAlchemy/app packages."""
+        import app.utils.category as category_mod
+
+        self._assert_pure(category_mod.__file__, self.PURE_SIBLINGS)
+
+    @pytest.mark.unit
+    def test_every_allowed_sibling_is_itself_pure(self):
+        """The exception above is only safe while the siblings it names are
+        held to the same rule — otherwise this module's purity could be
+        laundered through one import."""
+        import importlib
+
+        for sibling in self.PURE_SIBLINGS:
+            module = importlib.import_module(f'app.utils.{sibling}')
+            self._assert_pure(module.__file__, ())

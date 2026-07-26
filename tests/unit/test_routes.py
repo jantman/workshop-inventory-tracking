@@ -1946,6 +1946,51 @@ class TestFieldSuggestionsRoute:
         assert set(body) == {'success', 'field', 'suggestions'}
 
     @pytest.mark.unit
+    @pytest.mark.parametrize('field', ['category_path', 'tags'])
+    @pytest.mark.parametrize('encoded', ['%00', 'a%00b'])
+    def test_unstorable_query_is_an_empty_200_on_a_catalog_field(
+            self, client, products, tagged_products, field, encoded
+    ):
+        """DW-77 through the endpoint: text carrying a NUL cannot be compared
+        whole, so it has no suggestions — but that is an ordinary answer, not
+        an error. A 400 would be wrong (nothing about the request is
+        malformed), and the pre-fix behaviour was worse than either: the
+        truncated LIKE pattern offered the ENTIRE vocabulary.
+
+        `normalized` keeps its catalog-only presence but must be null, not an
+        echo of the unstorable text: an echo beside an empty list is the
+        "not found — create it?" signal, and creating it would file a product
+        under a path no suggestion or search could ever match back."""
+        response = client.get(
+            f'/api/inventory/field-suggestions/{field}?q={encoded}')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['success'] is True
+        assert body['suggestions'] == []
+        assert set(body) == {'success', 'field', 'suggestions', 'normalized'}
+        assert body['normalized'] is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('url', [
+        '/api/inventory/field-suggestions/vendor?q=%00',
+        '/api/inventory/field-suggestions/vendor?q=a%00b',
+        '/api/inventory/field-suggestions/thread_size?q=%00',
+        '/api/inventory/field-suggestions/sub_location?location=a%00b',
+    ])
+    def test_unstorable_query_is_an_empty_200_on_an_item_field(
+            self, client, populated, url
+    ):
+        """The same sentence for the five item fields, `location` included —
+        and the response body stays exactly the three keys those consumers have
+        always received (NFR9)."""
+        response = client.get(url)
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body == {'success': True,
+                        'field': url.split('/')[-1].split('?')[0],
+                        'suggestions': []}
+
+    @pytest.mark.unit
     def test_unknown_field_still_400_after_the_split(self, client, products):
         response = client.get('/api/inventory/field-suggestions/notafield')
         assert response.status_code == 400

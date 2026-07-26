@@ -29,6 +29,7 @@ from .utils import gtin, gs1
 from .utils import category as category_util
 from .utils import internal_id as internal_id_util
 from .utils import scan_router
+from .utils import sql_text
 from .utils import tag as tag_util
 from config import Config
 
@@ -127,68 +128,14 @@ def _clean(value):
     return value
 
 
-def _escape_like_wildcards(value: str) -> str:
-    """
-    Escape the LIKE metacharacters in user-supplied text against `\\`.
-
-    So a query like `10%` matches the literal string `10%` instead of acting as
-    a wildcard. Every caller must pass the same escape character to
-    SQLAlchemy's `.like(..., escape='\\')`.
-
-    Module-level rather than nested in one method because this file now has two
-    callers (`get_field_value_suggestions` and `search_products`) and the
-    ledger already records LIKE escaping as duplicated between this file and
-    `app/utils/category.py`'s `descendant_like_pattern`; a third independent
-    copy inside one module is the version of that defect worth not writing.
-    (Kept local to this file rather than imported from the inventory side, so
-    neither service has to import the other across the AD-1 seam.)
-    """
-    return (
-        value.replace('\\', '\\\\')
-        .replace('%', '\\%')
-        .replace('_', '\\_')
-    )
-
-
-def _is_storable_text(value: str) -> bool:
-    """
-    Whether `value` can reach the database intact and mean what it says
-    (Story 4.3, NFR8). Two character classes make that false:
-
-    - An UNPAIRED SURROGATE, which Python permits in a `str` but which has no
-      UTF-8 encoding, so a driver raises `UnicodeEncodeError` when binding it
-      as a parameter. A caller that must not raise on arbitrary text has to
-      answer such a query without querying.
-    - A NUL (`\\x00`). It binds without error, but SQLite's `LIKE` reads its
-      pattern as a C string and stops at the first NUL, so the pattern that
-      actually runs is a PREFIX of the one built — and since every pattern
-      here is wrapped in `%…%`, a leading NUL degenerates to the bare `%` that
-      matches EVERY row. Verified: with five products stored,
-      `search_products('\\x00')` returned all five, and `'a\\x00b'` ran as
-      `'%a'` and returned the rows *ending* in `a`. Both are the silent
-      wrong-answer failure that `search_products`' length bound refuses to
-      make by truncating; NUL was making it one character class over. The
-      divergence is backend-specific in the direction the unit suite cannot
-      see — PyMySQL escapes `\\0` in the emitted literal, so MariaDB compares
-      the whole pattern and answers nothing.
-
-    In both cases the honest answer is the no-match one, reached without a
-    query: no value this application stores can equal or contain text that
-    cannot be sent or cannot be compared whole.
-
-    The surrogate half is observed under SQLite, the only backend any test in
-    this repo runs `CatalogService` against; PyMySQL encodes bound parameters
-    to the connection charset and is expected to raise the same way, but that
-    is inferred rather than measured, and the absent MariaDB coverage is an
-    open ledger entry.
-    """
-    if '\x00' in value:
-        return False
-    try:
-        value.encode('utf-8')
-    except UnicodeEncodeError:
-        return False
-    return True
+# How many rows the suggestion read turns into ORM row objects at a time, and
+# that is ALL it bounds. Not transfer — the query itself is unbounded for the
+# reason `get_field_value_suggestions` states, and no client-side batching
+# changes what the server sorts or sends. Not process memory either, since a
+# buffering driver has the whole result in hand before the first batch is
+# built. Comfortably above the 50-value ceiling, so the ordinary case does one
+# batch and stops.
+SUGGESTION_ROW_BATCH = 100
 
 
 class CatalogService:
@@ -431,6 +378,14 @@ class CatalogService:
         same query as unmatchable and returns no rows, rather than reading
         the None as "no filter".
 
+        Text that is not storable (`sql_text.is_storable_text`) yields None for
+        the same reason, and the reason is worth stating because the column
+        would in fact accept it: a path carrying a NUL can be written, but no
+        suggestion or search could ever match it back, so offering to create
+        one is offering to file a product where the operator cannot find it.
+        The echo has to agree with the lookup — a `normalized` value beside an
+        empty `suggestions` list is exactly the "not found, create it?" signal.
+
         Args:
             field: One of the keys in the module-level
                 FIELD_SUGGESTION_COLUMNS. Any other value raises ValueError,
@@ -448,6 +403,8 @@ class CatalogService:
         """
         if FIELD_SUGGESTION_COLUMNS.get(field) is None:
             raise ValueError(f"Unsupported field for suggestions: {field!r}")
+        if isinstance(value, str) and not sql_text.is_storable_text(value):
+            return None
         if field == 'category_path':
             try:
                 return category_util.normalize_category_path(value)
@@ -483,13 +440,17 @@ class CatalogService:
         suitable for autocomplete on the product Add/Edit forms (FR14, FR15).
 
         The category "tree" IS the distinct set of assigned
-        products.category_path values — there is no node table — so this
-        DISTINCT query is the whole vocabulary source. It accretes purely from
+        products.category_path values — there is no node table — so this query
+        is the whole vocabulary source. It accretes purely from
         use: nothing is offered until some product carries it, and ancestors
         are not synthesized (typing `a/b/c` makes `a/b/c` available, not bare
         `a`). The tag vocabulary (Story 3.3, `tags`) works the same way over
         product_tags.tag: there is no vocabulary table, and a tag stops being
         offered when the last product drops it.
+
+        "Distinct" is decided in PYTHON, case-insensitively, and nowhere else —
+        the SQL carries no DISTINCT, for the same reason `list_category_paths`
+        and `list_tags` do their own grouping. See the read loop below.
 
         (Both orderings sort on LOWER(category_path) and a filtered lookup is
         a leading-wildcard LIKE, so neither can use the column's index — this
@@ -512,7 +473,9 @@ class CatalogService:
             field: One of the keys in the module-level FIELD_SUGGESTION_COLUMNS.
             query: Optional filter, normalized then matched case-insensitively
                 as a substring. When None or empty, returns `limit` distinct
-                values in alphabetical order.
+                values in alphabetical order. Text that cannot reach the
+                database intact (`sql_text.is_storable_text`: NULs and unpaired
+                surrogates) answers `[]` without querying.
             limit: Maximum number of suggestions. Clamped to [1, 50];
                 non-integer values fall back to 10.
 
@@ -525,6 +488,21 @@ class CatalogService:
         column_name = FIELD_SUGGESTION_COLUMNS.get(field)
         if column_name is None:
             raise ValueError(f"Unsupported field for suggestions: {field!r}")
+
+        # Judged on the argument AS PASSED, before normalization, and answered
+        # without opening a session — the same shape `resolve_scan` uses on its
+        # whole `raw` envelope. Normalization only strips whitespace and
+        # separators, so a NUL survives it and reaches the LIKE pattern either
+        # way; there it truncates the pattern to a prefix of itself, and a
+        # bare `'\x00'` degenerates to the `%` that offers the WHOLE vocabulary
+        # (see `sql_text.is_storable_text`). `[]` is the correct answer and not
+        # merely a safe one: no value this application MEANS to store can equal
+        # or contain text that cannot be compared whole — a premise the write
+        # path does not yet enforce, which `is_storable_text` records. This is
+        # HTTP 200 with no suggestions, never an error — the endpoint's
+        # contract does not change.
+        if isinstance(query, str) and not sql_text.is_storable_text(query):
+            return []
 
         try:
             limit = int(limit)
@@ -587,44 +565,74 @@ class CatalogService:
             )
 
             if q:
-                pattern = f'%{_escape_like_wildcards(q)}%'
+                escaped = sql_text.escape_like_literal(q)
+                pattern = f'%{escaped}%'
                 base = base.filter(
-                    func.lower(column).like(pattern, escape='\\')
+                    func.lower(column).like(
+                        pattern, escape=sql_text.LIKE_ESCAPE_CHAR)
                 )
                 rank = case(
                     (func.lower(column) == q, 0),
                     (func.lower(column).like(
-                        f'{_escape_like_wildcards(q)}%', escape='\\'
+                        f'{escaped}%', escape=sql_text.LIKE_ESCAPE_CHAR
                     ), 1),
                     else_=2,
                 )
-                base = base.order_by(rank, func.lower(column))
+                base = base.order_by(rank, func.lower(column), column)
             else:
-                base = base.order_by(func.lower(column))
+                base = base.order_by(func.lower(column), column)
 
-            # Over-fetch slightly to give the post-DB case-insensitive dedup
-            # pass headroom: the DB DISTINCT depends on the column's collation,
-            # so two values differing only in case may both reach Python.
-            # Stored paths are canonical (lowercase) since this story, but rows
-            # written before the data migration ran must not double up.
-            fetch_limit = limit * 3 + 10
-            rows = base.distinct().limit(fetch_limit).all()
-            values = [
-                row[0].strip()
-                for row in rows
-                if row[0] and row[0].strip()
-            ]
-
+            # SQL narrows, Python decides — the same division that
+            # `list_category_paths` and `list_tags` make. There is deliberately
+            # NO `.distinct()` here: MariaDB's folding collation would collapse
+            # `café` and `cafe` (and any pre-migration case variant) into ONE
+            # row before the pass below ever sees them, so one of two genuinely
+            # distinct stored values would never be offered, and no amount of
+            # over-fetching can restore a row the database already dropped.
+            #
+            # Without DISTINCT a fetch limit counts ROWS, not values, so the
+            # old `limit * 3 + 10` ceiling had to go with it: 100 products
+            # sharing one category_path would fill it and return a single
+            # suggestion where ten distinct ones exist. A larger row ceiling
+            # only moves that starvation threshold — it does not remove it —
+            # so the query is left unbounded, which is what every sibling
+            # listing method in this class already does (see the note on
+            # SEARCH_RESULTS_DEFAULT_LIMIT: the unbounded vocabulary read is a
+            # known, ledgered property of this table's screens, not a new one).
+            #
+            # What the lazy read below DOES bound is the Python side: rows
+            # arrive already ordered, so the first `limit` distinct values are
+            # the right ones and no further row is turned into a Python object.
+            # It does NOT bound what crosses the wire — a buffering driver has
+            # already fetched everything, and PyMySQL's server-side cursor
+            # drains the remainder when the cursor closes. The row count, not
+            # the transfer, is what the `ORDER BY` already forced.
+            #
+            # The `column` tiebreak breaks the ties DISTINCT used to hide:
+            # without it every duplicate row sorts equal, and the early break
+            # lets the plan decide which spelling of a value the operator is
+            # offered. It makes the ordering TOTAL only under a binary
+            # collation — SQLite, where the suite runs. Under MariaDB's folding
+            # `_ci` collation the tiebreak column compares case- and
+            # accent-insensitively too, so genuine case variants still tie on
+            # both keys and the spelling offered stays plan-dependent there.
+            # Deferred: closing it needs a `COLLATE utf8mb4_bin` tiebreak
+            # behind a dialect branch the SQLite-only suite cannot verify.
             seen_lower = set()
             unique = []
-            for v in values:
+            for (value,) in base.yield_per(SUGGESTION_ROW_BATCH):
+                v = value.strip() if value else ''
+                if not v:
+                    continue
                 key = v.lower()
                 if key in seen_lower:
                     continue
                 seen_lower.add(key)
                 unique.append(v)
+                if len(unique) >= limit:
+                    break
 
-            return unique[:limit]
+            return unique
 
         finally:
             session.close()
@@ -748,6 +756,34 @@ class CatalogService:
         if new_canonical is None:
             raise ValidationError(
                 'Enter the new category path.',
+                field='new_path', value=str(new_path))
+        # Normalization strips whitespace and separators, so a NUL or an
+        # unpaired surrogate survives it and reaches BOTH
+        # `descendant_like_pattern` LIKEs below. SQLite truncates such a
+        # pattern at the NUL, which NARROWS both subtree scans: a narrowed
+        # `moving` set merely produces the "No products are filed under…"
+        # rejection, but a narrowed `blockers` set is how the branch merge this
+        # method exists to refuse could slip through unnoticed. Refused up
+        # front, before the session opens, so nothing is written either way —
+        # and so the docstring's existing "unstorable" promise is true in both
+        # senses. See `sql_text.is_storable_text`.
+        #
+        # RAISES here, where the suggestion lookups above answer `[]`, and the
+        # rule behind the difference is the method's own: a read is being asked
+        # a question and "nothing matches" is a true answer to it, while a
+        # rename is being told to change rows and silently changing none is
+        # not. This one also judges the CANONICAL value rather than the
+        # argument as typed, because the canonical value is what the patterns
+        # and the audit key are built from.
+        if not sql_text.is_storable_text(old_canonical):
+            raise ValidationError(
+                'The category to rename contains characters that cannot be '
+                'stored or matched.',
+                field='old_path', value=str(old_path))
+        if not sql_text.is_storable_text(new_canonical):
+            raise ValidationError(
+                'The new category path contains characters that cannot be '
+                'stored or matched.',
                 field='new_path', value=str(new_path))
         if old_canonical == new_canonical:
             # Refused on the arguments alone, whether or not the path exists.
@@ -1930,7 +1966,7 @@ class CatalogService:
                 property of the search entrypoint rather than a second copy of
                 the scan trim rule. A blank, whitespace-only or None query
                 returns `[]` rather than the whole catalog, as does text that
-                cannot reach the database intact (`_is_storable_text`:
+                cannot reach the database intact (`sql_text.is_storable_text`:
                 unpaired surrogates and NULs) and text longer than
                 SEARCH_QUERY_MAX_LENGTH, which no LIKE pattern can safely
                 carry. LIKE wildcards in it (`%`, `_`, `\\`) are escaped and
@@ -2022,9 +2058,9 @@ class CatalogService:
         # so `'\x00'` alone would return the ENTIRE catalog and `'a\x00b'`
         # would return the rows ending in `a`. Nothing stored can equal or
         # contain either, so `[]` is the correct answer and not merely a safe
-        # one; see `_is_storable_text`. This check runs before the pattern is
-        # built, because the defect is in the pattern.
-        if not _is_storable_text(q):
+        # one; see `sql_text.is_storable_text`. This check runs before the
+        # pattern is built, because the defect is in the pattern.
+        if not sql_text.is_storable_text(q):
             return []
 
         # OverflowError joins the tuple because `int(float('inf'))` raises it
@@ -2041,10 +2077,11 @@ class CatalogService:
             limit = SEARCH_RESULTS_DEFAULT_LIMIT
         limit = max(1, min(limit, SEARCH_RESULTS_MAX_LIMIT))
 
-        pattern = f'%{_escape_like_wildcards(q.lower())}%'
+        pattern = f'%{sql_text.escape_like_literal(q.lower())}%'
 
         def _matches(column):
-            return func.lower(column).like(pattern, escape='\\')
+            return func.lower(column).like(
+                pattern, escape=sql_text.LIKE_ESCAPE_CHAR)
 
         identifier_match = (
             exists()
@@ -2303,7 +2340,7 @@ class CatalogService:
         # the honest answer is the no-match one, reached without a query.
         # Checking `raw` covers every arm: a GTIN candidate is all ASCII digits
         # by construction, and any other arm's text is derived from `raw`.
-        if not _is_storable_text(raw):
+        if not sql_text.is_storable_text(raw):
             return ScanResolution(classification=classification, product=None,
                                   free_text_hits=())
 

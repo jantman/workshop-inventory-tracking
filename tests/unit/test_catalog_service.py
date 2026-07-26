@@ -1295,6 +1295,99 @@ class TestCatalogFieldValueSuggestions:
         ) == populated.get_field_value_suggestions('category_path')
 
     @pytest.mark.unit
+    def test_duplicate_volume_cannot_starve_the_distinct_values(
+            self, catalog_service):
+        """Guards the design that replaced the DISTINCT, not DW-49 itself: it
+        passed before this change too, because a fetch ceiling applied AFTER a
+        SQL DISTINCT counts values. Without the DISTINCT it counts ROWS, so
+        restoring the old `limit * 3 + 10` ceiling makes 100 products filed at
+        `a` fill it and return `['a']` where ten distinct suggestions exist.
+
+        Note what the 110 seeded rows can and cannot catch: a ceiling in the
+        old one's range, not an arbitrarily large one. A future `.limit(10000)`
+        would keep this green and still starve a bigger table — the property
+        cannot be pinned by row count alone, which is why the reasoning lives
+        in the read loop's comment."""
+        for _ in range(100):
+            catalog_service.create_product(description='dup',
+                                           category_path='a')
+        for letter in 'bcdefghijk':
+            catalog_service.create_product(description='one',
+                                           category_path=letter)
+
+        assert catalog_service.get_field_value_suggestions(
+            'category_path', limit=10) == list('abcdefghij')
+
+    @pytest.mark.unit
+    def test_the_suggestion_sql_carries_no_distinct(self, populated):
+        """DW-49's mechanism, asserted the only way SQLite can show it (the
+        same shape `TestTagListing` uses for `list_tags`' absent GROUP BY).
+
+        Under MariaDB's folding collation a SQL DISTINCT collapses `café` and
+        `cafe` — and any pre-migration case variant — into ONE row BEFORE the
+        Python case-insensitive pass that exists to decide exactly those cases,
+        so one of two genuinely distinct stored values is never offered and
+        over-fetching cannot restore a row the database already dropped.
+        SQLite's BINARY collation never folds, so the wrong answer is
+        unreproducible here — but the ABSENCE of the DISTINCT is observable
+        anywhere, and that is the whole mechanism. Without this, a later
+        're-add the DISTINCT, it is cheaper' keeps the suite green and silently
+        loses vocabulary in production."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if 'products' in statement.lower():
+                statements.append(' '.join(statement.split()).upper())
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                'category_path', query='elec')
+            assert populated.get_field_value_suggestions('category_path')
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements, 'the suggestion query emitted no products SQL'
+        for statement in statements:
+            assert 'DISTINCT' not in statement, statement
+            # GROUP BY folds under the same collation and would reintroduce
+            # the identical defect while keeping the DISTINCT assertion green.
+            assert 'GROUP BY' not in statement, statement
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        '\x00',      # alone: the LIKE pattern degenerates to a bare `%`
+        'a\x00b',    # embedded: the pattern truncates to `%a`
+        '\ud800',    # an unpaired surrogate: no UTF-8 encoding at all
+        'a\ud800b',  # ...embedded
+    ])
+    def test_unstorable_query_answers_nothing_without_querying(
+            self, populated, query):
+        """DW-77: a NUL truncates the LIKE pattern at the driver, so `'\\x00'`
+        would offer the ENTIRE vocabulary and `'a\\x00b'` would answer a
+        different question; an unpaired surrogate cannot be bound at all and
+        would raise UnicodeEncodeError out of a 200-only endpoint. Both are
+        answered `[]` before the session opens, which the emitted-SQL spy
+        asserts — a guard that ran after the query would still be a query."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                'category_path', query=query) == []
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements == [], statements
+
+    @pytest.mark.unit
     def test_the_two_suggestion_whitelists_are_disjoint(self):
         """The one endpoint dispatches on whitelist membership, so a name in
         both maps would silently route an item field at the products table."""
@@ -1674,6 +1767,50 @@ class TestCategoryRename:
 
         error = _rename_error(catalog_service, old_path, new_path)
         assert error.field == field
+        assert catalog_service.get_product(node).category_path == 'a'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('old_path, new_path, field', [
+        ('a\x00b', 'x', 'old_path'),        # NUL in the source
+        ('\x00', 'x', 'old_path'),          # ...alone
+        ('a\ud800b', 'x', 'old_path'),      # unpaired surrogate in the source
+        ('a', 'c\x00d', 'new_path'),        # NUL in the destination
+        ('a', 'c\ud800d', 'new_path'),      # unpaired surrogate there
+    ])
+    def test_unstorable_arguments_are_rejected_before_anything_is_scanned(
+            self, catalog_service, old_path, new_path, field):
+        """DW-77 on the rename path. Normalization only strips whitespace and
+        separators, so a NUL survives it into both `descendant_like_pattern`
+        LIKEs — and SQLite truncates the pattern there, NARROWING both subtree
+        scans. A narrowed `moving` set only produces the existing 'no products
+        are filed under' rejection, but a narrowed `blockers` set is how the
+        branch merge this method exists to refuse could slip through. An
+        unpaired surrogate cannot be bound at all. Both are refused up front,
+        naming the offending argument, with nothing written.
+
+        The emitted-SQL spy is what makes 'before anything is scanned' an
+        assertion rather than a title: field and unchanged-row checks alone
+        would also hold for a guard that ran after the subtree query."""
+        from sqlalchemy import event
+
+        node = catalog_service.create_product(description='x',
+                                              category_path='a')
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if 'products' in statement.lower():
+                statements.append(statement)
+
+        event.listen(catalog_service.engine, 'before_cursor_execute', record)
+        try:
+            error = _rename_error(catalog_service, old_path, new_path)
+        finally:
+            event.remove(catalog_service.engine, 'before_cursor_execute',
+                         record)
+
+        assert error.field == field
+        assert statements == [], statements
         assert catalog_service.get_product(node).category_path == 'a'
 
     @pytest.mark.unit
@@ -2683,6 +2820,81 @@ class TestTagFieldValueSuggestions:
         assert populated.get_field_value_suggestions(
             'tags', query=query
         ) == populated.get_field_value_suggestions('tags')
+
+    @pytest.mark.unit
+    def test_duplicate_volume_cannot_starve_the_distinct_values(
+            self, catalog_service):
+        """The tag half of the same guard: this passed before the change too
+        (a ceiling applied after a SQL DISTINCT counts values), and fails the
+        moment a row ceiling in the old one's range is restored without one —
+        100 products carrying `a` fill it and hide the ten other tags behind
+        it. As above, 110 rows cannot catch an arbitrarily large ceiling."""
+        for _ in range(100):
+            pid = catalog_service.create_product(description='dup')
+            catalog_service.set_product_tags(pid, ['a'])
+        for letter in 'bcdefghijk':
+            pid = catalog_service.create_product(description='one')
+            catalog_service.set_product_tags(pid, [letter])
+
+        assert catalog_service.get_field_value_suggestions(
+            'tags', limit=10) == list('abcdefghij')
+
+    @pytest.mark.unit
+    def test_the_suggestion_sql_carries_no_distinct(self, populated):
+        """The tag vocabulary reads product_tags, so it needs its own
+        assertion: a DISTINCT there folds `café` and `cafe` together under
+        MariaDB's collation before the Python pass can decide between them, and
+        SQLite cannot reproduce the folding — only the DISTINCT's absence."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if 'product_tags' in statement.lower():
+                statements.append(' '.join(statement.split()).upper())
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions('tags', query='ss')
+            assert populated.get_field_value_suggestions('tags')
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements, 'the suggestion query emitted no product_tags SQL'
+        for statement in statements:
+            assert 'DISTINCT' not in statement, statement
+            # GROUP BY folds under the same collation and would reintroduce
+            # the identical defect while keeping the DISTINCT assertion green.
+            assert 'GROUP BY' not in statement, statement
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('query', [
+        '\x00',      # alone: the LIKE pattern degenerates to a bare `%`
+        'a\x00b',    # embedded: the pattern truncates to `%a`
+        '\ud800',    # an unpaired surrogate: no UTF-8 encoding at all
+        'a\ud800b',  # ...embedded
+    ])
+    def test_unstorable_query_answers_nothing_without_querying(
+            self, populated, query):
+        """DW-77 for the tag half. Distinct from the unmatchable-query row
+        above: that one is refused by the tag util's own rules, this one is
+        refused because the text cannot reach the database and mean what it
+        says at all — and it is refused before the session opens."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                'tags', query=query) == []
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements == [], statements
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw, expected', [

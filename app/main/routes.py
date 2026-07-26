@@ -2055,8 +2055,9 @@ def _scan_url_value(name, value):
     page echoes it and puts it back in its own search box — so `product_search`
     scrubs it for DISPLAY with `_without_control_characters` and keeps the raw
     value for the query itself. Nothing is lost by the exemption:
-    `_is_storable_text` refuses NUL and unpaired surrogates outright, so a scan
-    carrying either has no hits and never reaches the search arm at all.
+    `sql_text.is_storable_text` refuses NUL and unpaired surrogates outright,
+    so a scan carrying either has no hits and never reaches the search arm at
+    all.
 
     Length is bounded in CHARACTERS only — what the VARCHAR counts. An earlier
     reading also cut each value to its limit in UTF-8 BYTES, which cost nothing

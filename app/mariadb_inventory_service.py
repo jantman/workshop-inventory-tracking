@@ -20,9 +20,18 @@ from .database import InventoryItem
 from .models import ItemType, ItemShape
 # Using enhanced InventoryItem directly instead of separate Item dataclass
 from .storage import StorageResult
+from .utils import sql_text
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+# How many rows the suggestion read turns into ORM row objects at a time, and
+# that is all it bounds. Same knob, same reasoning, as the catalog half of this
+# endpoint — see `mariadb_catalog_service.SUGGESTION_ROW_BATCH`, which states
+# what it does and does not bound. It is declared per service
+# rather than shared because it is a query-tuning value for THIS table, not a
+# rule the two halves have to agree on; nothing breaks if they diverge.
+SUGGESTION_ROW_BATCH = 100
 
 
 class SearchFilter:
@@ -795,13 +804,16 @@ class InventoryService:
         Return distinct existing values for a whitelisted item field,
         suitable for autocomplete on the Add/Edit forms.
 
-        Pulls DISTINCT values across all rows in ``inventory_items``
-        (active + history) so deactivated items still seed suggestions.
-        NULL and empty values are excluded. Comparisons are case-insensitive.
+        Pulls values across all rows in ``inventory_items`` (active +
+        history) so deactivated items still seed suggestions. NULL and
+        empty values are excluded. Comparisons are case-insensitive.
 
-        Filtering, ordering, and the limit are pushed into SQL so the
-        method only materializes at most ``limit`` rows (plus a small
-        headroom for case-insensitive deduplication).
+        Filtering and ordering are pushed into SQL; DISTINCT is NOT —
+        duplicates are removed by the case-insensitive pass in Python,
+        which is the only dedup (see the read loop below). The ordered
+        rows are read lazily and the loop stops as soon as ``limit``
+        distinct values are in hand, so nothing past them is fetched
+        however many duplicate rows precede them.
 
         Ordering when ``query`` is supplied: exact match first, then
         starts-with matches, then contains matches, each tier
@@ -815,12 +827,15 @@ class InventoryService:
                 other value raises ``ValueError``.
             query: Optional case-insensitive substring filter. When None
                 or empty, returns ``limit`` distinct values in
-                alphabetical order.
+                alphabetical order. Text that cannot reach the database
+                intact (``sql_text.is_storable_text``: NULs and unpaired
+                surrogates) answers ``[]`` without querying.
             limit: Maximum number of suggestions to return. Clamped to
                 [1, 50].
             location: Only meaningful when ``field == 'sub_location'``.
                 When provided, restricts results to sub-locations that
-                appear under that location (case-insensitive).
+                appear under that location (case-insensitive). Held to
+                the same storability rule as ``query``.
 
         Returns:
             List of distinct value strings.
@@ -832,6 +847,32 @@ class InventoryService:
         if column_name is None:
             raise ValueError(f"Unsupported field for suggestions: {field!r}")
 
+        # Judged on the arguments AS PASSED, before the strip/lower below, and
+        # answered without opening a session — the same sentence that describes
+        # the catalog half of this endpoint. A NUL survives cleaning and
+        # reaches the LIKE pattern, where SQLite truncates the pattern to a
+        # prefix of itself: `'\x00'` alone degenerates to the bare `%` that
+        # offers EVERY stored value, and `'a\x00b'` silently answers a
+        # different question. Nothing this application MEANS to store can equal
+        # or contain such text, so `[]` is the correct answer, not merely a
+        # safe one (see `sql_text.is_storable_text`, which also records that
+        # the write path does not yet enforce that premise), and it is an
+        # ordinary 200-with-no-suggestions, never an error.
+        #
+        # `location` is judged under exactly the condition that puts it in a
+        # statement (`field == 'sub_location'` and non-blank, matching the
+        # filter below), not unconditionally: it is documented as meaningful
+        # for that one field, and a guard that fired for the others would let
+        # an ignored argument zero a vendor lookup. Its failure mode is the
+        # surrogate half rather than the NUL half — the filter is an equality,
+        # which compares whole — but an unbindable parameter is a 500 either
+        # way, and this endpoint answers arbitrary text without raising.
+        if isinstance(query, str) and not sql_text.is_storable_text(query):
+            return []
+        if (field == 'sub_location' and isinstance(location, str) and location
+                and not sql_text.is_storable_text(location)):
+            return []
+
         try:
             limit = int(limit)
         except (TypeError, ValueError):
@@ -840,16 +881,6 @@ class InventoryService:
 
         column = getattr(InventoryItem, column_name)
         q = (query or '').strip().lower()
-
-        # Escape user-supplied LIKE wildcards so a query like "10%"
-        # doesn't act as a wildcard. SQLAlchemy's like() takes an
-        # escape character we declare here.
-        def _escape_like(s: str) -> str:
-            return (
-                s.replace('\\', '\\\\')
-                .replace('%', '\\%')
-                .replace('_', '\\_')
-            )
 
         # Note: unexpected exceptions are intentionally not swallowed
         # here. The route wrapper catches Exception and returns HTTP
@@ -869,43 +900,73 @@ class InventoryService:
                 )
 
             if q:
-                pattern = f'%{_escape_like(q)}%'
+                # `sql_text.escape_like_literal` is the application's ONE
+                # literal escaper: a query like "10%" must match the stored
+                # "10%" rather than act as a wildcard, and SQLAlchemy's like()
+                # takes the escape character the same module declares.
+                escaped = sql_text.escape_like_literal(q)
+                pattern = f'%{escaped}%'
                 base = base.filter(
-                    func.lower(column).like(pattern, escape='\\')
+                    func.lower(column).like(
+                        pattern, escape=sql_text.LIKE_ESCAPE_CHAR)
                 )
                 rank = case(
                     (func.lower(column) == q, 0),
                     (func.lower(column).like(
-                        f'{_escape_like(q)}%', escape='\\'
+                        f'{escaped}%', escape=sql_text.LIKE_ESCAPE_CHAR
                     ), 1),
                     else_=2,
                 )
-                base = base.order_by(rank, func.lower(column))
+                base = base.order_by(rank, func.lower(column), column)
             else:
-                base = base.order_by(func.lower(column))
+                base = base.order_by(func.lower(column), column)
 
-            # Over-fetch slightly to give the post-DB case-insensitive
-            # dedup pass headroom: the DB DISTINCT depends on the
-            # column's collation, so two values differing only in case
-            # may both reach Python.
-            fetch_limit = limit * 3 + 10
-            rows = base.distinct().limit(fetch_limit).all()
-            values = [
-                row[0].strip()
-                for row in rows
-                if row[0] and row[0].strip()
-            ]
-
+            # SQL narrows, Python decides. There is deliberately NO
+            # `.distinct()` here: MariaDB's folding collation would collapse
+            # `café` and `cafe` (and any pre-migration case variant) into ONE
+            # row before the case-insensitive pass below ever sees them, so one
+            # of two genuinely distinct stored values would never be offered,
+            # and no amount of over-fetching can restore a row the database
+            # already dropped.
+            #
+            # Without DISTINCT a fetch limit counts ROWS, not values, so the
+            # old `limit * 3 + 10` ceiling had to go with it: 100 items sharing
+            # one vendor would fill it and return a single suggestion where ten
+            # distinct ones exist. A larger ceiling only moves that starvation
+            # threshold, so the query is left unbounded — the trade this makes
+            # is a full ordered read per lookup, on a table the ORDER BY was
+            # already sorting whole.
+            #
+            # The lazy read bounds the PYTHON side only: rows arrive ordered,
+            # so the first `limit` distinct values are the right ones and no
+            # further row becomes a Python object. It does not bound the
+            # transfer — a buffering driver has already fetched everything, and
+            # PyMySQL's server-side cursor drains the rest at close.
+            #
+            # The `column` tiebreak breaks the ties DISTINCT used to hide:
+            # without it every duplicate row sorts equal, and the early break
+            # lets the plan pick which spelling the operator is offered. It is
+            # TOTAL only under a binary collation — SQLite, where the suite
+            # runs. Under MariaDB's folding `_ci` collation the tiebreak column
+            # folds case and accents too, so genuine case variants still tie on
+            # both keys and the spelling offered stays plan-dependent there.
+            # Deferred: a `COLLATE utf8mb4_bin` tiebreak behind a dialect
+            # branch is what would close it.
             seen_lower = set()
             unique = []
-            for v in values:
+            for (value,) in base.yield_per(SUGGESTION_ROW_BATCH):
+                v = value.strip() if value else ''
+                if not v:
+                    continue
                 key = v.lower()
                 if key in seen_lower:
                     continue
                 seen_lower.add(key)
                 unique.append(v)
+                if len(unique) >= limit:
+                    break
 
-            return unique[:limit]
+            return unique
 
         finally:
             session.close()

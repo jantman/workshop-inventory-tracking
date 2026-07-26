@@ -56,6 +56,8 @@ property of a path string.
 
 from typing import List, Optional
 
+from .sql_text import LIKE_ESCAPE_CHAR, escape_like_literal
+
 # The one separator between path segments.
 CATEGORY_PATH_SEPARATOR = '/'
 
@@ -69,7 +71,13 @@ MAX_CATEGORY_PATH_LENGTH = 512
 # the LIKE it builds the pattern for — a pattern escaped with a character the
 # statement never declares is worse than no escaping at all, because the
 # backslashes then match literally.
-CATEGORY_LIKE_ESCAPE_CHAR = '\\'
+#
+# It is `app.utils.sql_text.LIKE_ESCAPE_CHAR` under a category-scoped alias,
+# not a second declaration: this module's pattern and the services' suggestion
+# and search patterns all pass through `escape_like_literal`, so one
+# character has to be right for all of them. The name stays because every
+# caller in the category subsystem spells it this way.
+CATEGORY_LIKE_ESCAPE_CHAR = LIKE_ESCAPE_CHAR
 
 
 class InvalidCategoryPathError(ValueError):
@@ -213,11 +221,15 @@ def descendant_like_pattern(ancestor: str) -> str:
     matched by the pattern — equality covers it, and folding it in would need
     an alternation SQL `LIKE` does not have.
 
-    Every literal `%`, `_` and escape character in the ancestor is escaped:
-    normalization never rewrites segment contents, so a canonical path may
+    Every literal `%`, `_` and escape character in the ancestor is escaped —
+    by `app.utils.sql_text.escape_like_literal`, the application's ONE literal
+    escaper (DW-42), never a chain of `replace` calls repeated here.
+    Normalization never rewrites segment contents, so a canonical path may
     genuinely contain `%` or `_`, and an unescaped `_` would silently match any
     single character. The caller MUST pass CATEGORY_LIKE_ESCAPE_CHAR as the
     `escape=` argument.
+
+    Only the trailing `/%` this function appends is a live wildcard.
 
     Args:
         ancestor: An already-canonical path.
@@ -235,13 +247,7 @@ def descendant_like_pattern(ancestor: str) -> str:
         'power\\\\_supplies/50\\\\%/%'
     """
     ancestor = _require_canonical(ancestor, 'Ancestor path')
-    escaped = (
-        ancestor.replace(CATEGORY_LIKE_ESCAPE_CHAR,
-                         CATEGORY_LIKE_ESCAPE_CHAR * 2)
-        .replace('%', CATEGORY_LIKE_ESCAPE_CHAR + '%')
-        .replace('_', CATEGORY_LIKE_ESCAPE_CHAR + '_')
-    )
-    return f'{escaped}{CATEGORY_PATH_SEPARATOR}%'
+    return f'{escape_like_literal(ancestor)}{CATEGORY_PATH_SEPARATOR}%'
 
 
 def rewrite_category_path(path: str, old_root: str, new_root: str) -> str:

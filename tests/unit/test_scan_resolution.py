@@ -1110,9 +1110,10 @@ class TestEciaResolution:
         Two things divert a vector before this story's lookup, and the class
         above cannot tell either from a real ECIA-arm pass.
 
-        `_is_storable_text(raw)` judges the WHOLE envelope and runs before the
-        four-way branch, so a NUL or a lone surrogate anywhere in the scan is
-        answered with no product and no hits without the ECIA arm ever running.
+        `sql_text.is_storable_text(raw)` judges the WHOLE envelope and runs
+        before the four-way branch, so a NUL or a lone surrogate anywhere in
+        the scan is answered with no product and no hits without the ECIA arm
+        ever running.
         That is worth pinning in both directions, because the deferred-work
         ledger proposes moving that guard from `raw` to the text each arm
         binds: on the day it moves, those two vectors start reaching a query
@@ -1582,8 +1583,8 @@ class TestNeverRaisesOnScanData:
 
         `[]` is the correct answer and not merely the safe one: no value this
         application stores contains a NUL. And it is reached without a query,
-        which the spy asserts — `_is_storable_text` runs on `raw` before any
-        arm, so no NUL text ever reaches a pattern.
+        which the spy asserts — `sql_text.is_storable_text` runs on `raw`
+        before any arm, so no NUL text ever reaches a pattern.
 
         Note the direction of the divergence: PyMySQL escapes `\\0` in the
         literal it emits, so MariaDB compares the whole pattern and would have
