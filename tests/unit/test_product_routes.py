@@ -1935,6 +1935,280 @@ class TestPurchaseFormRefusesWhatTheColumnCannotHold:
 
 
 @pytest.mark.unit
+class TestRecordPurchaseEndpointHoldsTheSameColumnBounds:
+    """`api_record_purchase` writes the same `purchases` columns as the HTML
+    form, through a `record_purchase` that validates nothing. For `unit_price`
+    and the four text columns — the columns DW-12 and DW-25 name — every value
+    `TestPurchaseFormRefusesWhatTheColumnCannotHold` refuses is refused here
+    too, as the AD-13 envelope rather than a re-render, and every value it
+    accepts is accepted here. `quantity` is NOT one of those columns: the two
+    entry points still parse it differently by design (see
+    `_parse_purchase_form`), so nothing here claims parity for it.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def _post(self, client, pid, body):
+        return client.post(f'/api/products/{pid}/purchases', json=body)
+
+    def _refusal(self, resp, field, fragment):
+        """Assert the AD-13 refusal shape and return nothing else worth saying."""
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data['success'] is False
+        assert data['error']['code'] == 'invalid_field'
+        assert data['error']['field'] == field
+        assert fragment in data['error']['message']
+
+    @pytest.mark.parametrize('price', ['2.34', 2.34])
+    def test_a_valid_price_is_accepted_as_a_string_or_a_json_number(
+            self, client, test_storage, price):
+        """Both are the shipped contract, and the reason the parse goes through
+        `Decimal(str(...))` rather than `Decimal(...)`."""
+        from decimal import Decimal
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {'unit_price': price})
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].unit_price == Decimal('2.34')
+
+    def test_a_two_decimal_price_at_the_column_edge_is_accepted(
+            self, client, test_storage):
+        from decimal import Decimal
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {'unit_price': '99999999.99'})
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].unit_price == \
+            Decimal('99999999.99')
+
+    @pytest.mark.parametrize('price', ['NaN', 'nan', 'sNaN', 'Infinity',
+                                       '-Infinity'])
+    def test_a_non_finite_price_is_refused_not_answered_201_with_a_null(
+            self, client, test_storage, price):
+        """DW-12: these raise neither `InvalidOperation` nor `ValueError`, so
+        the unguarded parse answered 201 while storing NULL."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'unit_price': price}),
+                      'unit_price', 'decimal number')
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_an_unparseable_price_is_still_refused(self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'unit_price': 'not-a-number'}),
+                      'unit_price', 'decimal number')
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_a_negative_price_is_refused(self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'unit_price': '-1.00'}),
+                      'unit_price', 'must not be negative')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('price', ['100000000', '1E+30', '99999999999.99'])
+    def test_a_price_past_the_column_is_refused(self, client, test_storage, price):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'unit_price': price}),
+                      'unit_price', 'less than 100000000')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('price', ['0.005', '1.234', '1e-30'])
+    def test_a_price_finer_than_the_column_is_refused_rather_than_rounded(
+            self, client, test_storage, price):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'unit_price': price}),
+                      'unit_price', 'at most two decimal places')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('body', [{}, {'unit_price': None},
+                                      {'unit_price': ''}])
+    def test_an_absent_or_empty_price_still_records_a_null(
+            self, client, test_storage, body):
+        """No price is not a bad price; unchanged behavior. The bodies are
+        POSTed as written — `{}` in particular, since a body carrying no key at
+        all is the one most likely to catch a `body.get` assumption."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, body)
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].unit_price is None
+
+    @pytest.mark.parametrize('field, limit, label', [
+        ('vendor', 255, 'Vendor must be 255'),
+        ('vendor_sku', 255, 'Vendor SKU must be 255'),
+        ('order_number', 255, 'Order Number must be 255'),
+        ('source_url', 1024, 'Source URL must be 1024'),
+    ])
+    def test_an_overlong_value_names_its_field_instead_of_failing_the_write(
+            self, client, test_storage, field, limit, label):
+        """DW-25: over-long values reached the column and came back as the
+        generic 500 "Failed to record purchase", naming no field."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {field: 'x' * (limit + 1)})
+        self._refusal(resp, field, 'characters or fewer')
+        assert label in resp.get_json()['error']['message']
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('field, limit', [('vendor', 255),
+                                              ('vendor_sku', 255),
+                                              ('order_number', 255),
+                                              ('source_url', 1024)])
+    def test_a_value_exactly_at_the_limit_is_accepted(
+            self, client, test_storage, field, limit):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {field: 'x' * limit})
+        assert resp.status_code == 201
+        assert len(svc.get_purchases_for_product(pid)) == 1
+
+    @pytest.mark.parametrize('field, limit', [('vendor', 255),
+                                              ('source_url', 1024)])
+    def test_padding_is_not_counted_because_it_is_not_stored(
+            self, client, test_storage, field, limit):
+        """The service trims every text field before the write (`_clean`), and
+        the form strips before measuring, so a padded value the column can hold
+        must not be refused here — that would be a NEW disagreement between the
+        two entry points, on the columns this change exists to reconcile."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {field: '  ' + 'x' * limit + '  '})
+        assert resp.status_code == 201
+        assert getattr(svc.get_purchases_for_product(pid)[0], field) == 'x' * limit
+
+    def test_a_whitespace_only_price_means_no_price_as_it_does_on_the_form(
+            self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {'unit_price': '   '})
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].unit_price is None
+
+    def test_a_json_float_carrying_binary_repr_noise_is_refused(
+            self, client, test_storage):
+        """`0.1 + 0.2` is `0.30000000000000004`, whose `str()` has seventeen
+        significant digits. The scale rule refuses it rather than storing a
+        rounded price the caller never sent: JSON numbers stay supported, but
+        the caller sends the two decimal places it means."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'unit_price': 0.1 + 0.2}),
+                      'unit_price', 'at most two decimal places')
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_a_non_string_value_is_not_the_length_rules_business(
+            self, client, test_storage):
+        """The one deliberate non-change: the rule counts characters, so a JSON
+        number is left to whatever the write path already did with it rather
+        than newly refused as over-long."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {'vendor': 5})
+        assert resp.status_code == 201
+        assert len(svc.get_purchases_for_product(pid)) == 1
+
+
+# The verdict on a `unit_price`, as ONE list. The classes above spell out each
+# rule and why it exists; this table exists so the two entry points cannot drift
+# apart without a test failing, which two hand-copied per-route lists could not
+# catch — the same reason the routes share `_purchase_unit_price`.
+# `(raw value, None if it must be accepted else the message fragment)`.
+_UNIT_PRICE_VERDICTS = [
+    ('2.34', None),
+    ('0', None),
+    ('0.00', None),
+    ('+2.34', None),      # `Decimal` takes a leading sign; both sides must.
+    ('  2.34  ', None),   # both strip before parsing, so padding is not a price
+    ('99999999.99', None),
+    # Passes the `>= 100000000` ceiling as typed and quantizes PAST the column;
+    # refused by the scale rule rather than the magnitude one. Pinned here
+    # because the two bounds cover that gap only together.
+    ('99999999.995', 'at most two decimal places'),
+    ('NaN', 'decimal number'),
+    ('nan', 'decimal number'),
+    ('sNaN', 'decimal number'),
+    ('Infinity', 'decimal number'),
+    ('-Infinity', 'decimal number'),
+    ('not-a-number', 'decimal number'),
+    ('-1.00', 'must not be negative'),
+    ('100000000', 'less than 100000000'),
+    ('1E+30', 'less than 100000000'),
+    ('99999999999.99', 'less than 100000000'),
+    ('0.005', 'at most two decimal places'),
+    ('1.234', 'at most two decimal places'),
+    ('1e-30', 'at most two decimal places'),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('price, fragment', _UNIT_PRICE_VERDICTS)
+class TestBothPurchaseEntryPointsAgreeOnUnitPrice:
+    """DW-12/DW-25's acceptance criterion, stated as a property: a value one
+    entry point accepts the other accepts, and a value one refuses the other
+    refuses with the same reason. Only the SHAPE of the refusal differs — a
+    re-rendered field message versus the AD-13 envelope.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def test_the_html_form(self, client, test_storage, price, fragment):
+        from decimal import Decimal
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'unit_price': price})
+        if fragment is None:
+            assert resp.status_code == 302
+            assert svc.get_purchases_for_product(pid)[0].unit_price == \
+                Decimal(price)
+        else:
+            assert resp.status_code == 200
+            assert fragment.encode() in resp.data
+            assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_json_endpoint(self, client, test_storage, price, fragment):
+        from decimal import Decimal
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'unit_price': price})
+        if fragment is None:
+            assert resp.status_code == 201
+            assert svc.get_purchases_for_product(pid)[0].unit_price == \
+                Decimal(price)
+        else:
+            assert resp.status_code == 400
+            error = resp.get_json()['error']
+            assert error['code'] == 'invalid_field'
+            assert error['field'] == 'unit_price'
+            assert fragment in error['message']
+            assert svc.get_purchases_for_product(pid) == []
+
+
+@pytest.mark.unit
 class TestFirstReceiptFailureIsNeverFatal:
     """Everything after `create_product` commits is non-fatal, by construction."""
 

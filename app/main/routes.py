@@ -1443,63 +1443,138 @@ _MAX_UNIT_PRICE = Decimal('100000000')
 _UNIT_PRICE_STEP = Decimal('0.01')
 
 
+def _purchase_unit_price(raw):
+    """`(price, None)` for a storable unit price, or `(None, message)`.
+
+    The single definition of what `Purchase.unit_price` accepts, applied by both
+    HTTP entry points that write the column — `_parse_purchase_form` and
+    `api_record_purchase`. `record_purchase` validates nothing, so those two
+    routes are the only gates in front of it, and two hand-copied lists are how
+    they came to disagree. The rule lives here rather than in the service
+    because that is where both callers are; a future service-layer writer
+    (`record_amazon_purchase`) does NOT inherit it.
+
+    Three things the bare `Decimal(str(...))` conversion does NOT refuse, and
+    this does:
+
+    - `Decimal('NaN')` and `Decimal('Infinity')` raise neither `InvalidOperation`
+      nor `ValueError`, so an unchecked parse accepts them, reports success and
+      stores NULL — a silently discarded price. A negative price is refused for
+      the same reason: nothing downstream is looking.
+    - A finite, non-negative price is still not necessarily a STORABLE one.
+      `Numeric(10, 2)` is eight digits before the point, and MariaDB refuses a
+      value past `99999999.99` outright: `record_purchase` returns None and the
+      operator gets the generic "Failed to record the purchase" naming no field.
+    - The column keeps exactly two decimal places and rounds a third away, so
+      `0.005` reported success while `0.01` — or, for `0.001`, nothing — is what
+      was stored.
+
+    Neither of the last two is visible under SQLite (what the unit suite runs
+    on), which widens the column silently, so both are checked here rather than
+    left to the backend. The order is load-bearing: `is_finite()` must come
+    before any comparison, and `quantize` can itself raise on a `Decimal` whose
+    magnitude has not already been bounded.
+
+    The two bounds also lean on each other, which matters if either is ever
+    loosened: the magnitude check is `>= 100000000` on the value AS TYPED, so
+    `99999999.995` passes it and quantizes to `100000000.00` — past the column.
+    It is the SCALE rule that refuses that value, not the ceiling. Relaxing the
+    scale rule to round instead of refuse would therefore reopen the overflow
+    the ceiling exists to prevent, unless the ceiling is tightened to compare
+    the quantized value.
+
+    What this does NOT refuse is what `Decimal` itself is lenient about:
+    PEP 515 underscores and non-ASCII numerals (`Decimal('1_0')` is 10 and
+    `Decimal('٥')` is 5), so those are stored as the number they spell rather
+    than refused — unlike `quantity`, whose `_positive_int_string` rule exists
+    to reject exactly that. Both entry points have always behaved this way and
+    still agree, so tightening it would be a new business rule, not the parity
+    this helper was extracted for; it is recorded in the deferred-work ledger.
+
+    A JSON *number* is judged by the same rules as the string that spells it,
+    which is stricter than it may look: `Decimal(str(3.3000000000000003))` has
+    seventeen significant digits, so a client that computes a price in binary
+    floating point is refused rather than quietly rounded. That is the scale
+    rule doing its job — the caller sends the two decimal places it means, as a
+    string or as a number that has them.
+    """
+    # One string, two ways to reach it: an unparseable value and a parseable
+    # non-finite one are the same refusal to the operator.
+    not_a_number = 'Unit Price must be a decimal number.'
+    try:
+        price = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None, not_a_number
+    if not price.is_finite():
+        return None, not_a_number
+    if price < 0:
+        return None, 'Unit Price must not be negative.'
+    if price >= _MAX_UNIT_PRICE:
+        return None, f'Unit Price must be less than {_MAX_UNIT_PRICE}.'
+    if price != price.quantize(_UNIT_PRICE_STEP):
+        return None, 'Unit Price must have at most two decimal places.'
+    return price, None
+
+
+def _purchase_text_length_error(name, value):
+    """The over-length message for one `_PURCHASE_FIELD_LIMITS` column, or
+    `None` if the value fits — the single definition both entry points apply,
+    for the reason given on that mapping.
+
+    Measured on the STRIPPED value, because that is what is stored: the service
+    puts every text field through `_clean` (mariadb_catalog_service.py), which
+    trims before the write. Measuring the raw value would refuse a padded string
+    the column can hold — and the HTML form, which strips during its own
+    pre-fill, would then accept a value the JSON endpoint rejects.
+
+    A non-string value is left alone: the rule counts characters, and the JSON
+    endpoint may be handed anything.
+    """
+    label, limit = _PURCHASE_FIELD_LIMITS[name]
+    if isinstance(value, str) and len(value.strip()) > limit:
+        return f'{label} must be {limit} characters or fewer.'
+    return None
+
+
 def _parse_purchase_form(form_data):
     """Parse the HTML purchase form into the typed values the service takes.
 
-    Returns `(values, errors)`. The conversions mirror `api_record_purchase`
-    exactly — `Decimal(str(...))`, `date.fromisoformat(...)` — so the two entry
-    points cannot come to disagree about what a value means; the only difference
-    is the shape of the refusal (a field message on a re-render rather than the
-    AD-13 JSON envelope).
+    Returns `(values, errors)`. The bounds on `unit_price` and on the text
+    columns live in `_purchase_unit_price` and `_purchase_text_length_error`,
+    which `api_record_purchase` applies to those same columns, so the two entry
+    points cannot come to disagree about them; the only difference is the shape
+    of the refusal (a field message on a re-render rather than the AD-13 JSON
+    envelope).
 
-    Two things the bare conversions do NOT refuse, and this does:
-
-    - `Decimal('NaN')` and `Decimal('Infinity')` raise neither `InvalidOperation`
-      nor `ValueError`, so an unchecked parse accepts them, reports "Purchase
-      recorded." and stores NULL — a silently discarded price. A negative price
-      is refused for the same reason: `record_purchase` validates nothing, so
-      this form is the only gate in front of the column.
-    - `int()` is not the "whole number" the message promises: `int('1_0')` is 10
-      and `int('٥')` is 5. `_positive_int_string` is the rule as stated, and it
-      also bounds the value to the 32-bit column.
-
-    A finite, non-negative price is still not necessarily a STORABLE one, and
-    the two ways it can fail are the same ones the length limits above exist for.
-    `Purchase.unit_price` is `Numeric(10, 2)`: MariaDB refuses a value past
-    `99999999.99` outright, so `record_purchase` returns None and the operator
-    gets the generic "Failed to record the purchase" naming no field; and it
-    rounds a third decimal place away, so `0.005` reports "Purchase recorded."
-    while `0.01` — or, for `0.001`, nothing — is what is stored. Neither is
-    visible under SQLite, which widens the column silently, so both are checked
-    here rather than left to the backend.
+    `quantity` is deliberately NOT shared, and the two entry points do still
+    differ on it: the JSON endpoint's shipped contract takes a JSON integer,
+    while this rule takes the string a form field carries. `int()` is not the
+    "whole number" the message promises — `int('1_0')` is 10 and `int('٥')` is
+    5 — so `_positive_int_string` is the rule as stated here, and it also bounds
+    the value to the 32-bit column.
     """
     errors = {}
+    # The text columns this form carries and the text columns it bounds are the
+    # same columns, so both come from `_PURCHASE_FIELD_LIMITS` rather than from
+    # a tuple restating its keys. A restated tuple could only drift: a column
+    # added to `_RECEIPT_FIELD_LIMITS` would be bounded by `api_record_purchase`
+    # (which reads the mapping) and silently neither parsed nor bounded here —
+    # a divergence of exactly the kind sharing the helpers removes.
     values = {name: ((form_data.get(name) or '').strip() or None)
-              for name in ('vendor', 'vendor_sku', 'order_number', 'source_url')}
-    for name, (label, limit) in _PURCHASE_FIELD_LIMITS.items():
-        if values[name] and len(values[name]) > limit:
-            errors[name] = f'{label} must be {limit} characters or fewer.'
+              for name in _PURCHASE_FIELD_LIMITS}
+    for name in _PURCHASE_FIELD_LIMITS:
+        message = _purchase_text_length_error(name, values[name])
+        if message:
+            errors[name] = message
 
     raw_price = (form_data.get('unit_price') or '').strip()
     values['unit_price'] = None
     if raw_price:
-        try:
-            parsed_price = Decimal(str(raw_price))
-        except (InvalidOperation, ValueError):
-            errors['unit_price'] = 'Unit Price must be a decimal number.'
+        parsed_price, message = _purchase_unit_price(raw_price)
+        if message:
+            errors['unit_price'] = message
         else:
-            if not parsed_price.is_finite():
-                errors['unit_price'] = 'Unit Price must be a decimal number.'
-            elif parsed_price < 0:
-                errors['unit_price'] = 'Unit Price must not be negative.'
-            elif parsed_price >= _MAX_UNIT_PRICE:
-                errors['unit_price'] = (
-                    f'Unit Price must be less than {_MAX_UNIT_PRICE}.')
-            elif parsed_price != parsed_price.quantize(_UNIT_PRICE_STEP):
-                errors['unit_price'] = (
-                    'Unit Price must have at most two decimal places.')
-            else:
-                values['unit_price'] = parsed_price
+            values['unit_price'] = parsed_price
 
     raw_quantity = (form_data.get('quantity') or '').strip()
     values['quantity'] = None
@@ -1643,11 +1718,32 @@ def api_record_purchase(product_id):
     body = request.get_json(silent=True) or {}
 
     # Parse/validate typed fields at the boundary; the service takes typed values.
-    try:
-        unit_price = body.get('unit_price')
-        unit_price = Decimal(str(unit_price)) if unit_price not in (None, '') else None
-    except (InvalidOperation, ValueError):
-        return _catalog_json_error('invalid_field', 'unit_price must be a decimal number', 400, field='unit_price')
+    # `unit_price` and the four text columns are bounded by the same two helpers
+    # the HTML form applies (`_parse_purchase_form`), so the two entry points
+    # cannot disagree about THOSE columns; only the shape of the refusal
+    # differs. `quantity` below is deliberately not shared — see that
+    # function's docstring. The helpers' human-readable message is reused
+    # verbatim: `error.field` already carries the machine name a client keys on,
+    # and a second message string is exactly the divergence sharing them avoids.
+    #
+    # First failure wins, and the text columns are judged first, so a body with
+    # several bad fields names the earliest one in `_PURCHASE_FIELD_LIMITS`.
+    # AD-13's envelope carries one `field`; the caller fixes and re-POSTs.
+    for name in _PURCHASE_FIELD_LIMITS:
+        message = _purchase_text_length_error(name, body.get(name))
+        if message:
+            return _catalog_json_error('invalid_field', message, 400, field=name)
+
+    # Strings are stripped first so a whitespace-only price means "no price"
+    # here as it does on the form, rather than reaching `Decimal` as garbage.
+    raw_price = body.get('unit_price')
+    if isinstance(raw_price, str):
+        raw_price = raw_price.strip()
+    unit_price = None
+    if raw_price not in (None, ''):
+        unit_price, message = _purchase_unit_price(raw_price)
+        if message:
+            return _catalog_json_error('invalid_field', message, 400, field='unit_price')
 
     try:
         quantity = body.get('quantity')
