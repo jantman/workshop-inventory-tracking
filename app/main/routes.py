@@ -12,11 +12,17 @@ from app.mariadb_catalog_service import (
 )
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
-from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
+from app.models import (ItemType, ItemShape, Dimensions, Thread, ThreadSeries,
+                        ThreadHandedness, IdentifierType, ScanKind)
 from app.database import InventoryItem
 # Story 3.2: routes call the pure category util for segment-boundary logic —
 # they never re-derive it (AD-4).
 from app.utils import category as category_util
+# Story 4.5: the route needs ONE pure-util call from the classifier module —
+# `strip_aim_prefix`, to re-derive the text a fallthrough search ran on. That is
+# a util call, not classification (AD-4/AD-5): the route never calls classify()
+# and never decides a kind.
+from app.utils import scan_router
 # Story 3.3: same rule for tags — the canonical form and the comma-separated
 # list are the pure util's business, never re-derived here (AD-4).
 from app.utils import tag as tag_util
@@ -760,9 +766,94 @@ _PRODUCT_FIELD_LIMITS = {
     'category_path': ('Category', 512),
 }
 
+# Story 4.5: the create form's optional "first receipt" block writes a Purchase,
+# not a Product, so its limits mirror the Purchase columns (app/database.py)
+# rather than the Product ones above. Kept as a separate mapping so the two
+# tables' constraints are not conflated in one dict.
+_RECEIPT_FIELD_LIMITS = {
+    'vendor': ('Vendor', 255),
+    'vendor_sku': ('Vendor SKU', 255),
+    'order_number': ('Order Number', 255),
+}
+
+# `product_identifiers.value` is VARCHAR(255) (app/database.py). Checked on the
+# form because `add_identifier` runs AFTER `create_product` has committed and is
+# non-fatal, so a value the column cannot hold would cost the identifier
+# silently — and no UI exists to add it back.
+_IDENTIFIER_VALUE_LIMIT = 255
+
+# `Purchase.quantity` is an INTEGER, which MariaDB stores in 32 bits. A longer
+# digit string parses fine in Python and then overflows the column, so the form
+# refuses it here rather than letting the write fail with the generic message.
+_MAX_INT32 = 2147483647
+
+
+def _positive_int_string(value):
+    """The value as a positive 32-bit int, or None if it is not one.
+
+    Deliberately NOT `int()`. `int('1_0')` is 10 and `int('٥')` is 5, so a form
+    that promises "a whole number" would silently store something the operator
+    did not type. `.isascii() and .isdigit()` is the rule the message states:
+    ASCII digits, nothing else — no sign, no separator, no exponent, no
+    non-ASCII numeral.
+    """
+    text = (value or '').strip()
+    if not (text.isascii() and text.isdigit()):
+        return None
+    # `int()` is NOT total over digit strings: CPython refuses to parse one
+    # longer than `sys.int_info.str_digits_check_threshold` (4300) and raises
+    # ValueError rather than returning a value. That reaches an unguarded GET
+    # (`/products/add?duplicate_of=<4301 digits>` goes straight through
+    # `_prefill_form_data`) and both form POSTs, where it is an HTML 500 on a
+    # scan destination. Leading zeros are dropped first so the bound is on the
+    # magnitude, not on the typing: `0000000001` still means 1, and anything
+    # with more than ten significant digits is past the 32-bit column anyway.
+    digits = text.lstrip('0') or '0'
+    if len(digits) > len(str(_MAX_INT32)):
+        return None
+    parsed = int(digits)
+    if parsed <= 0 or parsed > _MAX_INT32:
+        return None
+    return parsed
+
+
+def _valid_duplicate_of(value):
+    """The product id a create form claims this scan already matched, or ''.
+
+    `duplicate_of` is rendered straight into `url_for('main.product_detail',
+    product_id=…)`, whose `int` converter raises `ValueError` on anything that
+    is not a decimal id — a 500 for a hand-edited query string. Anything that
+    cannot name a product is therefore not a duplicate claim at all: it is
+    dropped from the pre-fill, from the render and from the gate below, so the
+    warning block simply does not render.
+
+    "Decimal digits" is not the same test as "could be a product id": `0` and a
+    sixty-digit number are both all-digits, and both make the warning block
+    assert that this scan matched a product while linking to one that cannot
+    exist. `_positive_int_string` is the id-shaped rule (positive, inside the
+    32-bit column), the same one `quantity` is judged by.
+    """
+    text = (value or '').strip()
+    return text if _positive_int_string(text) is not None else ''
+
 
 def _validate_product_form(form_data):
-    """Validate product form input. Returns a dict of field -> error message."""
+    """Validate product form input. Returns a dict of field -> error message.
+
+    Story 4.5 adds three rules here rather than in `product_add`, so that every
+    caller of this function inherits them and none can be bypassed by a POST
+    aimed at a different route (FR41):
+
+    - the optional first-receipt fields are bounded against their `Purchase`
+      columns, and `quantity` — the one typed field on that block — must parse
+      as a whole number greater than zero;
+    - a form carrying `duplicate_of` (a scan that already matched an existing
+      Product) is refused unless `confirm_duplicate` is exactly `'yes'`. The
+      gate lives here, before any write, on the `inventory_shorten` precedent:
+      the destructive-by-accident outcome FR41 names is creating a SECOND
+      product for a scan that already resolved, and a validation error is the
+      only way to guarantee nothing at all is written.
+    """
     errors = {}
     if not (form_data.get('description') or '').strip():
         errors['description'] = 'Label Description is required.'
@@ -770,6 +861,58 @@ def _validate_product_form(form_data):
         value = (form_data.get(field) or '').strip()
         if value and len(value) > limit and field not in errors:
             errors[field] = f'{label} must be {limit} characters or fewer.'
+    for field, (label, limit) in _RECEIPT_FIELD_LIMITS.items():
+        value = (form_data.get(field) or '').strip()
+        if value and len(value) > limit and field not in errors:
+            errors[field] = f'{label} must be {limit} characters or fewer.'
+
+    # A scanned `Q` arrives as the string the label carried (no coercion — see
+    # the pre-fill mapping), so this is where it is finally judged, exactly as
+    # a typed value would be.
+    quantity = (form_data.get('quantity') or '').strip()
+    if quantity and _positive_int_string(quantity) is None:
+        errors['quantity'] = (
+            f'Quantity must be a whole number greater than zero and no more '
+            f'than {_MAX_INT32}.')
+
+    # The identifier is judged HERE, before `create_product` commits, for the
+    # reason the duplicate gate is: `_attach_scanned_identifier` runs after the
+    # commit and is deliberately non-fatal, so anything it refuses there is a
+    # product that exists with its identifier silently thrown away — and there
+    # is no surface anywhere to add one afterwards. Every check that can be made
+    # from the form alone therefore belongs in front of the write.
+    identifier_value = (form_data.get('identifier_value') or '').strip()
+    identifier_type = (form_data.get('identifier_type') or '').strip()
+    # The type is what decides how the value is stored and normalized (a GTIN
+    # gets its check digit folded to the canonical 14), so an unselected
+    # `<select>` must not silently become whichever member the enum declares
+    # first. Field-scoped, and only when there is a value to type.
+    #
+    # Every rule below is gated on a non-blank VALUE, and not only because a
+    # blank one attaches nothing: `add.html` renders the whole Scanned
+    # Identifier card — and therefore both `invalid-feedback` blocks — only when
+    # `form_data.identifier_value` is set. An error raised beside a blank value
+    # would render nowhere, and the operator would get a silent 200 that wrote
+    # nothing with no message anywhere on the page.
+    if identifier_value:
+        if not identifier_type:
+            errors['identifier_type'] = (
+                'Choose the type of the scanned identifier, or clear its value.')
+        elif identifier_type not in _identifier_type_choices():
+            # A hand-edited `identifier_type=` (or `INTERNAL`, which
+            # `add_identifier` refuses outright) would otherwise be rejected
+            # only after the commit.
+            errors['identifier_type'] = 'Choose a valid identifier type.'
+    if identifier_value and len(identifier_value) > _IDENTIFIER_VALUE_LIMIT:
+        errors['identifier_value'] = (
+            f'Identifier must be {_IDENTIFIER_VALUE_LIMIT} characters or fewer.')
+
+    if _valid_duplicate_of(form_data.get('duplicate_of')) and \
+            (form_data.get('confirm_duplicate') or '').strip() != 'yes':
+        errors['confirm_duplicate'] = (
+            'This scan already matched an existing product. Confirm below that '
+            'you want to create a separate product anyway.')
+
     if 'tags' in form_data:
         # Parsed here — PURELY, before anything is written — so an unusable
         # tag re-renders the form and no product is ever created (Story 3.3).
@@ -861,21 +1004,211 @@ def _product_form_data(product, tags=None):
     }
 
 
+# --- Scan pre-fill boundary (Story 4.5, FR39/FR40) --------------------------
+
+# The ONLY `request.args` names `product_add`'s GET reads, and the set
+# `product_search` forwards into its own "Create a new product" link. A fixed
+# whitelist rather than `request.args` wholesale: the form round-trips whatever
+# it is handed into `form_data`, so an unbounded read would let any query string
+# put arbitrary keys in front of the operator.
+_PRODUCT_PREFILL_ARGS = (
+    'description', 'manufacturer', 'mpn', 'category_path', 'tags', 'notes',
+    'identifier_type', 'identifier_value',
+    'quantity', 'order_number', 'vendor', 'vendor_sku',
+    'duplicate_of',
+)
+
+# The create form's optional first-receipt block. Present-and-non-blank on any
+# one of them is what makes `product_add` record a Purchase.
+_RECEIPT_FIELDS = ('quantity', 'order_number', 'vendor', 'vendor_sku')
+
+
+def _identifier_type_choices():
+    """The identifier types the create form may attach (FR40).
+
+    INTERNAL is excluded because `add_identifier` refuses it: that row is
+    derived from `products.internal_id` by `create_product` in one transaction,
+    and letting it be added by hand is how the index would come to disagree with
+    the column it mirrors. Built here and passed to the template so the enum
+    stays out of Jinja.
+    """
+    return [t.value for t in IdentifierType if t is not IdentifierType.INTERNAL]
+
+
+def _duplicate_product_exists(product_id):
+    """Whether a `duplicate_of` pre-fill names a product that actually exists.
+
+    Shape is not existence. `_valid_duplicate_of` only proves the value COULD be
+    an id; a stale bookmark or a hand-edited query string then renders the
+    warning block asserting "this scan already matched an existing product",
+    links it to a detail page that 404s, and makes the FR41 gate demand that the
+    operator confirm duplicating nothing. Checked only here, on the pre-fill
+    path where a `duplicate_of` arrives from outside — the arrival banner's own
+    link always names the product the banner was rendered on.
+
+    A lookup FAILURE leaves the claim standing rather than dropping it: the gate
+    is the half that must fail closed, and dropping the field because the
+    database blinked would remove it.
+    """
+    try:
+        return _get_catalog_service().get_product(int(product_id)) is not None
+    except Exception as e:
+        current_app.logger.warning(
+            f'Could not verify duplicate_of={product_id!r}: {e}')
+        return True
+
+
+def _prefill_form_data():
+    """`product_add`'s GET `form_data`: a whitelist of `request.args`, verbatim.
+
+    Every value is rendered into an ordinary editable input and is read on GET
+    only (FR39). Nothing is trimmed or truncated here — length is judged by
+    `_validate_product_form` on POST, so a too-long pre-fill earns a field
+    message rather than being silently shortened behind the operator's back.
+    """
+    data = {}
+    for name in _PRODUCT_PREFILL_ARGS:
+        value = request.args.get(name)
+        if not value:
+            continue
+        if name == 'duplicate_of':
+            # The one pre-fill that is not free text: it feeds an `int` URL
+            # converter, so anything that cannot name a product is dropped and
+            # the duplicate block is simply not rendered.
+            value = _valid_duplicate_of(value)
+            if not value or not _duplicate_product_exists(value):
+                continue
+        data[name] = value
+    return data
+
+
+def _attach_scanned_identifier(service, product_id, form_data):
+    """Attach the identifier a scanned create form carried (FR40).
+
+    Returns an operator-facing message when the attach failed, or None.
+
+    Non-fatal, for the reason `_apply_product_tags` is: `create_product` has
+    already committed by the time this runs, so telling the operator the save
+    failed while the Product demonstrably exists is the worse lie. The realistic
+    failure is the uniqueness one — `uq_product_identifiers_type_value_scope`
+    makes a GTIN globally unique, so "create a separate product anyway" (FR41)
+    and "attach the scanned GTIN to it" are mutually exclusive at the schema
+    level. The message names the conflict (the service's own text names the
+    holding product) and the identifier stays where it is; moving it would
+    rewrite the first product's identity from a form that never mentioned it.
+
+    No `vendor` is passed. `add_identifier` would take the receipt block's
+    "Vendor" input as this identifier's `vendor_scope` for a vendor-scoped type,
+    silently coupling two inputs the form presents as unrelated — the create
+    form offers no vendor-scope control, so it supplies none.
+    """
+    value = (form_data.get('identifier_value') or '').strip()
+    if not value:
+        return None
+    identifier_type = (form_data.get('identifier_type') or '').strip()
+    try:
+        service.add_identifier(product_id, identifier_type=identifier_type,
+                               value=value)
+        return None
+    except ValidationError as e:
+        current_app.logger.warning(
+            f'Scanned identifier refused for product {product_id}: {e}')
+        return (f'The product was saved, but the scanned identifier was not '
+                f'attached: {e}')
+    except Exception as e:
+        current_app.logger.error(
+            f'Error attaching identifier to product {product_id}: {e}\n'
+            f'{traceback.format_exc()}')
+        # Deliberately does NOT tell the operator to add it from the product
+        # page: there is no identifier-management surface anywhere yet (see the
+        # ledger), so naming one would be advice the UI cannot honour.
+        return ('The product was saved, but the scanned identifier was not '
+                'attached. Note the identifier — it must be added by hand once '
+                'a product can be given one.')
+
+
+def _record_first_receipt(service, product_id, form_data):
+    """Record the optional first receipt a create form carried (FR39).
+
+    One Purchase, only when at least one receipt field is non-blank. Returns an
+    operator-facing message on failure, or None. `record_purchase` never raises
+    — it returns None — so this is non-fatal in the same way the identifier
+    attach above is, and for the same reason.
+
+    The blanket `except` is that reason made good: `record_purchase` PROMISES
+    not to raise, but this runs after `create_product` has committed, so if it
+    ever broke that promise the exception would reach `product_add`'s outer
+    handler and re-render the form saying the save failed while the Product
+    exists — and the operator's natural resubmit would create the second
+    product FR41 exists to prevent. Both siblings above guard the same way.
+    """
+    values = {name: (form_data.get(name) or '').strip() for name in _RECEIPT_FIELDS}
+    if not any(values.values()):
+        return None
+    # `_validate_product_form` has already proved this parses; the fallback is
+    # for a caller that reached here another way.
+    quantity = _positive_int_string(values['quantity'])
+    try:
+        snapshot = service.record_purchase(
+            product_id,
+            vendor=values['vendor'] or None,
+            vendor_sku=values['vendor_sku'] or None,
+            quantity=quantity,
+            order_number=values['order_number'] or None,
+        )
+    except Exception as e:
+        current_app.logger.error(
+            f'Error recording first receipt for product {product_id}: {e}\n'
+            f'{traceback.format_exc()}')
+        snapshot = None
+    if snapshot is None:
+        return ('The product was saved, but its first receipt was not recorded. '
+                'Add the purchase from the product page.')
+    return None
+
+
+def _render_product_add(form_data, validation_errors):
+    """The single render of the create form, so every path carries the same
+    template context (including the identifier-type choices).
+
+    The one value scrubbed on the way through is `duplicate_of`: the duplicate
+    block renders it into `url_for('main.product_detail', product_id=…)`, so a
+    value the `int` converter cannot take would be a 500 on a re-render. Done
+    here rather than only in the GET pre-fill so a POST cannot reach it either.
+    """
+    if form_data.get('duplicate_of') and not _valid_duplicate_of(form_data.get('duplicate_of')):
+        form_data = {k: v for k, v in form_data.items() if k != 'duplicate_of'}
+    return render_template('product/add.html', title='Add Product',
+                           validation_errors=validation_errors,
+                           form_data=form_data,
+                           identifier_type_choices=_identifier_type_choices())
+
+
 @bp.route('/products/add', methods=['GET', 'POST'])
 def product_add():
-    """Create a Product from the catalog UI."""
+    """Create a Product from the catalog UI.
+
+    GET additionally accepts the scan pre-fill (FR39/FR40): a routed scan hands
+    this form the identifier it carried, a distributor label's MPN / quantity /
+    order references, or the raw scan text as a description — always through
+    `request.args`, always rendered editable.
+
+    POST gains three effects after `create_product` succeeds, beside the
+    existing tag handling and each non-fatal for the same reason it is: the
+    scanned identifier is attached, an optional first receipt is recorded, and
+    the operator is redirected to the new product. The `duplicate_of` /
+    `confirm_duplicate` gate that guards this write lives in
+    `_validate_product_form`, so it runs before any of it (FR41).
+    """
     if request.method == 'GET':
-        return render_template('product/add.html', title='Add Product',
-                               validation_errors={}, form_data={})
+        return _render_product_add(_prefill_form_data(), {})
 
     form_data = request.form.to_dict()
     log_audit_operation('product_add', 'input', form_data=form_data)
 
     validation_errors = _validate_product_form(form_data)
     if validation_errors:
-        return render_template('product/add.html', title='Add Product',
-                               validation_errors=validation_errors,
-                               form_data=form_data)
+        return _render_product_add(form_data, validation_errors)
 
     # Parsed BEFORE the write, not after: _validate_product_form has already
     # proved this cannot raise, and doing it inside the try below would let a
@@ -893,29 +1226,123 @@ def product_add():
         )
         if not new_id:
             flash('Failed to create product. Please try again.', 'error')
-            return render_template('product/add.html', title='Add Product',
-                                   validation_errors={}, form_data=form_data)
+            return _render_product_add(form_data, {})
+
+        # Everything below is post-commit and therefore non-fatal: each step
+        # reports its own failure and NONE of them sends the operator back to a
+        # form claiming the save failed, because the product demonstrably
+        # exists. Collected rather than returned early so a failure in one step
+        # cannot silently skip the next.
+        followup_errors = []
         if tags:
             # A brand-new product carries no tags, so an empty list is a no-op
             # and is not worth a transaction.
             tag_error = _apply_product_tags(service, new_id, tags)
             if tag_error:
-                # The product demonstrably exists, so the operator is sent to
-                # it rather than back to a form claiming the save failed.
-                flash(tag_error, 'error')
-                return redirect(url_for('main.product_detail', product_id=new_id))
+                followup_errors.append(tag_error)
+        identifier_error = _attach_scanned_identifier(service, new_id, form_data)
+        if identifier_error:
+            followup_errors.append(identifier_error)
+        receipt_error = _record_first_receipt(service, new_id, form_data)
+        if receipt_error:
+            followup_errors.append(receipt_error)
+
+        # The success is flashed UNCONDITIONALLY, before the follow-up failures.
+        # The product exists either way, and suppressing it made the one outcome
+        # FR41's confirmed-duplicate path can ever produce — a product created,
+        # its scanned identifier necessarily refused because the identifier is
+        # globally unique and still belongs to the product the scan matched —
+        # look to the operator like a save that had failed outright.
         flash('Product created successfully!', 'success')
+        for message in followup_errors:
+            flash(message, 'error')
         return redirect(url_for('main.product_detail', product_id=new_id))
     except Exception as e:
         current_app.logger.error(f'Error creating product: {e}\n{traceback.format_exc()}')
         flash('An error occurred while creating the product. Please try again.', 'error')
-        return render_template('product/add.html', title='Add Product',
-                               validation_errors={}, form_data=form_data)
+        return _render_product_add(form_data, {})
+
+
+def _scan_arrival_banner(product_id):
+    """The arrival banner a scan that RESOLVED to this product carries (FR41).
+
+    None unless the URL carries `scan_kind`, in which case the page is
+    byte-identical to what it was before this story. When it is present the
+    route builds both links with `url_for` and hands the template a dict of
+    finished values — the template computes no URL and assembles no query
+    string (AD-5).
+
+    "Receiving context" is this banner rather than a mode: there is no receipt
+    mode in this application, so a matched scan lands on the record and offers
+    "Add a purchase" as the operator's next click. The alternative — creating a
+    second Product for a scan that already matched — is offered too, and carries
+    `duplicate_of` so `_validate_product_form` demands an explicit confirmation
+    before anything is written.
+    """
+    # Both discriminators are validated against the enums that produced them,
+    # and the banner is suppressed outright when either fails. The URL is
+    # hand-editable, and an unvalidated pair would let any query string assert
+    # that an arbitrary scan of an arbitrary type matched this product — and
+    # would put that bogus type on the "create a separate product" link, where
+    # it becomes the `identifier_type` a save then tries to attach.
+    scan_kind = (request.args.get('scan_kind') or '').strip()
+    if scan_kind not in {kind.value for kind in ScanKind}:
+        return None
+    scan_type = (request.args.get('scan_type') or '').strip()
+    if scan_type and scan_type not in _identifier_type_choices():
+        return None
+    # An untyped value is not an identifier. Only the `gtin` arm emits the pair,
+    # always together, so a value without a type came from a hand-edited URL —
+    # and the banner would otherwise display it as "what was scanned" while the
+    # create link below silently dropped it (an identifier cannot be attached
+    # without the type that says how to store it).
+    scan_value = (request.args.get('scan_value') or '').strip() if scan_type else ''
+
+    # The purchase pre-fill a distributor label carries: quantity, the order
+    # number and the distributor's own part number. No date is pre-filled —
+    # `9D`/`10D` are YYWW, a week with no day in it, and a manufactured day
+    # would look like scanned data while being a guess.
+    purchase_args = {}
+    for name in ('vendor_sku', 'quantity', 'order_number'):
+        value = (request.args.get(name) or '').strip()
+        if value:
+            purchase_args[name] = value
+
+    # The create link carries the MPN too — the field FR39 names first. It is
+    # NOT on the purchase link, because `Purchase` has no such column; a
+    # duplicate-create that dropped it would make the operator retype the part
+    # number off the label they just scanned.
+    # `mpn` and `description` ride the create link and NOT the purchase one:
+    # `Purchase` has no such column, while a duplicate-create that dropped them
+    # would make the operator retype the part number — or, for an `internal`
+    # scan, the whole label — off the thing they just scanned (FR39/FR40).
+    create_args = dict(purchase_args)
+    for name in ('mpn', 'description'):
+        value = (request.args.get(name) or '').strip()
+        if value:
+            create_args[name] = value
+    create_args['duplicate_of'] = product_id
+    if scan_type and scan_value:
+        create_args['identifier_type'] = scan_type
+        create_args['identifier_value'] = scan_value
+
+    return {
+        'kind': scan_kind,
+        'scan_type': scan_type,
+        'scan_value': scan_value,
+        'purchase_url': url_for('main.purchase_add', product_id=product_id,
+                                **purchase_args),
+        'create_url': url_for('main.product_add', **create_args),
+    }
 
 
 @bp.route('/products/<int:product_id>')
 def product_detail(product_id):
-    """View a Product by its direct URL (FR6), with purchase history (FR20/FR21)."""
+    """View a Product by its direct URL (FR6), with purchase history (FR20/FR21).
+
+    Story 4.5: when the URL carries `scan_kind`, the page additionally shows the
+    scan-arrival banner (FR41). Without it nothing changes.
+    """
     service = _get_catalog_service()
     product = service.get_product(product_id)
     if product is None:
@@ -929,7 +1356,226 @@ def product_detail(product_id):
     return render_template('product/detail.html',
                            title=product.description or f'Product {product_id}',
                            product=product, purchases=purchases, last_paid=last_paid,
-                           attachments=attachments, tags=tags)
+                           attachments=attachments, tags=tags,
+                           scan_banner=_scan_arrival_banner(product_id))
+
+
+@bp.route('/products/search')
+def product_search():
+    """Free-text product search results (Story 4.5, FR36, AD-17).
+
+    Deliberately minimal, and deliberately at this URL. It is the landing an
+    ambiguous scan needs — a query, a list, an empty state, and an escape hatch
+    to the create form carrying the scan's own pre-fill — and nothing else: the
+    only query it issues is `search_products(q)`, with no filters, no paging, no
+    ranking and no result-count signal. AD-17 fixes that method as the sole
+    free-text entrypoint and defers the search MECHANISM to Epic 8, whose search
+    page then extends this route rather than orphaning a scan-only one.
+    """
+    query = request.args.get('q', '').strip()
+    # A blank query renders the empty state without querying: `search_products`
+    # would answer `[]` anyway, and not asking says so more plainly.
+    #
+    # The search itself is guarded because this page is a SCAN DESTINATION. An
+    # unhandled exception here is an HTML 500 — precisely the dead end `api_scan`
+    # maps its own resolver failure to a JSON envelope to avoid, reached by the
+    # same broken database one step later, after the client has already
+    # navigated and the scan text is gone from the field.
+    products = []
+    search_failed = False
+    if query:
+        try:
+            products = _get_catalog_service().search_products(query)
+        except Exception as e:
+            current_app.logger.error(
+                f'Error searching products for {query[:120]!r}: {e}\n'
+                f'{traceback.format_exc()}')
+            # Carried into the template as well as flashed. An empty `products`
+            # renders "No products match X" — a POSITIVE claim about the
+            # catalog, which is exactly what a failed search cannot make, and
+            # the operator who reads it instead of the flash creates a duplicate
+            # of something the catalog already holds.
+            search_failed = True
+            flash('Search is unavailable right now. The scan was not lost — '
+                  'create the product, or try the search again.', 'error')
+    create_args = {name: request.args.get(name)
+                   for name in _PRODUCT_PREFILL_ARGS if request.args.get(name)}
+    if query and not create_args:
+        # A query typed into the page's own search box rather than routed here
+        # by a scan: nothing carries the operator's text onto the create form,
+        # so "Create a new product" would open with `description` — the one
+        # REQUIRED field — blank, and they would retype what they just typed.
+        # Only when the request carries NO scan pre-fill at all, so the scan
+        # mapping (a `gtin` deliberately leaves `description` empty) is untouched.
+        create_args['description'] = _scan_url_value('description', query)
+    # The same pre-fill is handed to the page's OWN search form as hidden
+    # inputs. Refining the query is the most natural next action on a results
+    # page, and a form carrying only `q` would silently drop the scan's
+    # identifier, MPN and receipt values — so the create escape hatch on the
+    # refined page would open blank on exactly the scan that got here.
+    return render_template('product/search.html', title='Search Products',
+                           query=query, query_display=_without_control_characters(query),
+                           products=products, search_failed=search_failed,
+                           prefill_args=create_args,
+                           create_url=url_for('main.product_add', **create_args))
+
+
+# The eight Purchase columns the HTML form carries, in render order.
+_PURCHASE_FORM_FIELDS = ('vendor', 'vendor_sku', 'order_date', 'received_date',
+                         'quantity', 'unit_price', 'order_number', 'source_url')
+
+# The text columns this form writes. The three the create form's first-receipt
+# block also writes are taken FROM that mapping rather than restated beside it:
+# they are the same `Purchase` columns with the same limits and the same
+# messages, so a second copy would only give a future widening somewhere to be
+# missed and let the two forms disagree about one column. `source_url` is this
+# form's alone (app/database.py: Purchase.source_url is VARCHAR(1024)).
+# Without these an over-long value reaches MariaDB and comes back as the generic
+# "Failed to record the purchase", with nothing said about WHICH field.
+_PURCHASE_FIELD_LIMITS = dict(_RECEIPT_FIELD_LIMITS,
+                              source_url=('Source URL', 1024))
+
+# `Purchase.unit_price` is `Numeric(10, 2)` (app/database.py): eight digits
+# before the point and exactly two after it. Both bounds are the form's to
+# enforce — MariaDB refuses the first and silently rounds the second, and SQLite
+# (what the unit suite runs on) does neither.
+_MAX_UNIT_PRICE = Decimal('100000000')
+_UNIT_PRICE_STEP = Decimal('0.01')
+
+
+def _parse_purchase_form(form_data):
+    """Parse the HTML purchase form into the typed values the service takes.
+
+    Returns `(values, errors)`. The conversions mirror `api_record_purchase`
+    exactly — `Decimal(str(...))`, `date.fromisoformat(...)` — so the two entry
+    points cannot come to disagree about what a value means; the only difference
+    is the shape of the refusal (a field message on a re-render rather than the
+    AD-13 JSON envelope).
+
+    Two things the bare conversions do NOT refuse, and this does:
+
+    - `Decimal('NaN')` and `Decimal('Infinity')` raise neither `InvalidOperation`
+      nor `ValueError`, so an unchecked parse accepts them, reports "Purchase
+      recorded." and stores NULL — a silently discarded price. A negative price
+      is refused for the same reason: `record_purchase` validates nothing, so
+      this form is the only gate in front of the column.
+    - `int()` is not the "whole number" the message promises: `int('1_0')` is 10
+      and `int('٥')` is 5. `_positive_int_string` is the rule as stated, and it
+      also bounds the value to the 32-bit column.
+
+    A finite, non-negative price is still not necessarily a STORABLE one, and
+    the two ways it can fail are the same ones the length limits above exist for.
+    `Purchase.unit_price` is `Numeric(10, 2)`: MariaDB refuses a value past
+    `99999999.99` outright, so `record_purchase` returns None and the operator
+    gets the generic "Failed to record the purchase" naming no field; and it
+    rounds a third decimal place away, so `0.005` reports "Purchase recorded."
+    while `0.01` — or, for `0.001`, nothing — is what is stored. Neither is
+    visible under SQLite, which widens the column silently, so both are checked
+    here rather than left to the backend.
+    """
+    errors = {}
+    values = {name: ((form_data.get(name) or '').strip() or None)
+              for name in ('vendor', 'vendor_sku', 'order_number', 'source_url')}
+    for name, (label, limit) in _PURCHASE_FIELD_LIMITS.items():
+        if values[name] and len(values[name]) > limit:
+            errors[name] = f'{label} must be {limit} characters or fewer.'
+
+    raw_price = (form_data.get('unit_price') or '').strip()
+    values['unit_price'] = None
+    if raw_price:
+        try:
+            parsed_price = Decimal(str(raw_price))
+        except (InvalidOperation, ValueError):
+            errors['unit_price'] = 'Unit Price must be a decimal number.'
+        else:
+            if not parsed_price.is_finite():
+                errors['unit_price'] = 'Unit Price must be a decimal number.'
+            elif parsed_price < 0:
+                errors['unit_price'] = 'Unit Price must not be negative.'
+            elif parsed_price >= _MAX_UNIT_PRICE:
+                errors['unit_price'] = (
+                    f'Unit Price must be less than {_MAX_UNIT_PRICE}.')
+            elif parsed_price != parsed_price.quantize(_UNIT_PRICE_STEP):
+                errors['unit_price'] = (
+                    'Unit Price must have at most two decimal places.')
+            else:
+                values['unit_price'] = parsed_price
+
+    raw_quantity = (form_data.get('quantity') or '').strip()
+    values['quantity'] = None
+    if raw_quantity:
+        parsed_quantity = _positive_int_string(raw_quantity)
+        if parsed_quantity is None:
+            errors['quantity'] = (
+                f'Quantity must be a whole number greater than zero and no '
+                f'more than {_MAX_INT32}.')
+        else:
+            values['quantity'] = parsed_quantity
+
+    for name, label in (('order_date', 'Order Date'),
+                        ('received_date', 'Received Date')):
+        raw_date = (form_data.get(name) or '').strip()
+        values[name] = None
+        if raw_date:
+            try:
+                values[name] = date.fromisoformat(raw_date)
+            except ValueError:
+                errors[name] = f'{label} must be an ISO date (YYYY-MM-DD).'
+
+    return values, errors
+
+
+@bp.route('/products/<int:product_id>/purchases/add', methods=['GET', 'POST'])
+def purchase_add(product_id):
+    """Record a Purchase against a Product from the UI (Story 4.5, FR41).
+
+    The HTML counterpart of `api_record_purchase`, which is untouched and keeps
+    its own JSON contract. This is where a matched scan's "Add a purchase"
+    banner link lands: an ordinary CSRF-protected form, pre-filled on GET from
+    the scan's `request.args` and every value editable.
+    """
+    service = _get_catalog_service()
+    product = service.get_product(product_id)
+    if product is None:
+        abort(404)
+
+    def _render(form_data, validation_errors):
+        return render_template('product/purchase_add.html',
+                               title=f'Add Purchase — {product.description or product_id}',
+                               product=product, form_data=form_data,
+                               validation_errors=validation_errors)
+
+    if request.method == 'GET':
+        return _render({name: (request.args.get(name) or '')
+                        for name in _PURCHASE_FORM_FIELDS}, {})
+
+    form_data = request.form.to_dict()
+    log_audit_operation('purchase_add', 'input', item_id=str(product_id),
+                        form_data=form_data)
+
+    values, validation_errors = _parse_purchase_form(form_data)
+    if validation_errors:
+        return _render(form_data, validation_errors)
+
+    try:
+        snapshot = service.record_purchase(product_id, **values)
+    except Exception as e:
+        # `record_purchase` PROMISES not to raise — it returns None — and
+        # `_record_first_receipt` guards the same call anyway, for the same
+        # reason it applies here with more force: this page is where a matched
+        # scan's banner lands, so an escaped exception is the HTML 500 that
+        # `api_scan` and `product_search` both go out of their way to avoid,
+        # reached one click after the scan text is gone from the field.
+        current_app.logger.error(
+            f'Error recording purchase for product {product_id}: {e}\n'
+            f'{traceback.format_exc()}')
+        snapshot = None
+    if snapshot is None:
+        flash('Failed to record the purchase. Please try again.', 'error')
+        return _render(form_data, {})
+
+    flash('Purchase recorded.', 'success')
+    return redirect(url_for('main.product_detail', product_id=product_id))
 
 
 @bp.route('/products/<int:product_id>/attachments', methods=['POST'])
@@ -1077,19 +1723,378 @@ def _clean_scan_input(value):
     return value.strip(_SCAN_TRIM)
 
 
+def _ecia_prefill(classification):
+    """The create-form values a distributor label pre-fills (Story 4.5, FR39).
+
+    Every value is taken from a `.strip()`ed copy of `ecia_fields`. The parser
+    keeps values exactly as the label printed them — which is right for a parser
+    — but a padded part number saved into `products.mpn` would carry its padding
+    into every later search, export and equivalence comparison, so the trim
+    happens here, at the pre-fill boundary, and nowhere else.
+
+    - `mpn` <- the first non-blank of `1P` (the supplier part number, which the
+      ECIA spec makes the required field) then `P`. Which of the two a given
+      distributor prints the manufacturer part number in is a property of that
+      label, so neither is hard-coded as "the MPN".
+    - `vendor_sku` <- `P`, but only when `P` was not the value used for `mpn`.
+    - `quantity` <- `Q`, as the scanned string and ONLY when that string is a
+      positive whole number the form will accept. `Q0` and a scaled quantity
+      like `1.5K` are real on real labels, and pre-filling either would hand
+      the operator a validation error on a field they never typed; leaving it
+      blank asks them for the one value the label did not plainly state.
+    - `order_number` <- the first non-blank of `K` then `1K`.
+
+    Deliberately NOT pre-filled: `9D`/`10D`. They are `YYWW` — a week, with no
+    day in it — so nothing is written into `order_date` or `received_date`.
+    """
+    fields = {key: (value or '').strip()
+              for key, value in (classification.ecia_fields or {}).items()}
+    values = {}
+    supplier = fields.get('1P') or ''
+    customer = fields.get('P') or ''
+    mpn = supplier or customer
+    if mpn:
+        values['mpn'] = mpn
+    if customer and customer != mpn:
+        values['vendor_sku'] = customer
+    if _positive_int_string(fields.get('Q')) is not None:
+        values['quantity'] = fields['Q']
+    order_number = (fields.get('K') or '') or (fields.get('1K') or '')
+    if order_number:
+        values['order_number'] = order_number
+    return values
+
+
+def _scan_prefill_args(classification):
+    """The create-form pre-fill one classified scan implies (FR39/FR40).
+
+    `identifier_type`/`identifier_value` are emitted for `gtin` and for nothing
+    else: `INTERNAL` is refused by `add_identifier`, an ECIA part number belongs
+    in the free `products.mpn` column rather than in a globally-unique `MPN`
+    identifier row that two genuinely distinct products would collide on, and
+    free text offers no type to infer. Where no type can be inferred the raw
+    scan is preserved in `description`, so the scan is never lost.
+
+    That last rule is why an ECIA envelope that names no PART falls back to the
+    same `description`, keeping whatever else it carried. A label with only date
+    identifiers (`9D`/`10D`, deliberately not coerced) pre-fills nothing at all,
+    and one with only a `Q` or a `K` pre-fills a quantity or an order number and
+    leaves `description` — the one REQUIRED field on the form — blank, with the
+    scanned text nowhere on the page. Both lose the scan, which is what FR40
+    forbids; the test for the first shape must not be read as covering the rule.
+    """
+    kind = classification.kind
+    if kind is ScanKind.GTIN:
+        return {'identifier_type': IdentifierType.GTIN.value,
+                'identifier_value': classification.normalized_value}
+    if kind is ScanKind.ECIA:
+        prefill = _ecia_prefill(classification)
+        if prefill.get('mpn'):
+            return prefill
+        # No part number — `_ecia_prefill` sets `mpn` from the first non-blank of
+        # `1P`/`P` and `vendor_sku` only alongside it, so a missing `mpn` means
+        # the envelope named no part at all. Whatever it DID carry (a quantity,
+        # an order number, nothing) is kept, and the raw scan goes into
+        # `description` as well: a create form opening with no trace of the label
+        # loses the scan, which is what FR40 forbids, and `description` is the
+        # one required field on it.
+        prefill['description'] = scan_router.strip_aim_prefix(classification.raw)
+        return prefill
+    return {'description': scan_router.strip_aim_prefix(classification.raw)}
+
+
+def _scan_banner_args(classification):
+    """The `request.args` a matched scan carries onto the product page (FR41).
+
+    `scan_kind` is the lower-case `ScanKind` wire value; `scan_type` is the
+    upper-case `IdentifierType` value, because it feeds `identifier_type` on the
+    "create a separate product instead" link.
+    """
+    args = {'scan_kind': classification.kind.value}
+    if classification.kind is ScanKind.GTIN:
+        args['scan_type'] = IdentifierType.GTIN.value
+        args['scan_value'] = classification.normalized_value
+    elif classification.kind is ScanKind.INTERNAL:
+        # The scan itself, so the "create a separate product instead" link is
+        # not the one create form that opens with NOTHING on it. `internal` is
+        # the only matching kind that names no identifier and no MPN, and
+        # `_scan_prefill_args` puts the same text in `description` when the very
+        # same scan matches nothing — the two halves of "the scan is never lost"
+        # (FR40) must not disagree on whether it happened to match.
+        args['description'] = scan_router.strip_aim_prefix(classification.raw)
+    elif classification.kind is ScanKind.ECIA:
+        prefill = _ecia_prefill(classification)
+        # `mpn` is carried as well as the receipt fields: the detail page puts
+        # it on the "create a separate product instead" link, which FR39 names
+        # first and which would otherwise open blank on the one field the
+        # operator just scanned.
+        for name in ('mpn', 'quantity', 'order_number', 'vendor_sku'):
+            if prefill.get(name):
+                args[name] = prefill[name]
+    return args
+
+
+def _scan_search_text(classification):
+    """The text `resolve_scan`'s fallthrough search actually ran on.
+
+    A second copy of a service-internal rule, and stated as one. AD-15 freezes
+    `ScanResolution` to three fields, so the searched text is not returned and a
+    fourth field must not be added — but it IS a pure function of the
+    classification, so it is re-derived here, mirroring
+    `mariadb_catalog_service.resolve_scan`'s per-arm `fallthrough_text` exactly:
+
+    - `internal` -> `normalized_value` (the bare, token-stripped id, which is
+      what the column stores; the `<ai><token>` prefix is in no column),
+    - `gtin` and `free_text` -> the AIM-stripped raw scan,
+    - `ecia` -> the first non-blank of the `.strip()`ed `1P` then `P`.
+
+    Because this is a duplicate, `TestSearchTextAgreesWithTheResolver` asserts
+    for every `ScanKind` that `search_products(_scan_search_text(c))` returns
+    exactly `resolve_scan(raw).free_text_hits` — so the search page can never
+    show a different set than `hit_count` promised, and a change to either rule
+    turns a test red.
+    """
+    kind = classification.kind
+    if kind is ScanKind.INTERNAL:
+        return classification.normalized_value
+    if kind is ScanKind.ECIA:
+        fields = classification.ecia_fields or {}
+        for key in ('1P', 'P'):
+            value = (fields.get(key) or '').strip()
+            if value:
+                return value
+        # An envelope carrying only quantity/order/date identifiers: the
+        # resolver issues no query at all, and `search_products('')` is `[]`.
+        return ''
+    return scan_router.strip_aim_prefix(classification.raw)
+
+
+# `q` is scan text rather than a column value, so its bound comes from the URL
+# budget instead. It is set well past every VARCHAR the fallthrough search
+# touches, so a scan long enough to be cut here could only have matched through
+# `products.notes` (TEXT) — see `_scan_url_value` on why cutting `q` is not the
+# harmless truncation it looks like.
+_SCAN_URL_Q_LIMIT = 1024
+
+# Every value a scan-built URL can carry, bounded by the column it targets
+# (app/database.py): Product.description/manufacturer/mpn and
+# Purchase.vendor/vendor_sku/order_number are VARCHAR(255), Product.category_path
+# is VARCHAR(512).
+_SCAN_URL_ARG_LIMITS = {
+    'description': 255,
+    'manufacturer': 255,
+    'mpn': 255,
+    'category_path': 512,
+    'vendor': 255,
+    'vendor_sku': 255,
+    'order_number': 255,
+    'identifier_value': 255,
+    'scan_value': 255,
+    'quantity': 255,
+    'q': _SCAN_URL_Q_LIMIT,
+}
+_SCAN_URL_DEFAULT_LIMIT = 255
+
+
+def _without_control_characters(text):
+    """C0 controls and DEL replaced by spaces, for anything a human must read.
+
+    A wedge can deliver NUL or a stray RS/GS, and neither an `<input>` nor a
+    `<code>` block can render one: the bytes are there, invisible, and the
+    operator can neither see nor delete them. A space keeps the boundaries the
+    separators marked and is what a human reads off the label.
+    """
+    return ''.join(' ' if (ord(ch) < 0x20 or ord(ch) == 0x7f) else ch
+                   for ch in str(text))
+
+
+def _scan_url_value(name, value):
+    """One scan-derived value, made safe to hand to `url_for`.
+
+    Two things a raw scan can do to a URL, and both of them here rather than at
+    each call site:
+
+    - **Lone surrogates.** A wedge can deliver one (Story 4.1's comments already
+      name `'\\ud800ABC'` as a real vector), and werkzeug percent-encodes a
+      query value with `errors='strict'`, so an unsanitized surrogate raises
+      `UnicodeEncodeError` inside `url_for` — a 500 for a scan `resolve_scan`
+      itself handled cleanly, and a dead end the endpoint's whole contract says
+      cannot happen. Encoding through UTF-8 with `'replace'` substitutes it.
+    - **Length.** `MAX_SCAN_LENGTH` is 4096 and the search arm puts scan text
+      into the URL twice, which measured 10-12 KB — past gunicorn's 8190-byte
+      request line and nginx's default 8 KB header buffer, so the browser lands
+      on a 414 or a 400 instead of on the results page. Each value is capped at
+      the column it targets, in characters (what the VARCHAR counts) AND in
+      UTF-8 bytes (what the percent-encoding expands), so the whole generated
+      URL is bounded regardless of the scanned alphabet.
+
+    Truncation is safe here in a way it would not be on the create form itself:
+    this is the pre-fill going OUT, still editable when it lands, and a value
+    past the column limit could not have been saved anyway.
+
+    The one place a cap can be more than cosmetic is `q`, and the cost is NOT
+    the harmless direction an earlier reading of this claimed. A capped `q` is a
+    PREFIX of what the resolver searched, and a substring search on a prefix
+    does match a superset — but `search_products` then keeps only the first
+    `SEARCH_RESULTS_DEFAULT_LIMIT` (50) rows in ascending `products.id`, so the
+    superset's extra LOW-id members can evict the genuine matches entirely. The
+    results page would then show 50 products, none of them the ones `hit_count`
+    counted. `q` is therefore bounded by the URL budget rather than by a column
+    (`_SCAN_URL_Q_LIMIT`), which puts the truncation point past every VARCHAR
+    the search touches: a scan long enough to be cut can only have matched
+    through `products.notes` (TEXT). That residue is real and is on the ledger;
+    it is not claimed away here. `_scan_search_text` itself is uncapped, so
+    `TestSearchTextAgreesWithTheResolver` still pins the derivation rule.
+
+    Control characters become spaces — in a PRE-FILL, and never in `q`. A wedge
+    can deliver NUL or a stray RS/GS, and an `<input>` cannot render one: the
+    value would reach `description` (the one required field on the create form)
+    carrying bytes the operator can neither see nor delete, and an ECIA envelope
+    routed to the create form would run its records together. A space keeps the
+    boundaries the separators marked and is what a human reads off the label.
+
+    `q` is exempt because it is the SEARCH TERM: it must stay byte-for-byte the
+    text `resolve_scan` searched, or the results page shows a different set from
+    the one `hit_count` counted. It is not exempt from being seen — the results
+    page echoes it and puts it back in its own search box — so `product_search`
+    scrubs it for DISPLAY with `_without_control_characters` and keeps the raw
+    value for the query itself. Nothing is lost by the exemption:
+    `_is_storable_text` refuses NUL and unpaired surrogates outright, so a scan
+    carrying either has no hits and never reaches the search arm at all.
+
+    Length is bounded in CHARACTERS only — what the VARCHAR counts. An earlier
+    reading also cut each value to its limit in UTF-8 BYTES, which cost nothing
+    on an ASCII label but quartered a CJK or emoji value that was comfortably
+    inside both its column and the URL budget. Keeping the whole URL under the
+    transport's request-line limit is `_bounded_scan_url`'s job, applied once to
+    the assembled URL where it can actually be measured.
+    """
+    text = str(value).encode('utf-8', 'replace').decode('utf-8')
+    if name != 'q':
+        text = _without_control_characters(text)
+    limit = _SCAN_URL_ARG_LIMITS.get(name, _SCAN_URL_DEFAULT_LIMIT)
+    return text[:limit]
+
+
+def _scan_url_args(args):
+    """`_scan_url_value` over a whole arg mapping."""
+    return {name: _scan_url_value(name, value) for name, value in args.items()}
+
+
+# `url_for` returns an already-percent-encoded ASCII string, so its length IS
+# the length of the request line the browser will send. Bounded below gunicorn's
+# 8190-byte limit and nginx's default 8 KB header buffer, with room for the
+# scheme, host and the `Cookie` header that rides alongside it.
+_MAX_SCAN_URL_CHARS = 7000
+
+
+def _bounded_scan_url(endpoint, **args):
+    """`url_for`, with the assembled URL bounded to what the transport accepts.
+
+    `MAX_SCAN_LENGTH` is 4096 and a scan's text can reach the URL more than once
+    (as `q` and again as a pre-fill), which measured 10-12 KB — past gunicorn's
+    request line and nginx's header buffer, so the browser would land on a 414
+    or a 400 instead of on the destination. That is a scan dead end, which the
+    endpoint's whole contract says cannot happen.
+
+    Measured on the finished URL rather than guessed per value: percent-encoding
+    expands one character to between one and twelve bytes depending on the
+    alphabet, so a per-value byte cap has to assume the worst case for every
+    value at once and mangles ordinary non-Latin text to buy a bound it already
+    had. Here the longest value is halved until the URL fits, so an alphabet
+    that encodes compactly is never charged for one that does not.
+    """
+    url = url_for(endpoint, **args)
+    while len(url) > _MAX_SCAN_URL_CHARS:
+        longest = max((name for name, value in args.items()
+                       if isinstance(value, str) and value),
+                      key=lambda name: len(args[name]), default=None)
+        if longest is None:
+            break
+        args[longest] = args[longest][:len(args[longest]) // 2]
+        url = url_for(endpoint, **args)
+    return url
+
+
+def _scan_destination(resolution):
+    """Map a `ScanResolution` to `(outcome, url)` — the whole routing rule.
+
+    The ONE place the mapping lives (AD-2/AD-5): every URL is built server-side
+    with `url_for`, so the URL namespace stays inside the blueprint, every
+    routing decision is assertable without a browser, and the client is left
+    with a single line of new behavior — follow the URL. If the client branched
+    on `kind` to pick a destination, FR36's precedence would exist in two
+    languages and Epic 9's handheld view would be a third.
+
+    Three outcomes, decided solely from the resolution, and `url` is always a
+    non-empty in-app path — so no scan dead-ends (FR36/FR40):
+
+    - a matched product -> `'product'`, the detail page carrying the arrival
+      banner's args,
+    - no product but hits -> `'search'`, the results page for the text the
+      resolver actually searched,
+    - no product and no hits -> `'create'`, the pre-filled create form.
+
+    Only `product.id` is read off the matched row: it is a DETACHED ORM row, so
+    a relationship attribute would raise, and the detail page re-fetches through
+    `get_product()` as it already does.
+
+    Every value that reaches `url_for` goes through `_scan_url_value` first, so
+    no scan can make URL BUILDING the thing that fails (a lone surrogate) or
+    produce a URL the transport in front of Flask refuses (an over-long one).
+    """
+    classification = resolution.classification
+    if resolution.product is not None:
+        return 'product', _bounded_scan_url(
+            'main.product_detail', product_id=resolution.product.id,
+            **_scan_url_args(_scan_banner_args(classification)))
+
+    prefill = _scan_url_args(_scan_prefill_args(classification))
+    if resolution.free_text_hits:
+        return 'search', _bounded_scan_url(
+            'main.product_search',
+            q=_scan_url_value('q', _scan_search_text(classification)), **prefill)
+    return 'create', _bounded_scan_url('main.product_add', **prefill)
+
+
 @bp.route('/api/scan', methods=['POST'])
 @csrf.exempt
 def api_scan():
-    """Receive one keyboard-wedge scan verbatim (FR35).
+    """Receive one keyboard-wedge scan and answer with where it goes (FR36).
 
-    Deliberately dumb, and the seam later stories widen: no classification
-    (Story 4.2 owns `scan_router`), no lookup (Story 4.3 owns `resolve_scan`),
-    no service and no database. It validates the payload, applies the single
-    whitespace rule above, and echoes the cleaned text back with
-    `outcome: 'unrouted'` — a routed outcome replaces that value without any
-    change to the request shape, the field, or the client transport.
+    Story 4.5 makes this the router: it validates the payload, applies the
+    single whitespace rule above, resolves the cleaned text through
+    `CatalogService.resolve_scan()` once, and answers with a six-key envelope
+    whose `url` is a server-built in-app path the client simply follows.
+    `outcome` is one of `product` / `search` / `create` and `url` is never
+    empty, so no scan dead-ends and none reaches an HTML error page.
 
-    Errors use the AD-13 object-error envelope exclusively.
+    `hit_count` is `len(free_text_hits)`, and `free_text_hits` is capped at
+    `SEARCH_RESULTS_DEFAULT_LIMIT` (50) by `search_products`. So it is the size
+    of the set `/products/search` will show — the page and the count always
+    agree with each other — but NEITHER is a count of all matches, and a scan
+    reporting 50 may match more. Signalling a truncated result set is
+    deferred-work's, and Epic 8's, under AD-17.
+
+    It stays READ-ONLY, deliberately. `resolve_scan` writes nothing: no
+    Purchase, no Product, no identifier, no audit mutation. Every mutation this
+    story adds sits behind an ordinary, CSRF-protected HTML form POST an
+    operator submits — which is what keeps a rescan after the client's 10s
+    timeout free rather than a double-apply.
+
+    The `@csrf.exempt` above is inherited from Story 4.1 and is NOT closed by
+    that read-only property, because read-only is not the same as cheap: an
+    unauthenticated, unthrottled cross-site POST here costs up to two sessions
+    and a leading-wildcard `LIKE` over six unindexed columns with a pattern of
+    up to `MAX_SCAN_LENGTH` characters — a full table scan per request. That is
+    a denial-of-service shape, not a one-SELECT shape. The exemption stays
+    (removing it would break the wedge path this endpoint exists for), and the
+    two ledger entries aimed at it — the CSRF exemption itself and rate
+    limiting — stay open and now have the real cost written against them.
+
+    Errors use the AD-13 object-error envelope exclusively, including a failing
+    resolution: a broken `GS1_INTERNAL_*` grammar or a database outage is a 500
+    the client toasts, never an HTML error page and never a navigation.
     """
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
@@ -1127,19 +2132,42 @@ def api_scan():
             'Scan rejected: blank after trimming %r', raw[:_SCAN_LOG_CHARS])
         return _catalog_json_error('invalid_field', 'raw must not be empty', 400, field='raw')
 
+    try:
+        resolution = _get_catalog_service().resolve_scan(cleaned)
+        outcome, url = _scan_destination(resolution)
+    except Exception as e:
+        # Every failure here is a deployment or backend fault, not a bad scan:
+        # a malformed configured grammar, or the database. It must not reach the
+        # operator as an HTML error page (the client is a fetch, not a form),
+        # and it must not navigate — the AD-13 envelope makes the client toast
+        # it and RETAIN the scanned text for retry.
+        current_app.logger.error(
+            'Error resolving scan %r: %s\n%s',
+            cleaned[:_SCAN_LOG_CHARS], e, traceback.format_exc())
+        return _catalog_json_error('server_error', 'Failed to resolve scan', 500)
+
     # The only server-side record that a scan arrived. Logged at debug because
     # a rapid-scanning operator generates one of these per item; it is the
-    # entire diagnostic value of a transport-only endpoint when a scanner
-    # starts emitting something unexpected. `repr` because the whole question
-    # a wedge investigation asks is "which bytes actually arrived" — a bare
-    # character count cannot answer it, and control characters would otherwise
-    # be invisible in the log. Barcodes here carry no personal data. The length
-    # is logged alongside, so a truncated line is recognisable as one.
+    # entire diagnostic value of this endpoint when a scanner starts emitting
+    # something unexpected. `repr` because the whole question a wedge
+    # investigation asks is "which bytes actually arrived" — a bare character
+    # count cannot answer it, and control characters would otherwise be
+    # invisible in the log. Barcodes here carry no personal data. The length is
+    # logged alongside, so a truncated line is recognisable as one.
     current_app.logger.debug(
-        'Scan captured: %d characters %r, outcome=unrouted',
-        len(cleaned), cleaned[:_SCAN_LOG_CHARS])
+        'Scan captured: %d characters %r, outcome=%s',
+        len(cleaned), cleaned[:_SCAN_LOG_CHARS], outcome)
 
-    return jsonify({'success': True, 'raw': cleaned, 'outcome': 'unrouted'}), 200
+    return jsonify({
+        'success': True,
+        'raw': cleaned,
+        # The serialization app/models.py predicted this story would add: the
+        # lower-case ScanKind wire value, never persisted.
+        'kind': resolution.classification.kind.value,
+        'outcome': outcome,
+        'url': url,
+        'hit_count': len(resolution.free_text_hits),
+    }), 200
 
 
 @bp.route('/products/edit/<int:product_id>', methods=['GET', 'POST'])

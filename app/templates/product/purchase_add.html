@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{# Story 4.5 (FR41): the HTML counterpart of the JSON record-purchase endpoint,
+   and where a matched scan's "Add a purchase" banner link lands. An ordinary
+   CSRF-protected form over the eight Purchase columns, pre-filled from the
+   scan on GET and every value editable. #}
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h3 mb-0"><i class="bi bi-bag-plus"></i> Add Purchase</h1>
+        </div>
+
+        <p class="text-muted" id="purchase-product">
+            For <a href="{{ url_for('main.product_detail', product_id=product.id) }}">{{ product.description or 'Product %s'|format(product.id) }}</a>
+        </p>
+
+        <form method="POST" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="card mb-3">
+                <div class="card-header">Purchase Details</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor" class="form-label">Vendor</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.vendor %} is-invalid{% endif %}"
+                                   id="vendor" name="vendor" maxlength="255"
+                                   value="{{ form_data.get('vendor', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.vendor %}<div class="invalid-feedback d-block">{{ validation_errors.vendor }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor_sku" class="form-label">Vendor SKU</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.vendor_sku %} is-invalid{% endif %}"
+                                   id="vendor_sku" name="vendor_sku" maxlength="255"
+                                   value="{{ form_data.get('vendor_sku', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.vendor_sku %}<div class="invalid-feedback d-block">{{ validation_errors.vendor_sku }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="order_date" class="form-label">Order Date</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.order_date %} is-invalid{% endif %}"
+                                   id="order_date" name="order_date" placeholder="YYYY-MM-DD"
+                                   value="{{ form_data.get('order_date', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.order_date %}<div class="invalid-feedback d-block">{{ validation_errors.order_date }}</div>{% endif %}
+                            <div class="form-text">Defaults to today when left blank.</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="received_date" class="form-label">Received Date</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.received_date %} is-invalid{% endif %}"
+                                   id="received_date" name="received_date" placeholder="YYYY-MM-DD"
+                                   value="{{ form_data.get('received_date', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.received_date %}<div class="invalid-feedback d-block">{{ validation_errors.received_date }}</div>{% endif %}
+                            <div class="form-text">Blank means the order is still on its way.</div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.quantity %} is-invalid{% endif %}"
+                                   id="quantity" name="quantity" maxlength="10"
+                                   value="{{ form_data.get('quantity', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.quantity %}<div class="invalid-feedback d-block">{{ validation_errors.quantity }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="unit_price" class="form-label">Unit Price</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.unit_price %} is-invalid{% endif %}"
+                                   id="unit_price" name="unit_price"
+                                   value="{{ form_data.get('unit_price', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.unit_price %}<div class="invalid-feedback d-block">{{ validation_errors.unit_price }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="order_number" class="form-label">Order Number</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.order_number %} is-invalid{% endif %}"
+                                   id="order_number" name="order_number" maxlength="255"
+                                   value="{{ form_data.get('order_number', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.order_number %}<div class="invalid-feedback d-block">{{ validation_errors.order_number }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label for="source_url" class="form-label">Source URL</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.source_url %} is-invalid{% endif %}"
+                                   id="source_url" name="source_url" maxlength="1024"
+                                   value="{{ form_data.get('source_url', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.source_url %}<div class="invalid-feedback d-block">{{ validation_errors.source_url }}</div>{% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                <a href="{{ url_for('main.product_detail', product_id=product.id) }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-circle"></i> Record Purchase
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

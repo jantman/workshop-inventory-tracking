@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{# Story 4.5 (FR36, AD-17): the landing an ambiguous scan needs, and the URL
+   Epic 8's search page later extends rather than orphans. Deliberately minimal
+   — the query, the hits, an empty state, and an escape hatch to the create
+   form carrying the scan's own pre-fill, so a search landing never dead-ends
+   either. The route supplies `create_url` finished; nothing here builds a URL
+   out of query-string parts. #}
+{% block content %}
+<div class="row">
+    <div class="col-lg-10">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            {# `query_display`, not `query`: a wedge can deliver NUL or a stray
+               RS/GS, and the raw value is kept only where it is SEARCHED (the
+               route) or handed back for re-searching (the input below), never
+               where it is read. #}
+            <h1 class="h3 mb-0"><i class="bi bi-search"></i> Search: <code id="search-query">{{ query_display }}</code></h1>
+            <a href="{{ create_url }}" class="btn btn-primary" id="search-create-product">
+                <i class="bi bi-plus-circle"></i> Create a new product
+            </a>
+        </div>
+
+        <form method="GET" action="{{ url_for('main.product_search') }}" class="mb-3">
+            {# The scan's own pre-fill, carried through a refinement. A form
+               submitting only `q` would drop the identifier, MPN and receipt
+               values the scan arrived with, so "Create a new product" on the
+               refined page would open blank on exactly that scan. `q` is the
+               visible input below and is never repeated here. #}
+            {% for name, value in prefill_args.items() %}
+            <input type="hidden" name="{{ name }}" value="{{ value }}">
+            {% endfor %}
+            <div class="input-group">
+                {# Scrubbed here too. An `<input>` cannot render a NUL or a
+                   stray RS/GS either, so the raw value would sit in the box as
+                   bytes the operator can neither see nor delete — and the only
+                   thing byte-identity buys is that the arrival page searched
+                   what the resolver searched, which it did: this box is a NEW
+                   query the operator submits, not that one. #}
+                <input type="text" class="form-control" id="q" name="q"
+                       value="{{ query_display }}" autocomplete="off" placeholder="Search products">
+                <button type="submit" class="btn btn-outline-secondary">
+                    <i class="bi bi-search"></i> Search
+                </button>
+            </div>
+        </form>
+
+        <div class="card">
+            <div class="card-header">Matching Products</div>
+            <div class="card-body">
+                {% if products %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0" id="search-result-table">
+                        <thead>
+                            <tr>
+                                <th>Internal ID</th>
+                                <th>Description</th>
+                                <th>Manufacturer / MPN</th>
+                                <th>Category</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in products %}
+                            <tr>
+                                {# The internal id is shown because it is one of
+                                   the columns the match can have come from, and
+                                   because a scan that fell through to this page
+                                   is often looking for exactly it. `notes` and
+                                   the identifier values are searched too and are
+                                   still not shown — see the ledger. #}
+                                <td>{% if product.internal_id %}<code>{{ product.internal_id }}</code>{% else %}—{% endif %}</td>
+                                <td>
+                                    <a href="{{ url_for('main.product_detail', product_id=product.id) }}">
+                                        {{ product.description or 'Product %s'|format(product.id) }}
+                                    </a>
+                                </td>
+                                <td>
+                                    {{ product.manufacturer or '—' }}
+                                    {% if product.mpn %}<span class="text-muted">/ {{ product.mpn }}</span>{% endif %}
+                                </td>
+                                <td>{% if product.category_path %}<code>{{ product.category_path }}</code>{% else %}—{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0" id="search-empty-state">
+                    {# "No products match" is a positive claim about the
+                       catalog, and a search that FAILED cannot make it — an
+                       operator who reads it instead of the flash creates a
+                       duplicate of something the catalog already holds. #}
+                    {% if search_failed %}
+                    The search did not run, so nothing can be said about what
+                    matches. Try again, or create the product.
+                    {% elif query %}
+                    No products match &quot;{{ query_display }}&quot;. Create one, or search
+                    for something else.
+                    {% else %}
+                    Type something to search the catalog.
+                    {% endif %}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

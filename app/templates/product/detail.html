@@ -10,6 +10,28 @@
             </a>
         </div>
 
+        {# Story 4.5 (FR41): a scan resolved to this product. Both links are
+           built by the route with url_for and taken verbatim here — the
+           template computes no URL and assembles no query string. Absent
+           scan_kind, this page is exactly what it was before. #}
+        {% if scan_banner %}
+        <div class="alert alert-info" id="scan-banner">
+            <h2 class="h6 alert-heading"><i class="bi bi-upc-scan"></i> Scanned: this product</h2>
+            <p class="mb-2">
+                The {{ scan_banner.kind }} scan matched this product.
+                {% if scan_banner.scan_value %}
+                <span class="text-muted">({{ scan_banner.scan_type }} <code>{{ scan_banner.scan_value }}</code>)</span>
+                {% endif %}
+            </p>
+            <a href="{{ scan_banner.purchase_url }}" class="btn btn-sm btn-primary" id="scan-banner-purchase">
+                <i class="bi bi-bag-plus"></i> Add a purchase
+            </a>
+            <a href="{{ scan_banner.create_url }}" class="btn btn-sm btn-outline-secondary" id="scan-banner-create">
+                <i class="bi bi-plus-circle"></i> Create a separate product instead
+            </a>
+        </div>
+        {% endif %}
+
         <div class="card mb-3">
             <div class="card-header">Product Information</div>
             <div class="card-body">
@@ -64,6 +86,15 @@
                 <span>Purchases</span>
                 <span class="text-muted small">
                     Last paid: {% if last_paid is not none %}${{ '%.2f'|format(last_paid) }}{% else %}—{% endif %}
+                    {# Story 4.5: the ONLY entry point to the purchase form that
+                       does not require having arrived here from a scan. Without
+                       it the form is reachable only from the arrival banner, and
+                       two messages that tell the operator to "add the purchase
+                       from the product page" name a control that is not here. #}
+                    <a href="{{ url_for('main.purchase_add', product_id=product.id) }}"
+                       class="btn btn-sm btn-outline-primary ms-2" id="add-purchase">
+                        <i class="bi bi-plus-circle"></i> Add a purchase
+                    </a>
                 </span>
             </div>
             <div class="card-body">

@@ -1,20 +1,29 @@
 """
-E2E Tests for Wedge Scan Capture (Story 4.1, FR35)
+E2E Tests for Wedge Scan Capture (Story 4.1, FR35; Story 4.5, FR36)
 
 Covers the global #scan-input navbar field:
 - it exists on every page (base.html carries it, no per-template work)
 - a keyboard-wedge scan terminated by Enter posts the typed characters
   verbatim to POST /api/scan
-- a successful scan clears the field and keeps focus
+- a successful scan clears the field and FOLLOWS the destination the server
+  chose (Story 4.5 — before it, a success left the operator in place)
 - a failed scan keeps the text, selects it, and toasts
 - a blank Enter sends nothing
 - a second Enter while a POST is in flight is ignored
 - NFR9: the neighbouring metal-stock JA ID lookup is untouched
 
+Where these tests land is tests/e2e/test_scan_routing.py's subject; this file
+is still about the CAPTURE loop, so the stubbed cases below route to a
+same-document fragment. That runs the one new client line (`window.location
+.href = data.url`) without tearing the page down, which is what lets a test
+about the field's state still be able to inspect it afterwards.
+
 These tests mutate no data, so they are trivially safe under --reruns.
 """
 
 import json
+import random
+import urllib.request
 
 import pytest
 from playwright.sync_api import expect
@@ -22,6 +31,64 @@ from playwright.sync_api import expect
 
 SCAN_INPUT = '#scan-input'
 JA_ID_INPUT = '#ja-id-lookup'
+
+# A same-document destination: setting location.href to the CURRENT path with a
+# different fragment does not reload the page, so a stubbed success can exercise
+# the navigation line and still leave window.__posts, the toasts and the field
+# state readable. Root-relative rather than a bare fragment because the client
+# follows only same-origin, root-relative paths — every test using this opens
+# `/`, so this is that page plus a fragment.
+FRAGMENT_URL = '/#scan-landing'
+
+
+def routed_body(raw, url=FRAGMENT_URL, kind='free_text', outcome='create',
+                hit_count=0):
+    """The six-key envelope POST /api/scan answers with since Story 4.5.
+
+    Built here rather than written out per stub so a stubbed success cannot
+    quietly keep answering in Story 4.1's retired three-key shape.
+    """
+    return json.dumps({'success': True, 'raw': raw, 'kind': kind,
+                       'outcome': outcome, 'url': url, 'hit_count': hit_count})
+
+
+def _gtin13(body):
+    """`body` (12 digits) plus its GS1 mod-10 check digit."""
+    total = sum((3 if i % 2 == 0 else 1) * int(digit)
+                for i, digit in enumerate(reversed(body)))
+    return f'{body}{(10 - total % 10) % 10}'
+
+
+def unstored_gtin(live_server):
+    """A check-digit-valid GTIN-13 that demonstrably no product carries.
+
+    The e2e database ACCUMULATES products across tests and across runs
+    (`clear_test_data()` does not truncate the catalog tables), so a fixed
+    vector could have been claimed by an earlier run and would then route to a
+    product instead of to a create form.
+
+    The absence is CHECKED rather than assumed to be improbable. `POST /api/scan`
+    is read-only, so asking the running server where a candidate routes costs one
+    lookup and writes nothing — and the answer is proof, from the very code path
+    under test, of where this vector goes. A purely random vector would only ever
+    be a probability argument against a table that grows every run.
+
+    The accepted answer is `create`, not merely "not `product`". Every caller
+    waits for `/products/add`, and a candidate whose digits happen to appear in
+    some accumulated product's text routes to `search` instead — a page that
+    never becomes the create form, so the wait would time out rather than fail
+    with anything that names the cause.
+    """
+    for _ in range(20):
+        candidate = _gtin13(f'{random.randrange(10 ** 12):012d}')
+        request = urllib.request.Request(
+            f'{live_server.url}/api/scan',
+            data=json.dumps({'raw': candidate}).encode('utf-8'),
+            headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if json.load(response).get('outcome') == 'create':
+                return candidate
+    raise AssertionError('no unclaimed GTIN found in 20 attempts')
 
 
 def simulate_wedge_scan(page, text):
@@ -51,6 +118,37 @@ def record_scan_requests(page):
 
     page.route('**/api/scan', _handler)
     return calls
+
+
+def record_scan_responses(page, rewrite_url=None):
+    """Record the REAL server's scan envelopes, optionally re-aiming the URL.
+
+    Two problems this solves at once, both created by Story 4.5's navigation:
+
+    1. `Response.json()` reads the body out of the browser, and a success now
+       navigates immediately — so reading the envelope after the fact races the
+       page teardown. Fetching it here keeps it Python-side, where nothing can
+       evict it.
+    2. A test about the CAPTURE loop still needs the page it was inspecting.
+       Passing `rewrite_url` swaps the server's destination for a same-document
+       fragment, so the navigation line still runs and the page survives.
+
+    The envelope recorded is always the server's own, unmodified.
+    """
+    bodies = []
+
+    def _handler(route, request):
+        response = route.fetch()
+        body = response.json()
+        bodies.append(body)
+        served = dict(body)
+        if rewrite_url is not None and served.get('url'):
+            served['url'] = rewrite_url
+        route.fulfill(status=response.status, body=json.dumps(served),
+                      headers={'Content-Type': 'application/json'})
+
+    page.route('**/api/scan', _handler)
+    return bodies
 
 
 @pytest.mark.e2e
@@ -106,17 +204,21 @@ class TestWedgeScanCapture:
         """The scanned characters reach the server verbatim - no uppercasing,
         no normalization, no client-side classification."""
         page.goto(f'{live_server.url}/')
+        bodies = record_scan_responses(page, rewrite_url=FRAGMENT_URL)
 
         with page.expect_response('**/api/scan') as response_info:
             simulate_wedge_scan(page, '96WITabc1234567')
 
-        response = response_info.value
-        assert response.status == 200
-        assert response.request.post_data_json['raw'] == '96WITabc1234567'
-        body = response.json()
+        assert response_info.value.request.post_data_json['raw'] == '96WITabc1234567'
+        page.wait_for_timeout(500)
+        assert len(bodies) == 1
+        body = bodies[0]
         assert body['success'] is True
         assert body['raw'] == '96WITabc1234567'
-        assert body['outcome'] == 'unrouted'
+        # Story 4.5 retires 'unrouted': every scan answers with one of three
+        # outcomes and a non-empty in-app URL (FR36).
+        assert body['outcome'] in {'product', 'search', 'create'}
+        assert body['url'].startswith('/')
 
     @pytest.mark.parametrize('scanned', [
         '00012345678905',       # manufacturer GTIN-14
@@ -127,22 +229,56 @@ class TestWedgeScanCapture:
     def test_various_payloads_post_verbatim(self, page, live_server, scanned):
         """The client classifies nothing; every payload posts the same way."""
         page.goto(f'{live_server.url}/inventory')
+        record_scan_responses(page, rewrite_url=FRAGMENT_URL)
 
         with page.expect_response('**/api/scan') as response_info:
             simulate_wedge_scan(page, scanned)
 
         assert response_info.value.request.post_data_json['raw'] == scanned
 
-    def test_successful_scan_clears_field_and_keeps_focus(self, page, live_server):
-        """Consecutive scans need no mouse (FR35)."""
+    def test_successful_scan_clears_the_field_and_follows_the_routed_url(
+            self, page, live_server):
+        """Story 4.5 replaces 4.1's "clears the field and keeps focus".
+
+        A successful scan is now a LANDING, not a no-op: the server answers with
+        a destination and the client follows it (FR36/FR40). The field is still
+        cleared first — that is the accepted signal — but the operator does not
+        stay put, so "keeps focus" is no longer the property to assert.
+        """
         page.goto(f'{live_server.url}/')
+        bodies = record_scan_responses(page)        # real destination, no rewrite
+        gtin = unstored_gtin(live_server)
 
         with page.expect_response('**/api/scan'):
-            simulate_wedge_scan(page, '00012345678905')
+            simulate_wedge_scan(page, gtin)
 
-        scan_input = page.locator(SCAN_INPUT)
-        expect(scan_input).to_have_value('', timeout=5000)
-        expect(scan_input).to_be_focused(timeout=5000)
+        page.wait_for_url('**/products/add**', timeout=10000)
+        assert bodies[0]['outcome'] == 'create'     # matched nothing anywhere
+        assert bodies[0]['url'].startswith('/products/add')
+
+        # ...and the create form opened with the scanned identifier, editable.
+        expect(page.locator('#identifier_value')).to_have_value(
+            f'0{gtin}', timeout=5000)
+
+    def test_the_client_follows_the_url_verbatim_without_reading_kind(
+            self, page, live_server):
+        """AD-5: the client reads `data.url` and follows it. It must not branch
+        on `kind` or `outcome` to choose a destination — if it did, FR36's
+        precedence would exist in two languages.
+
+        The stub therefore answers with a destination that contradicts its own
+        `kind`/`outcome`, and the client must still go where `url` says.
+        """
+        page.goto(f'{live_server.url}/')
+        page.evaluate("""(body) => {
+            window.fetch = () => Promise.resolve(new Response(
+                body, {status: 200, headers: {'Content-Type': 'application/json'}}));
+        }""", routed_body('ANY', url='/products/tags', kind='gtin',
+                          outcome='product', hit_count=7))
+
+        simulate_wedge_scan(page, 'ANY')
+
+        page.wait_for_url('**/products/tags', timeout=10000)
 
     def test_two_consecutive_scans_each_post_once(self, page, live_server):
         """The field is ready for the next scan immediately.
@@ -150,17 +286,32 @@ class TestWedgeScanCapture:
         Asserts the payloads, not just the count: two requests both carrying
         FIRST-SCAN is precisely the residue bug a consecutive-scan test exists
         to catch, and a count-only assertion cannot see it.
+
+        `fetch` is stubbed with a fragment destination so that the routed
+        navigation really runs while the page — and therefore the record of what
+        was posted — survives to be inspected.
         """
         page.goto(f'{live_server.url}/')
-        calls = record_scan_requests(page)
+        page.evaluate("""() => {
+            window.__posts = [];
+            window.fetch = (url, opts) => {
+                const raw = JSON.parse(opts.body).raw;
+                window.__posts.push(raw);
+                return Promise.resolve(new Response(
+                    JSON.stringify({success: true, raw: raw, kind: 'free_text',
+                                    outcome: 'create', url: '/#scan-landing',
+                                    hit_count: 0}),
+                    {status: 200, headers: {'Content-Type': 'application/json'}}));
+            };
+        }""")
 
-        with page.expect_response('**/api/scan'):
-            simulate_wedge_scan(page, 'FIRST-SCAN')
-        with page.expect_response('**/api/scan'):
-            simulate_wedge_scan(page, 'SECOND-SCAN')
-
+        simulate_wedge_scan(page, 'FIRST-SCAN')
+        expect(page.locator(SCAN_INPUT)).to_have_value('', timeout=5000)
+        simulate_wedge_scan(page, 'SECOND-SCAN')
         page.wait_for_timeout(500)
-        assert [json.loads(c)['raw'] for c in calls] == ['FIRST-SCAN', 'SECOND-SCAN']
+
+        assert page.evaluate('() => window.__posts') == ['FIRST-SCAN', 'SECOND-SCAN']
+        assert page.url.endswith(FRAGMENT_URL)      # the routed URL was followed
 
     def test_blank_enter_sends_no_request(self, page, live_server):
         """Nothing was scanned, so nothing is transmitted."""
@@ -227,6 +378,7 @@ class TestWedgeScanCapture:
         the server's echo against the client's own function (FR35).
         """
         page.goto(f'{live_server.url}/')
+        bodies = record_scan_responses(page, rewrite_url=FRAGMENT_URL)
 
         # Value set directly so control characters reach the field byte-exact;
         # the terminator below is still a real key press.
@@ -236,11 +388,15 @@ class TestWedgeScanCapture:
             el.value = v;
         }""", typed)
 
-        with page.expect_response('**/api/scan') as response_info:
+        # Asked BEFORE the scan: an accepted scan navigates now (Story 4.5), and
+        # a question put to a page that is unloading answers nothing.
+        expected = page.evaluate('(v) => window.ScanCapture.stripOuter(v)', typed)
+
+        with page.expect_response('**/api/scan'):
             page.locator(SCAN_INPUT).press('Enter')
 
-        expected = page.evaluate('(v) => window.ScanCapture.stripOuter(v)', typed)
-        assert response_info.value.json()['raw'] == expected
+        page.wait_for_timeout(500)
+        assert bodies[0]['raw'] == expected
 
     def test_crlf_terminator_posts_once_and_is_not_called_a_dropped_scan(
             self, page, live_server):
@@ -262,7 +418,9 @@ class TestWedgeScanCapture:
             window.fetch = (url, opts) => {
                 window.__posts.push(JSON.parse(opts.body).raw);
                 return new Promise(resolve => setTimeout(() => resolve(new Response(
-                    JSON.stringify({success: true, raw: 'CRLF-SCAN', outcome: 'unrouted'}),
+                    JSON.stringify({success: true, raw: 'CRLF-SCAN', kind: 'free_text',
+                                    outcome: 'create', url: '/#scan-landing',
+                                    hit_count: 0}),
                     {status: 200, headers: {'Content-Type': 'application/json'}})), 400));
             };
         }""")
@@ -366,7 +524,9 @@ class TestWedgeScanCapture:
             el.dispatchEvent(new KeyboardEvent(
                 'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
             window.__resolve(new Response(
-                JSON.stringify({success: true, raw: 'SCAN1', outcome: 'unrouted'}),
+                JSON.stringify({success: true, raw: 'SCAN1', kind: 'free_text',
+                                outcome: 'create', url: '/#scan-landing',
+                                hit_count: 0}),
                 {status: 200, headers: {'Content-Type': 'application/json'}}));
         }""")
 
@@ -410,7 +570,9 @@ class TestWedgeScanCapture:
             // and this branch is the only thing that can say anything.
             el.value = 'ACCEPTEDNEXT';
             window.__resolve(new Response(
-                JSON.stringify({success: true, raw: 'ACCEPTED', outcome: 'unrouted'}),
+                JSON.stringify({success: true, raw: 'ACCEPTED', kind: 'free_text',
+                                outcome: 'create', url: '/#scan-landing',
+                                hit_count: 0}),
                 {status: 200, headers: {'Content-Type': 'application/json'}}));
         }""")
 
@@ -483,7 +645,9 @@ class TestWedgeScanCapture:
         # Let the first POST land, then scan again for real.
         page.evaluate("""() => {
             window.__slowResolve(new Response(
-                JSON.stringify({success: true, raw: 'SCAN1', outcome: 'unrouted'}),
+                JSON.stringify({success: true, raw: 'SCAN1', kind: 'free_text',
+                                outcome: 'create', url: '/#scan-landing',
+                                hit_count: 0}),
                 {status: 200, headers: {'Content-Type': 'application/json'}}));
             window.fetch = window.__realFetch;
         }""")
@@ -701,12 +865,19 @@ class TestLateResponseDoesNotClobberTheOperator:
 
     Both cases stub `window.fetch` with a deliberately slow promise so the
     in-flight window is deterministic rather than a race against the server.
+
+    The stub answers with a real routed destination since Story 4.5, which is
+    what makes these two cases sharper than they were: navigation is a stronger
+    form of the clobbering they guard against, and a page that reloads takes the
+    operator's other field with it.
     """
 
     SLOW_FETCH = """(delayMs) => {
         window.fetch = () => new Promise(resolve => setTimeout(
             () => resolve(new Response(
-                JSON.stringify({success: true, raw: 'AAA', outcome: 'unrouted'}),
+                JSON.stringify({success: true, raw: 'AAA', kind: 'free_text',
+                              outcome: 'create', url: '/products/add',
+                              hit_count: 0}),
                 {status: 200, headers: {'Content-Type': 'application/json'}})),
             delayMs));
     }"""
@@ -730,11 +901,27 @@ class TestLateResponseDoesNotClobberTheOperator:
         page.wait_for_timeout(1200)
 
         expect(page.locator(SCAN_INPUT)).to_have_value('AAABBB', timeout=5000)
+        # ...and the routed URL is not followed either: the response no longer
+        # belongs to what is in the field, so it decides nothing about where the
+        # operator goes.
+        assert '/products/add' not in page.url
 
     def test_late_response_does_not_steal_focus_from_another_field(
             self, page, live_server):
         """If the operator has moved on, a returning response must not yank
-        focus back mid-typing."""
+        focus back mid-typing - nor navigate the page out from under them.
+
+        Navigating is the same defect through a different call: `refocus()`
+        already refuses to take focus back from another field, so Story 4.5's
+        one new line follows `data.url` only when that refusal did not fire.
+
+        Refusing to navigate must not be SILENT, though. The field cleared while
+        the operator was looking elsewhere and the destination was dropped, so
+        the scan gets a toast naming what was taken and saying it was not
+        followed — the same reasoning as the contaminated-field branch, where
+        silence reads as "never fired" and invites a rescan of something the
+        server already has.
+        """
         page.goto(f'{live_server.url}/inventory')
         page.evaluate(self.SLOW_FETCH, 400)
 
@@ -743,6 +930,17 @@ class TestLateResponseDoesNotClobberTheOperator:
         page.wait_for_timeout(1200)
 
         expect(page.locator(JA_ID_INPUT)).to_be_focused(timeout=5000)
+        assert '/products/add' not in page.url
+        # The scan WAS accepted, and the cleared field says so.
+        expect(page.locator(SCAN_INPUT)).to_have_value('', timeout=5000)
+        # ...and so does the toast, which names the scan and its fate.
+        toast = page.locator('.toast.text-bg-warning')
+        expect(toast).to_be_visible(timeout=5000)
+        assert 'accepted' in toast.inner_text().lower()
+        assert 'AAA' in toast.inner_text()
+        assert 'not followed' in toast.inner_text().lower()
+        # Notifying still must not take focus back.
+        expect(page.locator(JA_ID_INPUT)).to_be_focused()
 
     def test_late_failure_does_not_steal_focus_from_another_field(
             self, page, live_server):

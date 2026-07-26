@@ -250,3 +250,210 @@ status: open
 - source_spec: `_bmad-output/implementation-artifacts/4-4-ecia-distributor-label-parsing.md`
   summary: The `product_identifiers` uniqueness constraint is byte-comparison under SQLite and case/accent-insensitive under MariaDB's `utf8mb4_unicode_ci`, so the unit suite can construct two products holding MPN identifier rows that differ only by case — a data shape production rejects — and the ECIA arm then reports a false ambiguity that cannot occur on the real backend.
   evidence: Verified against the real SQLite `catalog_service`: `add_identifier(A, MPN, 'SHARED-1')` followed by `add_identifier(B, MPN, 'shared-1')` is ACCEPTED, and `resolve_scan('[)>\x1e06\x1d1PSHARED-1\x1e\x04')` then returns `product=None` with both products as hits, because the lookup folds case while the unique index did not. Under MariaDB the second `add_identifier` would raise, `uq_product_identifiers_type_value_scope` being over `(identifier_type, value, vendor_scope)` on `utf8mb4_unicode_ci` columns, so that ambiguity is unreachable there. Not caused by this story — the divergence lives in the constraint's collation and predates Epic 4, and is the same family as the `search_products` fold divergence already ledgered — but it is newly consequential here, because this is the first seam where a false ambiguity costs a LANDING rather than an extra hit, and because it runs in the direction that makes the test environment stricter than production rather than looser, so a suite that is green proves less than it appears to. It also means `add_identifier`'s own duplicate-rejection contract is backend-dependent and no test at any level runs it against MariaDB. Closing it needs either an integration-level identifier test on the real engine or an explicit collation on the comparison, both of which are Epic 8's mechanism decision rather than this story's.
+
+### DW-6: The padded-ECIA-value pre-fill decision is taken — Story 4.4's open entry is closed
+origin: story-4-5
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: Story 4.4's ledger entry "the ECIA arm trims the value it looks a product up by while `ecia_fields` keeps the value verbatim, so a padded label hands Story 4.5 a create form pre-filled with the padding" explicitly left the choice to this story. It is taken: the pre-fill is built from a `.strip()`ed copy.
+evidence: `_ecia_prefill` in `app/main/routes.py` copies `classification.ecia_fields` through `(value or '').strip()` before deriving `mpn`, `vendor_sku`, `quantity` and `order_number`, so the create form shows — and therefore saves — the same value the resolver looked the product up by. Pinned by `test_ecia_label_with_no_product_prefills_mpn_quantity_and_order` in `tests/unit/test_scan_routes.py`, which scans `1P  RC0805-10K  ` / `Q 25 ` and asserts the URL carries the trimmed values. The DURABLE half of that entry is deliberately NOT closed here and stays open below (DW-7): the fix at the write path — `create_product` stripping identifier-ish columns the way `add_identifier` already does — is a Story 1.3 question, and a hand-typed padded `mpn` still reaches the column by every other route.
+status: closed
+
+### DW-7: `create_product` still stores `mpn`/`manufacturer` exactly as submitted, so padding typed (or pasted) into the form survives into the column
+origin: story-4-5
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: DW-6 closes the SCAN path's half of Story 4.4's padded-value entry by trimming at the pre-fill boundary, but the write path is unchanged: any caller that submits `mpn=' RC0805-10K '` still stores the padding, and `resolve_scan`'s ECIA arm — which trims its candidate — would then miss it on the exact lookup while `search_products` (which strips its own query) silently succeeds.
+evidence: `CatalogService.create_product` and `update_product` pass `mpn`, `manufacturer` and `category_path` through `_clean`, which coerces blanks to NULL but does not strip; `add_identifier` DOES strip its value (`value = ('' if value is None else str(value)).strip()`), so the two write paths disagree about what a stored identifier-ish string is. Reachable today from the create form by hand and from any JSON client. Not closed here because `app/mariadb_catalog_service.py` is read-only in this story and because "which columns are identifier-ish enough to strip" is a Story 1.3/2.1 data decision, not a routing one.
+status: open
+
+### DW-8: `/products/search` is a placeholder that Epic 8 Story 8.1 must replace, not extend blindly
+origin: story-4-5
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: The new `main.product_search` route exists to give the FR36 fallthrough a landing and nothing more: one `search_products(q)` call, no filters, no paging, no ranking, no facets, no result count and no truncation signal. Every limitation the ledger already records about the search MECHANISM is now visible to the operator on a real page.
+evidence: `app/main/routes.py`'s `product_search` calls `search_products(query)` positionally with no `filters` and no `limit`, and `app/templates/product/search.html` renders every returned row with no paging control. So the open entries "`search_products` silently truncates to the 50 OLDEST matches with no total and no truncation flag", "matching is a CONTIGUOUS substring of a single column, not tokenized" and "the case fold is ASCII-only and backend-dependent" are all now user-facing: a scan of a distributor's human-readable line lands on an empty results page, a one-character scan lands on 50 arbitrary products, and neither page can say which. AD-17 assigns the mechanism to Epic 8 and Story 8.2 owns faceted, bookmarkable state, so the URL namespace (`/products/search?q=`) was chosen to be the one Epic 8 extends rather than orphans — but the page as shipped should be treated as a stub, and `TestProductSearchPage::test_the_page_issues_only_search_products` pins the single-entrypoint call shape so Epic 8's change is a deliberate one.
+status: open
+
+### DW-9: The scanned-identifier block on the create form carries exactly one identifier and offers no edit path afterwards
+origin: story-4-5
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: A scan can only ever contribute ONE identifier to a new product, the form renders that one pair, and once the product is created there is no UI anywhere to add, change or remove an identifier — including the one whose attach just failed on a uniqueness collision, whose flashed message tells the operator nothing they can act on.
+evidence: `_attach_scanned_identifier` reads a single `identifier_value`/`identifier_type` pair, and `app/templates/product/add.html` renders a single pair, shown only when the pre-fill supplied a value; `app/templates/product/edit.html` was deliberately left untouched and has no identifier fields at all, and `grep -n "add_identifier\|get_identifiers_for_product" app/main/routes.py` shows the service's identifier methods have exactly one route caller between them (the create path). So: an ASIN plus a GTIN on one product needs a second route that does not exist; a mistyped identifier can only be corrected in the database; and the collision message ("… already exists on product 7") names a product the operator cannot reach from the form they are on. A product-identifiers management surface is Epic 2's unfinished UI half rather than this story's — 4.5 is a consumer that adds no service method — but the create form is now the FIRST place identifiers are writable from the UI, which is what makes the missing counterpart visible.
+status: open
+
+### DW-10: An accepted scan deliberately does NOT navigate when the operator has moved to another field, and nothing tells them where it would have gone
+origin: story-4-5
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: `scan-capture.js` follows `data.url` only when `refocus()` reports that the scan field still owns focus. That is the right conservative half of the choice — navigating would destroy whatever the operator is typing in the JA ID lookup — but the destination is then discarded silently: the field clears (the accepted signal), and the routed landing is simply never reached.
+evidence: `handleSuccess` in `app/static/js/scan-capture.js` gates `window.location.href = data.url` on the same `refocus()` verdict that already prevents a late response from stealing focus, and `tests/e2e/test_wedge_scan.py::TestLateResponseDoesNotClobberTheOperator::test_late_response_does_not_steal_focus_from_another_field` pins it (the URL is not followed, the field is cleared). The intent contract states the client rule as "navigate when `data.url` is a non-empty string" and separately requires that test class to stay green with a routed stub; the focus gate is how both hold at once, and it is a deviation worth recording rather than burying. The gap it leaves is a UX one: a toast offering the destination as a link, or a queued navigation the operator can accept, would close it — but "what should an accepted scan do when the operator has already moved on" is a product decision, and Epic 9's self-sufficient scan-result view is where it naturally belongs.
+status: open
+
+### DW-11: Three hardware questions and the trim-rule relocation are re-aimed past Epic 4 — Story 4.4's DW note is answered
+origin: story-4-5
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: Story 4.4's entry "three earlier ledger entries now cite symbols this story deleted and describe Story 4.4's parser as future work; they need re-aiming at Story 4.5" is answered here. 4.5 is the last story in Epic 4, so the entries it names cannot be re-aimed at a later Epic 4 story: they are re-aimed at the first work with the PHYSICAL Tera HW0009 and a real distributor label in hand.
+evidence: Re-affirmed and re-aimed, none closed: (a) "a keyboard wedge cannot type ASCII control characters into an HTML text input" and (b) "the classifier's ECIA rule requires the literal `[)>` RS `06` header, but it is an open hardware question whether a wedge can deliver RS/GS at all" — both now cite `app/utils/ecia.py`'s `is_envelope`/`_HEADER` rather than the deleted `scan_router._is_ecia_envelope`, and this story's e2e coverage confirms the shape of the gap rather than closing it: `tests/e2e/test_scan_routing.py::test_an_ecia_envelope_prefills_mpn_quantity_and_order_references` has to place the envelope in the field with `page.evaluate` because a keypress cannot type GS. (c) "an extra LEADING separator before an ECIA header misroutes the envelope to free_text" — unchanged, and `app/main/routes.py` is no longer off-limits in principle but absorbing separators in `_clean_scan_input` would still be a fourth copy of the trim rule, which this story's Never list forbids. (d) "`ecia.is_envelope` recognizes format 06 only when it is FIRST in the message". (e) The `_SCAN_TRIM` relocation entry stands unchanged — the rule still lives as a private symbol in `app/main/routes.py` with a second copy in `ScanCapture.stripOuter`, and its "Story 4.4's parser is correct only if the trim set never widened" line should now read as a statement about shipped code rather than future work. Of the five, (a)-(d) need a decision nobody can take without the hardware; (e) needs a home for a pure util, which every Epic 4 story's Never list has so far forbidden it.
+status: open
+
+### DW-12: `api_record_purchase` accepts `NaN`/`Infinity` for `unit_price` and reports success while storing NULL
+origin: story-4-5-review
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: The JSON purchase endpoint parses `unit_price` with `Decimal(str(...))` inside a `try` that catches only `InvalidOperation`/`ValueError`. `Decimal('NaN')` and `Decimal('Infinity')` raise neither, so the request answers 201 with a `purchase` object whose price is `None` — the operator (or client) is told the price was recorded when it was silently dropped.
+evidence: Found by adversarial review of Story 4.5 and reproduced against the real app: `POST /api/products/<id>/purchases` with `unit_price: "NaN"` returns 201 and stores `NULL`. Not caused by this story — the parsing predates it (Story 1.4) and `POST /api/products/<int:product_id>/purchases` is explicitly on 4.5's Never list. The review surfaced it because 4.5's new HTML purchase form was written to mirror that parsing exactly; the form's copy WAS fixed (it now rejects non-finite and negative values with a field-scoped message), so the two entry points writing the same column now disagree, and the JSON one is the lenient half. Closing it is a one-line `is_finite()` guard in `api_record_purchase`, ideally taken together with the length rules the JSON endpoint also does not enforce.
+status: open
+
+### DW-13: `_validate_product_form`'s receipt and duplicate rules are reachable through `product_edit`, which renders no such fields and no feedback for them
+origin: story-4-5-review
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: `product_edit` shares `_validate_product_form` with `product_add`, so a crafted `POST /products/edit/<id>` carrying `quantity=0` (or `duplicate_of`) fails validation and re-renders — but `app/templates/product/edit.html` has no `quantity`/`vendor`/`vendor_sku`/`order_number` input and no `invalid-feedback` block for any of them, so the message renders nowhere and the operator sees a silent 200 no-op instead of a 302.
+evidence: Reproduced: `POST /products/edit/<id>` with a valid description plus `quantity=0` returns 200 rather than 302 and writes nothing, with no visible error. Unreachable from the real edit form, which submits none of those names — only a hand-crafted POST hits it. The shared validator is what the intent contract asked for ("`_validate_product_form` owns the check so every caller of it inherits the rule"), and that is the right call for the duplicate gate specifically, since a bypass there would be an FR41 hole. The residue is that inheriting the RECEIPT rules buys nothing on the edit form and costs a silent failure mode. Closing it means either scoping the receipt rules to the add form or giving `edit.html` the feedback blocks; both are cosmetic relative to the writes they guard, which is why it was not patched under time.
+status: open
+
+### DW-14: `POST /api/scan` is CSRF-exempt, unauthenticated and unthrottled, and now drives a leading-wildcard `LIKE` over six unindexed columns per request
+origin: story-4-5-review
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: Story 4.1 deferred the CSRF-exemption and rate-limiting questions on the stated grounds that they matter "once the endpoint has an effect". 4.5 kept the endpoint read-only, so those entries stay correctly open — but "read-only" is not "cheap": every unmatched scan now opens up to two sessions and runs `search_products`, whose `LIKE '%…%'` over `internal_id`/`description`/`notes`/`manufacturer`/`mpn` plus an EXISTS on `product_identifiers` is a full table scan, with an attacker-chosen pattern of up to `MAX_SCAN_LENGTH` (4096) characters, driveable cross-site from any page.
+evidence: Found by adversarial review of Story 4.5. The endpoint's docstring originally justified the exemption with "a cross-site POST here costs one SELECT"; that sentence was corrected in this story to state the real cost and to point at the two open ledger entries, but the exposure itself is unchanged and was deliberately not narrowed — the exemption is what makes the wedge work without a token, and adding throttling or a token is exactly the decision the existing `:144` and `:148` entries reserve. Story 4.1 bounded the log-amplification vector with `_SCAN_LOG_CHARS`; the database vector is larger and is now bounded only by `MAX_SCAN_LENGTH`. The cheapest partial mitigations, if this is ever taken up, are capping the text that reaches the fallthrough search (independently of what reaches the classifier) and per-IP throttling at the reverse proxy rather than in Flask.
+status: open
+
+### DW-15: After a routed scan navigates, `#scan-input` is no longer focused, so a consecutive scan needs a click
+origin: story-4-5-review
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: Every successful scan now loads a new page, and nothing focuses the scan field on load — `base.html` has no `autofocus` and `ScanCapture.init()` only binds handlers. The operator therefore clicks (or tabs) before each scan after the first, which is in tension with FR35's premise that wedge scanning needs no pointing device.
+evidence: Found by adversarial review of Story 4.5, which noticed that Story 4.1's `test_successful_scan_clears_field_and_keeps_focus` — the test that pinned post-scan focus — necessarily changed meaning once a successful scan navigates. Before 4.5 a scan did nothing, so retained focus was free; the regression is a real cost of making scans useful, not a defect in the routing. It was NOT patched because there is no single right answer: focusing `#scan-input` on every page load is correct on the product-detail and search landings and actively wrong on the create form, where the operator's next action is typing a description into a different field. Deciding per-destination — or giving the scan field a touch-reachable arming affordance — is Epic 9's charter (Story 9.1 touch equivalents, 9.2 the self-sufficient scan-result view, 9.3 form-state persistence), and it should be taken there rather than guessed here. Related to DW-10, which is the same question for the case where the operator moved away deliberately.
+status: open
+
+### DW-16: `tests/e2e/test_scan_routing.py` imports fixtures and helpers from `tests/e2e/test_wedge_scan.py`, coupling two modules through collection order
+origin: story-4-5-review
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: The new e2e module reuses `simulate_wedge_scan`, the scan-input selector and related helpers by importing them from a sibling test module rather than from a conftest. Renaming or reorganizing anything in `test_wedge_scan.py` now breaks a file that does not appear in its diff.
+evidence: Found by adversarial review of Story 4.5. The helpers are genuinely shared and the import works, so nothing is red — but shared e2e machinery belongs in `tests/e2e/conftest.py` (where `live_server` and `page` already live) rather than in a test module that pytest may collect in either order. A related, smaller instance in the new unit tests: several assertions reason about autoincrement arithmetic (`get_product(existing + 1) is None`) instead of the actual set of products, which is correct today only because the SQLite fixture starts empty. Both are test-hygiene items with no user-visible consequence, which is why they were deferred rather than patched.
+status: open
+
+### DW-17: A scan longer than the `q` bound can still land on a results page that excludes the hits it counted
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: `q` is now bounded by the URL budget (1024 characters) rather than by a column, which puts the truncation point past every VARCHAR the fallthrough search touches — but a scan longer than that which matched through `products.notes` (TEXT) still reaches the search page as a PREFIX, and a prefix matches a superset that `search_products`' 50-row ascending-id cap can fill with other products entirely.
+evidence: Found by the second adversarial review of Story 4.5, which reproduced the original 255-character form against the real app: one 1000-character scan, 60 products matching only the prefix and 3 matching the full text answered `outcome=search, hit_count=3` and routed to a page listing 50 products, none of them the 3. The bound was raised and `test_a_truncatable_q_does_not_evict_the_hits_it_counted` pins the fixed case (it fails at the old bound, verified). What remains is the same mechanism past 1024 characters, and it cannot be closed by bounding alone: the acceptance criterion "the products listed are exactly the `free_text_hits` the endpoint counted" is only reachable if the page can be told WHICH rows to show, or if `search_products` can order by relevance rather than by id, or if the resolver's searched text is carried rather than re-derived — and AD-15 freezes `ScanResolution` to three fields, while the search mechanism and its 50-row cap are Epic 8's under AD-17. Bounded honestly rather than claimed away: `_scan_url_value`'s docstring now states the eviction rather than the earlier, wrong "returns a SUPERSET, so never fewer".
+status: open
+
+### DW-18: FR41's duplicate gate is enforced on a client-supplied hidden field, so the server has no independent knowledge that a scan matched
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: `_validate_product_form` demands `confirm_duplicate=yes` only when the POST carries `duplicate_of`, and `duplicate_of` reaches the server only because the rendered form put it in a hidden input. A POST that simply omits the field creates the second product with no confirmation and no trace that the scan had already resolved.
+evidence: Found by the second adversarial review of Story 4.5. The mechanism is exactly what the intent contract specified ("the create form carries a hidden `duplicate_of` field; when it is non-blank and the submitted `confirm_duplicate` is not `'yes'`, the POST re-renders"), and it is implemented faithfully — the gate is in the shared validator, before any write, so no rendered path can reach the write unconfirmed. What overstates it is the acceptance criterion "it is never possible to reach that write without one": that is true of the UI flow and of nothing else. Closing it needs server-side state the gate can trust — a signed token minted by the scan endpoint, or a session note — which is a design decision about how much a scan's resolution should bind a later form POST, and is adjacent to the at-least-once/idempotency questions Epic 7 owns. No unattended fix: narrowing the AC and adding a token are different answers.
+status: open
+
+### DW-19: The scan-arrival banner is a bookmarkable re-invitation to record the same receipt again
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: `_scan_arrival_banner` renders from `request.args` on every GET, so `/products/<id>?scan_kind=ecia&quantity=100&order_number=PO-9` re-offers the same pre-filled purchase every time it is revisited — by Back, by history, by a copied link — and nothing downstream deduplicates.
+evidence: Found by the second adversarial review of Story 4.5. `POST /api/scan` was deliberately kept read-only so a duplicated scan burst costs only a lookup, and the existing at-least-once/CSRF/rate-limiting entries are aimed at that endpoint. The mutation the banner leads to is not free and is not covered by them: `record_purchase` takes no request key (`app/mariadb_catalog_service.py:1352` defers idempotent capture to Epic 7), `purchase_add` is an ordinary POST with no post-submit guard, and there is no uniqueness rule over `(product_id, order_number)`. So the receipt half of FR41 can be double-recorded by ordinary browser navigation, which then double-counts in the FR20/FR21 history and in "Last paid". Closing it means either an idempotency key on `record_purchase` (Epic 7's, and a service change this story is forbidden) or a one-shot token on the banner link; both are decisions rather than patches.
+status: open
+
+### DW-20: The create form offers vendor-scoped identifier types with no vendor-scope input, so such a row stores an empty scope
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: `_identifier_type_choices()` offers every `IdentifierType` except `INTERNAL`, which includes the vendor-scoped ones (`VENDOR_SKU`, `ASIN`, `FNSKU`, `app/models.py:174`). The form has no vendor-scope control and deliberately passes no `vendor`, so choosing one of those types stores `vendor_scope=''` — the sentinel that means "global" — and a second vendor's identical SKU then collides with it instead of coexisting.
+evidence: Found by the second adversarial review of Story 4.5, and reproduced: a create POST with `identifier_type=VENDOR_SKU` writes a row whose `vendor_scope` is empty. The choice list is what the intent contract specified verbatim ("the `IdentifierType` values minus `INTERNAL`"), and the omission of `vendor` was itself a review fix this story applied for a good reason — passing the receipt block's Vendor input would silently make an unrelated field the identifier's uniqueness scope. So the two halves are each defensible and the pair is not: either the list should be narrowed to the globally-scoped types, or the block needs its own vendor-scope input. Both deviate from an explicit contract instruction, which is why neither was taken unattended. Unreachable from a scan — only `gtin` emits a type — so it needs an operator to pick one by hand.
+status: open
+
+### DW-21: A routed scan navigates away from a partly-filled form without warning
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: The scan field lives in `base.html` and is therefore present on the create and purchase forms themselves. A scan submitted while the operator has typed into one of those forms now navigates, discarding everything unsaved, with no prompt.
+evidence: Found by the second adversarial review of Story 4.5. Before this story a successful scan did nothing, so the field was harmless on a form page; making scans useful is what created the hazard. `handleSuccess` navigates whenever the response belongs to the in-flight scan and the scan field still holds focus — which is precisely the state after a wedge fires — and there is no dirty-form check anywhere in `scan-capture.js`. The conservative half of the focus gate (DW-10) covers the operator having moved to another FIELD, not their having filled the form around the scan input. Closing it well is Epic 9's: Story 9.3 owns form-state persistence, and the alternatives (a `beforeunload` prompt, a queued navigation the operator accepts, or persisting the form and restoring it) are the same decision as DW-15's "what should an accepted scan do when the operator is in the middle of something".
+status: open
+
+### DW-22: A scanned first receipt cannot be given a price without creating a second Purchase
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: The create form's First Receipt block carries `quantity`, `order_number`, `vendor` and `vendor_sku` and no `unit_price`, and there is no purchase edit or delete route anywhere — so the only way to price the receipt captured on create is to record a SECOND Purchase, which then duplicates the row in the FR20/FR21 history and skews "Last paid".
+evidence: Found by the second adversarial review of Story 4.5. `_RECEIPT_FIELDS` is exactly the four field names the intent contract listed for that fieldset, so adding `unit_price` would deviate from it; `grep -n "@bp.route.*purchase" app/main/routes.py` shows only `purchases/add` and the untouched JSON endpoint, so nothing can amend a Purchase after the fact. A distributor label carries no price either (nothing in `ECIA_FIELD_KEYS` is one), so the pre-fill loses nothing — the gap is only for the operator who knows the price while creating the product. Either the block gains the field or the story's scope should say plainly that first-receipt capture is price-less; a purchase edit path would close it more generally and belongs with whatever story gives Purchases a management surface.
+status: open
+
+### DW-23: A GTIN check-digit failure is still judged after the commit, and the recovery its message names does not exist
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: Three of the four purely-checkable identifier faults were moved in front of the write by this review pass (a blank type, an unknown type, an over-long value). The fourth — a value typed `GTIN` whose check digit does not validate — is still first judged inside `add_identifier`, after `create_product` has committed, and the service's message tells the operator to "store it as GTIN_UNVALIDATED", which no surface lets them do.
+evidence: Found by the second adversarial review of Story 4.5 and confirmed: the POST returns 200 with the product created and only an advisory flash. It was not moved with its three siblings because the check is not makeable from the form alone — it means re-deriving GS1 check-digit validation and the 14-digit normalization that `add_identifier` applies (`app/mariadb_catalog_service.py:1680-1687`), from `app/utils/gtin.py`, which is read-only in this story. That would be a third copy of a normalization rule, which every Epic 4 story's Never list has resisted for the same reason. Reachable only by hand-editing the type or the value — the classifier emits `GTIN` only for a value whose check digit already validated — and the honest fix is either a service-side pure validator the route may call, or the identifier-management surface DW-9 wants, at which point the message becomes actionable.
+status: open
+
+### DW-24: The purchase form accepts a `received_date` earlier than its `order_date`
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: `_parse_purchase_form` validates each date's format independently and never compares them, so a Purchase can record having been received before it was ordered — and nothing downstream refuses it either.
+evidence: Found by the second adversarial review of Story 4.5. `record_purchase` validates nothing (`app/mariadb_catalog_service.py:1339`), and `api_record_purchase` has had the same gap since Story 1.4, so the HTML form inherits it rather than introducing it. Not patched because it is a new business rule rather than a column constraint: the pair may be legitimately partial (either date may be NULL), a receipt logged against a back-dated order is real, and FR19's on-order/received signals are the consumer that would define what "impossible" means. Should be taken with the same rule applied to both entry points at once, as DW-25 says of the other bounds they now disagree about.
+status: open
+
+### DW-25: `api_record_purchase` still lacks the magnitude, scale and length bounds the HTML form now enforces on the same columns
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: This pass gave the HTML purchase form `Numeric(10, 2)`-shaped bounds on `unit_price` (a value past `99999999.99` is refused rather than failing opaquely on MariaDB; a third decimal place is refused rather than silently rounded). The JSON endpoint writing the same column enforces neither, and — per the still-open DW-12 — not the non-finite check nor the length limits either.
+evidence: Found by the second adversarial review of Story 4.5 and reproduced through the form before the fix: `1E+30` stored `1000000000000000019884624838656.00` under SQLite and cannot be stored at all under MariaDB; `0.005` reported success while storing `0.01`. `POST /api/products/<int:product_id>/purchases` is on 4.5's Never list and was not touched, so the two entry points to one column now disagree in four ways rather than DW-12's one. Closing it is a handful of guards in `api_record_purchase` mirroring `_parse_purchase_form`, ideally taken as one change together with DW-12 and DW-24 so the JSON and HTML rules are written from the same list rather than converging by accident.
+status: open
+
+### DW-26: An `internal` scan that matched no product pre-fills `description` with the raw label rather than the id it contains
+origin: story-4-5-review-2
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: `_scan_prefill_args` sends `internal` scans down the same AIM-stripped-raw path as free text, so a scan of `96WITABC123` whose product no longer exists opens the create form with `96WITABC123` in Description — the field that becomes the product's label — while `_scan_search_text` uses the bare `normalized_value` (`ABC123`) for the very same scan.
+evidence: Found by the second adversarial review of Story 4.5. The two derivations of "what this scan says" disagree inside one function pair, and the operator has to hand-edit the AI and the ownership token out of the description before saving. The behavior is what the intent contract's pre-fill table specified (`internal`, `free_text` -> `description` <- "the AIM-stripped raw scan"), which is why it was not changed here. It is also a narrow case: an internal label exists because this system minted it, so a scan of one that matches nothing means the product was deleted or the label predates the database. The better pre-fill is probably `normalized_value` in `description` (or in a `notes` line recording that the label matched nothing), and choosing needs the story that decides what a re-adopted orphan label should mean — Epic 2's identifier-management half, alongside DW-9.
+status: open
+
+### DW-27: A distributor scan records a Purchase the operator never asked for, dated today
+origin: story-4-5-review-3
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: `_ecia_prefill` puts the ECIA `P` record into `vendor_sku`, and `vendor_sku` is one of `_RECEIPT_FIELDS`, so the "any non-blank receipt field records one Purchase" trigger fires on a value the SCAN filled in rather than the operator. Scanning a `1P`+`P` label, typing only a description and saving writes a Purchase whose only real content is the distributor's part number — with `order_date` defaulted to today by `record_purchase`, a receipt date nobody entered.
+evidence: Found by the third adversarial review of Story 4.5 and reproduced: `[)>␞06␝1PABC-123␝PXYZ-999␝␞␄` routes to `/products/add?mpn=ABC-123&vendor_sku=XYZ-999`, and a save with only a description produces `Purchase(vendor=NULL, vendor_sku='XYZ-999', quantity=NULL, unit_price=NULL, order_number=NULL, order_date=<today>)` in the FR20/FR21 history. The fieldset's own help text — "Leave blank to create the product without a purchase record" — is misleading in exactly this case, because it was not the operator who filled it in. Both halves are explicit intent-contract instructions (`vendor_sku` <- `P` in the pre-fill table; the four `_RECEIPT_FIELDS` names in the trigger), so neither could be changed unattended. The candidate fixes are all decisions: trigger only on the fields a human plausibly typed (`quantity`/`order_number`), require an explicit "record a first receipt" checkbox, or leave `order_date` NULL when the receipt was scan-derived rather than typed. Not visible to the suite because no test submits an ECIA-prefilled create form. Adjacent to DW-22, which is the same fieldset's other half.
+status: open
+
+### DW-28: `_bounded_scan_url`'s halving can cut `q` far below the bound DW-17 records as the safe one
+origin: story-4-5-review-3
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: medium
+summary: DW-17 records the residual eviction risk as beginning past `_SCAN_URL_Q_LIMIT` (1024 characters), "past every VARCHAR the fallthrough search touches". `_bounded_scan_url` then halves the longest argument repeatedly until the assembled URL fits 7000 characters, which for a multi-byte alphabet drives `q` well back inside that range — a 4096-character CJK or emoji scan percent-encodes to roughly twelve bytes per character, so `q` is halved from 1024 to 256 while `hit_count` was computed from the full scan.
+evidence: Found by the third adversarial review of Story 4.5, reading the two bounds against each other. Each is individually correct — the transport bound genuinely can only be measured on the assembled URL, and truncating the longest value is the least-bad way to hit it — but their composition means the truncation point is a function of the scanned alphabet rather than the fixed 1024 the ledger and the docstring both state. The consequence is DW-17's exactly: a prefix matches a superset that `search_products`' 50-row ascending-id cap can fill with other products. DW-17 is deliberately not edited (the orchestrator owns it); this entry records the composition. The cheap partial fix is to floor the halving so `q` is never cut below a stated minimum and to drop OTHER arguments first, since every one of them is a re-editable pre-fill while `q` is the only value the results depend on.
+status: open
+
+### DW-29: The identifier rules are inherited by `product_edit`, which renders neither field nor feedback
+origin: story-4-5-review-3
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: DW-13's shape, on the field set this review pass touched. `_validate_product_form`'s identifier rules (a value with no type, an unknown or `INTERNAL` type, a value over 255 characters) are shared with `product_edit`, whose `edit.html` has no `identifier_value` input and no `invalid-feedback` block for either name — so a POST carrying one gets a silent 200 that writes nothing and says nothing.
+evidence: Found by the third adversarial review of Story 4.5. This pass fixed the half that was reachable on the ADD form (an unknown type beside a BLANK value raised an error the add template also hides, because the whole Scanned Identifier card is conditional on `identifier_value`; every identifier rule is now gated on a non-blank value, and `TestNoErrorRendersNowhere` pins it). What remains is the edit form, which renders none of these fields at all, so only a hand-crafted POST reaches it — unreachable from the real UI, exactly as DW-13 describes for the receipt fields. Closing it is the same choice DW-13 names: scope the add-only rules to `product_add`, or give `edit.html` the feedback blocks. Should be taken together with DW-13 rather than separately.
+status: open
+
+### DW-30: `product_add` and `product_edit` now tell the operator two different stories about the same failure
+origin: story-4-5-review-3
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+summary: The previous review pass made `product_add` flash "Product created successfully!" unconditionally and append any post-commit follow-up failures beside it, for a good reason (FR41's confirmed-duplicate path can only ever produce a refused identifier, and suppressing the success made a working save look like a failed one). `product_edit`'s tag-apply failure still returns early and never flashes "Product updated successfully!", so the identical failure mode — row committed, follow-up failed — reads as a partial success on one form and as an outright failure on the other.
+evidence: Found by the third adversarial review of Story 4.5. `product_add`'s change was deliberate and its test was inverted to match; `product_edit` was not touched because it is outside this story's scope (4.5 adds scan destinations, and the edit form is neither). The add form's behavior is the correct one of the two — the product exists either way, and the operator's natural response to "the save failed" is a resubmit, which on the create path is how a second product gets made. Closing it means applying the same collect-then-flash shape to `product_edit`, ideally alongside DW-13/DW-29, since all three are about the two forms sharing machinery they do not share surfaces for.
+status: open
+
+### DW-31: Follow-up review still recommended for 4-5-scan-outcome-routing-in-the-ui after the damping cap was spent
+origin: review-budget-followup
+source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260724-153649-49e6; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

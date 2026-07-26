@@ -10,6 +10,42 @@
         <form method="POST" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
+            {# Story 4.5 (FR41): a scan that already matched an existing product.
+               Creating a second one is destructive-by-accident, so the server
+               refuses the write until this box is ticked — the check lives in
+               _validate_product_form, not here. #}
+            {% if form_data.get('duplicate_of') %}
+            <input type="hidden" name="duplicate_of" value="{{ form_data.get('duplicate_of') }}"/>
+            <div class="alert alert-warning" id="duplicate-warning">
+                <h2 class="h6 alert-heading"><i class="bi bi-exclamation-triangle"></i> This scan already matched a product</h2>
+                <p class="mb-2">
+                    You are about to create a <strong>separate</strong> product for a
+                    scan that already resolved to
+                    <a href="{{ url_for('main.product_detail', product_id=form_data.get('duplicate_of')) }}">an existing product</a>.
+                    {% if form_data.get('identifier_value') %}
+                    The scanned identifier stays with that product — an identifier
+                    is unique across the catalog, so it cannot be attached here as
+                    well.
+                    {% endif %}
+                </p>
+                <div class="form-check">
+                    {# Echoed back like every sibling field: an operator who
+                       ticked this and then tripped an UNRELATED validation
+                       error must not be silently returned to the unconfirmed
+                       state on the one control guarding a destructive write. #}
+                    <input class="form-check-input{% if validation_errors and validation_errors.confirm_duplicate %} is-invalid{% endif %}"
+                           type="checkbox" value="yes" id="confirm_duplicate" name="confirm_duplicate"
+                           {% if form_data.get('confirm_duplicate') == 'yes' %}checked{% endif %}>
+                    <label class="form-check-label" for="confirm_duplicate">
+                        Yes, create a separate product anyway.
+                    </label>
+                    {% if validation_errors and validation_errors.confirm_duplicate %}
+                    <div class="invalid-feedback d-block">{{ validation_errors.confirm_duplicate }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
             <div class="card mb-3">
                 <div class="card-header">Product Information</div>
                 <div class="card-body">
@@ -74,6 +110,105 @@
                             <label for="notes" class="form-label">Notes</label>
                             <textarea class="form-control" id="notes" name="notes" rows="3">{{ form_data.get('notes', '') }}</textarea>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Story 4.5 (FR40): the identifier a scan carried, shown only when
+               the scan supplied one and always editable before it is saved. The
+               type list comes from the route (identifier_type_choices) so the
+               template never imports the enum; INTERNAL is not among them
+               because add_identifier refuses it. #}
+            {% if form_data.get('identifier_value') %}
+            <div class="card mb-3" id="scanned-identifier">
+                <div class="card-header"><i class="bi bi-upc-scan"></i> Scanned Identifier</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="identifier_type" class="form-label">Type *</label>
+                            {# The empty first option is load-bearing: without
+                               it a URL carrying a value but no type renders a
+                               select with nothing selected, the browser picks
+                               the first declared enum member, and a non-GTIN
+                               value gets GTIN-typed and check-digit-normalized.
+                               The server refuses a blank type beside a
+                               non-blank value (_validate_product_form). #}
+                            <select class="form-select{% if validation_errors and validation_errors.identifier_type %} is-invalid{% endif %}"
+                                    id="identifier_type" name="identifier_type">
+                                <option value=""{% if not form_data.get('identifier_type') %} selected{% endif %}>Select a type…</option>
+                                {% for choice in identifier_type_choices %}
+                                <option value="{{ choice }}"{% if form_data.get('identifier_type') == choice %} selected{% endif %}>{{ choice }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if validation_errors and validation_errors.identifier_type %}<div class="invalid-feedback d-block">{{ validation_errors.identifier_type }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-8 mb-3">
+                            <label for="identifier_value" class="form-label">Value</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.identifier_value %} is-invalid{% endif %}"
+                                   id="identifier_value" name="identifier_value"
+                                   value="{{ form_data.get('identifier_value', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.identifier_value %}<div class="invalid-feedback d-block">{{ validation_errors.identifier_value }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="form-text">
+                        {# On the duplicate path this card sat directly under a
+                           warning saying the identifier CANNOT be attached here,
+                           while promising the opposite — and the save then
+                           always failed on the uniqueness constraint. Both
+                           blocks now say the same thing. #}
+                        {% if form_data.get('duplicate_of') %}
+                        This identifier already belongs to the product above, and
+                        an identifier is unique across the catalog — saving will
+                        report that it could not be attached. Clear the value to
+                        create the product without it.
+                        {% else %}
+                        Attached to the product when you save it. Clear the value to
+                        create the product without it.
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {# Story 4.5 (FR39): the optional first receipt. Blank throughout
+               records nothing; any non-blank field records one Purchase. #}
+            <div class="card mb-3" id="first-receipt">
+                <div class="card-header">First Receipt <span class="text-muted small">(optional)</span></div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.quantity %} is-invalid{% endif %}"
+                                   id="quantity" name="quantity" maxlength="10"
+                                   value="{{ form_data.get('quantity', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.quantity %}<div class="invalid-feedback d-block">{{ validation_errors.quantity }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="order_number" class="form-label">Order Number</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.order_number %} is-invalid{% endif %}"
+                                   id="order_number" name="order_number" maxlength="255"
+                                   value="{{ form_data.get('order_number', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.order_number %}<div class="invalid-feedback d-block">{{ validation_errors.order_number }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-5 mb-3">
+                            <label for="vendor" class="form-label">Vendor</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.vendor %} is-invalid{% endif %}"
+                                   id="vendor" name="vendor" maxlength="255"
+                                   value="{{ form_data.get('vendor', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.vendor %}<div class="invalid-feedback d-block">{{ validation_errors.vendor }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label for="vendor_sku" class="form-label">Vendor SKU</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.vendor_sku %} is-invalid{% endif %}"
+                                   id="vendor_sku" name="vendor_sku" maxlength="255"
+                                   value="{{ form_data.get('vendor_sku', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.vendor_sku %}<div class="invalid-feedback d-block">{{ validation_errors.vendor_sku }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="form-text">
+                        Leave blank to create the product without a purchase record.
                     </div>
                 </div>
             </div>

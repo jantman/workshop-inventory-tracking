@@ -5,10 +5,15 @@
  * field and POSTs the typed characters verbatim to /api/scan.
  *
  * This file is deliberately dumb. It performs NO classification, NO
- * normalization, NO uppercasing and NO navigation — the server decides what a
- * scan means (Story 4.2's classifier, Story 4.3's resolver, Story 4.5's
- * routing all land behind the same POST). Keeping it out of main.js keeps the
- * epic-4 scan logic in one isolated file.
+ * normalization and NO uppercasing — the server decides what a scan means
+ * (Story 4.2's classifier, Story 4.3's resolver, Story 4.5's routing all land
+ * behind the same POST). Keeping it out of main.js keeps the epic-4 scan logic
+ * in one isolated file.
+ *
+ * Story 4.5 adds exactly ONE behavior: an accepted scan's response carries a
+ * server-built `url`, and the client follows it. It does NOT build that URL, and
+ * it does not read `kind` or `outcome` to decide where to go — if it branched on
+ * either, FR36's precedence would exist in two languages (AD-5).
  *
  * Note there is no document-level key listener here: capture requires the
  * field to have focus, and main.js's global shortcut handler already
@@ -223,7 +228,7 @@ const ScanCapture = {
                     ? timedOut
                     : 'Scan failed: could not reach the server.');
             } else if (result.ok && result.data && result.data.success) {
-                this.handleSuccess(rawText);
+                this.handleSuccess(rawText, result.data);
             } else if (controller.signal.aborted) {
                 // The abort landed while the response BODY was being read, so
                 // it surfaced as a null `data` above rather than as a rejected
@@ -259,7 +264,7 @@ const ScanCapture = {
      * field; blanking it unconditionally would erase those keystrokes and
      * still show the cleared-field "accepted" signal — a lost scan.
      */
-    handleSuccess: function(rawText) {
+    handleSuccess: function(rawText, data) {
         if (this.input.value !== rawText) {
             // Newer keystrokes win. If they sit ON TOP of the text the server
             // just accepted ("SCAN1SCAN2") the field is contaminated, so record
@@ -282,7 +287,65 @@ const ScanCapture = {
 
         this.input.value = '';
         this.forgetFieldText();
-        this.refocus();
+        const stillOurs = this.refocus();
+
+        // Story 4.5: follow the destination the SERVER chose. The URL is taken
+        // as given — no parsing, no branching on `kind` or `outcome`, no
+        // construction (AD-5).
+        //
+        // The one thing checked is that it resolves to THIS origin. `url_for`
+        // cannot emit an external URL today, so this is defence in depth — but
+        // the endpoint producing it is CSRF-exempt, so the check has to actually
+        // hold: a character test does not. "/\evil.example" passes any
+        // "starts with / but not //" rule and is then normalized by the browser
+        // to "//evil.example", i.e. scheme-relative and off-site. Resolving the
+        // URL the way the browser will and comparing origins is the same one
+        // line and has no such gap.
+        const url = (data && typeof data.url === 'string') ? data.url : '';
+        let sameOrigin = false;
+        if (url) {
+            try {
+                sameOrigin = new URL(url, window.location.href).origin ===
+                    window.location.origin;
+            } catch (e) {
+                sameOrigin = false;
+            }
+        }
+
+        // Gated on refocus()'s verdict for the same reason the clear above is
+        // gated on the field still holding what was submitted: a response is
+        // asynchronous, and if the operator has already moved to another field
+        // (the JA ID lookup, say) then navigating would destroy what they are
+        // typing there. Refusing to navigate is the conservative half of that
+        // choice — the scan WAS accepted, the field is cleared to say so, and
+        // the operator simply stays where they put themselves.
+        if (stillOurs) {
+            if (sameOrigin) {
+                window.location.href = url;
+            } else {
+                // Accepted, cleared, and going nowhere: `url` was missing, empty
+                // or not ours. The endpoint's contract says that cannot happen,
+                // which is exactly why it must not be silent if it ever does —
+                // a cleared field with no landing reads as "never fired" and
+                // invites a rescan, the same reasoning as the two branches
+                // either side of this one.
+                this.notify(
+                    `Scan accepted: ${this.printable(rawText)}. It had no usable` +
+                        ' destination - find the product from the menu.',
+                    'warning');
+            }
+            return;
+        }
+
+        // ...and the OTHER half is saying so. The field cleared silently while
+        // the operator was looking somewhere else, and the destination was
+        // dropped; silence there reads as "never fired" and invites a rescan of
+        // something the server has already taken — the same reasoning as the
+        // contaminated-field branch above. Focus is still not stolen.
+        this.notify(
+            `Scan accepted: ${this.printable(rawText)}. You had moved to another` +
+                ' field, so it was not followed.',
+            'warning');
     },
 
     /**
