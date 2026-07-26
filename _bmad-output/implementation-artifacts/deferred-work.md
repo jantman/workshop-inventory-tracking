@@ -381,7 +381,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-3-free-form-tags.md`
 location: `config.py`
 reason: The app configures no `MAX_CONTENT_LENGTH`, so every form POST is bounded only by the WSGI server's own default and each handler's per-field guards.
 evidence: `grep -rn "MAX_CONTENT_LENGTH" config.py app/` returns nothing. Story 3.3 surfaced it because the tag field deliberately carries no `maxlength` (it holds a list, not a value) and so needed its own pre-split ceiling in `parse_tag_list` — a guard that exists per-field precisely because no request-level one does. The same gap applies to `notes` (a `Text` column with no length check in `_validate_product_form`) and to the attachment upload path, whose `ATTACHMENT_MAX_SIZE` check runs only after Werkzeug has already buffered the whole body. One `MAX_CONTENT_LENGTH` in `config.py` covers every current and future handler at once, which is app-scope work rather than one story's.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-request-body-size-limit
 
 ### DW-48: `/products/tags` shows counts next to an Actions column offering nothing but "View products", so a typo'd tag can only be corrected product by product
 origin: migrated from legacy ledger ("3-3-free-form-tags.md"), 2026-07-26
@@ -430,7 +431,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-1-wedge-scan-capture.md`
 location: `config.py`, `app/main/routes.py` (every JSON handler, including `api_scan`)
 reason: No endpoint in the app sets a request-body size limit, so an oversized JSON body is buffered and parsed in full before any application-level length check can reject it.
 evidence: `grep -rn "MAX_CONTENT_LENGTH" app/ config.py` returns nothing. `POST /api/scan` bounds `raw` at 4096 characters, but only after `request.get_json(silent=True)` has already read and parsed the entire body — the same is true of every other JSON handler in `app/main/routes.py`. The app is unauthenticated and every JSON route is `@csrf.exempt`, so any script on the LAN can force an arbitrarily large parse. Setting `MAX_CONTENT_LENGTH` is an app-wide config decision that must be reconciled with the photo-upload endpoints (which legitimately accept multi-megabyte bodies), so it is not one story's change.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-request-body-size-limit
 
 ### DW-54: `showToast` interpolates its message into an HTML string and inserts it with `insertAdjacentHTML`, making every toast an unescaped HTML sink
 origin: migrated from legacy ledger ("4-1-wedge-scan-capture.md"), 2026-07-26
@@ -746,4 +748,35 @@ location: `app/main/routes.py` (`api_record_purchase`, `request.get_json(silent=
 severity: low
 summary: `request.get_json(silent=True) or {}` keeps a JSON array, string or number as-is, and the first `body.get(...)` then raises `AttributeError`, which escapes as the generic 500 shape rather than AD-13's `{success: false, error: {code, message, field}}` with a 400.
 evidence: Reproduced by the follow-up review: `client.post('/api/products/<id>/purchases', json=[1, 2])` raises `AttributeError: 'list' object has no attribute 'get'`; in production `app/error_handlers.py` answers it as a generic 500 whose body is not the AD-13 envelope this endpoint otherwise honors. Pre-existing and unchanged in kind — before the json-purchase-bounds-parity bundle the first dereference was `body.get('unit_price')` inside a `try` catching only `(InvalidOperation, ValueError)`, so an `AttributeError` escaped there too; only the line number moved. Closing it is a two-line `isinstance(body, dict)` guard returning `invalid_request` with 400, and the same guard is likely wanted on every AD-13 endpoint that reads a JSON body rather than on this one alone.
+status: open
+
+### DW-91: The JSON log formatter emits `request.url` and `user_agent` unbounded on the very record whose message the 413 handler carefully truncates
+origin: spec-request-body-size-limit-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-request-body-size-limit.md`
+location: `app/logging_config.py` (the JSON formatter's `request` block), consumed by `app/error_handlers.py` `handle_request_too_large`
+severity: medium
+summary: `handle_request_too_large` bounds `request.path` to 128 chars and CR/LF-escapes it with a visible truncation marker, then the formatter attaches the full untruncated `request.url` and `user_agent` to the same record, so an attacker still turns ~7 KB of chosen text into ~15 KB of log per rejected request.
+evidence: Measured on the follow-up review with a 4000-char path and a 3000-char User-Agent against `POST /api/scan`: `message` length 178 (correctly bounded), `request.url` length 4025, `user_agent` length 3000, whole JSON record ~7.6 KB. Pre-existing and app-wide -- the formatter emits those fields for every record on every route, so this is not caused by the 413 handler; the handler merely made the asymmetry visible by bounding its own half. CR/LF forging is genuinely prevented (JSON encoding escapes the structured fields), so only the volume half of the claim fails. A related note about `AuditLogFilter` emitting the full `request.url` was recorded in the pass-7 spec notes; this entry is the ledger record. Closing it means bounding the caller-controlled fields in the formatter itself, which fixes every log line in the app at once rather than one handler's.
+
+### DW-92: Every log record is emitted twice
+origin: spec-request-body-size-limit-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-request-body-size-limit.md`
+location: `app/logging_config.py` `setup_logging`
+severity: low
+summary: A single `app.logger.warning(...)` call produces two identical JSON records on the configured stream, doubling log volume for every message the application emits.
+evidence: Reproduced directly and minimally: `create_app(TestConfig); app.logger.warning('PLAIN MARKER')` in a fresh interpreter emits the marker record twice. Entirely pre-existing and unrelated to the body-limit work -- it reproduces with no request in flight and with a bare logger call, and the same doubling was visible on the 413 rejection records only because those go through the same logger. The usual cause is a handler installed on both `app.logger` and the root logger with propagation left on. Closing it is a one-line propagation or handler-ownership fix in `setup_logging`, plus a test asserting one record per call.
+
+### DW-93: The forced `parse_form_data=True` promotes Flask's form limits into hard transport limits on routes that never read the form
+origin: spec-request-body-size-limit-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-request-body-size-limit.md`
+location: `app/request_limits.py` (`enforce_request_body_limit`, `request.get_data(cache=True, parse_form_data=True)`)
+severity: low
+summary: Because the hook parses form data on every routed request, Flask's untouched 500 KB `MAX_FORM_MEMORY_SIZE` and 1000 `MAX_FORM_PARTS` defaults now reject urlencoded and multipart bodies on routes that never touch `request.form`, so raising `MAX_REQUEST_BODY_BYTES` does not raise the effective limit for those bodies.
+evidence: Measured on the follow-up review with `MAX_REQUEST_BODY_BYTES` at 4 MiB and a route that ignores its body: a 600 KB `application/x-www-form-urlencoded` POST is a **413**, while the same 600 KB sent as `application/octet-stream` is a **200**. The forced parse is deliberate and load-bearing -- it is what moves the lazily-raised form-limit 413 out of the views whose `except Exception` used to downgrade it to a 500, and it is pinned in the spec's Boundaries -- so this is a recorded consequence of an accepted design decision, not a defect in its implementation. Both `.env` templates already name `MAX_FORM_MEMORY_SIZE` as the limit governing form bodies, but neither says the reach now extends to routes that never read the form. Closing it means either scoping `parse_form_data` to endpoints that actually consume forms (which reintroduces the per-endpoint bookkeeping the hook exists to avoid) or documenting the widened reach explicitly.
+
+### DW-94: Follow-up review still recommended for dw-request-body-size-limit after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-request-body-size-limit.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

@@ -2208,8 +2208,13 @@ def api_scan():
     # Bound the captured value, before trimming. Note what this does NOT do:
     # the body has already been read and parsed by get_json() above, and len()
     # counts code points rather than bytes, so this is a payload sanity bound,
-    # not a transport/memory guard. Bounding the request body itself is an
-    # app-wide MAX_CONTENT_LENGTH concern and is tracked as deferred work.
+    # not a transport/memory guard. The transport bound is now a separate,
+    # active control: app/request_limits.py caps the request body at
+    # MAX_REQUEST_BODY_BYTES (MAX_UPLOAD_BODY_BYTES on the two upload
+    # endpoints) at the WSGI layer, so a body over that is a 413 before this
+    # view runs at all. The two are additive — the cap stops a body that should
+    # never have been buffered, this stops an in-bounds body carrying an
+    # implausible `raw`.
     if len(raw) > MAX_SCAN_LENGTH:
         current_app.logger.warning(
             'Scan rejected: %d characters exceeds the %d limit, starts %r',

@@ -10,7 +10,17 @@ import traceback
 import time
 from typing import Dict, Any, Optional, Callable, Tuple
 from functools import wraps
-from flask import current_app, jsonify, flash, redirect, url_for, request, session
+from flask import (current_app, jsonify, flash, redirect, render_template,
+                   url_for, request, session)
+from werkzeug.exceptions import RequestEntityTooLarge
+
+# The LEAF configuration error, defined in config.py so that module stays free
+# of `app` imports. `app.exceptions.ConfigurationError` subclasses it, but a
+# leaf instance -- which `config._bytes_from_env` and `validate_limits` can both
+# produce -- is NOT an instance of the app-side class, so registering only the
+# app-side handler left the leaf as an unhandled 500 inside a request context.
+# Both are registered below.
+from config import ConfigurationError as BootConfigurationError
 
 from app.exceptions import (
     WorkshopInventoryError, ValidationError, StorageError, GoogleSheetsError,
@@ -277,6 +287,79 @@ class CircuitBreaker:
                 f"Circuit breaker OPEN after {self.failure_count} failures"
             )
 
+# The app has TWO JSON error conventions and there is no single correct shape.
+# `app/static/js/scan-capture.js:457` reads `data.error.message` (the AD-13
+# OBJECT envelope built by `_catalog_json_error`); `inventory-move.js:704`
+# interpolates `${result.error}` and four other clients do `data.error ||
+# fallback`, all of which render "[object Object]" if handed the object shape.
+# So the 413 envelope is selected BY ENDPOINT. This set is the routes that call
+# `_catalog_json_error`; tests/unit/test_request_limits.py pins it structurally
+# to those views, so a new catalog route that forgets to appear here is caught.
+CATALOG_JSON_ENDPOINTS = frozenset({
+    'main.api_scan',
+    'main.api_record_purchase',
+})
+
+# Endpoints that serve BOTH a browser form navigation and a fetch() JSON client
+# on the same rule, where the rule carries no `/api/` to select on.
+# `main.inventory_add` renders a page for a normal submit, but for quantity > 1
+# `app/static/js/inventory-add.js:702` posts the same form by `fetch()` and
+# calls `response.json()` on the result. It is the only such endpoint in the app
+# (tests/unit/test_request_limits.py pins that structurally).
+#
+# These cannot be settled by an XHR marker: that `fetch()` passes NO headers at
+# all, so there is no `X-Requested-With` and the browser sends `Accept: */*`.
+# What DOES separate the two callers is exactly that Accept header — a browser
+# navigation sends `text/html,...,*/*;q=0.8`, which prefers HTML, while
+# `fetch()`'s `*/*` does not prefer either. So for these endpoints only, answer
+# JSON unless the client explicitly prefers HTML. Restricted to this set on
+# purpose: applied globally the same rule would hand JSON to every `curl`
+# (`Accept: */*`) hitting an ordinary HTML page.
+JSON_HTML_HYBRID_ENDPOINTS = frozenset({
+    'main.inventory_add',
+})
+
+# Deliberately limit-agnostic. RequestEntityTooLarge is raised by the transport
+# cap in app/request_limits.py, but ALSO by Flask's untouched 500 KB
+# MAX_FORM_MEMORY_SIZE and by MAX_FORM_PARTS, so naming a specific limit here
+# would be wrong for two of the three causes. No byte count from the request is
+# echoed back either.
+#
+# A FILE IS NOT THE ONLY CAUSE, and the wording must not imply it is: the
+# 500 KB MAX_FORM_MEMORY_SIZE limit above is reached by a long text field with
+# no file involved at all (measured: a 600 KB urlencoded POST is a 413), and the
+# transport cap is reached by an over-large batch. All three remedies are named.
+REQUEST_TOO_LARGE_MESSAGE = (
+    'The submitted data was too large to accept. Try again with a smaller file, '
+    'less text in a single field, or fewer items at once.'
+)
+
+# How much of a caller-controlled value reaches the log line. BOTH the declared
+# Content-Length and the request path are attacker-chosen and effectively
+# unbounded -- a 5000-digit Content-Length and a multi-kilobyte path both fit
+# inside every default header budget -- so both are bounded, and both have CR/LF
+# stripped: the deployment guide tells operators to aggregate the JSON log, and
+# a newline in either value forges whole records in it.
+LOGGED_CONTENT_LENGTH_CHARS = 32
+LOGGED_PATH_CHARS = 128
+LOGGED_METHOD_CHARS = 16
+# Appended when a value was clipped, so a truncated value can never be read as a
+# genuine short one.
+LOG_TRUNCATION_MARKER = '...'
+
+
+def _for_log(value, max_chars):
+    """Bound `value` to `max_chars` and make it safe to put in one log record.
+
+    CR and LF are escaped rather than dropped, so an injection attempt is
+    visible in the log rather than silently normalised away, and truncation is
+    marked so a clipped value cannot masquerade as a short one.
+    """
+    text = str(value).replace('\r', '\\r').replace('\n', '\\n')
+    if len(text) > max_chars:
+        return text[:max_chars] + LOG_TRUNCATION_MARKER
+    return text
+
 # Global circuit breakers for external services
 google_sheets_circuit_breaker = CircuitBreaker(
     failure_threshold=3,
@@ -323,6 +406,13 @@ def create_error_handlers(app):
             flash("Authentication required. Please sign in.", 'warning')
             return redirect(url_for('main.index'))
     
+    # Registered for BOTH classes. Flask dispatches on the exception's own MRO
+    # and picks the most specific registered class, so the app-side subclass
+    # still lands here; without the leaf registration a bare
+    # `config.ConfigurationError` raised in a request context was an unhandled
+    # 500 -- a catchable configuration-error class sitting outside the dispatch
+    # its own docstring documents.
+    @app.errorhandler(BootConfigurationError)
     @app.errorhandler(ConfigurationError)
     def handle_config_error(error):
         error_info = ErrorHandler.handle_error(error, "Configuration")
@@ -341,6 +431,119 @@ def create_error_handlers(app):
             flash("An internal error occurred. Please try again.", 'error')
             return redirect(url_for('main.index'))
     
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_request_too_large(error):
+        """413 for a body over the transport cap (app/request_limits.py) or over
+        Flask's form-field limits.
+
+        Two deliberate divergences from the sibling handlers above:
+
+        1. The HTML branch RENDERS a page instead of flash-and-redirect. A
+           redirect answering a rejected POST throws away the error context, and
+           an earlier iteration derived the redirect target from `Referer` —
+           which produced an open redirect, a `javascript://` scheme bypass, a
+           `urlsplit` ValueError 500 on `Referer: http://[::1`, and a
+           self-redirect loop under a non-root SCRIPT_NAME. No response target
+           here is derived from any request header, so no header can steer it.
+        2. The JSON envelope is chosen by endpoint; see CATALOG_JSON_ENDPOINTS.
+
+        This handler must not raise for ANY request shape: it runs ahead of
+        every view, so an exception escaping it is a 500 with nothing left to
+        catch it. Hence the raw environ read below rather than
+        `request.content_length`, whose Werkzeug parse can itself raise on a
+        hostile value.
+        """
+        # EVERY value below is caller-controlled, so every one of them is
+        # bounded and CR/LF-escaped -- not just the header. `request.path` is
+        # attacker-chosen, effectively unbounded, and can carry an encoded
+        # newline; echoing it raw next to a carefully truncated Content-Length
+        # was a defect, not a difference in kind.
+        declared_length = request.environ.get('CONTENT_LENGTH')
+        if declared_length is None or not str(declared_length).strip():
+            declared_length = 'unknown'
+        else:
+            declared_length = _for_log(declared_length, LOGGED_CONTENT_LENGTH_CHARS)
+        current_app.logger.warning(
+            'Request body rejected as too large: %s %s (Content-Length: %s)',
+            _for_log(request.method, LOGGED_METHOD_CHARS),
+            _for_log(request.path, LOGGED_PATH_CHARS),
+            declared_length)
+
+        # The JSON branch is chosen from EVIDENCE THAT IS NOT CALLER-CHOSEN
+        # TEXT. `request.is_json` reads the declared content type, and
+        # `request.url_rule.rule` is the *registered* rule string -- written in
+        # this repo, not by the caller. An earlier iteration used
+        # `'/api/' in request.path`: `startswith` misses
+        # `/admin/api/materials/validate`, but a bare `in` is a substring test
+        # on a URL the caller picks, so an HTML route carrying that substring
+        # anywhere (a product slug, `/products/edit/api/x`) was answered with
+        # JSON instead of the rendered page. Testing the rule keeps
+        # `/admin/api/...` covered without that.
+        #
+        # If the endpoint is unresolved -- the rejection happened before routing
+        # -- `url_rule` is None and this falls through to `is_json` and then to
+        # the HTML branch, which is the right default for a browser.
+        # Not every JSON consumer lives under `/api/`. `main.inventory_add`
+        # posts a FormData by fetch() and calls `response.json()` on the result
+        # (app/static/js/inventory-add.js:702), and its rule is `/inventory/add`
+        # -- so rule-matching alone hands that caller an HTML page and its
+        # `response.json()` throws, losing the message entirely. Selecting on
+        # the RESOLVED ENDPOINT is what settles it.
+        #
+        # TWO EARLIER LIMBS ARE DELIBERATELY ABSENT, and both were live in this
+        # expression while the comment above already described them as retired:
+        #
+        # * `X-Requested-With: XMLHttpRequest` -- dead code for every caller in
+        #   this repo (`grep -rn X-Requested-With app/static/js/` is empty, and
+        #   test_no_client_in_this_repo_sends_the_xhr_marker pins that), but NOT
+        #   dead for an arbitrary caller: it is a request header, so keeping it
+        #   let anyone choose the response format of an HTML page. Measured: an
+        #   oversize `POST /products/edit/1` carrying it returned
+        #   `application/json` instead of the rendered 413.
+        # * an unscoped `accept_mimetypes.best == 'application/json'` -- this is
+        #   exactly the global Accept rule that JSON_HTML_HYBRID_ENDPOINTS' own
+        #   comment says was rejected on purpose. Measured: the same oversize
+        #   POST to that HTML route with axios' default
+        #   `Accept: application/json, text/plain, */*` returned JSON.
+        #
+        # So Accept gets a vote ONLY for the hybrid endpoints, and only to hand
+        # the HTML branch back to a real browser navigation, which prefers
+        # `text/html` explicitly -- see JSON_HTML_HYBRID_ENDPOINTS.
+        rule = request.url_rule.rule if request.url_rule is not None else ''
+        wants_json = (
+            request.endpoint in JSON_HTML_HYBRID_ENDPOINTS
+            and (request.accept_mimetypes['application/json']
+                 >= request.accept_mimetypes['text/html'])
+        )
+        if request.is_json or '/api/' in rule or wants_json:
+            if request.endpoint in CATALOG_JSON_ENDPOINTS:
+                error_body = {'code': 'request_too_large',
+                              'message': REQUEST_TOO_LARGE_MESSAGE}
+            else:
+                error_body = REQUEST_TOO_LARGE_MESSAGE
+            return jsonify({
+                'success': False,
+                'error': error_body,
+                # Top level as well, for photo-manager.js:338, which reads
+                # `errorData.message`.
+                'message': REQUEST_TOO_LARGE_MESSAGE,
+            }), 413
+
+        try:
+            return render_template('errors/413.html'), 413
+        except Exception:
+            # The render is the last thing here that can raise, and this handler
+            # exists to prevent 500s -- so a Jinja error, a missing template, or
+            # an endpoint `base.html` cannot resolve must degrade to a plain but
+            # correct 413 rather than to the unhandled 500 the handler was
+            # written to stop. Logged as an exception because a broken error
+            # page is a real defect, just not one the caller should pay for.
+            current_app.logger.exception(
+                'errors/413.html could not be rendered; falling back to plain '
+                'text so the rejection is still a 413')
+            return REQUEST_TOO_LARGE_MESSAGE, 413, {'Content-Type':
+                                                    'text/plain; charset=utf-8'}
+
     @app.errorhandler(404)
     def handle_not_found(error):
         if request.is_json:

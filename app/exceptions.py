@@ -5,6 +5,13 @@ This module defines custom exception classes for better error handling
 and recovery throughout the application.
 """
 
+# `config.py` is a LEAF module -- it deliberately imports nothing from this
+# package, so that a cold `import config` cannot re-enter a half-built `app`.
+# `ConfigurationError` therefore has to be defined there and adopted here; see
+# the docstring on the class below.
+from config import ConfigurationError as _BootConfigurationError
+
+
 class WorkshopInventoryError(Exception):
     """Base exception class for workshop inventory application"""
     
@@ -64,12 +71,36 @@ class AuthenticationError(WorkshopInventoryError):
             "type": "authentication_error"
         }
 
-class ConfigurationError(WorkshopInventoryError):
-    """Raised when configuration is invalid or missing"""
-    
+class ConfigurationError(WorkshopInventoryError, _BootConfigurationError):
+    """Raised when configuration is invalid or missing.
+
+    Two bases on purpose. `config.py` must stay importable from a cold
+    interpreter without executing `app/__init__.py` (see the class comment
+    there), so the leaf definition lives in `config.py` and this one adopts it:
+    code that catches `config.ConfigurationError` catches configuration
+    failures raised on either side of that line, while this class keeps its
+    place in the `WorkshopInventoryError` hierarchy that
+    `app/error_handlers.py` dispatches on.
+
+    The MRO is `ConfigurationError -> WorkshopInventoryError ->
+    config.ConfigurationError -> Exception`, and `create_error_handlers`
+    registers a handler for BOTH bases, so an instance of either is dispatched
+    rather than becoming an unhandled 500.
+    """
+
     def __init__(self, message: str, config_key: str = None):
-        super().__init__(message, code="CONFIGURATION_ERROR")
-        self.config_key = config_key
+        # Both bases are initialised EXPLICITLY, by name. A plain cooperative
+        # `super().__init__(message, code=...)` does in fact reach both --
+        # `WorkshopInventoryError.__init__`'s own `super().__init__(message)`
+        # lands on the leaf's `__init__` next in the MRO -- but only because
+        # those two signatures happen to be compatible, which nobody wrote them
+        # to be. Naming the bases here makes the leaf's `config_key` a
+        # deliberate assignment, and makes a future signature change on either
+        # base a loud failure instead of a silent one. The leaf runs twice
+        # (once via that cooperative hop, once here); it is three idempotent
+        # attribute assignments, which is cheaper than depending on an accident.
+        WorkshopInventoryError.__init__(self, message, code="CONFIGURATION_ERROR")
+        _BootConfigurationError.__init__(self, message, config_key=config_key)
         self.details = {
             "config_key": config_key,
             "type": "configuration_error"

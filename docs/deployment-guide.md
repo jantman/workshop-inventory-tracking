@@ -78,6 +78,79 @@ GOOGLE_TOKEN_PATH=credentials/token.json
 # Logging Configuration
 LOG_LEVEL=INFO
 
+# Request body size limits, in BYTES, enforced at the WSGI layer. A body over
+# its limit is rejected with 413 before any view code runs.
+#
+# WHICH LIMIT GOVERNS WHICH KIND OF BODY:
+#
+#   MAX_REQUEST_BODY_BYTES  the whole-body transport cap for every request.
+#                           Default 1 MiB.
+#
+#   MAX_UPLOAD_BODY_BYTES   replaces it, but ONLY for a request to
+#                           /products/<id>/attachments or
+#                           /api/items/<ja_id>/photos that is SHAPED LIKE a
+#                           multipart upload -- Content-Type multipart/form-data
+#                           with a non-empty boundary parameter. Default 24 MiB.
+#                           Anything else sent to those same URLs gets the 1 MiB
+#                           limit like every other request. Note the honest
+#                           scope: that header is supplied by the caller, so the
+#                           raised ceiling is available to anything shaped like
+#                           an upload, not only to real ones.
+#
+#   MAX_FORM_MEMORY_SIZE    Flask's own 500 KB limit on a single non-file form
+#                           value. It is NOT set here, and it is LOWER than the
+#                           1 MiB default above, so where it applies it -- not
+#                           the variables below -- is what rejects a large
+#                           urlencoded POST or a long text field inside a
+#                           multipart upload.
+#
+#                           IT DOES NOT ALWAYS APPLY. Werkzeug enforces it only
+#                           when the request declares a Content-Length. Measured
+#                           on the shipped defaults, one 600 KB urlencoded
+#                           field:
+#
+#                             with Content-Length              -> 413
+#                             no Content-Length, chunked or
+#                             streamed (what gunicorn hands
+#                             the app)                         -> NOT a 413;
+#                                                                 the field is
+#                                                                 parsed IN
+#                                                                 FULL, all
+#                                                                 600 KB of it
+#
+#                           In that second column MAX_FORM_MEMORY_SIZE is not
+#                           consulted at all, and MAX_REQUEST_BODY_BYTES below
+#                           is the only limit in play -- so a form field there
+#                           is bounded at 1 MiB, NOT at 500 KB. Past 1 MiB the
+#                           body is rejected in either column. To let a form
+#                           carry more text WITH a declared length, set
+#                           MAX_FORM_MEMORY_SIZE in config.py; raising
+#                           MAX_REQUEST_BODY_BYTES will not move that column.
+#
+# The upload ceiling must be at least as large as the global limit, or the app
+# refuses to start. Setting the two EQUAL is allowed and is the strictest
+# uniform posture: the upload endpoints simply get the same cap as everything
+# else. Setting the ceiling below the service file limits (20971520 bytes for a
+# photo, 16777215 for an attachment) plus a few KiB of multipart framing is
+# allowed too and logs a startup WARNING naming each one — that is the
+# supported way to take a stricter posture, since the photo endpoint is
+# unauthenticated and reads its file fully into memory.
+#
+# Neither value may exceed 1 GiB. These are allocation bounds, not just policy
+# numbers, so an implausibly large value is treated as the typo it almost
+# certainly is rather than as a decision to remove the bound.
+#
+# Plain digits only: no units, no '+', no '_' separators (surrounding whitespace
+# is ignored). A value like 1MB is a startup error naming the variable.
+#
+# This is an APPLICATION-level bound. It does not stop the bytes reaching the
+# WSGI server, which has already buffered or is streaming them by the time this
+# runs. To stop them earlier, set the reverse proxy's own body limit as well —
+# nginx's client_max_body_size, which needs to be at least as large as
+# MAX_UPLOAD_BODY_BYTES or uploads will fail at the proxy instead.
+MAX_REQUEST_BODY_BYTES=1048576
+MAX_UPLOAD_BODY_BYTES=25165824
+
 # Application Settings
 APP_NAME=Workshop Inventory Tracking
 APP_VERSION=1.0.0

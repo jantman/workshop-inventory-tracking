@@ -4,6 +4,83 @@ from dotenv import load_dotenv
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
 
+
+class ConfigurationError(Exception):
+    """Raised when a configuration value is invalid or missing.
+
+    Defined HERE, in a leaf module, and not in `app/exceptions.py`, for one
+    concrete reason: `_bytes_from_env` below raises it while the `class Config`
+    body is being executed, i.e. during `import config`. Importing anything from
+    the `app` package to do that would execute `app/__init__.py`, which imports
+    `config` — so a cold `import config` with a malformed env value would die
+    with a confusing partial-import `ImportError` instead of the named error an
+    operator needs. Keeping this module free of `app` imports is what lets
+    `app/__init__.py` say plain `from config import Config` at module scope,
+    with no lazy-import workaround in the factory. Both directions are pinned by
+    the subprocess tests in tests/unit/test_request_limits.py.
+
+    `app.exceptions.ConfigurationError` subclasses this one, so
+    `except config.ConfigurationError` catches configuration failures from
+    either side of that line while the app-side class keeps its place in the
+    `WorkshopInventoryError` hierarchy that `app/error_handlers.py` dispatches
+    on. The attribute surface is the same on both.
+    """
+
+    def __init__(self, message: str, config_key: str = None):
+        super().__init__(message)
+        self.message = message
+        self.config_key = config_key
+
+
+def _bytes_from_env(name, default):
+    """Read a byte-count setting from the environment, or return `default`.
+
+    Accepts ONLY plain ASCII digits. No sign (`+1024`), no `_` grouping
+    (`1_048_576`), no non-ASCII digits — all of which `int()` would happily
+    accept and none of which anyone writes on purpose in a `.env` file.
+    Unset, or set to a blank/whitespace-only value, reads as unset and takes
+    the default, matching the `os.environ.get(...) or default` idiom used
+    elsewhere in this file (a stray blank line in `.env` must not become a hard
+    failure).
+
+    SURROUNDING WHITESPACE IS STRIPPED before any of that is decided.
+    `MAX_REQUEST_BODY_BYTES=1024 ` with one trailing space is the commonest
+    hand-edited `.env` artifact there is, and refusing to boot on it while
+    treating an all-whitespace value as absent is incoherent — the same
+    character is fatal in one position and ignored in the other.
+
+    A malformed value raises `ConfigurationError` naming the variable rather
+    than letting a bare `ValueError` escape from the `class Config` body: the
+    one malformed input an operator actually produces is
+    `MAX_REQUEST_BODY_BYTES=1MB`, and a traceback out of a class body at import
+    time tells them nothing about which key is wrong. Note the `int()` call is
+    guarded too — CPython caps integer-string conversion at 4300 digits, so an
+    absurdly long all-digits value raises `ValueError` from `int()` itself.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    raw = raw.strip()
+
+    if not (raw.isascii() and raw.isdigit()):
+        raise ConfigurationError(
+            f'{name} must be a whole number of bytes written as plain digits; '
+            f'got {raw!r}',
+            config_key=name)
+
+    try:
+        return int(raw)
+    except ValueError:
+        # `from None`: the underlying "Exceeds the limit (4300 digits) for
+        # integer string conversion" is an implementation detail, and the
+        # "During handling of the above exception, another exception occurred"
+        # preamble buries the one line an operator needs to read.
+        raise ConfigurationError(
+            f'{name} is not a usable byte count: {len(raw)} digits is beyond '
+            f"Python's integer-conversion limit",
+            config_key=name) from None
+
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     
@@ -25,6 +102,50 @@ class Config:
     # Application Configuration
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ['true', '1', 'yes']
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+
+    # Transport-level bound on the request body, enforced at the WSGI layer by
+    # app/request_limits.py. Two limits, because the app has two populations of
+    # request: JSON/form traffic, where 1 MiB is orders of magnitude above the
+    # largest legitimate body, and the two file-upload endpoints, which need
+    # room for a real photo or attachment.
+    #
+    # These names are DELIBERATE and must not be "tidied" onto Flask's own
+    # body-limit config key: setting that key re-arms Werkzeug's TRUNCATING
+    # limiter, which silently hands a view the first N bytes of a longer body
+    # with a 200 instead of rejecting it. app/request_limits.py names the key
+    # and carries the measurements; nothing else in the tree may mention it.
+    #
+    # This bound is ADDITIVE to the existing per-payload guards, not a
+    # replacement for any of them: `MAX_SCAN_LENGTH` still bounds the scan
+    # `raw` field, `ATTACHMENT_MAX_SIZE` (app/mariadb_catalog_service.py) still
+    # bounds an attachment, and `PhotoService.MAX_FILE_SIZE`
+    # (app/photo_service.py) still bounds a photo. Those produce the friendly,
+    # specific error for a merely-oversize file; this one only stops a body the
+    # process should never have buffered at all. Do not lower or remove them
+    # because this exists.
+    #
+    # Residual exposure, recorded rather than implied away: `main.upload_photo`
+    # remains unauthenticated and `@csrf.exempt`, and reads its file fully into
+    # memory — now formally sanctioned up to MAX_UPLOAD_BODY_BYTES per request.
+    # Rate limiting is out of scope, so nothing here bounds uploads in
+    # AGGREGATE; a caller can still make many such requests. Bound concurrent
+    # exposure at the reverse proxy and the WSGI server.
+    #
+    # A second residual, stated the honest way round: the raised ceiling is
+    # granted on the request's own `Content-Type`, which the CALLER writes. The
+    # app requires `multipart/form-data` with a non-empty `boundary` parameter
+    # before granting it (a bare mimetype would be one free word), but that is
+    # still only a shape, not a proof. So the accurate statement of this bound
+    # is "MAX_UPLOAD_BODY_BYTES applies to the two upload endpoints for anything
+    # SHAPED LIKE a multipart body" — not "only for real uploads". Every other
+    # route, and every non-multipart-shaped body to those two, gets
+    # MAX_REQUEST_BODY_BYTES.
+    MAX_REQUEST_BODY_BYTES = _bytes_from_env('MAX_REQUEST_BODY_BYTES', 1 * 1024 * 1024)
+    # 24 MiB, not 20: a body carrying a file at PhotoService.MAX_FILE_SIZE
+    # (20 MiB) is larger than 20 MiB on the wire once multipart boundaries and
+    # part headers are counted, so a 20 MiB ceiling would 413 a legitimate
+    # maximum-size photo before the service-layer check could explain why.
+    MAX_UPLOAD_BODY_BYTES = _bytes_from_env('MAX_UPLOAD_BODY_BYTES', 24 * 1024 * 1024)
 
     # GS1 internal-identifier grammar (Story 2.4, FR12c, AD-16). The single
     # named pair the service passes into app/utils/gs1.py's encode/decode, so
