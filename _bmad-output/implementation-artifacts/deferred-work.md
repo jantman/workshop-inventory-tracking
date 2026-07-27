@@ -350,7 +350,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-2-category-rename-with-des
 location: `app/main/routes.py:792` (`product_add`) and `category_rename`, `app/logging_config.py:255-289` (`log_audit_operation`)
 reason: Form routes audit-log `request.form.to_dict()` verbatim, so the CSRF token of every POST is written into the audit log; `log_audit_operation` performs no redaction.
 evidence: `app/main/routes.py`'s `product_add` (:792) and the new `category_rename` both call `log_audit_operation(..., 'input', form_data=request.form.to_dict())`, and the form templates carry `<input type="hidden" name="csrf_token" ...>`, so the token lands in `form_data`. `log_audit_operation` (`app/logging_config.py:255-289`) writes `form_data` straight through with no field filtering. Story 3.2 propagated the existing pattern rather than diverging from it in one route; the fix belongs at the logging helper (a redaction list covering `csrf_token` and any future secret-ish field) so every current and future caller is covered at once.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-csrf-token-handling
 
 ### DW-44: No test at any level exercises a form's CSRF token, so a deleted or misspelled `csrf_token` input leaves the suite green while every real POST 400s
 origin: migrated from legacy ledger ("3-2-category-rename-with-descendants.md"), 2026-07-26
@@ -358,7 +359,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-2-category-rename-with-des
 location: `config.py` (`TestConfig.WTF_CSRF_ENABLED`), `tests/test_config.py:18`, `tests/unit/test_product_routes.py::TestCategoryPages`
 reason: No test at any level exercises a form's CSRF token, so deleting or misspelling a `csrf_token` hidden input leaves the whole suite green while every real POST 400s.
 evidence: `config.py`'s `TestConfig` sets `WTF_CSRF_ENABLED = False` (asserted by `tests/test_config.py:18`), and the e2e session runs against the same config, so unit POSTs and Playwright submissions alike succeed with the token present, absent or wrong. Every assertion in `tests/unit/test_product_routes.py::TestCategoryPages` about the rename POST passes identically whether `app/templates/product/category_rename.html`'s `<input type="hidden" name="csrf_token" ...>` exists or not — and the same holds for `product/add.html`, `product/edit.html`, `admin/add_material.html` and every other form template. Story 3.2 surfaced it by adding the project's newest POST form; closing it means a small CSRF-enabled app fixture (a second `create_app` config) plus one test per form template asserting a tokenless POST is refused, which is shared test-infrastructure work rather than one story's.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-csrf-token-handling
 
 ### DW-45: The `Examples:` blocks in `app/utils/category.py`'s docstrings are never executed
 origin: migrated from legacy ledger ("3-2-category-rename-with-descendants.md"), 2026-07-26
@@ -800,4 +802,47 @@ location: `app/mariadb_catalog_service.py` and `app/mariadb_inventory_service.py
 severity: low
 summary: The `column` tiebreak added alongside the DISTINCT removal is meant to stop the query plan from deciding which spelling of a duplicated value the operator is offered, but under MariaDB's folding `_ci` collation the tiebreak column compares case- and accent-insensitively too, so `McMaster` and `mcmaster` tie on both sort keys and the first-seen-casing dedup still keeps whichever the plan emitted first.
 evidence: The same collation folding that this change cites as the reason to drop the SQL `DISTINCT` (`utf8mb4_unicode_ci`, reasoned about elsewhere in `mariadb_catalog_service.py` for `set_product_tags` and `rename_category_path`) applies to `ORDER BY` as well. SQLite's BINARY collation makes the tiebreak effective, so the whole unit suite agrees with the code comment and production does not -- the same SQLite-only-correct blind spot the DISTINCT tests' own docstrings identify. The nondeterminism is pre-existing in effect: before this change the folding `DISTINCT` collapsed the variants into one row and the database chose the survivor. The code comments in both services now state the limitation rather than claiming totality. Closing it needs a `COLLATE utf8mb4_bin` tiebreak behind a dialect branch, which the SQLite-only unit suite cannot verify -- the same dialect-branch decision as the collation-safe-dedup option recorded for the unbounded suggestion read.
+status: open
+
+### DW-97: The audit redaction choke point covers two of the five logging helpers; `log_operation` and `log_performance` still merge caller dicts unfiltered
+origin: spec-csrf-token-handling-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-csrf-token-handling.md`
+location: `app/logging_config.py` (`log_operation`, `log_performance`)
+severity: low
+summary: `_redact_sensitive` is applied to every payload of `log_audit_operation` and `log_audit_batch_operation`, but the sibling helpers `log_operation(details=…)` and `log_performance(context=…)` merge caller-supplied dicts straight into the log record with no field filtering.
+evidence: `log_operation` does `extra_data.update(details)` and `log_performance` does `extra_data.update(context)`, both reachable from route code with request-derived dicts. No current caller passes form data, so nothing leaks today, and the code comment at the audit choke point explicitly scopes the guarantee to the audit trail. The asymmetry is the risk: the audit helpers now carry a "no caller has to remember to strip a secret" property that these two do not, which is exactly the shape of the omission that produced DW-43. Closing it means routing both through the same `_redact_sensitive` helper.
+status: open
+
+### DW-98: `SECRET_KEY` falls back to a literal committed default, so every CSRF token and signed session is forgeable unless an operator sets the env var
+origin: spec-csrf-token-handling-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-csrf-token-handling.md`
+location: `config.py:85`
+severity: low
+summary: `SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'` means a deployment that forgets the env var runs on a key published in this repository, and nothing fails to announce it.
+evidence: Entirely pre-existing; surfaced by this story only because it added the tests that prove CSRF enforcement works — enforcement whose whole value rests on the signing key being secret. The same key signs Flask sessions. No test, startup check, or log line distinguishes the fallback from a real key, so the failure is silent in exactly the deployment where it matters. Closing it means refusing to start (or at minimum logging at ERROR) when a non-debug config resolves to the fallback value, which is a config/startup change outside this story's redaction-and-tests scope.
+status: open
+
+### DW-99: Redaction is key-based, so a secret embedded in a value — notably `error_details` strings built from `traceback.format_exc()` — passes through untouched
+origin: spec-csrf-token-handling-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-csrf-token-handling.md`
+location: `app/logging_config.py` (`_redact_sensitive`, `AuditLogFilter`), `app/main/routes.py:3486` and `:3528`
+severity: low
+summary: `_redact_sensitive` matches field *names*, so a secret that arrives as a value under a benign key is not detectable; the batch-move error paths build `error_details` as an f-string embedding a full `traceback.format_exc()`, which can quote request-derived data.
+evidence: `app/main/routes.py:3486` and `:3528` construct `error_details = f'Exception during move: … Traceback: {tb_str}'` and pass it to `log_audit_operation` / `log_audit_batch_operation`; the helper correctly leaves strings alone, and no key in that payload names a secret. `AuditLogFilter` separately attaches `request.url` to every record, the same value channel. Pre-existing and explicitly out of the story's scope (the spec scopes redaction to field names, and the helper's docstring now states the boundary rather than implying totality). Closing it means a value-pattern scan on log strings, which is a different and considerably more failure-prone control than the name denylist and deserves its own decision.
+status: open
+
+### DW-100: The denylist collision guard scans DB columns and static template fields, neither of which is what the redaction walk actually receives
+origin: spec-csrf-token-handling-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-csrf-token-handling.md`
+location: `tests/unit/test_audit_redaction.py` (`TestDenylistDoesNotSwallowRealFields`)
+severity: low
+summary: The guard enforcing the spec's "Block If" (a denylist substring colliding with a real field name would silently delete audit data) checks `app/database.py` column names and static `<input name=...>` attributes, but the payloads `_redact_sensitive` actually walks are hand-built dicts — `_item_to_audit_dict`, the `changes` map, and `batch_results` — whose keys are neither columns nor form fields.
+evidence: `_item_to_audit_dict` (`app/main/routes.py:46-71`) returns literal keys (`dimensions`, `thread`, `original_material`, `precision`, …) and `log_audit_batch_operation` receives `results` dicts assembled in route code; none of those key sets is covered by either scan. Verified there is no collision today — every `_item_to_audit_dict` key is benign against the current denylist — so this is a coverage gap in the guard, not a live defect. A second, narrower gap: the form-field scan captures Jinja-computed names literally (`app/templates/product/search.html:30` yields the string `{{ name }}`), so a dynamically named field is invisible to the collision check by construction. Closing it means enumerating the audit payload key sets — either by importing and exercising the builders or by scanning the dict literals in `app/**/*.py` — which is a fuzzier scan than the two already in place and deserves its own decision about how much fidelity is worth the fragility.
+status: open
+
+### DW-101: Follow-up review still recommended for dw-csrf-token-handling after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-csrf-token-handling.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

@@ -2,8 +2,164 @@ import logging
 import logging.handlers
 import os
 import json
+from collections.abc import Iterable, Iterator, Mapping, Sequence, Set
 from datetime import datetime
 from flask import request, session, g
+
+# Field-name substrings whose VALUES must never reach the audit log. Matched
+# case-insensitively as substrings, so `csrf_token`, `CSRF_Token` and
+# `X_CSRFToken` are all caught by `csrf`/`token` alike.
+#
+# Deliberately no bare `key`: it would swallow the legitimate `request_key`
+# field (app/database.py) that the audit trail needs for reconstruction, hence
+# `api_key` / `private_key` instead.
+SENSITIVE_FIELD_SUBSTRINGS = (
+    'csrf',
+    'token',
+    'password',
+    'passwd',
+    'secret',
+    'api_key',
+    'apikey',
+    'authorization',
+    'credential',
+    'private_key',
+    'session',
+)
+
+# What a redacted value is replaced with. The key itself is kept, so the audit
+# record still shows that the field was submitted.
+REDACTED_VALUE = '[REDACTED]'
+
+# How deep the redaction walk goes before it gives up. Beyond this the subtree
+# is replaced wholesale rather than passed through: an audit payload nested this
+# deeply is not something this app produces, and a depth guard on a security
+# control must fail closed, not emit unfiltered caller data.
+MAX_REDACTION_DEPTH = 8
+
+def _is_sensitive_name(name) -> bool:
+    """True if a mapping key names a secret that must not be logged."""
+    if not isinstance(name, str):
+        # A non-`str` key is coerced rather than skipped: `b'csrf_token'` or an
+        # Enum member must not be a way around the denylist. An object whose
+        # repr blows up is treated as sensitive -- fail closed, as everywhere
+        # else in this helper.
+        try:
+            name = str(name)
+        except Exception:
+            return True
+    lowered = name.lower()
+    return any(marker in lowered for marker in SENSITIVE_FIELD_SUBSTRINGS)
+
+def _serializable_key(key):
+    """A mapping key `json.dumps` will accept.
+
+    `JSONFormatter` passes `default=str`, which applies to VALUES only -- a
+    non-`str`/`int`/`float`/`bool`/`None` key raises `TypeError` out of
+    `json.dumps`, the handler swallows it, and the ENTIRE audit record is lost.
+    Redacting a `b'csrf_token'` value and then dropping the record it lived in
+    trades a leak for a hole in the audit trail, so the key is coerced too.
+    """
+    if key is None or isinstance(key, (str, int, float, bool)):
+        return key
+    if isinstance(key, (bytes, bytearray)):
+        return key.decode('utf-8', 'replace')
+    try:
+        return str(key)
+    except Exception:
+        # Same fail-closed posture as `_is_sensitive_name`: an unrenderable key
+        # becomes the marker rather than taking the record down with it.
+        return REDACTED_VALUE
+
+def _redact_payload(value):
+    """Fail-closed entry point for the audit helpers.
+
+    `_redact_sensitive` walks caller-supplied objects, and a payload whose
+    `items()` or iteration raises would otherwise propagate out of a *logging*
+    call and fail the request it was only meant to describe. A logging helper
+    must never be the thing that breaks its caller, so the whole payload
+    collapses to the marker instead -- fail closed, never fail open.
+    """
+    try:
+        return _redact_sensitive(value)
+    except Exception:
+        return REDACTED_VALUE
+
+def _redact_sensitive(value, _depth: int = 0):
+    """
+    Return a redacted COPY of a log payload.
+
+    Recurses into nested mappings and lists/tuples of mappings; any key
+    matching SENSITIVE_FIELD_SUBSTRINGS has its value replaced with
+    REDACTED_VALUE. The caller's object is never mutated, and scalar values are
+    passed through untouched.
+
+    Container recognition is by ABC, not by concrete type, in BOTH directions:
+    any `collections.abc.Mapping` (a `MultiDict`, a SQLAlchemy `RowMapping`)
+    and any non-string `Sequence`/`Set`/re-iterable `Iterable` (a `deque`, a
+    `dict_values` view, a `frozenset`) is walked. Anything handed back
+    untouched is `str()`-ed into the record by `JSONFormatter`'s `default=str`
+    with its secret intact, so an unrecognised container is a silent bypass.
+    Namedtuples are walked by field name for the same reason. Mapping keys are
+    coerced to a JSON-serializable form, since a key `json.dumps` rejects would
+    cost the whole record.
+
+    Two boundaries this deliberately does NOT cover, so that callers are not
+    misled about what the choke point guarantees:
+      * redaction is key-based -- a secret sitting in a *value* under a benign
+        key (an exception message quoting a token, say) is not detectable here;
+      * an arbitrary object is treated as a scalar. Reflecting over `__dict__`
+        on a logging path risks dragging in ORM instrumentation state, which is
+        a worse failure than the one it would prevent. Pass a dict.
+
+    Past MAX_REDACTION_DEPTH the container is replaced with REDACTED_VALUE
+    rather than returned as-is, so a payload too deep to walk cannot smuggle a
+    secret through the gap.
+    """
+    # `str`/`bytes` are sequences; they must not be walked character by byte.
+    if isinstance(value, (str, bytes, bytearray)):
+        return value
+
+    # A namedtuple carries field names, so it is redacted as a mapping rather
+    # than positionally -- otherwise a named secret survives the walk.
+    as_dict = getattr(value, '_asdict', None)
+    if isinstance(value, tuple) and callable(as_dict):
+        return _redact_sensitive(as_dict(), _depth)
+
+    is_mapping = isinstance(value, Mapping)
+    # By ABC, not by concrete type: `deque`, `dict_values` and `frozenset` are
+    # none of `list`/`tuple`, and each would otherwise be handed to
+    # `JSONFormatter` to be `str()`-ed out with any nested secret intact.
+    is_iterable = not is_mapping and isinstance(value, Iterable)
+    if not (is_mapping or is_iterable):
+        return value
+
+    if _depth > MAX_REDACTION_DEPTH:
+        return REDACTED_VALUE
+
+    if is_mapping:
+        return {
+            _serializable_key(key): (
+                REDACTED_VALUE if _is_sensitive_name(key)
+                else _redact_sensitive(item, _depth + 1))
+            for key, item in value.items()
+        }
+
+    if isinstance(value, Iterator):
+        # A one-shot iterator cannot be walked without consuming the caller's
+        # object, which "never mutate the caller" forbids -- and passing it
+        # through would be a bypass. Neither, so: fail closed.
+        return REDACTED_VALUE
+    if not isinstance(value, (Sequence, Set)):
+        # A re-iterable that is neither (a `dict_values` view, say). Safe to
+        # walk; there is no meaningful container type to reconstruct.
+        return [_redact_sensitive(item, _depth + 1) for item in value]
+
+    redacted = [_redact_sensitive(item, _depth + 1) for item in value]
+    # A copy, not a coercion: a tuple in must not silently become a list out.
+    # A `Set` still becomes a list -- redacted members are not hashable, and
+    # JSON has no set anyway.
+    return tuple(redacted) if isinstance(value, tuple) else redacted
 
 class AuditLogFilter(logging.Filter):
     """Filter to add audit trail information to log records"""
@@ -285,24 +441,34 @@ def log_audit_operation(operation_name: str, phase: str, item_id: str = None,
     # Add data based on phase and available information
     data_section = {}
     
+    # Every payload of this helper goes through the redaction choke point, so a
+    # caller cannot leak a submitted csrf_token (or any other field whose NAME
+    # matches SENSITIVE_FIELD_SUBSTRINGS) into the audit trail, and no future
+    # caller has to remember to strip one. See `_redact_sensitive` for what
+    # that does and does not cover -- notably it is key-based, so a secret in a
+    # value is not caught. (Sibling helpers `log_operation` / `log_performance`
+    # take free-form dicts that are NOT redacted -- they are not audit trail.)
     if form_data:
-        data_section['form_data'] = form_data
-    
+        data_section['form_data'] = _redact_payload(form_data)
+
     if item_before:
-        data_section['item_before'] = item_before
-    
+        data_section['item_before'] = _redact_payload(item_before)
+
     if item_after:
-        data_section['item_after'] = item_after
-        
+        data_section['item_after'] = _redact_payload(item_after)
+
     if changes:
-        data_section['changes'] = changes
-        
+        data_section['changes'] = _redact_payload(changes)
+
+    # Annotated `str`, but Python does not enforce that; routing it through the
+    # same helper is a no-op for strings and closes the hole if a caller ever
+    # hands over a dict.
     if error_details:
-        data_section['error_details'] = error_details
-    
+        data_section['error_details'] = _redact_payload(error_details)
+
     if data_section:
         audit_data['audit_data'] = data_section
-    
+
     # Create human-readable message
     message_parts = [f"AUDIT: {operation_name}"]
     if item_id:
@@ -344,12 +510,12 @@ def log_audit_batch_operation(operation_name: str, phase: str, batch_data: dict 
     
     data_section = {}
     if batch_data:
-        data_section['batch_input'] = batch_data
+        data_section['batch_input'] = _redact_payload(batch_data)
     if results:
-        data_section['batch_results'] = results
+        data_section['batch_results'] = _redact_payload(results)
     if error_details:
-        data_section['error_details'] = error_details
-        
+        data_section['error_details'] = _redact_payload(error_details)
+
     if data_section:
         audit_data['audit_data'] = data_section
     
