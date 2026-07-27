@@ -188,6 +188,34 @@ class TestCatalogServiceCreate:
         assert product.category_path is None
         assert product.notes is None
 
+    @pytest.mark.unit
+    def test_padded_identifier_columns_are_stored_trimmed(self, catalog_service):
+        """A padded-but-NON-blank `mpn`/`manufacturer` stores trimmed (DW-7).
+
+        `_clean` is shared, so the test above already catches a lost trim by way
+        of `description` — this is not the only thing standing between the
+        column and a regression, and does not claim to be. What it adds is the
+        REASON the trim may not be dropped, recorded against the column the
+        reason belongs to: `mpn` is a value two other modules compare against,
+        `_ecia_match`'s exact lookup and `add_identifier`'s stored identifier
+        rows, both of which hold the trimmed spelling. A stored `' RC0805-10K '`
+        would miss a scan of the very part number it names while the free-text
+        fallthrough silently succeeded, so nothing would look broken. Trimming
+        `description` costs nothing if it stops; trimming this does.
+
+        Asserted on the row read back through `get_product`, not on the dict
+        handed in: the claim is about what the column holds, and a caller-side
+        assertion would pass against a service that cleaned nothing.
+        """
+        new_id = catalog_service.create_product(
+            description='RES 10K 0805 1%',
+            mpn=' RC0805-10K ',
+            manufacturer=' TI ',
+        )
+        product = catalog_service.get_product(new_id)
+        assert product.mpn == 'RC0805-10K'
+        assert product.manufacturer == 'TI'
+
 
 class TestCatalogServiceGet:
 
@@ -237,6 +265,26 @@ class TestCatalogServiceUpdate:
         catalog_service.update_product(new_id, manufacturer='')
         product = catalog_service.get_product(new_id)
         assert product.manufacturer is None
+
+    @pytest.mark.unit
+    def test_update_trims_padded_identifier_columns(self, catalog_service):
+        """The other write path onto the same two columns (DW-7).
+
+        Pinned separately from create because they are separate code — create
+        passes `_clean` per keyword to the `Product(...)` constructor, update
+        reaches it through a whitelist loop with a per-key branch, so one can
+        stop trimming while the other keeps going. A product edited to a padded
+        part number is the likelier of the two in practice (a paste from a
+        datasheet or a distributor page carries the space), and it would leave
+        the row unreachable by the exact ECIA lookup that trims its candidate.
+        """
+        new_id = catalog_service.create_product(description='keep', mpn='OLD-1')
+        assert catalog_service.update_product(
+            new_id, mpn=' RC0805-10K ', manufacturer=' TI ') is True
+
+        product = catalog_service.get_product(new_id)
+        assert product.mpn == 'RC0805-10K'
+        assert product.manufacturer == 'TI'
 
 
 class TestCatalogServicePurchases:
@@ -547,6 +595,23 @@ class TestCatalogServiceIdentifiers:
         pid = catalog_service.create_product(description='widget')
         snap = catalog_service.add_identifier(pid, identifier_type='MPN', value=12345)
         assert snap['value'] == '12345'
+
+    @pytest.mark.unit
+    def test_padded_value_is_stored_trimmed(self, catalog_service):
+        """The other home of a part number, held to the same spelling (DW-7).
+
+        `_ecia_match` answers one scanned candidate by looking in BOTH places a
+        part number can live — the `products.mpn` column and an `MPN` identifier
+        row — so the two write paths have to agree about what a stored value is
+        or the same scan resolves differently depending on where the operator
+        happened to record it. `_clean` is pinned on the column side; this is
+        the identifier side of the same claim, and until now only the blank and
+        non-string cases were covered here.
+        """
+        pid = catalog_service.create_product(description='widget')
+        snap = catalog_service.add_identifier(
+            pid, identifier_type='MPN', value=' RC0805-10K ')
+        assert snap['value'] == 'RC0805-10K'
 
     @pytest.mark.unit
     def test_overlong_value_rejected_as_validation_error(self, catalog_service):

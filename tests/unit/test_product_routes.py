@@ -190,6 +190,48 @@ class TestProductRoutes:
         product = CatalogService(test_storage).get_product(pid)
         assert product.manufacturer == 'TI'  # absent key != clear
 
+    def test_create_stores_padded_identifier_fields_trimmed(self, client, test_storage):
+        """Padding typed or pasted into the form does not reach the column (DW-7).
+
+        The route deliberately hands `request.form` values to the service
+        untouched — the service owns the trim, and a second strip here would be
+        a duplicate rule that can drift — so this is the assertion that the
+        end-to-end form path actually gets the benefit of it. Padding is a
+        realistic form input rather than a contrived one: a part number pasted
+        from a datasheet or a distributor's page routinely carries a leading or
+        trailing space, and the operator cannot see it in the field.
+        """
+        resp = client.post('/products/add', data={'description': 'RES 10K 0805 1%',
+                                                  'mpn': ' RC0805-10K ',
+                                                  'manufacturer': ' TI '})
+        assert resp.status_code == 302
+
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(product_id)
+        assert product.mpn == 'RC0805-10K'
+        assert product.manufacturer == 'TI'
+
+    def test_edit_stores_padded_identifier_fields_trimmed(self, client, test_storage):
+        """The same through the edit form, which reaches the other writer.
+
+        `product_edit` builds a partial `update_fields` dict and calls
+        `update_product`, a different service method with its own cleaning loop
+        than the one `product_add` calls, so a create-side assertion says
+        nothing about this path. Read back through `get_product` rather than off
+        the redirect target's HTML: the detail page would render a padded value
+        and a trimmed one indistinguishably.
+        """
+        pid = self._make_product(test_storage, description='before', mpn='OLD-1')
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'before',
+                                 'mpn': ' RC0805-10K ',
+                                 'manufacturer': ' TI '})
+        assert resp.status_code == 302
+
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.mpn == 'RC0805-10K'
+        assert product.manufacturer == 'TI'
+
 
 @pytest.mark.unit
 class TestProductPurchases:

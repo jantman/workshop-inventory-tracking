@@ -774,6 +774,63 @@ class TestEciaResolution:
         assert dict(r.classification.ecia_fields)['1P'] == f' {MPN} '
 
     @pytest.mark.unit
+    def test_a_padded_stored_part_number_still_matches_a_clean_label(
+            self, catalog_service):
+        """The mirror of the test above, from the stored side (DW-7).
+
+        That one pads the SCAN and relies on `_ecia_candidates`' trim; this one
+        submits padding TO the column and relies on `_clean`'s. Neither trim is
+        unpinned on its own — `test_a_padded_part_number_still_matches_exactly`
+        covers the query side and `test_blank_optional_fields_coerced_to_none`
+        (`tests/unit/test_catalog_service.py`) already fails on a lost `_clean`
+        strip by way of `description`. What no test said until now is that the
+        two have to produce the SAME spelling, which is the only reason either
+        matters: they live in different modules, one stripping what is stored
+        and the other what is queried, and a suite that checks each in
+        isolation stays green while `_ecia_match` compares two values that no
+        longer meet.
+
+        What that regression looks like is worth naming, because it is quiet
+        rather than loud: the padded row misses `_ecia_match` entirely, and the
+        fallthrough then finds it anyway by substring (`search_products` strips
+        its own query), so the resolution comes back `product=None` with the
+        product sitting in `free_text_hits` — an exact match demoted to a hit
+        list, which the operator sees as an extra click and not as a bug.
+        `free_text_hits == ()` says the match came from the lookup rather than
+        the search; `ScanResolution` forbids holding both at once, so it
+        restates the line above rather than making a second claim.
+        """
+        pid = catalog_service.create_product(description='RES 10K 0805 1%',
+                                             mpn=f' {MPN} ')
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_a_padded_stored_identifier_row_still_matches_a_clean_label(
+            self, catalog_service, product):
+        """The same claim about the OTHER home of a part number (DW-7).
+
+        `_ecia_match` consults `products.mpn` and an `MPN` identifier row in
+        one query, and the test above pins only the column, so half of what a
+        scan actually depends on would go unasserted. The two homes are written
+        by two separately-written strips — `_clean` and `add_identifier`'s — and
+        an operator records a part number in whichever one the form in front of
+        them offers, so the same scan must not resolve differently depending on
+        which that was.
+        """
+        catalog_service.add_identifier(product.id,
+                                       identifier_type=IdentifierType.MPN,
+                                       value=f' {MPN} ')
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+
+        assert r.product is not None and r.product.id == product.id
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
     def test_a_whitespace_only_identifier_never_becomes_the_candidate(
             self, catalog_service, monkeypatch):
         """A blank-but-present `1P` is truthy, so before trimming it became

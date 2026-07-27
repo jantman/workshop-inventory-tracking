@@ -122,7 +122,33 @@ SEARCH_QUERY_MAX_LENGTH = 4096
 
 def _clean(value):
     """Trim strings and coerce blank strings to None (backfill-forward: absent
-    optional fields must store NULL, not '')."""
+    optional fields must store NULL, not '').
+
+    Shared by the product write path -- `manufacturer`, `mpn`, `description`,
+    `notes` -- and by `record_purchase`'s `vendor`, `vendor_sku`,
+    `order_number` and `source_url`. NOT by every writer of those purchase
+    columns: `record_amazon_purchase` sets `vendor` from the already-stripped
+    vendor scope and `vendor_sku` from the ASIN, neither through here. So this
+    is a list of callers, not a guarantee about columns.
+
+    For `mpn` the trim carries weight the others' does not, which is why it
+    belongs here and not at either route. `create_product` and `update_product`
+    are that column's only writers, so what this strips is what `_ecia_match`
+    compares a scanned part number against; `add_identifier` strips an `MPN`
+    identifier row's value the same way, and `_ecia_candidates` strips what it
+    queries BY. A padded stored value would miss the exact lookup and silently
+    degrade to the free-text fallthrough, which finds it anyway by substring
+    (DW-7). Leading whitespace is what bites on either backend; a trailing pad
+    of ordinary spaces misses under the unit suite's SQLite but compares equal
+    in production, where `utf8mb4_unicode_ci` is PAD SPACE -- which pads U+0020
+    and nothing else, so a trailing tab or newline misses on both.
+
+    Two limits, so that agreement is not read as wider than it is:
+    `_ecia_candidates` ALSO drops what `sql_text.is_storable_text` rejects and
+    nothing here does, and `add_identifier`'s `str()` coercion is not copied —
+    a non-string passes through to SQLAlchemy, which stringifies it into the
+    column rather than raising.
+    """
     if isinstance(value, str):
         value = value.strip()
         return value or None

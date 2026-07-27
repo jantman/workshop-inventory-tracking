@@ -1915,7 +1915,13 @@ def _ecia_prefill(classification):
     keeps values exactly as the label printed them — which is right for a parser
     — but a padded part number saved into `products.mpn` would carry its padding
     into every later search, export and equivalence comparison, so the trim
-    happens here, at the pre-fill boundary, and nowhere else.
+    happens here, at the first boundary that has any business removing it --
+    the label prints the padding and `ecia.parse_fields` preserves it, both
+    correctly. Not the only trim: `_clean` strips again at the write path
+    (DW-7), so a padded value that never came through this form still stores
+    trimmed. What this boundary uniquely owns is that the form the operator is
+    HANDED already shows the clean value, rather than one silently corrected
+    on save.
 
     - `mpn` <- the first non-blank of `1P` (the supplier part number, which the
       ECIA spec makes the required field) then `P`. Which of the two a given
