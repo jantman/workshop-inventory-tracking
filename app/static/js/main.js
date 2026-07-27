@@ -113,41 +113,34 @@ const WorkshopInventory = {
     
     // Set up keyboard shortcuts
     setupKeyboardShortcuts: function() {
-        // Track if user is in an input field
-        let inInputField = false;
-        
-        // Track input field focus
-        document.addEventListener('focusin', (e) => {
-            if (e.target.matches('input, textarea, select, [contenteditable]')) {
-                inInputField = true;
-            }
-        });
-        
-        document.addEventListener('focusout', (e) => {
-            if (e.target.matches('input, textarea, select, [contenteditable]')) {
-                inInputField = false;
-            }
-        });
-        
         // Global keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            // Skip shortcuts if user is typing in an input field
-            if (inInputField && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            // Skip shortcuts whenever a form field owns keyboard input.
+            //
+            // Unconditional in the modifiers: a keyboard wedge emits ASCII
+            // control characters as Ctrl chords (GS as Ctrl+], RS as Ctrl+^),
+            // so an exemption for Ctrl/Meta/Alt hands a scan burst to the table
+            // below while the operator's caret sits in #scan-input — Ctrl+/
+            // toasted "Focus Search" mid-burst and Ctrl+Shift+/ opened the help
+            // modal, stealing the focus the burst needed.
+            if (this.utils.isFieldFocused()) {
                 return;
             }
             
             const shortcuts = {
                 // Utility shortcuts
+                // Each action reports whether it actually did its thing, so the
+                // confirmation toast below can only announce what happened.
                 'Focus Search': {
                     keys: ['Slash'],
                     action: (e) => {
-                        if (!inInputField) {
+                        const searchInput = document.querySelector('input[type="search"], input[name*="search"], #search');
+                        if (searchInput) {
                             e.preventDefault();
-                            const searchInput = document.querySelector('input[type="search"], input[name*="search"], #search');
-                            if (searchInput) {
-                                searchInput.focus();
-                            }
+                            searchInput.focus();
+                            return true;
                         }
+                        return false;
                     },
                     description: 'Focus search input'
                 },
@@ -159,7 +152,9 @@ const WorkshopInventory = {
                         if (e.code === 'F1' || (e.code === 'Slash' && e.shiftKey)) {
                             e.preventDefault();
                             this.showKeyboardHelp();
+                            return true;
                         }
+                        return false;
                     },
                     description: 'Show keyboard shortcuts help'
                 }
@@ -179,9 +174,15 @@ const WorkshopInventory = {
                     }
                     
                     try {
-                        shortcut.action(e);
-                        // Show brief feedback for the shortcut
-                        this.utils.showToast(`${name}`, 'info');
+                        const acted = shortcut.action(e);
+                        // Show brief feedback for the shortcut — but only when
+                        // the action performed its effect. `Focus Search`'s
+                        // selector matches no element in any template, so an
+                        // unconditional toast announced a focus move that never
+                        // happened.
+                        if (acted) {
+                            this.utils.showToast(`${name}`, 'info');
+                        }
                     } catch (error) {
                         console.warn('Keyboard shortcut error:', error);
                     }
@@ -295,6 +296,20 @@ const WorkshopInventory = {
     
     // Utility functions
     utils: {
+        // True while an editable/selectable control owns keyboard input.
+        //
+        // Read from document.activeElement at call time rather than from a
+        // focusin/focusout flag: a flag is only as good as the listeners that
+        // maintain it, so focus that lands before DOMContentLoaded (an
+        // `autofocus` attribute, an inline `.focus()`) leaves it stale. The
+        // selector is main.js's original one, verbatim — which elements count
+        // as "typing" is unchanged, only when and how freshly it is asked.
+        isFieldFocused: function() {
+            const active = document.activeElement;
+            return !!active && typeof active.matches === 'function' &&
+                active.matches('input, textarea, select, [contenteditable]');
+        },
+        
         // Show loading state on element
         showLoading: function(element, text = 'Loading...') {
             element.classList.add('loading');

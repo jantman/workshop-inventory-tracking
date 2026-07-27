@@ -471,7 +471,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-1-wedge-scan-capture.md`
 location: `app/static/js/inventory-add.js:128-146`
 reason: `inventory-add.js`'s scan-mode handler is bound to `document` and swallows printable keystrokes for every field on `/inventory/add` while scan mode is active, including the global navbar scan field.
 evidence: `app/static/js/inventory-add.js:128-146` registers `document.addEventListener('keydown', ...)`; once `this.scanModeActive` is true it appends any single-character key to its own buffer and calls `e.preventDefault()` regardless of which element has focus. Typing into any input on that page — the new `#scan-input` included — is therefore captured by the add-item barcode buffer instead. This predates Story 4.1 (it already applies to every field on the add form) and correcting it means adding a focus guard to that handler, which is metal-stock scan-path code NFR9 places off limits to this story.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-keydown-handler-focus-guards
 
 ### DW-57: A keyboard wedge cannot type ASCII control characters into an HTML text input, so the server's byte-exact GS/RS/EOT preservation path may be unreachable from a real scanner
 origin: migrated from legacy ledger ("4-1-wedge-scan-capture.md"), 2026-07-26
@@ -539,7 +540,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-1-wedge-scan-capture.md`
 location: `app/static/js/main.js:133-136`, `app/static/js/main.js:180-184`
 reason: `main.js`'s global shortcut handler skips its own "user is typing in an input" early-return whenever Ctrl, Meta or Alt is held, so a keyboard wedge that transmits control characters as modifier chords can fire app shortcuts while `#scan-input` has focus.
 evidence: `app/static/js/main.js:133-136` reads `if (inInputField && !e.ctrlKey && !e.metaKey && !e.altKey) return;`, so any chord passes through to the shortcut table even with focus in a field. `Ctrl`+`Slash` matches `Focus Search` — its own action is guarded by `!inInputField` and does nothing, but the handler then calls `showToast(name)` unconditionally (`main.js:180-184`), putting a spurious "Focus Search" toast on screen mid-burst. `Ctrl`+`Shift`+`Slash` matches `Help`, which is *not* guarded, so `showKeyboardHelp()` opens the modal and takes focus out of the scan field. Keyboard-wedge scanners commonly emit ASCII control characters as Ctrl chords (GS as `Ctrl`+`]`, RS as `Ctrl`+`^`), which is the same transmission question the "a wedge cannot type ASCII control characters into a text input" entry raises from the other side. Distinct from the no-field-focused entry: that one is the default unfocused state, this one bites with the scan field properly focused. Unfixable inside Story 4.1 — the guard belongs in `main.js`, which that story's intent contract held read-only under NFR9 — and pre-existing: it applies to every input in the app, not just the scan field.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-keydown-handler-focus-guards
 
 ### DW-65: The classifier's ECIA rule requires the literal `[)>` RS `06` header, but whether a keyboard wedge can deliver RS/GS at all is an open hardware question
 origin: migrated from legacy ledger ("4-2-pure-scan-classifier.md"), 2026-07-26
@@ -1145,4 +1147,67 @@ origin: review-budget-followup
 source_spec: `spec-products-user-manual-chapter.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-134: `Help`'s entry-level `shift: true` makes the advertised bare `F1` shortcut unreachable
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/main.js:148-158`, `app/static/js/main.js:168`
+severity: low
+summary: The `Help` entry lists `keys: ['F1', 'Slash']` but declares `shift: true` for the whole entry, so `matchesShift = !shortcut.shift || e.shiftKey` fails for a bare `F1` and the key never matches — while `docs/user-manual.md:1947`, `docs/user-manual.md:2034` and the modal's own footer (`main.js:93`) all tell the operator to press it.
+evidence: `main.js:168` computes `matchesShift` from the entry's flag, and only `Help` sets one; with `e.code === 'F1'` and `e.shiftKey === false` the entry cannot match, so the action's own `e.code === 'F1'` branch (`:153`) is dead code. The shortcut-table `preventDefault()` at `:172` is keyed on `e.code === 'F1'` and is unreachable for the same reason — and, unlike the toast, it is not covered by the new "only when the action acted" rule, so it would fire ahead of the action's decision if the entry were ever fixed. Pre-existing; DW-64's spec held the shortcut table's matching semantics out of scope so that its fix stayed to the focus guard.
+status: open
+
+### DW-135: One `Shift`+`/` press runs two shortcut actions, because the match loop has no early exit
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/main.js:164-186`
+severity: low
+summary: `Focus Search` declares no `shift` requirement, so `Shift`+`/` matches it as well as `Help`; `Object.entries(shortcuts).forEach(...)` visits every entry with no `break`, so both actions run for a single keypress.
+evidence: `matchesShift = !shortcut.shift || e.shiftKey` is `true` for `Focus Search` on any `Slash` press regardless of Shift, so `Shift`+`/` would focus a search box and then open the help modal over it. Harmless only because `Focus Search`'s selector matches nothing (DW-137) — the ordering hazard is intact and would surface the moment a search field exists. `tests/e2e/test_keydown_focus_guards.py::test_shift_slash_still_opens_the_help_modal_and_toasts_once` pins today's single-toast outcome, so a fix has a guard to check itself against. Pre-existing; out of scope for DW-64, which was confined to the focus guard.
+status: open
+
+### DW-136: A modifier-less shortcut entry matches any Ctrl/Meta/Alt chord
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/main.js:166-167`
+severity: medium
+summary: `matchesCtrl = !shortcut.ctrl || e.ctrlKey || e.metaKey` (and `matchesAlt` likewise) tests only whether a *required* modifier is present, never whether an *unrequested* one is absent, so `Ctrl`+`/` still matches `Focus Search` and `Ctrl`+`Shift`+`/` still matches `Help` whenever no form field has focus.
+evidence: The focus guard added for DW-64 closes this only while a field owns focus. With focus on `body` — the default state of every page, and the state an add-page wedge burst arrives in once the scanner is armed — a wedge's control chords (GS as `Ctrl`+`]`, RS as `Ctrl`+`^`) still reach the table, and a barcode carrying `Shift`+`/` opens the keyboard-help modal mid-burst. This is the no-field-focused sibling that DW-64's own evidence names as a distinct entry; a fix is a strict equality per modifier (`!!shortcut.ctrl === (e.ctrlKey || e.metaKey)`), which changes matching semantics for every entry and so needs its own story.
+status: open
+
+### DW-137: `Focus Search` has no target in any template, so `/` is now silently inert while the manual still documents it
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/main.js:135-146`, `app/static/js/main.js:194-200`, `docs/user-manual.md:1943`
+severity: medium
+summary: The selector `input[type="search"], input[name*="search"], #search` matches no element in any template, so the shortcut has never focused anything; gating its confirmation toast on the action (DW-64's fix) removed the only feedback it produced, leaving `/` with no effect and no response at all.
+evidence: No template contains `type="search"`, a `name` containing `search`, or `id="search"` — `app/templates/inventory/list.html:60`'s `id="search-filter"` is the near miss, and `app/templates/base.html:91` records that `#scan-input` is deliberately *not* a search input. Meanwhile `docs/user-manual.md:1943` states "`/` - Focus search field from anywhere in the application" and `main.js:196` still feeds `'/': 'Focus search input'` into the in-app help modal, so both the manual and the app advertise a shortcut that provably does nothing. Not caused by the focus-guard work — the shortcut was already inert, merely noisy about it — but that change is what made the failure silent, and the resolution (wire it to a real field, or drop the shortcut and its documentation) is a product decision the spec's `Never` list held out of scope.
+status: open
+
+### DW-138: Focus is stranded on `#scan-ja-id-btn` after a capture ends, so Enter re-arms the scanner instead of moving on
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/inventory-add.js:195` (`startBarcodeCapture`), `app/static/js/inventory-add.js:208-217` (`cancelBarcodeCapture`)
+severity: low
+summary: `startBarcodeCapture()` moves focus onto the scan button and nothing ever moves it off again — not `processBarcodeInput`, not `cancelBarcodeCapture`, not the 10 s auto-cancel — so after every scan the operator's caret sits on a `type="button"` element where Enter and Space re-arm the capture they just finished.
+evidence: `cancelBarcodeCapture()` resets `scanModeActive`, the buffer and the button's classes, and touches focus nowhere; `processBarcodeInput()` writes `#ja_id` and calls it. `clearFormForContinue()` focuses `#ja_id` after every Save & Continue, so bulk entry runs field → scan button → *button*, and the operator has to click or tab back into the form each cycle. Restoring focus is a two-line change (stash `document.activeElement` at arm time, or focus `this.scanTargetField` on completion) but it is a behavior change to the capture lifecycle, which the DW-56/DW-64 spec's `Never` clause held out of scope ("do not cancel or auto-exit add-page scan mode... do not change the scan buffer's parsing, timeouts, or toasts"). Pre-existing on Chromium, which focuses a clicked button natively; the `button.focus()` added for DW-56 makes it deterministic on every browser rather than causing it.
+status: open
+
+### DW-139: A burst interrupted mid-flight is flushed as though it were complete
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/inventory-add.js:143-165` (`setupBarcodeScanning`)
+severity: low
+summary: The DW-56 focus guard returns before the `clearTimeout`, so if anything takes focus part-way through a burst the already-buffered prefix and its pending 100 ms flush both survive: the timer fires on a truncated buffer and `processBarcodeInput` reports `Invalid JA ID format: JA0` and disarms the scanner, while the rest of the burst types into whatever took focus.
+evidence: The guard is `if (WorkshopInventory.utils.isFieldFocused()) return;` placed above `if (this.scanTimeout) clearTimeout(this.scanTimeout)`. That placement is deliberate and correct for its own purpose — clearing the timer on ignored keystrokes would postpone the flush for as long as an operator keeps typing — but it means the guard cannot distinguish "the operator started typing" from "focus moved mid-burst". Candidates for the focus move exist: `main.js:518` focuses the first invalid field during validation, and a stray click lands anywhere. Before the guard the whole burst went to the buffer, so this failure mode is new; the window is one burst wide (~50 ms) and `processBarcodeInput`'s `^JA\d{6}$` check means a truncated prefix error-toasts rather than writing a wrong JA ID, which is why it is low rather than a data defect. The fix — clearing `scanBuffer` and the pending timeout inside the guard — is exactly the buffer-behavior change that spec's `Never` clause excluded.
+status: open
+
+### DW-140: `startBarcodeCapture`'s 10 s auto-cancel timer is never cleared, so re-arming within 10 s kills the second capture
+origin: spec-keydown-handler-focus-guards
+source_spec: `_bmad-output/implementation-artifacts/spec-keydown-handler-focus-guards.md`
+location: `app/static/js/inventory-add.js:200-205` (`startBarcodeCapture`)
+severity: low
+summary: The auto-cancel `setTimeout(..., 10000)` result is never stored and never cleared, and its callback tests only the live `this.scanModeActive` flag — so a timer left over from a completed capture cancels the *next* one if the operator re-arms inside the original 10 s window.
+evidence: `startBarcodeCapture()` ends with a bare `setTimeout(() => { if (this.scanModeActive) this.cancelBarcodeCapture(); }, 10000)`; no handle is kept and `cancelBarcodeCapture()` has nothing to clear. Arm at t=0, scan successfully at t=2 (`processBarcodeInput` → `cancelBarcodeCapture`), arm again at t=5: the first timer fires at t=10, finds `scanModeActive` true again and disarms a capture that is only 5 s old, with no toast and only the button's colour changing back. Bulk entry through Save & Continue re-arms well inside 10 s. Pre-existing and untouched by the DW-56/DW-64 change, which added no timer and altered none; surfaced while reviewing the arm path. The fix is to stash the handle and `clearTimeout` it in `cancelBarcodeCapture()`.
 status: open

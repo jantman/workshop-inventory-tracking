@@ -128,6 +128,20 @@ class InventoryAddForm {
         document.addEventListener('keydown', (e) => {
             if (!this.scanModeActive) return;
             
+            // Keystrokes aimed at a form field belong to that field, not to
+            // this buffer. startBarcodeCapture() takes focus onto
+            // #scan-ja-id-btn itself, so a wedge burst arrives with no field
+            // focused and capture is unaffected; what this stops is scan mode
+            // swallowing (and preventDefault()ing) an operator typing into
+            // #scan-input or #ja_id while it is armed.
+            //
+            // Placed BEFORE the clearTimeout below on purpose: rearming the
+            // 100 ms flush on keystrokes that are not part of the burst would
+            // postpone the flush for as long as the operator keeps typing.
+            // Scan mode itself is left alone — it still ends through Enter, the
+            // flush, the 10 s auto-cancel or cancelBarcodeCapture().
+            if (WorkshopInventory.utils.isFieldFocused()) return;
+            
             // Clear previous timeout
             if (this.scanTimeout) {
                 clearTimeout(this.scanTimeout);
@@ -167,7 +181,19 @@ class InventoryAddForm {
         icon.className = 'bi bi-stopwatch';
         button.classList.add('btn-warning');
         button.classList.remove('btn-outline-secondary');
-        
+
+        // Take focus off whatever field had it, onto the button that armed
+        // the capture. The keydown handler above ignores keystrokes while a
+        // field owns focus, so a burst arriving with the caret still in #ja_id
+        // would be dropped in silence for the full 10 s. Chromium focuses a
+        // clicked button on its own, which is why capture works there without
+        // this; Firefox and Safari on macOS do not, and clearFormForContinue()
+        // parks focus in #ja_id after every Save & Continue — exactly the state
+        // an operator arms the scanner from. Focusing here makes "no field owns
+        // focus during capture" a fact this code establishes rather than a
+        // platform convention it inherits.
+        button.focus();
+
         // Show notification
         WorkshopInventory.utils.showToast('Ready to scan barcode...', 'info');
         

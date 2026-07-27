@@ -16,9 +16,12 @@
  * either, FR36's precedence would exist in two languages (AD-5).
  *
  * Note there is no document-level key listener here: capture requires the
- * field to have focus, and main.js's global shortcut handler already
- * early-returns while focus is in an input, so a focused scan field is inert
- * to it. A second global listener would create the conflict that absence
+ * field to have focus, and main.js's global shortcut handler early-returns
+ * UNCONDITIONALLY while focus is in an input — no modifier lets a key through
+ * — so a focused scan field is inert to it. That matters because a wedge
+ * emits ASCII control characters as Ctrl chords; while the early return had a
+ * Ctrl/Meta/Alt exemption, a burst could fire shortcuts out from under this
+ * field. A second global listener would create the conflict that absence
  * avoids.
  */
 
