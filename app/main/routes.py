@@ -15,7 +15,8 @@ from app.mariadb_catalog_service import (
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
 from app.models import (ItemType, ItemShape, Dimensions, Thread, ThreadSeries,
-                        ThreadHandedness, IdentifierType, ScanKind)
+                        ThreadHandedness, IdentifierType, ScanKind,
+                        VENDOR_SCOPED_IDENTIFIER_TYPES)
 from app.database import InventoryItem
 # Story 3.2: routes call the pure category util for segment-boundary logic —
 # they never re-derive it (AD-4).
@@ -808,6 +809,18 @@ _RECEIPT_FIELD_LIMITS = {
 # silently — and no UI exists to add it back.
 _IDENTIFIER_VALUE_LIMIT = 255
 
+# DW-20: `product_identifiers.vendor_scope` is its own VARCHAR(255) column, and
+# it gets its own constant for the same reason `_RECEIPT_FIELD_LIMITS` is a
+# separate mapping from `_PRODUCT_FIELD_LIMITS`: two columns that happen to be
+# the same width today are still two columns, and folding them into one number
+# would make either one's widening silently change the other's rule. Checked on
+# the form for the reason the value limit is: `add_identifier` refuses an
+# over-long scope too, but only after `create_product` has committed, and
+# `_attach_scanned_identifier` turns that refusal into an advisory flash rather
+# than a field error — so the product would exist with its identifier discarded
+# and no surface anywhere to add one back.
+_IDENTIFIER_VENDOR_LIMIT = 255
+
 # `Purchase.quantity` is an INTEGER, which MariaDB stores in 32 bits. A longer
 # digit string parses fine in Python and then overflows the column, so the form
 # refuses it here rather than letting the write fail with the generic message.
@@ -1022,6 +1035,47 @@ def _validate_product_create_form(form_data):
                 f'to keep the value exactly as entered, without check-digit '
                 f'validation.')
 
+    # DW-20: the identifier block's OWN vendor, the one thing a vendor-scoped
+    # type cannot be stored correctly without. `add_identifier` reads it as the
+    # row's `vendor_scope`, and a blank scope is not "unscoped" — '' is the
+    # sentinel meaning GLOBAL (AD-9), so a second vendor's identical SKU
+    # collides on `uq_product_identifiers_type_value_scope` instead of
+    # coexisting beside the first. The form refuses the type without a scope
+    # rather than storing one that quietly means something else.
+    #
+    # The types come from `_vendor_scoped_identifier_type_choices()`, which asks
+    # app/models.py; nothing here re-lists them, so the rule and the help text
+    # cannot drift from the scoping authority the service computes with.
+    # Gated on a non-blank VALUE like every rule above it, for the same reason:
+    # the card holding this field's `invalid-feedback` slot renders only when
+    # there is a value.
+    vendor_scoped_types = _vendor_scoped_identifier_type_choices()
+    identifier_vendor = (form_data.get('identifier_vendor') or '').strip()
+    if identifier_value and identifier_type in vendor_scoped_types \
+            and not identifier_vendor:
+        # Names the type the operator actually chose rather than reciting all
+        # three: they have to act on THIS row, and a message that lists the set
+        # makes them work out which member they are looking at. It also keeps
+        # the rendered text independent of the enum's declaration order.
+        errors['identifier_vendor'] = (
+            f"{identifier_type} identifiers are unique per vendor, so Vendor "
+            f"Scope is required. It is this identifier's own vendor, not the "
+            f"First Receipt block's Vendor.")
+
+    # Gated on the type as well, because that is the only case where the value
+    # reaches the column at all: `add_identifier` discards `vendor` outright for
+    # a globally-scoped type, and the field's help text promises exactly that
+    # ("Ignored for every other type"). Refusing a length nothing would store
+    # would be the form contradicting its own caption over a value it is about
+    # to throw away. Skipped when the field already carries the message above,
+    # following the file's first-writer-wins convention.
+    if identifier_value and identifier_type in vendor_scoped_types \
+            and len(identifier_vendor) > _IDENTIFIER_VENDOR_LIMIT \
+            and 'identifier_vendor' not in errors:
+        errors['identifier_vendor'] = (
+            f'Vendor Scope must be {_IDENTIFIER_VENDOR_LIMIT} characters or '
+            f'fewer.')
+
     return errors
 
 
@@ -1114,7 +1168,7 @@ def _product_form_data(product, tags=None):
 # put arbitrary keys in front of the operator.
 _PRODUCT_PREFILL_ARGS = (
     'description', 'manufacturer', 'mpn', 'category_path', 'tags', 'notes',
-    'identifier_type', 'identifier_value',
+    'identifier_type', 'identifier_value', 'identifier_vendor',
     'quantity', 'order_number', 'vendor', 'vendor_sku',
     'duplicate_of',
 )
@@ -1134,6 +1188,30 @@ def _identifier_type_choices():
     stays out of Jinja.
     """
     return [t.value for t in IdentifierType if t is not IdentifierType.INTERNAL]
+
+
+def _vendor_scoped_identifier_type_choices():
+    """The offered types whose uniqueness is per-vendor, not global (DW-20).
+
+    `app/models.py:VENDOR_SCOPED_IDENTIFIER_TYPES` is the scoping authority
+    (AD-9) — the same frozenset `add_identifier` computes `vendor_scope` from —
+    so this asks it rather than re-listing the three types the form would then
+    have to keep in step by hand. Passed to the template like the type choices
+    above, so Jinja never imports the enum either.
+
+    Iterated over the ENUM and filtered, not over the frozenset: a set has no
+    order, so listing it directly would let the help text name the same three
+    types in a different order from one process to the next.
+
+    Intersected with the OFFERED types, so the name stays honest. Nothing
+    vendor-scoped is withheld today, but `_identifier_type_choices` already
+    withholds one member, and a second exclusion would otherwise put a type the
+    `<select>` cannot produce into the help text and into a rule that could
+    never fire for it.
+    """
+    offered = _identifier_type_choices()
+    return [t.value for t in IdentifierType
+            if t in VENDOR_SCOPED_IDENTIFIER_TYPES and t.value in offered]
 
 
 def _duplicate_product_exists(product_id):
@@ -1198,10 +1276,18 @@ def _attach_scanned_identifier(service, product_id, form_data):
     holding product) and the identifier stays where it is; moving it would
     rewrite the first product's identity from a form that never mentioned it.
 
-    No `vendor` is passed. `add_identifier` would take the receipt block's
-    "Vendor" input as this identifier's `vendor_scope` for a vendor-scoped type,
-    silently coupling two inputs the form presents as unrelated — the create
-    form offers no vendor-scope control, so it supplies none.
+    The `vendor` passed is the identifier block's OWN `identifier_vendor` input
+    and never the receipt block's "Vendor" (DW-20). `add_identifier` stores it
+    as this row's `vendor_scope` for a vendor-scoped type — the namespace its
+    uniqueness is measured in — so borrowing the receipt's vendor would let two
+    inputs the form presents as unrelated decide each other, while passing
+    nothing at all made every vendor-scoped identifier global and collided the
+    second vendor's identical SKU with the first's. A blank becomes None, which
+    for a vendor-scoped type the service stores as `''` — the GLOBAL sentinel,
+    i.e. the bug itself — so it is `_validate_product_create_form` that keeps one
+    from reaching here, NOT any degradation in the service. For a
+    globally-scoped type the argument is ignored outright and `vendor_scope`
+    stays `''`, which is correct for it.
     """
     value = (form_data.get('identifier_value') or '').strip()
     if not value:
@@ -1209,7 +1295,8 @@ def _attach_scanned_identifier(service, product_id, form_data):
     identifier_type = (form_data.get('identifier_type') or '').strip()
     try:
         service.add_identifier(product_id, identifier_type=identifier_type,
-                               value=value)
+                               value=value,
+                               vendor=(form_data.get('identifier_vendor') or '').strip() or None)
         return None
     except ValidationError as e:
         current_app.logger.warning(
@@ -1282,7 +1369,8 @@ def _render_product_add(form_data, validation_errors):
     return render_template('product/add.html', title='Add Product',
                            validation_errors=validation_errors,
                            form_data=form_data,
-                           identifier_type_choices=_identifier_type_choices())
+                           identifier_type_choices=_identifier_type_choices(),
+                           vendor_scoped_identifier_types=_vendor_scoped_identifier_type_choices())
 
 
 @bp.route('/products/add', methods=['GET', 'POST'])

@@ -23,9 +23,15 @@
                     scan that already resolved to
                     <a href="{{ url_for('main.product_detail', product_id=form_data.get('duplicate_of')) }}">an existing product</a>.
                     {% if form_data.get('identifier_value') %}
+                    {# DW-20 narrowed "unique across the catalog" to the truth:
+                       uniqueness is measured WITHIN a scope, and the vendor-scoped
+                       types now have one. Stating the rule rather than predicting
+                       the outcome, because the outcome depends on the Type and
+                       Vendor Scope the operator can still change after this
+                       renders. #}
                     The scanned identifier stays with that product — an identifier
-                    is unique across the catalog, so it cannot be attached here as
-                    well.
+                    is unique within its scope, so the same one cannot be attached
+                    here as well under the same scope.
                     {% endif %}
                 </p>
                 <div class="form-check">
@@ -153,6 +159,30 @@
                             {% if validation_errors and validation_errors.identifier_value %}<div class="invalid-feedback d-block">{{ validation_errors.identifier_value }}</div>{% endif %}
                         </div>
                     </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            {# DW-20: this identifier's OWN vendor, the namespace a
+                               vendor-scoped type is unique within. Always rendered
+                               with the card — never revealed by JS — because the
+                               server is the only enforcer and a form that refuses a
+                               submit over a control the operator cannot see is
+                               worse than one extra input. The vendor-scoped type
+                               names come from the route
+                               (vendor_scoped_identifier_types), so this template
+                               never imports the enum and never re-lists them. #}
+                            <label for="identifier_vendor" class="form-label">Vendor Scope</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.identifier_vendor %} is-invalid{% endif %}"
+                                   id="identifier_vendor" name="identifier_vendor" maxlength="255"
+                                   value="{{ form_data.get('identifier_vendor', '') }}" autocomplete="off">
+                            <div class="form-text">
+                                Required for {{ vendor_scoped_identifier_types|join(', ') }}: it is the
+                                namespace the identifier is unique within, so two vendors can carry the
+                                same value. Ignored for every other type. This is <strong>not</strong>
+                                the First Receipt block's Vendor — neither field fills the other.
+                            </div>
+                            {% if validation_errors and validation_errors.identifier_vendor %}<div class="invalid-feedback d-block">{{ validation_errors.identifier_vendor }}</div>{% endif %}
+                        </div>
+                    </div>
                     <div class="form-text">
                         {# On the duplicate path this card sat directly under a
                            warning saying the identifier CANNOT be attached here,
@@ -160,10 +190,26 @@
                            always failed on the uniqueness constraint. Both
                            blocks now say the same thing. #}
                         {% if form_data.get('duplicate_of') %}
+                        {# Branched on the CHOSEN type, because the escape hatch
+                           the vendor-scoped wording offers does not exist for a
+                           globally-scoped one — and GTIN is the only type any
+                           scan puts on this link (`_scan_banner_args`), so the
+                           unbranched sentence was telling every operator who
+                           actually arrives here to fill in a box that cannot
+                           help them. #}
+                        {% if form_data.get('identifier_type') in vendor_scoped_identifier_types %}
                         This identifier already belongs to the product above, and
-                        an identifier is unique across the catalog — saving will
-                        report that it could not be attached. Clear the value to
-                        create the product without it.
+                        an identifier is unique within its scope — saving will
+                        report that it could not be attached unless you give it a
+                        Vendor Scope that product does not hold it under. Clear the
+                        value to create the product without it.
+                        {% else %}
+                        This identifier already belongs to the product above, and
+                        outside the vendor-scoped types an identifier is unique
+                        across the whole catalog — saving will report that it could
+                        not be attached. Clear the value to create the product
+                        without it.
+                        {% endif %}
                         {% else %}
                         Attached to the product when you save it. Clear the value to
                         create the product without it.

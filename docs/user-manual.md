@@ -791,8 +791,14 @@ grows a **Scanned Identifier** card. It is not shown otherwise.
 - **Type \*** is a dropdown, starting with "Select a type…", offering
   `GTIN`, `GTIN_UNVALIDATED`, `ASIN`, `FNSKU`, `MPN` and `VENDOR_SKU`.
 - **Value** holds what the scan carried, up to 255 characters.
+- **Vendor Scope** is the vendor this identifier belongs to, up to 255
+  characters. It is required for `ASIN`, `FNSKU` and `VENDOR_SKU`, which are
+  unique *per vendor* rather than across the catalog, and it is ignored for
+  every other type. It is **not** the **Vendor** field in the First Receipt
+  card below — neither one fills the other in, so two vendors can each carry
+  the same `VENDOR_SKU` without colliding.
 
-Both are editable before you save. Pick `GTIN_UNVALIDATED` rather than `GTIN`
+All three are editable before you save. Pick `GTIN_UNVALIDATED` rather than `GTIN`
 when you want to keep a barcode that does not pass its check digit — a value
 typed or edited into a `GTIN` is check-digit validated before the product is
 created, and the refusal names `GTIN_UNVALIDATED` as the way to keep it anyway.
@@ -811,12 +817,19 @@ when you save it. Clear the value to create the product without it." Leaving a
 value in place with no type selected is refused with
 `Choose the type of the scanned identifier, or clear its value.`; a type the
 system does not recognise gets `Choose a valid identifier type.`, and a value
-longer than the limit gets `Identifier must be 255 characters or fewer.` Those
-three and the check-digit rule above are all checked before anything is
-written, so the product is not created.
+longer than the limit gets `Identifier must be 255 characters or fewer.`
+Choosing `ASIN`, `FNSKU` or `VENDOR_SKU` with the **Vendor Scope** box empty is
+refused with `VENDOR_SKU identifiers are unique per vendor, so Vendor Scope is
+required. It is this identifier's own vendor, not the First Receipt block's
+Vendor.` (naming whichever type you chose), and a scope longer than the
+limit gets `Vendor Scope must be 255 characters or fewer.` Those five and the
+check-digit rule above are all checked before anything is written, so the
+product is not created.
 
-An identifier is unique across the whole catalog, so an attach can fail even
-though the product saved. You are told plainly:
+An identifier is unique within its scope — across the whole catalog for `GTIN`,
+`GTIN_UNVALIDATED` and `MPN`, and per **Vendor Scope** for `ASIN`, `FNSKU` and
+`VENDOR_SKU` — so an attach can fail even though the product saved. You are told
+plainly:
 `The product was saved, but the scanned identifier was not attached: <reason>`
 or, when the failure was not a validation refusal,
 `The product was saved, but the scanned identifier was not attached. Note the identifier — it must be added by hand once a product can be given one.`
@@ -833,16 +846,22 @@ Nothing is written until you tick it — submitting without it is refused with
 `This scan already matched an existing product. Confirm below that you want to create a separate product anyway.`
 
 When the scan carried an identifier, the warning gains one more sentence: "The
-scanned identifier stays with that product — an identifier is unique across the
-catalog, so it cannot be attached here as well."
+scanned identifier stays with that product — an identifier is unique within its
+scope, so the same one cannot be attached here as well under the same scope."
 
 Only a **GTIN** scan carries an identifier onto this form, so only that path
 shows a **Scanned Identifier** card here at all — arrive from an internal or
 distributor-label banner and there is none. Where the card is present, its help
-text changes to say what will actually happen: "This identifier already belongs
-to the product above, and an identifier is unique across the catalog — saving
-will report that it could not be attached. Clear the value to create the product
-without it."
+text changes to say what will actually happen, which depends on the **Type** now
+selected. `GTIN` — the type the scan put there — is unique across the whole
+catalog, so it reads "This identifier already belongs to the product above, and
+outside the vendor-scoped types an identifier is unique across the whole catalog
+— saving will report that it could not be attached. Clear the value to create the
+product without it." Change the **Type** to `ASIN`, `FNSKU` or `VENDOR_SKU` and it
+reads "This identifier already belongs to the product above, and an identifier is
+unique within its scope — saving will report that it could not be attached unless
+you give it a Vendor Scope that product does not hold it under. Clear the value to
+create the product without it."
 
 ### Categories
 

@@ -1385,6 +1385,7 @@ class TestProductAddPrefill:
                           '&manufacturer=Yageo&mpn=RC0805-10K'
                           '&category_path=electronics&tags=smd&notes=from+a+scan'
                           '&identifier_type=GTIN&identifier_value=00012345678905'
+                          '&identifier_vendor=Adafruit'
                           '&quantity=25&order_number=PO-4471'
                           '&vendor=DigiKey&vendor_sku=296-1234-ND')
         assert resp.status_code == 200
@@ -1393,6 +1394,11 @@ class TestProductAddPrefill:
                       'smd', 'from a scan', '00012345678905', '25', 'PO-4471',
                       'DigiKey', '296-1234-ND'):
             assert value in body, value
+        # DW-20: the identifier block's own vendor scope pre-fills like the two
+        # fields beside it. Asserted on the control rather than on the page,
+        # because the receipt block renders a Vendor input too — a page-wide
+        # substring check could not tell the two apart.
+        assert _input_value(body, 'identifier_vendor') == 'Adafruit'
 
     def test_prefilled_values_stay_editable(self, client):
         """FR39 says "every pre-filled value stays editable", so the identifier
@@ -1405,6 +1411,7 @@ class TestProductAddPrefill:
         """
         resp = client.get('/products/add?identifier_type=GTIN'
                           '&identifier_value=00012345678905&mpn=RC0805'
+                          '&identifier_vendor=DigiKey'
                           '&quantity=25&order_number=PO-1')
         body = resp.data.decode()
         assert 'id="identifier_value"' in body
@@ -1412,6 +1419,7 @@ class TestProductAddPrefill:
         assert 'type="hidden"' not in body.split('id="identifier_value"')[0][-200:]
 
         for tag in _form_controls(body, ('identifier_value', 'identifier_type',
+                                         'identifier_vendor',
                                          'mpn', 'quantity', 'order_number',
                                          'description')):
             assert 'readonly' not in tag, tag
@@ -2235,15 +2243,18 @@ class TestScannedIdentifierTyping:
     def test_the_receipt_vendor_does_not_become_the_identifier_scope(
             self, client, test_storage):
         """`add_identifier` takes `vendor` as the identifier's `vendor_scope`
-        for a vendor-scoped type. Passing the receipt block's Vendor input into
-        it couples two inputs the form presents as unrelated, with nothing in
-        the UI saying so — and it decides the row's uniqueness namespace."""
+        for a vendor-scoped type, and the scope decides the row's uniqueness
+        namespace — so it comes from the identifier block's own input and from
+        nothing else. The receipt block's Vendor is a different fact about a
+        different table, and coupling the two would let a purchase rewrite an
+        identity nothing on the form said it touched (DW-20)."""
         svc = CatalogService(test_storage)
         resp = client.post('/products/add', data={
             'description': 'Scanned part',
             'identifier_type': 'VENDOR_SKU',
             'identifier_value': '296-1234-ND',
-            'vendor': 'DigiKey',
+            'identifier_vendor': 'DigiKey',
+            'vendor': 'Mouser',
         })
         assert resp.status_code == 302
         pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
@@ -2251,9 +2262,421 @@ class TestScannedIdentifierTyping:
         rows = [r for r in svc.get_identifiers_for_product(pid)
                 if r.identifier_type == 'VENDOR_SKU']
         assert len(rows) == 1
-        assert rows[0].vendor_scope == ''
-        # The vendor still reached the place the form said it would.
-        assert svc.get_purchases_for_product(pid)[0].vendor == 'DigiKey'
+        assert rows[0].vendor_scope == 'DigiKey'
+        # ...and the receipt vendor still reached the only place the form said
+        # it would: the Purchase.
+        assert svc.get_purchases_for_product(pid)[0].vendor == 'Mouser'
+
+
+@pytest.mark.unit
+class TestScannedIdentifierVendorScope:
+    """The create form's own vendor-scope input (DW-20).
+
+    `vendor_scope` is not decoration: `''` is the sentinel meaning GLOBAL
+    (AD-9), so a VENDOR_SKU/ASIN/FNSKU saved without one is stored in the wrong
+    namespace and the NEXT vendor's identical SKU collides with it on
+    `uq_product_identifiers_type_value_scope` instead of coexisting beside it.
+    The form offered all three types with no control saying which vendor they
+    belonged to, and passed no `vendor` at all. These tests defend the input,
+    the refusal that guards it, and — in both directions — its independence from
+    the First Receipt block's Vendor, which is a fact about a Purchase and must
+    never decide an identifier's identity.
+    """
+
+    def test_a_vendor_scoped_type_without_a_scope_is_refused_before_the_write(
+            self, client, product_ids):
+        """Refused in front of `create_product` like every other identifier
+        rule: `_attach_scanned_identifier` runs post-commit and is non-fatal, so
+        a refusal there would be a product that exists with its identifier
+        thrown away and no surface anywhere to add one back."""
+        resp = client.post('/products/add', data={
+            'description': 'Amazon part',
+            'identifier_type': 'ASIN',
+            'identifier_value': 'B00X',
+        })
+
+        assert resp.status_code == 200
+        assert product_ids() == set()
+
+        body = resp.data.decode()
+        # Names the type the operator chose, not the whole vendor-scoped set:
+        # they have one row in front of them, and reciting three types makes
+        # them work out which one they are looking at.
+        assert _shown_keyed_errors(body) == [
+            'ASIN identifiers are unique per vendor, so Vendor Scope is '
+            "required. It is this identifier's own vendor, not the First "
+            "Receipt block's Vendor."]
+        # ...rendered on the Scanned Identifier card, beside the control it is
+        # about. That card renders only when `identifier_value` is set, so a
+        # message keyed here is only visible when the field is too.
+        assert 'id="scanned-identifier"' in body
+        assert 'is-invalid' in _form_controls(body, ['identifier_vendor'])[0]
+
+    def test_a_blank_scope_is_never_borrowed_from_the_receipt_vendor(
+            self, client, product_ids):
+        """The independence runs both ways. A receipt Vendor beside a blank
+        scope is still a refusal — filling one field in from the other would
+        scope the identifier to whoever this particular purchase came from, and
+        the operator would never see that it had happened."""
+        resp = client.post('/products/add', data={
+            'description': 'DigiKey part',
+            'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND',
+            'vendor': 'DigiKey',
+            'identifier_vendor': '   ',
+        })
+
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        # Through `_shown_keyed_errors` like every sibling here, not a page-wide
+        # substring: the helper exists because `in body` proves only that the
+        # text is somewhere on the page, not that a field's own feedback block
+        # rendered it — and asserting the whole list also proves nothing ELSE
+        # was refused, i.e. that the receipt Vendor was not what stopped it.
+        assert _shown_keyed_errors(resp.data.decode()) == [
+            'VENDOR_SKU identifiers are unique per vendor, so Vendor Scope is '
+            "required. It is this identifier's own vendor, not the First "
+            "Receipt block's Vendor."]
+
+    @pytest.mark.parametrize('identifier_type', ['ASIN', 'FNSKU', 'VENDOR_SKU'])
+    def test_every_vendor_scoped_type_round_trips_its_scope(
+            self, client, test_storage, identifier_type):
+        """All three, not just the one the bug was reported against — the rule
+        reads `VENDOR_SCOPED_IDENTIFIER_TYPES` rather than naming a type, so a
+        member falling out of that frozenset is the failure to catch."""
+        resp = client.post('/products/add', data={
+            'description': f'{identifier_type} part',
+            'identifier_type': identifier_type,
+            'identifier_value': 'ABC-123',
+            'identifier_vendor': 'DigiKey',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(pid)
+                if r.identifier_type == identifier_type]
+        assert [r.vendor_scope for r in rows] == ['DigiKey']
+
+    def test_the_stored_scope_is_trimmed(self, client, test_storage):
+        """Surrounding space decides namespace identity — `' DigiKey'` and
+        `'DigiKey'` are two scopes, so the same SKU would coexist with itself.
+        The trim happens on both sides of the call; this pins the result."""
+        resp = client.post('/products/add', data={
+            'description': 'Padded scope',
+            'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND',
+            'identifier_vendor': '  DigiKey  ',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(pid)
+                if r.identifier_type == 'VENDOR_SKU']
+        assert [r.vendor_scope for r in rows] == ['DigiKey']
+
+    def test_a_scope_of_exactly_the_limit_is_accepted(self, client, test_storage):
+        """The boundary the refusal above does not prove: 256 being refused is
+        equally consistent with an off-by-one that also refuses 255, which the
+        column holds."""
+        scope = 'V' * 255
+        resp = client.post('/products/add', data={
+            'description': 'Exactly at the limit',
+            'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND',
+            'identifier_vendor': scope,
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(pid)
+                if r.identifier_type == 'VENDOR_SKU']
+        assert [r.vendor_scope for r in rows] == [scope]
+
+    @pytest.mark.parametrize('identifier_type', ['', 'NOT_A_TYPE'])
+    def test_an_unusable_type_leaves_the_scope_rules_unfired(
+            self, client, product_ids, identifier_type):
+        """First-writer-wins, and the type is the earlier writer. A blank or
+        unrecognised type is already a field error of its own; adding a Vendor
+        Scope demand beside it would ask the operator to fill in a box whose
+        requirement nothing on the page can yet be sure of."""
+        resp = client.post('/products/add', data={
+            'description': 'Untyped',
+            'identifier_type': identifier_type,
+            'identifier_value': '296-1234-ND',
+        })
+
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        # Across EVERY rendered message, not just the first: a Vendor Scope
+        # demand emitted second is exactly the regression above, and looking at
+        # `[0]` alone would let it through.
+        assert not any('Vendor Scope' in m
+                       for m in _shown_keyed_errors(resp.data.decode()))
+
+    def test_the_duplicate_path_can_attach_under_a_different_scope(
+            self, client, test_storage):
+        """The duplicate card USED to promise the attach could not happen at
+        all, which stopped being true the moment a scope existed: the same
+        VENDOR_SKU under a different vendor is a different key, so it attaches.
+        Both captions now state the rule instead of predicting the outcome."""
+        svc = CatalogService(test_storage)
+        first = client.post('/products/add', data={
+            'description': 'DigiKey reel', 'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND', 'identifier_vendor': 'DigiKey'})
+        first_pid = int(first.headers['Location'].rstrip('/').split('/')[-1])
+
+        resp = client.post('/products/add', data={
+            'description': 'Mouser reel', 'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND', 'identifier_vendor': 'Mouser',
+            'duplicate_of': str(first_pid), 'confirm_duplicate': 'yes'})
+        assert resp.status_code == 302
+        second_pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in svc.get_identifiers_for_product(second_pid)
+                if r.identifier_type == 'VENDOR_SKU']
+        assert [r.vendor_scope for r in rows] == ['Mouser']
+
+    def test_the_duplicate_card_no_longer_promises_a_failure_it_cannot_keep(
+            self, client, test_storage):
+        """The caption is read by an operator deciding whether to bother
+        supplying a scope, so it must not tell them the save is doomed when a
+        distinct scope makes it succeed."""
+        resp = client.post('/products/add', data={
+            'description': 'First', 'identifier_type': 'GTIN',
+            'identifier_value': '00012345678905'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        body = client.get(f'/products/add?duplicate_of={pid}'
+                          '&identifier_type=VENDOR_SKU'
+                          '&identifier_value=296-1234-ND').data.decode()
+        # Whitespace-normalised: the caption is wrapped in the template, so a
+        # raw substring check would be asserting where the line breaks fall.
+        card = ' '.join(body.split('id="scanned-identifier"')[1]
+                        .split('id="first-receipt"')[0].split())
+        assert 'unique across the whole catalog' not in card
+        assert 'unique within its scope' in card
+        assert 'Vendor Scope that product does not hold it under' in card
+
+    def test_the_duplicate_card_offers_no_scope_escape_for_a_global_type(
+            self, client, test_storage):
+        """GTIN is the ONLY type any scan puts on the duplicate-create link
+        (`_scan_banner_args`), and `add_identifier` discards `vendor` for it —
+        so the vendor-scoped wording, rendered unconditionally, told every
+        operator who can actually reach this page to fill in a box that cannot
+        change the outcome. The caption branches on the chosen type instead."""
+        resp = client.post('/products/add', data={
+            'description': 'First', 'identifier_type': 'GTIN',
+            'identifier_value': '00012345678905'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        body = client.get(f'/products/add?duplicate_of={pid}'
+                          '&identifier_type=GTIN'
+                          '&identifier_value=00012345678905').data.decode()
+        caption = ' '.join(body.split('id="scanned-identifier"')[1]
+                           .split('id="first-receipt"')[0]
+                           .split('<div class="form-text">')[-1].split())
+        assert 'unique across the whole catalog' in caption
+        # ...and no longer sends them to the Vendor Scope box for a way out.
+        assert 'Vendor Scope' not in caption
+
+        # ...and the caption is telling the truth: a scope supplied anyway is
+        # discarded, and the attach still fails.
+        again = client.post('/products/add', data={
+            'description': 'Second', 'identifier_type': 'GTIN',
+            'identifier_value': '00012345678905',
+            'identifier_vendor': 'AVendorNoOneElseHolds',
+            'duplicate_of': str(pid), 'confirm_duplicate': 'yes'})
+        assert again.status_code == 302
+        second_pid = int(again.headers['Location'].rstrip('/').split('/')[-1])
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(second_pid)
+                if r.identifier_type == 'GTIN']
+        assert rows == []
+
+    def test_the_same_scope_still_collides(self, client, test_storage):
+        """The negative half of the whole thesis. `two vendors coexist` alone is
+        also satisfied by a scope that is unique per REQUEST — a product id, a
+        timestamp — which would destroy uniqueness outright while leaving every
+        other test in this class green. The same value under the same scope must
+        still be refused."""
+        svc = CatalogService(test_storage)
+        pids = []
+        for description in ('First', 'Second'):
+            resp = client.post('/products/add', data={
+                'description': description,
+                'identifier_type': 'VENDOR_SKU',
+                'identifier_value': '296-1234-ND',
+                'identifier_vendor': 'DigiKey',
+            })
+            assert resp.status_code == 302
+            pids.append(int(resp.headers['Location'].rstrip('/').split('/')[-1]))
+
+        held = [[r.vendor_scope for r in svc.get_identifiers_for_product(pid)
+                 if r.identifier_type == 'VENDOR_SKU'] for pid in pids]
+        assert held == [['DigiKey'], []]
+
+    @pytest.mark.parametrize('identifier_type', ['MPN', 'GTIN_UNVALIDATED'])
+    def test_an_offered_global_type_still_saves_with_no_scope(
+            self, client, test_storage, identifier_type):
+        """The membership test read the other way round. Every offered type
+        that is NOT vendor-scoped must still save with the box empty — a rule
+        widened to all of them would make the box mandatory for a scan that
+        cannot know a vendor, and only these types would notice."""
+        resp = client.post('/products/add', data={
+            'description': f'{identifier_type} part',
+            'identifier_type': identifier_type,
+            'identifier_value': 'RC0805-10K',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(pid)
+                if r.identifier_type == identifier_type]
+        assert [r.vendor_scope for r in rows] == ['']
+
+    def test_a_globally_scoped_type_still_stores_an_empty_scope(
+            self, client, test_storage):
+        """`add_identifier` ignores `vendor` for a globally-scoped type, so a
+        scope typed beside a GTIN is silently dropped rather than made a second
+        form rule the service does not have. The help text documents it; this
+        pins that the form did not invent one."""
+        resp = client.post('/products/add', data={
+            'description': 'Global part',
+            'identifier_type': 'GTIN',
+            'identifier_value': '00012345678905',
+            'identifier_vendor': 'DigiKey',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(pid)
+                if r.identifier_type == 'GTIN']
+        assert [r.vendor_scope for r in rows] == ['']
+
+    def test_an_over_long_scope_is_refused_before_the_write(
+            self, client, product_ids):
+        """`product_identifiers.vendor_scope` is VARCHAR(255). `add_identifier`
+        refuses an over-long one too, but only after `create_product` has
+        committed, and the attach helper turns that refusal into an advisory
+        flash — so the product would exist with its identifier discarded and no
+        surface anywhere to add one back."""
+        resp = client.post('/products/add', data={
+            'description': 'Long scope',
+            'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND',
+            'identifier_vendor': 'V' * 256,
+        })
+
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        assert _shown_keyed_errors(resp.data.decode()) == [
+            'Vendor Scope must be 255 characters or fewer.']
+
+    def test_a_global_type_ignores_an_over_long_scope_rather_than_refusing_it(
+            self, client, test_storage):
+        """"Ignored" has to mean ignored. `add_identifier` discards `vendor`
+        for a globally-scoped type before it ever measures it, so a length rule
+        that fired here would refuse a save over a value nothing was going to
+        store — the form contradicting the caption on its own field."""
+        resp = client.post('/products/add', data={
+            'description': 'Global part',
+            'identifier_type': 'GTIN',
+            'identifier_value': '00012345678905',
+            'identifier_vendor': 'V' * 256,
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = [r for r in CatalogService(test_storage).get_identifiers_for_product(pid)
+                if r.identifier_type == 'GTIN']
+        assert [r.vendor_scope for r in rows] == ['']
+
+    def test_two_vendors_identical_skus_both_persist(self, client, test_storage):
+        """The bug itself, in one assertion. With every VENDOR_SKU stored
+        globally scoped, the second product's identical SKU hit the uniqueness
+        constraint and was dropped behind an advisory flash."""
+        svc = CatalogService(test_storage)
+        scopes = []
+        for vendor in ('DigiKey', 'Mouser'):
+            resp = client.post('/products/add', data={
+                'description': f'{vendor} reel',
+                'identifier_type': 'VENDOR_SKU',
+                'identifier_value': '296-1234-ND',
+                'identifier_vendor': vendor,
+            })
+            assert resp.status_code == 302
+            pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+            rows = [r for r in svc.get_identifiers_for_product(pid)
+                    if r.identifier_type == 'VENDOR_SKU']
+            assert len(rows) == 1, f'{vendor} lost its identifier'
+            scopes.append(rows[0].vendor_scope)
+        assert scopes == ['DigiKey', 'Mouser']
+
+    def test_a_blank_identifier_value_leaves_the_scope_rule_unfired(
+            self, client, test_storage):
+        """Gated on a non-blank VALUE like every identifier rule beside it: the
+        card holding this field's message slot renders only when there is one,
+        so an error raised here would be a silent 200 that wrote nothing."""
+        resp = client.post('/products/add', data={
+            'description': 'Hand-typed',
+            'identifier_value': '   ',
+            'identifier_type': 'VENDOR_SKU',
+            'identifier_vendor': '',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = CatalogService(test_storage).get_identifiers_for_product(pid)
+        assert [r for r in rows if r.identifier_type == 'VENDOR_SKU'] == []
+
+    def test_the_scope_input_renders_inside_the_identifier_card(self, client):
+        """Inside the card, not beside the receipt block: the card, the name and
+        the help text are three independent signals that this is not the
+        Purchase's Vendor, so no later reader has to infer it."""
+        resp = client.get('/products/add?identifier_value=296-1234-ND'
+                          '&identifier_type=VENDOR_SKU')
+        body = resp.data.decode()
+        card = body.split('id="scanned-identifier"')[1].split('id="first-receipt"')[0]
+
+        assert 'id="identifier_vendor"' in card
+        assert 'name="identifier_vendor"' in card
+        # Named from the route's list rather than hand-listed in Jinja, in the
+        # declaration order the enum gives.
+        assert 'Required for ASIN, FNSKU, VENDOR_SKU' in card
+        # ...and the help text says outright which Vendor this is NOT, so the
+        # distinction does not rest on the field name alone.
+        assert re.search(r"not</strong>\s+the First Receipt block's Vendor", card)
+
+    def test_the_scope_input_is_absent_without_a_scanned_identifier(self, client):
+        """The hand-driven create form is unchanged — no card, and therefore no
+        vendor-scope input and no rule that could fire on it."""
+        resp = client.get('/products/add')
+        assert resp.status_code == 200
+        assert b'id="identifier_vendor"' not in resp.data
+        # ...while the receipt block's own Vendor is untouched by any of this.
+        assert b'id="vendor"' in resp.data
+
+    def test_a_scope_from_the_url_prefills_and_stays_editable(self, client):
+        resp = client.get('/products/add?identifier_value=296-1234-ND'
+                          '&identifier_type=VENDOR_SKU&identifier_vendor=DigiKey')
+        body = resp.data.decode()
+        assert _input_value(body, 'identifier_vendor') == 'DigiKey'
+        tag, = _form_controls(body, ['identifier_vendor'])
+        assert 'readonly' not in tag
+        assert 'disabled' not in tag
+
+    def test_a_scope_survives_a_rerender_caused_by_another_field(self, client):
+        """An operator who typed the scope and then tripped an UNRELATED
+        refusal must not be quietly returned to a blank one — re-submitting the
+        page as handed back would then store the identifier globally scoped,
+        which is the exact bug this field exists to close."""
+        resp = client.post('/products/add', data={
+            'description': '',
+            'identifier_type': 'VENDOR_SKU',
+            'identifier_value': '296-1234-ND',
+            'identifier_vendor': 'DigiKey',
+        })
+        assert resp.status_code == 200
+        assert _input_value(resp.data.decode(), 'identifier_vendor') == 'DigiKey'
 
 
 @pytest.mark.unit
