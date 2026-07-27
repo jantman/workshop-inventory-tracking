@@ -424,12 +424,12 @@ const ScanCapture = {
     },
 
     /**
-     * The SINGLE escaping boundary. `showToast` interpolates its argument into
-     * innerHTML, so every message is escaped here and every caller passes plain
-     * text — including server-supplied strings and the scanned payload itself,
-     * which a printed label makes attacker-suppliable physical input. Escaping
-     * per call site would leave nothing at the call site to distinguish an
-     * already-escaped string from a raw one.
+     * Pass PLAIN TEXT. `showToast` builds the toast out of DOM nodes and sets
+     * the message with `textContent`, so the sink is the single escaping
+     * boundary and escaping here too would double-escape — a server message
+     * containing `<` would reach the operator as `&lt;`. That holds for
+     * server-supplied strings and for the scanned payload itself, which a
+     * printed label makes attacker-suppliable physical input.
      *
      * `showToast` needs the Bootstrap bundle, which is loaded from a CDN. If it
      * throws, the operator loses the toast — but a scan-state mutation must
@@ -439,7 +439,7 @@ const ScanCapture = {
     notify: function(message, level) {
         try {
             if (window.WorkshopInventory && window.WorkshopInventory.utils) {
-                window.WorkshopInventory.utils.showToast(this.escapeHtml(message), level);
+                window.WorkshopInventory.utils.showToast(message, level);
                 return;
             }
         } catch (error) {
@@ -449,7 +449,7 @@ const ScanCapture = {
     },
 
     // AD-13 object-error envelope: {success: false, error: {code, message, field?}}
-    // Returns PLAIN TEXT; `notify` escapes it. The message is server-supplied,
+    // Returns PLAIN TEXT; the toast sink escapes it. The message is server-supplied,
     // so its type is checked and its length bounded rather than trusted — an
     // object would render as "[object Object]" and a long one would push the
     // toast off the screen.
@@ -472,15 +472,6 @@ const ScanCapture = {
         return String(text).replace(
             /[\x00-\x1f\x7f]/g,
             (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
-    },
-
-    // TEXT-NODE CONTEXT ONLY. This escapes &, < and > — which is what
-    // showToast's `<div class="toast-body">${message}</div>` needs — but NOT
-    // quotes. Stories 4.2/4.3 must not reuse it for an attribute position.
-    escapeHtml: function(text) {
-        const div = document.createElement('div');
-        div.textContent = String(text);
-        return div.innerHTML;
     }
 };
 

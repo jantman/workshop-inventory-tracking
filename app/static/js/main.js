@@ -391,17 +391,39 @@ const WorkshopInventory = {
                 document.body.appendChild(toastContainer);
             }
             
-            const toastHTML = `
-                <div class="toast align-items-center text-bg-${type}" role="alert">
-                    <div class="d-flex">
-                        <div class="toast-body">${message}</div>
-                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-                    </div>
-                </div>
-            `;
-            
-            toastContainer.insertAdjacentHTML('beforeend', toastHTML);
-            const toastElement = toastContainer.lastElementChild;
+            // Built from nodes, not from an HTML string: `message` reaches the
+            // DOM through `textContent`, which does not escape it — it never
+            // shows it to the HTML parser at all. So every caller passes PLAIN
+            // TEXT and none can get it wrong; a caller that escapes first is
+            // the bug now, because its `&lt;` reaches the operator literally.
+            // `text-bg-${type}` stays interpolated: `type` is a
+            // developer-supplied literal and a class token is not an
+            // HTML-parsing context.
+            const toastElement = document.createElement('div');
+            toastElement.className = `toast align-items-center text-bg-${type}`;
+            toastElement.setAttribute('role', 'alert');
+
+            const toastFlex = document.createElement('div');
+            toastFlex.className = 'd-flex';
+
+            const toastBody = document.createElement('div');
+            toastBody.className = 'toast-body';
+            // Stringified explicitly: `textContent` is a nullable IDL attribute,
+            // so a bare `undefined`/`null` would land as an EMPTY body, whereas
+            // the interpolation this replaces rendered the word. Callers keep
+            // the behaviour they had.
+            toastBody.textContent = String(message);
+
+            const closeButton = document.createElement('button');
+            closeButton.type = 'button';
+            closeButton.className = 'btn-close btn-close-white me-2 m-auto';
+            closeButton.setAttribute('data-bs-dismiss', 'toast');
+
+            toastFlex.appendChild(toastBody);
+            toastFlex.appendChild(closeButton);
+            toastElement.appendChild(toastFlex);
+            toastContainer.appendChild(toastElement);
+
             const toast = new bootstrap.Toast(toastElement);
             toast.show();
             

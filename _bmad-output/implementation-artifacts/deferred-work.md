@@ -453,7 +453,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-1-wedge-scan-capture.md`
 location: `app/static/js/main.js:395-403` (`WorkshopInventory.utils.showToast`)
 reason: `WorkshopInventory.utils.showToast` interpolates its message into an HTML string and inserts it with `insertAdjacentHTML`, making every toast in the app an unescaped HTML sink.
 evidence: `app/static/js/main.js:395-403` builds `<div class="toast-body">${message}</div>` and calls `toastContainer.insertAdjacentHTML('beforeend', toastHTML)`. Every caller across `main.js`, `inventory-search.js`, `inventory-move.js`, `photo-manager.js` and the component scripts passes text straight through, and several pass server-derived or user-derived strings. Story 4.1 escapes at its own call site because NFR9 forbids touching `main.js`, but that is one caller of many; the sink itself should escape (or take a text node) so callers cannot get it wrong. Fixing it means auditing every existing caller that intentionally passes markup, which spans the whole front end.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-toast-html-escaping
 
 ### DW-55: Both navbar scan/lookup inputs sit inside `.navbar-collapse`, so below the `lg` breakpoint they are hidden behind the hamburger toggler
 origin: migrated from legacy ledger ("4-1-wedge-scan-capture.md"), 2026-07-26
@@ -1064,4 +1065,31 @@ location: `tests/e2e/test_move_items_sub_location.py` (`TestMoveItemsSubLocation
 severity: low
 summary: The batch-move test failed all four attempts (`--reruns=3`) inside a full `nox -s e2e` run with `assert 'M2-B' == 'M11-Y'` — the second queued move silently not applied — yet passes in isolation and passes with its own file run end to end.
 evidence: Observed 2026-07-27 in a full session (`1 failed, 384 passed, 1 skipped, 3 rerun`); re-run alone → 1 passed in 42.85s; whole file → 9 passed in 74.18s. Unrelated to the change that surfaced it: `app/templates/inventory/move.html` loads no autocomplete script and has no `-suggestions` container, so nothing in `field-autocomplete.js` executes on that page. The flow drives the wedge-scan input with `barcode_input.press('Enter')` followed by a bare `page.wait_for_timeout(200)` after each of ~10 scans, then asserts on a queue built asynchronously — under a loaded machine one queued entry can be dropped or mis-associated before `#queue-count` is read, and the count assertion (`3 items`) passes anyway because the third scan lands. A retry does not help because `--reruns` replays the same racing sequence. Wants the fixed sleeps replaced with waits on the queue's own state (a per-row locator reaching the expected count/content) rather than elapsed time.
+status: open
+
+### DW-125: Five toast call sites pass `type: 'error'`, which is not a Bootstrap variant — the app's error toasts render unstyled with an invisible close button
+origin: spec-toast-html-escaping
+source_spec: `_bmad-output/implementation-artifacts/spec-toast-html-escaping.md`
+location: `app/static/js/main.js` (`WorkshopInventory.utils.showToast`, the `text-bg-${type}` class), callers `app/static/js/inventory-add.js:207,731,735` and `app/templates/inventory/edit.html:957,961`
+severity: medium
+summary: `showToast` interpolates its `type` argument into `text-bg-${type}`, and Bootstrap 5.3 defines `text-bg-*` only for `primary|secondary|success|danger|warning|info|light|dark` — so the five call sites passing `'error'` produce `text-bg-error`, a class nothing defines, on the toasts that report failures.
+evidence: `grep -rn "text-bg-" app/static/css/*.css` returns nothing, so no project rule supplies the missing variant either. The toast therefore renders on the default light background while the close button keeps the unconditional `btn-close-white`, i.e. a white X on a white toast — the dismiss control is effectively invisible on exactly the toasts an operator most wants to dismiss. Pre-existing: the removed HTML-string version interpolated the same value into the same class. DW-54's rewrite touched both lines and deliberately kept `type` interpolated (a class token is not an HTML-parsing context, so it is not an injection question), which is why this is filed rather than fixed: the fix is a caller-side vocabulary decision — map `'error'` to `'danger'` at the five call sites, or normalize inside the sink and drop `btn-close-white` for light variants — and it changes the appearance of live error toasts, which is outside a change scoped to escaping.
+status: open
+
+### DW-126: The hand-built toast has no accessible name on its close button and no `aria-live`/`aria-atomic`
+origin: spec-toast-html-escaping
+source_spec: `_bmad-output/implementation-artifacts/spec-toast-html-escaping.md`
+location: `app/static/js/main.js` (`WorkshopInventory.utils.showToast`)
+severity: low
+summary: The toast's `.btn-close` carries no `aria-label`, so a screen reader announces an unnamed "button", and the toast declares `role="alert"` without the `aria-live="assertive"`/`aria-atomic="true"` pair Bootstrap documents, so a message updated in place can be announced partially.
+evidence: The same file gives the keyboard-shortcut modal's close button `aria-label="Close"` (`app/static/js/main.js:71`), so the omission is inconsistent within one file rather than a project-wide stance, and DW-40 (autocomplete ARIA semantics, landed at `e4929dd`) shows the project treats these as real defects. Pre-existing — the removed HTML string had neither attribute — but DW-54 rebuilt this element node by node, which is when it would have been cheapest to add. Left out because the spec's contract was to keep the rendered DOM shape byte-identical so no existing selector or screenshot moved; adding attributes is a deliberate, separately-verifiable a11y change.
+status: open
+
+### DW-127: `WorkshopInventory.utils` still holds three unescaped `innerHTML` interpolation sinks — the same defect DW-54 just removed from `showToast`, one object over
+origin: spec-toast-html-escaping
+source_spec: `_bmad-output/implementation-artifacts/spec-toast-html-escaping.md`
+location: `app/static/js/main.js:302` (`utils.showLoading`), `app/static/js/main.js:321` (`utils.showLoadingOverlay`), `app/static/js/main.js:645` (`utils.createRecentItemsDropdown`)
+severity: low
+summary: Three sibling helpers in the very `utils` object DW-54 hardened still build markup by interpolating a caller-supplied argument or stored item data into `innerHTML` — `showLoading(element, text)`, `showLoadingOverlay(message)`, and the recent-items dropdown, which splices `item.ja_id`, `item.type`, `item.shape` and `item.material` from `localStorage` into `link.innerHTML`.
+evidence: `grep -n "innerHTML" app/static/js/main.js` shows `:302` and `:321` interpolating `${text}` / `${message}` and `:645` interpolating four item fields. Severity is low only because all three are currently unreachable: `grep -rn "showLoading(\|showLoadingOverlay(\|createRecentItemsDropdown(" app/` finds no caller of the `utils` versions (`inventory-list.js:280` and `inventory-search.js:172` call their own objects' methods), and `createRecentItemsDropdown` returns early because nothing calls `addToRecentItems`, so `localStorage.recentItems` is never populated. That is exactly what makes it a ledger item rather than a live bug — and exactly what makes it a trap: the recent-items feature is written and waiting to be wired up, and the day someone calls `addToRecentItems(item)` with a server-derived item, `main.js` gets a fresh HTML sink fed by inventory data. Not caused by DW-54 and deliberately out of its scope (the spec's `Never` clause confines the change to the toast sink and leaves the other inline-alert sinks to their own entries); surfaced because reviewing the toast rewrite meant reading the rest of the file. Fix is the same shape that worked for the toast: build the nodes and set text with `textContent`, or delete the dead helpers outright if the recent-items feature is not coming back.
 status: open

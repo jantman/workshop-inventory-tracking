@@ -783,11 +783,17 @@ class TestScanFailureHandling:
         expect(page.locator(SCAN_INPUT)).to_have_value('TIMED-OUT-SCAN', timeout=5000)
 
     def test_server_error_message_is_escaped_not_rendered(self, page, live_server):
-        """`showToast` interpolates into innerHTML, so the server-supplied
-        message must reach it escaped.
+        """The server-supplied message must reach the operator as text.
 
         A barcode label is attacker-suppliable physical input, and Stories
-        4.2/4.3 will echo the scanned payload back inside these messages.
+        4.2/4.3 echo the scanned payload back inside these messages.
+
+        `showToast` now builds the toast from DOM nodes and sets the message
+        with `textContent`, so callers pass PLAIN TEXT and must not pre-escape
+        (DW-54; `ScanCapture.notify` used to, while the sink interpolated into
+        innerHTML). That makes the `'<img' in inner_text()` assertion below a
+        double-escape detector as well as an injection one: escape twice and
+        the operator gets `&lt;img`, and this goes red.
         """
         page.goto(f'{live_server.url}/')
         page.route('**/api/scan', lambda route: route.fulfill(
