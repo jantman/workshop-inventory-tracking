@@ -36,6 +36,45 @@ def tests(session):
 
 
 @nox.session(python=DEFAULT_PYTHON)
+def doctests(session):
+    """Run the docstring examples in the pure utility modules (AD-4).
+
+    The explicit ``app/utils`` path argument is load-bearing: it is the only
+    thing confining ``--doctest-modules`` to the pure-utils package. Without
+    it pytest collects from the rootdir and would import every module in the
+    tree looking for doctests. Do not remove it. New modules added under
+    ``app/utils`` are picked up automatically.
+
+    Every flag is passed on the command line rather than left to pytest.ini,
+    because pytest.ini declares ``[tool:pytest]`` -- a setup.cfg section name
+    -- so pytest reports it as the configfile but reads nothing from it, and
+    its ``addopts``/``testpaths`` never apply. See deferred-work DW-102.
+
+    Note these modules are pure in the AD-4 sense (no Flask/DB logic), but the
+    collector imports them package-qualified as ``app.utils.X``, which executes
+    ``app/__init__.py`` and therefore ``config.py``/``.env``. An import-time
+    failure there fails this session too.
+    """
+    session.install("-r", "requirements.txt")
+    session.install("-r", "requirements-test.txt")
+
+    # Log installed packages for build record
+    session.log("Installed packages:")
+    session.run("pip", "freeze")
+
+    # Run doctests from the pure utils package only
+    session.run(
+        "python", "-m", "pytest",
+        "-v",
+        "--doctest-modules",
+        "--blockage",
+        "app/utils",
+        "--tb=short",
+        *session.posargs
+    )
+
+
+@nox.session(python=DEFAULT_PYTHON)
 def e2e(session):
     """Run end-to-end tests with Playwright.
     
@@ -242,4 +281,4 @@ else:
 
 
 # Default session when running 'nox' without arguments
-nox.options.sessions = ["tests", "coverage"]
+nox.options.sessions = ["tests", "doctests", "coverage"]

@@ -49,9 +49,10 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 ### Testing Rules
 
-- **Run tests via `nox`, never bare `pytest`.** Sessions: `nox -s tests` (unit), `nox -s e2e`, `nox -s coverage`, `nox -s lint`.
+- **Run tests via `nox`, never bare `pytest`.** Sessions: `nox -s tests` (unit), `nox -s doctests`, `nox -s e2e`, `nox -s coverage`, `nox -s lint`.
+- **`nox -s doctests` executes the `>>>` examples in `app/utils/` only** (`pytest --doctest-modules app/utils`). Doctests are deliberately not enabled repo-wide, and the explicit path argument is what scopes them — don't move that flag into `pytest.ini`. Docstring examples you add under `app/utils/` become executed tests; examples added elsewhere are still never run.
 - **The `e2e` session needs a 20-minute timeout** on the tool/agent running it (it installs Playwright browsers and uses `--reruns=3`). This is a harness-level timeout, not a CLI flag.
-- **Markers gate scope** (`pytest.ini`): `unit`, `integration`, `e2e`, `slow`, `database`, `screenshot`. `--strict-markers` is on — register any new marker before using it. The `tests` session runs `-m "not e2e and not integration"`.
+- **Markers gate scope — but register them in `tests/conftest.py`, not `pytest.ini`.** `pytest.ini` *lists* `unit`, `integration`, `e2e`, `slow`, `database`, `screenshot`, but that file is inert: it declares `[tool:pytest]`, a `setup.cfg` section name, so pytest reports it as the configfile while reading *nothing* from it (see DW-102). The markers actually registered are the four in `tests/conftest.py::pytest_configure` — `unit`, `e2e`, `slow`, `integration`; `database` and `screenshot` are registered nowhere. Consequently `--strict-markers` is declared but **not in force**. Add new markers to `pytest_configure`, pass flags on the command line, and don't assume `addopts`/`testpaths` apply. The `tests` session runs `-m "not e2e and not integration"`.
 - **Unit tests block the network** via `--blockage` (pytest-blockage). Don't write unit tests that make real HTTP/API calls — mock them.
 - **Unit tests use SQLite through `MariaDBStorage`.** The `test_storage` fixture points `MariaDBStorage(database_url=sqlite:///...)` at a temp SQLite file and creates schema via `Base.metadata.create_all`. Integration tests use a real MariaDB testcontainer (`mariadb_testcontainer`).
 - **Shared fixtures live in `tests/conftest.py`:** `test_storage` → `app` (built with `TestConfig` + injected storage) → `client`. Reuse them; build the app through them, not manually.
@@ -59,7 +60,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 ### Code Quality & Style Rules
 
-- **Formatters/linters exist but are NOT enforced in default CI.** `nox -s lint` runs flake8 + `black --check` + `isort --check`, but it's not in `nox.options.sessions` (default = `tests`, `coverage`) and `lint` is labeled a future enhancement. Match surrounding style; don't mass-reformat existing files.
+- **Formatters/linters exist but are NOT enforced in default CI.** `nox -s lint` runs flake8 + `black --check` + `isort --check`, but it's not in `nox.options.sessions` (default = `tests`, `doctests`, `coverage`) and `lint` is labeled a future enhancement. Match surrounding style; don't mass-reformat existing files.
 - **Screenshots track the UI.** When you change `app/templates/**`, `app/static/css/**`, or `app/static/js/**`, docs screenshots may be stale. Regenerate with `nox -s screenshots` (or `screenshots_headless`); a repo `pre-commit` hook (`hooks/`) reminds about this.
 - **Screenshot quality gate:** PNGs must be < 500KB and RGB/RGBA — `nox -s screenshots_verify` enforces it.
 - **Module organization:** routes in blueprint packages (`app/main`, `app/admin`); services as `*_service.py`; utilities in `app/utils/`; reusable services in `app/services/`. Keep this separation.

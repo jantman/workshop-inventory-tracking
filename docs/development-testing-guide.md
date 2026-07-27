@@ -76,7 +76,20 @@ The project uses **Nox** for consistent test execution across environments. All 
 - Debug output saved to `test-debug-output/` with timestamped directories
 - Comprehensive diagnostic information for failed test analysis
 
-#### 3. Test Coverage Report
+#### 3. Doctests (pure utility modules)
+**Command**: `nox -s doctests`
+
+**Purpose**: Executes the `>>>` docstring examples in `app/utils/` so the documented behavior of the pure identifier/encoding/classification helpers (AD-4) cannot silently rot.
+
+**Scope**: `app/utils/` only, via an explicit path argument to `pytest --doctest-modules`. Doctests are deliberately *not* enabled repo-wide — that would collect and import every module in the tree.
+
+**Coverage**: 20 doctest items — one per docstring, 51 individual `>>>` examples — across `category.py`, `ecia.py`, `gs1.py`, `gtin.py`, `internal_id.py`, `location_validator.py`, `scan_router.py` and `tag.py`. A new module added under `app/utils/` is picked up automatically, with no `noxfile.py` change.
+
+**Runtime**: <0.1 seconds of assertions; ~20 seconds wall-clock for a warm session, since it builds its own environment from `requirements.txt` + `requirements-test.txt` like every other nox session.
+
+**Note**: `python -m doctest app/utils/<module>.py` is *not* an equivalent check. It imports each file as a top-level module, so `category.py`'s relative import dies with `ImportError` and exits 1 without running anything — and every other module has to be named by hand, so a newly added one stays silently uncovered. `--doctest-modules` imports package-qualified and discovers the whole package in one command.
+
+#### 4. Test Coverage Report
 **Command**: `nox -s coverage`
 
 **Purpose**: Generates detailed code coverage analysis.
@@ -90,6 +103,9 @@ The project uses **Nox** for consistent test execution across environments. All 
 ```bash
 # Run all unit tests
 nox -s tests
+
+# Run the app/utils doctests
+nox -s doctests
 
 # Run specific test file
 python -m pytest tests/unit/test_models.py -v
@@ -451,9 +467,10 @@ python app/api_client.py --url http://localhost:5000 --input item.json
 
 ### Running Tests During Development
 
-1. **Quick validation**: `nox -s tests` (runs in ~0.3s)
-2. **Full validation**: `nox -s tests && nox -s e2e`
-3. **Coverage check**: `nox -s coverage` (check `htmlcov/index.html`)
+1. **Quick validation**: `nox -s tests`
+2. **Docstring examples**: `nox -s doctests` — required whenever you touch `app/utils/`
+3. **Full validation**: `nox -s tests && nox -s doctests && nox -s e2e`
+4. **Coverage check**: `nox -s coverage` (check `htmlcov/index.html`)
 
 ### Test-Driven Development
 

@@ -368,7 +368,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-2-category-rename-with-des
 location: `app/utils/category.py`, `pytest.ini` (`addopts`)
 reason: The `Examples:` blocks in `app/utils/category.py`'s docstrings are never executed, so the module positioned as the single source of truth for category-path logic documents behavior nothing verifies.
 evidence: `pytest.ini`'s `addopts` does not include `--doctest-modules` and no nox session enables it, so the `>>>` examples in `normalize_category_path` (Story 3.1) and in Story 3.2's `is_descendant_path`, `descendant_like_pattern`, `rewrite_category_path` and `ancestor_paths` are prose. Only one is pinned by hand (`test_the_matrix_pattern_is_22_characters`); changing `CATEGORY_LIKE_ESCAPE_CHAR` or `CATEGORY_PATH_SEPARATOR` would leave the rest asserting behavior the module no longer has — and AD-4 makes these docstrings the contract Epic 8's faceting is meant to build on. The gap predates Story 3.2 (Story 3.1 established the convention) and closing it is a repo-wide test-configuration decision: enabling `--doctest-modules` collects every module in the tree, so it needs a scoped session or a per-module opt-in rather than one story's addopts change.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-pure-util-doctest-session
 
 ### DW-46: Catalog vocabulary listings and the tag filter result page fetch and render without any bound
 origin: migrated from legacy ledger ("3-3-free-form-tags.md"), 2026-07-26
@@ -545,7 +546,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-2-pure-scan-classifier.md`
 location: `app/utils/scan_router.py`, `app/utils/gs1.py`, `app/utils/gtin.py`, `noxfile.py`
 reason: The pure `app/utils/` modules carry doctests that no test session ever executes, so their examples are documentation that can rot silently.
 evidence: `app/utils/scan_router.py`, `app/utils/gs1.py` and `app/utils/gtin.py` all carry `>>>` examples in their public docstrings, and no `--doctest-modules` setting exists in `noxfile.py`, `pytest.ini`, `setup.cfg` or `pyproject.toml` (verified). `python -m doctest app/utils/scan_router.py` passes today and is the only statement of the deliberately-illustrative grammar used in `classify`'s examples, but nothing re-runs it. This is pre-existing across the pure-util family rather than introduced by Story 4.2 — which is the argument for closing it once, in the noxfile, rather than per module.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-pure-util-doctest-session
 
 ### DW-67: `gs1.decode` absorbs a transmitted GS/RS while `_clean_scan_input` preserves it, so a wedge that prefixes a separator misroutes every distributor envelope to `free_text`
 origin: migrated from legacy ledger ("4-2-pure-scan-classifier.md"), 2026-07-26
@@ -845,4 +847,49 @@ origin: review-budget-followup
 source_spec: `spec-csrf-token-handling.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-102: `pytest.ini` declares `[tool:pytest]`, a `setup.cfg` section name, so pytest reads nothing from it and every setting in the file is inert
+origin: spec-pure-util-doctest-session
+source_spec: `_bmad-output/implementation-artifacts/spec-pure-util-doctest-session.md`
+location: `pytest.ini`, `_bmad-output/project-context.md` (Testing Rules), `noxfile.py`
+severity: medium
+summary: `pytest.ini` must use a `[pytest]` section; `[tool:pytest]` is only honored inside `setup.cfg`. pytest still reports `configfile: pytest.ini` in its header, so the file looks loaded while `testpaths`, `addopts`, `markers`, `norecursedirs` and `minversion` all do nothing.
+evidence: Verified by A/B test in a scratch directory with the project's own pytest 9.1.1: with `[tool:pytest]` the header shows no `testpaths:` line, `--verbose` from `addopts` is not applied, and an unregistered marker produces a `PytestUnknownMarkWarning` instead of the error `--strict-markers` promises; renaming the section to `[pytest]` makes all four take effect immediately. Corroborated in-repo — the new `doctests` session's output was compact dots despite `addopts` declaring `--verbose`. Consequences: `--strict-markers` is not enforced (a typo'd marker in `nox -s tests`'s `-m "not e2e and not integration"` would silently deselect rather than error), `norecursedirs` is not applied (only pytest's built-in defaults keep `venv/` and `migrations/` out), `--disable-warnings`/`--color=yes`/`minversion` are inert, and `testpaths` does not confine a bare `pytest` invocation. `_bmad-output/project-context.md` states `--strict-markers` is on, which is why this went unnoticed. Not caused by this story and deliberately out of its scope: renaming the section activates roughly five settings at once and needs its own verification pass (expect fallout from `--strict-markers` in particular), and every nox session already passes its flags explicitly, so nothing is currently broken by it. Closing it means the rename plus a full `nox -s tests` / `nox -s coverage` / `nox -s e2e` re-run and a `project-context.md` correction.
+status: open
+
+### DW-103: Nothing prevents a `>>>` example added outside `app/utils/` from going unexecuted, which is the same class of gap DW-45/DW-66 closed
+origin: spec-pure-util-doctest-session
+source_spec: `_bmad-output/implementation-artifacts/spec-pure-util-doctest-session.md`
+location: `noxfile.py` (`doctests` session), `app/**` outside `app/utils/`
+severity: low
+summary: The new `doctests` session executes docstring examples under `app/utils/` only. A future `>>>` example in a route, service, or model docstring is unexecuted documentation, exactly as the `app/utils/` examples were before this story, and nothing fails or warns to say so.
+evidence: `grep -rn '^\s*>>> ' --include='*.py' app/ manage.py config.py` returns zero matches outside `app/utils/` today, so this is a latent gap rather than a live defect — which is why it is deferred rather than patched. The scoping is deliberate (running `--doctest-modules` tree-wide imports every module, including the Flask/ORM layers, which the story's intent explicitly rules out), so closing this is not "widen the path": it means either a cheap tripwire test that greps for `>>>` outside `app/utils/` and fails with a pointer to this session, or a documented convention that examples belong in the pure-utils layer. `_bmad-output/project-context.md` now states the boundary, which is the minimum mitigation; the tripwire is the open decision.
+status: open
+
+### DW-104: `app/utils/sql_text.py` states its LIKE-escaping contract entirely in prose, so the module with the subtlest semantics contributes nothing to the new doctests session
+origin: spec-pure-util-doctest-session
+source_spec: `_bmad-output/implementation-artifacts/spec-pure-util-doctest-session.md`
+location: `app/utils/sql_text.py`
+severity: low
+summary: The `doctests` session added by this story executes every `>>>` example under `app/utils/`, but `sql_text.py` has zero of them despite documenting exact `%`/`_`/`\` replacement semantics, replacement *ordering*, and non-idempotency in narrative docstrings — the class of contract doctests exist to pin.
+evidence: `grep -c '>>>' app/utils/*.py` returns `0` for `sql_text.py` and `__init__.py`; the other eight modules supply all 20 collected items. `escape_like_literal` is a dependency of `app/utils/category.py`'s `descendant_like_pattern` (imported at `category.py:59`) and was last touched by the DW-42/DW-49/DW-77 sweep, so its behavior is both load-bearing and actively changing. Not caused by this story — the module had no examples before it either, and the story's scope was "run the examples that exist", not "write new ones" (its Never list forbids adding directives or deleting examples but says nothing about authoring). Closing it means writing `>>>` examples for `escape_like_literal` covering each metacharacter, the escape character itself, and the documented ordering guarantee; they would then be collected automatically with no `noxfile.py` change.
+status: open
+
+### DW-105: `pytest.ini` declares `database` and `screenshot` markers that nothing registers, so fixing DW-102 would turn `nox -s screenshots` red
+origin: spec-pure-util-doctest-session
+source_spec: `_bmad-output/implementation-artifacts/spec-pure-util-doctest-session.md`
+location: `pytest.ini` (`markers`), `tests/conftest.py` (`pytest_configure`), `noxfile.py` (`screenshots`, `screenshots_headless`)
+severity: low
+summary: Marker registration actually happens in `tests/conftest.py::pytest_configure`, which registers only `unit`, `e2e`, `slow` and `integration`. The `database` and `screenshot` markers listed in `pytest.ini` are registered nowhere, and `pytest.ini` is inert (DW-102), so `--strict-markers` does not currently catch it.
+evidence: `tests/conftest.py:203-216` calls `config.addinivalue_line("markers", ...)` exactly four times — `unit`, `e2e`, `slow`, `integration`. `pytest.ini`'s `markers` block lists six, adding `database` and `screenshot`. `noxfile.py:175` and `:213` both run `-m "screenshot"` against `tests/e2e/test_screenshot_generation.py`. Today this is harmless: `pytest.ini` is not read, so `--strict-markers` is not in force and an unregistered marker only warns. It becomes a live failure the moment DW-102 is closed — the section rename simultaneously activates `--strict-markers` and the six-marker list, at which point either the two extra markers must be added to `pytest_configure` or dropped from the ini. Deferred rather than patched because it is a pre-existing inconsistency whose only consequence is coupled to DW-102, and should be resolved in the same pass as that rename.
+status: open
+
+### DW-106: README's headline test counts are stale by two orders of magnitude, under a "100% success rates" claim
+origin: spec-pure-util-doctest-session
+source_spec: `_bmad-output/implementation-artifacts/spec-pure-util-doctest-session.md`
+location: `README.md:70-75`
+severity: low
+summary: The README advertises "Unit Tests: 66/66 passing" and "E2E Tests: 20/20 passing". Actual collection is 2571 non-e2e tests and 367 e2e tests, so both figures are wrong by roughly 40x and 18x, and the surrounding "100% success rates" framing is unverifiable prose.
+evidence: `pytest tests/ --collect-only -q` → `2938 tests collected`; `pytest tests/ -m e2e --collect-only -q` → `367/2938 tests collected (2571 deselected)`. Both numbers predate this story and were not introduced by it — the story only appended a `Doctests` bullet to the same list, deliberately without a count, since a hardcoded figure is exactly what rots (the same reasoning that rejected asserting a doctest-count floor in the session). Closing it means either refreshing the three counts and accepting they will rot again, or deleting the counts and the "100% success rates" claim and pointing at the CI badge/summary instead. The second is the better fix and is why this is a decision rather than a one-line patch.
 status: open

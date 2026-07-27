@@ -37,8 +37,17 @@ jobs:
       run: pip install nox
     
     - name: Run unit tests
+      id: unit_tests
       run: nox -s tests
-      
+
+    # Runs even when the unit tests themselves fail, so a doctest regression is
+    # not hidden behind an unrelated unit-test failure. Deliberately NOT
+    # `!cancelled()`: if an earlier setup step (apt, setup-python, pip install
+    # nox) failed, this step would only add a second, misleading failure.
+    - name: Run doctests
+      if: "success() || steps.unit_tests.conclusion == 'failure'"
+      run: nox -s doctests
+
     - name: Upload test artifacts on failure
       if: failure()
       uses: actions/upload-artifact@v7
@@ -282,8 +291,9 @@ jobs:
           
           let summary = '## 🧪 Test Results Summary\n\n';
           
-          // Unit tests
-          summary += `### Unit Tests: ${unitStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
+          // Unit tests (the unit-tests job also runs the app/utils doctests,
+          // so a failure here may be either suite -- check the job log)
+          summary += `### Unit Tests & Doctests: ${unitStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
           summary += `- **Python Version**: 3.13\n`;
           summary += `- **Status**: ${unitStatus}\n\n`;
           

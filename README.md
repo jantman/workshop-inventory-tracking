@@ -70,6 +70,7 @@ For production deployment, follow the comprehensive setup guide in [docs/deploym
 The project includes a comprehensive testing framework with 100% success rates:
 
 - **Unit Tests**: 66/66 passing - `nox -s tests`
+- **Doctests**: docstring examples in `app/utils/` - `nox -s doctests`
 - **E2E Tests**: 20/20 passing - `nox -s e2e`
 - **Coverage Report**: `nox -s coverage`
 
