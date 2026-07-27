@@ -15,7 +15,8 @@ from werkzeug.serving import make_server
 from app import create_app
 from app.mariadb_storage import MariaDBStorage
 from config import TestConfig
-from app.database import Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation
+from app.database import (Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation,
+                          Product, Purchase, Attachment, ProductIdentifier, ProductTag)
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -319,12 +320,27 @@ class E2ETestServer:
                 session.query(ItemPhotoAssociation).delete()
                 session.query(Photo).delete()
                 session.query(InventoryItem).delete()
+                # Catalog tables, children before parents: attachments reference
+                # both products and purchases; product_tags, product_identifiers
+                # and purchases reference products.
+                session.query(Attachment).delete()
+                session.query(ProductTag).delete()
+                session.query(ProductIdentifier).delete()
+                session.query(Purchase).delete()
+                session.query(Product).delete()
                 session.query(MaterialTaxonomy).delete()
                 session.commit()
                 print("🧹 Cleared all test data from database")
             except Exception as e:
+                # Re-raised, not swallowed: a failed clear rolls back EVERY
+                # delete above (photos and items included), so every test after
+                # it would run against a dirty database. The tests that would
+                # notice assert only positively, so a swallowed failure here is
+                # a whole suite passing green on stale data. The most likely
+                # cause is a new table with an FK into one deleted below it.
                 session.rollback()
                 print(f"⚠️ Error clearing test data: {e}")
+                raise
             finally:
                 session.close()
             

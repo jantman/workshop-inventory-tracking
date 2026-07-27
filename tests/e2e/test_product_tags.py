@@ -8,18 +8,19 @@ their categories. The tag input's multi-value autocomplete has no unit-test
 surface either — there is no JS test infra in this project — so the browser-level
 behavior is pinned here.
 
-Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` clears
-photos, inventory items and the material taxonomy but NOT ``products``, and it
-will not truncate ``product_tags``, so rows accumulate across the session — and
-``--reruns`` can replay a test whose products already landed. Every test
-therefore mints a fresh unique tag prefix and asserts on containment rather
-than on counts, ordering, or "nothing else is here".
+Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` truncates
+``products`` and ``product_tags`` along with photos and inventory items (and
+re-seeds the material taxonomy rather than leaving it empty), and
+``live_server`` is function-scoped, so every test — and
+every ``--reruns`` replay, which re-runs setup — starts from an empty catalog.
+Each test still mints a fresh unique tag prefix and asserts on containment
+rather than on counts, ordering, or "nothing else is here": it costs nothing,
+and by the time a test asserts, the catalog holds that test's own rows.
 
 An absence assertion is allowed only when the text it looks for CARRIES the
-run-unique prefix — no accumulated row from another run or rerun can contain
-it, so the assertion cannot decay. Asserting the absence of anything else
-(a bare tag name, a shared description, a count) will pass on a clean database
-and fail on a used one.
+run-unique prefix — no row this test did not write can contain it, so the
+assertion cannot decay. Asserting the absence of anything else (a bare tag
+name, a shared description, a count) is a bet on the database being clean.
 """
 
 import uuid
@@ -170,7 +171,7 @@ def test_a_tag_the_field_already_carries_is_not_offered_again(page, live_server)
     expect(dropdown).to_be_visible(timeout=5000)
     expect(dropdown).to_contain_text(free, timeout=5000)
     # Absence is safe here only because the text carries this run's unique
-    # prefix — no accumulated row can contain it.
+    # prefix — no row this test did not write can contain it.
     expect(dropdown).not_to_contain_text(taken)
 
 

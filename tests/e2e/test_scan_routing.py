@@ -14,14 +14,19 @@ route's destination mapping, the template and the one line of client navigation
 agree end to end, and a stub anywhere in that chain would be the one link not
 being tested.
 
-Isolation note, inherited from tests/e2e/test_product_tags.py: the e2e server's
-``clear_test_data()`` clears photos, inventory items and the material taxonomy
-but NOT ``products``, ``product_identifiers`` or ``purchases``, so catalog rows
-accumulate across the session and across runs — and ``--reruns`` can replay a
-test whose products already landed. Every vector here is therefore minted fresh
-per invocation (a random check-digit-valid GTIN, a uuid-bearing description or
-part number), and assertions are positive/containment ones. An absence assertion
-is allowed only where the text it looks for carries the run-unique token.
+Isolation note: the e2e server's ``clear_test_data()`` truncates the catalog
+tables (``products``, ``purchases``, ``attachments``, ``product_identifiers``,
+``product_tags``) along with photos and inventory items (and re-seeds the
+material taxonomy rather than leaving it empty), and ``live_server`` is
+function-scoped, so every test — and every ``--reruns``
+replay, which re-runs setup — starts from an empty catalog.
+
+The per-invocation minting below (a random check-digit-valid GTIN, a
+uuid-bearing description or part number) is kept anyway. It costs nothing, and
+"empty at setup" is not "empty here": by the time a test asserts, the catalog
+holds that test's own rows. So assertions stay positive/containment ones, and
+an absence assertion is allowed only where the text it looks for carries the
+run-unique token.
 """
 
 import uuid
@@ -29,7 +34,7 @@ import uuid
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_wedge_scan import SCAN_INPUT, simulate_wedge_scan, unstored_gtin
+from tests.e2e.conftest import SCAN_INPUT, simulate_wedge_scan, unstored_gtin
 
 
 def _token(label):

@@ -9,11 +9,13 @@ exactly what will move before it is submitted, a successful rename refiles every
 product in the subtree, and a colliding rename explains itself and changes
 nothing.
 
-Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` clears
-photos, inventory items and the material taxonomy but NOT ``products``, so
-product rows accumulate across the session — and ``--reruns`` can replay a test
-whose products already landed. Every test therefore mints a fresh unique path
-prefix and asserts only positively (containment), never absence.
+Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` truncates
+``products`` along with photos and inventory items (and re-seeds the material
+taxonomy rather than leaving it empty), and ``live_server`` is function-scoped, so every test — and every ``--reruns``
+replay, which re-runs setup — starts from an empty catalog. Each test still
+mints a fresh unique path prefix and asserts only positively (containment),
+never absence: it costs nothing, and "empty at setup" is not "empty here" —
+by the time a test asserts, the catalog holds the paths that test just wrote.
 """
 
 import uuid

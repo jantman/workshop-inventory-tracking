@@ -9,11 +9,13 @@ store (never a value the browser derived), selecting it fills the input without
 leaving the form, and once saved the path is offered as an ordinary suggestion
 on the next product entry (the tree accretes from use).
 
-Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` clears
-photos, inventory items and the material taxonomy but NOT ``products``, so
-product rows accumulate across the session — and ``--reruns`` can replay a test
-whose product already landed. Every test therefore mints a fresh unique path
-prefix and asserts only positively (containment), never absence.
+Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` truncates
+``products`` along with photos and inventory items (and re-seeds the material
+taxonomy rather than leaving it empty), and ``live_server`` is function-scoped, so every test — and every ``--reruns``
+replay, which re-runs setup — starts from an empty catalog. Each test still
+mints a fresh unique path prefix and asserts only positively (containment),
+never absence: it costs nothing, and "empty at setup" is not "empty here" —
+by the time a test asserts, the catalog holds the paths that test just wrote.
 """
 
 import uuid

@@ -58,20 +58,19 @@ class TestProductRoutes:
         assert product.description == 'LM317 regulator'
         assert product.manufacturer is None
 
-    def test_create_blank_description_rerenders_with_error(self, client, test_storage):
+    def test_create_blank_description_rerenders_with_error(self, client, product_ids):
         resp = client.post('/products/add', data={'description': '   ',
                                                   'manufacturer': 'KeepMe'})
         assert resp.status_code == 200  # re-rendered form, not a redirect
         assert b'Label Description is required.' in resp.data
         assert b'KeepMe' in resp.data  # typed input preserved on re-render
-        # nothing created (no product with id 1 should exist)
-        assert CatalogService(test_storage).get_product(1) is None
+        assert product_ids() == set()  # nothing created
 
-    def test_create_overlong_field_rerenders_with_error(self, client, test_storage):
+    def test_create_overlong_field_rerenders_with_error(self, client, product_ids):
         resp = client.post('/products/add', data={'description': 'x' * 300})
         assert resp.status_code == 200
         assert b'must be 255 characters or fewer' in resp.data
-        assert CatalogService(test_storage).get_product(1) is None
+        assert product_ids() == set()
 
     def test_detail_missing_is_404(self, client):
         resp = client.get('/products/999999')
@@ -1308,23 +1307,23 @@ class TestFirstReceiptOnCreate:
 
     @pytest.mark.parametrize('quantity', ['abc', '0', '-3', '2.5'])
     def test_an_unusable_quantity_rerenders_and_writes_nothing(
-            self, client, test_storage, quantity):
+            self, client, product_ids, quantity):
         """Owned by `_validate_product_form`, so no caller can bypass it."""
         resp = client.post('/products/add',
                            data={'description': 'Nope', 'quantity': quantity})
         assert resp.status_code == 200
         assert b'whole number greater than zero' in resp.data
-        assert CatalogService(test_storage).get_product(1) is None
+        assert product_ids() == set()
 
     @pytest.mark.parametrize('field', ['vendor', 'vendor_sku', 'order_number'])
     def test_an_overlong_receipt_field_rerenders_with_its_own_message(
-            self, client, test_storage, field):
+            self, client, product_ids, field):
         """Bounded against the Purchase columns, not the Product ones."""
         resp = client.post('/products/add',
                            data={'description': 'Nope', field: 'x' * 300})
         assert resp.status_code == 200
         assert b'must be 255 characters or fewer' in resp.data
-        assert CatalogService(test_storage).get_product(1) is None
+        assert product_ids() == set()
 
 
 @pytest.mark.unit
@@ -1333,7 +1332,8 @@ class TestDuplicateConfirmation:
     an explicit confirmation, and it is never possible to reach the write
     without one."""
 
-    def test_unchecked_rerenders_and_writes_nothing(self, client, test_storage):
+    def test_unchecked_rerenders_and_writes_nothing(self, client, test_storage,
+                                                    product_ids):
         svc = CatalogService(test_storage)
         existing = svc.create_product(description='Original')
 
@@ -1343,7 +1343,7 @@ class TestDuplicateConfirmation:
         })
         assert resp.status_code == 200                 # re-render, not a redirect
         assert b'create a separate product' in resp.data
-        assert svc.get_product(existing + 1) is None   # nothing written
+        assert product_ids() == {existing}             # nothing written
 
     def test_checked_creates_the_product(self, client, test_storage):
         svc = CatalogService(test_storage)
@@ -1360,7 +1360,7 @@ class TestDuplicateConfirmation:
 
     @pytest.mark.parametrize('confirm', ['no', 'on', 'true', '1', ''])
     def test_only_the_exact_confirmation_value_passes(
-            self, client, test_storage, confirm):
+            self, client, test_storage, product_ids, confirm):
         """A checkbox that submits something else is not a confirmation."""
         svc = CatalogService(test_storage)
         existing = svc.create_product(description='Original')
@@ -1371,7 +1371,7 @@ class TestDuplicateConfirmation:
             'confirm_duplicate': confirm,
         })
         assert resp.status_code == 200
-        assert svc.get_product(existing + 1) is None
+        assert product_ids() == {existing}
 
     def test_the_form_renders_the_warning_and_the_checkbox(self, client, test_storage):
         existing = CatalogService(test_storage).create_product(description='Original')
@@ -1613,7 +1613,8 @@ class TestScanArrivalBanner:
         assert 'order_number=PO-9' in body
         assert '296-1234-ND' in body
 
-    def test_the_duplicate_link_reaches_a_gated_create_form(self, client, test_storage):
+    def test_the_duplicate_link_reaches_a_gated_create_form(self, client, test_storage,
+                                                            product_ids):
         """End to end: the banner's second link opens a form that refuses to
         write until the operator confirms (FR41)."""
         svc = CatalogService(test_storage)
@@ -1642,7 +1643,7 @@ class TestScanArrivalBanner:
             **{k: v[0] for k, v in parse_qs(create_url.split('?', 1)[1]).items()},
         })
         assert refused.status_code == 200
-        assert svc.get_product(pid + 1) is None
+        assert product_ids() == {pid}
 
 
 @pytest.mark.unit
@@ -1668,14 +1669,14 @@ class TestPrefillCannotBreakTheForm:
         assert b'id="duplicate-warning"' not in resp.data
 
     def test_a_non_numeric_duplicate_of_also_survives_a_post_rerender(
-            self, client, test_storage):
+            self, client, product_ids):
         """The POST re-render reads `request.form`, not the whitelist, so the
         same value must not reach `url_for` from there either."""
         resp = client.post('/products/add',
                            data={'description': '', 'duplicate_of': 'abc'})
         assert resp.status_code == 200
         assert b'id="duplicate-warning"' not in resp.data
-        assert CatalogService(test_storage).get_product(1) is None
+        assert product_ids() == set()
 
     def test_a_numeric_duplicate_of_still_renders(self, client, test_storage):
         existing = CatalogService(test_storage).create_product(description='Original')
@@ -1723,7 +1724,7 @@ class TestScannedIdentifierTyping:
     """The type decides how the value is stored, so it is never guessed."""
 
     def test_a_value_without_a_type_is_a_field_error_not_a_silent_gtin(
-            self, client, test_storage):
+            self, client, product_ids):
         """An unselected `<select>` used to render with no `selected` option, so
         the browser picked the first declared enum member and a non-GTIN value
         was GTIN-typed and check-digit-normalized."""
@@ -1732,7 +1733,7 @@ class TestScannedIdentifierTyping:
 
         assert resp.status_code == 200
         assert b'Choose the type of the scanned identifier' in resp.data
-        assert CatalogService(test_storage).get_product(1) is None
+        assert product_ids() == set()
 
     def test_the_select_offers_an_empty_option_first(self, client):
         resp = client.get('/products/add?identifier_value=ABC-123')

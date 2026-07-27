@@ -22,14 +22,13 @@ These tests mutate no data, so they are trivially safe under --reruns.
 """
 
 import json
-import random
-import urllib.request
 
 import pytest
 from playwright.sync_api import expect
 
+from tests.e2e.conftest import SCAN_INPUT, simulate_wedge_scan, unstored_gtin
 
-SCAN_INPUT = '#scan-input'
+
 JA_ID_INPUT = '#ja-id-lookup'
 
 # A same-document destination: setting location.href to the CURRENT path with a
@@ -50,58 +49,6 @@ def routed_body(raw, url=FRAGMENT_URL, kind='free_text', outcome='create',
     """
     return json.dumps({'success': True, 'raw': raw, 'kind': kind,
                        'outcome': outcome, 'url': url, 'hit_count': hit_count})
-
-
-def _gtin13(body):
-    """`body` (12 digits) plus its GS1 mod-10 check digit."""
-    total = sum((3 if i % 2 == 0 else 1) * int(digit)
-                for i, digit in enumerate(reversed(body)))
-    return f'{body}{(10 - total % 10) % 10}'
-
-
-def unstored_gtin(live_server):
-    """A check-digit-valid GTIN-13 that demonstrably no product carries.
-
-    The e2e database ACCUMULATES products across tests and across runs
-    (`clear_test_data()` does not truncate the catalog tables), so a fixed
-    vector could have been claimed by an earlier run and would then route to a
-    product instead of to a create form.
-
-    The absence is CHECKED rather than assumed to be improbable. `POST /api/scan`
-    is read-only, so asking the running server where a candidate routes costs one
-    lookup and writes nothing — and the answer is proof, from the very code path
-    under test, of where this vector goes. A purely random vector would only ever
-    be a probability argument against a table that grows every run.
-
-    The accepted answer is `create`, not merely "not `product`". Every caller
-    waits for `/products/add`, and a candidate whose digits happen to appear in
-    some accumulated product's text routes to `search` instead — a page that
-    never becomes the create form, so the wait would time out rather than fail
-    with anything that names the cause.
-    """
-    for _ in range(20):
-        candidate = _gtin13(f'{random.randrange(10 ** 12):012d}')
-        request = urllib.request.Request(
-            f'{live_server.url}/api/scan',
-            data=json.dumps({'raw': candidate}).encode('utf-8'),
-            headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(request, timeout=10) as response:
-            if json.load(response).get('outcome') == 'create':
-                return candidate
-    raise AssertionError('no unclaimed GTIN found in 20 attempts')
-
-
-def simulate_wedge_scan(page, text):
-    """Simulate a keyboard-wedge scanner: keystrokes then Enter.
-
-    Modeled on tests/e2e/test_move_items.py's simulate_barcode_scan - a wedge
-    is indistinguishable from fast typing, which is the whole point of FR35.
-    """
-    scan_input = page.locator(SCAN_INPUT)
-    scan_input.fill('')
-    scan_input.focus()
-    scan_input.type(text)
-    scan_input.press('Enter')
 
 
 def record_scan_requests(page):

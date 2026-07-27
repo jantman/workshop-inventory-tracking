@@ -385,7 +385,7 @@ class TestScanCaptureEndpoint:
         assert set(data.keys()) == {
             'success', 'raw', 'kind', 'outcome', 'url', 'hit_count'}
 
-    def test_the_endpoint_writes_nothing(self, client, test_storage):
+    def test_the_endpoint_writes_nothing(self, client, test_storage, product_ids):
         """`POST /api/scan` stays read-only, whatever it resolves to (AD-5).
 
         This is what keeps the `@csrf.exempt` above defensible and what makes a
@@ -404,7 +404,7 @@ class TestScanCaptureEndpoint:
             assert client.post('/api/scan', json={'raw': raw}).status_code == 200
 
         # Nothing created, nothing recorded, nothing attached.
-        assert svc.get_product(pid + 1) is None
+        assert product_ids() == {pid}
         assert svc.get_purchases_for_product(pid) == []
         assert len(svc.get_identifiers_for_product(pid)) == 2  # GTIN + derived INTERNAL
 

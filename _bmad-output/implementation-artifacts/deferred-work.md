@@ -128,7 +128,8 @@ source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
 severity: low
 summary: The new e2e module reuses `simulate_wedge_scan`, the scan-input selector and related helpers by importing them from a sibling test module rather than from a conftest. Renaming or reorganizing anything in `test_wedge_scan.py` now breaks a file that does not appear in its diff.
 evidence: Found by adversarial review of Story 4.5. The helpers are genuinely shared and the import works, so nothing is red — but shared e2e machinery belongs in `tests/e2e/conftest.py` (where `live_server` and `page` already live) rather than in a test module that pytest may collect in either order. A related, smaller instance in the new unit tests: several assertions reason about autoincrement arithmetic (`get_product(existing + 1) is None`) instead of the actual set of products, which is correct today only because the SQLite fixture starts empty. Both are test-hygiene items with no user-visible consequence, which is why they were deferred rather than patched.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-e2e-test-infrastructure-hygiene
 
 ### DW-17: A scan longer than the `q` bound can still land on a results page that excludes the hits it counted
 origin: story-4-5-review-2
@@ -309,7 +310,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-1-materialized-path-catego
 location: `tests/e2e/test_server.py:311-332` (`clear_test_data`)
 reason: `clear_test_data()` never truncates `products` (nor `purchases`, `attachments`, `product_identifiers`), so catalog rows — and therefore the category vocabulary that autocomplete draws from — accumulate for the whole session and across runs.
 evidence: `tests/e2e/test_server.py:311-332` deletes `ItemPhotoAssociation`, `Photo`, `InventoryItem` and `MaterialTaxonomy` only; every product an e2e test creates survives into every later test and every later run against the same container. Story 3.1's new `tests/e2e/test_category_autocomplete.py` had to work around it with per-invocation UUID path prefixes and positive-only assertions, and any future product-facing e2e test will need the same workaround (or will be flaky under `--reruns=3`, which replays a test whose product already landed). The fix is a FK-ordered delete of the four catalog tables in `clear_test_data`, which is a change to shared e2e infrastructure and so was left out of a story that only consumed it.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-e2e-test-infrastructure-hygiene
 
 ### DW-39: `encode_internal_payload` reports a configured-grammar fault as `ValidationError(field='internal_id', ...)`, blaming user data for an operator's config error
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -892,4 +894,76 @@ location: `README.md:70-75`
 severity: low
 summary: The README advertises "Unit Tests: 66/66 passing" and "E2E Tests: 20/20 passing". Actual collection is 2571 non-e2e tests and 367 e2e tests, so both figures are wrong by roughly 40x and 18x, and the surrounding "100% success rates" framing is unverifiable prose.
 evidence: `pytest tests/ --collect-only -q` → `2938 tests collected`; `pytest tests/ -m e2e --collect-only -q` → `367/2938 tests collected (2571 deselected)`. Both numbers predate this story and were not introduced by it — the story only appended a `Doctests` bullet to the same list, deliberately without a count, since a hardcoded figure is exactly what rots (the same reasoning that rejected asserting a doctest-count floor in the session). Closing it means either refreshing the three counts and accepting they will rot again, or deleting the counts and the "100% success rates" claim and pointing at the CI badge/summary instead. The second is the better fix and is why this is a decision rather than a one-line patch.
+status: open
+
+### DW-107: `clear_test_data()` hardcodes its table list, so the next table with an FK into the catalog silently breaks e2e isolation
+origin: spec-e2e-test-infrastructure-hygiene
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `tests/e2e/test_server.py` (`clear_test_data`)
+severity: medium
+summary: The clear now names nine ORM classes in hand-maintained FK order. `for table in reversed(Base.metadata.sorted_tables): session.execute(table.delete())` derives the same order from the metadata that already knows it, is self-maintaining, and subsumes the hand-written list plus its ordering comment.
+evidence: `app/database.py`'s `Product` docstring announces further catalog tables/columns for Epic 5 (stock/quantity/location) and Epic 10 (`equivalent_group_id`). Any new table with a non-nullable FK into one deleted below it makes the `Product` delete raise. This sweep patched the failure mode to be loud (the handler now re-raises rather than swallowing) and added `tests/e2e/test_clear_test_data.py` to pin the current order, so the consequence today is a clear red failure rather than silent staleness — which is why this is deferred rather than patched. Closing it means replacing the nine explicit `session.query(X).delete()` calls with the metadata-driven loop, keeping the `setup_materials_taxonomy()` re-seed afterwards, and confirming `alembic_version` (not in `Base.metadata`) is unaffected.
+status: open
+
+### DW-108: Unit tests named "writes nothing" assert only over `products`, so an orphan child row satisfies them
+origin: spec-e2e-test-infrastructure-hygiene
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `tests/unit/test_product_routes.py` (`TestFirstReceiptOnCreate`, `TestDuplicateConfirmation`, `TestPrefillCannotBreakTheForm`, `TestScannedIdentifierTyping`), `tests/unit/conftest.py` (`product_ids`)
+severity: low
+summary: The `product_ids` fixture this sweep introduced covers `products` only, so a stray `Purchase`, `ProductIdentifier`, `ProductTag` or `Attachment` row still satisfies a test asserting that a rejected POST wrote nothing.
+evidence: The assertions these replaced (`get_product(1) is None`, `get_product(existing + 1) is None`) had exactly the same one-table scope, so this is not a regression — the sweep preserved the existing coverage boundary while removing the autoincrement arithmetic, which was its stated intent. It is real rather than theoretical because `tests/unit/test_purchase_model.py:6` records that SQLite runs with `foreign_keys` OFF in this suite, so an orphan child row can genuinely exist. `tests/unit/test_scan_routes.py::test_the_endpoint_writes_nothing` is the one test that already checks purchases and identifiers alongside products, and is the model to follow. Closing it means a `catalog_rows` fixture returning table-name → id-set for all five catalog tables and widening the assertions to it.
+status: open
+
+### DW-109: The e2e isolation note is copy-pasted into five modules and has already drifted
+origin: spec-e2e-test-infrastructure-hygiene
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `tests/e2e/test_scan_routing.py`, `test_product_tags.py`, `test_category_autocomplete.py`, `test_category_rename.py` (module docstrings), `tests/e2e/conftest.py` (`unstored_gtin` docstring)
+severity: low
+summary: The same paragraph explaining e2e catalog isolation exists in five places. Changing what `clear_test_data()` does therefore means editing five files, and this sweep is the bill for that: two of the four rewritten copies contradicted themselves and had to be patched during review.
+evidence: The duplication predates this sweep — the pre-fix "clears photos, inventory items and the material taxonomy but NOT `products`" paragraph was already copy-pasted into four modules — and the sweep paid it by copy-pasting again, because rewriting five near-identical paragraphs was in scope while consolidating them was not. The drift is documented: `test_category_autocomplete.py` and `test_category_rename.py` shipped a rationale ("whatever else the shared e2e database holds") that contradicted their own preceding sentence and were corrected in the review pass. Closing it means one canonical note — most naturally in `tests/e2e/conftest.py`, which every e2e module already loads — with one-line pointers replacing the four copies.
+status: open
+
+### DW-110: `unstored_gtin`'s 20-attempt loop is now a 200-second stall that names neither the server nor the cause
+origin: spec-e2e-test-infrastructure-hygiene
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `tests/e2e/conftest.py` (`unstored_gtin`)
+severity: low
+summary: The helper retries up to 20 times with a 10s urllib timeout each, unguarded against `HTTPError`/`URLError` or a non-JSON body. With the catalog now truncated per test it essentially always succeeds on the first iteration, so what the budget buys is a ~200s hang ending in `AssertionError('no unclaimed GTIN found in 20 attempts')` whenever `POST /api/scan` is unhealthy.
+evidence: The loop, its timeout and its error handling moved verbatim from `tests/e2e/test_wedge_scan.py` in this sweep — the spec's Always clause required "a move, not a rewrite", so tightening it was explicitly out of scope. It is worth closing because the diagnostic is actively misleading: a 500 from the scan endpoint surfaces as "no unclaimed GTIN found", pointing at the vector rather than at the server. Closing it means a wall-clock deadline instead of an attempt count, an `except urllib.error.URLError` that re-raises as an assertion naming `/api/scan`, and a check that the decoded body is a dict before `.get('outcome')`.
+status: open
+
+### DW-111: Story 3.1's implementation artifact still instructs future e2e authors that the catalog accumulates
+origin: spec-e2e-test-infrastructure-hygiene
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `_bmad-output/implementation-artifacts/3-1-materialized-path-categories-with-inline-create.md:201`
+severity: low
+summary: That line reads "clears photos, inventory items, and the material taxonomy but not `products`, so product rows accumulate across the session. New e2e tests must therefore use a distinctive path prefix and assert containment, never absence." The first sentence is false as of this sweep, and the second is a standing instruction to future authors.
+evidence: This sweep's Always clause scoped the documentation fix to docstrings and comments, so the code was updated (`tests/e2e/test_server.py`, four e2e module docstrings, `tests/e2e/conftest.py`) while the prose with the widest blast radius was not. Deferred rather than patched because a completed story's implementation artifact is a historical record of what was true when the story shipped, and silently rewriting one is a different decision from fixing a stale code comment — it needs a call on whether these artifacts are amended in place or annotated. The containment-over-absence guidance itself remains good practice (see DW-109's canonical note) even though its stated justification no longer holds.
+status: open
+
+### DW-112: `clear_test_data()` returns silently when its guard is false, so "the clear cannot fail quietly" is only half true
+origin: spec-e2e-test-infrastructure-hygiene-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `tests/e2e/test_server.py:313` (`clear_test_data`)
+severity: low
+summary: The whole body sits under `if self.storage and hasattr(self, 'engine'):`. When that guard is false the method deletes nothing, skips the `setup_materials_taxonomy()` re-seed, prints nothing and returns normally — the exact silent-staleness outcome the newly added `raise` was written to rule out, reachable on a path the `raise` never sees.
+evidence: The guard predates this sweep, which is why it was deferred rather than patched: the sweep hardened the failure path it touched (`except: rollback; print; raise`) and did not restructure the method. It is real rather than theoretical because `E2ETestServer.stop()` sets `self.storage = None` and `self.engine = None`, and `hasattr(self, 'engine')` stays `True` after an attribute is set to `None` — so the guard admits a half-stopped server straight through to `sessionmaker(bind=None)` while rejecting one whose `storage` was cleared. In practice `live_server` depends on `e2e_server`, which has started the server, so no test reaches it today. Closing it means replacing the guard with `if not (self.storage and getattr(self, 'engine', None)): raise RuntimeError('clear_test_data: server not started, catalog NOT cleared')`, so the no-op is as loud as the failure.
+status: open
+
+### DW-113: `setup_materials_data()` swallows a failed taxonomy re-seed, leaving every material-facing e2e test green on an empty vocabulary
+origin: spec-e2e-test-infrastructure-hygiene-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `tests/e2e/test_server.py:302-309` (`setup_materials_data`, reached via `setup_materials_taxonomy`)
+severity: medium
+summary: The method ends in `except Exception as e: session.rollback(); print(...); traceback.print_exc()` with no re-raise — the identical defect this sweep classified as medium and patched in its sibling `clear_test_data()`, five lines away and untouched.
+evidence: `clear_test_data()` calls `setup_materials_taxonomy()` on every invocation, i.e. before every e2e test, so this is the second half of the same isolation guarantee. The consequence matches the patched case exactly: a failed re-seed rolls back, prints to captured stdout and returns, leaving the taxonomy empty for every subsequent test; the material and category modules assert positively (containment), so nothing goes red and the suite passes green on a missing vocabulary. Deferred rather than patched because the swallow predates this sweep and this diff does not touch the method — the sweep's Always clause scoped it to `clear_test_data()`'s error-handling shape. `tests/e2e/test_clear_test_data.py::test_clear_test_data_still_clears_the_inventory_side_and_reseeds_materials` now asserts `MaterialTaxonomy.count() > 0` after a clear, so one test would notice; the other ~370 would not. Closing it means adding `raise` after the rollback/print, matching `clear_test_data()`.
+status: open
+
+### DW-114: Four more implementation artifacts carry the same falsified "the catalog accumulates" instruction that DW-111 tracks in one
+origin: spec-e2e-test-infrastructure-hygiene-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-e2e-test-infrastructure-hygiene.md`
+location: `_bmad-output/implementation-artifacts/3-2-category-rename-with-descendants.md:33,92`, `_bmad-output/implementation-artifacts/3-3-free-form-tags.md:35,105`
+severity: low
+summary: DW-111 names only `3-1-materialized-path-categories-with-inline-create.md:201`, but the same standing instruction to future e2e authors appears in two further artifacts — `3-3:35` reads "`clear_test_data()` never truncates `products` and will not truncate `product_tags`", which this sweep falsified on both counts. All four lines additionally cite `tests/e2e/test_server.py:311-332` as the location of `clear_test_data`, a range this sweep's added deletes invalidated.
+evidence: Found by adversarial review of this sweep, which read DW-111 and checked whether its scope was complete; `grep -rn "never truncates\|not truncate\|accumulate" _bmad-output/implementation-artifacts/` returns all five lines. Logged as a separate entry rather than folded into DW-111 because the ledger's existing entries are owned by the orchestrator and are not rewritten by a review pass. It carries the same open question DW-111 does — whether a completed story's artifact is amended in place or annotated — and should be closed in the same motion, not before it.
 status: open
