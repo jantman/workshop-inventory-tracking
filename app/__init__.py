@@ -49,6 +49,33 @@ def create_app(config_class=Config, storage_backend=None):
     # Setup error handlers
     create_error_handlers(app)
 
+    # The app-scoped storage (app/db.py) lives for the life of the process, so
+    # its scoped_session registry does too -- unlike the old per-request storage
+    # object, which was simply discarded. Drop the calling thread's session at
+    # the end of each app context so a worker thread doesn't hold one open
+    # forever. Injected test backends are left alone: their lifetime belongs to
+    # the fixture that created them.
+    @app.teardown_appcontext
+    def _remove_app_scoped_session(exception=None):
+        from app.db import STORAGE_EXTENSION_KEY
+        storage = app.extensions.get(STORAGE_EXTENSION_KEY)
+        # Read the registry once: a concurrent close()/reconnect nulls
+        # `storage.Session`, so checking and using it as two reads can hand this
+        # hook a None.
+        registry = getattr(storage, 'Session', None) if storage is not None else None
+        if registry is None:
+            return
+        try:
+            registry.remove()
+        except Exception:
+            # Session.remove() closes connections and can raise (a dropped
+            # pooled connection resurfaces as OperationalError). This runs from
+            # AppContext.pop() in Flask's `finally`, after the response has
+            # already gone out, so an exception here escapes past the error
+            # handlers as an unhandled traceback on an otherwise-successful
+            # request. Failing to release a session is not worth that.
+            app.logger.warning('Failed to remove app-scoped session', exc_info=True)
+
     from app.main import bp as main_bp
     app.register_blueprint(main_bp)
 

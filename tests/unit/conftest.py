@@ -23,10 +23,12 @@ def product_ids(test_storage):
     request under test runs.
 
     Bound to `test_storage.engine` directly rather than through
-    `CatalogService`, whose `getattr(storage, 'engine', None) or
-    self._create_engine()` fallback would silently point at
-    `Config.SQLALCHEMY_DATABASE_URI` — against which every `== set()` assertion
-    would pass without ever looking at the database the route wrote to.
+    `CatalogService`. DW-32 removed the `_create_engine()` fallback that used to
+    make that indirection actively dangerous — a service could silently end up
+    on `Config.SQLALCHEMY_DATABASE_URI` instead of the database the route wrote
+    to, against which every `== set()` assertion would pass vacuously. Services
+    now always share their storage's engine, but reading the engine straight off
+    the fixture keeps that guarantee local and checkable here.
     """
     engine = getattr(test_storage, 'engine', None)
     assert engine is not None, (

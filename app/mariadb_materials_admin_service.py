@@ -9,12 +9,11 @@ from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
 
 from .database import MaterialTaxonomy
 from .mariadb_storage import MariaDBStorage
+from .db import resolve_engine
 from .exceptions import ValidationError
-from config import Config
 
 
 @dataclass
@@ -38,16 +37,10 @@ class MariaDBMaterialsAdminService:
         
         self.storage = storage
         
-        # Direct database access for complex queries
-        self.engine = getattr(storage, 'engine', None) or self._create_engine()
+        # Direct database access for complex queries. The engine belongs to
+        # the storage (DW-32).
+        self.engine = resolve_engine(storage)
         self.Session = sessionmaker(bind=self.engine)
-    
-    def _create_engine(self):
-        """Create database engine if not provided by storage"""
-        return create_engine(
-            Config.SQLALCHEMY_DATABASE_URI,
-            **Config.SQLALCHEMY_ENGINE_OPTIONS
-        )
     
     def get_taxonomy_overview(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
         """

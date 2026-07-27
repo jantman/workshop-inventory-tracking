@@ -13,15 +13,15 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, and_, desc, asc, func, case
+from sqlalchemy import and_, desc, asc, func, case
 
 from .mariadb_storage import MariaDBStorage
+from .db import resolve_engine
 from .database import InventoryItem
 from .models import ItemType, ItemShape
 # Using enhanced InventoryItem directly instead of separate Item dataclass
 from .storage import StorageResult
 from .utils import sql_text
-from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -145,16 +145,10 @@ class InventoryService:
         self._cache = {}  # For test compatibility
         self._cache_timestamp = None  # For test compatibility
         
-        # Direct database access for complex queries
-        self.engine = storage.engine or self._create_engine()
+        # Direct database access for complex queries. The engine belongs to
+        # the storage (DW-32) - never build a second one pointing somewhere else.
+        self.engine = resolve_engine(storage)
         self.Session = sessionmaker(bind=self.engine)
-    
-    def _create_engine(self):
-        """Create database engine if not provided by storage"""
-        return create_engine(
-            Config.SQLALCHEMY_DATABASE_URI,
-            **Config.SQLALCHEMY_ENGINE_OPTIONS
-        )
     
     def get_active_item(self, ja_id: str) -> Optional[InventoryItem]:
         """

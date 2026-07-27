@@ -17,13 +17,14 @@ from typing import Dict, List, Optional, Tuple
 from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker, defer
-from sqlalchemy import create_engine, case, exists, func, or_
+from sqlalchemy import case, exists, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from .database import Product, Purchase, Attachment, ProductIdentifier, ProductTag
 from .models import (IdentifierType, ScanKind, ScanResolution,
                      VENDOR_SCOPED_IDENTIFIER_TYPES)
 from .mariadb_storage import MariaDBStorage
+from .db import resolve_engine
 from .exceptions import ConfigurationError, ValidationError
 from .utils import gtin, gs1
 from .utils import category as category_util
@@ -149,15 +150,9 @@ class CatalogService:
         self.storage = storage
 
         # Direct database access for queries (same pattern as InventoryService).
-        self.engine = getattr(storage, 'engine', None) or self._create_engine()
+        # The engine belongs to the storage (DW-32).
+        self.engine = resolve_engine(storage)
         self.Session = sessionmaker(bind=self.engine)
-
-    def _create_engine(self):
-        """Create database engine if not provided by storage."""
-        return create_engine(
-            Config.SQLALCHEMY_DATABASE_URI,
-            **Config.SQLALCHEMY_ENGINE_OPTIONS
-        )
 
     def get_product(self, product_id: int) -> Optional[Product]:
         """

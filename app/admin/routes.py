@@ -4,21 +4,17 @@ Admin Routes for Materials Taxonomy Management
 Provides web interface for adding new taxonomy entries and managing status.
 """
 
-from flask import render_template, request, jsonify, flash, redirect, url_for, current_app
+from flask import render_template, request, jsonify, flash, redirect, url_for
 from app.admin import bp
 from app.mariadb_materials_admin_service import MariaDBMaterialsAdminService, TaxonomyAddRequest
-from config import Config
+# DW-32: the app-scoped storage/engine singleton lives in `app/db.py`; this
+# blueprint shares the exact same one the `main` blueprint uses.
+from app.db import get_storage_backend as _resolve_storage_backend
 
 
 def _get_storage_backend():
     """Get the appropriate storage backend for the current app context"""
-    # Check if test storage is injected
-    if 'STORAGE_BACKEND' in current_app.config:
-        return current_app.config['STORAGE_BACKEND']
-    
-    # Use MariaDB storage for consistency with autocomplete
-    from app.mariadb_storage import MariaDBStorage
-    return MariaDBStorage()
+    return _resolve_storage_backend()
 
 
 def _get_admin_service(storage):

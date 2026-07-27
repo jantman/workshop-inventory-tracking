@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, and_
 from datetime import datetime
 
 from .database import Photo, ItemPhotoAssociation, InventoryItem
+from .db import resolve_engine
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -50,18 +51,26 @@ class PhotoService:
     MEDIUM_SIZE = (800, 800)
     MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
     MAX_PHOTOS_PER_ITEM = 10
-    
+
+    # Default to "borrowed" so that any instance which never made it through
+    # __init__ (or a subclass that skips it) cannot dispose an engine the rest
+    # of the app is still using. Owning one is the case that must be declared.
+    _owns_engine = False
+
     def __init__(self, storage_backend=None):
         """Initialize photo service with database connection"""
         if storage_backend and hasattr(storage_backend, 'engine'):
-            # Ensure the storage backend is connected
-            if not storage_backend._connected:
-                storage_backend.connect()
-            self.engine = storage_backend.engine
+            # Borrowed engine: it belongs to the storage backend (in production,
+            # to the app-scoped singleton in `app/db.py`), so this service must
+            # never dispose it - see close(). DW-32.
+            self.engine = resolve_engine(storage_backend)
+            self._owns_engine = False
         else:
-            # Create MariaDB connection using the same config as the app
+            # Create MariaDB connection using the same config as the app. This
+            # engine is ours, so close() disposes it.
             self.engine = create_engine(Config.SQLALCHEMY_DATABASE_URI)
-        
+            self._owns_engine = True
+
         self.Session = sessionmaker(bind=self.engine)
         self.session = self.Session()
     
@@ -544,13 +553,20 @@ class PhotoService:
         return buffer.getvalue()
     
     def close(self):
-        """Explicitly close database session and dispose engine"""
+        """Explicitly close the database session, and the engine if we own it
+
+        A borrowed engine (one handed over by a storage backend) is shared with
+        the rest of the app and outlives this service, so it is only detached
+        here, never disposed. DW-32.
+        """
         if hasattr(self, 'session') and self.session:
             self.session.close()
             self.session = None
         if hasattr(self, 'engine') and self.engine:
-            self.engine.dispose()
+            if self._owns_engine:
+                self.engine.dispose()
             self.engine = None
+            self._owns_engine = False
     
     def __enter__(self):
         """Context manager entry"""

@@ -3,7 +3,9 @@ from datetime import datetime, date
 from typing import Any
 from app.main import bp
 from app import csrf
-from app.mariadb_storage import MariaDBStorage
+# DW-32: one connected storage -- and therefore one engine and one pool -- per
+# Flask app. `app/db.py` owns that lifetime; routes never build engines.
+from app.db import get_storage_backend as _resolve_storage_backend, resolve_engine
 # Using unified InventoryService (MariaDB-based implementation)
 from app.mariadb_inventory_service import InventoryService
 from app.mariadb_catalog_service import (
@@ -46,14 +48,13 @@ import traceback
 from config import Config
 
 def _get_storage_backend():
-    """Get the appropriate storage backend for the current app context"""
-    # Check if test storage is injected
-    if 'STORAGE_BACKEND' in current_app.config:
-        return current_app.config['STORAGE_BACKEND']
-    
-    # Use MariaDB storage (switched from Google Sheets in Milestone 2)
-    from app.mariadb_storage import MariaDBStorage
-    return MariaDBStorage()
+    """Get the appropriate storage backend for the current app context
+
+    Delegates to ``app.db``, which owns the single app-scoped connected
+    ``MariaDBStorage`` (and therefore the single engine/pool) used in
+    production. An injected ``STORAGE_BACKEND`` still wins.
+    """
+    return _resolve_storage_backend()
 
 def _item_to_audit_dict(item):
     """Convert InventoryItem object to dictionary for audit logging"""
@@ -3253,59 +3254,52 @@ def materials_hierarchy():
     """
     try:
         from app.database import MaterialTaxonomy
-        from app.mariadb_storage import MariaDBStorage
         from sqlalchemy.orm import sessionmaker
-        
-        # Use injected storage backend if available (for testing), otherwise create new one
-        if current_app.config.get('STORAGE_BACKEND'):
-            storage = current_app.config['STORAGE_BACKEND']
-            engine = storage.engine
-        else:
-            # Create MariaDB storage and session directly
-            storage = MariaDBStorage()
-            storage.connect()
-            engine = storage.engine
-            
+
+        # Borrow the app-scoped engine (or the injected test storage's) rather
+        # than building a per-request one; the session is closed in `finally`.
+        engine = resolve_engine(_get_storage_backend())
         Session = sessionmaker(bind=engine)
         session = Session()
-        
-        # Get all active materials ordered by level and sort order
-        all_materials = session.query(MaterialTaxonomy).filter(
-            MaterialTaxonomy.active == True
-        ).order_by(MaterialTaxonomy.level, MaterialTaxonomy.sort_order, MaterialTaxonomy.name).all()
-        
-        # Group materials by level
-        categories = [m for m in all_materials if m.level == 1]
-        families = [m for m in all_materials if m.level == 2]  
-        materials = [m for m in all_materials if m.level == 3]
-        
-        # Build hierarchical structure
-        hierarchy = []
-        
-        for category in categories:
-            category_families = [f for f in families if f.parent == category.name]
-            category_data = {
-                'name': category.name,
-                'level': category.level,
-                'notes': category.notes,
-                'families': []
-            }
-            
-            for family in category_families:
-                family_materials = [m for m in materials if m.parent == family.name]
-                family_data = {
-                    'name': family.name,
-                    'level': family.level,
-                    'parent': family.parent,
-                    'notes': family.notes,
-                    'materials': [{'name': m.name, 'level': m.level, 'parent': m.parent, 'aliases': m.aliases, 'notes': m.notes} for m in family_materials]
+
+        try:
+            # Get all active materials ordered by level and sort order
+            all_materials = session.query(MaterialTaxonomy).filter(
+                MaterialTaxonomy.active == True
+            ).order_by(MaterialTaxonomy.level, MaterialTaxonomy.sort_order, MaterialTaxonomy.name).all()
+
+            # Group materials by level
+            categories = [m for m in all_materials if m.level == 1]
+            families = [m for m in all_materials if m.level == 2]
+            materials = [m for m in all_materials if m.level == 3]
+
+            # Build hierarchical structure
+            hierarchy = []
+
+            for category in categories:
+                category_families = [f for f in families if f.parent == category.name]
+                category_data = {
+                    'name': category.name,
+                    'level': category.level,
+                    'notes': category.notes,
+                    'families': []
                 }
-                category_data['families'].append(family_data)
-            
-            hierarchy.append(category_data)
-        
-        session.close()
-        
+
+                for family in category_families:
+                    family_materials = [m for m in materials if m.parent == family.name]
+                    family_data = {
+                        'name': family.name,
+                        'level': family.level,
+                        'parent': family.parent,
+                        'notes': family.notes,
+                        'materials': [{'name': m.name, 'level': m.level, 'parent': m.parent, 'aliases': m.aliases, 'notes': m.notes} for m in family_materials]
+                    }
+                    category_data['families'].append(family_data)
+
+                hierarchy.append(category_data)
+        finally:
+            session.close()
+
         return jsonify({
             'success': True,
             'hierarchy': hierarchy,
@@ -4368,7 +4362,7 @@ def api_admin_export():
         
         # Execute export based on type
         if export_type == 'inventory':
-            service = InventoryExportService()
+            service = InventoryExportService(storage=_get_storage_backend())
             headers, rows, metadata = service.export_complete_dataset(options)
             
             result = {
@@ -4385,7 +4379,7 @@ def api_admin_export():
             }
             
         elif export_type == 'materials':
-            service = MaterialsExportService()
+            service = MaterialsExportService(storage=_get_storage_backend())
             headers, rows, metadata = service.export_complete_dataset(options)
             
             result = {
@@ -4402,7 +4396,7 @@ def api_admin_export():
             }
             
         else:  # combined
-            service = CombinedExportService()
+            service = CombinedExportService(storage=_get_storage_backend())
             result = service.export_all_data(options)
         
         # Handle destination
@@ -4518,7 +4512,7 @@ def api_export_validate():
             }), 400
         
         from app.export_service import CombinedExportService
-        service = CombinedExportService()
+        service = CombinedExportService(storage=_get_storage_backend())
         
         validation_result = service.validate_export_data(export_data)
         

@@ -262,7 +262,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
 location: `app/mariadb_catalog_service.py:51-58`, `app/mariadb_inventory_service.py:140`, `app/main/routes.py:20-28`
 reason: In production, `_get_storage_backend()` returns a fresh unconnected `MariaDBStorage()` (`engine=None` until `connect()`, which routes never call), so both `CatalogService` and the pre-existing `InventoryService` fall back to `_create_engine()` — building a new pooled engine from class-level `Config.SQLALCHEMY_DATABASE_URI` on every request, never disposed, and ignoring `storage.database_url`. Fix belongs at the app level (shared/app-scoped engine or connected storage singleton) and should cover both services at once.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-app-scoped-database-engine
 
 ### DW-33: No test in the repo ever executes an Alembic migration, so `upgrade()`/`downgrade()` correctness is verified only by inspection
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -1264,4 +1265,94 @@ location: `app/main/routes.py:2200-2216` (`_bounded_scan_url`'s phase 1), `app/m
 severity: low
 summary: `_prefill_form_data`'s docstring states the module's rule for pre-fill length — "a too-long pre-fill earns a field message rather than being silently shortened behind the operator's back" — but `_bounded_scan_url` shortens pre-fills upstream of it for transport reasons, and the halved value arrives inside its column limit, so it renders as an ordinary valid entry and nothing on the page says it is a prefix of what the label carried.
 evidence: Measured against the live app: an ECIA create URL whose five pre-fills sit at their real `_SCAN_URL_ARG_LIMITS` caps in astral text is 15371 characters unbounded, and `_bounded_scan_url` returns it at 6923 with `description` cut to 63 and `mpn`/`vendor_sku`/`order_number` to 127 — every one of them comfortably inside `products.mpn`'s VARCHAR(255), so `_validate_product_form` accepts them on POST without a field message and a half-MPN saves cleanly. `_scan_url_value` justifies ITS truncation with "a value past the column limit could not have been saved anyway", which does not cover a value cut from inside the limit; and `_scan_banner_args` emits no marker a template could render. Pre-existing rather than caused by this story — the pre-change "halve the longest" loop truncated the same values — and distinct from DW-142 (which is about the search arm's create link losing its pre-fills entirely) and DW-145 (which is about values a prefix of which is a different value, not a shorter one). What is missing is a signal: either a `scan_truncated` marker the create page can turn into a banner, or a rule that transport shrinking drops a pre-fill outright rather than emitting a plausible prefix.
+status: open
+
+### DW-147: `BaseExportService` builds a pool it has no API to dispose
+origin: spec-app-scoped-database-engine-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/export_service.py:32-60` (`BaseExportService.__init__`, `get_session`, `close_session`)
+severity: low
+summary: On the `database_uri=` path `BaseExportService` calls `create_engine` and the class exposes no `close()`/`dispose()`/context manager, so any caller that constructs one by URI leaks a connection pool for the life of the process.
+evidence: The class has `get_session`/`close_session` for sessions but nothing for the engine; `grep -n "dispose" app/export_service.py` returns no hits. DW-32 removed the per-request leak only by threading the app-scoped `storage` through the four route call sites (`app/main/routes.py:4362, 4379, 4396, 4512`), which sidesteps the constructor rather than fixing it — the URI path is unchanged and still leaks. The new test has to reach in and call `service.engine.dispose()` by hand (`tests/unit/test_app_scoped_engine.py`, `test_database_uri_argument_still_builds_its_own_engine`), which is the class reporting the missing API. Pre-existing: `BaseExportService` never had a lifecycle method. Fixing it means deciding whether an owned engine should be disposed by a context manager, an explicit `close()`, or by removing the URI path altogether now that every in-app caller passes a storage.
+status: open
+
+### DW-148: The storage layer raises builtin `ConnectionError`, which the project's error handling does not know about
+origin: spec-app-scoped-database-engine-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/mariadb_storage.py` (`_get_session`), `app/db.py` (`get_app_storage`, `resolve_engine`), `app/exceptions.py`, `app/error_handlers.py:382`
+severity: medium
+summary: Database-unreachable failures raise the builtin `ConnectionError` rather than the project's `StorageError`/`WorkshopInventoryError` hierarchy, so they miss the registered storage-specific handler and land on the generic 500 — and the same builtin already means "the client socket died" elsewhere in the app.
+evidence: `app/error_handlers.py:382` registers a handler for the `app/exceptions.py` hierarchy; a builtin `ConnectionError` is an `OSError` subclass and matches none of it, so an outage renders the generic 500 page with no storage-specific message. Separately `app/request_limits.py:636` catches `ConnectionError` to mean a reset/broken client socket (see the comment at `:649`), so one exception type now carries two unrelated meanings and any broad `except ConnectionError` conflates them. Pre-existing: `_get_session` raised `ConnectionError` before DW-32, which is why DW-32 mirrored it rather than diverging mid-refactor. DW-32 did widen the blast radius — `_get_storage_backend()` can now raise where it previously only constructed an object — so the fix is worth doing as its own change: introduce a `StorageError` subclass, raise it from these three sites, and confirm the handler renders something an operator can act on.
+status: open
+
+### DW-149: One process-wide pool of `pool_size=10` was never sized against a worker count
+origin: spec-app-scoped-database-engine-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `config.py:90-95` (`Config.SQLALCHEMY_ENGINE_OPTIONS`), `app/db.py` (`get_app_storage`)
+severity: medium
+summary: DW-32 collapsed N per-request pools into one process-lifetime pool, which makes `pool_size: 10` / `pool_timeout: 20` load-bearing for the first time — but neither value was revisited, `max_overflow` is unset, and nothing handles pool exhaustion.
+evidence: `Config.SQLALCHEMY_ENGINE_OPTIONS` sets `pool_size: 10, pool_timeout: 20, pool_recycle: -1, pool_pre_ping: True` and no `max_overflow`, so SQLAlchemy's default of 10 applies for an effective ceiling of 20 concurrent connections for the whole process. Before DW-32 those numbers were inert (every request built its own pool and used one connection from it); now they cap real concurrency. The failure mode moved from "unbounded connections" to "requests block for `pool_timeout` seconds and then 500 with a `QueuePool` timeout", and no route catches `sqlalchemy.exc.TimeoutError`. Choosing the numbers needs the deployment's worker/thread count and MariaDB's `max_connections`, which is an operator decision rather than something a story can infer — hence deferred rather than guessed.
+status: open
+
+### DW-150: No test at any tier exercises the production storage path against MariaDB
+origin: spec-app-scoped-database-engine-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `tests/unit/test_app_scoped_engine.py`, `tests/e2e/test_server.py:67`, `tests/integration/conftest.py`
+severity: medium
+summary: `app/db.get_app_storage` — the path every production request now takes — is covered only by SQLite unit tests, and `MariaDBStorage.connect()` routes SQLite down a branch that ignores `engine_options` entirely, so the deployed combination of app-scoped storage plus real pool options is verified nowhere.
+evidence: `tests/unit/test_app_scoped_engine.py` drives `get_app_storage` against temp-file SQLite; `connect()`'s first branch (`self.database_url.startswith('sqlite://')`) discards the caller's engine options for those URLs, so the pool tuning the singleton forwards is only ever asserted against a patched `create_engine`, never against a live pool. The e2e server injects `STORAGE_BACKEND` (`tests/e2e/test_server.py:67`) and so never constructs the singleton at all, and the integration fixtures build their own storage. Compounds DW-72's note that no test at any level runs `CatalogService` against MariaDB. The natural home is the integration tier that DW-33/35/50/85 established — a test that builds a production-shaped app against the MariaDB testcontainer and asserts one engine with the configured pool options.
+status: open
+
+### DW-151: The e2e server's injected storage accumulates a `scoped_session` per worker thread, which is exactly what the new teardown hook exists to prevent
+origin: spec-app-scoped-database-engine-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/__init__.py` (`_remove_app_scoped_session`), `tests/e2e/test_server.py:62-79` (`MariaDBStorage` injected into a `threaded=True` `make_server`)
+severity: medium
+summary: DW-32's `teardown_appcontext` hook removes the shared `scoped_session` only for the app-scoped singleton and deliberately skips injected backends, but the e2e server injects one long-lived `MariaDBStorage` into a multi-threaded werkzeug server — the one configuration in this repo that actually runs threaded — so its registry keeps a never-removed session per worker thread for the whole e2e run.
+evidence: `tests/e2e/test_server.py` builds `MariaDBStorage(database_url=test_db_uri)`, connects it, passes it as `create_app(TestConfig, storage_backend=self.storage)` and serves it via `make_server(..., threaded=True)` for the session. `MariaDBStorage.connect()` binds `scoped_session(sessionmaker(...))`, which is thread-local, and the teardown hook reads `app.extensions[STORAGE_EXTENSION_KEY]` — never populated when a backend is injected — so nothing calls `remove()` on that registry. `TestConfig` inherits `pool_size: 5, pool_timeout: 10` from `config.py`, so enough distinct worker threads exhaust the pool and surface as `QueuePool limit ... timed out`, which reads as e2e flake. Pre-existing in the sense that nothing removed those sessions before DW-32 either; what is new is that the codebase now has a hook for precisely this leak and the injected path is carved out of it. "Lifetime belongs to the fixture" is a reason not to `close()` the storage, not a reason to leak per-thread sessions — the hook could remove the session for whichever storage the request actually used.
+status: open
+
+### DW-152: `/admin/api/materials/parents/<level>` returns 500 whenever a parent exists
+origin: spec-app-scoped-database-engine-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/admin/routes.py:132-153` (`get_available_parents` route), `app/mariadb_materials_admin_service.py:306-330` (`MariaDBMaterialsAdminService.get_available_parents`)
+severity: medium
+summary: The service returns a list of plain dicts; the route builds its JSON with `parent.name` / `parent.level` / `parent.notes` attribute access, so the endpoint 500s with `'dict' object has no attribute 'name'` for every level that has at least one active parent.
+evidence: Confirmed by running it: against a production-shaped app with one active level-1 `MaterialTaxonomy` row, `GET /admin/api/materials/parents/2` returns `500 {'success': False, 'error': "'dict' object has no attribute 'name'"}`; with an empty table it returns `200 {'parents': []}` because the comprehension never executes, which is why no existing test catches it. `get_available_parents` returns `[{'name': ..., 'level': ..., 'notes': ...}]` while the route iterates `for parent in parents` and reads attributes. This is the AJAX endpoint the add-material form uses to populate its parent dropdown, so the dropdown is empty in the browser at level 2 and 3. Entirely pre-existing and unrelated to DW-32 — surfaced only because this review drove admin routes through a real request for the first time. Fix is one line either way (return objects, or index the dicts), plus a test with a row present.
+status: open
+
+### DW-153: `PhotoService()` with no storage still builds its own engine from `Config`, outside the app-scoped pool
+origin: spec-app-scoped-database-engine-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/photo_service.py:63-72` (`__init__`'s else branch), `manage.py:134`
+severity: low
+summary: DW-32 gave `PhotoService` a borrowed-engine path and ownership tracking, but left the no-storage branch calling `create_engine(Config.SQLALCHEMY_DATABASE_URI)` — a second pool outside the app's, built from the class-level config rather than `app.config`, and an opaque `ArgumentError` when that value is unset.
+evidence: `manage.py:134` (`with PhotoService() as photo_service:`) is a live caller, and the class docstring's own usage example at `app/photo_service.py:34-38` shows the no-argument form. That branch bypasses `app/db.py` entirely, so a CLI run against a differently-configured app talks to whatever `.env` holds rather than to the app's database, and `create_engine(None)` raises `ArgumentError: Expected string or URL object` rather than naming the missing setting the way `MariaDBStorage._connect_locked` now does. Not fixed in DW-32 because a CLI invocation has no Flask app to scope an engine to, so the fix is a decision about whether `manage.py` should build an app context (and use `get_app_storage`) or whether `PhotoService` should take an explicit URL. Distinct from DW-147, which is the same shape in `BaseExportService`.
+status: open
+
+### DW-154: `app/db.py`'s creation lock is module-global and is held across a blocking `connect()`
+origin: spec-app-scoped-database-engine-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/db.py:62` (`_storage_lock`), `app/db.py:106-140` (`get_app_storage`)
+severity: medium
+summary: One module-level `threading.Lock` guards first-touch creation for every app in the process and is held for the whole of `storage.connect()`, so during a database outage every worker thread queues behind one another's full connect timeout instead of failing fast.
+evidence: `get_app_storage` takes `_storage_lock` and only releases it after `storage.connect()` returns. Nothing is cached on failure (by design — see the comment at `app/db.py:135-137`), so each request re-enters the lock and pays another connect attempt; `Config.SQLALCHEMY_ENGINE_OPTIONS` sets no `connect_args={'connect_timeout': ...}`, so that attempt is bounded only by the driver's TCP default. The effect is serialized thread-pool occupancy during an outage rather than N parallel fast failures. The lock being module-scoped rather than app-scoped also means one app's first touch blocks an unrelated app's in the same process (relevant to test runs and to `manage.py`-style multi-app processes, not to production). Recorded as a residual risk by the previous review pass and deliberately not fixed there: the obvious repair (per-app lock in `app.extensions`, or caching the unconnected storage so callers share its per-storage `_connect_lock`) rewrites the "caches nothing on failure" contract and the test that pins it, which is more churn than a review pass should take on. Fixing it properly means deciding the outage behavior first — fail fast with a negative-cache window, or set an explicit `connect_timeout` — which is a deployment call.
+status: open
+
+### DW-155: The `Storage` interface's data methods have no callers, so the app-scoped `scoped_session` the teardown hook releases is never populated
+origin: spec-app-scoped-database-engine-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/storage.py` (the `Storage` ABC), `app/mariadb_storage.py:163-182` (`_get_session` and its callers), `app/__init__.py:52-77` (`_remove_app_scoped_session`)
+severity: low
+summary: `MariaDBStorage.Session` is bound by `connect()` but only ever used by the `Storage` ABC's data methods (`read_all`, `write_row`, `search`, …), and nothing anywhere in the repository calls those — every service builds its own `sessionmaker` from the engine — so the `teardown_appcontext` hook added for DW-32 releases a registry that holds no session.
+evidence: `grep -rn "\.read_all(\|\.read_row(\|\.write_row(\|\.update_row(\|\.delete_row(\|\.search(" --include=*.py .` (excluding `venv/`) returns exactly one hit outside `app/storage.py`: `app/mariadb_storage.py:236`, the class calling itself. `_get_session()` is likewise reached only from within `app/mariadb_storage.py`. The sessions that *are* created per request — `InventoryService.Session()`, `CatalogService.Session()`, the `sessionmaker` at `app/main/routes.py:3262`, `PhotoService.session` — are bound to the shared engine directly and are not touched by the hook. `test_app_context_teardown_removes_the_shared_session` asserts only that `remove()` is called, i.e. that the mechanism fires, not that a session existed to release. The hook is harmless and correct-if-ever-used, so this is not a bug; the deferred decision is which way to resolve the contradiction with the project rule "don't bypass the `Storage`/service layers" (`_bmad-output/project-context.md`) — either route service reads through the `Storage` API (making the hook load-bearing) or retire the unused half of the ABC. Related: DW-151, which is the same registry on the injected e2e storage.
+status: open
+
+### DW-156: The three services' `storage=None` fallback now connects eagerly and leaks a storage, engine and session registry
+origin: spec-app-scoped-database-engine-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-app-scoped-database-engine.md`
+location: `app/mariadb_inventory_service.py:139-150`, `app/mariadb_catalog_service.py:145-156`, `app/mariadb_materials_admin_service.py:34-44`
+severity: low
+summary: All three services still do `if storage is None: storage = MariaDBStorage()`, and DW-32 changed what that costs: `resolve_engine` now calls `connect()` on it, so constructing one of these services without a storage performs blocking network I/O, can raise `ConnectionError` where it previously could not, and abandons a connected storage (engine, pool and `scoped_session`) that nobody disposes.
+evidence: Each constructor's fallback builds a bare `MariaDBStorage()`, which takes its URL from the class-level `Config` rather than `app.config` — the exact indirection DW-32 set out to remove — and `resolve_engine(storage)` then connects it because its `engine` is `None`. Before DW-32 the same branch produced a lazy `create_engine` that touched no socket at construction time. No production path reaches it: `app/main/routes.py` and `app/admin/routes.py` always pass `_get_storage_backend()`, and the unit suite always injects, which is why nothing caught the change in cost. Recorded as a residual risk by the previous review pass rather than fixed, because removing the fallback means deciding whether these services should require a storage (a signature change with call sites in tests) or fetch the app-scoped one themselves. Same shape as DW-153 (`PhotoService`) and DW-147 (`BaseExportService`), but in three more classes and, unlike those two, currently unreachable.
 status: open

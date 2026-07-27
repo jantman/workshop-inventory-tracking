@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 
 from .database import InventoryItem, MaterialTaxonomy
+from .db import resolve_engine
 from .export_schemas import (
     InventoryExportSchema, 
     MaterialsExportSchema, 
@@ -28,21 +29,34 @@ logger = logging.getLogger(__name__)
 class BaseExportService:
     """Base class for export services with common functionality"""
     
-    def __init__(self, database_uri: Optional[str] = None):
+    def __init__(self, database_uri: Optional[str] = None, storage: Optional[Any] = None):
         """
         Initialize export service with database connection
-        
+
         Args:
-            database_uri: Database connection string, uses Config if not provided
+            database_uri: Database connection string, uses Config if not provided.
+                Only consulted when no storage is given.
+            storage: Optional storage backend whose engine should be borrowed
+                (DW-32). When supplied, an export no longer builds a fresh
+                connection pool per download. The borrowed engine belongs to the
+                storage and is never disposed here.
         """
-        self.database_uri = database_uri or Config.SQLALCHEMY_DATABASE_URI
-        if not self.database_uri:
-            raise ValueError("Database URI is required. Set SQLALCHEMY_DATABASE_URI environment variable.")
-        
-        self.engine = create_engine(
-            self.database_uri,
-            **Config.SQLALCHEMY_ENGINE_OPTIONS
-        )
+        if storage is not None:
+            self.engine = resolve_engine(storage)
+            # Take the storage's own URL rather than str(engine.url), which
+            # SQLAlchemy renders with the password masked as `***` -- a string
+            # that looks like a URI but cannot be connected with.
+            self.database_uri = getattr(storage, 'database_url', None) or \
+                self.engine.url.render_as_string(hide_password=False)
+        else:
+            self.database_uri = database_uri or Config.SQLALCHEMY_DATABASE_URI
+            if not self.database_uri:
+                raise ValueError("Database URI is required. Set SQLALCHEMY_DATABASE_URI environment variable.")
+
+            self.engine = create_engine(
+                self.database_uri,
+                **Config.SQLALCHEMY_ENGINE_OPTIONS
+            )
         self.SessionLocal = sessionmaker(bind=self.engine)
     
     def get_session(self) -> Session:
@@ -60,8 +74,8 @@ class BaseExportService:
 class InventoryExportService(BaseExportService):
     """Service for exporting inventory items data to Google Sheets format"""
     
-    def __init__(self, database_uri: Optional[str] = None):
-        super().__init__(database_uri)
+    def __init__(self, database_uri: Optional[str] = None, storage: Optional[Any] = None):
+        super().__init__(database_uri, storage=storage)
         self.schema = InventoryExportSchema()
         self.formatter = ExportFormatter()
     
@@ -246,8 +260,8 @@ class InventoryExportService(BaseExportService):
 class MaterialsExportService(BaseExportService):
     """Service for exporting materials taxonomy data to Google Sheets format"""
     
-    def __init__(self, database_uri: Optional[str] = None):
-        super().__init__(database_uri)
+    def __init__(self, database_uri: Optional[str] = None, storage: Optional[Any] = None):
+        super().__init__(database_uri, storage=storage)
         self.schema = MaterialsExportSchema()
         self.formatter = ExportFormatter()
     
@@ -430,9 +444,9 @@ class MaterialsExportService(BaseExportService):
 class CombinedExportService:
     """Service for managing combined exports of both inventory and materials data"""
     
-    def __init__(self, database_uri: Optional[str] = None):
-        self.inventory_service = InventoryExportService(database_uri)
-        self.materials_service = MaterialsExportService(database_uri)
+    def __init__(self, database_uri: Optional[str] = None, storage: Optional[Any] = None):
+        self.inventory_service = InventoryExportService(database_uri, storage=storage)
+        self.materials_service = MaterialsExportService(database_uri, storage=storage)
     
     def export_all_data(self, options: ExportOptions) -> Dict[str, Any]:
         """

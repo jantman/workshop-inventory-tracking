@@ -7,6 +7,7 @@ while using the new database schema.
 """
 
 import logging
+import threading
 from typing import List, Dict, Any, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
@@ -24,15 +25,58 @@ logger = logging.getLogger(__name__)
 class MariaDBStorage(Storage):
     """MariaDB implementation of the Storage interface"""
     
-    def __init__(self, database_url: Optional[str] = None):
-        """Initialize MariaDB storage with database URL"""
+    def __init__(self, database_url: Optional[str] = None,
+                 engine_options: Optional[Dict[str, Any]] = None):
+        """Initialize MariaDB storage with database URL
+
+        Args:
+            database_url: Connection string; falls back to Config when omitted.
+            engine_options: Engine/pool options for non-SQLite URLs; falls back
+                to Config.SQLALCHEMY_ENGINE_OPTIONS when omitted. SQLite URLs
+                always use the SQLite-specific options below.
+        """
         self.database_url = database_url or Config.SQLALCHEMY_DATABASE_URI
+        self.engine_options = engine_options
         self.engine = None
         self.Session = None
         self._connected = False
-        
+        # Serializes connect(): now that one storage is shared app-wide, two
+        # threads can reach connect() at once (via _get_session or
+        # app.db.resolve_engine), and the dispose-then-rebuild below would
+        # otherwise tear down an engine the other thread had already bound a
+        # sessionmaker to.
+        self._connect_lock = threading.Lock()
+
     def connect(self) -> StorageResult:
-        """Establish connection to MariaDB database"""
+        """Establish connection to MariaDB database
+
+        Idempotent and thread-safe: concurrent callers serialize, and whoever
+        arrives after a successful connect gets that connection rather than a
+        second engine.
+        """
+        with self._connect_lock:
+            # The session factory is part of "connected": `_get_session()` falls
+            # back here when it finds a torn-down `Session`, and that recovery
+            # only works if the fast path refuses a storage missing one.
+            if self._connected and self.engine is not None and self.Session is not None:
+                return StorageResult(success=True, data="Connected")
+            return self._connect_locked()
+
+    def _connect_locked(self) -> StorageResult:
+        """connect() proper; caller must hold `_connect_lock`."""
+        if not self.database_url:
+            # Reported as a StorageResult rather than the AttributeError that
+            # `None.startswith` would raise below, so the operator sees the
+            # actual problem: nothing configured the database URL.
+            message = ('No database URL configured; set SQLALCHEMY_DATABASE_URI '
+                       'in the environment or pass database_url')
+            logger.error(f"Failed to connect to MariaDB: {message}")
+            return StorageResult(success=False, error=message)
+
+        # A previous connect() may have left an engine behind; dispose it rather
+        # than orphaning its connection pool.
+        self._dispose_engine()
+
         try:
             # Use different engine options for SQLite vs MariaDB
             if self.database_url.startswith('sqlite://'):
@@ -40,45 +84,105 @@ class MariaDBStorage(Storage):
                 engine_options = {
                     'connect_args': {'check_same_thread': False}
                 }
+            elif self.engine_options is not None:
+                # Caller-supplied (app.config-derived) options
+                engine_options = self.engine_options
             else:
                 # MariaDB-specific options from config
                 engine_options = Config.SQLALCHEMY_ENGINE_OPTIONS
-                
-            self.engine = create_engine(
+
+            # Built into a local and published onto `self` only once the engine
+            # has proved itself: `self.engine` is read *without* `_connect_lock`
+            # (app.db's memoization fast path, `resolve_engine`), so an engine
+            # that has not passed SELECT 1 -- and that the except branch below
+            # may be about to dispose -- must never be visible there.
+            engine = create_engine(
                 self.database_url,
                 **engine_options
             )
-            
+
             # Test connection
-            with self.engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+            except Exception:
+                engine.dispose()
+                raise
+
             # Create session factory
-            self.Session = scoped_session(sessionmaker(bind=self.engine))
+            self.engine = engine
+            self.Session = scoped_session(sessionmaker(bind=engine))
             self._connected = True
-            
+
             logger.info("Connected to MariaDB database successfully")
             return StorageResult(success=True, data="Connected")
-            
+
         except Exception as e:
+            # Don't leave a half-built engine (and its pool) behind on failure -
+            # callers may retry, and self.engine must not look usable.
+            self._dispose_engine()
             logger.error(f"Failed to connect to MariaDB: {e}")
             return StorageResult(success=False, error=str(e))
-    
+
     def close(self):
-        """Close database connections"""
-        if self.Session:
-            self.Session.remove()
-        if self.engine:
-            self.engine.dispose()
+        """Close database connections
+
+        Takes `_connect_lock` so a close() cannot interleave with a concurrent
+        connect() on this now app-shared storage.
+        """
+        with self._connect_lock:
+            self._dispose_engine()
+
+    def _dispose_engine(self):
+        """Tear down the session factory and engine, leaving both unset
+
+        Teardown failures are logged rather than raised: connect() calls this on
+        its own error path and must still return a StorageResult, and a caller
+        of close() cannot do anything useful with a dispose error either. The
+        attributes are cleared regardless, so the storage never keeps pointing
+        at something it just tried to tear down.
+        """
+        # Cleared *first* so a thread that has not yet checked `_connected`
+        # takes the locked connect() path instead of racing this teardown. It
+        # does not help a thread already past that check -- that one is covered
+        # by `_get_session()` snapshotting `self.Session` into a local.
         self._connected = False
-    
+        if self.Session:
+            try:
+                self.Session.remove()
+            except Exception as e:
+                logger.warning(f"Error removing session registry: {e}")
+            finally:
+                self.Session = None
+        if self.engine:
+            try:
+                self.engine.dispose()
+            except Exception as e:
+                logger.warning(f"Error disposing engine: {e}")
+            finally:
+                self.engine = None
+
     def _get_session(self):
-        """Get database session, ensuring connection exists"""
-        if not self._connected:
+        """Get database session, ensuring connection exists
+
+        The session factory is read *once* into a local. Clearing `_connected`
+        before teardown (see `_dispose_engine`) only helps a thread that has not
+        yet made that check; one that already passed it would still evaluate
+        `self.Session()` after a concurrent close() had nulled the attribute and
+        die on `'NoneType' object is not callable`. Snapshotting closes that
+        window, and a None snapshot is treated exactly like "not connected".
+        """
+        factory = self.Session
+        if not self._connected or factory is None:
             result = self.connect()
             if not result.success:
                 raise ConnectionError(f"Cannot connect to database: {result.error}")
-        return self.Session()
+            factory = self.Session
+            if factory is None:
+                # connect() reported success but a close() raced in behind it.
+                raise ConnectionError(
+                    "Cannot connect to database: session factory was torn down")
+        return factory()
     
     def read_all(self, sheet_name: str) -> StorageResult:
         """Read all data from a table (sheet equivalent)"""
