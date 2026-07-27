@@ -21,9 +21,11 @@ from app.database import InventoryItem
 # they never re-derive it (AD-4).
 from app.utils import category as category_util
 # Story 4.5: the route needs ONE pure-util call from the classifier module —
-# `strip_aim_prefix`, to re-derive the text a fallthrough search ran on. That is
-# a util call, not classification (AD-4/AD-5): the route never calls classify()
-# and never decides a kind.
+# `strip_aim_prefix`, for the create-form `description` pre-fill and the
+# `internal` banner, so a scan is never lost (FR40). It is no longer used to
+# re-derive the text a fallthrough search ran on: `scan_search_text` on the
+# service owns that rule. That is a util call, not classification (AD-4/AD-5):
+# the route never calls classify() and never decides a kind.
 from app.utils import scan_router
 # Story 4.1 (FR35): the scan payload rule — what a captured scan is trimmed of
 # and how long it may be — lives in a pure util the route CONSUMES. It is not
@@ -1976,41 +1978,6 @@ def _scan_banner_args(classification):
     return args
 
 
-def _scan_search_text(classification):
-    """The text `resolve_scan`'s fallthrough search actually ran on.
-
-    A second copy of a service-internal rule, and stated as one. AD-15 freezes
-    `ScanResolution` to three fields, so the searched text is not returned and a
-    fourth field must not be added — but it IS a pure function of the
-    classification, so it is re-derived here, mirroring
-    `mariadb_catalog_service.resolve_scan`'s per-arm `fallthrough_text` exactly:
-
-    - `internal` -> `normalized_value` (the bare, token-stripped id, which is
-      what the column stores; the `<ai><token>` prefix is in no column),
-    - `gtin` and `free_text` -> the AIM-stripped raw scan,
-    - `ecia` -> the first non-blank of the `.strip()`ed `1P` then `P`.
-
-    Because this is a duplicate, `TestSearchTextAgreesWithTheResolver` asserts
-    for every `ScanKind` that `search_products(_scan_search_text(c))` returns
-    exactly `resolve_scan(raw).free_text_hits` — so the search page can never
-    show a different set than `hit_count` promised, and a change to either rule
-    turns a test red.
-    """
-    kind = classification.kind
-    if kind is ScanKind.INTERNAL:
-        return classification.normalized_value
-    if kind is ScanKind.ECIA:
-        fields = classification.ecia_fields or {}
-        for key in ('1P', 'P'):
-            value = (fields.get(key) or '').strip()
-            if value:
-                return value
-        # An envelope carrying only quantity/order/date identifiers: the
-        # resolver issues no query at all, and `search_products('')` is `[]`.
-        return ''
-    return scan_router.strip_aim_prefix(classification.raw)
-
-
 # `q` is scan text rather than a column value, so its bound comes from the URL
 # budget instead. It is set well past every VARCHAR the fallthrough search
 # touches, so a scan long enough to be cut here could only have matched through
@@ -2091,8 +2058,9 @@ def _scan_url_value(name, value):
     (`_SCAN_URL_Q_LIMIT`), which puts the truncation point past every VARCHAR
     the search touches: a scan long enough to be cut can only have matched
     through `products.notes` (TEXT). That residue is real and is on the ledger;
-    it is not claimed away here. `_scan_search_text` itself is uncapped, so
-    `TestSearchTextAgreesWithTheResolver` still pins the derivation rule.
+    it is not claimed away here. `CatalogService.scan_search_text` itself is
+    uncapped, so `TestSearchTextAgreesWithTheResolver` still pins the
+    derivation rule.
 
     `_SCAN_URL_Q_LIMIT` is where that cut STARTS, not where it ends.
     `_bounded_scan_url` cuts `q` again when the assembled URL still overruns the
@@ -2116,10 +2084,25 @@ def _scan_url_value(name, value):
     the one `hit_count` counted. It is not exempt from being seen — the results
     page echoes it and puts it back in its own search box — so `product_search`
     scrubs it for DISPLAY with `_without_control_characters` and keeps the raw
-    value for the query itself. Nothing is lost by the exemption:
-    `sql_text.is_storable_text` refuses NUL and unpaired surrogates outright,
-    so a scan carrying either has no hits and never reaches the search arm at
-    all.
+    value for the query itself. Nothing is lost by the exemption, though the
+    reason is not the one an earlier reading gave. Unstorable text is no longer
+    refused before the branch — `resolve_scan` guards each arm's own lookup
+    binding now, so such a scan does reach `search_products`, which refuses it
+    itself (`sql_text.is_storable_text`) and answers `[]` without building a
+    pattern. Non-empty hits therefore MEAN the search accepted the text, and a
+    `q` is only ever built on the `search` outcome, so a `q` is storable by
+    construction. That conclusion is the whole of what the exemption needs, and
+    it holds for control characters generally rather than for a particular
+    cast of them: `q` is either an ECIA candidate part number, which by the
+    format-06 grammar cannot contain a separator (the separators are what
+    delimited the records it was read out of), or the AIM-stripped raw scan,
+    which can carry ANY storable control character a scanner emits — a stray RS
+    or GS included, since text that failed to parse as an envelope is searched
+    exactly as it arrived. The conclusion does not rest on which controls turn
+    up. What is excluded is exactly the two classes
+    `is_storable_text` names — NUL and unpaired surrogates — and those are the
+    only ones a scrub would have had to save the query from, since the rest
+    reach a LIKE pattern intact and match what they literally say.
 
     Length is bounded in CHARACTERS only — what the VARCHAR counts. An earlier
     reading also cut each value to its limit in UTF-8 BYTES, which cost nothing
@@ -2269,7 +2252,7 @@ def _bounded_scan_url(endpoint, **args):
     return url
 
 
-def _scan_destination(resolution):
+def _scan_destination(resolution, service):
     """Map a `ScanResolution` to `(outcome, url)` — the whole routing rule.
 
     The ONE place the mapping lives (AD-2/AD-5): every URL is built server-side
@@ -2295,6 +2278,18 @@ def _scan_destination(resolution):
     Every value that reaches `url_for` goes through `_scan_url_value` first, so
     no scan can make URL BUILDING the thing that fails (a lone surrogate) or
     produce a URL the transport in front of Flask refuses (an over-long one).
+
+    `service` is the same `CatalogService` that produced `resolution`, and it is
+    a parameter rather than a fresh `_get_catalog_service()` so that the routing
+    decision stays assertable against whatever service the caller resolved with.
+    Only the `search` branch uses it, for `scan_search_text` — the text
+    `resolve_scan` actually searched. That used to be re-derived here from the
+    classification alone, and could be while the rule was pure; the `ecia` arm's
+    per-candidate fallthrough made the winning candidate a function of the
+    DATABASE, which no route can compute. So the rule lives in the service now
+    and this is its only caller — the direction this repo has repeatedly chosen
+    (one LIKE escaper, one format-06 grammar) rather than re-copying a
+    service-internal rule with a service argument bolted on.
     """
     classification = resolution.classification
     if resolution.product is not None:
@@ -2306,7 +2301,8 @@ def _scan_destination(resolution):
     if resolution.free_text_hits:
         return 'search', _bounded_scan_url(
             'main.product_search',
-            q=_scan_url_value('q', _scan_search_text(classification)), **prefill)
+            q=_scan_url_value('q', service.scan_search_text(resolution)),
+            **prefill)
     return 'create', _bounded_scan_url('main.product_add', **prefill)
 
 
@@ -2337,13 +2333,23 @@ def api_scan():
 
     The `@csrf.exempt` above is inherited from Story 4.1 and is NOT closed by
     that read-only property, because read-only is not the same as cheap: an
-    unauthenticated, unthrottled cross-site POST here costs up to two sessions
-    and a leading-wildcard `LIKE` over six unindexed columns with a pattern of
-    up to `MAX_SCAN_LENGTH` characters — a full table scan per request. That is
-    a denial-of-service shape, not a one-SELECT shape. The exemption stays
-    (removing it would break the wedge path this endpoint exists for), and the
-    two ledger entries aimed at it — the CSRF exemption itself and rate
-    limiting — stay open and now have the real cost written against them.
+    unauthenticated, unthrottled cross-site POST here costs several sessions and
+    a leading-wildcard `LIKE` over six unindexed columns with a pattern of up to
+    `MAX_SCAN_LENGTH` characters — a full table scan per request. "Several" is
+    five in the worst case, which is a two-candidate ECIA envelope routed to
+    `search`: `resolve_scan` may issue one lookup and one search per candidate
+    (four), and `_scan_destination` then asks `scan_search_text` which candidate
+    won, which costs ONE more search — it re-runs every candidate but the last,
+    since with hits in hand a last candidate that is reached needs no asking
+    (the price of the searched-text rule having ONE home — see that method).
+    Every other kind still costs at most two. That is a denial-of-service
+    shape, not a one-SELECT shape, and it got worse rather than better here.
+    The exemption stays (removing it would break the wedge path this endpoint
+    exists for). Do not read the ledger as holding this cost for someone: the
+    two entries aimed at this endpoint — the CSRF exemption itself (DW-14) and
+    rate limiting (DW-63) — were both CLOSED by human decision on 2026-07-26,
+    and DW-14's summary still describes the two-session cost that this change
+    raised to five. The larger number is written HERE and nowhere else.
 
     Errors use the AD-13 object-error envelope exclusively, including a failing
     resolution: a broken `GS1_INTERNAL_*` grammar or a database outage is a 500
@@ -2391,8 +2397,11 @@ def api_scan():
         return _catalog_json_error('invalid_field', 'raw must not be empty', 400, field='raw')
 
     try:
-        resolution = _get_catalog_service().resolve_scan(cleaned)
-        outcome, url = _scan_destination(resolution)
+        service = _get_catalog_service()
+        resolution = service.resolve_scan(cleaned)
+        # The same service instance, so the searched text `_scan_destination`
+        # asks it for is derived against the database the resolution came from.
+        outcome, url = _scan_destination(resolution, service)
     except Exception as e:
         # Every failure here is a deployment or backend fault, not a bad scan:
         # a malformed configured grammar, or the database. It must not reach the

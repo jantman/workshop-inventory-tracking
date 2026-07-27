@@ -138,6 +138,143 @@ def _clean(value):
 # batch and stops.
 SUGGESTION_ROW_BATCH = 100
 
+# The two ECIA data identifiers a part-number lookup may be built from, in the
+# order they are tried (Story 4.4, FR38). `1P` leads because the ECIA spec makes
+# the supplier part number the required field; which of the two a given
+# distributor prints the MANUFACTURER part number in is a property of that
+# label, not of this system, so both are tried rather than one being guessed.
+_ECIA_CANDIDATE_KEYS = ('1P', 'P')
+
+
+def _ecia_candidates(classification) -> List[str]:
+    """
+    The part numbers an `ecia` classification may be looked up and searched by.
+
+    The ONE home for the candidate rule, because three places need exactly the
+    same list and a second copy of it is a rule that can drift: `resolve_scan`'s
+    lookup walk, its per-candidate fallthrough, and `scan_search_text` — which
+    the route calls to rebuild the `q` the operator's browser will send back.
+    That last caller is why this is a module-level function taking a
+    classification rather than something private to the arm.
+
+    Four filters, each closing a defect rather than expressing a preference,
+    applied in this order:
+
+    - **Trimmed.** `ecia.parse_fields` keeps a value exactly as the label
+      carried it, which is right for the parser — Story 4.5 pre-fills a create
+      form from those fields and must show what was printed — but a part number
+      is never legitimately surrounded by spaces, and an untrimmed candidate can
+      only ever MISS the exact lookup while the fallthrough silently succeeds
+      (`search_products` strips its own query). The trim lives here so what 4.5
+      pre-fills is still verbatim.
+    - **Non-blank.** A `1P` holding three spaces is truthy, so before the trim
+      it became the first candidate and the fallthrough searched for nothing,
+      dead-ending a label whose OTHER identifier was perfectly usable.
+    - **Storable** (`sql_text.is_storable_text`, DW-80). A candidate carrying a
+      NUL or an unpaired surrogate cannot be bound or cannot be compared whole,
+      so nothing stored can equal or contain it; dropping it from the LIST
+      rather than guarding the query means it can be neither looked up nor
+      searched nor reported as the searched text, and a CLEAN candidate beside
+      it still resolves. This is the per-arm half of the guard that used to
+      judge the whole envelope — under which an unstorable `K` order number or
+      `9D` date, in a record no query ever touches, suppressed a part-number
+      lookup that would have landed.
+    - **De-duplicated, folding ASCII case.** The routine single-source part
+      prints the same number in both fields; without this it would be looked up
+      twice and searched twice for one answer. Comparing the values EXACTLY
+      missed the near-routine variant of that — `1P='ABC-9'` beside
+      `P='Abc-9'` — so the second spelling still cost a lookup and a search
+      that could not add anything: both consumers fold ASCII case already
+      (`_ecia_match`'s `LOWER(column) = LOWER(candidate)` disjunct, and
+      `search_products`' `LOWER(column) LIKE LOWER(q)`), so for an ASCII value
+      the second candidate's match set is provably a SUBSET of the first's.
+      The `isascii()` half of the key is load-bearing rather than defensive:
+      Python's `str.lower()` is full-Unicode while SQLite's `LOWER()` is
+      ASCII-only, so `'WÜRTH-1'` and `'WüRTH-1'` fold equal HERE and not in the
+      database — merging them would drop a lookup the binary
+      `column = candidate` disjunct can still satisfy (verified: `_ecia_match`
+      finds a product stored `WÜRTH-1` for the first spelling and not for the
+      second). Non-ASCII values are therefore compared exactly, as before. The
+      FIRST-seen spelling is the candidate that survives, so `1P` still leads
+      and the text reported as searched is the one the label actually printed
+      there.
+
+    Reads `ecia_fields` defensively (`or {}`) because `ScanClassification`
+    permits `ECIA` with None even though `classify()` never produces it, and
+    returns `[]` for every non-`ecia` classification by construction — no other
+    kind carries the mapping at all.
+
+    Args:
+        classification: Any `ScanClassification`.
+
+    Returns:
+        A fresh list of candidate part numbers, `1P` before `P`, possibly empty.
+    """
+    fields = classification.ecia_fields or {}
+    candidates = []
+    seen = set()
+    for key in _ECIA_CANDIDATE_KEYS:
+        value = (fields.get(key) or '').strip()
+        if not value or not sql_text.is_storable_text(value):
+            continue
+        # ASCII values fold; non-ASCII ones do not, because only the ASCII fold
+        # is one both backends agree with. See the docstring above.
+        seen_key = value.lower() if value.isascii() else value
+        if seen_key not in seen:
+            seen.add(seen_key)
+            candidates.append(value)
+    return candidates
+
+
+def _fallthrough_text(classification) -> str:
+    """
+    The text the three PURE arms fall through to a search on.
+
+    The ONE home for that rule, in the literal sense: `resolve_scan`'s shared
+    tail calls this and so does `scan_search_text`, so neither derives it
+    independently. Moving the rule out of the route and into this module would
+    otherwise have relocated the duplicate rather than removed it — the two
+    copies would simply have been a few hundred lines apart instead of a module
+    apart, which is a harder drift to notice, not an easier one.
+
+    `ecia` is excluded BY CONSTRUCTION and not by omission: its text is per
+    candidate and is a fact about the database (which candidate's search came
+    back non-empty), so it cannot be a pure function of the classification at
+    all. `_ecia_fallthrough` owns it, and `resolve_scan`'s `ecia` arm returns
+    before the shared tail, so the tail only ever sees the other three.
+
+    - `internal` -> `normalized_value`, the bare token-stripped id, which is
+      what `products.internal_id` actually stores; the `<ai><token>` prefix is
+      an encoding artifact present in no column, so searching the raw scan
+      would find nothing by construction.
+    - `gtin` and `free_text` -> the AIM-stripped raw scan. For `gtin` that is
+      deliberately NOT the normalized 14-digit key: the key was just looked up
+      exactly, so re-searching it adds nothing, while the scanned form can
+      substring-match a `GTIN_UNVALIDATED` row stored exactly as it was typed.
+
+    Args:
+        classification: A `ScanClassification` of kind INTERNAL, GTIN or
+            FREE_TEXT. ECIA is not a legal argument — it has no single text.
+
+    Returns:
+        A `str`, possibly empty.
+
+    Raises:
+        ValueError: For an ECIA classification. Enforced rather than merely
+            documented because the silent answer would be the AIM-stripped RAW
+            ENVELOPE — separators and all — which is the one text this arm must
+            never search, and which no caller could tell apart from a legitimate
+            free-text fallthrough. Both callers branch on `kind` before reaching
+            here, so this raises for nobody today; that is the point.
+    """
+    if classification.kind is ScanKind.ECIA:
+        raise ValueError(
+            'ecia has no single fallthrough text — its text is per candidate; '
+            'use CatalogService.scan_search_text()')
+    if classification.kind is ScanKind.INTERNAL:
+        return classification.normalized_value
+    return scan_router.strip_aim_prefix(classification.raw)
+
 
 class CatalogService:
     """Service for managing catalog Products through the MariaDB backend."""
@@ -2131,6 +2268,246 @@ class CatalogService:
         finally:
             session.close()
 
+    def _ecia_match(self, candidate: str) -> Optional[Product]:
+        """
+        The ONE product `candidate` identifies, or None for zero or several.
+
+        One candidate, one query, one session — the unit `resolve_scan`'s ECIA
+        walk is built from. Both places a manufacturer part number can live are
+        consulted at once: the `products.mpn` column and an `MPN` identifier
+        row. Ordered by `Product.id.asc()` and capped at two rows, because the
+        only question is "exactly one, or not" and fetching the rest would cost
+        rows nothing reads.
+
+        Two rows are genuinely reachable: `products.mpn` carries no unique
+        constraint, so any number of products may hold the same one; and one
+        product's `mpn` column can collide with a DIFFERENT product's `MPN`
+        identifier row, which nothing cross-checks. NOT two identifier rows —
+        `MPN` is global-scoped (`vendor_scope=''`) and
+        `uq_product_identifiers_type_value_scope` already forbids that pair,
+        which is why `add_identifier` raises `ValidationError` there. Global
+        scoping is what makes an identifier row UNIQUE across products, not what
+        makes it shareable.
+
+        Zero or more than one is "no product" for this candidate: `mpn` is not
+        unique, so silently returning the oldest of several would answer a
+        question nobody asked. The caller decides what happens next — it walks
+        on to the next candidate, and only a total absence of an unambiguous
+        answer reaches the fallthrough.
+
+        The caller is responsible for the candidate being trimmed, non-blank and
+        storable; `_ecia_candidates` is the only supported source.
+
+        Args:
+            candidate: One part number, exactly as it will be compared.
+
+        Returns:
+            A detached `Product`, or None. Scalar columns stay readable;
+            relationship attributes must not be touched.
+        """
+        def _matches(column):
+            # TWO disjuncts, and both are load-bearing.
+            #
+            # `func.lower()` on both sides, explicitly, is the same construction
+            # `search_products` uses and for the same reason: SQLite's default
+            # collation is binary, so relying on the column's collation would
+            # make this lookup case-SENSITIVE under the unit suite and
+            # case-insensitive in production.
+            #
+            # But that fold is ASCII-only on SQLite — `str.lower()` is
+            # full-Unicode while SQLite's `LOWER()` leaves non-ASCII untouched —
+            # so the two sides of a folded comparison can never agree for a
+            # non-ASCII part number, and a stored 'WÜRTH-1' scanned as the
+            # byte-identical 'WÜRTH-1' matched NOTHING: an exact lookup failing
+            # on an exact value. The unfolded equality closes that. Under SQLite
+            # it adds exactly the rows a byte-identical value should have
+            # matched all along and nothing else, because that backend's default
+            # collation is binary; what it does NOT buy there is non-ASCII
+            # case-INsensitivity ('würth-1' still misses), which needs an
+            # engine-level collation or Epic 8's mechanism decision.
+            #
+            # Under MariaDB it is NOT a byte comparison and this disjunct is not
+            # the narrow one: `=` runs under the column's `utf8mb4_unicode_ci`
+            # collation, which is case- AND accent-insensitive and PAD SPACE,
+            # and `LOWER()` does not change that, so both disjuncts are
+            # collation-folded and 'WURTH-1' can equal a stored 'WÜRTH-1'.
+            # `resolve_scan`'s docstring states the consequence: what "equality"
+            # reaches here is backend-dependent, and this method picks a landing
+            # rather than adding a hit, so the divergence `search_products`
+            # already records costs more in this seam than in that one.
+            return or_(column == candidate,
+                       func.lower(column) == candidate.lower())
+
+        # An EXISTS rather than a join, for the reason search_products states: a
+        # product matching on both its `mpn` column and an identifier row must
+        # appear ONCE, without a SQL DISTINCT. Only IdentifierType.MPN is
+        # consulted. VENDOR_SKU rows are deliberately outside this lookup — see
+        # `resolve_scan`'s docstring.
+        identifier_match = (
+            exists()
+            .where(ProductIdentifier.product_id == Product.id)
+            .where(ProductIdentifier.identifier_type ==
+                   IdentifierType.MPN.value)
+            .where(_matches(ProductIdentifier.value))
+        )
+
+        session = self.Session()
+        try:
+            matches = (session.query(Product)
+                       .filter(or_(_matches(Product.mpn), identifier_match))
+                       .order_by(Product.id.asc())
+                       .limit(2)
+                       .all())
+        finally:
+            session.close()
+        return matches[0] if len(matches) == 1 else None
+
+    def _ecia_fallthrough(self, candidates: List[str]) -> Tuple[str, tuple]:
+        """
+        The FR36 fallthrough for an `ecia` scan that resolved to no product.
+
+        Searches the candidates in order through `search_products` (AD-17, no
+        second search path) and returns the FIRST non-empty hit list together
+        with the candidate that produced it. If no candidate yields hits, the
+        hits are empty and the reported searched text is `candidates[0]` — the
+        supplier part number, which is what a reader of the resolution would
+        expect to have been asked about.
+
+        First-non-empty rather than a MERGED hit list, which is what the ledger
+        entry proposed. `ScanResolution` may not grow a fourth field (AD-15), so
+        the route has to rebuild the searched text and put it in `q`; a union
+        across two candidates cannot be reproduced from a single `q`, so
+        `/products/search?q=…` would show a different set than `hit_count`
+        promised — the exact failure `TestSearchTextAgreesWithTheResolver`
+        exists to prevent. Keeping `free_text_hits` equal to
+        `search_products(<one text>)` is therefore a constraint on the shape of
+        this method, not a simplification of it.
+
+        At most one search per candidate, and it stops at the first non-empty
+        one, so the ordinary single-candidate label costs exactly what it always
+        did. An empty candidate list costs nothing at all, answering below
+        without a search. The one further discount is over-long text:
+        `search_products` also answers `[]` before opening a session for a query
+        past its pattern bound, so a candidate longer than that costs a call and
+        no query. Its other two short-circuits — blank and unstorable text —
+        cannot fire here, because `_ecia_candidates`, documented above as this
+        method's only supported source, has already removed both.
+
+        Args:
+            candidates: `_ecia_candidates`' list, possibly empty.
+
+        Returns:
+            `(searched_text, hits)` — the text `free_text_hits` came from, and
+            the hits as a tuple. `('', ())` when there are no candidates.
+        """
+        if not candidates:
+            # No part number at all: a legal terminal state, and the one place
+            # `resolve_scan` still answers without searching, since there is no
+            # question a part-number search could be asking.
+            return '', ()
+        for candidate in candidates:
+            hits = tuple(self.search_products(candidate))
+            if hits:
+                return candidate, hits
+        return candidates[0], ()
+
+    def scan_search_text(self, resolution: ScanResolution) -> str:
+        """
+        For a resolution that produced NO product: the text whose
+        `search_products()` reproduces `resolution.free_text_hits`.
+
+        The scope is deliberate and the round trip is not universal. A
+        resolution that LANDED on a product carries `free_text_hits == ()`
+        while the text returned here is `candidates[0]` (or the arm's
+        fallthrough text) — which may still find that product, and may equally
+        find NOTHING, since a landing on the SECOND candidate is still reported
+        as the first. Either way `search_products(...)` and `free_text_hits`
+        disagree for such a resolution. That is not a defect to fix: the
+        method is total rather than partial so a caller reading a resolution
+        need not know which branch produced it before asking, and the route
+        never asks, because `_scan_destination` only builds a `q` on the
+        `search` outcome, which by definition has no product and non-empty hits.
+
+        AD-15 freezes `ScanResolution` to three fields, so the searched text is
+        not carried on the resolution — but Story 4.5's router has to put it in
+        `q` on the `/products/search` URL it hands the browser, or the results
+        page shows a different set than `hit_count` counted. This method is the
+        SINGLE implementation of that rule. It used to be a second copy in
+        `app/main/routes.py`, which was safe only while the rule was a pure
+        function of the classification; the per-candidate fallthrough above made
+        the answer depend on the DATABASE, which no route can compute. So the
+        rule moved here and the route calls it, the direction this repo has
+        repeatedly chosen (one LIKE escaper, one format-06 grammar).
+
+        Per arm, and by CALLING what `resolve_scan` calls rather than by
+        agreeing with it: the three pure arms go through the shared
+        `_fallthrough_text` (`internal` -> `normalized_value`, `gtin` and
+        `free_text` -> the AIM-stripped raw), which `resolve_scan`'s tail also
+        uses, so there is no second derivation to drift. Re-deriving the same
+        three here in parallel would have moved the duplicate this method exists
+        to remove from cross-module to intra-module, not removed it.
+
+        `ecia` is the one arm this method reasons about itself, because its text
+        is per candidate: the candidate whose search produced the hits, or
+        `candidates[0]` when none did, or `''` when the envelope carries no
+        usable part number at all.
+
+        Cost, stated because it is the price of removing the duplicate: for an
+        `ecia` resolution carrying hits AND more than one candidate, the winning
+        candidate has to be re-established, at one bounded `LIKE` search per
+        candidate EXCEPT the last. The last is free by the rule rather than by
+        measurement: hits are known non-empty, so if every earlier candidate
+        finds nothing the winner can only be the last one. With the two
+        candidates this arm actually has, that is exactly one search rather than
+        two. Both cheaper cases cost nothing at all: one candidate can only be
+        the answer, and no hits means no candidate produced any, so the reported
+        text is `candidates[0]` by rule.
+
+        **The residual of re-deriving rather than carrying.** Those searches run
+        AFTER `resolve_scan` returned, against a catalog that may have moved: a
+        write landing in between can make a different candidate win, so `q` can
+        name a candidate other than the one `hit_count` was counted from. This
+        is a narrower flavour of a staleness that already exists and is not
+        fixable here — the page the operator's browser renders is a THIRD query,
+        later still, so `hit_count` and that page can disagree whatever this
+        method does. Carrying the winning text on the resolution would close the
+        narrow half; it would also make `ScanResolution` four fields, which is
+        the shape AD-15 and the spec's intent contract prescribe as three. So it
+        is recorded as deferred work rather than taken here (DW-173, which also
+        carries the redundant search below).
+
+        The result is what the caller must search by; it is deliberately NOT
+        bounded or sanitized here (`_scan_url_value` owns the URL budget), so
+        the derivation rule stays assertable on its own.
+
+        Args:
+            resolution: Any `ScanResolution` this service produced.
+
+        Returns:
+            A `str`, possibly empty — never None, since `search_products('')`
+            is `[]` and an empty search is the honest answer for an envelope
+            with nothing to search by.
+        """
+        classification = resolution.classification
+        if classification.kind is ScanKind.ECIA:
+            candidates = _ecia_candidates(classification)
+            if not candidates:
+                return ''
+            if len(candidates) == 1 or not resolution.free_text_hits:
+                return candidates[0]
+            # One search settles it, not one per candidate. `free_text_hits` is
+            # non-empty here, so SOME candidate's search came back non-empty and
+            # the first such candidate is the winner by the first-non-empty
+            # rule; a candidate whose search finds anything is therefore that
+            # winner, and if none of the earlier ones does, the last is the only
+            # one left. Asking the last would be asking a question whose answer
+            # is already known.
+            for candidate in candidates[:-1]:
+                if self.search_products(candidate):
+                    return candidate
+            return candidates[-1]
+        return _fallthrough_text(classification)
+
     def resolve_scan(self, raw) -> ScanResolution:
         """
         Resolve one captured scan against the catalog (Story 4.3, FR36, AD-15).
@@ -2138,11 +2515,20 @@ class CatalogService:
         Classifies `raw` with the pure `app/utils/scan_router.classify()`, looks
         the result up where a lookup is defined, and falls through to
         `search_products` when nothing matched — so no scan dead-ends (FR36),
-        with two deliberate exceptions, both of which answer without a lookup
-        AND without a search: text that cannot be stored (the guard below), and
-        an `ecia` envelope carrying no part number at all (only
-        quantity/order/date identifiers), for which no part-number search could
-        mean anything. Returns a `ScanResolution` in every case.
+        with one deliberate exception that answers without a lookup AND without
+        a search: an `ecia` envelope carrying no usable part number at all
+        (only quantity/order/date identifiers, or ones that are blank or
+        unstorable), for which no part-number search could mean anything.
+        Returns a `ScanResolution` in every case.
+
+        Unstorable text used to be a second such exception, answered before the
+        branch. It is not one any more: the guard moved onto the text each arm
+        BINDS (see the comment on the branch below, and `_ecia_candidates`), so
+        a scan carrying a NUL or an unpaired surrogate now takes its arm's
+        ordinary path and is refused inside `search_products` instead. What that
+        preserves exactly: such text still reaches no LIKE pattern and still
+        opens no session. What it changes: `search_products` is now CALLED for
+        it, and a clean part number beside a dirty record resolves.
 
         "No dead ends" is a promise about the PATH, not a guarantee of hits:
         several arms can legitimately return no product and no hits, and the
@@ -2172,7 +2558,11 @@ class CatalogService:
         pattern-length bound — because that is search-entrypoint behavior every
         caller of it gets, not a scan rule re-implemented here.
 
-        **What each arm searches, and why it differs:**
+        **What each arm searches, and why it differs.** For the three arms whose
+        answer is a pure function of the classification the rule is not written
+        down in the arm at all — the shared tail calls `_fallthrough_text`, and
+        so does `scan_search_text`, so the description below is of one executed
+        rule rather than of two that agree today:
 
         - `internal`: looks up `products.internal_id` (AD-3 makes it the
           scan-lookup business key). On a miss it searches
@@ -2205,30 +2595,56 @@ class CatalogService:
           distributor prints the manufacturer part number in is a property of
           that label, not of this system, so BOTH are tried against BOTH places
           a part number lives: the `products.mpn` column and an `MPN`
-          identifier row. Values are trimmed and de-duplicated first, and the
-          match is an equality one — never a substring. Be precise about what
-          "equality" reaches, because it is not the same on both backends and
-          this arm returns a single product rather than a hit list: the
-          predicate is `column = value OR LOWER(column) = LOWER(value)`, which
-          under SQLite (the only backend any test here runs) means
-          byte-identical or ASCII-case-folded, and under MariaDB's
-          `utf8mb4_unicode_ci` means whatever that collation equates —
-          accent-insensitive and PAD SPACE, since `LOWER()` does not change
-          MariaDB's comparison collation. So `WURTH-1` can land on a product
-          stored `WÜRTH-1` in production and cannot in the unit suite. That is
-          the same backend divergence `search_products` documents and the
-          ledger records; it is wider here only in consequence, because there
-          it adds a hit and here it can pick the landing. Exactly one product
-          matching resolves to it; zero OR more than one resolves to nothing
-          and falls through to a search on the FIRST candidate, because two
-          products genuinely can share a part number and silently returning the
-          oldest of several would answer a question nobody asked. Be exact
-          about WHERE the sharing is possible, because the two homes are not
-          alike: `products.mpn` is nullable and carries no unique constraint,
-          so any number of products may hold the same one. Two MPN identifier
-          ROWS cannot collide — `MPN` is global-scoped (`vendor_scope=''`) and
-          `uq_product_identifiers_type_value_scope` is over
-          `(identifier_type, value, vendor_scope)`, so the DB rejects the
+          identifier row. `_ecia_candidates` states which values qualify
+          (trimmed, non-blank, storable, de-duplicated) and is the only place
+          that rule lives.
+
+          **One query per candidate, in order, first unambiguous answer wins.**
+          Each candidate is asked on its own (`_ecia_match`): exactly one
+          product matching resolves to it and the walk stops; zero OR more than
+          one contributes nothing and the walk moves to the next candidate,
+          because two products genuinely can share a part number and silently
+          returning the oldest of several would answer a question nobody asked.
+          Zero or several on EVERY candidate is "no product". So an ambiguous
+          `1P` beside a unique `P` resolves to the `P` product — first
+          UNAMBIGUOUS, not first non-empty — and a unique `1P` resolves even
+          when `P` matches something else entirely. Cost is at most one query
+          per candidate and the ordinary single-hit label still costs one.
+
+          This replaced a single query ORing both candidates together and
+          counting rows over the union, which produced three verified ways a
+          label resolved to LESS than it supported (DW-78/79/82, all closed
+          here): a unique `1P` hit discarded as a false ambiguity because `P`
+          matched a different product; a product reachable only by `P`
+          dead-ending entirely once a `1P` record was present; and, worst, `1P`
+          matching nothing while `P` matched two products EXACTLY — the union
+          was ambiguous so both exact matches were dropped, and the single
+          fallthrough search then ran on `1P` and found nothing. The walk is
+          strictly a tightening: the union landed only when exactly one product
+          matched EITHER candidate, and each candidate then matched that
+          product or nothing, so every scan that resolved before resolves to
+          the same product now.
+
+          Be precise about what "equality" reaches, because it is not the same
+          on both backends and this arm returns a single product rather than a
+          hit list: the predicate is
+          `column = value OR LOWER(column) = LOWER(value)`, which under SQLite
+          (the only backend any test here runs) means byte-identical or
+          ASCII-case-folded, and under MariaDB's `utf8mb4_unicode_ci` means
+          whatever that collation equates — accent-insensitive and PAD SPACE,
+          since `LOWER()` does not change MariaDB's comparison collation. So
+          `WURTH-1` can land on a product stored `WÜRTH-1` in production and
+          cannot in the unit suite. That is the same backend divergence
+          `search_products` documents and the ledger records; it is wider here
+          only in consequence, because there it adds a hit and here it can pick
+          the landing.
+
+          Be exact about WHERE a shared part number is possible, because the
+          two homes are not alike: `products.mpn` is nullable and carries no
+          unique constraint, so any number of products may hold the same one.
+          Two MPN identifier ROWS cannot collide — `MPN` is global-scoped
+          (`vendor_scope=''`) and `uq_product_identifiers_type_value_scope` is
+          over `(identifier_type, value, vendor_scope)`, so the DB rejects the
           second, which is why `add_identifier` raises `ValidationError` there.
           Global scoping is what makes an identifier row UNIQUE across
           products, not what makes it shareable. The second real ambiguity is
@@ -2236,44 +2652,24 @@ class CatalogService:
           another product's `MPN` identifier row, which nothing constrains and
           which `test_an_ambiguity_across_the_two_homes_also_falls_through`
           pins. Those two are the whole set.
-          An envelope carrying no NON-BLANK part-number identifier is answered
+
+          **The fallthrough is per candidate too** (`_ecia_fallthrough`): on no
+          product the candidates are searched IN ORDER and the FIRST non-empty
+          hit list is the answer, so a product reachable only by the second
+          candidate is reached. Not a merged or de-duplicated union across
+          candidates: `free_text_hits` must stay exactly
+          `search_products(<one text>)`, or the `/products/search?q=…` page the
+          route builds could not reproduce what `hit_count` counted (AD-15
+          freezes the resolution at three fields, so the text is re-derived by
+          `scan_search_text` rather than carried). When no candidate yields
+          hits the reported searched text is the first candidate.
+
+          An envelope carrying no USABLE part-number identifier is answered
           with no product and no hits, without any query — normally a label
-          carrying only `Q`/`K`/`9D`, but a `1P` holding nothing but spaces
-          reaches the same terminal state, since the candidates are trimmed
-          before they are counted.
-
-          Three consequences of "one query over both candidates, one search on
-          the first", all real and none hypothetical, so a caller can plan
-          around them rather than discover them:
-
-          1. The count is over the UNION of the candidates, so a unique `1P`
-             hit is discarded when `P` happens to match a DIFFERENT product —
-             the arm sees two rows and calls it ambiguous. `1P` leads the
-             candidate list but does not take precedence in the query. The
-             right product USUALLY still reaches the operator, since it is in
-             the `1P` search that follows, but as a hit rather than a landing —
-             and not always: that search is bounded at
-             `SEARCH_RESULTS_DEFAULT_LIMIT` rows ordered by id, so an exact
-             match sitting behind enough substring matches on the same text is
-             dropped from the list entirely. "Ambiguous falls through to hits"
-             is therefore a statement about which QUERY runs, not a guarantee
-             that the exact matches are in what comes back.
-          2. Only the first candidate is searched, so a product reachable ONLY
-             by the second one — a `P` value in a description, say, with `1P`
-             matching nothing anywhere — comes back with no product and no
-             hits. Presence of an extra identifier makes that label resolve to
-             LESS than the same label carrying `P` alone.
-          3. The two compose into the worst case, which is neither of them: if
-             `1P` matches nothing and `P` matches two products EXACTLY, the
-             union is ambiguous so both exact matches are discarded, and the
-             fallthrough then searches `1P` and finds nothing. The arm holds
-             two exact matches in hand and answers with no product and no hits.
-             The same label carrying `P` alone returns both as hits.
-
-          All three are recorded in the deferred-work ledger; closing any of
-          them changes the frozen intent contract for this arm, whose fix is
-          the same in every case — query per candidate in order and take the
-          first unambiguous answer, at a cost of one more query.
+          carrying only `Q`/`K`/`9D`, but a `1P` holding nothing but spaces, or
+          one carrying a NUL or an unpaired surrogate, reaches the same
+          terminal state, since those are filtered out before the candidates
+          are counted.
 
           Two exclusions a reader would otherwise have to diff the model to
           find. (1) `VENDOR_SKU` identifier rows are not consulted, even though
@@ -2284,9 +2680,9 @@ class CatalogService:
           MPN as what a distributor scan pre-fills. `IdentifierType.MPN` is
           global-scoped, so this lookup correctly needs no `vendor_scope`
           filter. (2) The ASCII-case fold is one of the two disjuncts per
-          candidate rather than the only one — see `_matches` in the arm for
-          why a byte-identical comparison runs beside it, and for what
-          non-ASCII case-insensitivity still does not do under SQLite.
+          candidate rather than the only one — see `_matches` inside
+          `_ecia_match` for why a byte-identical comparison runs beside it, and
+          for what non-ASCII case-insensitivity still does not do under SQLite.
 
           A note on the `free_text` arm above, since this arm's first sentence
           reads as though it contradicts it: an envelope whose records are
@@ -2309,19 +2705,29 @@ class CatalogService:
         `classification.raw` deliberately keeps the prefix.
 
         Read-only, like `search_products`: there is no commit, no rollback and
-        no audit log, so scan resolution is idempotent by construction. Session
-        count per scan is one for a lookup that hits, one for a `free_text`
-        scan (the search), and two for an `internal`/`gtin`/`ecia` MISS (the
-        lookup, then `search_products`' own) — minus any search that answers
-        without querying. `search_products` returns `[]` for text that is
-        blank, unstorable or over-long before it opens anything, so an
-        unencodable scan and an empty scan open ZERO, and a lookup miss whose
-        fallthrough text is blank opens one rather than two. The `ecia` arm
-        opens one for its lookup, or ZERO when the envelope carries no
-        part-number identifier and it therefore neither looks up nor searches.
-        The Product and every Product in `free_text_hits` are therefore
-        detached rows: scalar columns stay readable, relationship attributes
-        must not be touched.
+        no audit log, so scan resolution is idempotent by construction.
+
+        Session count per scan, which is one session per query issued. For
+        `internal` and `gtin` it is one for a lookup that hits, one for a
+        `free_text` scan (the search alone), and two for a MISS (the lookup,
+        then `search_products`' own). For `ecia` it is PER CANDIDATE and there
+        are at most two candidates, so the ceiling is two lookups plus two
+        searches — four — reached only by a two-candidate label that resolves
+        to nothing and whose first candidate finds no hits. The ordinary label
+        is unchanged: a `1P` that hits costs exactly one.
+
+        Subtract from all of that any search that answers without querying.
+        `search_products` returns `[]` for text that is blank, unstorable or
+        over-long before it opens anything, so an unencodable scan and an empty
+        scan open ZERO sessions even though the search IS called, and a lookup
+        miss whose fallthrough text is blank opens one rather than two. An
+        `ecia` envelope with no usable candidate opens ZERO: it neither looks
+        up nor searches. `scan_search_text` is a separate call with its own
+        cost — see its docstring — and is not counted here.
+
+        The Product and every Product in `free_text_hits` are detached rows:
+        scalar columns stay readable, relationship attributes must not be
+        touched.
 
         Args:
             raw: The scan text, already cleaned by the caller.
@@ -2367,164 +2773,121 @@ class CatalogService:
         # and a vector this suite already had — resolved to every product in
         # the catalog. No stored value can equal or contain either shape, so
         # the honest answer is the no-match one, reached without a query.
-        # Checking `raw` covers every arm: a GTIN candidate is all ASCII digits
-        # by construction, and any other arm's text is derived from `raw`.
-        if not sql_text.is_storable_text(raw):
-            return ScanResolution(classification=classification, product=None,
-                                  free_text_hits=())
-
+        #
+        # The guard is applied PER ARM, to the text that arm actually binds to
+        # a lookup, and not once to `raw` before the branch (DW-80). Judging
+        # the whole envelope is a stricter rule than the defect calls for and
+        # it suppressed clean lookups: an ECIA label whose `K` order number or
+        # `9D` date carried a stray NUL — a record no query here ever touches —
+        # answered with no product and no hits even though its `1P` matched a
+        # product character for character. Each arm below guards exactly what
+        # it binds: `internal` and `gtin` their `normalized_value`, `ecia` each
+        # candidate individually (in `_ecia_candidates`, which drops an
+        # unstorable one from the list so it can be neither looked up nor
+        # searched nor reported), and `free_text` nothing, because it binds
+        # nothing. Every fallthrough SEARCH is already guarded inside
+        # `search_products`, which answers `[]` for unstorable text before it
+        # opens a session — so unstorable text still reaches no LIKE pattern
+        # and still opens no session, which is the invariant that mattered.
         if kind is ScanKind.INTERNAL:
-            session = self.Session()
-            try:
-                product = (session.query(Product)
-                           .filter(Product.internal_id ==
-                                   classification.normalized_value)
-                           .first())
-            finally:
-                session.close()
-            fallthrough_text = classification.normalized_value
+            # A formality on this arm, exactly as on `gtin` below, and kept for
+            # the same reason: so that "every arm guards what it binds" is
+            # checkable by reading the branch rather than by reasoning about the
+            # classifier. `normalized_value` here is `gs1.decode`'s data field,
+            # and `decode` returns None unless every character of it is
+            # 0x21-0x7E (`_is_encodable_id_char`) — printable ASCII with no
+            # space, which excludes NUL and every surrogate. So it is storable
+            # by construction and this condition cannot be False.
+            product = None
+            if sql_text.is_storable_text(classification.normalized_value):
+                session = self.Session()
+                try:
+                    product = (session.query(Product)
+                               .filter(Product.internal_id ==
+                                       classification.normalized_value)
+                               .first())
+                finally:
+                    session.close()
 
         elif kind is ScanKind.GTIN:
-            session = self.Session()
-            try:
-                # The same (type, value) namespace find_product_id_by_gtin
-                # queries, inline rather than by delegation: that method takes
-                # an unnormalized value and would re-run normalize_gtin on a key
-                # the classifier already normalized, returns an id rather than a
-                # row, and opens a third session per scan. The duplication is
-                # one filter pair, and TestNamespaceAgreement pins the two
-                # against drift.
-                product = (session.query(Product)
-                           .join(ProductIdentifier,
-                                 ProductIdentifier.product_id == Product.id)
-                           .filter(ProductIdentifier.identifier_type ==
-                                   IdentifierType.GTIN.value,
-                                   ProductIdentifier.value ==
-                                   classification.normalized_value)
-                           .first())
-            finally:
-                session.close()
-            fallthrough_text = scan_router.strip_aim_prefix(classification.raw)
+            # The guard is a formality on this arm and is kept only so that
+            # "every arm guards what it binds" is checkable by reading the
+            # branch rather than by reasoning about the classifier:
+            # `normalized_value` is fourteen ASCII digits by construction, so
+            # it is storable by construction too.
+            product = None
+            if sql_text.is_storable_text(classification.normalized_value):
+                session = self.Session()
+                try:
+                    # The same (type, value) namespace find_product_id_by_gtin
+                    # queries, inline rather than by delegation: that method
+                    # takes an unnormalized value and would re-run
+                    # normalize_gtin on a key the classifier already
+                    # normalized, returns an id rather than a row, and opens a
+                    # third session per scan. The duplication is one filter
+                    # pair, and TestNamespaceAgreement pins the two against
+                    # drift.
+                    product = (session.query(Product)
+                               .join(ProductIdentifier,
+                                     ProductIdentifier.product_id == Product.id)
+                               .filter(ProductIdentifier.identifier_type ==
+                                       IdentifierType.GTIN.value,
+                                       ProductIdentifier.value ==
+                                       classification.normalized_value)
+                               .first())
+                finally:
+                    session.close()
 
         elif kind is ScanKind.ECIA:
-            # The candidate part numbers, in the order the docstring states:
-            # `1P` first because the ECIA spec makes the supplier part number
-            # the required field, then `P`. Which of the two a given
-            # distributor prints the MANUFACTURER part number in is a property
-            # of that distributor's label, not of this system, so both are
-            # tried — hard-coding "1P is the MPN" would fail silently on any
-            # label that does it the other way and the operator would create a
-            # duplicate product. Read defensively (`or {}`) because
-            # `ScanClassification` permits `ECIA` with None even though
-            # `classify()` never produces it.
-            fields = classification.ecia_fields or {}
-            # Trimmed and de-duplicated on the way in. `parse_fields` keeps a
-            # value exactly as the label carried it, which is right for the
-            # parser — Story 4.5 pre-fills a form from those fields and must
-            # show what was printed — but a part number is never legitimately
-            # surrounded by spaces, and an untrimmed candidate can only ever
-            # MISS the exact lookup while the fallthrough silently succeeds
-            # (`search_products` strips its own query), so a padded label would
-            # degrade to a hit list for no reason. Trimming also removes the
-            # whitespace-only candidate, which is truthy and would otherwise
-            # become `candidates[0]` and search for nothing, dead-ending a
-            # label whose OTHER identifier was perfectly usable. The dedupe is
-            # for the routine single-source part that prints the same number in
-            # both fields: without it the same predicate is emitted twice.
-            candidates = list(dict.fromkeys(
-                value.strip()
-                for value in (fields.get('1P'), fields.get('P'))
-                if value and value.strip()))
-            if not candidates:
-                # An envelope carrying only quantity/order/date identifiers.
-                # A legal terminal state, and the one place `resolve_scan`
-                # still answers without searching: there is no part number, so
-                # there is no question a part-number search could be asking.
+            # The one arm that answers entirely on its own rather than joining
+            # the shared tail below, because both halves of its answer are PER
+            # CANDIDATE: it may issue two lookups, and its fallthrough may
+            # issue two searches. A single `fallthrough_text` handed to the
+            # tail could express neither.
+            candidates = _ecia_candidates(classification)
+
+            # Walk the candidates in order and take the FIRST unambiguous
+            # answer. `1P` leads the list and now also takes precedence in the
+            # RESULT, which is the whole of what changed here: the old arm ORed
+            # both candidates into one query and counted rows over the union,
+            # so a unique `1P` hit was discarded as a false ambiguity whenever
+            # `P` happened to match a different product (DW-78), and a product
+            # reachable only by `P` could not be reached at all (DW-79).
+            #
+            # A candidate matching zero or several contributes no product and
+            # the walk continues; only a total absence of an unambiguous answer
+            # reaches the fallthrough. The walk is monotone with respect to the
+            # old behavior: the union query landed only when exactly one
+            # product matched EITHER candidate, and in that state each
+            # candidate matched that product or nothing — so every scan that
+            # resolved before resolves to the same product now, and new
+            # landings occur only where the union previously answered none.
+            #
+            # Cost: at most one query per candidate, and it stops at the first
+            # landing, so a hit on `1P` — the ordinary label — still costs
+            # exactly one query and one session.
+            product = None
+            for candidate in candidates:
+                product = self._ecia_match(candidate)
+                if product is not None:
+                    break
+
+            if product is not None:
                 return ScanResolution(classification=classification,
-                                      product=None, free_text_hits=())
-
-            def _matches(column):
-                # TWO disjuncts per candidate, and both are load-bearing.
-                #
-                # `func.lower()` on both sides, explicitly, is the same
-                # construction `search_products` uses and for the same reason:
-                # SQLite's default collation is binary, so relying on the
-                # column's collation would make this lookup case-SENSITIVE
-                # under the unit suite and case-insensitive in production.
-                #
-                # But that fold is ASCII-only on SQLite — `str.lower()` is
-                # full-Unicode while SQLite's `LOWER()` leaves non-ASCII
-                # untouched — so the two sides of a folded comparison can never
-                # agree for a non-ASCII part number, and a stored 'WÜRTH-1'
-                # scanned as the byte-identical 'WÜRTH-1' matched NOTHING: an
-                # exact lookup failing on an exact value. The unfolded equality
-                # closes that. Under SQLite it adds exactly the rows a
-                # byte-identical value should have matched all along and
-                # nothing else, because that backend's default collation is
-                # binary; what it does NOT buy there is non-ASCII
-                # case-INsensitivity ('würth-1' still misses), which needs an
-                # engine-level collation or Epic 8's mechanism decision.
-                #
-                # Under MariaDB it is NOT a byte comparison and this disjunct
-                # is not the narrow one: `=` runs under the column's
-                # `utf8mb4_unicode_ci` collation, which is case- AND
-                # accent-insensitive and PAD SPACE, and `LOWER()` does not
-                # change that, so both disjuncts are collation-folded and
-                # 'WURTH-1' can equal a stored 'WÜRTH-1'. The docstring states
-                # the consequence: what "equality" reaches here is
-                # backend-dependent, and this arm picks a landing rather than
-                # adding a hit, so the divergence `search_products` already
-                # records costs more in this seam than in that one.
-                return or_(*(
-                    predicate
-                    for value in candidates
-                    for predicate in (column == value,
-                                      func.lower(column) == value.lower())))
-
-            # An EXISTS rather than a join, for the reason search_products
-            # states: a product matching on both its `mpn` column and an
-            # identifier row (or on two identifier rows) must appear ONCE,
-            # without a SQL DISTINCT. Only IdentifierType.MPN is consulted.
-            # VENDOR_SKU rows are deliberately outside this lookup — see the
-            # docstring.
-            identifier_match = (
-                exists()
-                .where(ProductIdentifier.product_id == Product.id)
-                .where(ProductIdentifier.identifier_type ==
-                       IdentifierType.MPN.value)
-                .where(_matches(ProductIdentifier.value))
-            )
-
-            session = self.Session()
-            try:
-                # limit(2) because the only question is "exactly one, or not",
-                # and fetching the rest would only cost rows nothing reads. Two
-                # rows are genuinely reachable: `products.mpn` carries no
-                # unique constraint, and a product's `mpn` column can collide
-                # with a DIFFERENT product's MPN identifier row, which nothing
-                # cross-checks. NOT two identifier rows — `MPN` is
-                # global-scoped, so `uq_product_identifiers_type_value_scope`
-                # already forbids that pair (see the docstring).
-                matches = (session.query(Product)
-                           .filter(or_(_matches(Product.mpn),
-                                       identifier_match))
-                           .order_by(Product.id.asc())
-                           .limit(2)
-                           .all())
-            finally:
-                session.close()
-            # Zero OR more than one is "no product": silently returning the
-            # oldest of several would answer a question nobody asked. The
-            # fallthrough below covers both, and since `search_products`
-            # searches `mpn` too, an ambiguous set comes back as hits.
-            product = matches[0] if len(matches) == 1 else None
-            fallthrough_text = candidates[0]
+                                      product=product, free_text_hits=())
+            # No candidate was unambiguous, which includes the no-candidate
+            # case: `_ecia_fallthrough` answers `('', ())` there without
+            # searching at all, so an envelope carrying only quantity, order
+            # and date identifiers — or a `1P` holding nothing but spaces —
+            # still reaches its legal terminal state with no query issued.
+            _, hits = self._ecia_fallthrough(candidates)
+            return ScanResolution(classification=classification, product=None,
+                                  free_text_hits=hits)
 
         else:
             # ScanKind.FREE_TEXT, rule 4 — the fallthrough that always matches,
             # so there is nothing to look up and the search always runs.
             product = None
-            fallthrough_text = scan_router.strip_aim_prefix(classification.raw)
 
         if product is not None:
             return ScanResolution(classification=classification,
@@ -2534,8 +2897,16 @@ class CatalogService:
         # same scan, through AD-17's single entrypoint. search_products manages
         # its own session and returns [] for a blank query (an empty scan), so
         # this never degenerates into "every product".
+        #
+        # The searched text comes from the module-level `_fallthrough_text`
+        # rather than from a variable each arm above set, and `scan_search_text`
+        # calls the very same function — so the arm-to-text rule is executed
+        # once and read twice, instead of being written down in two places that
+        # have to be kept agreeing. Only the three PURE arms reach here; the
+        # `ecia` arm returned above, because its text is per candidate.
         return ScanResolution(
             classification=classification,
             product=None,
-            free_text_hits=tuple(self.search_products(fallthrough_text)),
+            free_text_hits=tuple(
+                self.search_products(_fallthrough_text(classification))),
         )

@@ -817,6 +817,53 @@ class TestEciaResolution:
         assert r.free_text_hits == ()
 
     @pytest.mark.unit
+    def test_the_same_number_in_a_different_case_is_one_candidate_too(
+            self, catalog_service, monkeypatch):
+        """The same part, printed `1PRC0805-10K` and `Prc0805-10k`.
+
+        Both consumers of a candidate fold ASCII case — `_ecia_match`'s
+        `LOWER(column) = value.lower()` disjunct and `search_products`' folded
+        LIKE — so the second spelling's match set is provably a SUBSET of the
+        first's, and asking for it is a lookup AND a search that cannot answer
+        anything new. An exact-value dedupe let it through.
+
+        Asserted on a MISS and by the session count, which is the only thing
+        that can tell the two implementations apart: the answer is identical
+        either way, and on a HIT the walk stops at the first candidate before
+        the redundant one is ever reached."""
+        catalog_service.create_product(description='an unrelated widget')
+        sessions = _count_sessions(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(
+            _envelope(f'1P{MPN}', f'P{MPN.lower()}'))
+
+        assert r.product is None and r.free_text_hits == ()
+        # One lookup and one fallthrough search. Four would mean the folded
+        # repeat was queried and searched on its own account.
+        assert len(sessions) == 2, 'the folded repeat must not be asked again'
+
+    @pytest.mark.unit
+    def test_a_non_ascii_case_difference_is_two_candidates(self,
+                                                           catalog_service):
+        """...and why the fold above is guarded by `str.isascii()`.
+
+        Python's `str.lower()` is full-Unicode while SQLite's `LOWER()` is
+        ASCII-only, so two candidates differing only in NON-ASCII case are
+        equal to Python and unequal to the backend. Merging them would drop a
+        lookup that the byte-identical `column = value` disjunct can still
+        satisfy, and this is that case: the stored spelling carries the capital
+        `Ü`, the first candidate carries the small one and matches it on
+        neither disjunct (`LOWER('WÜRTH-1')` is `'wÜrth-1'` under SQLite, which
+        the full-Unicode `'WüRTH-1'.lower()` never equals), and the product is
+        reachable only because the second candidate survived the dedupe."""
+        pid = catalog_service.create_product(description='plain',
+                                             mpn='WÜRTH-1')
+
+        r = catalog_service.resolve_scan(_envelope('1PWüRTH-1', 'PWÜRTH-1'))
+
+        assert r.product is not None and r.product.id == pid
+
+    @pytest.mark.unit
     def test_the_match_is_exact_not_substring(self, catalog_service):
         """A part number that merely CONTAINS the scanned one is a different
         part. It is still reachable — through the fallthrough search, which is
@@ -888,21 +935,38 @@ class TestEciaResolution:
         assert r.free_text_hits == ()
 
     @pytest.mark.unit
-    def test_a_miss_falls_through_searching_the_first_candidate(
+    def test_a_miss_falls_through_searching_the_candidates_in_order(
             self, catalog_service, product, monkeypatch):
         """FR36: a parsed label matching no product becomes a search within the
-        same scan — on the part number, never on the raw envelope, whose
-        control characters and record separators no column can contain. `1P`
-        leads because the ECIA spec makes the supplier part number the required
-        field, and that ordering matters only here."""
+        same scan — on the part numbers, never on the raw envelope, whose
+        control characters and record separators no column can contain.
+
+        Every candidate is searched, in order, until one produces hits; here
+        neither does, so both run. `1P` leads because the ECIA spec makes the
+        supplier part number the required field, and that ordering now decides
+        which candidate's hits win rather than which single one is searched.
+
+        The vector is `MPN`/`CUSTOMER_MPN` rather than the module's `ECIA_FULL`,
+        and that is not cosmetic: `ECIA_FULL` carries `1P='ABC'`, which the
+        `product` fixture's ten-character Crockford base-32 `internal_id` can
+        contain as a SUBSTRING (roughly one run in four thousand), and that id
+        is mirrored into an INTERNAL identifier row this search also scans. The
+        walk would then stop at the first candidate and this assertion would
+        fail for a reason that has nothing to do with the rule it pins.
+        `ECIA_FULL` therefore cannot carry an order-sensitive assertion at all —
+        it is fine wherever only the hits or the kind are claimed. The two
+        constants above are hyphenated exactly so a generated id can never
+        substring-match them, which is the standard the vector-choice comment at
+        the top of this module already states."""
         calls = _spy_on_search(catalog_service, monkeypatch)
 
-        r = catalog_service.resolve_scan(ECIA_FULL)
+        raw = _envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}')
+        r = catalog_service.resolve_scan(raw)
 
         assert r.classification.kind is ScanKind.ECIA
         assert r.product is None
-        assert calls == [ECIA_FULL_SUPPLIER_PN]
-        assert ECIA_FULL not in calls
+        assert calls == [MPN, CUSTOMER_MPN]
+        assert raw not in calls
 
     @pytest.mark.unit
     def test_a_miss_whose_part_number_appears_in_a_description_finds_it(
@@ -917,48 +981,110 @@ class TestEciaResolution:
         assert [p.id for p in r.free_text_hits] == [pid]
 
     @pytest.mark.unit
-    def test_a_unique_supplier_hit_is_lost_when_the_customer_number_collides(
-            self, catalog_service):
-        """Pinned, not endorsed — the first of two consequences of "one query
-        over both candidates".
+    def test_a_unique_supplier_hit_survives_a_customer_number_collision(
+            self, catalog_service, monkeypatch):
+        """DW-78, closed: `1P` matching exactly one product RESOLVES to it even
+        when `P` matches a different product entirely.
 
-        The row count is over the UNION of the candidates, so `1P` matching
-        exactly one product and `P` matching a DIFFERENT one reads as an
-        ambiguity and resolves to neither, even though the supplier part number
-        — the field the ECIA spec makes required — was unambiguous. `1P` leads
-        the candidate list but takes no precedence in the query. The operator
-        still reaches the right product, as a hit rather than a landing.
-        Closing this means querying per candidate, which the frozen intent
-        contract for this arm forbids; deferred, and pinned here so the
-        behavior cannot change unnoticed."""
+        The union query counted rows over both candidates at once, so this read
+        as an ambiguity and resolved to neither, handing the operator a hit list
+        where the supplier part number — the field the ECIA spec makes required
+        — had given an unambiguous answer. Querying per candidate and taking
+        the first unambiguous one makes the answer the label already carried
+        reachable; the second product was never a candidate for this scan, only
+        a row in the same result set.
+
+        The session count is asserted because the cost is the point of the
+        design: `1P` landing still costs ONE query, since the walk stops there
+        and `P` is never asked."""
         wanted = catalog_service.create_product(description='wanted', mpn=MPN)
         catalog_service.create_product(description='unrelated',
                                        mpn=CUSTOMER_MPN)
+        sessions = _count_sessions(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(
+            _envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
+
+        assert r.product is not None and r.product.id == wanted
+        assert r.free_text_hits == ()
+        assert len(sessions) == 1
+
+    @pytest.mark.unit
+    def test_a_product_reachable_only_by_the_customer_number_is_reached(
+            self, catalog_service, monkeypatch):
+        """DW-79, closed: the fallthrough searches every candidate in order and
+        takes the first non-empty hit list, so a product reachable only by the
+        SECOND candidate comes back.
+
+        This was the FR36 dead end that mattered most, because it ran backwards:
+        presence of an extra identifier made the label resolve to LESS than the
+        same label carrying `P` alone. The control half asserts that `P` alone
+        still returns the product, so the two labels now agree rather than one
+        of them silently losing an answer.
+
+        Both searches are asserted, in order, because the rule is
+        FIRST-non-empty rather than a merged set: `free_text_hits` must stay
+        exactly `search_products(<one text>)` so `/products/search?q=…` can
+        reproduce it from a single `q` (AD-15 forbids a fourth field)."""
+        pid = catalog_service.create_product(description=f'reel of {CUSTOMER_MPN}')
+        searches = _spy_on_search(catalog_service, monkeypatch)
+
+        reached = catalog_service.resolve_scan(
+            _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}'))
+        assert reached.product is None
+        assert [p.id for p in reached.free_text_hits] == [pid]
+        assert searches == ['SUP-99999', CUSTOMER_MPN]
+
+        control = catalog_service.resolve_scan(_envelope(f'P{CUSTOMER_MPN}'))
+        assert [p.id for p in control.free_text_hits] == [pid]
+
+    @pytest.mark.unit
+    def test_an_ambiguous_first_candidate_yields_to_an_unambiguous_second(
+            self, catalog_service, monkeypatch):
+        """First UNAMBIGUOUS answer, not first non-empty one.
+
+        `1P` matching two products is not an answer, so the walk continues
+        rather than stopping on it, and the unique `P` match resolves. The
+        distinction only shows up here: a rule that stopped at the first
+        candidate matching ANYTHING would fall through to a hit list, and a rule
+        that took the oldest of the two `1P` rows would land on a product nobody
+        asked about. Two sessions, because both candidates had to be asked."""
+        catalog_service.create_product(description='amb1', mpn=MPN)
+        catalog_service.create_product(description='amb2', mpn=MPN)
+        wanted = catalog_service.create_product(description='wanted',
+                                                mpn=CUSTOMER_MPN)
+        sessions = _count_sessions(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(
+            _envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
+
+        assert r.product is not None and r.product.id == wanted
+        assert r.free_text_hits == ()
+        assert len(sessions) == 2
+
+    @pytest.mark.unit
+    def test_a_two_candidate_total_miss_searches_both_and_reports_the_first(
+            self, catalog_service, product, monkeypatch):
+        """The shape of the worst ordinary case, stated end to end: nothing
+        matches either candidate, so two lookups and two searches run, the
+        resolution carries no hits, and the text a caller would rebuild for `q`
+        is `candidates[0]` — the first candidate, by rule, since no candidate
+        earned the answer."""
+        searches = _spy_on_search(catalog_service, monkeypatch)
+        sessions = _count_sessions(catalog_service, monkeypatch)
 
         r = catalog_service.resolve_scan(
             _envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
 
         assert r.product is None
-        assert [p.id for p in r.free_text_hits] == [wanted]
-
-    @pytest.mark.unit
-    def test_a_product_reachable_only_by_the_customer_number_dead_ends(
-            self, catalog_service):
-        """The second consequence: only the FIRST candidate is searched, so a
-        product reachable only by the second one comes back with no product and
-        no hits. Presence of an extra identifier makes this label resolve to
-        LESS than the same label carrying `P` alone — which the second half
-        asserts, because "it dead-ends" is only a defect if the product was
-        reachable at all. Same root, same deferral."""
-        pid = catalog_service.create_product(description=f'reel of {CUSTOMER_MPN}')
-
-        dead_end = catalog_service.resolve_scan(
-            _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}'))
-        assert dead_end.product is None
-        assert dead_end.free_text_hits == ()
-
-        reachable = catalog_service.resolve_scan(_envelope(f'P{CUSTOMER_MPN}'))
-        assert [p.id for p in reachable.free_text_hits] == [pid]
+        assert r.free_text_hits == ()
+        assert searches == [MPN, CUSTOMER_MPN]
+        # Four: one lookup and one search per candidate. `search_products`
+        # short-circuits only on blank, over-long or unstorable text, so a
+        # candidate that simply matches nothing still costs its query. This is
+        # the documented ceiling for the arm, and no other kind can reach it.
+        assert len(sessions) == 4
+        assert catalog_service.scan_search_text(r) == MPN
 
     @pytest.mark.unit
     def test_an_envelope_with_no_part_number_issues_no_query_at_all(
@@ -1005,18 +1131,62 @@ class TestEciaResolution:
         assert sessions == []
 
     @pytest.mark.unit
-    def test_two_exact_matches_are_discarded_while_the_other_candidate_is_searched(
-            self, catalog_service, monkeypatch):
-        """The third consequence of "one query over both candidates, one search
-        on the first", and the worst of the three: `1P` matches nothing while
-        `P` matches two products EXACTLY, so the union is ambiguous and both
-        exact matches are dropped, and then the fallthrough searches `1P` and
-        finds nothing. The arm held two exact matches and answered with no
-        product and no hits.
+    @pytest.mark.parametrize('record', ['K\ud800', 'K\x00'], ids=['surrogate', 'nul'])
+    def test_an_unstorable_record_the_arm_never_queries_still_resolves(
+            self, catalog_service, record):
+        """DW-80, closed: a NUL or an unpaired surrogate in a record this arm
+        never binds must not suppress a part-number lookup that lands.
 
-        The control is the assertion that makes it a defect rather than a
-        preference: the SAME label carrying `P` alone returns both products as
-        hits, so the extra identifier made the label resolve to less."""
+        The guard used to run once, on the WHOLE envelope, before the four-way
+        branch — so an order number or a date carrying one character the
+        database cannot take answered the entire scan with no product and no
+        hits, even though the `1P` matched a stored part number character for
+        character. That is the same total FR36 dead end the stray-EOT defect
+        was, reached from a record that is not even queried. The guard now sits
+        on the text each arm binds, so this resolves.
+
+        Both twins are run because they fail for unrelated reasons — a
+        surrogate cannot be encoded at all, a NUL binds and then compares
+        wrong — and the old guard conflated them."""
+        pid = catalog_service.create_product(description='plain', mpn=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}', record))
+
+        assert r.classification.kind is ScanKind.ECIA
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_an_unstorable_candidate_beside_a_clean_one_resolves(
+            self, catalog_service):
+        """The same rule one step closer in: an unstorable value in a
+        part-number field is dropped from the CANDIDATE LIST rather than
+        guarded at the query, so it can be neither looked up nor searched nor
+        reported as the searched text — and the other candidate is still
+        tried."""
+        pid = catalog_service.create_product(description='plain', mpn=MPN)
+
+        r = catalog_service.resolve_scan(_envelope('1P\ud800', f'P{MPN}'))
+
+        assert r.product is not None and r.product.id == pid
+        assert r.free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_two_exact_matches_on_the_second_candidate_come_back_as_hits(
+            self, catalog_service, monkeypatch):
+        """DW-82, closed — the compound of the other two, and the worst of the
+        three: `1P` matches nothing while `P` matches two products EXACTLY.
+
+        Under the union query the count was ambiguous, so both exact matches
+        were discarded, and the single fallthrough then searched `1P` and found
+        nothing: the arm held two exact matches in hand and answered with no
+        product and no hits. Now `1P` contributes nothing and the walk moves on,
+        `P` is genuinely ambiguous so it resolves to no product, and the
+        fallthrough searches `1P` (empty) and then `P`, which returns both.
+
+        The control is what makes it a fix rather than a preference: the SAME
+        label carrying `P` alone returns exactly the same hits, so the extra
+        identifier no longer makes the label resolve to less."""
         first = catalog_service.create_product(description='w1', mpn=MPN)
         second = catalog_service.create_product(description='w2', mpn=MPN)
         searches = _spy_on_search(catalog_service, monkeypatch)
@@ -1024,8 +1194,8 @@ class TestEciaResolution:
         r = catalog_service.resolve_scan(_envelope('1PSUP-99999', f'P{MPN}'))
 
         assert r.product is None
-        assert r.free_text_hits == ()
-        assert searches == ['SUP-99999']
+        assert [p.id for p in r.free_text_hits] == [first, second]
+        assert searches == ['SUP-99999', MPN]
 
         control = catalog_service.resolve_scan(_envelope(f'P{MPN}'))
         assert control.product is None
@@ -1035,8 +1205,15 @@ class TestEciaResolution:
     def test_a_lookup_that_hits_opens_exactly_one_session(
             self, catalog_service, monkeypatch):
         """The session-count rule the docstring states: one for the lookup, and
-        no second one because a hit never reaches the fallthrough. Both
-        candidates are tried in that ONE query rather than in one query each."""
+        no second one because a hit never reaches the fallthrough.
+
+        One candidate, so one query — and that is now the reason, rather than
+        "both candidates are tried in that ONE query". The multi-candidate
+        counts live in
+        `test_a_unique_supplier_hit_survives_a_customer_number_collision` (a
+        `1P` hit stops the walk at one) and
+        `test_a_two_candidate_total_miss_searches_both_and_reports_the_first`
+        (the four-session ceiling)."""
         catalog_service.create_product(description='plain', mpn=MPN)
         sessions = _count_sessions(catalog_service, monkeypatch)
 
@@ -1096,24 +1273,47 @@ class TestEciaResolution:
         assert [p.id for p in r.free_text_hits] == [pid]
 
     @pytest.mark.unit
-    @pytest.mark.parametrize('raw', [
-        '[)>\x1e06\x1d1P' + '\x00' * 10 + '\x1e\x04',   # a NUL-bearing part number
-        '[)>\x1e06\x1d1P\ud800\x1e\x04',                # ...and a lone surrogate
-        '[)>\x1e06\x1d1P' + '9' * SEARCH_QUERY_MAX_LENGTH,   # a field value ON the pattern bound
-        '[)>\x1e06\x1d1P' + '9' * (SEARCH_QUERY_MAX_LENGTH + 1),  # ...and one past it
-        '[)>\x1e06' + '\x1d' * 4096,                    # four kilobytes of empty records
-        '[)>\x1e06\x1dP%\x1d1P_\x1e\x04',               # bare LIKE wildcards as part numbers
+    @pytest.mark.parametrize('raw, hits_the_percent_fixture', [
+        # A NUL-bearing part number, and a lone surrogate: both candidates are
+        # unstorable, so both are dropped and nothing is queried or searched.
+        ('[)>\x1e06\x1d1P' + '\x00' * 10 + '\x1e\x04', False),
+        ('[)>\x1e06\x1d1P\ud800\x1e\x04', False),
+        # A field value ON the pattern bound, and one past it.
+        ('[)>\x1e06\x1d1P' + '9' * SEARCH_QUERY_MAX_LENGTH, False),
+        ('[)>\x1e06\x1d1P' + '9' * (SEARCH_QUERY_MAX_LENGTH + 1), False),
+        # Four kilobytes of empty records — not an ECIA scan at all.
+        ('[)>\x1e06' + '\x1d' * 4096, False),
+        # Bare LIKE wildcards as part numbers. `%` is now genuinely searched
+        # (the second candidate is reached), and the `product` fixture is
+        # described 'RES 10K 0805 1%' — so it is a LITERAL match on a `%` the
+        # escaper kept literal, which is the opposite of the failure this class
+        # exists to catch.
+        ('[)>\x1e06\x1dP%\x1d1P_\x1e\x04', True),
+        # A clean part number beside an unstorable `K` order number (DW-80):
+        # the arm never queries by `K`, so the lookup and the search both run
+        # on the clean candidate. Nothing here carries that part number, so it
+        # answers with nothing — which is the honest answer, not a suppressed
+        # one.
+        ('[)>\x1e06\x1d1P' + MPN + '\x1dK\ud800\x1e\x04', False),
     ])
     def test_a_hostile_envelope_still_yields_a_resolution(
-            self, catalog_service, product, raw):
+            self, catalog_service, product, raw, hits_the_percent_fixture):
         """NFR8, and the half that actually failed elsewhere in this module:
         never "every product". Whatever the label carries, resolution answers
         with a `ScanResolution` and never with the whole catalog.
 
+        The expectation is per vector rather than a blanket "no hits", because
+        one of these labels legitimately matches: a bare `%` as a part number
+        is searched as a LITERAL `%`, and the `product` fixture's description
+        ends in one. Two products are in the catalog for every row, so
+        "everything" and "the one row whose text really contains the needle"
+        are distinguishable — which is exactly what a wildcard that leaked
+        through the escaper would blur.
+
         Read `test_which_hostile_vectors_actually_reach_the_lookup` before
-        trusting this parametrization as ECIA-arm coverage: three of these six
-        vectors never reach the lookup, and one of those three is not even an
-        ECIA scan. That test names each one and where it is answered."""
+        trusting this parametrization as ECIA-arm coverage: three of these
+        seven vectors never reach the lookup, and one of those three is not
+        even an ECIA scan. That test names each one and where it is answered."""
         catalog_service.create_product(description='an unrelated widget',
                                        manufacturer='ACME', mpn='XYZ-1')
 
@@ -1122,7 +1322,8 @@ class TestEciaResolution:
         assert isinstance(r, ScanResolution)
         assert r.classification.raw == raw
         assert r.product is None
-        assert r.free_text_hits == ()
+        expected = [product.id] if hits_the_percent_fixture else []
+        assert [p.id for p in r.free_text_hits] == expected
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw, kind, reaches_the_lookup', [
@@ -1130,14 +1331,16 @@ class TestEciaResolution:
          ScanKind.ECIA, False),                                  # NUL
         ('[)>\x1e06\x1d1P\ud800\x1e\x04',
          ScanKind.ECIA, False),                                  # lone surrogate
-        ('[)>\x1e06' + '\x1d' * 4096,
-         ScanKind.FREE_TEXT, True),                              # empty records
         ('[)>\x1e06\x1d1P' + '9' * SEARCH_QUERY_MAX_LENGTH,
          ScanKind.ECIA, True),
         ('[)>\x1e06\x1d1P' + '9' * (SEARCH_QUERY_MAX_LENGTH + 1),
          ScanKind.ECIA, True),
+        ('[)>\x1e06' + '\x1d' * 4096,
+         ScanKind.FREE_TEXT, True),                              # empty records
         ('[)>\x1e06\x1dP%\x1d1P_\x1e\x04',
          ScanKind.ECIA, True),                                   # LIKE wildcards
+        ('[)>\x1e06\x1d1P' + MPN + '\x1dK\ud800\x1e\x04',
+         ScanKind.ECIA, True),                                   # DW-80
     ])
     def test_which_hostile_vectors_actually_reach_the_lookup(
             self, catalog_service, product, monkeypatch, raw, kind,
@@ -1146,18 +1349,27 @@ class TestEciaResolution:
         Every vector the class above parametrizes appears here, in the same
         order, so the two lists cannot drift apart silently.
 
-        Two things divert a vector before this story's lookup, and the class
-        above cannot tell either from a real ECIA-arm pass.
+        Two things divert a vector before the lookup, and the class above
+        cannot tell either from a real ECIA-arm pass.
 
-        `sql_text.is_storable_text(raw)` judges the WHOLE envelope and runs
-        before the four-way branch, so a NUL or a lone surrogate anywhere in
-        the scan is answered with no product and no hits without the ECIA arm
-        ever running.
-        That is worth pinning in both directions, because the deferred-work
-        ledger proposes moving that guard from `raw` to the text each arm
-        binds: on the day it moves, those two vectors start reaching a query
-        built from a lone surrogate, and this test goes red where the one above
-        would stay green.
+        A candidate that cannot reach the database intact — one carrying a NUL
+        or an unpaired surrogate — is dropped from the candidate list by
+        `_ecia_candidates`, so an envelope whose ONLY part number is such a
+        value has no candidate left and is answered with no product and no hits
+        without a query. That is the per-arm form of the guard; it used to be a
+        single `is_storable_text(raw)` over the WHOLE envelope, running before
+        the four-way branch.
+
+        The last row is why that move mattered and is DW-80 in one vector: a
+        perfectly clean `1P` beside a `K` order number carrying a surrogate. The
+        whole-envelope guard answered it without a query even though the arm
+        never binds `K` to anything, so a label whose part number matched
+        character for character resolved to nothing. It reaches the lookup now.
+        (An earlier revision of this docstring predicted that relocating the
+        guard would redden the first two rows. It does not, and the prediction
+        was wrong on its own terms: both hostile characters sit INSIDE the `1P`
+        candidate, which is exactly the text the per-arm guard judges, so those
+        two rows are answered identically before and after.)
 
         And four kilobytes of empty records is not an ECIA scan at all. Every
         element is empty, so `parse_fields` recognizes nothing and rule 2
@@ -1174,7 +1386,185 @@ class TestEciaResolution:
         assert r.classification.kind is kind
         assert bool(sessions) is reaches_the_lookup
         assert r.product is None
+
+
+class TestScanSearchText:
+    """`scan_search_text(resolution)` — the one implementation of "which text
+    did the fallthrough actually search".
+
+    AD-15 freezes `ScanResolution` at three fields, so the searched text is not
+    carried on it, and Story 4.5's router needs it to build
+    `/products/search?q=…`. That rule used to be re-derived in
+    `app/main/routes.py` from the classification alone. It cannot be any more:
+    the ECIA fallthrough searches candidates in order and takes the first
+    non-empty result, so WHICH candidate won is a fact about the database. The
+    rule therefore lives here and the route calls it — the same direction this
+    repo took for the LIKE escaper and the format-06 grammar.
+
+    The property that matters is round-trip agreement, asserted per arm below
+    and end to end in `tests/unit/test_scan_routes.py`: for a resolution that
+    produced NO product, `search_products(scan_search_text(r))` is exactly
+    `r.free_text_hits`.
+
+    That scope is the real one, not a hedge. A resolution that LANDED carries
+    `free_text_hits == ()` while the text this method returns will normally
+    still find the product it landed on, so the two disagree — which is why
+    `test_a_resolution_that_matched_a_product_still_reports_a_text` is the one
+    case below that asserts the text without calling `_round_trips`. The method
+    stays total so a caller need not know which branch produced a resolution
+    before asking, and the route never asks in that state: `_scan_destination`
+    builds a `q` only on the `search` outcome, which by definition has no
+    product and non-empty hits.
+    """
+
+    def _round_trips(self, catalog_service, r):
+        rebuilt = catalog_service.search_products(
+            catalog_service.scan_search_text(r))
+        assert [p.id for p in rebuilt] == [p.id for p in r.free_text_hits]
+
+    @pytest.mark.unit
+    def test_internal_reports_the_token_stripped_id(self, catalog_service,
+                                                    product):
+        """The bare id, which is what the column stores — the `<ai><token>`
+        prefix is an encoding artifact present in no column."""
+        catalog_service.create_product(
+            description=f'spare for {ABSENT_INTERNAL_ID}')
+
+        r = catalog_service.resolve_scan(_internal_scan(ABSENT_INTERNAL_ID))
+
+        assert catalog_service.scan_search_text(r) == ABSENT_INTERNAL_ID
+        assert r.free_text_hits
+        self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_gtin_reports_the_aim_stripped_raw_not_the_key(self, catalog_service):
+        """The digits as scanned, NOT the normalized 14: the key was just
+        looked up exactly, so re-searching it would add nothing, while the
+        scanned form can substring-match a `GTIN_UNVALIDATED` row."""
+        catalog_service.create_product(description=f'carton {UPCA}')
+
+        r = catalog_service.resolve_scan(']d1' + UPCA)
+
+        assert catalog_service.scan_search_text(r) == UPCA
+        assert r.free_text_hits
+        self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_free_text_reports_the_aim_stripped_raw(self, catalog_service,
+                                                    product):
+        r = catalog_service.resolve_scan(']d2RES 10K')
+
+        assert catalog_service.scan_search_text(r) == 'RES 10K'
+        assert r.free_text_hits
+        self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_a_single_ecia_candidate_reports_itself_without_querying(
+            self, catalog_service, monkeypatch):
+        """The short-circuit that keeps the ordinary label cheap: one candidate
+        can only be the answer, so no search is re-run to discover that."""
+        catalog_service.create_product(description=f'reel of {MPN}')
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}'))
+        assert r.free_text_hits
+
+        searches = _spy_on_search(catalog_service, monkeypatch)
+        sessions = _count_sessions(catalog_service, monkeypatch)
+        assert catalog_service.scan_search_text(r) == MPN
+        assert searches == [] and sessions == []
+
+    @pytest.mark.unit
+    def test_an_ecia_miss_reports_the_first_candidate_without_querying(
+            self, catalog_service, product, monkeypatch):
+        """No hits means no candidate produced any, so the reported text is
+        `candidates[0]` by rule rather than by measurement — the second
+        short-circuit, and the reason a two-candidate dead end costs nothing
+        extra here."""
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
         assert r.free_text_hits == ()
+
+        searches = _spy_on_search(catalog_service, monkeypatch)
+        assert catalog_service.scan_search_text(r) == MPN
+        assert searches == []
+        self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_an_ecia_hit_on_the_second_candidate_reports_that_candidate(
+            self, catalog_service, monkeypatch):
+        """The case no route could compute: the hits came from `P`, so `q` must
+        be `P` — and finding that out costs a re-search, because the three
+        frozen fields do not record which candidate won.
+
+        ONE search, not two, and the count is asserted because it is the whole
+        of the discount: the hits are known non-empty, so a candidate whose
+        search finds nothing cannot be the winner, and once every candidate but
+        the LAST has been eliminated the last one needs no asking. With this
+        arm's two candidates that is one query rather than two — the price of
+        the rule having one home, halved."""
+        pid = catalog_service.create_product(description=f'reel of {CUSTOMER_MPN}')
+
+        r = catalog_service.resolve_scan(
+            _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}'))
+        assert [p.id for p in r.free_text_hits] == [pid]
+
+        searches = _spy_on_search(catalog_service, monkeypatch)
+        assert catalog_service.scan_search_text(r) == CUSTOMER_MPN
+        assert searches == ['SUP-99999']
+        self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_an_ecia_hit_on_the_first_candidate_stops_at_one_search(
+            self, catalog_service, monkeypatch):
+        """The other multi-candidate shape, and the one nothing else in this
+        module walks: two candidates where the FIRST search is the one that
+        finds something.
+
+        Without it a regression to "search every candidate" or to "the last
+        candidate wins" would leave the suite green — the two-candidate cases
+        elsewhere either have no hits at all or have them on the second
+        candidate, and both of those are satisfied by the wrong rule as well.
+        Here the spy must see exactly ONE search on each side, both on `1P`:
+        `resolve_scan`'s fallthrough stops at the first non-empty hit list, and
+        `scan_search_text` stops at the first candidate that finds anything.
+        `P` is never searched at all, and the reported text is `1P`."""
+        pid = catalog_service.create_product(description=f'reel of {MPN}')
+        searches = _spy_on_search(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(
+            _envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
+        assert [p.id for p in r.free_text_hits] == [pid]
+        assert searches == [MPN]
+
+        searches.clear()
+        assert catalog_service.scan_search_text(r) == MPN
+        assert searches == [MPN]
+        self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_an_ecia_envelope_with_no_usable_part_number_reports_nothing(
+            self, catalog_service, product):
+        """`search_products('')` is `[]`, so the empty string is the text that
+        reproduces this resolution's (empty) hits — the honest answer for a
+        label with nothing to search by."""
+        for raw in (_envelope('Q10', '9D2612'), _envelope('1P   '),
+                    _envelope('1P\ud800')):
+            r = catalog_service.resolve_scan(raw)
+            assert catalog_service.scan_search_text(r) == ''
+            self._round_trips(catalog_service, r)
+
+    @pytest.mark.unit
+    def test_a_resolution_that_matched_a_product_still_reports_a_text(
+            self, catalog_service):
+        """A landing carries no hits, so the route never builds a `q` from it —
+        but the method is total rather than partial, and answers here too. It
+        takes the no-hits short-circuit, so the answer is `candidates[0]` and
+        no search is re-run. Pinned because a caller reading a resolution
+        should not have to know which branch produced it before asking."""
+        catalog_service.create_product(description='plain', mpn=MPN)
+
+        r = catalog_service.resolve_scan(_envelope(f'1P{MPN}', f'P{CUSTOMER_MPN}'))
+
+        assert r.product is not None
+        assert catalog_service.scan_search_text(r) == MPN
 
 
 class TestFallthrough:
@@ -1226,6 +1616,22 @@ class TestFallthrough:
                             lambda *a, **k: [])
 
         assert catalog_service.resolve_scan('RES 10K').free_text_hits == ()
+
+    @pytest.mark.unit
+    def test_the_shared_fallthrough_text_refuses_an_ecia_classification(self):
+        """`_fallthrough_text` serves the three PURE arms; `ecia`'s text is per
+        candidate and belongs to `scan_search_text`. Nothing reaches this today
+        — both callers branch on `kind` first — but a future one that forgot to
+        would otherwise get the AIM-stripped RAW ENVELOPE, separators and all,
+        which is the one text this arm must never search and which no caller
+        could tell apart from a legitimate free-text fallthrough."""
+        classification = scan_router.classify(
+            _envelope('1PRC0805-10K'),
+            ai=Config.GS1_INTERNAL_AI, token=Config.GS1_INTERNAL_TOKEN)
+        assert classification.kind is ScanKind.ECIA
+
+        with pytest.raises(ValueError, match='per candidate'):
+            mariadb_catalog_service._fallthrough_text(classification)
 
 
 class TestConfigSeam:
@@ -1601,15 +2007,33 @@ class TestNeverRaisesOnScanData:
         under SQLite and documented the same for PyMySQL. Nothing stored can
         equal or contain a string that cannot exist in the database, so the
         no-match resolution is not merely the safe answer, it is the correct
-        one — and it is reached without issuing a query at all."""
+        one — and it is reached without issuing a query at all.
+
+        WHERE that refusal happens moved, and the assertion moved with it. The
+        `free_text` arm binds nothing to a lookup, so there is no per-arm guard
+        for it and `search_products` IS now called with this text; it refuses
+        it itself (`sql_text.is_storable_text`) and answers `[]` before opening
+        anything. So the surviving guarantee is not "the search is never
+        called" — it is that no session is opened and no LIKE pattern is ever
+        built, which is what the sessions spy asserts.
+
+        Both halves are asserted, because `sessions == []` ALONE is satisfied by
+        the old blanket `raw` guard too: it also opened nothing, so a test
+        pinning only that would pass unchanged against pre-change code and pin
+        nothing this change did. The call assertion is the other direction —
+        the search IS now reached, exactly once, with exactly the text the
+        `free_text` arm binds — and together the two say where the refusal now
+        happens as well as that it still happens."""
         calls = _spy_on_search(catalog_service, monkeypatch)
+        sessions = _count_sessions(catalog_service, monkeypatch)
 
         r = catalog_service.resolve_scan(raw)
 
         assert r.classification.kind is ScanKind.FREE_TEXT
         assert r.product is None
         assert r.free_text_hits == ()
-        assert calls == [], 'the unencodable text must never reach the search'
+        assert calls == [scan_router.strip_aim_prefix(raw)]
+        assert sessions == [], 'unencodable text must never reach a query'
 
     @pytest.mark.unit
     def test_an_unencodable_search_query_returns_no_hits_instead_of_raising(
@@ -1647,8 +2071,17 @@ class TestNeverRaisesOnScanData:
 
         `[]` is the correct answer and not merely the safe one: no value this
         application stores contains a NUL. And it is reached without a query,
-        which the spy asserts — `sql_text.is_storable_text` runs on `raw`
-        before any arm, so no NUL text ever reaches a pattern.
+        which the sessions spy asserts. The reason is no longer "the guard runs
+        on `raw` before any arm" — that guard moved onto the text each arm
+        binds to a LOOKUP, and the `free_text` arm binds none, so this text does
+        reach `search_products`. It is refused THERE, by the same
+        `sql_text.is_storable_text` rule, before a pattern is built or a session
+        is opened. The observable guarantee is identical; only the place it is
+        enforced changed, which is why this asserts sessions AND the call: a
+        bare `sessions == []` is satisfied by the old blanket `raw` guard as
+        well, so on its own it would pin nothing this change did. The call
+        assertion is what pins the relocation — the search really is reached,
+        once, with the text the `free_text` arm binds.
 
         Note the direction of the divergence: PyMySQL escapes `\\0` in the
         literal it emits, so MariaDB compares the whole pattern and would have
@@ -1659,12 +2092,14 @@ class TestNeverRaisesOnScanData:
         for i in range(4):
             catalog_service.create_product(description=f'FILLER {i}')
         calls = _spy_on_search(catalog_service, monkeypatch)
+        sessions = _count_sessions(catalog_service, monkeypatch)
 
         r = catalog_service.resolve_scan(raw)
 
         assert r.product is None
         assert r.free_text_hits == ()
-        assert calls == [], 'NUL text must never reach a LIKE pattern'
+        assert calls == [scan_router.strip_aim_prefix(raw)]
+        assert sessions == [], 'NUL text must never reach a LIKE pattern'
 
     @pytest.mark.unit
     @pytest.mark.parametrize('query', ['\x00', 'a\x00b', 'RES 10K\x00'])

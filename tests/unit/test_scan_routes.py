@@ -37,7 +37,7 @@ from app.mariadb_catalog_service import CatalogService
 from app.main.routes import (_MAX_SCAN_URL_CHARS, _SCAN_LOG_CHARS,
                              _SCAN_URL_Q_FLOOR, _SCAN_URL_Q_LIMIT,
                              _URL_QUERY_SAFE, _bounded_scan_url,
-                             _scan_search_text, _scan_url_value)
+                             _scan_url_value)
 from app.models import IdentifierType, ScanKind
 from app.utils import scan_router
 from app.utils.scan_input import MAX_SCAN_LENGTH
@@ -563,15 +563,19 @@ class TestScanRoutingOutcomes:
 
 @pytest.mark.unit
 class TestSearchTextAgreesWithTheResolver:
-    """The route re-derives the text the resolver searched; this pins the two.
+    """The route asks the service which text the resolver searched; this pins it.
 
     AD-15 freezes `ScanResolution` to three fields, so the searched text is not
-    returned and a fourth field must not be added — the route therefore carries
-    a SECOND copy of a service-internal rule in `_scan_search_text`. That is
-    only safe if a change to either side turns a test red, which is what this
-    class is: for every `ScanKind`, `search_products(_scan_search_text(c))`
-    returns exactly the hits `resolve_scan` counted, so the search page can
-    never show a different set than `hit_count` promised.
+    returned and a fourth field must not be added. The route used to re-derive
+    it — a SECOND copy of a service-internal rule — which was possible only
+    while the rule was a pure function of the classification. The `ecia` arm's
+    per-candidate fallthrough made the winning candidate a function of the
+    DATABASE, so the rule moved into `CatalogService.scan_search_text` and the
+    route calls it. This class is what makes that one implementation
+    trustworthy: for every `ScanKind`,
+    `search_products(scan_search_text(resolution))` returns exactly the hits
+    `resolve_scan` counted, so the search page can never show a different set
+    than `hit_count` promised.
 
     Every vector below is storable text that MISSES its lookup, because those
     are the scans that reach a search at all.
@@ -582,7 +586,7 @@ class TestSearchTextAgreesWithTheResolver:
         assert resolution.classification.kind is expected_kind
         assert resolution.product is None, 'vector must miss its lookup'
 
-        search_text = _scan_search_text(resolution.classification)
+        search_text = service.scan_search_text(resolution)
         rederived = service.search_products(search_text)
         # Compared by id: a resolution holds detached ORM rows whose __eq__ is
         # identity, so two queries for the same product are never equal.
@@ -611,7 +615,7 @@ class TestSearchTextAgreesWithTheResolver:
         # lookup misses while the search still runs on the bare id.
         resolution = self._agree(svc, _internal_scan('ZZZZZZZZZZ'),
                                  ScanKind.INTERNAL)
-        assert _scan_search_text(resolution.classification) == 'ZZZZZZZZZZ'
+        assert svc.scan_search_text(resolution) == 'ZZZZZZZZZZ'
 
     def test_gtin_miss_searches_the_aim_stripped_raw_not_the_key(self, test_storage):
         svc = CatalogService(test_storage)
@@ -620,7 +624,7 @@ class TestSearchTextAgreesWithTheResolver:
         resolution = self._agree(svc, UPCA, ScanKind.GTIN)
         # The raw digits as scanned, NOT the normalized 14 — the key was just
         # looked up exactly, so re-searching it would add nothing.
-        assert _scan_search_text(resolution.classification) == UPCA
+        assert svc.scan_search_text(resolution) == UPCA
         assert resolution.free_text_hits
 
     def test_ecia_miss_searches_the_first_non_blank_part_number(self, test_storage):
@@ -629,8 +633,27 @@ class TestSearchTextAgreesWithTheResolver:
 
         resolution = self._agree(svc, _envelope(f'1P {MPN} ', f'P{CUSTOMER_MPN}'),
                                  ScanKind.ECIA)
-        assert _scan_search_text(resolution.classification) == MPN
+        assert svc.scan_search_text(resolution) == MPN
         assert resolution.free_text_hits
+
+    def test_ecia_miss_reached_only_by_the_second_part_number(self, test_storage):
+        """The ECIA shape that is the whole reason the rule moved into the
+        service, and the one the class was missing.
+
+        The vector above is a FIRST-candidate win, which the route's deleted
+        pure duplicate could already compute — it always answered
+        `candidates[0]`. Here `1P` finds nothing and `P` does, so `q` must be
+        `P`, and only a rule that re-establishes the winner against the DATABASE
+        can say so. `_agree` runs it through the shipped `_scan_url_value('q',
+        …)` transform as well, so the value the operator's browser sends back is
+        pinned, not just the derivation."""
+        svc = CatalogService(test_storage)
+        svc.create_product(description=f'reel labelled {CUSTOMER_MPN}')
+
+        resolution = self._agree(svc, _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}'),
+                                 ScanKind.ECIA)
+        assert svc.scan_search_text(resolution) == CUSTOMER_MPN
+        assert len(resolution.free_text_hits) == 1
 
     def test_ecia_with_no_part_number_searches_nothing(self, test_storage):
         """The resolver issues no query at all for a quantity-only envelope, so
@@ -639,7 +662,7 @@ class TestSearchTextAgreesWithTheResolver:
         svc.create_product(description='some product')
 
         resolution = self._agree(svc, _envelope('Q10', '9D2612'), ScanKind.ECIA)
-        assert _scan_search_text(resolution.classification) == ''
+        assert svc.scan_search_text(resolution) == ''
         assert resolution.free_text_hits == ()
 
     def test_free_text_searches_the_aim_stripped_raw(self, test_storage):
@@ -647,7 +670,7 @@ class TestSearchTextAgreesWithTheResolver:
         svc.create_product(description='a WIDGET-9 in a box')
 
         resolution = self._agree(svc, ']d2WIDGET-9', ScanKind.FREE_TEXT)
-        assert _scan_search_text(resolution.classification) == 'WIDGET-9'
+        assert svc.scan_search_text(resolution) == 'WIDGET-9'
         assert scan_router.strip_aim_prefix(']d2WIDGET-9') == 'WIDGET-9'
         assert resolution.free_text_hits
 
@@ -668,6 +691,80 @@ class TestSearchTextAgreesWithTheResolver:
         body = page.data.decode()
         for n in range(4):
             assert f'SHARED-TOKEN part {n}' in body
+
+    def test_a_second_candidate_win_reaches_the_page_it_counted(
+            self, client, test_storage):
+        """The same end-to-end promise for the one ECIA shape no route could
+        compute: the hits came from `P`, so `q` has to be `P`.
+
+        Everything in between is real — `POST /api/scan` resolves, builds the
+        URL from `scan_search_text`, and the browser follows it — so a `q` built
+        from `candidates[0]` (which is what the deleted pure duplicate would
+        have produced) would land the operator on a page showing NOTHING while
+        `hit_count` promised three. Products carrying only the SECOND part
+        number are what makes those two answers distinguishable."""
+        svc = CatalogService(test_storage)
+        for n in range(3):
+            svc.create_product(description=f'reel {n} of {CUSTOMER_MPN}')
+        # A product on the first candidate would make either rule pass, so
+        # nothing here carries 'SUP-99999'.
+
+        data = client.post('/api/scan', json={
+            'raw': _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}')}).get_json()
+        assert data['outcome'] == 'search'
+        assert data['hit_count'] == 3
+        assert _query(data['url'])['q'] == CUSTOMER_MPN
+
+        page = client.get(data['url'])
+        assert page.status_code == 200
+        body = page.data.decode()
+        for n in range(3):
+            assert f'reel {n} of {CUSTOMER_MPN}' in body
+
+    def test_the_endpoint_opens_no_more_sessions_than_api_scan_claims(
+            self, client, test_storage, monkeypatch):
+        """The route-level ceiling `api_scan`'s cost paragraph states, pinned.
+
+        FIVE for the worst case it names — a two-candidate ECIA envelope routed
+        to `search`: two lookups and two searches inside `resolve_scan`, then
+        ONE more when `_scan_destination` asks `scan_search_text` which
+        candidate won (every candidate but the last, since with hits in hand the
+        last needs no asking). The resolver's own ceiling of four is pinned in
+        `tests/unit/test_scan_resolution.py`; this is the number that GREW when
+        the searched-text rule moved into the service, and the one an
+        unthrottled, CSRF-exempt POST actually costs — the reason the paragraph
+        exists at all.
+
+        The counter is installed by wrapping `__init__` rather than by patching
+        one instance, because the route builds its own service through
+        `_get_catalog_service()` and the fixture's is a different object. Only
+        services constructed AFTER the patch are counted, so the setup above
+        costs nothing.
+        """
+        svc = CatalogService(test_storage)
+        svc.create_product(description=f'reel labelled {CUSTOMER_MPN}')
+
+        opened = []
+        real_init = CatalogService.__init__
+
+        def counting_init(self, *args, **kwargs):
+            real_init(self, *args, **kwargs)
+            factory = self.Session
+
+            def counting(*a, **kw):
+                opened.append(1)
+                return factory(*a, **kw)
+
+            self.Session = counting
+
+        monkeypatch.setattr(CatalogService, '__init__', counting_init)
+
+        data = client.post('/api/scan', json={
+            'raw': _envelope('1PSUP-99999', f'P{CUSTOMER_MPN}')}).get_json()
+
+        assert data['outcome'] == 'search'
+        assert data['hit_count'] == 1
+        assert len(opened) == 5
 
 
 @pytest.mark.unit
