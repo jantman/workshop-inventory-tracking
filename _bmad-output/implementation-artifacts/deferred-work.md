@@ -331,7 +331,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-1-materialized-path-catego
 location: `app/static/js/field-autocomplete.js`, `app/templates/inventory/add.html`
 reason: The database-backed autocomplete dropdown — now on six fields, including the create affordance — carries no ARIA semantics, so a screen-reader user gets no announcement that suggestions appeared, no way to tell a real suggestion from the `+ Create` entry, and no exposure of the arrow-key selection.
 evidence: `app/static/js/field-autocomplete.js` renders the dropdown as a plain `<div>` of `<a class="dropdown-item">` elements with no `role="listbox"`/`role="option"`, no `aria-expanded`/`aria-controls`/`aria-activedescendant` on the input, and no live region; `highlight()` conveys the active entry with a CSS class alone. Story 3.1's create entry is distinguished only by the literal text `+ Create "…"` and a `fw-semibold` class, neither of which is a semantic. The gap is identical for the five pre-existing item fields (`thread_size`, `purchase_location`, `vendor`, `location`, `sub_location`) — Story 3.1 copied the established markup from `app/templates/inventory/add.html` rather than introducing it — so a fix is a change to shared autocomplete markup and behavior affecting every form that uses it, plus the four `style="max-height: 200px; …"` inline duplicates that would be better as one class. Out of scope for a story constrained to extend the component in place without altering the five existing instances (NFR9).
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-autocomplete-aria-semantics
 
 ### DW-41: `docs/user-manual.md` has no Products/Catalog chapter, so operator-facing catalog behavior is documented only inside the REST API reference
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -1036,4 +1037,31 @@ location: `.github/workflows/test.yml:189-190` (`e2e-tests` service container), 
 severity: low
 summary: The official `mariadb` entrypoint does not interpret those variables, so both settings are decoration a reader trusts; the practical consequence is that the e2e tier runs under MariaDB 11.8's built-in default (`utf8mb4_uca1400_ai_ci`) while believing it runs under `utf8mb4_unicode_ci`.
 evidence: Measured during this work on `mariadb:11.8.8`: with both variables set, `collation_server` reports `utf8mb4_uca1400_ai_ci` and the schema inherits it — which is why `tests/integration/conftest.py::integration_db_url` has to issue `ALTER DATABASE ... COLLATE utf8mb4_unicode_ci` itself, and why the new CI job deliberately omits the pair with a comment saying so. The two remaining copies were left in place because the spec forbids changing e2e behavior and `tests/test_database.py`'s fixture is shared with the e2e session. Both collations happen to fold case and accents, so nothing is currently wrong — but the e2e tier's collation is an accident of the image's defaults rather than a property anything asserts, and the misleading config invites the same wrong conclusion again. Related to DW-51 (nothing in the application pins a collation either).
+status: open
+
+### DW-122: The Material field's autocomplete dropdown still carries no ARIA semantics, on a required field
+origin: spec-autocomplete-aria-semantics
+source_spec: `_bmad-output/implementation-artifacts/spec-autocomplete-aria-semantics.md`
+location: `app/static/js/material-selector.js`, `app/static/js/inventory-add.js`, `app/templates/inventory/add.html:107`, `app/templates/inventory/edit.html:116`
+severity: medium
+summary: DW-40 gave the seven `FieldAutocomplete` fields the combobox pattern, but `#material` — a *required* field on both item forms, with its own suggestion dropdown — was explicitly out of scope and remains an anonymous `<div>` of links to a screen reader.
+evidence: `#material-suggestions` is driven by `MaterialSelector` (`material-selector.js`, `.suggestion-item` markup with breadcrumb navigation) and by the legacy `inventory-add.js` fallback, not by `field-autocomplete.js`. Neither writes any `role`, `aria-expanded`, `aria-activedescendant`, or live region; `tests/e2e/test_autocomplete_aria.py::test_the_material_dropdown_is_left_alone` now asserts the container has no `role`, which pins the boundary but is not approval of the gap. The fix is not a copy of DW-40's: MaterialSelector's dropdown is a *navigable tree* (breadcrumbs, a back button, a "navigate" affordance per row), so it needs its own pattern rather than a flat listbox. Out of scope for a change constrained to `field-autocomplete.js` and forbidden from touching MaterialSelector.
+status: open
+
+### DW-123: Declaring the autocomplete input a `combobox` creates a reopen expectation the keyboard handler does not meet
+origin: spec-autocomplete-aria-semantics
+source_spec: `_bmad-output/implementation-artifacts/spec-autocomplete-aria-semantics.md`
+location: `app/static/js/field-autocomplete.js` (`onKeyDown`)
+severity: low
+summary: The WAI-ARIA combobox pattern expects ArrowDown (and Alt+ArrowDown) to reopen a dismissed list; `onKeyDown` returns early whenever the dropdown is not visible, so after Escape the only way back is to blur and refocus the field.
+evidence: `onKeyDown` handles Escape first and then `if (!visible) return;`, which predates this change — but before it the input made no promise, and it now advertises `role="combobox"` with `aria-expanded`, which is exactly the promise. The fix is not a one-liner: `dismiss()` deliberately cancels the debounced fetch and bumps `requestSeq` so a dropdown cannot reappear over the Save button (the reason `test_escape_dismisses_the_dropdown_for_good` exists), so an ArrowDown reopen has to distinguish an operator asking for the list from a stale fetch delivering it. Out of scope here: the spec forbids changing keyboard behavior.
+status: open
+
+### DW-124: `test_batch_move_mixed_sub_locations` is flaky in a full e2e session, and its wedge-scan flow is paced by fixed `wait_for_timeout` sleeps
+origin: spec-autocomplete-aria-semantics
+source_spec: `_bmad-output/implementation-artifacts/spec-autocomplete-aria-semantics.md`
+location: `tests/e2e/test_move_items_sub_location.py` (`TestMoveItemsSubLocation::test_batch_move_mixed_sub_locations`, and the fixed sleeps throughout the file)
+severity: low
+summary: The batch-move test failed all four attempts (`--reruns=3`) inside a full `nox -s e2e` run with `assert 'M2-B' == 'M11-Y'` — the second queued move silently not applied — yet passes in isolation and passes with its own file run end to end.
+evidence: Observed 2026-07-27 in a full session (`1 failed, 384 passed, 1 skipped, 3 rerun`); re-run alone → 1 passed in 42.85s; whole file → 9 passed in 74.18s. Unrelated to the change that surfaced it: `app/templates/inventory/move.html` loads no autocomplete script and has no `-suggestions` container, so nothing in `field-autocomplete.js` executes on that page. The flow drives the wedge-scan input with `barcode_input.press('Enter')` followed by a bare `page.wait_for_timeout(200)` after each of ~10 scans, then asserts on a queue built asynchronously — under a loaded machine one queued entry can be dropped or mis-associated before `#queue-count` is read, and the count assertion (`3 items`) passes anyway because the third scan lands. A retry does not help because `--reruns` replays the same racing sequence. Wants the fixed sleeps replaced with waits on the queue's own state (a per-row locator reaching the expected count/content) rather than elapsed time.
 status: open

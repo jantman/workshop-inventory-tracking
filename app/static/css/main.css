@@ -533,6 +533,24 @@ footer {
     border-bottom: none;
 }
 
+/* Geometry for the field-autocomplete dropdowns (`#<field>-suggestions`).
+   These three declarations were copy-pasted as an identical inline
+   `style="..."` onto all sixteen suggestion divs across the four item and
+   product forms; one class means a field added later cannot quietly get a
+   different max-height or stacking order.
+
+   Deliberately NOT folded into `.autocomplete-dropdown` above: that rule
+   belongs to the legacy main.js widget, declares a different cap, and its
+   `!important` background/border/shadow declarations would fight the
+   `.dropdown-menu` these divs also carry.
+   `main.css` is linked after the Bootstrap CDN in base.html, so this wins over
+   `.dropdown-menu`'s defaults without needing `!important` of its own. */
+.suggestions-menu {
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+}
+
 /* Recent items styling */
 .recent-items-dropdown .dropdown-menu {
     max-width: 300px;

@@ -82,8 +82,7 @@
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.category_path %} is-invalid{% endif %}" id="category_path" name="category_path" maxlength="512"
                                        value="{{ form_data.get('category_path', '') }}" autocomplete="off"
                                        placeholder="e.g. electronics/power/regulators">
-                                <div id="category_path-suggestions" class="dropdown-menu position-absolute w-100"
-                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                                <div id="category_path-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                             </div>
                             {% if validation_errors and validation_errors.category_path %}<div class="invalid-feedback d-block">{{ validation_errors.category_path }}</div>{% endif %}
                         </div>
@@ -98,8 +97,7 @@
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.tags %} is-invalid{% endif %}" id="tags" name="tags"
                                        value="{{ form_data.get('tags', '') }}" autocomplete="off"
                                        placeholder="e.g. ssr, heat sink">
-                                <div id="tags-suggestions" class="dropdown-menu position-absolute w-100"
-                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                                <div id="tags-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                             </div>
                             <div class="form-text">Separate tags with commas. Tags are stored lowercase.</div>
                             {% if validation_errors and validation_errors.tags %}<div class="invalid-feedback d-block">{{ validation_errors.tags }}</div>{% endif %}

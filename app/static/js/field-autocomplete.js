@@ -19,6 +19,18 @@
  * stored — so nothing here re-derives it: normalization has a single
  * source of truth on the server and cannot silently drift.
  *
+ * The component owns its own ARIA wiring. Every accessibility attribute
+ * of the WAI-ARIA 1.2 combobox pattern — role="combobox" and friends on
+ * the input, role="listbox" on the dropdown, role="option"/aria-selected
+ * on each entry, aria-activedescendant, and a polite live region
+ * announcing the result count — is written from here, never from the
+ * templates. The templates supply only the input and an empty
+ * `#<inputId>-suggestions` div, and this file refuses to attach unless
+ * both exist, so it is the only place that knows an instance is really
+ * live. Fourteen hand-written copies of the same attributes — one per
+ * instance across the four forms — could drift; one implementation
+ * cannot, and a field added later gets the semantics for free.
+ *
  * The component is intentionally narrow:
  *   - No client-side validation or normalization (these fields are
  *     free-form; the server owns canonical form).
@@ -114,10 +126,12 @@
                 ? document.getElementById(opts.locationFieldId)
                 : null;
 
-            const dropdownId = opts.dropdownId || `${opts.inputId}-suggestions`;
-            this.dropdown = document.getElementById(dropdownId);
+            this.dropdownId = opts.dropdownId || `${opts.inputId}-suggestions`;
+            this.dropdown = document.getElementById(this.dropdownId);
             if (!this.dropdown) {
-                console.warn(`FieldAutocomplete: dropdown #${dropdownId} not found`);
+                console.warn(
+                    `FieldAutocomplete: dropdown #${this.dropdownId} not found`
+                );
                 return;
             }
 
@@ -132,6 +146,7 @@
 
         attach() {
             this.input.setAttribute('autocomplete', 'off');
+            this.attachAria();
 
             this.input.addEventListener('input', () => {
                 if (this.suppressNextFetch) {
@@ -170,6 +185,105 @@
                     this.dismiss();
                 }
             });
+        }
+
+        /**
+         * Turn the plain <input> + empty <div> pair into a WAI-ARIA 1.2
+         * combobox. Called once, from attach().
+         *
+         * Everything here is static for the lifetime of the instance; the
+         * parts that track state (aria-expanded, aria-selected,
+         * aria-activedescendant, the announcement) are maintained by
+         * render()/hide()/highlight().
+         */
+        attachAria() {
+            this.input.setAttribute('role', 'combobox');
+            // "list", not "both": nothing is ever inserted into the input
+            // ahead of the caret — selecting is what writes a value.
+            this.input.setAttribute('aria-autocomplete', 'list');
+            this.input.setAttribute('aria-controls', this.dropdownId);
+            this.input.setAttribute('aria-expanded', 'false');
+
+            this.dropdown.setAttribute('role', 'listbox');
+            this.dropdown.setAttribute('aria-label', this.listboxLabel());
+
+            // The count announcement. It lives NEXT TO the dropdown rather
+            // than inside it: a listbox may only contain options, and a
+            // non-option child would also be counted by anything measuring
+            // the dropdown's children.
+            //
+            // Reused if it is already there. The class is exported for
+            // programmatic use, so an input can be attached twice; a second
+            // region would leave the first one stale, still asserting a count
+            // that no longer holds.
+            const statusId = `${this.dropdownId}-status`;
+            this.liveRegion = document.getElementById(statusId);
+            if (!this.liveRegion) {
+                this.liveRegion = document.createElement('div');
+                this.liveRegion.id = statusId;
+                this.liveRegion.className = 'visually-hidden';
+                this.liveRegion.setAttribute('role', 'status');
+                this.liveRegion.setAttribute('aria-live', 'polite');
+                this.dropdown.insertAdjacentElement('afterend', this.liveRegion);
+            }
+        }
+
+        /**
+         * An accessible name for the listbox, derived at runtime so no
+         * template has to carry an aria-label that could disagree with the
+         * visible label beside it.
+         *
+         * `input.labels` covers the `<label for=…>` every one of these fields
+         * already has. The trailing "*" some labels use to mark a required
+         * field is dropped — a screen reader announcing "Location star
+         * suggestions" is noise, and requiredness is already conveyed by the
+         * input's own `required`. Falls back to the field name with its
+         * underscores spaced out when there is no label at all.
+         *
+         * Runs of whitespace are collapsed first. `textContent` returns the
+         * label's source formatting verbatim, so a label wrapped across lines
+         * (or wrapping an icon element) would otherwise put newlines and
+         * indentation into the accessible name.
+         */
+        listboxLabel() {
+            const label = this.input.labels && this.input.labels[0];
+            const text = label
+                ? label.textContent
+                      .replace(/\s+/g, ' ')
+                      .replace(/\s*\*\s*$/, '')
+                      .trim()
+                : '';
+            return `${text || String(this.field).replace(/_/g, ' ')} suggestions`;
+        }
+
+        /**
+         * Say what is on offer, for a user who cannot see the dropdown
+         * appear. `count` of 0 is the "nothing matched" case, which is worth
+         * hearing rather than leaving as silence.
+         *
+         * The create entry is counted SEPARATELY, never folded into `count`.
+         * It is not a stored value, and on a brand-new category path it is
+         * the only row — reporting "1 suggestion available" would tell a
+         * screen-reader user that something matched when nothing did, which
+         * is the exact confusion the visible `+ Create "…"` wording exists to
+         * prevent.
+         *
+         * Nothing is announced on the fetch-failure paths: they route through
+         * hide(), which clears the region. That is the pre-existing silent
+         * behaviour and this change deliberately does not alter it.
+         *
+         * @param {number} count      — stored suggestions being shown
+         * @param {?string} createValue — the canonical value the create entry
+         *                                offers, or null when there is none
+         */
+        announce(count, createValue) {
+            if (!this.liveRegion) return;
+            const listed = count
+                ? `${count} suggestion${count === 1 ? '' : 's'} available`
+                : 'No suggestions';
+            this.liveRegion.textContent = createValue
+                ? `${listed}, plus an option to create "${createValue}"`
+                : listed;
         }
 
         /**
@@ -273,6 +387,10 @@
          * string so selectValue writes the original (un-encoded) text
          * back into the input — even if a suggestion contains
          * characters like '&', '<', or quotes.
+         *
+         * The entry stays an <a class="dropdown-item"> — every existing
+         * selector, and onKeyDown/highlight/selectValue, key off exactly
+         * that — and gains the option semantics on top.
          */
         buildItem(index, value) {
             const a = document.createElement('a');
@@ -281,6 +399,16 @@
             a.dataset.index = String(index);
             a.dataset.value = value;
             a.textContent = value;
+            // An id is required, not cosmetic: aria-activedescendant can only
+            // point at an element that has one.
+            a.id = `${this.dropdownId}-option-${index}`;
+            a.setAttribute('role', 'option');
+            a.setAttribute('aria-selected', 'false');
+            // Focus never leaves the input in this pattern — the input is
+            // what carries aria-activedescendant. Without this the anchors
+            // are tab stops, so Tab out of the field walks INTO the
+            // suggestion list instead of on to the next form control.
+            a.setAttribute('tabindex', '-1');
             a.addEventListener('mousedown', (e) => {
                 // mousedown so we beat the input's blur->hide.
                 e.preventDefault();
@@ -348,6 +476,10 @@
 
             if (!suggestions.length && !showCreate) {
                 this.hide();
+                // AFTER hide(), which clears the region: collapsing normally
+                // means there is nothing to report, but "nothing matched" is
+                // itself the report here.
+                this.announce(0, null);
                 return;
             }
             this.dropdown.replaceChildren();
@@ -361,9 +493,29 @@
                 const a = this.buildItem(suggestions.length, candidate);
                 a.textContent = `+ Create "${candidate}"`;
                 a.classList.add('fw-semibold');
+                // fw-semibold is the only thing that distinguished this entry
+                // from a stored suggestion, and weight is invisible to a
+                // screen reader. data-create marks it for anything scripting
+                // the dropdown; the hidden note is what a user actually hears.
+                a.dataset.create = 'true';
+                const note = document.createElement('span');
+                note.className = 'visually-hidden';
+                // A hidden SUFFIX rather than an aria-label, so the accessible
+                // name still CONTAINS the visible text (WCAG 2.5.3,
+                // label-in-name) — a voice-control user can still say
+                // "Create". Comma-separated, not dash-separated: how a screen
+                // reader voices an em dash varies by engine and by the user's
+                // punctuation verbosity, a comma reads as a pause everywhere.
+                note.textContent = ', new entry, not yet in the list';
+                a.appendChild(note);
             }
             this.dropdown.style.display = 'block';
             this.activeIndex = -1;
+            this.input.setAttribute('aria-expanded', 'true');
+            // These are freshly built options; whatever the input pointed at
+            // before this render no longer exists.
+            this.input.removeAttribute('aria-activedescendant');
+            this.announce(suggestions.length, showCreate ? candidate : null);
         }
 
         selectValue(value) {
@@ -416,6 +568,13 @@
         hide() {
             this.dropdown.style.display = 'none';
             this.activeIndex = -1;
+            // The one place the combobox is reported collapsed, so every
+            // route to a hidden dropdown — no matches, a failed fetch,
+            // Escape, blur, an outside click, a selection — goes through it
+            // and none can leave aria-expanded lying.
+            this.input.setAttribute('aria-expanded', 'false');
+            this.input.removeAttribute('aria-activedescendant');
+            if (this.liveRegion) this.liveRegion.textContent = '';
         }
 
         /**
@@ -474,12 +633,38 @@
 
         highlight(items) {
             items.forEach((el, i) => {
-                if (i === this.activeIndex) {
+                const isActive = i === this.activeIndex;
+                if (isActive) {
                     el.classList.add('active');
                 } else {
                     el.classList.remove('active');
                 }
+                // The 'active' class is the sighted channel and the CSS is
+                // the only thing that renders it; aria-selected is the same
+                // fact in the accessibility tree, which is the only channel a
+                // screen reader has.
+                el.setAttribute('aria-selected', isActive ? 'true' : 'false');
             });
+            // In this pattern focus stays in the input, so "which entry am I
+            // on" has to be published BY the input. Nothing is active at
+            // activeIndex === -1, and a dangling reference to a stale option
+            // is worse than none.
+            const active = items[this.activeIndex];
+            if (active) {
+                this.input.setAttribute('aria-activedescendant', active.id);
+                // The dropdown caps at 200px and can hold ten entries, so
+                // arrow-keying past the fifth moves the highlight below the
+                // fold. Both channels have to keep up: aria-activedescendant
+                // is required to reference a VISIBLE option, and the 'active'
+                // class is no use to a sighted keyboard user off-screen.
+                // 'nearest' scrolls the dropdown only as far as it must, and
+                // leaves the page alone when the entry is already showing.
+                if (typeof active.scrollIntoView === 'function') {
+                    active.scrollIntoView({ block: 'nearest' });
+                }
+            } else {
+                this.input.removeAttribute('aria-activedescendant');
+            }
         }
     }
 

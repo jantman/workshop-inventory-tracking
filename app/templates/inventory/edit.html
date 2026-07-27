@@ -113,8 +113,7 @@
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.material %} is-invalid{% endif %}" id="material" name="material"
                                        value="{{ item.material }}" required autocomplete="off"
                                        >
-                                <div id="material-suggestions" class="dropdown-menu position-absolute w-100"
-                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                                <div id="material-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                             </div>
                             <div class="invalid-feedback{% if validation_errors and validation_errors.material %} d-block{% endif %}">
                                 {% if validation_errors and validation_errors.material %}
@@ -238,8 +237,7 @@
                                        value="{{ item.thread.size if item.thread and item.thread.size }}"
                                        autocomplete="off"
                                        title="Examples: 1/2-13, M12x1.75, #10-24">
-                                <div id="thread_size-suggestions" class="dropdown-menu position-absolute w-100"
-                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                                <div id="thread_size-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                             </div>
                             <div class="form-text">Examples: 1/2-13, M12x1.75, #10-24</div>
                         </div>
@@ -293,8 +291,7 @@
                             <input type="text" class="form-control" id="location" name="location"
                                    value="{{ item.location if item.location }}"
                                    required autocomplete="off">
-                            <div id="location-suggestions" class="dropdown-menu position-absolute w-100"
-                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            <div id="location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                         </div>
                         <div class="invalid-feedback">
                             Please enter a location
@@ -306,8 +303,7 @@
                             <input type="text" class="form-control" id="sub_location" name="sub_location"
                                    value="{{ item.sub_location if item.sub_location }}"
                                    autocomplete="off">
-                            <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100"
-                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                         </div>
                     </div>
                 </div>
@@ -339,8 +335,7 @@
                             <input type="text" class="form-control" id="purchase_location" name="purchase_location"
                                    value="{{ item.purchase_location if item.purchase_location }}"
                                    autocomplete="off">
-                            <div id="purchase_location-suggestions" class="dropdown-menu position-absolute w-100"
-                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            <div id="purchase_location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -349,8 +344,7 @@
                             <input type="text" class="form-control" id="vendor" name="vendor"
                                    value="{{ item.vendor if item.vendor }}"
                                    autocomplete="off">
-                            <div id="vendor-suggestions" class="dropdown-menu position-absolute w-100"
-                                 style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            <div id="vendor-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
                         </div>
                     </div>
                     <div class="mb-3">
