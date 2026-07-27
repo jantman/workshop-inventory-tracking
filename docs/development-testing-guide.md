@@ -5,7 +5,7 @@
 ### Prerequisites
 - Python 3.13
 - Git
-- **Docker** (for E2E tests with MariaDB testcontainer)
+- **Docker** (for E2E and integration tests, which run against a MariaDB testcontainer)
 - Chrome/Chromium browser (for E2E tests)
 
 ### Initial Setup
@@ -76,7 +76,25 @@ The project uses **Nox** for consistent test execution across environments. All 
 - Debug output saved to `test-debug-output/` with timestamped directories
 - Comprehensive diagnostic information for failed test analysis
 
-#### 3. Doctests (pure utility modules)
+#### 3. Integration Tests (real MariaDB)
+**Command**: `nox -s integration`
+
+**Purpose**: Covers the mechanisms whose correctness is a property of the *backend*, not of the Python — the ones the SQLite unit tier can only stage. Everything here carries `@pytest.mark.integration` (applied structurally by `tests/integration/conftest.py`, so a forgotten decorator cannot silently drop a test).
+
+**Database**: **Required.** Uses the MariaDB 11.8 testcontainer locally (auto-managed, shared with the e2e session) and the MariaDB service container in CI. There is no SQLite fallback — Docker or a reachable MariaDB is a hard prerequisite, and without one the session errors out rather than quietly passing. One caveat: `mariadb_testcontainer` calls `pytest.skip` if the `testcontainers` package itself is missing, which would skip the whole tier and exit 0. `requirements-test.txt` pins it, so the nox session cannot reach that path — but a hand-rolled environment can.
+
+**Coverage**:
+- **Migration runner** (`test_migrations.py`): `upgrade head` on a blank database, drift between the migrated schema and `Base.metadata`, the load-bearing unique constraints, Story 2.4's data backfill/adoption/downgrade, and `downgrade base`. This is the only place Alembic is executed by any test.
+- **`create_product` retry** (`test_catalog_service_internal_id.py`): the let-the-UNIQUE-constraint-arbitrate loop with InnoDB doing the arbitration — collision, derived-row-only collision, budget exhaustion, and a genuine non-collision `IntegrityError`.
+- **Identifier collation** (`test_identifier_collation.py`): `add_identifier`'s duplicate rejection under a case- and accent-folding collation, plus the ECIA scan outcome that depends on it. The unit tier is actively *looser* than production here — it accepts an MPN pair MariaDB refuses.
+
+**Note on collation**: `MARIADB_COLLATION_SERVER` is not a variable the official `mariadb` entrypoint interprets (11.8 defaults to `utf8mb4_uca1400_ai_ci` regardless), so `tests/integration/conftest.py` forces the database to `utf8mb4_unicode_ci` itself. The application pins no collation anywhere — see DW-51.
+
+**Runtime**: ~3 minutes (dominated by the migration chain and the per-test drop/create cycle).
+
+**Not run by a bare `nox`**: `nox.options.sessions` is `tests`, `doctests`, `coverage`. Run this session explicitly, and note that `nox -s tests` and `nox -s coverage` both deselect `integration`.
+
+#### 4. Doctests (pure utility modules)
 **Command**: `nox -s doctests`
 
 **Purpose**: Executes the `>>>` docstring examples in `app/utils/` so the documented behavior of the pure identifier/encoding/classification helpers (AD-4) cannot silently rot.
@@ -89,7 +107,7 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Note**: `python -m doctest app/utils/<module>.py` is *not* an equivalent check. It imports each file as a top-level module, so `category.py`'s relative import dies with `ImportError` and exits 1 without running anything — and every other module has to be named by hand, so a newly added one stays silently uncovered. `--doctest-modules` imports package-qualified and discovers the whole package in one command.
 
-#### 4. Test Coverage Report
+#### 5. Test Coverage Report
 **Command**: `nox -s coverage`
 
 **Purpose**: Generates detailed code coverage analysis.
@@ -115,6 +133,9 @@ python -m pytest tests/unit/test_models.py::TestDimensions::test_dimensions_crea
 
 # Run E2E tests (requires Flask server)
 nox -s e2e
+
+# Run integration tests (requires Docker or a reachable MariaDB)
+nox -s integration
 
 # Generate coverage report
 nox -s coverage
@@ -469,7 +490,7 @@ python app/api_client.py --url http://localhost:5000 --input item.json
 
 1. **Quick validation**: `nox -s tests`
 2. **Docstring examples**: `nox -s doctests` — required whenever you touch `app/utils/`
-3. **Full validation**: `nox -s tests && nox -s doctests && nox -s e2e`
+3. **Full validation**: `nox -s tests && nox -s doctests && nox -s integration && nox -s e2e`
 4. **Coverage check**: `nox -s coverage` (check `htmlcov/index.html`)
 
 ### Test-Driven Development
@@ -555,7 +576,8 @@ def test_workflow(page):
 All test suites run automatically on pull requests. Local development should ensure:
 
 1. All unit tests pass: `nox -s tests`
-2. E2E tests pass: `nox -s e2e`  
-3. Code coverage maintained: `nox -s coverage`
+2. E2E tests pass: `nox -s e2e`
+3. Integration tests pass: `nox -s integration`
+4. Code coverage maintained: `nox -s coverage`
 
 The test suite is designed to be fast and reliable for rapid development iterations.

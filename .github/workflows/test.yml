@@ -275,9 +275,117 @@ jobs:
         retention-days: 7
         if-no-files-found: ignore
 
+  # The integration tier: everything under tests/integration/, run against a
+  # real MariaDB. Mirrors e2e-tests' service container and wait-for-ready step
+  # because the tests need the same backend, but none of its browser/Bluetooth
+  # setup -- nothing here drives a UI or a label printer.
+  #
+  # Locally the same session starts a testcontainer instead; under CI=true the
+  # mariadb_testcontainer fixture yields None and the TEST_DB_* variables below
+  # are what config.TestConfig builds the URL from.
+  integration-tests:
+    runs-on: ubuntu-latest
+    # The tier's slowest part is the migration chain (upgrade head, downgrade
+    # base, per-test drop/create). A run that exceeds this is hung on a metadata
+    # lock, not slow -- fail fast rather than burn the 6-hour default.
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_DATABASE: workshop_inventory_test
+          MYSQL_USER: inventory_test_user
+          MYSQL_PASSWORD: test_password
+          # Deliberately no MARIADB_CHARACTER_SET_SERVER / _COLLATION_SERVER:
+          # the official entrypoint does not interpret those as server
+          # variables (11.8 keeps its own utf8mb4_uca1400_ai_ci default
+          # regardless), so setting them here would be config a reader trusts
+          # and that does nothing. tests/integration/conftest.py forces the
+          # database collation explicitly instead -- see integration_db_url.
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.13"
+
+    - name: Cache dependencies
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install nox
+      run: pip install nox
+
+    # requirements.txt pulls pt-p710bt-label-maker, whose dependency chain
+    # includes PyBluez -- a C extension with no wheels. This is a BUILD-time
+    # need, not a runtime one: the integration tier never touches a label
+    # printer, but `nox -s integration` still installs requirements.txt.
+    - name: Install system dependencies for pybluez
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bluetooth libbluetooth-dev
+
+    - name: Wait for MariaDB to be ready
+      run: |
+        for i in {1..30}; do
+          if mysqladmin ping -h127.0.0.1 -P3306 -uinventory_test_user -ptest_password --silent; then
+            echo "MariaDB is ready"
+            exit 0
+          fi
+          echo "Waiting for MariaDB... ($i/30)"
+          sleep 2
+        done
+        # Exhausting the loop must fail the job here, where the cause is
+        # obvious, rather than 60s later as a connection error raised from
+        # inside a session-scoped fixture.
+        echo "MariaDB never became ready after 30 attempts"
+        exit 1
+
+    - name: Verify test database is reachable
+      run: |
+        mysql -h127.0.0.1 -P3306 -uinventory_test_user -ptest_password workshop_inventory_test -e "SELECT 1"
+        echo "Database connection verified"
+
+    - name: Run integration tests
+      run: nox -s integration
+      env:
+        CI: "true"
+        TEST_DB_HOST: 127.0.0.1
+        TEST_DB_PORT: 3306
+        TEST_DB_USER: inventory_test_user
+        TEST_DB_PASSWORD: test_password
+        TEST_DB_NAME: workshop_inventory_test
+
+    - name: Upload integration artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: integration-test-artifacts
+        path: |
+          .pytest_cache/
+          *.log
+        retention-days: 7
+        if-no-files-found: ignore
+
   test-summary:
     runs-on: ubuntu-latest
-    needs: [unit-tests, coverage, e2e-tests]
+    needs: [unit-tests, coverage, integration-tests, e2e-tests]
     if: always()
     
     steps:
@@ -287,6 +395,7 @@ jobs:
         script: |
           const unitStatus = '${{ needs.unit-tests.result }}';
           const coverageStatus = '${{ needs.coverage.result }}';
+          const integrationStatus = '${{ needs.integration-tests.result }}';
           const e2eStatus = '${{ needs.e2e-tests.result }}';
           
           let summary = '## 🧪 Test Results Summary\n\n';
@@ -301,13 +410,18 @@ jobs:
           summary += `### Coverage: ${coverageStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
           summary += `- **Status**: ${coverageStatus}\n\n`;
           
+          // Integration tests
+          summary += `### Integration Tests: ${integrationStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
+          summary += `- **Database**: MariaDB 11.8 (service container)\n`;
+          summary += `- **Status**: ${integrationStatus}\n\n`;
+
           // E2E tests
           summary += `### E2E Tests: ${e2eStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
           summary += `- **Browser**: Chromium (Playwright)\n`;
           summary += `- **Status**: ${e2eStatus}\n\n`;
           
           // Overall result
-          const overallStatus = unitStatus === 'success' && coverageStatus === 'success' && e2eStatus === 'success';
+          const overallStatus = unitStatus === 'success' && coverageStatus === 'success' && integrationStatus === 'success' && e2eStatus === 'success';
           summary += `### Overall: ${overallStatus ? '✅ ALL TESTS PASSED' : '❌ SOME TESTS FAILED'}\n\n`;
           
           if (!overallStatus) {

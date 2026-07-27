@@ -110,6 +110,44 @@ def e2e(session):
 
 
 @nox.session(python=DEFAULT_PYTHON)
+def integration(session):
+    """Run integration tests against a real MariaDB database.
+
+    Locally the session-scoped ``mariadb_testcontainer`` fixture starts a
+    ``mariadb:11.8`` container and exports ``SQLALCHEMY_DATABASE_URI``; under
+    ``CI=true`` that fixture yields None and the ``TEST_DB_*``-derived
+    ``TestConfig`` URL points at the workflow's service container. Either way
+    Docker (or a reachable MariaDB) is a hard requirement of this session --
+    these tests exist precisely because SQLite cannot stand in for the backend.
+
+    Deliberately NO ``--blockage``: unlike ``tests``, this session must open a
+    real TCP socket to the database, and pytest-blockage would sever it.
+    """
+    session.install("-r", "requirements.txt")
+    session.install("-r", "requirements-test.txt")
+
+    # Log installed packages for build record
+    session.log("Installed packages:")
+    session.run("pip", "freeze")
+
+    # Integration tests only, scoped BOTH ways. The explicit path is what keeps
+    # the run from importing every module in tests/e2e/ just to deselect it --
+    # an import-time error anywhere in that tree would otherwise fail this
+    # session for a reason having nothing to do with MariaDB. The marker stays
+    # as the second net (pytest.ini's testpaths never applies -- see DW-102 and
+    # the doctests session), and tests/integration/conftest.py applies it
+    # structurally so no test can drop out of the selection.
+    session.run(
+        "python", "-m", "pytest",
+        "-v",
+        "-m", "integration",
+        "tests/integration",
+        "--tb=short",
+        *session.posargs
+    )
+
+
+@nox.session(python=DEFAULT_PYTHON)
 def coverage(session):
     """Generate test coverage report."""
     session.install("-r", "requirements.txt")
@@ -123,7 +161,10 @@ def coverage(session):
     session.run(
         "python", "-m", "pytest",
         "-v",
-        "-m", "not e2e",  # Unit tests only for coverage
+        # Unit tests only for coverage. Integration is excluded alongside e2e:
+        # it needs a live MariaDB and a real socket, which a coverage run has
+        # no business requiring.
+        "-m", "not e2e and not integration",
         f"--cov={PACKAGE}",
         "--cov-report=term-missing",
         "--cov-report=html:htmlcov",

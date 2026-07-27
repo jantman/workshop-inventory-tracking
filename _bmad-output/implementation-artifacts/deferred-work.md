@@ -269,7 +269,8 @@ source_spec: `_bmad-output/implementation-artifacts/2-4-internal-identifier-gene
 location: `tests/conftest.py`, `migrations/versions/5aeb89e22451_add_products_internal_id.py`
 reason: No test executes a migration, so `upgrade()`/`downgrade()` correctness is verified only by inspection — now that migrations carry data logic, not just DDL.
 evidence: `tests/conftest.py` builds the unit-test schema with `Base.metadata.create_all`, and no test imports alembic or runs `manage.py db upgrade`; the integration (MariaDB testcontainer) session does not run migrations either. Story 2.4's `5aeb89e22451_add_products_internal_id.py` is the first migration with a *data* backfill (generating ids, adopting pre-existing INTERNAL rows, inserting derived identifier rows) and a non-trivial downgrade — a typo in a table stub or a column added by a later story would surface only against real operator data. A migration-runner test (fresh DB → `upgrade head` → assert schema + backfill → `downgrade` → assert reversal) would cover this migration and every future one.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-mariadb-integration-test-session
 
 ### DW-34: `product_identifiers` uniqueness is case-sensitive under SQLite but case-insensitive under MariaDB, so identifier case-semantics differ between test and prod
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -286,7 +287,8 @@ source_spec: `_bmad-output/implementation-artifacts/2-4-internal-identifier-gene
 location: `app/mariadb_catalog_service.py` (`create_product`, `_internal_id_is_taken`), `tests/unit/test_catalog_service.py::TestInternalIdGeneration`
 reason: `create_product`'s let-the-UNIQUE-constraint-arbitrate design (flush → catch `IntegrityError` → classify as collision-or-foreign → retry) is exercised only against SQLite, never against the MariaDB backend it actually runs on.
 evidence: Every test covering the mechanism (`TestInternalIdGeneration` in `tests/unit/test_catalog_service.py`) is `@pytest.mark.unit`, and the `test_storage` fixture in `tests/conftest.py` points `MariaDBStorage` at a temp SQLite file. Where and how a UNIQUE violation surfaces is backend-specific: the retry loop wraps `session.flush()` only, so it depends on constraints being evaluated per statement rather than at COMMIT, and `_internal_id_is_taken`'s re-query classification depends on the post-rollback session state. Both hold for InnoDB today, but nothing verifies it — a backend that deferred either would silently convert every collision into `create_product` returning `None`. An `@pytest.mark.integration` case against the existing `mariadb_testcontainer` fixture (force a duplicate candidate, assert the retry commits) would close it, and would cover the same mechanism for any future sole-writer column.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-mariadb-integration-test-session
 
 ### DW-36: A `fnc1_substitute` whose character is also the marker's first character silently breaks every decode of a genuine label
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -416,7 +418,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-3-free-form-tags.md`
 location: `tests/` (no `tests/integration/`), `pytest.ini` (`integration` marker), `mariadb_testcontainer` fixture
 reason: No test at any level runs `CatalogService` against MariaDB, so every collation-dependent mechanism in the catalog service is verified only by staging the failure under SQLite — if the deployed collation does not behave as assumed, the mechanisms are elaborate no-ops and nothing would notice.
 evidence: `pytest.ini` registers an `integration` marker "using MariaDB test database" and `testcontainers[mysql]` is a declared dependency, but there is no `tests/integration/` directory and `grep -rn "mariadb_testcontainer" tests/` finds only the fixture definition — nothing consumes it. Meanwhile `set_product_tags`' delete-before-insert flush ordering, its `IntegrityError` classification and both collision messages, `list_tags`' Python grouping, `find_products_by_tag`'s exact-equality re-check and `rename_category_path`'s equivalents (Story 3.2) all exist solely because `utf8mb4_unicode_ci` folds case and accents. Each is unit-tested by monkeypatching a flush to raise, which proves the handling and never the trigger. Closing this means standing up the integration session the marker already promises — shared test infrastructure spanning Stories 3.1-3.3, not one story's work.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-mariadb-integration-test-session
 
 ### DW-51: No migration pins a charset or collation on any table or column
 origin: migrated from legacy ledger ("3-3-free-form-tags.md"), 2026-07-26
@@ -715,7 +718,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-4-ecia-distributor-label-p
 location: `uq_product_identifiers_type_value_scope`, `app/mariadb_catalog_service.py` (`add_identifier`, `resolve_scan` ECIA arm)
 reason: The `product_identifiers` uniqueness constraint is byte-comparison under SQLite and case/accent-insensitive under MariaDB's `utf8mb4_unicode_ci`, so the unit suite can construct two products holding MPN identifier rows that differ only by case — a data shape production rejects — and the ECIA arm then reports a false ambiguity that cannot occur on the real backend.
 evidence: Verified against the real SQLite `catalog_service`: `add_identifier(A, MPN, 'SHARED-1')` followed by `add_identifier(B, MPN, 'shared-1')` is ACCEPTED, and `resolve_scan('[)>\x1e06\x1d1PSHARED-1\x1e\x04')` then returns `product=None` with both products as hits, because the lookup folds case while the unique index did not. Under MariaDB the second `add_identifier` would raise, `uq_product_identifiers_type_value_scope` being over `(identifier_type, value, vendor_scope)` on `utf8mb4_unicode_ci` columns, so that ambiguity is unreachable there. Not caused by Story 4.4 — the divergence lives in the constraint's collation and predates Epic 4, and is the same family as the `search_products` fold divergence already ledgered — but it is newly consequential here, because this is the first seam where a false ambiguity costs a LANDING rather than an extra hit, and because it runs in the direction that makes the test environment stricter than production rather than looser, so a suite that is green proves less than it appears to. It also means `add_identifier`'s own duplicate-rejection contract is backend-dependent and no test at any level runs it against MariaDB. Closing it needs either an integration-level identifier test on the real engine or an explicit collation on the comparison, both of which are Epic 8's mechanism decision rather than one story's.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-mariadb-integration-test-session
 
 ### DW-86: The JSON purchase endpoint still coerces `quantity` unbounded, so the DW-25 symptom it was raised for survives on that one column
 origin: spec-json-purchase-bounds-parity-followup-review
@@ -987,4 +991,49 @@ location: `app/mariadb_catalog_service.py` (`resolve_scan`), `app/error_handlers
 severity: low
 summary: After DW-39, a malformed `GS1_INTERNAL_AI`/`GS1_INTERNAL_TOKEN` produces a `ConfigurationError` carrying `config_key` on the encode path and a bare `ValueError` subclass with no registered error handler on the scan path — and the scan path is the one with a production caller today.
 evidence: `resolve_scan` deliberately propagates the pure error unchanged (`4-3-service-scan-resolution.md:76,103`), which is why this was left alone; `app/error_handlers.py` registers handlers for `ValidationError`, `StorageError`, `ItemNotFoundError`, `AuthenticationError` and both `ConfigurationError` classes, but nothing for `gs1.InvalidGs1PayloadError`, so it falls through to the generic 500 with no `error_code`, no `config_key` and no operator-facing hint — while the same misconfiguration reached through `encode_internal_payload` now names the key to change. `encode_internal_payload` has no production consumer until Epic 6's label renderer; `resolve_scan` is reached from the scan endpoint (`app/main/routes.py`). Closing it means deciding where the boundary translation belongs — a `gs1.InvalidGs1PayloadError` handler in `create_error_handlers`, or a translation in `resolve_scan` that Story 4.3 explicitly rejected — which is a call about the scan path's contract, not a patch to this diff.
+status: open
+
+### DW-117: The tag and category folding mechanisms DW-50 was opened for still have no MariaDB coverage — only the identifier half was closed
+origin: spec-mariadb-integration-test-session-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-mariadb-integration-test-session.md`
+location: `tests/integration/` (no tag/category test), `app/mariadb_catalog_service.py` (`set_product_tags`, `list_tags`, `find_products_by_tag`, `rename_category_path`)
+severity: medium
+summary: The new integration tier exercises `add_identifier` and `create_product` plus a collation guard; every tag- and category-side mechanism DW-50's evidence enumerated as existing "solely because `utf8mb4_unicode_ci` folds case and accents" remains verified only by monkeypatching a flush under SQLite.
+evidence: DW-50's evidence names `set_product_tags`' delete-before-insert flush ordering, its `IntegrityError` classification and both collision messages, `list_tags`' Python grouping, `find_products_by_tag`'s exact-equality re-check and `rename_category_path`'s unclaimed-row handling (Story 3.2). `tests/integration/test_identifier_collation.py`'s own module docstring lists three of those as the things that "quietly become elaborate no-ops" if folding stops, and then asserts a collation *guard* rather than any of their behavior — no integration test constructs a tag pair differing only by case, or a category rename whose target already exists under a different casing. The spec that closed DW-50 scoped itself to "the identifier half of DW-50" deliberately (`Tasks & Acceptance`), so this is the remainder rather than a defect in that work: the guard proves the collation folds, but nothing proves these five call sites behave correctly when it does. Closing it is a second file in the existing tier consuming `integration_catalog_service` — no new infrastructure.
+status: open
+
+### DW-118: The migration runner never puts rows in front of `f8e66632ee42`, the tree's other data migration, so its folding-collation reasoning is unexercised
+origin: spec-mariadb-integration-test-session-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-mariadb-integration-test-session.md`
+location: `migrations/versions/f8e66632ee42_normalize_existing_category_paths.py`, `tests/integration/test_migrations.py`
+severity: medium
+summary: `upgrade head` runs the category-path normalization migration on every integration test, but always against an empty `products` table, so the one data migration whose correctness depends on MariaDB's folding collation is executed and never actually tested.
+evidence: `f8e66632ee42` is labelled "DATA ONLY" in its own docstring and issues chunked `UPDATE`s to rewrite non-canonical `category_path` values through `app.utils.category.normalize_category_path`. Its comments reason explicitly about the backend: the value set comes from a `SELECT DISTINCT`, which under a case/accent-folding collation collapses `Electronics/Power` and `electronics/power` into one row — precisely the class of backend-dependent behavior this tier was built to catch, and precisely what SQLite cannot stage. `tests/integration/test_migrations.py` seeds products only at `3beb9dff5e41` for the Story 2.4 backfill (`TestInternalIdBackfill.backfilled`); the two whole-chain tests start from `blank_database` with no rows, so every assertion about this migration is vacuous. The fixture pattern to close it already exists — seed at `5aeb89e22451`, upgrade one revision, assert the collapse — so this is one more class in the file rather than new infrastructure.
+status: open
+
+### DW-119: `5aeb89e22451`'s two abort branches, and its claim that aborts are no-ops on the schema, are untested
+origin: spec-mariadb-integration-test-session-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-mariadb-integration-test-session.md`
+location: `migrations/versions/5aeb89e22451_add_products_internal_id.py` (the validation prologue), `tests/integration/test_migrations.py::TestInternalIdBackfill`
+severity: low
+summary: The internal-id migration refuses to run when a product carries more than one global `INTERNAL` row, or one whose value fails `is_valid_internal_id`; neither refusal is exercised, and neither is its ordering argument that a refusal leaves the schema untouched.
+evidence: The migration hoists both `RuntimeError` checks ahead of all DDL and argues in a comment that this "keeps every reachable abort path a genuine no-op on the schema" — a claim about MySQL's implicit DDL commit that only a real backend can settle, and one an operator with dirty pre-2.4 data depends on to be able to fix the data and retry. `tests/integration/test_migrations.py` names one of the two cases in the `ADOPTED_INTERNAL_ID` comment and dismisses it as "a different test than this one" without adding it, so the tier covers the happy path of the same migration in five tests and its failure path in none. Both are cheap given `TestInternalIdBackfill.backfilled`: seed the offending row at `3beb9dff5e41`, assert `pytest.raises(RuntimeError)` on the upgrade, then assert `internal_id` is still absent from `products`.
+status: open
+
+### DW-120: The `e2e-tests` job's wait-for-MariaDB loop still cannot fail, the identical bug fixed in the new `integration-tests` job
+origin: spec-mariadb-integration-test-session-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-mariadb-integration-test-session.md`
+location: `.github/workflows/test.yml` (`e2e-tests`, the `Wait for MariaDB to be ready` step)
+severity: low
+summary: The e2e job's retry loop `break`s out on exhaustion with no `exit 1`, so a MariaDB that never comes up produces a green wait step and a confusing downstream failure — the exact defect the new integration job's copy of the same loop was patched to avoid.
+evidence: The two steps are otherwise byte-identical `for i in {1..30}` loops around `mysqladmin ping`. The integration job's version, added by this change, ends with an `exit 1` and a comment explaining that without it "the step passes and the failure surfaces later as something unrelated". The e2e version falls through to the `mysql ... SELECT 1` step instead. Not caused by this change — the loop predates it — but it is now the only copy carrying the bug, and the fix is one line plus the same comment. Left alone here because the spec's `Never` list forbids changing e2e behavior.
+status: open
+
+### DW-121: `MARIADB_CHARACTER_SET_SERVER` / `MARIADB_COLLATION_SERVER` remain set in two places that this change proved inert, and the e2e tier still runs under an unpinned collation
+origin: spec-mariadb-integration-test-session-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-mariadb-integration-test-session.md`
+location: `.github/workflows/test.yml:189-190` (`e2e-tests` service container), `tests/test_database.py:48-49` (`mariadb_testcontainer`)
+severity: low
+summary: The official `mariadb` entrypoint does not interpret those variables, so both settings are decoration a reader trusts; the practical consequence is that the e2e tier runs under MariaDB 11.8's built-in default (`utf8mb4_uca1400_ai_ci`) while believing it runs under `utf8mb4_unicode_ci`.
+evidence: Measured during this work on `mariadb:11.8.8`: with both variables set, `collation_server` reports `utf8mb4_uca1400_ai_ci` and the schema inherits it — which is why `tests/integration/conftest.py::integration_db_url` has to issue `ALTER DATABASE ... COLLATE utf8mb4_unicode_ci` itself, and why the new CI job deliberately omits the pair with a comment saying so. The two remaining copies were left in place because the spec forbids changing e2e behavior and `tests/test_database.py`'s fixture is shared with the e2e session. Both collations happen to fold case and accents, so nothing is currently wrong — but the e2e tier's collation is an accident of the image's defaults rather than a property anything asserts, and the misleading config invites the same wrong conclusion again. Related to DW-51 (nothing in the application pins a collation either).
 status: open

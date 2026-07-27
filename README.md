@@ -67,12 +67,18 @@ For production deployment, follow the comprehensive setup guide in [docs/deploym
 
 ## Testing
 
-The project includes a comprehensive testing framework with 100% success rates:
+The project includes a comprehensive testing framework. See
+[docs/development-testing-guide.md](docs/development-testing-guide.md) for what
+each tier covers and what it requires:
 
-- **Unit Tests**: 66/66 passing - `nox -s tests`
+- **Unit Tests**: SQLite-backed, network-blocked - `nox -s tests`
 - **Doctests**: docstring examples in `app/utils/` - `nox -s doctests`
-- **E2E Tests**: 20/20 passing - `nox -s e2e`
+- **Integration Tests**: real MariaDB (migrations, InnoDB constraint arbitration, collation); requires Docker - `nox -s integration`
+- **E2E Tests**: Playwright against a live server and MariaDB - `nox -s e2e`
 - **Coverage Report**: `nox -s coverage`
+
+A bare `nox` runs only `tests`, `doctests` and `coverage`; the `integration` and
+`e2e` sessions must be requested explicitly.
 
 ## Requirements
 
