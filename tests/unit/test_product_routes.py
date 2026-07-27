@@ -1510,6 +1510,191 @@ class TestScannedIdentifierAttach:
 
 
 @pytest.mark.unit
+class TestGtinCheckDigitRefusedBeforeTheWrite:
+    """The fourth purely-checkable identifier fault, moved in front of the
+    commit (DW-23).
+
+    A GTIN `app/utils/gtin.py` refuses used to be judged only inside
+    `add_identifier`, which runs AFTER `create_product` has committed and is
+    deliberately non-fatal: the POST redirected, the product existed, the
+    identifier was thrown away and the operator got an advisory flash on a page
+    with no way to add one back. Its three siblings — blank type, unknown type,
+    over-long value — were already moved; these tests pin the fourth, and every
+    way it must NOT fire.
+
+    Reachable only by hand: `classify()` types a value `GTIN` only once its
+    check digit has validated, so no scan can pre-fill a value this refuses.
+    """
+
+    def test_a_bad_check_digit_is_refused_with_nothing_written(
+            self, client, product_ids):
+        resp = client.post('/products/add', data={
+            'description': 'Mis-scanned part',
+            'identifier_type': 'GTIN',
+            'identifier_value': '012345678900',
+        })
+
+        assert resp.status_code == 200          # re-rendered, not redirected
+        assert product_ids() == set()           # and nothing at all was created
+
+        body = resp.data.decode()
+        # Quoted from the pure util verbatim — the route adds a pointer, it does
+        # not restate the rule — and the pointer carries the service's recovery
+        # clause word for word, so both sides name the same remedy. Only the
+        # verb differs: here the type is still a `<select>` to change.
+        assert _shown_keyed_errors(body) == [
+            "GTIN check digit is invalid: expected 5, got 0 in '012345678900'. "
+            'Choose the GTIN_UNVALIDATED type to keep the value exactly as '
+            'entered, without check-digit validation.']
+        # ...rendered on the Scanned Identifier card, beside the value it is
+        # about. That card renders only when `identifier_value` is set, so a
+        # message keyed here is only visible when the value is too.
+        assert 'id="scanned-identifier"' in body
+        assert 'is-invalid' in _form_controls(body, ['identifier_value'])[0]
+        # The message names an action, so the control that performs it has to be
+        # on the page it renders on: the type the operator is told to choose is
+        # an option of the re-rendered `<select>`, and the type they submitted
+        # is still the selected one to change FROM.
+        assert '<option value="GTIN_UNVALIDATED"' in body
+        assert '<option value="GTIN" selected>' in body
+        # The submitted values survive the re-render, so the operator can fix
+        # the digit they mistyped rather than retype the whole value.
+        assert _input_value(body, 'identifier_value') == '012345678900'
+        assert _input_value(body, 'description') == 'Mis-scanned part'
+
+    @pytest.mark.parametrize('identifier_value, message', [
+        # `normalize_gtin` raises ONE error for non-digits, wrong lengths and a
+        # failed check digit, and the route catches it whole — narrowing to the
+        # check digit would mean re-listing the other two rules in the route.
+        ('ABC-123', "GTIN must contain only digits: 'ABC-123'."),
+        ('12345', "GTIN must be 8, 12, 13, or 14 digits, got 5: '12345'."),
+        # `str.isdigit()` is true for non-ASCII digits, so the util requires
+        # ASCII on purpose: an Arabic-Indic twin of a real GTIN must not become
+        # a key that cannot be compared with the plain digits everything else
+        # stores. The route inherits that, and gets it for free by not
+        # re-deriving the rule.
+        ('٠١٢٣٤٥٦٧٨٩٠٥',
+         "GTIN must contain only digits: '٠١٢٣٤٥٦٧٨٩٠٥'."),
+    ])
+    def test_every_way_the_util_refuses_a_gtin_is_refused_here(
+            self, client, product_ids, identifier_value, message):
+        resp = client.post('/products/add', data={
+            'description': 'Mis-scanned part',
+            'identifier_type': 'GTIN',
+            'identifier_value': identifier_value,
+        })
+
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        assert _shown_keyed_errors(resp.data.decode()) == [
+            f'{message} Choose the GTIN_UNVALIDATED type to keep the value '
+            f'exactly as entered, without check-digit validation.']
+
+    def test_a_valid_gtin_still_saves_and_is_still_normalized_by_the_service(
+            self, client, test_storage):
+        """The form's call is PURE: it discards the canonical key and leaves the
+        write-time normalization where it was (AD-4)."""
+        resp = client.post('/products/add', data={
+            'description': 'Good scan',
+            'identifier_type': 'GTIN',
+            'identifier_value': '012345678905',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = CatalogService(test_storage).get_identifiers_for_product(pid)
+        assert [r.value for r in rows if r.identifier_type == 'GTIN'] == \
+            ['00012345678905']
+
+    def test_the_quarantine_type_still_takes_the_value_as_scanned(
+            self, client, test_storage):
+        """`GTIN_UNVALIDATED` exists to hold exactly what this rule refuses, and
+        it is on the same `<select>` the message points at — so the rule fires
+        on the exact, case-sensitive `GTIN` only."""
+        resp = client.post('/products/add', data={
+            'description': 'Quarantined scan',
+            'identifier_type': 'GTIN_UNVALIDATED',
+            'identifier_value': '012345678900',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = CatalogService(test_storage).get_identifiers_for_product(pid)
+        assert [r.value for r in rows
+                if r.identifier_type == 'GTIN_UNVALIDATED'] == ['012345678900']
+
+    def test_a_non_gtin_type_is_not_check_digit_judged(self, client, test_storage):
+        """An MPN that happens to be twelve digits is not a GTIN, and the one
+        branch `add_identifier` normalizes is the one branch this judges."""
+        resp = client.post('/products/add', data={
+            'description': 'Digit-shaped MPN',
+            'identifier_type': 'MPN',
+            'identifier_value': '012345678900',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = CatalogService(test_storage).get_identifiers_for_product(pid)
+        assert [r.value for r in rows if r.identifier_type == 'MPN'] == \
+            ['012345678900']
+
+    def test_a_blank_value_is_not_a_gtin_to_judge(self, client, test_storage):
+        """Gated on a non-blank VALUE like every sibling rule: `add.html`
+        renders the card, and therefore both feedback blocks, only when
+        `identifier_value` is set, so an error keyed beside a blank value would
+        be a silent 200 that wrote nothing."""
+        resp = client.post('/products/add', data={
+            'description': 'No scan at all',
+            'identifier_type': 'GTIN',
+            'identifier_value': '',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = CatalogService(test_storage).get_identifiers_for_product(pid)
+        assert [r for r in rows if r.identifier_type == 'GTIN'] == []
+
+    def test_an_over_long_value_still_reports_the_column_rule_alone(
+            self, client, product_ids):
+        """First-writer-wins, the file's convention: a 256-digit value is both
+        too long for `product_identifiers.value` and not a GTIN, and the column
+        it cannot be stored in is the more useful of the two things to say."""
+        resp = client.post('/products/add', data={
+            'description': 'Long scan',
+            'identifier_type': 'GTIN',
+            'identifier_value': '0' * 256,
+        })
+
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        assert _shown_keyed_errors(resp.data.decode()) == [
+            'Identifier must be 255 characters or fewer.']
+
+    def test_the_edit_route_gains_no_identifier_validation(
+            self, client, test_storage):
+        """`product_edit` renders no Scanned Identifier card and writes no
+        identifier, so it may not refuse a write over one (DW-13, DW-29). The
+        rule lives in `_validate_product_create_form`, not the shared half."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='before')
+        identifiers_before = sorted((i.identifier_type, i.value)
+                                    for i in svc.get_identifiers_for_product(pid))
+
+        resp = client.post(f'/products/edit/{pid}', data={
+            'description': 'after',
+            'identifier_type': 'GTIN',
+            'identifier_value': '012345678900',
+        })
+
+        assert resp.status_code == 302, 'the edit was refused with no visible reason'
+        assert svc.get_product(pid).description == 'after'
+        # Ignored in BOTH directions: not refused, and not written either.
+        assert sorted((i.identifier_type, i.value)
+                      for i in svc.get_identifiers_for_product(pid)) == \
+            identifiers_before
+
+
+@pytest.mark.unit
 class TestFirstReceiptOnCreate:
     """The create form's optional first receipt (FR39)."""
 

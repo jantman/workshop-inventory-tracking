@@ -37,6 +37,12 @@ from app.utils.scan_input import MAX_SCAN_LENGTH, clean_scan_input
 # Story 3.3: same rule for tags — the canonical form and the comma-separated
 # list are the pure util's business, never re-derived here (AD-4).
 from app.utils import tag as tag_util
+# DW-23: same rule again for GTINs. The create form judges a scanned GTIN
+# before it writes, and it does so by CALLING this module — the sole owner of
+# GTIN validity, the mod-10 check digit and the canonical 14-digit key. The
+# route derives none of that itself; it only catches `InvalidGtinError` and
+# renders the message the util wrote (AD-4).
+from app.utils import gtin
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
@@ -980,6 +986,41 @@ def _validate_product_create_form(form_data):
     if identifier_value and len(identifier_value) > _IDENTIFIER_VALUE_LIMIT:
         errors['identifier_value'] = (
             f'Identifier must be {_IDENTIFIER_VALUE_LIMIT} characters or fewer.')
+
+    # The fourth and last purely-checkable identifier fault, and the only one
+    # `add_identifier` still judged after the commit — where a refusal costs a
+    # product that exists with its identifier dropped behind an advisory flash.
+    # No scan can land here (`classify()` types a value GTIN only once its check
+    # digit has validated); it takes a value or a type entered by hand, either
+    # in the form or in the query string that pre-fills it (`_scan_banner_args`
+    # passes `scan_value` through to `identifier_value` unjudged).
+    #
+    # The judgement is a CALL into app/utils/gtin.py, never a re-derivation, so
+    # the form refuses exactly the set `add_identifier` refuses and the two
+    # cannot drift. `InvalidGtinError` is caught WHOLE: one raise covers a
+    # non-digit, a wrong length and a failed check digit, and narrowing to the
+    # check digit would mean re-listing the other two here. The canonical key is
+    # discarded — the service stays the sole normalizer on the write path
+    # (AD-4).
+    #
+    # Fires on the exact, case-sensitive `GTIN`, the one branch the service
+    # normalizes. The recovery CLAUSE is word-for-word the service's, so both
+    # sides name the same remedy; only the verb differs, because here
+    # `GTIN_UNVALIDATED` is still a `<select>` option to choose
+    # (`_identifier_type_choices` offers it) and there the identifier would have
+    # to be added again. Keep the clause in step when either side changes; each
+    # side's wording is pinned by its own test. Skipped when `identifier_value`
+    # already carries an error, following the file's first-writer-wins
+    # convention.
+    if identifier_value and identifier_type == IdentifierType.GTIN.value \
+            and 'identifier_value' not in errors:
+        try:
+            gtin.normalize_gtin(identifier_value)
+        except gtin.InvalidGtinError as e:
+            errors['identifier_value'] = (
+                f'{e} Choose the {IdentifierType.GTIN_UNVALIDATED.value} type '
+                f'to keep the value exactly as entered, without check-digit '
+                f'validation.')
 
     return errors
 

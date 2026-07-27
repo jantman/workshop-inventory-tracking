@@ -794,22 +794,26 @@ grows a **Scanned Identifier** card. It is not shown otherwise.
 
 Both are editable before you save. Pick `GTIN_UNVALIDATED` rather than `GTIN`
 when you want to keep a barcode that does not pass its check digit — a value
-typed or edited into a `GTIN` is check-digit validated, and the message you get
-back names `GTIN_UNVALIDATED` as the way to store it anyway.
+typed or edited into a `GTIN` is check-digit validated before the product is
+created, and the refusal names `GTIN_UNVALIDATED` as the way to keep it anyway.
 
-**Get the type right before you save.** The check digit is not tested until
-after the product has been created, so a `GTIN` that fails it leaves you with a
-saved product and the identifier thrown away. There is no page for attaching an
-identifier to an existing product, so the message is a report, not a prompt to
-try again — and re-submitting the create form would give you a second product.
+**A `GTIN` that fails its check digit is refused before anything is saved.**
+You get `GTIN check digit is invalid: expected N, got M in '…'. Choose the
+GTIN_UNVALIDATED type to keep the value exactly as entered, without check-digit
+validation.` on the **Value** field, with the form still filled in as you
+submitted it: correct the digit, or change **Type** to `GTIN_UNVALIDATED` and
+save again. Nothing was created, so re-submitting is the right move. The same
+message shape covers a `GTIN` that is not 8, 12, 13 or 14 digits, or that
+contains anything other than plain ASCII digits.
 
 The help text reads "Attached to the product
 when you save it. Clear the value to create the product without it." Leaving a
 value in place with no type selected is refused with
 `Choose the type of the scanned identifier, or clear its value.`; a type the
 system does not recognise gets `Choose a valid identifier type.`, and a value
-longer than the limit gets `Identifier must be 255 characters or fewer.` All
-three are checked before anything is written, so the product is not created.
+longer than the limit gets `Identifier must be 255 characters or fewer.` Those
+three and the check-digit rule above are all checked before anything is
+written, so the product is not created.
 
 An identifier is unique across the whole catalog, so an attach can fail even
 though the product saved. You are told plainly:
@@ -1254,7 +1258,8 @@ one and have it keep its stored value — that distinction only matters to the
 | `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. |
 | `The product was saved, but its first receipt was not recorded. Add the purchase from the product page.` | The product exists. Use **Add a purchase** on it; do not re-submit the create form. |
 | `The product was saved, but its tags were not: …` | The product exists. Open **Edit** and enter the tags again (or different ones, if the message says so). |
-| `The product was saved, but the scanned identifier was not attached: …` | Either a uniqueness clash — the identifier still belongs to the product that already holds it — or a GTIN that failed its check digit. The product exists and there is no page for attaching an identifier to it, so note the barcode down; do not re-submit the create form. |
+| `GTIN check digit is invalid: … Choose the GTIN_UNVALIDATED type to keep the value exactly as entered, without check-digit validation.` | Nothing was saved. Fix the value, or change **Type** to `GTIN_UNVALIDATED`, and submit again. You will also see this wording for a `GTIN` of the wrong length or one carrying anything but plain ASCII digits. |
+| `The product was saved, but the scanned identifier was not attached: …` | A uniqueness clash — the identifier still belongs to the product that already holds it. The product exists and there is no page for attaching an identifier to it, so note the barcode down; do not re-submit the create form. |
 | `This scan already matched an existing product. Confirm below that you want to create a separate product anyway.` | Follow the link in the warning first. Only tick the box if you genuinely want a second product. |
 | A rename refused because the destination "already exists and holds N product(s)" | Pick a destination path that does not exist yet; merging two branches is not supported. |
 | A rename refused because products "carry a non-canonical category path" | Open each named product and re-save its category from the product form, then retry the rename. |

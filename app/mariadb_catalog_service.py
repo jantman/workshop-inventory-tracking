@@ -1832,13 +1832,28 @@ class CatalogService:
         # failure is surfaced as a domain ValidationError (never a raw
         # InvalidGtinError) that offers the GTIN_UNVALIDATED path.
         # GTIN_UNVALIDATED is stored exactly as entered — never normalized.
+        #
+        # DW-23: `_validate_product_create_form` now calls the same util and
+        # refuses this BEFORE `create_product` commits, so the operator meets
+        # the rule beside the field with nothing yet written, and states the
+        # same recovery clause verbatim (only its verb differs — there the type
+        # is still a `<select>` to change). That route is `add_identifier`'s
+        # only caller in the app today, so this raise is now the invariant
+        # rather than the message anyone reads — it must stay, because the
+        # form's check is a courtesy and this one is the guarantee. Its wording
+        # names an action that EXISTS: re-adding the identifier with type
+        # GTIN_UNVALIDATED, which the create form's type `<select>` offers. It
+        # used to say "Store it as GTIN_UNVALIDATED" — a storage outcome, not an
+        # action: nothing anywhere stores-as, and the sentence never named the
+        # one control that does it.
         if itype is IdentifierType.GTIN:
             try:
                 value = gtin.normalize_gtin(value)
             except gtin.InvalidGtinError as e:
                 raise ValidationError(
-                    f'{e} Store it as {IdentifierType.GTIN_UNVALIDATED.value} '
-                    f'to keep it without check-digit validation.',
+                    f'{e} Add it with identifier type '
+                    f'{IdentifierType.GTIN_UNVALIDATED.value} to keep the value '
+                    f'exactly as entered, without check-digit validation.',
                     field='value', value=value)
 
         # --- Compute scope (AD-9) ---

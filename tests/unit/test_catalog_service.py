@@ -608,6 +608,13 @@ class TestCatalogServiceIdentifiers:
         # Never leaks the raw pure-module error.
         assert not isinstance(exc_info.value, InvalidGtinError)
         assert 'GTIN_UNVALIDATED' in str(exc_info.value)
+        # DW-23: the recovery hint must name something the operator can
+        # actually do. "Store it as GTIN_UNVALIDATED" named no control at all —
+        # there is no store-as anywhere; there is an identifier TYPE by that
+        # name on the create form's `<select>`, and that is what the message
+        # now points at.
+        assert 'Store it as' not in str(exc_info.value)
+        assert 'Add it with identifier type GTIN_UNVALIDATED' in str(exc_info.value)
 
     @pytest.mark.unit
     def test_gtin_unvalidated_stored_as_entered(self, catalog_service):
