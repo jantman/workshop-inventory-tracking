@@ -1,10 +1,42 @@
 {
-  "generated_at": "2026-07-25T14:00:34.606711",
+  "generated_at": "2026-07-27T14:38:41.141620",
   "screenshots": [
+    {
+      "filename": "readme/inventory_list.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:22.985135",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "table.inventory-table",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/add_item_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:32.514842",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#add-item-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
     {
       "filename": "user-manual/batch_operations_menu.png",
       "capture_type": "viewport",
-      "timestamp": "2026-07-25T14:00:37.094143",
+      "timestamp": "2026-07-27T14:40:03.838255",
       "details": {
         "viewport_size": [
           1920,
@@ -12,6 +44,151 @@
         ],
         "full_page": false,
         "wait_for_selector": null,
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/bulk_creation_preview.png",
+      "capture_type": "element",
+      "timestamp": "2026-07-27T14:39:35.237979",
+      "details": {
+        "selector": "#quantity_to_create",
+        "padding": 40,
+        "clip": {
+          "x": 301,
+          "y": 224.390625,
+          "width": 298,
+          "height": 118
+        },
+        "viewport_size": null,
+        "hide_selectors": null
+      }
+    },
+    {
+      "filename": "user-manual/edit_item_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:36.928336",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#add-item-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/history_view.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:40:01.562204",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": false,
+        "wait_for_selector": "#item-history-modal.show",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/move_items.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:53.513680",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#batch-move-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/photo_gallery.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:46.944800",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#photo-manager-container",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/photo_upload.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:38.618730",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#photo-manager-container",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/search_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:24.894589",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#advanced-search-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/search_results.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:29.285806",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#results-table-container .table",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/shorten_items.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-07-27T14:39:54.703201",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#shorten-form",
         "hide_selectors": [
           ".toast-container"
         ]

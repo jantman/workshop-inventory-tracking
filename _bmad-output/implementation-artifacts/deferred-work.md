@@ -496,7 +496,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-1-wedge-scan-capture.md`
 location: `docs/images/screenshots/metadata.json`, `tests/e2e/screenshot_config.yaml`
 reason: `docs/images/screenshots/metadata.json` records only one of the twelve screenshots the generator writes, so the manifest cannot be used to tell a complete regeneration from a partial one.
 evidence: The file lists a single entry (`user-manual/batch_operations_menu.png`) both at baseline `80d5212` and after Story 4.1's regeneration, while `tests/e2e/screenshot_config.yaml` defines 20 capture definitions and `docs/images/screenshots/` holds 12 PNGs — all 12 of which that story's run updated. The manifest is therefore silently truncated by the generator, and `nox -s screenshots_verify` has no complete inventory to check against. This is a pre-existing defect in the screenshot tooling, not in that story's regeneration.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-screenshot-manifest-completeness
 
 ### DW-59: The exact set of characters trimmed off a scan lives as a private symbol inside `app/main/routes.py`, with a second copy in the client
 origin: migrated from legacy ledger ("4-1-wedge-scan-capture.md"), 2026-07-26
@@ -1432,4 +1433,76 @@ location: `docs/user-manual.md:746-749` (the "Long values are cut off" paragraph
 severity: low
 summary: Both passages tell the operator that `MPN must be 255 characters or fewer.` and its siblings arrive "from a scan pre-fill rather than from anything you typed", but `_scan_url_value` truncates every pre-filled value to the same 255 characters the validator compares against, so a pre-fill is never over the limit.
 evidence: `_SCAN_URL_ARG_LIMITS` bounds `description`, `manufacturer` and `mpn` at 255 and `_scan_url_value` applies it as `text[:limit]`; `_validate_product_form` then tests `len(value) > 255`, which 255 does not satisfy. With the input's `maxlength` stopping typing and the pre-fill capped at exactly the boundary, the only remaining route to these three messages is a request that did not come from the rendered form — a hand-built POST or a client ignoring `maxlength`. Pre-existing: the sentence predates this change, which rewrote the surrounding paragraph to carve **Category** out of it and carried the explanation through unexamined. Closing it means either stating the real reachability or dropping the explanatory clause; it does not affect what the software does.
+status: open
+
+### DW-165: `nox -s screenshots_verify` is not run by any CI workflow, so the manifest gate only fires when a human types the command
+origin: spec-screenshot-manifest-completeness-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `.github/workflows/screenshots.yml`, `.github/workflows/test.yml`, `noxfile.py` (`screenshots_verify`)
+severity: medium
+summary: The 526-line verifier and its 60 unit tests exist to make a partial screenshot regeneration detectable, but nothing automated ever runs the session, so the detection only happens if someone chooses to look.
+evidence: `grep -rn "screenshots_verify" .github/` returns nothing. `test.yml` runs `tests`, `doctests`, `coverage`, `e2e` and `integration`; `screenshots.yml` runs `screenshots_headless` and then a `git diff` check. A developer can run `nox -s screenshots -- -k add_item`, commit the truncated `metadata.json`, and open a PR with nothing failing — the exact scenario `GENERATION_GUIDE.md` claims is "no longer indistinguishable from a complete one". Deliberately out of scope for the spec, which forbade wiring the session into `nox.options.sessions`; CI wiring is a separate decision (which workflow, and whether it should gate or only warn) and see DW-168, which must be resolved first or the added step will be permanently noisy.
+status: open
+
+### DW-166: `conditional` captures are exempt from staleness detection in both directions, so three doc-embedded screenshots can rot behind a green verify
+origin: spec-screenshot-manifest-completeness-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `tests/e2e/screenshot_verifier.py` (`_verify_cross_references`, the `conditional_outputs` exemption and the `elif status == 'planned'` arm), `tests/e2e/screenshot_config.yaml` (the 5 `conditional` definitions)
+severity: medium
+summary: A `conditional` output is exempted from the orphan check and never subject to the required check, so its committed PNG is validated against nothing at all — permanently, and silently.
+evidence: Reproduced directly: with config `[{name: a, output: readme/a.png, capture_status: conditional}]` and an empty manifest, `verify()` returns `[]` while `readme/a.png` sits on disk. Three `conditional` outputs are embedded in shipped documentation — `user-manual/bulk_creation_preview.png` (`docs/user-manual.md:113`), `user-manual/history_view.png` (`:452`), `user-manual/batch_operations_menu.png` (`:560`) — and all three guards are `if locator.count() > 0` / `try/except` blocks that cannot fail their test. Rename the button `test_screenshot_history_view` looks for and the capture stops firing forever while verification stays green. This is the deliberate cost of the high-severity fix in the first review pass (before it, a skipped conditional hard-failed as an orphan, which broke ordinary runs), and it is recorded as a residual risk in that pass — but it leaves 5 of 21 definitions outside the completeness guarantee the work exists to provide. Closing it needs a third state the verifier can check, most plausibly a content binding (hash or mtime-vs-source) rather than a presence check.
+status: open
+
+### DW-167: A screenshot session that captures nothing leaves the previous manifest untouched, so a filtered run whose guards all miss verifies clean against a stale file
+origin: spec-screenshot-manifest-completeness-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `tests/e2e/test_screenshot_generation.py` (`setup_screenshot_generator` teardown, `if self.screenshot.get_screenshot_count() > 0`)
+severity: low
+summary: The teardown only writes `metadata.json` when the session has captured something, so a run that captures nothing at all silently preserves the last good manifest and the tree still verifies as complete.
+evidence: `get_screenshot_count()` returns `len(self.metadata['screenshots'])`, and `self.metadata` is now the session-shared manifest, so the guard is cumulative: it is false only until the first capture in the session, and a whole session that captures nothing never writes. `nox -s screenshots -- -k label_printing` (whose guard needs `#options-dropdown-btn` and `#bulk-print-labels-btn` to both be present) is a concrete way to reach it. The pre-existing consequence — stale manifest survives — was the same before the shared manifest; what changed is that the guard's per-test meaning became session-wide, so the comment above it ("Rewrite the full accumulated manifest after each test") no longer describes the condition beneath it. Not patched because the fix is a design choice the spec did not make: writing unconditionally is faithful to "the manifest is what this run wrote" but clobbers a good manifest with an empty one whenever a session captures nothing, which is arguably the worse of the two failure modes. Related to the filtered-run truncation hazard already documented in `GENERATION_GUIDE.md`.
+status: open
+
+### DW-168: `metadata.json`'s per-run timestamps make the CI screenshot-diff check unconditionally dirty, so every triggering PR gets an "outdated screenshots" comment
+origin: spec-screenshot-manifest-completeness-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `.github/workflows/screenshots.yml` (the "Check for screenshot differences" step, `git diff --quiet docs/images/screenshots/`), `tests/e2e/screenshot_generator.py` (`new_manifest`'s `generated_at`, `_record_screenshot`'s `timestamp`)
+severity: low
+summary: The workflow decides whether screenshots need regenerating by asking whether `docs/images/screenshots/` changed, but `metadata.json` lives in that directory and its timestamps are rewritten on every run, so the answer is always yes.
+evidence: Any PR touching `app/templates/**`, `app/static/css/**`, `app/static/js/**` or the screenshot tests triggers the workflow; it regenerates and then runs `git diff --quiet docs/images/screenshots/`, which can never pass. Every such PR therefore gets an artifact upload and an automated "📸 Screenshot Update Reminder" comment even when all 12 PNGs are byte-identical. `GENERATION_GUIDE.md` documents the cause ("`generated_at` and every entry's `timestamp` are rewritten on each run, so the file always shows a diff") without touching the workflow that it defeats. Pre-existing — the one-entry manifest had a changing timestamp too — but this work turned one changing timestamp into thirteen and made committing the file standard practice. Closing it means either scoping the diff check to `'*.png'` or making the manifest's timestamps stable, and it gates DW-165: adding a verify step to a workflow whose signal is already always-red buys nothing.
+status: open
+
+### DW-169: Two tests writing the same output filename now silently replace each other's manifest entry, and nothing can detect the collision
+origin: spec-screenshot-manifest-completeness-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `tests/e2e/screenshot_generator.py` (`_record_screenshot`'s replace-by-filename loop), `tests/e2e/screenshot_verifier.py` (`_verify_entries`'s duplicate check)
+severity: low
+summary: Replace-by-filename means a copy-paste error pointing two tests at one output produces a manifest that looks complete while one screenshot is quietly missing from the docs.
+evidence: `_record_screenshot` scans for an existing `filename` and does `screenshots[index] = entry; return`. Both tests run, the second overwrites the first's PNG and replaces its manifest entry; the config declares one `output`, so the manifest, the disk and the config all agree and `verify()` returns `[]`. The verifier's `duplicate manifest entry` check can now only fire on a hand-edited file, which `GENERATION_GUIDE.md` forbids ("**Never hand-edit it**"), and the config-side duplicate-`output` check does not help because the collision is between two tests, not two definitions. The replace-by-filename behaviour is required by the spec ("a re-capture replaces, never duplicates") and is right for a genuine re-capture, so this is not a defect in the change — it is a detection gap the change's own design creates. Closing it means the manifest recording which test wrote each entry, so a filename claimed by two different tests is visible.
+status: open
+
+### DW-170: Seven `wait_for` selectors in `screenshot_config.yaml` name elements the capture tests never wait on
+origin: spec-screenshot-manifest-completeness-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `tests/e2e/screenshot_config.yaml` (`wait_for` on `search_form`, `search_results`, `move_items_form`, `shorten_items_form`, `photo_gallery`, `history_view`, `bulk_creation_preview`, `batch_selection_options`), `tests/e2e/test_screenshot_generation.py`
+severity: low
+summary: The config's `wait_for` field disagrees with the selector the corresponding test actually waits on for eight of the fourteen required/conditional definitions, so the file that is now the declared contract still misdescribes how each capture is taken.
+evidence: Compared field-by-field against `page.wait_for_selector(...)` / `wait_for_selector=` in `tests/e2e/test_screenshot_generation.py`: config `#search-form` vs actual `#advanced-search-form` (:167,:180); `table.search-results` vs `#results-table-container .table` (:204); `#move-items-form` vs `#batch-move-form` (:496); `#shorten-items-form` vs `#shorten-form` (:528); `.photo-gallery-grid` vs `#photo-manager-container` (:427); `#history-timeline` vs `#item-history-modal.show` (:626); `#quantity-preview` vs the `#quantity_to_create` fallback branch; and `batch_selection_options` declares `#options-dropdown` while its test passes no `wait_for_selector` at all. This work corrected the five wrong `test:` values in these same entries and left the `wait_for` values untouched; neither the verifier nor the new unit tests check them, and the I/O matrix does not ask them to — which is why this is a follow-up rather than a defect in the change. Closing it means either correcting the values and adding a check that binds them to the test source, or deleting the field as non-load-bearing.
+status: open
+
+### DW-171: `config.metadata_filename` and `config.generate_metadata` are honoured by the verifier but ignored by the generator
+origin: spec-screenshot-manifest-completeness-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `tests/e2e/screenshot_generator.py` (`save_metadata(self, filename: str = 'metadata.json')`), `tests/e2e/test_screenshot_generation.py` (`setup_screenshot_generator` teardown), `tests/e2e/screenshot_verifier.py` (`_collect`'s `_metadata_filename(config)`)
+severity: low
+summary: Changing `metadata_filename` in the config moves only where verification looks, not where generation writes, so the two halves of the manifest contract silently disagree.
+evidence: The verifier reads `config.get_metadata_filename()` to locate the manifest, but the teardown calls `self.screenshot.save_metadata()` with no argument and the generator's default is the literal `'metadata.json'`; no caller ever passes the configured value. Set `metadata_filename: manifest.json` and a successful full regeneration is followed by `manifest.json: manifest not found`, every PNG reported as an orphan and every required capture reported missing. `generate_metadata: true` is likewise read by neither side — the manifest is always written and always demanded. Pre-existing dead config that this work made load-bearing on one side only; closing it means feeding the configured name into `save_metadata()` (and deciding whether `generate_metadata: false` should make the verifier skip the manifest checks) or deleting the two keys.
+status: open
+
+### DW-172: `add_item_form_readme` is tagged `capture_status: planned` while its `test:` names a test that already exists and runs
+origin: spec-screenshot-manifest-completeness-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-screenshot-manifest-completeness.md`
+location: `tests/e2e/screenshot_config.yaml:34-41`, `tests/unit/test_screenshot_infrastructure.py` (`test_capturing_definitions_name_real_test_methods`)
+severity: low
+summary: A `planned` definition documented as having no capture code points at `test_screenshot_add_item_form`, which exists and captures unconditionally — just to a different output — so the new `capture_status` field is self-contradictory for this entry and nothing can catch it.
+evidence: `GENERATION_GUIDE.md` defines `planned` as "no capture code exists yet; `test:` names the future test", but `test_screenshot_add_item_form` is a real method (`tests/e2e/test_screenshot_generation.py:224`) writing `user-manual/add_item_form.png`, while this definition's output is `readme/add_item_form.png`. `test_capturing_definitions_name_real_test_methods` deliberately skips `planned` entries and there is no inverse check that a `planned` entry's `test:` does *not* already exist, so `nox -s tests` and `nox -s screenshots_verify` are both blind to it. Harmless today — the README capture genuinely does not exist — but it is the one place where the newly introduced status vocabulary is untrue. Closing it means either renaming the field's meaning for reuse cases (one test, two outputs) or extending the existing definition to capture both.
 status: open

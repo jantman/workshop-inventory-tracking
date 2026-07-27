@@ -15,23 +15,44 @@ from PIL import Image
 import io
 
 
+def new_manifest() -> Dict:
+    """
+    Build a fresh, empty screenshot manifest.
+
+    A manifest is the in-memory accumulator behind ``metadata.json``. Sharing
+    one manifest object across every ``ScreenshotGenerator`` built during a
+    test session is what makes the written file a complete inventory of the
+    run rather than the last test's captures only.
+
+    Returns:
+        A new manifest dict with ``generated_at`` and an empty ``screenshots``
+        list.
+    """
+    return {
+        'generated_at': datetime.now().isoformat(),
+        'screenshots': []
+    }
+
+
 class ScreenshotGenerator:
     """Utility class for capturing and managing documentation screenshots"""
 
-    def __init__(self, page, output_dir='docs/images/screenshots'):
+    def __init__(self, page, output_dir='docs/images/screenshots', manifest=None):
         """
         Initialize the screenshot generator.
 
         Args:
             page: Playwright page object
             output_dir: Base directory for screenshot output
+            manifest: Optional shared manifest dict (see :func:`new_manifest`).
+                When given, captures are recorded into it instead of into a
+                private manifest, so several generators can accumulate into a
+                single ``metadata.json``. When omitted a fresh manifest is
+                created, preserving the original single-instance behaviour.
         """
         self.page = page
         self.output_dir = Path(output_dir)
-        self.metadata = {
-            'generated_at': datetime.now().isoformat(),
-            'screenshots': []
-        }
+        self.metadata = new_manifest() if manifest is None else manifest
 
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -261,21 +282,44 @@ class ScreenshotGenerator:
         """
         Record screenshot metadata.
 
+        ``details`` is normalised so every entry -- whatever the capture type
+        -- carries ``viewport_size`` and ``hide_selectors`` keys (null when the
+        capture method does not set them). Recording a filename that is
+        already present replaces the existing entry rather than appending a
+        duplicate, so a re-capture never doubles up in the manifest.
+
         Args:
             filename: Screenshot filename
             capture_type: Type of capture (full_page, element, viewport)
             details: Additional details about the capture
         """
-        self.metadata['screenshots'].append({
+        normalized_details = dict(details or {})
+        normalized_details.setdefault('viewport_size', None)
+        normalized_details.setdefault('hide_selectors', None)
+
+        entry = {
             'filename': filename,
             'capture_type': capture_type,
             'timestamp': datetime.now().isoformat(),
-            'details': details
-        })
+            'details': normalized_details
+        }
+
+        screenshots = self.metadata['screenshots']
+        for index, existing in enumerate(screenshots):
+            if existing.get('filename') == filename:
+                screenshots[index] = entry
+                return
+
+        screenshots.append(entry)
 
     def save_metadata(self, filename: str = 'metadata.json') -> Path:
         """
         Save JSON metadata about generated screenshots.
+
+        Entries are sorted by filename and the file is newline-terminated, so
+        two runs capturing the same set in a different order produce the same
+        entry order. ``generated_at`` and the per-entry ``timestamp`` still
+        change every run, so the file is not byte-identical between runs.
 
         Args:
             filename: Metadata filename
@@ -285,8 +329,11 @@ class ScreenshotGenerator:
         """
         metadata_path = self.output_dir / filename
 
+        self.metadata['screenshots'].sort(key=lambda entry: entry.get('filename') or '')
+
         with open(metadata_path, 'w') as f:
             json.dump(self.metadata, f, indent=2)
+            f.write('\n')
 
         return metadata_path
 
@@ -295,5 +342,13 @@ class ScreenshotGenerator:
         return len(self.metadata['screenshots'])
 
     def get_metadata(self) -> Dict:
-        """Get the current metadata dictionary."""
-        return self.metadata.copy()
+        """
+        Get a copy of the current metadata dictionary.
+
+        The ``screenshots`` list is copied too: it is shared by every
+        generator in the session, so handing out the live list would let a
+        caller's edit change what the next ``save_metadata()`` writes.
+        """
+        copied = self.metadata.copy()
+        copied['screenshots'] = list(self.metadata['screenshots'])
+        return copied

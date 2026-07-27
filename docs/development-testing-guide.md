@@ -154,7 +154,10 @@ The project uses automated screenshot generation to keep documentation visually 
 
 **Purpose**: Generate all documentation screenshots with realistic test data.
 
-**Output**: 12 screenshots in `docs/images/screenshots/` (README and user manual)
+**Output**: the screenshots declared in `tests/e2e/screenshot_config.yaml`, written to
+`docs/images/screenshots/` (README and user manual), plus
+`docs/images/screenshots/metadata.json` — the manifest recording exactly what the
+run captured. Commit the manifest alongside the PNGs.
 
 **Runtime**: ~60-90 seconds
 
@@ -168,10 +171,20 @@ The project uses automated screenshot generation to keep documentation visually 
 
 **Command**: `nox -s screenshots_verify`
 
-**Purpose**: Verify all screenshots meet quality standards:
-- File size under 500KB
-- Valid PNG format
-- RGB/RGBA color mode
+**Purpose**: Cross-check the manifest, the PNGs on disk, and the declared capture
+set, on top of the long-standing quality gate:
+- `metadata.json` is present, valid, and every entry is well formed
+- Manifest and disk agree in both directions — no orphan PNGs, no recorded file
+  that is missing. A PNG belonging to a `capture_status: conditional` capture is
+  exempt from the orphan check: it may legitimately survive a run whose guard
+  did not fire
+- Every manifest entry is declared in `tests/e2e/screenshot_config.yaml`, every
+  `capture_status: required` capture was written, and no `planned` one was
+- File size under 500KB, valid PNG format, RGB/RGBA color mode
+
+This is what makes a partial regeneration detectable. See
+`docs/images/screenshots/GENERATION_GUIDE.md` for the manifest format and the
+meaning of `capture_status`.
 
 ### When to Regenerate Screenshots
 

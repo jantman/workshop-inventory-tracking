@@ -1,5 +1,18 @@
 # Screenshot Generation Configuration
 # This file defines all screenshots to be generated for documentation
+#
+# Every definition declares a `capture_status`, which is what makes this file
+# a truthful contract that `nox -s screenshots_verify` can assert against:
+#
+#   required     - an existing test captures this unconditionally; it MUST
+#                  appear in docs/images/screenshots/metadata.json
+#   conditional  - an existing test captures this behind a runtime DOM guard
+#                  (`if locator.count() > 0`, `try/except: return`), so it may
+#                  legitimately be absent from the manifest. A committed PNG
+#                  left over from an earlier run where the guard did fire is
+#                  likewise not treated as stale.
+#   planned      - no capture code exists yet; the `test:` value names the
+#                  future test. It MUST NOT appear in the manifest.
 
 screenshots:
   # README Screenshots
@@ -7,6 +20,7 @@ screenshots:
     description: "Main inventory list view showing key features"
     test: "test_screenshot_inventory_list"
     output: "readme/inventory_list.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "table.inventory-table"
@@ -21,6 +35,7 @@ screenshots:
     description: "Add item form for README"
     test: "test_screenshot_add_item_form"
     output: "readme/add_item_form.png"
+    capture_status: "planned"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "#add-item-form"
@@ -36,6 +51,7 @@ screenshots:
     description: "Complete add item form with all fields visible"
     test: "test_screenshot_add_item_form"
     output: "user-manual/add_item_form.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "#add-item-form"
@@ -50,6 +66,7 @@ screenshots:
     description: "Auto-complete dropdown showing previous entries"
     test: "test_screenshot_autocomplete"
     output: "user-manual/autocomplete_dropdown.png"
+    capture_status: "planned"
     viewport: [1920, 1080]
     wait_for: ".autocomplete-dropdown"
     documentation_files:
@@ -59,8 +76,9 @@ screenshots:
 
   - name: "bulk_creation_preview"
     description: "Bulk creation preview showing JA ID range"
-    test: "test_screenshot_bulk_creation"
+    test: "test_screenshot_bulk_creation_preview"
     output: "user-manual/bulk_creation_preview.png"
+    capture_status: "conditional"
     viewport: [1920, 1080]
     wait_for: "#quantity-preview"
     documentation_files:
@@ -73,6 +91,7 @@ screenshots:
     description: "Label preview modal showing label layout"
     test: "test_screenshot_label_preview"
     output: "user-manual/label_preview.png"
+    capture_status: "planned"
     viewport: [1920, 1080]
     wait_for: "#label-preview-modal"
     documentation_files:
@@ -80,10 +99,25 @@ screenshots:
         section: "## Label Printing"
         caption: "Figure 4: Label preview showing how the printed label will appear"
 
+  - name: "label_printing"
+    description: "Bulk label printing modal launched from the inventory list"
+    test: "test_screenshot_label_printing"
+    output: "user-manual/label_printing.png"
+    capture_status: "conditional"
+    viewport: [1920, 1080]
+    wait_for: "#listBulkLabelPrintingModal.show"
+    hide_elements:
+      - ".toast-container"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Using the Bulk Label Printing Dialog"
+        caption: "Figure: Bulk label printing dialog for the items selected in the inventory list"
+
   - name: "bulk_label_printing"
     description: "Bulk label printing interface from inventory list"
     test: "test_screenshot_bulk_label_printing"
     output: "user-manual/bulk_label_printing.png"
+    capture_status: "planned"
     viewport: [1920, 1080]
     wait_for: "table.inventory-table"
     documentation_files:
@@ -96,6 +130,7 @@ screenshots:
     description: "Item details modal showing all information"
     test: "test_screenshot_item_details"
     output: "user-manual/item_details_modal.png"
+    capture_status: "planned"
     viewport: [1920, 1080]
     wait_for: "#item-details-modal"
     documentation_files:
@@ -105,8 +140,9 @@ screenshots:
 
   - name: "edit_item_form"
     description: "Edit item form with populated data"
-    test: "test_screenshot_edit_item"
+    test: "test_screenshot_edit_item_form"
     output: "user-manual/edit_item_form.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "#add-item-form"
@@ -120,8 +156,9 @@ screenshots:
   # User Manual Screenshots - Photo Management
   - name: "photo_upload_interface"
     description: "Photo upload interface with drag-and-drop"
-    test: "test_screenshot_photo_upload"
+    test: "test_screenshot_photo_upload_interface"
     output: "user-manual/photo_upload.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     wait_for: "#photo-manager-container"
     documentation_files:
@@ -133,6 +170,7 @@ screenshots:
     description: "Photo gallery with multiple photos"
     test: "test_screenshot_photo_gallery"
     output: "user-manual/photo_gallery.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     wait_for: ".photo-gallery-grid"
     documentation_files:
@@ -142,8 +180,9 @@ screenshots:
 
   - name: "photo_copy_workflow"
     description: "Photo copy/paste workflow with clipboard banner"
-    test: "test_screenshot_photo_copy"
+    test: "test_screenshot_photo_copy_workflow"
     output: "user-manual/photo_copy_clipboard.png"
+    capture_status: "conditional"
     viewport: [1920, 1080]
     wait_for: "#photo-clipboard-banner"
     documentation_files:
@@ -153,8 +192,9 @@ screenshots:
 
   - name: "history_view"
     description: "Item modification history timeline"
-    test: "test_screenshot_history"
+    test: "test_screenshot_history_view"
     output: "user-manual/history_view.png"
+    capture_status: "conditional"
     viewport: [1920, 1080]
     wait_for: "#history-timeline"
     documentation_files:
@@ -167,6 +207,7 @@ screenshots:
     description: "Advanced search form with multiple filters"
     test: "test_screenshot_search_form"
     output: "user-manual/search_form.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "#search-form"
@@ -179,6 +220,7 @@ screenshots:
     description: "Search results table with filtered items"
     test: "test_screenshot_search_results"
     output: "user-manual/search_results.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     wait_for: "table.search-results"
     documentation_files:
@@ -191,6 +233,7 @@ screenshots:
     description: "Move items batch operation interface"
     test: "test_screenshot_move_items"
     output: "user-manual/move_items.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "#move-items-form"
@@ -203,6 +246,7 @@ screenshots:
     description: "Shorten items interface for cutting materials"
     test: "test_screenshot_shorten_items"
     output: "user-manual/shorten_items.png"
+    capture_status: "required"
     viewport: [1920, 1080]
     full_page: true
     wait_for: "#shorten-items-form"
@@ -214,7 +258,8 @@ screenshots:
   - name: "batch_selection_options"
     description: "Batch selection with options menu"
     test: "test_screenshot_batch_operations"
-    output: "user-manual/batch_selection.png"
+    output: "user-manual/batch_operations_menu.png"
+    capture_status: "conditional"
     viewport: [1920, 1080]
     wait_for: "#options-dropdown"
     documentation_files:
@@ -227,6 +272,7 @@ screenshots:
     description: "Database migration output"
     test: "test_screenshot_migration"
     output: "deployment-guide/migration_output.png"
+    capture_status: "planned"
     viewport: [1200, 800]
     documentation_files:
       - file: "docs/deployment-guide.md"
@@ -238,6 +284,7 @@ screenshots:
     description: "Test execution output"
     test: "test_screenshot_test_output"
     output: "development-guide/test_execution.png"
+    capture_status: "planned"
     viewport: [1200, 800]
     documentation_files:
       - file: "docs/development-testing-guide.md"

@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy.orm import sessionmaker
 from decimal import Decimal
 
-from tests.e2e.screenshot_generator import ScreenshotGenerator
+from tests.e2e.screenshot_generator import ScreenshotGenerator, new_manifest
 from tests.e2e.fixtures.screenshot_data import (
     get_inventory_items,
     get_items_with_photos,
@@ -26,15 +26,28 @@ from app.database import InventoryItem
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 
 
+@pytest.fixture(scope='session')
+def screenshot_manifest():
+    """
+    One manifest shared by every screenshot test in the session.
+
+    The generator itself is rebuilt per test (it is bound to the function
+    scoped Playwright ``page``), so without a session scoped accumulator each
+    test's ``save_metadata()`` would truncate ``metadata.json`` down to that
+    test's own captures.
+    """
+    return new_manifest()
+
+
 class TestDocumentationScreenshots:
     """Generate all documentation screenshots with realistic data"""
 
     @pytest.fixture(autouse=True)
-    def setup_screenshot_generator(self, page):
+    def setup_screenshot_generator(self, page, screenshot_manifest):
         """Initialize screenshot generator for all tests"""
-        self.screenshot = ScreenshotGenerator(page)
+        self.screenshot = ScreenshotGenerator(page, manifest=screenshot_manifest)
         yield
-        # Save metadata after each test
+        # Rewrite the full accumulated manifest after each test
         if self.screenshot.get_screenshot_count() > 0:
             self.screenshot.save_metadata()
 

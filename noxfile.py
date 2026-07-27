@@ -263,62 +263,36 @@ def screenshots_headless(session):
 
 @nox.session(python=DEFAULT_PYTHON)
 def screenshots_verify(session):
-    """Verify all screenshots meet quality standards.
+    """Verify screenshots against their manifest, config, and quality standards.
+
+    Runs ``tests/e2e/screenshot_verifier.py``, which is unit tested in
+    ``tests/unit/test_screenshot_infrastructure.py``.
 
     Checks:
-    - All screenshots under 500KB size limit
-    - All files are valid PNG images
-    - All images use RGB/RGBA color mode
+    - docs/images/screenshots/metadata.json exists, is valid JSON, and every
+      entry carries filename/capture_type/timestamp plus details with
+      viewport_size and hide_selectors; no duplicate filenames
+    - Manifest entries and on-disk PNGs agree in both directions (no orphan
+      PNGs, no manifest entries whose file is missing). A PNG belonging to a
+      `capture_status: conditional` capture is exempt from the orphan check,
+      since it may survive a run whose guard did not fire
+    - Every manifest entry is declared in tests/e2e/screenshot_config.yaml
+    - Every `capture_status: required` capture appears in the manifest; no
+      `capture_status: planned` capture does. Skipped `conditional` captures
+      and outstanding `planned` ones are reported as informational notes
+    - screenshot_config.yaml is structurally valid, every definition has a
+      valid capture_status, and no two definitions share an output
+    - At least one screenshot exists, all are under the 500KB size limit, and
+      all are valid PNG images in RGB/RGBA color mode
 
     Example:
         nox -s screenshots_verify
     """
-    session.install("Pillow")
+    session.install("Pillow", "PyYAML")
 
-    session.log("🔍 Verifying screenshot quality...")
+    session.log("🔍 Verifying screenshots...")
 
-    # Run verification script
-    session.run("python", "-c", """
-from pathlib import Path
-from PIL import Image
-
-screenshot_dir = Path("docs/images/screenshots")
-screenshots = list(screenshot_dir.glob("**/*.png"))
-max_size_kb = 500
-
-if not screenshots:
-    print("❌ No screenshots found!")
-    exit(1)
-
-issues = []
-total_size = 0
-
-for screenshot in screenshots:
-    size_kb = screenshot.stat().st_size / 1024
-    total_size += size_kb
-
-    if size_kb >= max_size_kb:
-        issues.append(f"{screenshot.relative_to(screenshot_dir)}: {size_kb:.1f}KB (over {max_size_kb}KB limit)")
-
-    try:
-        with Image.open(screenshot) as img:
-            if img.mode not in ['RGB', 'RGBA']:
-                issues.append(f"{screenshot.relative_to(screenshot_dir)}: Invalid mode {img.mode}")
-    except Exception as e:
-        issues.append(f"{screenshot.relative_to(screenshot_dir)}: Failed to open - {e}")
-
-if issues:
-    print("❌ Screenshot verification failed:")
-    for issue in issues:
-        print(f"   - {issue}")
-    exit(1)
-else:
-    print(f"✅ All {len(screenshots)} screenshots verified successfully!")
-    print(f"   Total size: {total_size/1024:.2f} MB")
-    print(f"   Average size: {total_size/len(screenshots):.1f} KB")
-    print(f"   All under {max_size_kb}KB size limit")
-    print(f"   All valid PNG images")
-""")
+    session.run("python", "-m", "tests.e2e.screenshot_verifier")
 
 
 # Default session when running 'nox' without arguments
