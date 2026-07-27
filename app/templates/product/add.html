@@ -130,7 +130,7 @@
                                the first declared enum member, and a non-GTIN
                                value gets GTIN-typed and check-digit-normalized.
                                The server refuses a blank type beside a
-                               non-blank value (_validate_product_form). #}
+                               non-blank value (_validate_product_create_form). #}
                             <select class="form-select{% if validation_errors and validation_errors.identifier_type %} is-invalid{% endif %}"
                                     id="identifier_type" name="identifier_type">
                                 <option value=""{% if not form_data.get('identifier_type') %} selected{% endif %}>Select a type…</option>

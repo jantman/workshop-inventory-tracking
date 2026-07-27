@@ -4,7 +4,9 @@ Route/integration tests for the Product create/edit/detail pages (Story 1.3).
 Uses the `client` fixture (CSRF disabled in TestConfig, so POSTs need no token).
 """
 
+import html
 import re
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +30,69 @@ def _form_controls(body, ids):
         assert match is not None, f'no form control with id="{control_id}"'
         tags.append(match.group(0))
     return tags
+
+
+def _input_value(body, control_id):
+    """The value the named `<input>` would SUBMIT, entities decoded.
+
+    Asserting a stored value "is in the page" proves nothing about a ROUND-TRIP:
+    the edit page also renders the product's description in its title, so a
+    page-wide substring check passes whether or not the input was populated.
+
+    Decoded because Jinja escapes `&`, `<` and `"` on the way out and the
+    browser decodes them on the way back in. Comparing the raw attribute text
+    against a stored value would report `Fluke &amp; Co` as a mangled
+    round-trip, and — worse, in `_rendered_edit_form` — would re-post the
+    escaped form and call the result lossless.
+    """
+    tag = _form_controls(body, [control_id])[0]
+    # Anchored on whitespace, not `\b`: a word boundary also matches inside a
+    # hyphenated attribute name, so `data-value="…"` rendered before the real
+    # one would be returned in its place.
+    match = re.search(r'\svalue="([^"]*)"', tag)
+    assert match is not None, \
+        f'the control id="{control_id}" carries no value attribute'
+    return html.unescape(match.group(1))
+
+
+def _textarea_value(body, control_id):
+    """Same, for `notes` — a `<textarea>` carries its value as content, so
+    `_input_value` would find no value attribute at all."""
+    match = re.search(
+        r'<textarea\b[^>]*\bid="%s"[^>]*>(.*?)</textarea>' % re.escape(control_id),
+        body, re.S)
+    assert match is not None, f'no textarea with id="{control_id}"'
+    return html.unescape(match.group(1))
+
+
+def _shown_keyed_errors(body):
+    """Every message rendered by a field's OWN feedback block, and only those.
+
+    `d-block` is what makes one of these visible — Bootstrap keeps a bare
+    `invalid-feedback` hidden — and it is added by the same `{% if %}` that
+    chooses the message, so matching on it is what separates a rendered error
+    from a slot sitting there empty.
+
+    That distinction is load-bearing rather than fussy. `description`'s block is
+    the one that always renders, with `A Label Description is required.` as its
+    placeholder — which CONTAINS the validator's `Label Description is
+    required.`. A bare `in body` check for that message therefore passes on a
+    page carrying no error at all, so the assertion meant to catch a deleted
+    feedback block could not catch it for the one required field on the form.
+    """
+    return [html.unescape(m.strip()) for m in re.findall(
+        r'<div class="invalid-feedback d-block">(.*?)</div>', body, re.S)]
+
+
+def _rendered_edit_form(body):
+    """The edit form as a POST body: every control it rendered, with the value
+    it rendered. What a client that re-posts the page it was handed would send.
+    """
+    data = {name: _input_value(body, name)
+            for name in ('description', 'manufacturer', 'mpn', 'category_path',
+                         'tags')}
+    data['notes'] = _textarea_value(body, 'notes')
+    return data
 
 
 @pytest.mark.unit
@@ -869,6 +934,16 @@ class TestProductTagsOnForm(object):
 
     def test_a_post_save_tag_failure_on_edit_redirects_too(
             self, client, test_storage, monkeypatch):
+        """Inverted for DW-30: the success IS flashed beside the failure.
+
+        This test used to assert the opposite, and the two forms therefore told
+        different stories about the identical outcome — a committed row whose
+        follow-up write failed read as a partial success on `product_add` and as
+        an outright failure here. `update_product` had already committed by the
+        time `set_product_tags` was reached, so withholding the success flash
+        left the operator with only "the tags were not saved" and no word on the
+        edit that had in fact landed. Same order as the sibling above: the
+        success first, unconditionally, then the collected failures."""
         pid = self._make_product(test_storage, description='Heat sink')
 
         def _boom(*args, **kwargs):
@@ -877,7 +952,7 @@ class TestProductTagsOnForm(object):
         monkeypatch.setattr(CatalogService, 'set_product_tags', _boom)
 
         resp = client.post(f'/products/edit/{pid}',
-                           data={'description': 'Heat sink', 'tags': 'ssr'})
+                           data={'description': 'Renamed', 'tags': 'ssr'})
         assert resp.status_code == 302
         assert resp.headers['Location'].endswith(f'/products/{pid}')
 
@@ -885,7 +960,10 @@ class TestProductTagsOnForm(object):
         detail = client.get(resp.headers['Location'])
         assert b'the product was saved, but its tags were not' in \
             detail.data.lower()
-        assert b'Product updated successfully!' not in detail.data
+        assert b'Product updated successfully!' in detail.data
+        assert b'Failed to update product' not in detail.data
+        # And the edit really did land, which is what the success flash claims.
+        assert CatalogService(test_storage).get_product(pid).description == 'Renamed'
 
     @pytest.mark.parametrize('field, retryable, advice', [
         ('tags', False, b'enter different tags'),        # collation collision
@@ -1308,7 +1386,10 @@ class TestFirstReceiptOnCreate:
     @pytest.mark.parametrize('quantity', ['abc', '0', '-3', '2.5'])
     def test_an_unusable_quantity_rerenders_and_writes_nothing(
             self, client, product_ids, quantity):
-        """Owned by `_validate_product_form`, so no caller can bypass it."""
+        """Owned by `_validate_product_create_form`, which every route that can
+        write a Purchase from this block goes through. Deliberately NOT shared
+        with `product_edit`, which renders no quantity input and writes no
+        Purchase — see `TestTheEditFormOnlyEnforcesWhatItRenders`."""
         resp = client.post('/products/add',
                            data={'description': 'Nope', 'quantity': quantity})
         assert resp.status_code == 200
@@ -1386,8 +1467,10 @@ class TestDuplicateConfirmation:
         assert 'stays with that product' in body
 
     def test_the_gate_does_not_leak_into_the_edit_form(self, client, test_storage):
-        """`_validate_product_form` is shared, but the edit form never carries
-        `duplicate_of`, so nothing about editing changes."""
+        """`_validate_product_form` is shared and keeps the gate, but the edit
+        form never SUBMITS `duplicate_of`, so an ordinary edit is untouched by
+        it. A hand-crafted POST that does carry the key is a different case,
+        pinned by `TestTheSharedGateIsVisibleOnBothForms`."""
         pid = CatalogService(test_storage).create_product(description='before')
         resp = client.post(f'/products/edit/{pid}', data={'description': 'after'})
         assert resp.status_code == 302
@@ -2535,3 +2618,443 @@ class TestTheSearchPageRendersNothingItCannotShow:
         body = client.get('/products/search?q=SEP%1FARATED').data.decode()
         assert 'part' in body
         assert 'No products match' not in body
+
+
+@pytest.mark.unit
+class TestTheEditFormOnlyEnforcesWhatItRenders:
+    """`product_edit` may not refuse a write over a field it neither renders nor
+    reads (DW-13, DW-29).
+
+    The first-receipt block (`quantity`, `vendor`, `vendor_sku`,
+    `order_number`) and the scanned-identifier card (`identifier_type`,
+    `identifier_value`) exist on `add.html` alone; `product_edit` writes none of
+    them and `edit.html` has no input and no `invalid-feedback` block for any of
+    them. While those rules lived in the shared validator, a POST carrying one
+    earned a 200 that wrote nothing and said nothing anywhere on the page.
+    """
+
+    def _make_product(self, test_storage, **kwargs):
+        kwargs.setdefault('description', 'Seed product')
+        return CatalogService(test_storage).create_product(**kwargs)
+
+    @pytest.mark.parametrize('extra', [
+        {'quantity': '0'},                    # the create form's whole-number rule
+        {'quantity': 'abc'},
+        {'vendor': 'x' * 300},                # the Purchase column bounds
+        {'vendor_sku': 'x' * 300},
+        {'order_number': 'x' * 300},
+        {'identifier_type': 'NOT_A_TYPE', 'identifier_value': 'x' * 300},
+    ])
+    def test_an_add_only_field_is_ignored_rather_than_refused(
+            self, client, test_storage, extra):
+        pid = self._make_product(test_storage, description='before')
+        svc = CatalogService(test_storage)
+        # Not `== []`: `create_product` mints the product's own INTERNAL
+        # identifier, so the property is that this POST added nothing to what
+        # was already there. Compared by value because ProductIdentifier
+        # carries no `__eq__` — two reads of the same row are not `==`.
+        def _identifiers():
+            return sorted((i.identifier_type, i.value)
+                          for i in svc.get_identifiers_for_product(pid))
+
+        identifiers_before = _identifiers()
+
+        data = {'description': 'after'}
+        data.update(extra)
+        resp = client.post(f'/products/edit/{pid}', data=data)
+
+        assert resp.status_code == 302, 'the edit was refused with no visible reason'
+        assert resp.headers['Location'].endswith(f'/products/{pid}')
+        # The one field this form does render was written; the rest are inert.
+        # "Ignored" has to mean ignored in BOTH directions — scoping the rules
+        # out of this route must not be mistaken for wiring the fields in, so
+        # the absence of a Purchase and of a new identifier is asserted rather
+        # than inferred from the redirect.
+        assert svc.get_product(pid).description == 'after'
+        assert svc.get_purchases_for_product(pid) == []
+        assert _identifiers() == identifiers_before
+
+    def test_no_add_only_input_appears_on_the_edit_form(self, client, test_storage):
+        """The scoping fix is "stop validating them", never "start rendering
+        them": those fields belong to the create form's blocks."""
+        pid = self._make_product(test_storage)
+        body = client.get(f'/products/edit/{pid}').data.decode()
+
+        for name in ('quantity', 'vendor', 'vendor_sku', 'order_number',
+                     'identifier_type', 'identifier_value'):
+            assert f'name="{name}"' not in body
+
+    @pytest.mark.parametrize('extra, message', [
+        ({'quantity': '0'}, b'whole number greater than zero'),
+        ({'vendor': 'x' * 300}, b'must be 255 characters or fewer'),
+        ({'identifier_type': 'NOT_A_TYPE',
+          'identifier_value': '00012345678905'}, b'Choose a valid identifier type.'),
+    ])
+    def test_the_same_rules_still_bite_on_the_create_form(
+            self, client, product_ids, extra, message):
+        """Moving them out of the shared validator must not weaken them where
+        they belong — same rules, same messages, nothing created."""
+        data = {'description': 'A part'}
+        data.update(extra)
+        resp = client.post('/products/add', data=data)
+
+        assert resp.status_code == 200
+        assert message in resp.data
+        assert product_ids() == set()
+
+
+@pytest.mark.unit
+class TestTheSharedGateIsVisibleOnBothForms:
+    """The FR41 duplicate gate stays in the SHARED validator, so `edit.html`
+    needs somewhere to render an error key it has no field for.
+
+    Scoping the gate to `product_add` would be a real hole — the write it guards
+    is reachable by POSTing anywhere the validator runs — so the edit template
+    grows an unkeyed fallback instead. That makes "an error renders nowhere"
+    unreachable on this form for every present and future shared rule, which is
+    the invariant `TestNoErrorRendersNowhere` already pins on the add side.
+    """
+
+    def test_an_unconfirmed_duplicate_is_refused_visibly_on_the_edit_form(
+            self, client, test_storage):
+        svc = CatalogService(test_storage)
+        other = svc.create_product(description='Original')
+        pid = svc.create_product(description='before')
+
+        resp = client.post(f'/products/edit/{pid}', data={
+            'description': 'after',
+            'duplicate_of': str(other),
+        })
+
+        assert resp.status_code == 200
+        # The gate's own message, not a generic "something went wrong".
+        assert b'create a separate product' in resp.data
+        assert svc.get_product(pid).description == 'before'  # nothing written
+
+    def test_the_fallback_renders_a_key_the_form_has_no_field_for(
+            self, client, test_storage, monkeypatch):
+        """Structural, not `confirm_duplicate`-specific: any key the shared
+        validator gains later must surface without a template change."""
+        from app.main import routes
+
+        pid = CatalogService(test_storage).create_product(description='before')
+        monkeypatch.setattr(
+            routes, '_validate_product_form',
+            lambda form_data: {'a_field_this_form_lacks': 'Invented rule fired.'})
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': 'after'})
+
+        assert resp.status_code == 200
+        assert b'Invented rule fired.' in resp.data
+        assert b'id="form-error-a_field_this_form_lacks"' in resp.data
+
+    def test_a_keyed_error_is_not_duplicated_by_the_fallback(
+            self, client, test_storage):
+        """A field WITH an invalid-feedback block still renders there once —
+        the fallback is for orphans only, not a second copy of every message."""
+        pid = CatalogService(test_storage).create_product(description='before')
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': ''})
+
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert 'id="form-error-description"' not in body
+        # Counted over the SHOWN feedback blocks, not the whole page: the
+        # description slot's hidden placeholder contains this message verbatim,
+        # so `body.count(...) == 1` is true of every render of this template
+        # and would have proved nothing about duplication either way.
+        assert _shown_keyed_errors(body).count('Label Description is required.') == 1
+
+    # One list, read by the test below and by the template-agreement test after
+    # it, so "every keyed field is covered" is checked rather than assumed.
+    KEYED_FIELD_CASES = [
+        ('description', {'description': ''}, 'Label Description is required.'),
+        ('manufacturer', {'manufacturer': 'x' * 300},
+         'Manufacturer must be 255 characters or fewer.'),
+        ('mpn', {'mpn': 'x' * 300}, 'MPN must be 255 characters or fewer.'),
+        ('category_path', {'category_path': 'x' * 600},
+         'Category must be 512 characters or fewer.'),
+        # Whole message, not a prefix: these are compared against a feedback
+        # block's entire contents now, and a prefix would have let a truncated
+        # or mangled message pass for a rendered one.
+        ('tags', {'tags': 'x' * 100}, 'Tag is too long: 100 characters (max 64).'),
+    ]
+
+    @pytest.mark.parametrize('field, extra, message', KEYED_FIELD_CASES)
+    def test_every_field_the_fallback_skips_still_has_its_own_slot(
+            self, client, test_storage, field, extra, message):
+        """`keyed_error_fields` is template knowledge hand-copied into a Jinja
+        list, and nothing about the copy is checked by the copy.
+
+        Delete or rename one `invalid-feedback` block below and the fallback
+        goes on skipping that key, so the error it names renders NOWHERE — the
+        exact silent 200 this whole block exists to make unreachable, restored
+        by a one-line template edit. So every name on that list is exercised
+        here from both sides: the message must appear, and it must NOT have
+        come from the fallback.
+
+        Asserted against the SHOWN feedback blocks rather than the page text,
+        because `description`'s slot always renders and its placeholder holds
+        the very message this row looks for — an `in body` check passed there
+        whether or not the error was rendered at all."""
+        pid = CatalogService(test_storage).create_product(description='before')
+
+        data = {'description': 'after'}
+        data.update(extra)
+        resp = client.post(f'/products/edit/{pid}', data=data)
+
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert message in _shown_keyed_errors(body), \
+            f'the {field} error rendered in no feedback block of its own'
+        assert f'id="form-error-{field}"' not in body, \
+            f'{field} lost its own message slot and fell through to the fallback'
+
+    def test_the_parametrized_names_are_the_templates_own_list(self):
+        """The check above only covers names someone remembered to add HERE, so
+        by itself it is one hand-copy pinned by a second hand-copy: add a field
+        to `keyed_error_fields` without giving it a feedback block and the
+        fallback starts skipping a key that now renders nowhere, with nothing
+        failing. Reading the template's list closes that direction — the two
+        copies must name the same fields or this fails."""
+        template = (Path(__file__).resolve().parents[2]
+                    / 'app' / 'templates' / 'product' / 'edit.html').read_text()
+        match = re.search(r'set keyed_error_fields = \[(.*?)\]', template, re.S)
+        assert match is not None, \
+            'edit.html no longer sets keyed_error_fields — the fallback changed shape'
+        in_template = set(re.findall(r"'([^']+)'", match.group(1)))
+
+        assert in_template == {case[0] for case in self.KEYED_FIELD_CASES}
+
+
+@pytest.mark.unit
+class TestTheEditRerenderCarriesStoredValues:
+    """A failure re-render merges the SUBMITTED values over the STORED ones.
+
+    `edit.html` renders `value="{{ form_data.get('<field>', '') }}"`, so handing
+    it the raw submitted mapping made every field the client did not send render
+    blank. A non-browser client that POSTs one field and then re-posts the form
+    it was handed thereby cleared every optional field it never sent (DW-52) —
+    the exact opposite of the partial-update rule the route applies to the
+    write.
+    """
+
+    # Deliberately carries `&`, `<` and `"` — the three characters Jinja escapes
+    # on the way out. A round-trip that is lossless only for alphanumerics is
+    # not the property this change exists to guarantee, and every one of these
+    # is ordinary typing in a manufacturer or a note.
+    _MANUFACTURER = 'Fluke & Co "Test" <div>'
+
+    def _seed(self, test_storage):
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Heat sink',
+                                 manufacturer=self._MANUFACTURER,
+                                 mpn='LM317', category_path='electronics',
+                                 notes='bench stock')
+        svc.set_product_tags(pid, ['ssr', 'rectifier'])
+        return pid
+
+    def test_a_partial_post_rerenders_the_stored_values(self, client, test_storage):
+        """The matrix row: only `description` is sent, and every other control
+        comes back holding what a GET would have shown."""
+        pid = self._seed(test_storage)
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': ''})
+        assert resp.status_code == 200
+        assert b'Label Description is required.' in resp.data
+
+        body = resp.data.decode()
+        assert _input_value(body, 'manufacturer') == self._MANUFACTURER
+        assert _input_value(body, 'mpn') == 'LM317'
+        assert _input_value(body, 'category_path') == 'electronics'
+        assert _input_value(body, 'tags') == 'rectifier, ssr'
+        assert _textarea_value(body, 'notes') == 'bench stock'
+        # Submitted still beats stored for the key that WAS sent.
+        assert _input_value(body, 'description') == ''
+
+    def test_an_explicit_clear_survives_the_merge(self, client, test_storage):
+        """A key present-but-empty is a deliberate clear, not an omission, and
+        must not be overwritten by the stored value it is clearing."""
+        pid = self._seed(test_storage)
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': '', 'manufacturer': ''})
+        assert resp.status_code == 200
+
+        body = resp.data.decode()
+        assert _input_value(body, 'manufacturer') == ''
+        assert _input_value(body, 'mpn') == 'LM317'  # omitted, so still stored
+
+    def test_an_explicit_tag_clear_survives_the_merge_and_then_lands(
+            self, client, test_storage):
+        """`tags` is the field where the merge is most dangerous, because it is
+        the one whose absence is read by `_form_tags` rather than by the
+        `field in form_data` loop, and because a stored value put back into the
+        input would turn "clear every tag" into "keep them" on the re-post."""
+        pid = self._seed(test_storage)
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': '', 'tags': ''})
+        assert resp.status_code == 200
+        assert _input_value(resp.data.decode(), 'tags') == ''
+
+        repost = _rendered_edit_form(resp.data.decode())
+        repost['description'] = 'Heat sink'
+        assert client.post(f'/products/edit/{pid}', data=repost).status_code == 302
+        assert CatalogService(test_storage).get_tags_for_product(pid) == []
+
+    def test_reposting_the_rerendered_form_clears_nothing(self, client, test_storage):
+        """The whole point of the merge: the round-trip is lossless. Post one
+        field, correct the error in the page you were handed, post it back
+        verbatim — and nothing you never typed is gone."""
+        pid = self._seed(test_storage)
+
+        first = client.post(f'/products/edit/{pid}', data={'description': ''})
+        assert first.status_code == 200
+
+        repost = _rendered_edit_form(first.data.decode())
+        repost['description'] = 'Heat sink'
+        second = client.post(f'/products/edit/{pid}', data=repost)
+        assert second.status_code == 302
+
+        svc = CatalogService(test_storage)
+        product = svc.get_product(pid)
+        assert (product.manufacturer, product.mpn) == (self._MANUFACTURER, 'LM317')
+        assert product.category_path == 'electronics'
+        assert product.notes == 'bench stock'
+        assert svc.get_tags_for_product(pid) == ['rectifier', 'ssr']
+
+    def test_a_backend_failure_rerender_shows_no_stored_value_as_blank(
+            self, client, test_storage, monkeypatch):
+        """`update_product` returning false re-renders the same form, so it
+        needs the same merge — otherwise a transient backend failure is how the
+        operator's next save wipes the fields it blanked."""
+        pid = self._seed(test_storage)
+        monkeypatch.setattr(CatalogService, 'update_product',
+                            lambda *args, **kwargs: False)
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': 'Renamed'})
+        assert resp.status_code == 200
+        assert b'Failed to update product' in resp.data
+
+        body = resp.data.decode()
+        assert _input_value(body, 'manufacturer') == self._MANUFACTURER
+        assert _input_value(body, 'description') == 'Renamed'
+
+    def test_the_outer_exception_rerender_gets_the_merge_too(
+            self, client, test_storage, monkeypatch):
+        """The third re-render site. An unexpected exception is exactly when
+        the operator is most likely to just resubmit the page they were given.
+        """
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        pid = self._seed(test_storage)
+        monkeypatch.setattr(CatalogService, 'update_product', _boom)
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': 'Renamed'})
+        assert resp.status_code == 200
+        assert b'An error occurred while updating the product' in resp.data
+        assert _input_value(resp.data.decode(), 'manufacturer') == self._MANUFACTURER
+
+    def test_an_unreadable_baseline_degrades_instead_of_500ing(
+            self, client, test_storage, monkeypatch):
+        """Reading the stored values is the one service call the POST path did
+        not make before the merge existed. It serves a DISPLAY concern, so it
+        may not be the reason this page starts answering with an error page —
+        every other failure here is a flash and a re-render. A baseline that
+        cannot be read falls back to the submitted values alone: worse than the
+        merge, still a form.
+
+        And it SAYS so. The degraded page shows every omitted field blank, and
+        blank is this form's own spelling of "clear this", so a re-post of the
+        page as handed would wipe them. Degrading quietly would have turned a
+        transient read failure into data loss on the operator's next save."""
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        pid = self._seed(test_storage)
+        monkeypatch.setattr(CatalogService, 'get_tags_for_product', _boom)
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': ''})
+
+        assert resp.status_code == 200
+        assert b'Label Description is required.' in resp.data
+        # Degraded, not merged — and emphatically not a 500.
+        assert _input_value(resp.data.decode(), 'manufacturer') == ''
+        assert b'may not actually be empty' in resp.data
+
+    def test_a_successful_save_never_reads_the_baseline(
+            self, client, test_storage, monkeypatch):
+        """The merge serves the FAILURE re-renders only, and a save that works
+        is the common case. Reading the baseline eagerly spent a query on every
+        edit and, worse, would have raised the degraded-baseline warning on a
+        page the operator was never shown."""
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        pid = self._seed(test_storage)
+        monkeypatch.setattr(CatalogService, 'get_tags_for_product', _boom)
+
+        resp = client.post(f'/products/edit/{pid}', data={'description': 'Renamed'})
+        assert resp.status_code == 302
+
+        monkeypatch.undo()
+        detail = client.get(resp.headers['Location'])
+        assert b'may not actually be empty' not in detail.data
+        assert b'Product updated successfully!' in detail.data
+
+    def test_the_merge_does_not_leak_into_the_write(self, client, test_storage):
+        """Only the RENDER mapping is merged. If the merged mapping reached
+        `update_product`, every stored value would arrive as a present key and
+        the partial-update rule this merge exists to protect would be gone —
+        which is unobservable on a successful save except by clearing a field
+        the POST omits and checking it survived."""
+        pid = self._seed(test_storage)
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Heat sink', 'manufacturer': ''})
+        assert resp.status_code == 302
+
+        svc = CatalogService(test_storage)
+        product = svc.get_product(pid)
+        assert product.manufacturer is None      # present-but-empty clears
+        assert product.mpn == 'LM317'            # absent leaves alone
+        assert svc.get_tags_for_product(pid) == ['rectifier', 'ssr']
+
+
+@pytest.mark.unit
+class TestACommittedEditWithAFailedFollowupTellsBothTruths:
+    """DW-30: `update_product` and `set_product_tags` are two transactions, so a
+    failure can land between them — and the row exists either way."""
+
+    def test_the_success_is_flashed_before_the_failure(
+            self, client, test_storage, monkeypatch):
+        """Order is the message: the edit landed, and then one follow-up did
+        not. Reversed, the page opens by telling the operator something broke
+        and only afterwards that the save worked."""
+        pid = CatalogService(test_storage).create_product(description='Heat sink')
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        monkeypatch.setattr(CatalogService, 'set_product_tags', _boom)
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Renamed', 'tags': 'ssr'})
+        assert resp.status_code == 302
+
+        monkeypatch.undo()
+        body = client.get(resp.headers['Location']).data.decode()
+        assert body.index('Product updated successfully!') < \
+            body.lower().index('the product was saved, but its tags were not')
+
+    def test_a_clean_edit_still_flashes_only_the_success(
+            self, client, test_storage):
+        """The unconditional flash must not turn into an unconditional pair."""
+        pid = CatalogService(test_storage).create_product(description='Heat sink')
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Renamed', 'tags': 'ssr'})
+        detail = client.get(resp.headers['Location'])
+        assert b'Product updated successfully!' in detail.data
+        assert b'tags were not' not in detail.data

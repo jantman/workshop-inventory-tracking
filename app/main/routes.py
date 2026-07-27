@@ -851,21 +851,33 @@ def _valid_duplicate_of(value):
 
 
 def _validate_product_form(form_data):
-    """Validate product form input. Returns a dict of field -> error message.
+    """Validate what BOTH product forms carry. Returns field -> error message.
 
-    Story 4.5 adds three rules here rather than in `product_add`, so that every
-    caller of this function inherits them and none can be bypassed by a POST
-    aimed at a different route (FR41):
+    This is the SHARED half: the Product columns `add.html` and `edit.html` both
+    render, the tag field they both render, and the FR41 duplicate gate.
 
-    - the optional first-receipt fields are bounded against their `Purchase`
-      columns, and `quantity` — the one typed field on that block — must parse
-      as a whole number greater than zero;
-    - a form carrying `duplicate_of` (a scan that already matched an existing
-      Product) is refused unless `confirm_duplicate` is exactly `'yes'`. The
-      gate lives here, before any write, on the `inventory_shorten` precedent:
-      the destructive-by-accident outcome FR41 names is creating a SECOND
-      product for a scan that already resolved, and a validation error is the
-      only way to guarantee nothing at all is written.
+    The receipt, `quantity` and identifier rules deliberately do NOT live here
+    any more; they moved to `_validate_product_create_form`. Owning every rule
+    centrally so no caller could bypass one sounded like the safe default and
+    was not: `product_edit` renders no first-receipt block and no scanned
+    identifier card, reads none of those keys and writes none of them, so an
+    edit POST carrying one was refused with a 200 whose message had no field to
+    render beside — nothing written, nothing said (DW-13, DW-29). A route may
+    not refuse a write because of a field it neither renders nor reads.
+
+    The FR41 duplicate gate stays SHARED even though `edit.html` has no
+    `confirm_duplicate` checkbox, because scoping it to the create route would
+    be a real hole rather than a cosmetic one: the destructive-by-accident
+    outcome FR41 names is creating a SECOND product for a scan that already
+    resolved, and (on the `inventory_shorten` precedent) a validation error
+    before any write is the only way to guarantee nothing at all is written.
+    That is exactly why `edit.html` carries an unkeyed fallback block — it
+    renders any error key it has no OWN message slot for, `notes` included, so
+    this gate and any rule this function gains later cannot be silent THERE.
+    `add.html` has no such block; it renders an `invalid-feedback` for every
+    field this function can currently key on, so nothing it emits today is
+    homeless on the create form — but a rule keyed on `notes`, the one control
+    neither template gives a message slot of its own, would be homeless there.
     """
     errors = {}
     if not (form_data.get('description') or '').strip():
@@ -874,6 +886,35 @@ def _validate_product_form(form_data):
         value = (form_data.get(field) or '').strip()
         if value and len(value) > limit and field not in errors:
             errors[field] = f'{label} must be {limit} characters or fewer.'
+
+    if _valid_duplicate_of(form_data.get('duplicate_of')) and \
+            (form_data.get('confirm_duplicate') or '').strip() != 'yes':
+        errors['confirm_duplicate'] = (
+            'This scan already matched an existing product. Confirm below that '
+            'you want to create a separate product anyway.')
+
+    if 'tags' in form_data:
+        # Parsed here — PURELY, before anything is written — so an unusable
+        # tag re-renders the form and no product is ever created (Story 3.3).
+        # The util's message is operator-readable and rendered verbatim.
+        try:
+            tag_util.parse_tag_list(form_data.get('tags'))
+        except tag_util.InvalidTagError as e:
+            errors['tags'] = str(e)
+    return errors
+
+
+def _validate_product_create_form(form_data):
+    """`_validate_product_form` plus the rules only the CREATE form can trigger.
+
+    Everything below judges a field that exists on `add.html` alone — the
+    optional first-receipt block and the scanned-identifier card — and that only
+    `product_add` reads and writes. `product_add` is the sole caller by
+    construction: the split is what keeps `product_edit` from refusing a POST
+    over a field it has no input for and no message slot for.
+    """
+    errors = _validate_product_form(form_data)
+
     for field, (label, limit) in _RECEIPT_FIELD_LIMITS.items():
         value = (form_data.get(field) or '').strip()
         if value and len(value) > limit and field not in errors:
@@ -920,20 +961,6 @@ def _validate_product_form(form_data):
         errors['identifier_value'] = (
             f'Identifier must be {_IDENTIFIER_VALUE_LIMIT} characters or fewer.')
 
-    if _valid_duplicate_of(form_data.get('duplicate_of')) and \
-            (form_data.get('confirm_duplicate') or '').strip() != 'yes':
-        errors['confirm_duplicate'] = (
-            'This scan already matched an existing product. Confirm below that '
-            'you want to create a separate product anyway.')
-
-    if 'tags' in form_data:
-        # Parsed here — PURELY, before anything is written — so an unusable
-        # tag re-renders the form and no product is ever created (Story 3.3).
-        # The util's message is operator-readable and rendered verbatim.
-        try:
-            tag_util.parse_tag_list(form_data.get('tags'))
-        except tag_util.InvalidTagError as e:
-            errors['tags'] = str(e)
     return errors
 
 
@@ -1076,7 +1103,7 @@ def _prefill_form_data():
 
     Every value is rendered into an ordinary editable input and is read on GET
     only (FR39). Nothing is trimmed or truncated here — length is judged by
-    `_validate_product_form` on POST, so a too-long pre-fill earns a field
+    `_validate_product_create_form` on POST, so a too-long pre-fill earns a field
     message rather than being silently shortened behind the operator's back.
     """
     data = {}
@@ -1158,7 +1185,7 @@ def _record_first_receipt(service, product_id, form_data):
     values = {name: (form_data.get(name) or '').strip() for name in _RECEIPT_FIELDS}
     if not any(values.values()):
         return None
-    # `_validate_product_form` has already proved this parses; the fallback is
+    # `_validate_product_create_form` has already proved this parses; the fallback is
     # for a caller that reached here another way.
     quantity = _positive_int_string(values['quantity'])
     try:
@@ -1211,7 +1238,9 @@ def product_add():
     scanned identifier is attached, an optional first receipt is recorded, and
     the operator is redirected to the new product. The `duplicate_of` /
     `confirm_duplicate` gate that guards this write lives in
-    `_validate_product_form`, so it runs before any of it (FR41).
+    `_validate_product_form` — the SHARED half that
+    `_validate_product_create_form` calls first — so it runs before any of it
+    (FR41).
     """
     if request.method == 'GET':
         return _render_product_add(_prefill_form_data(), {})
@@ -1219,7 +1248,7 @@ def product_add():
     form_data = request.form.to_dict()
     log_audit_operation('product_add', 'input', form_data=form_data)
 
-    validation_errors = _validate_product_form(form_data)
+    validation_errors = _validate_product_create_form(form_data)
     if validation_errors:
         return _render_product_add(form_data, validation_errors)
 
@@ -2402,12 +2431,56 @@ def product_edit(product_id):
     log_audit_operation('product_edit', 'input', item_id=str(product_id),
                         form_data=form_data)
 
+    # What every failure re-render below hands the template: the SUBMITTED
+    # values laid over the STORED ones. Submitted wins so in-flight edits
+    # survive the error, and `request.form.to_dict()` holds a key for every
+    # field the client actually sent — including ones sent empty — so an
+    # explicit clear still renders empty while a key the client OMITTED falls
+    # through to what a GET would have shown. Without the stored base, a
+    # non-browser client that POSTs one field and re-posts the rendered form
+    # silently wipes every optional field it never sent (DW-52), because the
+    # template renders `value="{{ form_data.get('<field>', '') }}"`.
+    #
+    # ONLY the render mapping is merged. `update_product` and `_form_tags`
+    # below keep reading the unmerged `form_data`, or the partial-update rule
+    # this merge exists to protect would itself be broken: every stored value
+    # would arrive as a present key and "absent means not provided" would stop
+    # meaning anything.
+    #
+    # A function called at each re-render site rather than a value computed
+    # once, because reading the stored baseline is the only service call this
+    # POST path did not make before and the COMMON outcome — a save that
+    # succeeds — throws the merge away unused. Eager, it spent that read on
+    # every edit, and (once the degraded case below had to say so out loud) it
+    # would have warned the operator about a re-render that never happened.
+    def _render_data():
+        # Guarded, because an unguarded failure here would escape as an HTML
+        # 500 on a page whose every other failure mode is a flash and a
+        # re-render, and it would do so in service of a DISPLAY concern.
+        #
+        # But the degraded render is not harmless and must not be silent: it
+        # shows every omitted field blank, and this form's own rule is that a
+        # present-but-empty field CLEARS — so a client that re-posts the page
+        # it was handed turns a transient read failure into a wiped
+        # manufacturer, mpn, category, notes and tag list. The operator is told
+        # so in the one place they are already looking.
+        try:
+            stored = _product_form_data(
+                product, service.get_tags_for_product(product_id))
+        except Exception as e:
+            current_app.logger.warning(
+                f'Could not read the stored values for product {product_id} to '
+                f'seed a re-render: {e}\n{traceback.format_exc()}')
+            flash('Could not load this product\'s saved values, so a field '
+                  'shown empty below may not actually be empty. Check every '
+                  'field before saving.', 'warning')
+            stored = {}
+        return {**stored, **form_data}
+
     validation_errors = _validate_product_form(form_data)
     if validation_errors:
-        # Re-render with the SUBMITTED values so the user's in-flight edits
-        # survive the validation error (mirrors add.html's form_data round-trip).
         return render_template('product/edit.html', title=title, product=product,
-                               form_data=form_data,
+                               form_data=_render_data(),
                                validation_errors=validation_errors)
 
     # Parsed before the write, for the reason product_add gives.
@@ -2426,21 +2499,32 @@ def product_edit(product_id):
         if not ok:
             flash('Failed to update product. Please try again.', 'error')
             return render_template('product/edit.html', title=title, product=product,
-                                   form_data=form_data, validation_errors={})
+                                   form_data=_render_data(), validation_errors={})
+
+        # Post-commit and therefore non-fatal, collected rather than returned
+        # early — the same shape and the same reasoning as `product_add`. The
+        # row was updated either way, so the success is flashed
+        # UNCONDITIONALLY and the failures after it: suppressing it told the
+        # operator the edit had failed outright when in fact only the follow-up
+        # had, which is the opposite of what the create form said about the
+        # identical outcome (DW-30).
+        followup_errors = []
         if tags is not None:
             # Present-but-empty clears every tag; an ABSENT key leaves them
             # alone, the same partial-update rule as the fields above.
             tag_error = _apply_product_tags(service, product_id, tags)
             if tag_error:
-                flash(tag_error, 'error')
-                return redirect(url_for('main.product_detail', product_id=product_id))
+                followup_errors.append(tag_error)
+
         flash('Product updated successfully!', 'success')
+        for message in followup_errors:
+            flash(message, 'error')
         return redirect(url_for('main.product_detail', product_id=product_id))
     except Exception as e:
         current_app.logger.error(f'Error updating product {product_id}: {e}\n{traceback.format_exc()}')
         flash('An error occurred while updating the product. Please try again.', 'error')
         return render_template('product/edit.html', title=title, product=product,
-                               form_data=form_data, validation_errors={})
+                               form_data=_render_data(), validation_errors={})
 
 
 # ---------------------------------------------------------------------------

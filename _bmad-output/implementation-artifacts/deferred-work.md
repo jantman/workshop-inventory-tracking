@@ -102,7 +102,8 @@ source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
 severity: low
 summary: `product_edit` shares `_validate_product_form` with `product_add`, so a crafted `POST /products/edit/<id>` carrying `quantity=0` (or `duplicate_of`) fails validation and re-renders — but `app/templates/product/edit.html` has no `quantity`/`vendor`/`vendor_sku`/`order_number` input and no `invalid-feedback` block for any of them, so the message renders nowhere and the operator sees a silent 200 no-op instead of a 302.
 evidence: Reproduced: `POST /products/edit/<id>` with a valid description plus `quantity=0` returns 200 rather than 302 and writes nothing, with no visible error. Unreachable from the real edit form, which submits none of those names — only a hand-crafted POST hits it. The shared validator is what the intent contract asked for ("`_validate_product_form` owns the check so every caller of it inherits the rule"), and that is the right call for the duplicate gate specifically, since a bypass there would be an FR41 hole. The residue is that inheriting the RECEIPT rules buys nothing on the edit form and costs a silent failure mode. Closing it means either scoping the receipt rules to the add form or giving `edit.html` the feedback blocks; both are cosmetic relative to the writes they guard, which is why it was not patched under time.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-product-form-add-edit-parity
 
 ### DW-14: `POST /api/scan` is CSRF-exempt, unauthenticated and unthrottled, and now drives a leading-wildcard `LIKE` over six unindexed columns per request
 origin: story-4-5-review
@@ -241,7 +242,8 @@ source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
 severity: low
 summary: DW-13's shape, on the field set this review pass touched. `_validate_product_form`'s identifier rules (a value with no type, an unknown or `INTERNAL` type, a value over 255 characters) are shared with `product_edit`, whose `edit.html` has no `identifier_value` input and no `invalid-feedback` block for either name — so a POST carrying one gets a silent 200 that writes nothing and says nothing.
 evidence: Found by the third adversarial review of Story 4.5. This pass fixed the half that was reachable on the ADD form (an unknown type beside a BLANK value raised an error the add template also hides, because the whole Scanned Identifier card is conditional on `identifier_value`; every identifier rule is now gated on a non-blank value, and `TestNoErrorRendersNowhere` pins it). What remains is the edit form, which renders none of these fields at all, so only a hand-crafted POST reaches it — unreachable from the real UI, exactly as DW-13 describes for the receipt fields. Closing it is the same choice DW-13 names: scope the add-only rules to `product_add`, or give `edit.html` the feedback blocks. Should be taken together with DW-13 rather than separately.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-product-form-add-edit-parity
 
 ### DW-30: `product_add` and `product_edit` now tell the operator two different stories about the same failure
 origin: story-4-5-review-3
@@ -249,7 +251,8 @@ source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
 severity: low
 summary: The previous review pass made `product_add` flash "Product created successfully!" unconditionally and append any post-commit follow-up failures beside it, for a good reason (FR41's confirmed-duplicate path can only ever produce a refused identifier, and suppressing the success made a working save look like a failed one). `product_edit`'s tag-apply failure still returns early and never flashes "Product updated successfully!", so the identical failure mode — row committed, follow-up failed — reads as a partial success on one form and as an outright failure on the other.
 evidence: Found by the third adversarial review of Story 4.5. `product_add`'s change was deliberate and its test was inverted to match; `product_edit` was not touched because it is outside this story's scope (4.5 adds scan destinations, and the edit form is neither). The add form's behavior is the correct one of the two — the product exists either way, and the operator's natural response to "the save failed" is a resubmit, which on the create path is how a second product gets made. Closing it means applying the same collect-then-flash shape to `product_edit`, ideally alongside DW-13/DW-29, since all three are about the two forms sharing machinery they do not share surfaces for.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-product-form-add-edit-parity
 
 ### DW-31: Follow-up review still recommended for 4-5-scan-outcome-routing-in-the-ui after the damping cap was spent
 origin: review-budget-followup
@@ -439,7 +442,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-3-free-form-tags.md`
 location: `app/main/routes.py` (`product_edit`, `product_add`), `app/templates/product/edit.html`
 reason: The product edit form's validation-error re-render collapses "field absent from the POST" into "field submitted empty", so a non-browser client that re-posts the rendered form clears every optional field it never sent.
 evidence: `product_edit` enforces the partial-update rule on the POST (`app/main/routes.py`: only keys present in `form_data` reach `update_product`, and `_form_tags` returns None for an absent `tags` key), but on a validation failure it re-renders `edit.html` with the raw submitted `form_data`, and the template renders `value="{{ form_data.get('<field>', '') }}"`. A client POSTing `description=''` plus nothing else gets back a form whose manufacturer, mpn, category_path, notes and tags inputs are all empty though the product carries values; fixing the description and re-posting that form now sends every key as blank, and each is dutifully cleared with a success flash. The browser never sees it (its inputs are always submitted), which is why no test catches it. This predates Story 3.3 — it has applied to every optional product field since Story 1.3 — and Story 3.3 only added one more field to the same re-render. Closing it means merging the stored values under the submitted ones when re-rendering (in both `product_add`/`product_edit` and the equivalent admin forms), which is a change to the shared form round-trip rather than one field's.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-product-form-add-edit-parity
 
 ### DW-53: No endpoint sets a request-body size limit, so an oversized JSON body is buffered and parsed in full before any application-level length check
 origin: migrated from legacy ledger ("4-1-wedge-scan-capture.md"), 2026-07-26
@@ -1355,4 +1359,31 @@ location: `app/mariadb_inventory_service.py:139-150`, `app/mariadb_catalog_servi
 severity: low
 summary: All three services still do `if storage is None: storage = MariaDBStorage()`, and DW-32 changed what that costs: `resolve_engine` now calls `connect()` on it, so constructing one of these services without a storage performs blocking network I/O, can raise `ConnectionError` where it previously could not, and abandons a connected storage (engine, pool and `scoped_session`) that nobody disposes.
 evidence: Each constructor's fallback builds a bare `MariaDBStorage()`, which takes its URL from the class-level `Config` rather than `app.config` — the exact indirection DW-32 set out to remove — and `resolve_engine(storage)` then connects it because its `engine` is `None`. Before DW-32 the same branch produced a lazy `create_engine` that touched no socket at construction time. No production path reaches it: `app/main/routes.py` and `app/admin/routes.py` always pass `_get_storage_backend()`, and the unit suite always injects, which is why nothing caught the change in cost. Recorded as a residual risk by the previous review pass rather than fixed, because removing the fallback means deciding whether these services should require a storage (a signature change with call sites in tests) or fetch the app-scoped one themselves. Same shape as DW-153 (`PhotoService`) and DW-147 (`BaseExportService`), but in three more classes and, unlike those two, currently unreachable.
+status: open
+
+### DW-157: `product_edit` refuses a POST that omits `description` entirely, contradicting the partial-update rule every other field follows
+origin: spec-product-form-add-edit-parity-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-product-form-add-edit-parity.md`
+location: `app/main/routes.py:882-884` (`_validate_product_form`'s description rule), `app/main/routes.py:2494-2500` (`product_edit`'s `update_fields` loop)
+severity: low
+summary: `_validate_product_form` requires a non-blank `description` whether or not the key is present, while `product_edit`'s write path treats an absent key as "leave alone" for every other field, so a partial POST that simply omits `description` is refused rather than left unchanged.
+evidence: The rule is `if not (form_data.get('description') or '').strip()`, which cannot distinguish an absent key from a blank one; the write loop immediately below is explicitly keyed on `field in form_data` for `manufacturer`, `mpn`, `category_path` and `notes`, and `_form_tags` returns None for an absent `tags` key. `update_fields` also hardcodes `'description': form_data.get('description')`, so `description` is the one field with no partial-update semantics on either side. Pre-existing — the validator has required description unconditionally since the route was written, and this pass did not touch that rule. The DW-52 merge made the mismatch visible rather than causing it: the re-render now shows the STORED description populated beside a "Label Description is required." message, because an absent key falls through to the stored value by design. Deciding it means choosing whether `description` is required-on-every-POST (in which case the message should say the key is missing, and the merge should not backfill it) or partial-update like its neighbours (in which case an omitted key means "leave the description alone"). That is a product call about what a partial POST to this route means, not a code cleanup.
+status: open
+
+### DW-158: `add.html` has no unkeyed validation-error fallback, so a future shared rule keyed on `notes` would be a silent 200 on the create form
+origin: spec-product-form-add-edit-parity-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-product-form-add-edit-parity.md`
+location: `app/templates/product/add.html` (no fallback block), `app/templates/product/edit.html:13-30` (the block that exists)
+severity: low
+summary: The unkeyed error fallback added for DW-13/DW-29 was scoped to `edit.html`, so the create form still has no home for an error key it renders no `invalid-feedback` block for — `notes` being the one such control today.
+evidence: `edit.html` now renders every `validation_errors` entry outside `keyed_error_fields` in an alert above the card, which makes "an error renders nowhere" unreachable on that form for any present or future shared rule. `add.html` got no equivalent: it renders an `invalid-feedback` for `description`, `manufacturer`, `mpn`, `category_path`, `tags` and both identifier fields, but its `notes` textarea has none, so a rule `_validate_product_form` gains later keyed on `notes` would write nothing and say nothing there — the exact defect class `TestNoErrorRendersNowhere` exists to prevent, left standing on the side that actually creates products. Not currently reachable: no rule in either validator keys on `notes`. Pre-existing (the create form has never had a fallback) and deliberately out of scope for this story, whose task list named `edit.html` only. The fix is the same six-line block plus its own `keyed_error_fields` list, but adding a second hand-copied list to a second template is arguably the wrong shape — the two forms sharing one macro is the alternative worth weighing first, and that is a refactor rather than a patch.
+status: open
+
+### DW-159: `GET /products/edit/<id>` reads the stored values unguarded, so it 500s on the exact failure the POST path now degrades for
+origin: spec-product-form-add-edit-parity-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-product-form-add-edit-parity.md`
+location: `app/main/routes.py:2422-2427` (the GET branch of `product_edit`), `app/main/routes.py:2456-2478` (`_render_data`, the guarded twin)
+severity: low
+summary: The DW-52 merge wrapped the stored-baseline read in a try/except on the POST re-render path, arguing that a display-only read must not turn this page into an error page — but the GET branch four lines above makes the identical `_product_form_data(product, service.get_tags_for_product(product_id))` call with no guard, so the more common way of reaching the form still answers 500 where the POST answers 200 plus a warning.
+evidence: Confirmed by both reviewers of this pass with `get_tags_for_product` monkeypatched to raise: `GET /products/edit/<id>` propagates `RuntimeError` out of the view, while `POST` to the same route with the same failure returns 200, renders the form from the submitted values alone, and flashes "a field shown empty below may not actually be empty" (`test_an_unreadable_baseline_degrades_instead_of_500ing`). Pre-existing — the GET branch has read the tags unguarded since the edit form was written, and this story did not touch it; what the change introduced is the asymmetry, plus the reasoning in `_render_data`'s comment that argues against exactly this behaviour without extending to it. Not obviously a bug in either direction, which is why it is deferred rather than patched: on POST there is submitted data worth preserving, so degrading beats erroring, whereas a GET with no readable stored values has nothing to render and arguably should refuse rather than hand the operator a blank form whose every field is this route's own spelling of "clear this". Closing it means deciding which of those two the form owes the operator, and applying it to both branches so the comment and the code agree.
 status: open

@@ -10,6 +10,25 @@
         <form method="POST" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
+            {# Every validation error this form has no place to hang.
+               `_validate_product_form` is shared with the create form and keeps
+               the FR41 duplicate gate (`confirm_duplicate`) deliberately shared
+               too — narrowing that gate to the create route would leave a POST
+               aimed anywhere else able to reach the write without a
+               confirmation. But this page renders no such checkbox, so without
+               a home that error was a silent 200: nothing written and nothing
+               said. Listed by the fields that have their OWN
+               invalid-feedback block below (`notes` has none), so any key the
+               shared validator gains later surfaces here by default rather than
+               vanishing. Above the card because the operator must see it
+               without knowing which field to look at. #}
+            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags'] %}
+            {% for field, message in (validation_errors or {}).items() if field not in keyed_error_fields %}
+            <div class="alert alert-danger" role="alert" id="form-error-{{ field }}">
+                <i class="bi bi-exclamation-triangle"></i> {{ message }}
+            </div>
+            {% endfor %}
+
             <div class="card mb-3">
                 <div class="card-header">Product Information</div>
                 <div class="card-body">
