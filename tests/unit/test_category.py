@@ -155,6 +155,32 @@ class TestNormalizeCategoryPath:
         assert normalize_category_path(value) == 'a' * MAX_CATEGORY_PATH_LENGTH
 
     @pytest.mark.unit
+    def test_raw_length_within_the_limit_can_still_be_rejected(self):
+        """Normalization is not always a shortening, so the raw length is not a
+        weaker form of this rule — it is a different one.
+
+        `'İ'` (U+0130) lowercases to TWO characters, `'i'` + U+0307, so 300
+        typed characters are 600 stored ones. Anything judging the value as
+        typed accepts this and hands the column a path twice its length; the
+        message names 600 because 600 is what was measured."""
+        value = 'İ' * 300
+        assert len(value) < MAX_CATEGORY_PATH_LENGTH
+        with pytest.raises(InvalidCategoryPathError) as excinfo:
+            normalize_category_path(value)
+        assert str(excinfo.value) == (
+            f'Category path is too long: 600 characters '
+            f'(max {MAX_CATEGORY_PATH_LENGTH}).')
+
+    @pytest.mark.unit
+    def test_raw_length_over_the_limit_can_still_be_accepted(self):
+        """The other direction of the same asymmetry: a value far past the
+        limit as typed is fine once the separator and whitespace noise it is
+        mostly made of is normalized away."""
+        value = ' / ' * 300 + 'Thermal / Heat Sinks' + ' / ' * 300
+        assert len(value) > MAX_CATEGORY_PATH_LENGTH
+        assert normalize_category_path(value) == 'thermal/heat sinks'
+
+    @pytest.mark.unit
     def test_deep_paths_are_supported(self):
         """Materialized paths are of arbitrary depth."""
         deep = '/'.join(f'Level{i}' for i in range(20))

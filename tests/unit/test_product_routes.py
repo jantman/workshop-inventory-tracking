@@ -328,6 +328,16 @@ class TestProductCategoryPath(object):
         kwargs.setdefault('description', 'Seed product')
         return CatalogService(test_storage).create_product(**kwargs)
 
+    def _product_count(self, test_storage):
+        """How many products exist — the only way to say a refused form wrote
+        NOTHING, rather than that it did not redirect."""
+        from app.database import Product
+        session = CatalogService(test_storage).Session()
+        try:
+            return session.query(Product).count()
+        finally:
+            session.close()
+
     @pytest.mark.parametrize('typed, stored', [
         ('Electronics/Power/DC-DC Converters',
          'electronics/power/dc-dc converters'),                # the AC's case
@@ -384,14 +394,128 @@ class TestProductCategoryPath(object):
         assert (CatalogService(test_storage).get_product(pid).category_path
                 == 'electronics/power')
 
-    def test_overlong_category_still_rejected_by_the_existing_message(
+    def test_overlong_category_is_refused_with_the_utils_own_message(
             self, client, test_storage):
-        """No new user-facing validation error for shape — the route's
-        pre-existing 512-character limit is untouched."""
+        """The route renders `app/utils/category.py`'s message verbatim rather
+        than restating the limit — there is one rule, and it names the length it
+        measured."""
         resp = client.post('/products/add', data={'description': 'LM317',
                                                   'category_path': 'a' * 513})
         assert resp.status_code == 200  # re-rendered form, not a redirect
-        assert b'Category must be 512 characters or fewer.' in resp.data
+        assert b'Category path is too long: 513 characters (max 512).' in resp.data
+        # The plain over-length case is the one an operator meets, so it is
+        # also where "refused before any write" has to be proved.
+        assert self._product_count(test_storage) == 0
+
+    def test_category_at_the_limit_is_accepted(self, client, test_storage):
+        """512 characters is what the column holds, so it is stored, not
+        refused — the boundary belongs to the accepting side."""
+        value = 'a' * 512
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': value})
+        assert resp.status_code == 302
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert CatalogService(test_storage).get_product(product_id).category_path == value
+
+    @pytest.mark.parametrize('typed_count, stored_length, accepted', [
+        (256, 512, True),    # exactly the limit once stored
+        (257, 514, False),   # one typed character past it
+    ])
+    def test_the_512_cut_is_made_on_the_stored_length(
+            self, client, test_storage, typed_count, stored_length, accepted):
+        """Where the accept/reject cut actually falls.
+
+        `'a' * 512` proves nothing about WHICH length is measured, because a
+        canonical ASCII path has only one: raw and stored are the same number,
+        so it passes identically under either rule. These two land the STORED
+        length on 512 and just past it while the typed length stays around
+        half that — far inside a raw-character rule, which would therefore
+        accept both. Only a rule reading the stored value separates them.
+        """
+        typed = 'İ' * typed_count
+        assert len(typed) < 512  # a raw rule sees no difference between these
+
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': typed})
+        if accepted:
+            assert resp.status_code == 302
+            product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+            stored = CatalogService(test_storage).get_product(product_id).category_path
+            assert stored == typed.lower()
+            assert len(stored) == stored_length
+        else:
+            assert resp.status_code == 200
+            assert (f'Category path is too long: {stored_length} characters '
+                    f'(max 512).') in resp.data.decode()
+            assert self._product_count(test_storage) == 0
+
+    def test_a_category_that_lowercases_longer_is_refused_on_add(
+            self, client, test_storage):
+        """Normalization is not always a shortening: `'İ'.lower()` is two
+        characters, so 300 typed characters are 600 stored ones.
+
+        Measuring what was typed accepted this and left the service — which
+        never raises — to fail the write into a generic flash. The limit is on
+        the value that would be STORED, and it is reported before any write."""
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': 'İ' * 300})
+        assert resp.status_code == 200
+        assert 'Category path is too long: 600 characters (max 512).' in \
+            resp.data.decode()
+        assert b'An error occurred' not in resp.data
+        assert self._product_count(test_storage) == 0
+
+    def test_a_category_that_lowercases_longer_is_refused_on_edit(
+            self, client, test_storage):
+        """Both forms share `_validate_product_form`, so the edit route refuses
+        the same value the same way and leaves the stored path alone."""
+        pid = self._make_product(test_storage, category_path='seed/path')
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'thing',
+                                 'category_path': 'İ' * 300})
+        assert resp.status_code == 200
+        assert 'Category path is too long: 600 characters (max 512).' in \
+            resp.data.decode()
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.category_path == 'seed/path'
+        assert product.description == 'Seed product'
+
+    def test_over_length_raw_that_normalizes_to_fit_is_accepted(
+            self, client, test_storage):
+        """The symmetric case: separator and whitespace noise that normalizes
+        away never reaches the column, so it cannot exceed the column's limit.
+        Judging the typed length refused this path over a bound the value it
+        would have stored does not come close to."""
+        canonical = 'thermal/heat sinks/extruded'
+        typed = ' / ' * 100 + canonical.upper() + ' / ' * 100
+        assert len(typed) > 512  # the raw value alone would have been refused
+
+        resp = client.post('/products/add', data={'description': 'LM317',
+                                                  'category_path': typed})
+        assert resp.status_code == 302
+        product_id = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert (CatalogService(test_storage).get_product(product_id).category_path
+                == canonical)
+
+    def test_neither_form_caps_the_category_input(self, client, test_storage):
+        """A `maxlength` here would be the raw-length rule again, moved into the
+        browser — where it truncates a legal path in silence. The fields whose
+        limits ARE on the raw value keep theirs."""
+        pid = self._make_product(test_storage)
+        for url in ('/products/add', f'/products/edit/{pid}'):
+            page = client.get(url)
+            assert page.status_code == 200
+            body = page.data.decode()
+            # Asked of the control, not of the page: every one of these forms
+            # renders several bounded inputs, so `'maxlength' not in body`
+            # would be answered by any of them.
+            category, description, manufacturer, mpn = _form_controls(
+                body, ('category_path', 'description', 'manufacturer', 'mpn'))
+            assert 'maxlength' not in category, f'{url} caps the category input'
+            for field, tag in (('description', description),
+                               ('manufacturer', manufacturer), ('mpn', mpn)):
+                assert 'maxlength="255"' in tag, \
+                    f'{url} dropped the {field} cap, which IS a raw-length rule'
 
     def test_forms_carry_the_autocomplete_wiring(self, client, test_storage):
         """The category input is wired to the shared component (FR14): a
@@ -722,6 +846,49 @@ class TestCategoryPages(object):
         # The field is still marked, and still has something to describe it.
         assert b'is-invalid' in resp.data
         assert b'id="new_path-error"' in resp.data
+
+    def test_the_destination_input_is_not_capped(self, client, test_storage):
+        """The rename destination is judged by the same rule the product form's
+        Category is: on the path as STORED. A cap on what is typed would cut a
+        legal destination short in silence, so the input carries none."""
+        self._make_product(test_storage, category_path='electronics/power')
+
+        resp = client.get('/products/categories/rename?path=electronics/power')
+        new_path_tag, = _form_controls(resp.data.decode(), ['new_path'])
+        assert 'maxlength' not in new_path_tag
+
+    def test_a_destination_that_normalizes_to_fit_is_renamed(
+            self, client, test_storage):
+        """Separator and whitespace noise never reaches the column, so a
+        destination far past the limit as typed still fits once stored — which
+        is only reachable now that nothing cuts the input off."""
+        node = self._make_product(test_storage, category_path='electronics/power')
+        typed = ' / ' * 100 + 'Electronics / PSU' + ' / ' * 100
+        assert len(typed) > 512
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': typed})
+        assert resp.status_code == 302
+        assert (CatalogService(test_storage).get_product(node).category_path
+                == 'electronics/psu')
+
+    def test_a_destination_that_lowercases_longer_is_refused_on_the_field(
+            self, client, test_storage):
+        """The other direction, and the reason the cap could not have stayed:
+        300 typed characters are 600 stored ones, so the refusal can only come
+        from the server — beside the field, with nothing written."""
+        node = self._make_product(test_storage, category_path='electronics/power')
+
+        resp = client.post('/products/categories/rename',
+                           data={'old_path': 'electronics/power',
+                                 'new_path': 'İ' * 300})
+        assert resp.status_code == 200
+        assert 'Category path is too long: 600 characters (max 512).' in \
+            resp.data.decode()
+        assert b'id="new_path-error"' in resp.data
+        assert (CatalogService(test_storage).get_product(node).category_path
+                == 'electronics/power')
 
     def test_the_navbar_offers_the_categories_page(self, client):
         """The one nav change: a second item in the existing Products dropdown."""
@@ -2773,7 +2940,7 @@ class TestTheSharedGateIsVisibleOnBothForms:
          'Manufacturer must be 255 characters or fewer.'),
         ('mpn', {'mpn': 'x' * 300}, 'MPN must be 255 characters or fewer.'),
         ('category_path', {'category_path': 'x' * 600},
-         'Category must be 512 characters or fewer.'),
+         'Category path is too long: 600 characters (max 512).'),
         # Whole message, not a prefix: these are compared against a feedback
         # block's entire contents now, and a prefix would have let a truncated
         # or mangled message pass for a rendered one.

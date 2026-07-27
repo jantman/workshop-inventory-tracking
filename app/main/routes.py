@@ -771,12 +771,17 @@ def inventory_edit(ja_id):
 # keyed on the integer PK; internal_id-keyed URLs arrive in Epic 8.
 # ---------------------------------------------------------------------------
 
-# Length limits mirroring the Product column definitions (app/database.py).
+# The Product columns whose limit is on the value AS SUBMITTED — not every
+# bounded Product column (app/database.py).
+# `category_path` is deliberately NOT a row here. Its column is measured against
+# the NORMALIZED path, and normalization is not always a shortening — `'İ'.lower()`
+# is two characters — so a raw-length row would be a second, differently-shaped
+# rule for the same column. `_validate_product_form` asks app/utils/category.py
+# instead, which owns that limit.
 _PRODUCT_FIELD_LIMITS = {
     'description': ('Label Description', 255),
     'manufacturer': ('Manufacturer', 255),
     'mpn': ('MPN', 255),
-    'category_path': ('Category', 512),
 }
 
 # Story 4.5: the create form's optional "first receipt" block writes a Purchase,
@@ -886,6 +891,19 @@ def _validate_product_form(form_data):
         value = (form_data.get(field) or '').strip()
         if value and len(value) > limit and field not in errors:
             errors[field] = f'{label} must be {limit} characters or fewer.'
+
+    # Normalized here — PURELY, with the result discarded — before anything is
+    # written, so a path the column could not hold re-renders the form beside
+    # the Category field instead of failing inside the service, which never
+    # raises and so could only report it as a generic flash (Story 3.1). The
+    # util's message names the length it MEASURED, which is the normalized one:
+    # no length lives here, and the service stays the sole normalizer on the
+    # write path (AD-4). A missing key normalizes to None, which is not an
+    # error, so an edit POST that omits the field is untouched.
+    try:
+        category_util.normalize_category_path(form_data.get('category_path'))
+    except category_util.InvalidCategoryPathError as e:
+        errors['category_path'] = str(e)
 
     if _valid_duplicate_of(form_data.get('duplicate_of')) and \
             (form_data.get('confirm_duplicate') or '').strip() != 'yes':

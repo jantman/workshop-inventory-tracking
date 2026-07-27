@@ -683,7 +683,7 @@ card of both the add and the edit form:
 | **Label Description** | Yes | 255 characters |
 | **Manufacturer** | No | 255 characters |
 | **Manufacturer Part Number (MPN)** | No | 255 characters |
-| **Category** | No | 512 characters |
+| **Category** | No | 512 characters, counted on the *stored* path |
 | **Tags** | No | 64 characters per tag, 50 tags per product |
 | **Notes** | No | Free text |
 
@@ -739,15 +739,22 @@ form with `Failed to create product. Please try again.`, or
 `An error occurred while creating the product. Please try again.` when the
 failure was unexpected — in neither case was a product created.
 
-**Long values are cut off, not refused, in the browser.** Every bounded field
-carries its limit on the input itself, so typing simply stops at the limit — and
-**a value you paste is silently shortened to fit, with no warning.** Check
-anything you paste into **Label Description**, **Manufacturer**, **MPN** or
-**Category**. The server enforces the same limits and refuses an over-long value
-with a message naming the field and its limit
-(`Category must be 512 characters or fewer.`,
-`MPN must be 255 characters or fewer.`), but because the input stops you first,
-those messages come from a scan pre-fill rather than from anything you typed.
+**Long values are cut off, not refused, in the browser.** **Label Description**,
+**Manufacturer** and **MPN** carry their limit on the input itself, so typing
+simply stops at the limit — and **a value you paste is silently shortened to
+fit, with no warning.** Check anything you paste into those three. The server
+enforces the same limits and refuses an over-long value with a message naming
+the field and its limit (`MPN must be 255 characters or fewer.`), but because
+the input stops you first, those messages come from a scan pre-fill rather than
+from anything you typed.
+
+**Category** is the exception: nothing is cut off, and the server has the only
+say. Its 512-character limit is on the path as *stored* — after the tidying in
+[How a Category Is Stored](#how-a-category-is-stored) — which can come out
+shorter or longer than what you typed, so the browser has no way to cut the
+value off in the right place. An over-long path is refused beside the field with
+`Category path is too long: N characters (max 512).`, where `N` is the stored
+length; it need not match what you count on screen.
 
 #### The First Receipt Block
 
@@ -837,7 +844,8 @@ without it."
 
 A category is a single `/`-separated path stored on the product — for example
 `electronics/power/regulators`. Depth is unlimited; the only limit is 512
-characters for the whole path. There is no category table and no setup step:
+characters for the whole path, counted after the tidying below rather than on
+what you type. There is no category table and no setup step:
 the tree is exactly the set of paths that products are actually filed under, so
 it accretes purely from use and shrinks again when the last product leaves a
 path.
@@ -901,8 +909,9 @@ created by typing one on the product form — the tree accretes purely from use.
    underneath reads "Every path listed above moves under the new path, and every
    product filed under them is refiled in one transaction." This preview *is*
    the confirmation step.
-3. **Type the destination** into **New Category Path \*** (up to 512
-   characters). This field deliberately has no autocomplete: the destination
+3. **Type the destination** into **New Category Path \***. Nothing is cut off as
+   you type — the 512-character limit is on the stored path, so only the server
+   can judge it. This field deliberately has no autocomplete: the destination
    must not already exist. It is canonicalized exactly as the product form's
    **Category** field is, so you need not type it already-lowercased — the help
    under it reads "Normalized the same way as the product form: lowercase,
@@ -926,6 +935,12 @@ A rename can be refused, and when it is, nothing at all is written:
 - `No products are filed under category 'x'.`
 - `Category 'y' already exists and holds N product(s). Rename it or pick another path — merging two branches is not supported.`
 - `Cannot rename: product(s) 1, 2 carry a non-canonical category path that overlaps this rename. Fix those products first.`
+- `Category path is too long: N characters (max 512).` — normally the
+  destination you typed. It names the *source* instead when the category you
+  chose to rename is itself unstorable, which only a hand-edited `?path=` or a
+  product filed under a non-canonical path can produce; the field marked in red
+  tells you which one it is. `N` is the length once stored, so it need not match
+  what you typed.
 - A path-too-long refusal naming the product whose rewritten path would exceed
   512 characters. Every rewrite is computed before any is applied, so one
   over-length descendant stops the whole rename.
@@ -1234,7 +1249,8 @@ one and have it keep its stored value — that distinction only matters to the
 | What you see | What to do |
 |--------------|------------|
 | `Label Description is required.` | Every product needs a description; it is the only required field. |
-| `Category must be 512 characters or fewer.` (or the same message for another field) | Shorten the value. You will normally meet this on a scan-routed form, since the input itself stops you typing past the limit — and silently shortens anything you paste. |
+| `MPN must be 255 characters or fewer.` (or the same message for another bounded field) | Shorten the value. You will normally meet this on a scan-routed form, since the input itself stops you typing past the limit — and silently shortens anything you paste. |
+| `Category path is too long: N characters (max 512).` | Shorten the path. `N` is the length of the path as it would be *stored*, so it need not match what you typed — see [How a Category Is Stored](#how-a-category-is-stored). This field is not capped in the browser, so you can meet it on anything you type or paste. |
 | `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. |
 | `The product was saved, but its first receipt was not recorded. Add the purchase from the product page.` | The product exists. Use **Add a purchase** on it; do not re-submit the create form. |
 | `The product was saved, but its tags were not: …` | The product exists. Open **Edit** and enter the tags again (or different ones, if the message says so). |

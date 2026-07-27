@@ -78,9 +78,14 @@
                     {# is-invalid follows the field the service actually
                        refused: a rejected SOURCE path must not paint the
                        destination input red. #}
+                    {# No maxlength: the stored limit is on the NORMALIZED path
+                       (app/utils/category.py), and normalization can lengthen as
+                       well as shorten, so a cap on what is typed would silently
+                       truncate a path that fits. The server is the only
+                       enforcer. #}
                     <input type="text"
                            class="form-control{% if error_field == 'new_path' %} is-invalid{% endif %}"
-                           id="new_path" name="new_path" maxlength="512"
+                           id="new_path" name="new_path"
                            value="{{ new_path }}" required autocomplete="off"
                            {% if error_field == 'new_path' %}aria-describedby="new_path-error"{% endif %}
                            placeholder="e.g. electronics/psu">

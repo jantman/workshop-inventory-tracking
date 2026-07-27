@@ -79,7 +79,12 @@
                         <div class="col-md-12 mb-3">
                             <label for="category_path" class="form-label">Category</label>
                             <div class="position-relative">
-                                <input type="text" class="form-control{% if validation_errors and validation_errors.category_path %} is-invalid{% endif %}" id="category_path" name="category_path" maxlength="512"
+                                {# No maxlength: the stored limit is on the NORMALIZED
+                                   path (app/utils/category.py), and normalization can
+                                   lengthen as well as shorten, so a cap on what is
+                                   typed would silently truncate a path that fits. The
+                                   server is the only enforcer. #}
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.category_path %} is-invalid{% endif %}" id="category_path" name="category_path"
                                        value="{{ form_data.get('category_path', '') }}" autocomplete="off"
                                        placeholder="e.g. electronics/power/regulators">
                                 <div id="category_path-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
