@@ -9,11 +9,12 @@
    - [Photo Management](#photo-management)
 6. [Advanced Search](#advanced-search)
 7. [Batch Operations](#batch-operations)
-8. [Data Export](#data-export)
-9. [REST API](#rest-api)
-10. [Help and Utilities](#help-and-utilities)
-11. [Tips and Best Practices](#tips-and-best-practices)
-12. [Troubleshooting](#troubleshooting)
+8. [Products and Catalog](#products-and-catalog)
+9. [Data Export](#data-export)
+10. [REST API](#rest-api)
+11. [Help and Utilities](#help-and-utilities)
+12. [Tips and Best Practices](#tips-and-best-practices)
+13. [Troubleshooting](#troubleshooting)
 
 ## Getting Started
 
@@ -34,6 +35,13 @@
 - **Inventory List** - View and manage all inventory
 - **Move Items** - Batch move operations
 - **Shorten Items** - Cut materials to length
+- **Products** - Catalog menu with three entries: **Add Product**
+  (`/products/add`), **Manage Categories** (`/products/categories`) and
+  **Browse Tags** (`/products/tags`). See
+  [Products and Catalog](#products-and-catalog).
+- **Scan barcode** - A scan field sitting in the navbar of every page. Scan or
+  type a barcode and press Enter, and the system takes you wherever that scan
+  belongs. See [Scanning](#scanning).
 
 ## Overview
 
@@ -657,6 +665,587 @@ Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA00
 4. **New ID**: Assign new JA ID for shortened piece
 5. **Automatic**: Original item becomes inactive, new item created
 
+## Products and Catalog
+
+Products are the catalog half of the system, and they are separate from
+inventory items. An inventory item is one physical piece of stock with a JA ID;
+a **product** is the catalogued thing you buy — its description, manufacturer,
+part number, category, tags, purchase history and documents. Creating a product
+does not create an inventory item, and nothing in this chapter changes JA IDs.
+
+### What a Product Is
+
+Every product carries the same core fields, shown on the **Product Information**
+card of both the add and the edit form:
+
+| Field | Required | Limit |
+|-------|----------|-------|
+| **Label Description** | Yes | 255 characters |
+| **Manufacturer** | No | 255 characters |
+| **Manufacturer Part Number (MPN)** | No | 255 characters |
+| **Category** | No | 512 characters |
+| **Tags** | No | 64 characters per tag, 50 tags per product |
+| **Notes** | No | Free text |
+
+The **Label Description** is what you will recognise the product by; it is also
+the heading of the product's own page. Every other field is optional, and a
+product with nothing but a description is perfectly valid.
+
+Each product also gets an **Internal ID** when it is created. You do not type
+it — the system generates it, it is the value this shop's own product labels are
+designed to encode, and it is one of the values the catalog search looks at. It
+is *not* shown on the product's own page; the search results table is where you
+will see it. A product page may additionally show a **Specifications** card, but
+only when the product carries attributes; there is no field for them on either
+form.
+
+#### Reaching the Product Pages
+
+The **Products** menu in the navbar has exactly three entries:
+
+- **Add Product** - the create form, at `/products/add`
+- **Manage Categories** - the category tree, at `/products/categories`
+- **Browse Tags** - the tag vocabulary, at `/products/tags`
+
+There is deliberately no "all products" listing. A product's own page and the
+catalog search page are reached by scanning something, by searching, by
+following a tag filter, or by going to the URL directly (`/products/<id>`).
+**Browse Tags** will list every product carrying a tag. **Manage Categories**
+will not do the same for a category — it reports how many products sit at each
+path, but there is no page that lists them.
+
+### Adding a Product
+
+1. **Navigate**: **Products** → **Add Product**, or arrive here from a scan
+   that matched nothing (see [Scanning](#scanning)).
+2. **Fill in Product Information**: **Label Description** is required — it is
+   the one field marked `*`; the rest is optional. Leaving it blank is refused
+   with `Label Description is required.`, shown under the field.
+3. **Category** (optional): start typing, or just click into the empty field —
+   either way a dropdown of existing category paths appears. See
+   [Categories](#categories).
+4. **Tags** (optional): type them separated by commas. The help under the field
+   reads "Separate tags with commas. Tags are stored lowercase." See
+   [Tags](#tags).
+5. **First Receipt** (optional): fill this in if you are cataloguing something
+   that just arrived. See below.
+6. **Submit**: click **Add Product**. **Cancel** abandons the form and returns
+   you to the dashboard — not to wherever you came from, and without asking, so
+   on a scan-routed form it throws away everything the scan pre-filled.
+
+On success you land on the new product's page and see
+`Product created successfully!`. If the write does not land you stay on the
+form with `Failed to create product. Please try again.`, or
+`An error occurred while creating the product. Please try again.` when the
+failure was unexpected — in neither case was a product created.
+
+**Long values are cut off, not refused, in the browser.** Every bounded field
+carries its limit on the input itself, so typing simply stops at the limit — and
+**a value you paste is silently shortened to fit, with no warning.** Check
+anything you paste into **Label Description**, **Manufacturer**, **MPN** or
+**Category**. The server enforces the same limits and refuses an over-long value
+with a message naming the field and its limit
+(`Category must be 512 characters or fewer.`,
+`MPN must be 255 characters or fewer.`), but because the input stops you first,
+those messages come from a scan pre-fill rather than from anything you typed.
+
+#### The First Receipt Block
+
+The **First Receipt (optional)** card records the purchase the product arrived
+on, so you do not have to create the product and then immediately add a
+purchase to it. It has four fields — **Quantity**, **Order Number**, **Vendor**
+and **Vendor SKU** — and its help text reads "Leave blank to create the product
+without a purchase record."
+
+- Leave **all four** blank and no purchase is created at all.
+- Fill in **any one** of them and exactly one purchase row is recorded.
+- There is no order date on this block; the recorded purchase is dated today.
+- **A scan may have filled this block for you.** A distributor envelope can put
+  its quantity, order number and vendor SKU onto the form — not always, and not
+  necessarily all three (see [Scanning](#scanning)) — and the rule above does not
+  care who typed them: a populated block records a purchase either way. Check the
+  block, and clear it if what the label states is not what actually arrived.
+
+**Quantity** must be a whole number greater than zero and no larger than
+2147483647; anything else is refused with
+`Quantity must be a whole number greater than zero and no more than 2147483647.`
+
+The product is saved before the receipt is written, so the two can come apart.
+If that happens the product still exists and you are told so:
+`The product was saved, but its first receipt was not recorded. Add the purchase from the product page.`
+Use the **Add a purchase** button on the product page to finish the job — do
+not re-submit the form, which would create a second product.
+
+#### The Scanned Identifier Card
+
+When you reach the add form from a scan that carried an identifier, the form
+grows a **Scanned Identifier** card. It is not shown otherwise.
+
+- **Type \*** is a dropdown, starting with "Select a type…", offering
+  `GTIN`, `GTIN_UNVALIDATED`, `ASIN`, `FNSKU`, `MPN` and `VENDOR_SKU`.
+- **Value** holds what the scan carried, up to 255 characters.
+
+Both are editable before you save. Pick `GTIN_UNVALIDATED` rather than `GTIN`
+when you want to keep a barcode that does not pass its check digit — a value
+typed or edited into a `GTIN` is check-digit validated, and the message you get
+back names `GTIN_UNVALIDATED` as the way to store it anyway.
+
+**Get the type right before you save.** The check digit is not tested until
+after the product has been created, so a `GTIN` that fails it leaves you with a
+saved product and the identifier thrown away. There is no page for attaching an
+identifier to an existing product, so the message is a report, not a prompt to
+try again — and re-submitting the create form would give you a second product.
+
+The help text reads "Attached to the product
+when you save it. Clear the value to create the product without it." Leaving a
+value in place with no type selected is refused with
+`Choose the type of the scanned identifier, or clear its value.`; a type the
+system does not recognise gets `Choose a valid identifier type.`, and a value
+longer than the limit gets `Identifier must be 255 characters or fewer.` All
+three are checked before anything is written, so the product is not created.
+
+An identifier is unique across the whole catalog, so an attach can fail even
+though the product saved. You are told plainly:
+`The product was saved, but the scanned identifier was not attached: <reason>`
+or, when the failure was not a validation refusal,
+`The product was saved, but the scanned identifier was not attached. Note the identifier — it must be added by hand once a product can be given one.`
+
+#### Confirming a Duplicate
+
+A scan that matches a product takes you to *that product*, never to this form
+(see [Scanning](#scanning)). You reach the create form from there by clicking
+**Create a separate product instead** in the arrival banner — and when you do,
+the form opens with a warning headed **This scan already matched a product**, a
+link to that product, and a checkbox reading
+**Yes, create a separate product anyway.**
+Nothing is written until you tick it — submitting without it is refused with
+`This scan already matched an existing product. Confirm below that you want to create a separate product anyway.`
+
+When the scan carried an identifier, the warning gains one more sentence: "The
+scanned identifier stays with that product — an identifier is unique across the
+catalog, so it cannot be attached here as well."
+
+Only a **GTIN** scan carries an identifier onto this form, so only that path
+shows a **Scanned Identifier** card here at all — arrive from an internal or
+distributor-label banner and there is none. Where the card is present, its help
+text changes to say what will actually happen: "This identifier already belongs
+to the product above, and an identifier is unique across the catalog — saving
+will report that it could not be attached. Clear the value to create the product
+without it."
+
+### Categories
+
+A category is a single `/`-separated path stored on the product — for example
+`electronics/power/regulators`. Depth is unlimited; the only limit is 512
+characters for the whole path. There is no category table and no setup step:
+the tree is exactly the set of paths that products are actually filed under, so
+it accretes purely from use and shrinks again when the last product leaves a
+path.
+
+#### Typing a Category
+
+The **Category** field on the add and edit forms is an autocomplete. Click into
+it — even while it is empty — and the first ten existing paths appear in
+alphabetical order; keep typing and the list narrows about a fifth of a second
+after you stop. Once you have typed something, matches are offered exact first,
+then starts-with, then contains, all case-insensitively.
+
+Only paths some product is already filed under are offered. Filing a product at
+`a/b/c` makes `a/b/c` offerable, but not the bare `a` on its own.
+
+When what you have typed is not already in the list, the dropdown offers one
+extra entry labelled `+ Create "<path>"`, showing the canonical form of what you
+typed. **Choosing it creates nothing.** It only writes that canonical string
+into the field; the path comes into existence when you save a product carrying
+it, and not before.
+
+#### How a Category Is Stored
+
+Whatever you type is canonicalized before it is stored: the path is split on
+`/`, each segment is trimmed, empty segments are dropped, the segments are
+rejoined with single slashes, and the result is lowercased.
+
+- `Electronics/Power/` is stored and redisplayed as `electronics/power`
+- `  /Electronics // Power/DC-DC Converters/ ` becomes
+  `electronics/power/dc-dc converters`
+
+Nothing else is rewritten. Spaces inside a segment are kept as typed — there is
+no slugging and no hyphenation. A blank field, a bare `/`, or whitespace alone
+all mean "no category" and are not an error. The same rule runs on create, on
+update and on a category rename, so every path written from these forms is
+canonical. Older rows can still hold a non-canonical path; **Manage Categories**
+flags those, and they cannot be renamed until their products are re-saved (see
+below).
+
+#### Manage Categories
+
+**Products** → **Manage Categories** (`/products/categories`) shows the
+**Assigned Category Paths** card: a flat table, not an indented tree, with
+columns **Category**, **Filed here**, **In subtree** and **Actions**. Rows are
+sorted so children sit beneath their parents, and interior nodes that no product
+is filed at directly are listed too (with a **Filed here** count of 0), because
+they are real, renameable nodes.
+
+Rows are not clickable. The only action is **Rename**. A legacy row that is not
+stored in canonical form shows a **Not canonical** warning badge instead — refile
+its products from the product form to clean it up.
+
+With no categories at all the card reads "No categories yet. Categories are
+created by typing one on the product form — the tree accretes purely from use."
+
+#### Renaming a Category
+
+1. **Navigate**: **Manage Categories**, then **Rename** on the row you want.
+2. **Read the preview**: the **What Will Move** card names the **Category**, the
+   number of **Products affected**, and every path at or under it. The note
+   underneath reads "Every path listed above moves under the new path, and every
+   product filed under them is refiled in one transaction." This preview *is*
+   the confirmation step.
+3. **Type the destination** into **New Category Path \*** (up to 512
+   characters). This field deliberately has no autocomplete: the destination
+   must not already exist. It is canonicalized exactly as the product form's
+   **Category** field is, so you need not type it already-lowercased — the help
+   under it reads "Normalized the same way as the product form: lowercase,
+   `/`-separated, no leading or trailing slash. The path must not already
+   exist."
+4. **Submit**: click **Rename Category**, or **Cancel** to back out.
+
+Descendants are matched on segment boundaries, so renaming `thermal/heat` never
+catches `thermal/heatgun-parts`. Every descendant keeps its own suffix under the
+new root, and all the rows are rewritten in one transaction. On success you are
+returned to the listing with
+`Renamed category "old" to "new" — N product(s) updated.`
+
+A rename can be refused, and when it is, nothing at all is written:
+
+- `Enter the new category path.` — the destination was left blank.
+- `Select a category to rename.` — the submission named no source path. (Note
+  the wording: the guard that fires *before* the form is shown says "Pick a
+  category to rename." instead.)
+- `'x' is already this category's path — nothing to rename.`
+- `No products are filed under category 'x'.`
+- `Category 'y' already exists and holds N product(s). Rename it or pick another path — merging two branches is not supported.`
+- `Cannot rename: product(s) 1, 2 carry a non-canonical category path that overlaps this rename. Fix those products first.`
+- A path-too-long refusal naming the product whose rewritten path would exceed
+  512 characters. Every rewrite is computed before any is applied, so one
+  over-length descendant stops the whole rename.
+- `An error occurred while renaming the category. Please try again.` — the
+  rename did not run at all. On this one the form comes back with **Products
+  affected** reading `unknown` and the note "The category could not be read, so
+  what would move is unknown," because the preview could not be rebuilt either.
+
+Merging two branches is refused outright. Promoting `a/b` up to `a` is allowed
+only while nothing *else* is already filed under `a` — otherwise it is a merge
+and is refused like any other. Renaming a path down into a subtree of itself
+(`a` → `a/b`) is never a merge — but it lengthens every descendant, so it can
+still be stopped by the 512-character limit above.
+
+Three guards fire before the form is even shown, each sending you back to the
+listing: `Pick a category to rename.` when no path was given,
+`Category "X" is not stored in canonical form, so it cannot be renamed here — refile its products from the product form instead.`
+for a legacy row, and `No products are filed under category "X".` when the path
+holds nothing.
+
+### Tags
+
+Tags cut across the category tree: a product sits in exactly one category but
+can carry up to 50 tags. Like categories, there is no vocabulary to set up — the
+vocabulary is the set of tags products actually carry, and a tag vanishes when
+the last product drops it.
+
+#### Entering Tags
+
+Tags live in one comma-separated text field. It autocompletes the same way the
+category field does, with three differences: only the comma-separated fragment
+your cursor is sitting in is looked up, choosing a suggestion replaces just that
+fragment, and tags already in the field are left out of the dropdown.
+
+Each tag is normalized before it is stored: trimmed, runs of internal whitespace
+collapsed to a single space, and lowercased. `  SSR  Relay ` becomes
+`ssr relay`. Blank entries are dropped and duplicates are collapsed once
+normalized.
+
+The field is **replace-all**. There is no per-tag chip to remove; what you
+submit becomes the product's complete tag set, and clearing the field removes
+every tag.
+
+A tag cannot contain a comma, because the comma is the separator — typing
+`1,000 lb rated` gives you two tags, not one — the field never reports a comma
+as an error, it just splits there. All of the limits are checked before
+anything is written:
+
+- `Tag is too long: N characters (max 64).`
+- `Too many tags: N (max 50 per product).`
+- `The tag field is too long: N characters (max 3600). At most 50 tags of 64 characters each are allowed.`
+
+The database compares tags with accents folded, so `café` and `cafe` collide.
+Which message you get depends on where the collision is:
+
+- Between two tags in the list you just submitted:
+  `These tags cannot be saved together: the database treats two of 'a', 'b' as the same tag. Remove one of them.`
+  A long list is named in part, ending "(and N more)".
+- Between a new tag and one the product already carries:
+  `Tag 'x' conflicts with 'y', which this product already carries — the database treats them as the same tag.`
+- Neither — someone else saved the same tag at the same instant:
+  `Another save added 'x' to this product at the same time, so these tags were not written.`
+  That one is worth simply submitting again; nothing about your list was wrong.
+
+Tags are written after the product itself, so the two can come apart. If they
+do, the product exists and you are told to enter the tags again:
+`The product was saved, but its tags were not: <reason> Edit the product and enter its tags again.`
+When the problem is one that re-submitting cannot fix, the advice changes to
+"… enter different tags." A failure that was not a refusal at all names no
+reason: `The product was saved, but its tags were not. Edit the product and enter its tags again.`
+In every case nothing kept what you typed — retype the tags on the edit form
+rather than just saving again.
+
+#### Browse Tags
+
+**Products** → **Browse Tags** (`/products/tags`) shows the **Assigned Tags**
+card with columns **Tag** and **Products**, and a **View products** action on
+each row that takes you to `/products/tags/filter?tag=<tag>`. That page is
+headed **Tag: `<tag>`** and lists **Tagged Products** with columns
+**Description**, **Manufacturer / MPN** and **Category**.
+
+Tags on a product's own page are clickable badges pointing at the same filter.
+
+Empty states say what an empty result actually means: "No tags yet. Tags are
+created by typing one on the product form — the vocabulary accretes purely from
+use." and "No products are tagged "x". A tag exists only while some product
+carries it."
+
+Two guards send you back to the tag list: `Pick a tag to filter by.` when no tag
+was given, and "That is not a usable tag, so nothing could carry it. Pick one
+from the list." for a tag no product could ever hold.
+
+### Finding a Product
+
+There are four ways to a product page: scan it, search for it, follow a tag
+filter, or go straight to `/products/<id>`.
+
+#### The Search Page — A Deliberate First Cut
+
+`/products/search?q=…` exists primarily as the landing place for a scan that
+did not resolve to one record. It is headed **Search: `<query>`**, offers a
+**Create a new product** button, a refine box (**Search products** / **Search**)
+and a **Matching Products** card with columns **Internal ID**, **Description**,
+**Manufacturer / MPN** and **Category**.
+
+**Know its limits before you rely on it.** Richer search — filters, facets,
+paging and relevance ranking — is future work and is *not* available today:
+
+- **50 rows, hard cap.** There is no paging, no result total and no truncation
+  notice, so the page cannot tell you it is showing 50 of 61.
+- **Oldest first.** Results come back in the order the products were created,
+  which is also the rule deciding which matches survive the cap — so the
+  products cut first are the ones added most recently. (This is creation order,
+  not the **Internal ID** column: internal IDs are generated randomly and sort
+  arbitrarily.)
+- **Contiguous substring matching only, case-insensitive.** There is no
+  tokenization: `RES 0805` does **not** match a product described
+  `RES 10K 0805 1%`. In production the database also folds accents, so `cafe`
+  finds `café` — the same folding the [Tags](#tags) section describes.
+- **Six columns are searched**: internal id, description, notes, manufacturer,
+  MPN, and identifier values. Category path, specifications and tags are **not**
+  searched. Notes and identifier values are searched but not shown in the
+  results table, so a row can match for a reason you cannot see.
+
+Empty states: "No products match "X". Create one, or search for something else."
+for a query with no hits, and "Type something to search the catalog." for a
+blank query.
+
+If the search itself cannot run you get the flash
+`Search is unavailable right now. The scan was not lost — create the product, or try the search again.`
+and the page says "The search did not run, so nothing can be said about what
+matches. Try again, or create the product." That wording is deliberate: a failed
+search cannot claim the catalog holds nothing.
+
+### Scanning
+
+Every page carries a **Scan barcode** field in the navbar. The only thing that
+fires it is pressing Enter while that field has focus — there is no timing
+trick, and no prefix or suffix barcode is required. A scan may be up to 4096
+characters. An AIM symbology prefix such as `]d1` is tolerated and stripped, but
+never required.
+
+#### What Happens to a Scan
+
+The system classifies the scan by four rules, in order:
+
+1. A GS1 element string carrying this system's configured application
+   identifier and token — a product label this shop printed — is looked up
+   directly by its internal identifier. Both come from configuration and default
+   to application identifier `96` with the token `WIT`; a deployment that sets
+   `GS1_INTERNAL_AI` or `GS1_INTERNAL_TOKEN` uses those instead. Note that
+   **there is as yet no way to print one of these product labels**:
+   [Label Printing](#label-printing) covers JA IDs on inventory items, not
+   products. The system reads them; nothing here writes them.
+2. An ISO/IEC 15434 format-06 envelope (the header `[)>`, a record separator,
+   then `06`) is parsed as a distributor ECIA label.
+3. An all-digit value of length 8 or 12-14 that passes the GTIN check digit is
+   normalized to 14 digits and looked up as a GTIN.
+4. Anything else is searched as free text across identifiers, descriptions and
+   MPNs.
+
+A GTIN that passes its check digit but matches no product does not dead-end: it
+falls through to the free-text search within the same scan. ASIN is *not*
+scan-recognized — it exists only as a type you can pick by hand on the
+**Scanned Identifier** card — so a scanned ASIN is handled by rule 4. A valid
+envelope with nothing readable in it degrades to free text.
+
+#### Where a Scan Lands
+
+Those four rules are how a scan is *classified*. What you actually see is one of
+three landings, decided by whether anything was found:
+
+1. **A record matched** → the product's own page, carrying a blue banner headed
+   **Scanned: this product** whose body reads "The `<kind>` scan matched this
+   product." (the kind is `internal`, `ecia` or `gtin`; a free-text scan never
+   resolves to a single record, so it never produces this banner). A GTIN scan
+   adds the identifier type and value in parentheses after that sentence. The
+   banner offers **Add a purchase** and **Create a separate product instead**.
+2. **No record, but free-text hits** → the search results page,
+   `/products/search?q=…`.
+3. **No record and no hits** → the add form, pre-filled. *What* is pre-filled
+   depends on the kind of scan, and only some kinds fill **Label Description**:
+   - A **GTIN** scan fills the **Scanned Identifier** card, and nothing else.
+   - A **distributor envelope naming a part number** fills **Manufacturer Part
+     Number (MPN)** and leaves **Label Description** *blank*. Type a description
+     of your own: it is the one required field, and the part number is what the
+     scan preserved. **Order Number** is filled whenever the label carried one.
+     Two are fussier than they look: **Vendor SKU** is filled only when the label
+     states a customer part number *different* from the one used for the MPN, and
+     **Quantity** only when the label's quantity is a plain whole number — a `0`
+     or a scaled `1.5K` is deliberately left blank rather than handed to you as a
+     validation error on a field you never typed.
+   - A **distributor envelope naming no part number** fills whatever else it
+     carried *and* drops the raw label text into **Label Description**.
+   - **Anything else** — a shop-printed internal label, free text — goes into
+     **Label Description**. Not quite verbatim: control characters become spaces
+     and the text is cut to the field's 255 characters, so a very long scan
+     arrives shortened. Overtype it with something you will recognise before
+     saving.
+
+   No date is ever pre-filled. A distributor label states a `YYWW` week rather
+   than a day, so nothing is written into a date field from one.
+
+**A scan never dead-ends** — one of those three always applies.
+
+#### Scan Messages
+
+On success the scan field clears and the browser follows the destination — so
+long as you have not moved to another field in the meantime. One case is
+entirely silent: if you clear the field or type something unrelated into it
+while the scan is still in flight, the answer is discarded with no navigation
+and no message. Otherwise anything out of the ordinary raises a short pop-up
+message:
+
+| Message | What it means |
+|---------|---------------|
+| `Previous scan still in progress - rescan this item.` | A second scan arrived while the first was still in flight. |
+| `That text was two scans run together and was not sent - scan again. Discarded: <text>` | The field held two runs of scan text; nothing was sent. |
+| `Scan timed out - the server may or may not have received it.` | The browser waited ten seconds for an answer and gave up. Check before rescanning. |
+| `Scan failed: could not reach the server.` | The scan text is kept in the field for retry. |
+| `Scan status unknown - check before rescanning.` | The client could not tell what happened. |
+| `Scan accepted. The field now holds two scans run together - scan the next item again.` | The scan was captured, but the field is contaminated. |
+| `Scan accepted: <text>. It had no usable destination - find the product from the menu.` | Captured, but with nowhere to go. |
+| `Scan accepted: <text>. You had moved to another field, so it was not followed.` | Captured; you had clicked elsewhere, so you were not navigated away. |
+| `Scan failed: <reason>` | The server would not resolve the scan. Usually a refusal of the scan itself — an empty one, or one over the 4096-character limit — but a backend fault reads the same way: `Scan failed: Failed to resolve scan` means the database or the scan configuration is broken, not that your barcode was bad. |
+| `Scan failed. The scanned text has been kept for retry.` | The server failed with no usable reason. The text stays in the field. |
+
+The four messages that put your text back in the field for retry — the timeout,
+`could not reach the server`, `Scan failed: <reason>` and
+`Scan failed. The scanned text has been kept for retry.` — may instead end with
+`Unrestored scan: <text>`. That means a later scan was already typing into the
+field, so the failed text could not be put back; copy it from the message
+before rescanning. `Scan status unknown - check before rescanning.` never
+touches the field at all, so it neither restores your text nor carries it.
+
+### Purchases and Attachments
+
+A product's page shows a **Purchases** card with **Last paid: $x** in its
+header, an **Add a purchase** button, and a table of **Order Date**,
+**Vendor**, **Unit Price** and **Received**. With no history it reads "No
+purchases recorded."
+
+To record one:
+
+1. Click **Add a purchase** on the product page (or **Add a purchase** in a
+   scan arrival banner, which pre-fills what the scanned label carried).
+2. Fill in **Purchase Details**: **Vendor**, **Vendor SKU**, **Order Date**
+   (`YYYY-MM-DD`, "Defaults to today when left blank."), **Received Date**
+   ("Blank means the order is still on its way."), **Quantity**, **Unit
+   Price**, **Order Number** and **Source URL**.
+3. Click **Record Purchase**. **Cancel** returns to the product.
+
+Both dates must be written `YYYY-MM-DD`; anything else is refused with
+`<Field> must be an ISO date (YYYY-MM-DD).` **Unit Price** takes a plain
+decimal number — no currency symbol, no thousands separator, not negative, at
+most two decimal places, and below 100000000 — each rule having its own message
+(`Unit Price must be a decimal number.`, `Unit Price must not be negative.`,
+`Unit Price must have at most two decimal places.`,
+`Unit Price must be less than 100000000.`).
+
+You get `Purchase recorded.` on success and
+`Failed to record the purchase. Please try again.` if the write did not land.
+
+The **Attachments** card lists each file with its type and size in KB and links
+it — the link opens the file in a new tab rather than downloading it — and
+carries an upload form. With nothing attached it reads "No attachments." Its help
+reads "PDF or image (JPEG, PNG, WebP, GIF), up to 16 MB." Uploads report
+`Attachment uploaded.`, `No file selected.`,
+`Unsupported attachment type: <ct>.`,
+`Attachment exceeds the maximum size of 16 MB.`, `Attachment content is empty.`
+for a zero-byte file, `Filename is too long (max 255 characters).`, or
+`An error occurred while uploading the attachment.` when the failure was
+unexpected.
+
+The foot of the page carries the product's **Created** and **Updated**
+timestamps.
+
+### Editing a Product
+
+1. **Navigate**: open the product page and click **Edit**.
+2. **Change what you need**: the **Edit Product** form carries the same
+   six-field **Product Information** card, with the same labels, help text and
+   limits as the add form.
+3. **Submit**: click **Update Product**, or **Cancel** to return to the product
+   page unchanged.
+
+Success flashes `Product updated successfully!`; a failed write flashes
+`Failed to update product. Please try again.`, or
+`An error occurred while updating the product. Please try again.` when the
+failure was unexpected.
+
+One outcome is easy to misread: if the fields save but the tags do not, you are
+returned to the product page with **only the tag error and no success message**,
+even though every other change was saved. Do not re-submit the form on that
+message — the edit landed; only the tags need fixing.
+
+The edit form has no **Scanned Identifier** card, no **First Receipt** block and
+no duplicate-confirmation block — those belong to creation only. Clearing a
+field clears the stored value, which is how you remove a category or all of a
+product's tags. (The form always submits every field, so there is no way to omit
+one and have it keep its stored value — that distinction only matters to the
+[REST API](#rest-api).)
+
+### Troubleshooting Products
+
+| What you see | What to do |
+|--------------|------------|
+| `Label Description is required.` | Every product needs a description; it is the only required field. |
+| `Category must be 512 characters or fewer.` (or the same message for another field) | Shorten the value. You will normally meet this on a scan-routed form, since the input itself stops you typing past the limit — and silently shortens anything you paste. |
+| `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. |
+| `The product was saved, but its first receipt was not recorded. Add the purchase from the product page.` | The product exists. Use **Add a purchase** on it; do not re-submit the create form. |
+| `The product was saved, but its tags were not: …` | The product exists. Open **Edit** and enter the tags again (or different ones, if the message says so). |
+| `The product was saved, but the scanned identifier was not attached: …` | Either a uniqueness clash — the identifier still belongs to the product that already holds it — or a GTIN that failed its check digit. The product exists and there is no page for attaching an identifier to it, so note the barcode down; do not re-submit the create form. |
+| `This scan already matched an existing product. Confirm below that you want to create a separate product anyway.` | Follow the link in the warning first. Only tick the box if you genuinely want a second product. |
+| A rename refused because the destination "already exists and holds N product(s)" | Pick a destination path that does not exist yet; merging two branches is not supported. |
+| A rename refused because products "carry a non-canonical category path" | Open each named product and re-save its category from the product form, then retry the rename. |
+| `Search is unavailable right now. The scan was not lost — create the product, or try the search again.` | The search backend did not answer. The page makes no claim about what exists — retry, or create the product. |
+| A search that "misses" something you know exists | The search matches contiguous substrings only, caps at 50 rows oldest-first, and does not look at categories or tags. See [Finding a Product](#finding-a-product). |
+| The product you want is not in any menu | There is no product list page. Scan it, search for it, filter by one of its tags, or go to `/products/<id>`. |
+
 ## Data Export
 
 The system provides comprehensive data export functionality to backup your inventory data and materials taxonomy to Google Sheets or download as JSON data. This feature is essential for data backup, reporting, and integration with other systems.
@@ -1120,6 +1709,10 @@ the `product_tags` table, which likewise *is* the tag vocabulary: a tag
 is offered only once some product carries it, and it disappears when the
 last product drops it. Empty/whitespace values are excluded.
 Comparisons are case-insensitive throughout.
+
+For how these suggestions behave on screen — the `+ Create "…"` entry, category
+canonicalization, and the comma-separated tag field — see
+[Products and Catalog](#products-and-catalog).
 
 #### Path parameter — `<field>`
 

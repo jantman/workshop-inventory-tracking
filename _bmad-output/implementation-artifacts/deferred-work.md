@@ -340,7 +340,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-1-materialized-path-catego
 location: `docs/user-manual.md`
 reason: `docs/user-manual.md` has no Products/Catalog chapter at all, so every operator-facing catalog behavior — including Story 3.1's silent canonicalization of a typed category — is documented only inside the REST API reference.
 evidence: The manual's chapters run Getting Started, Adding New Inventory, Label Printing, Managing Existing Inventory, Advanced Search, Batch Operations, Data Export — none covers products, which Story 1.3 shipped with add/edit/detail pages. Story 3.1 therefore had nowhere operator-facing to say that typing `Electronics/Power/` stores and redisplays `electronics/power`, or that `+ Create "…"` files a product under a new path rather than creating anything; it documented the `normalized` response key under `GET /api/inventory/field-suggestions/<field>` instead, and the "Form Features" bullet at line 89 still lists only the five item fields because it sits in the Add Item chapter. The gap predates this story (it is Epic 1's), and closing it means authoring a Products chapter — a documentation unit larger than any one story in Epic 3 should bolt on.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-products-user-manual-chapter
 
 ### DW-42: LIKE-wildcard escaping has two independent implementations in `app/mariadb_catalog_service.py` that agree today and are free to drift
 origin: migrated from legacy ledger ("3-2-category-rename-with-descendants.md"), 2026-07-26
@@ -1092,4 +1093,56 @@ location: `app/static/js/main.js:302` (`utils.showLoading`), `app/static/js/main
 severity: low
 summary: Three sibling helpers in the very `utils` object DW-54 hardened still build markup by interpolating a caller-supplied argument or stored item data into `innerHTML` — `showLoading(element, text)`, `showLoadingOverlay(message)`, and the recent-items dropdown, which splices `item.ja_id`, `item.type`, `item.shape` and `item.material` from `localStorage` into `link.innerHTML`.
 evidence: `grep -n "innerHTML" app/static/js/main.js` shows `:302` and `:321` interpolating `${text}` / `${message}` and `:645` interpolating four item fields. Severity is low only because all three are currently unreachable: `grep -rn "showLoading(\|showLoadingOverlay(\|createRecentItemsDropdown(" app/` finds no caller of the `utils` versions (`inventory-list.js:280` and `inventory-search.js:172` call their own objects' methods), and `createRecentItemsDropdown` returns early because nothing calls `addToRecentItems`, so `localStorage.recentItems` is never populated. That is exactly what makes it a ledger item rather than a live bug — and exactly what makes it a trap: the recent-items feature is written and waiting to be wired up, and the day someone calls `addToRecentItems(item)` with a server-derived item, `main.js` gets a fresh HTML sink fed by inventory data. Not caused by DW-54 and deliberately out of its scope (the spec's `Never` clause confines the change to the toast sink and leaves the other inline-alert sinks to their own entries); surfaced because reviewing the toast rewrite meant reading the rest of the file. Fix is the same shape that worked for the toast: build the nodes and set text with `textContent`, or delete the dead helpers outright if the recent-items feature is not coming back.
+status: open
+
+### DW-128: The Add Item chapter's "Auto-complete" bullet lists five fields, but `field-autocomplete.js` registers seven
+origin: spec-products-user-manual-chapter
+source_spec: `_bmad-output/implementation-artifacts/spec-products-user-manual-chapter.md`
+location: `docs/user-manual.md` line 98-102 (`### Form Features` → `- **Auto-complete**`)
+severity: medium
+summary: The bullet enumerates Thread Size, Purchase Location, Vendor, Location and Sub-Location as the fields with database-backed suggestions; `app/static/js/field-autocomplete.js` also registers `category_path` and `tags`, so the list is now contradicted by the manual's own Products and Catalog chapter and by its REST API section.
+evidence: `app/static/js/field-autocomplete.js:676-700` registers seven inputs — the five named plus `{ inputId: 'category_path', field: 'category_path' }` (689) and `{ inputId: 'tags', field: 'tags' }` (698), the latter with the caret-scoped fragment behavior the new chapter documents at "Entering Tags". The bullet sits inside the **Adding New Inventory** (item) chapter and describes the item form, so correcting it is an Add-Item-chapter pass rather than a product one; DW-41's own evidence flagged this staleness at line 89 before the Products chapter existed, and adding that chapter made the contradiction visible rather than causing it. The spec for DW-41 explicitly forbade editing unrelated chapters.
+status: open
+
+### DW-129: The user manual's Table of Contents omits `## Quick Reference Card`
+origin: spec-products-user-manual-chapter
+source_spec: `_bmad-output/implementation-artifacts/spec-products-user-manual-chapter.md`
+location: `docs/user-manual.md` lines 3-16 (Table of Contents) and line 1958+ (`## Quick Reference Card`)
+severity: low
+summary: `## Quick Reference Card` is a top-level chapter with no Table of Contents entry, so the TOC runs 1-13 and stops at Troubleshooting while a fourteenth chapter follows it in the file.
+evidence: `grep -n '^## ' docs/user-manual.md` lists `## Quick Reference Card` after `## Troubleshooting`; the TOC's last item is `13. [Troubleshooting](#troubleshooting)`. Pre-existing — the chapter was unlisted before the Products chapter was added, and the DW-41 change only renumbered entries 8-13, which is why the omission surfaced during that review without being caused by it. Fixing it is a one-line TOC addition, but it changes a chapter list the DW-41 spec scoped to "the TOC entry + renumbering" only.
+status: open
+
+### DW-130: The manual's "Main Navigation" list omits the Admin menu and the JA ID Quick Lookup field
+origin: spec-products-user-manual-chapter
+source_spec: `_bmad-output/implementation-artifacts/spec-products-user-manual-chapter.md`
+location: `docs/user-manual.md` lines 31-44 (`### Main Navigation`)
+severity: low
+summary: The list now names Home, Add Item, Search, Inventory List, Move Items, Shorten Items, Products and Scan barcode, but `app/templates/base.html` also renders an **Admin** dropdown and a **JA ID Quick Lookup** field in the same navbar, neither of which appears anywhere in the manual's navigation list.
+evidence: `app/templates/base.html:69` renders the `Admin` entry and `:74` the `<!-- JA ID Quick Lookup -->` block, both siblings of the Products dropdown and the scan field that DW-41 added to this list. Pre-existing gap: the two omissions predate the Products chapter, and DW-41's spec restricted edits outside the new chapter to adding the Products menu and the scan field, so completing the list was out of scope for it.
+status: open
+
+### DW-131: The pre-existing `Barcode Scanner Support` section and its troubleshooting entry predate the scan router and now compete with the Products chapter's Scanning section
+origin: spec-products-user-manual-chapter
+source_spec: `_bmad-output/implementation-artifacts/spec-products-user-manual-chapter.md`
+location: `docs/user-manual.md` line 1852 (`### Barcode Scanner Support`) and line 1917 (`#### "Barcode scanner not working"`)
+severity: low
+summary: An operator whose scan misbehaves reaches the older Barcode Scanner Support / "Barcode scanner not working" advice, which is about wedge configuration and item JA IDs and carries no pointer to the Products chapter's `#### Scan Messages` table — the only place the ten client messages and their meanings are documented.
+evidence: Both headings exist untouched at `docs/user-manual.md:1852` and `:1917`; `grep -n '#scanning' docs/user-manual.md` shows the only cross-references to the new Scanning section come from the Main Navigation list and from within the Products chapter. The navbar scan field is a global, every-page feature whose behavior is now documented as a `###` inside a product chapter, so the two treatments of scanning need reconciling — either a cross-reference from the troubleshooting section or a promotion of the scan documentation. DW-41's spec forbade rewriting unrelated chapters, which is why the duplication was left standing.
+status: open
+
+### DW-132: The Quick Reference Card's "Most Common Operations" list predates products, catalog and scanning entirely
+origin: spec-products-user-manual-chapter
+source_spec: `_bmad-output/implementation-artifacts/spec-products-user-manual-chapter.md`
+location: `docs/user-manual.md` line 2059 (`### Most Common Operations`, inside `## Quick Reference Card`)
+severity: low
+summary: The four numbered operations are Add Item, Find Item, Move Items and List All — all inventory-item workflows. Nothing in the card mentions adding a product, finding one, the navbar scan field, or the `Products` menu, so the manual's own at-a-glance page still describes a system without a catalog.
+evidence: `sed -n '2057,2062p' docs/user-manual.md` shows the list unchanged: `1. **Add Item**`, `2. **Find Item**`, `3. **Move Items**`, `4. **List All**`. The Products and Catalog chapter added by DW-41 documents nine product workflows and the every-page scan field, none of which reached this card. Distinct from DW-129, which is about the Table of Contents omitting the `## Quick Reference Card` heading, not about the card's contents. Pre-existing in the sense that the card was already stale for Epics 3 and 4 before the chapter existed; adding the chapter made the staleness legible rather than causing it, and the DW-41 spec's `Never` clause confined edits outside the new chapter to the TOC entry, the Main Navigation list and one REST cross-reference.
+status: open
+
+### DW-133: Follow-up review still recommended for dw-products-user-manual-chapter after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-products-user-manual-chapter.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
