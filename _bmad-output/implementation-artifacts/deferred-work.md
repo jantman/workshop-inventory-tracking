@@ -232,7 +232,8 @@ source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
 severity: medium
 summary: DW-17 records the residual eviction risk as beginning past `_SCAN_URL_Q_LIMIT` (1024 characters), "past every VARCHAR the fallthrough search touches". `_bounded_scan_url` then halves the longest argument repeatedly until the assembled URL fits 7000 characters, which for a multi-byte alphabet drives `q` well back inside that range — a 4096-character CJK or emoji scan percent-encodes to roughly twelve bytes per character, so `q` is halved from 1024 to 256 while `hit_count` was computed from the full scan.
 evidence: Found by the third adversarial review of Story 4.5, reading the two bounds against each other. Each is individually correct — the transport bound genuinely can only be measured on the assembled URL, and truncating the longest value is the least-bad way to hit it — but their composition means the truncation point is a function of the scanned alphabet rather than the fixed 1024 the ledger and the docstring both state. The consequence is DW-17's exactly: a prefix matches a superset that `search_products`' 50-row ascending-id cap can fill with other products. DW-17 is deliberately not edited (the orchestrator owns it); this entry records the composition. The cheap partial fix is to floor the halving so `q` is never cut below a stated minimum and to drop OTHER arguments first, since every one of them is a re-editable pre-fill while `q` is the only value the results depend on.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-scan-url-q-floor
 
 ### DW-29: The identifier rules are inherited by `product_edit`, which renders neither field nor feedback
 origin: story-4-5-review-3
@@ -1218,4 +1219,49 @@ origin: review-budget-followup
 source_spec: `spec-scan-trim-rule-single-home.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-142: Phase 1 sheds every pre-fill before phase 2 discovers how much budget flooring `q` frees
+origin: spec-scan-url-q-floor-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-scan-url-q-floor.md`
+location: `app/main/routes.py:2200-2222` (`_bounded_scan_url`), `app/main/routes.py:1412-1431` (`product_search`'s create link)
+severity: medium
+summary: The two phases run greedily in sequence rather than solving against the final `q`, so a multi-byte search scan deletes 100% of its pre-fills to buy budget that flooring `q` was about to free anyway — and the create escape hatch on the results page loses the label's receipt data with 837-2373 characters of headroom left unused.
+evidence: Measured against the live app. `_bounded_scan_url('main.product_search', q='漢'*1024, mpn='ABC-123', quantity='5', order_number='PO-1234', vendor_sku='XYZ-9')` returns a 4627-character URL with all four pre-fills deleted and 2373 characters spare; building the same URL with `q` floored to 512 FIRST gives 4688 characters with all four intact. The astral equivalent finishes at 6163 with 837 spare, where the four pre-fills cost ~60. Cyrillic (2-byte) never enters phase 1 at all, so identical scans keep or lose their whole pre-fill set on alphabet alone. The consequence is not confined to the URL: `product_search` builds `create_url` from exactly those forwarded `_PRODUCT_PREFILL_ARGS`, and its `if query and not create_args` fallback then dumps the floored `q` into `description` — the untyped, blank-`mpn` create outcome `_scan_banner_args` says FR39 forbids, and no `_RECEIPT_FIELDS` survive to record a Purchase. NOT a deviation: the intent contract's Always list mandates this order ("Every non-`q` argument is exhausted (halved to nothing and dropped) before `q` is touched at all"), and the code implements it exactly. What is deferred is the mandated order itself — a single budget-aware pass that floors `q` and then re-adds pre-fills while they fit would honour the same priority (`q` outranks every pre-fill) without paying for it. Shares a root cause with DW-143.
+status: open
+
+### DW-143: Phase 2 is a one-shot cut to exactly the floor, so the stated truncation interval has no interior
+origin: spec-scan-url-q-floor-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-scan-url-q-floor.md`
+location: `app/main/routes.py:2218-2222` (`_bounded_scan_url`'s second loop)
+severity: low
+summary: `q` reaches `_bounded_scan_url` already capped at `_SCAN_URL_Q_LIMIT` (1024), so a single halving always lands at or below 512 and `max(..., _SCAN_URL_Q_FLOOR)` pins it exactly there — `q` is shortened further than the transport requires, and a shorter prefix is a WIDER prefix match, so the eviction window the floor exists to narrow is wider than it needs to be.
+evidence: Measured: `q = '漢' * 1024` is cut to 512 for a 4627-character URL, 2373 characters under budget, while a 775-character `q` builds a 6994-character URL that fits — 263 characters of the operator's search term discarded for nothing. The interval the docstrings now promise (`_SCAN_URL_Q_LIMIT` down to `_SCAN_URL_Q_FLOOR`) therefore has exactly two reachable values, 1024 and 512, and no input lands strictly inside it. The fix is to cut `q` to the largest length that fits, floored at `_SCAN_URL_Q_FLOOR`, for the same number of `url_for` rebuilds. Out of scope here because the intent contract specifies the halving rule literally (`max(len // 2, _SCAN_URL_Q_FLOOR)`) and the Design Notes derive the floor from it.
+status: open
+
+### DW-144: The shrink candidate set is a type test, not an allow-list of query arguments
+origin: spec-scan-url-q-floor-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-scan-url-q-floor.md`
+location: `app/main/routes.py:2203-2204` (`isinstance(value, str)` in `_bounded_scan_url`)
+severity: low
+summary: Path arguments are kept out of the shrink loop by testing their TYPE rather than by naming the query arguments, so an endpoint with a `<string:...>` or `<path:...>` converter would have its path segment halved and then deleted outright — first silently building a URL for the wrong resource, then raising `BuildError` out of `url_for` as an uncaught 500 inside the scan API, the dead end FR36/FR40 forbid.
+evidence: The guard works today only because the one path argument in play — `product_detail`'s `product_id` — is an int, and `_bounded_scan_url` is called with just three endpoints. But `app/main/routes.py` does define string-converter routes (`<ja_id>`, `<field>`), so nothing structural stops a fourth call site from being added, and the docstring at `_bounded_scan_url` invites the reader to believe the guard is about path arguments in general rather than about ints. The new `del args[costliest]` branch sharpens the failure from "wrong resource" to "BuildError": the pre-change code halved to `''` and the `and value` filter then left the key in place. An explicit allow-list of query-argument names, or reading the endpoint's `arguments` off the url map, would make the guard say what the docstring claims.
+status: open
+
+### DW-145: Phase 1 halves control and coupled values instead of dropping them as a unit
+origin: spec-scan-url-q-floor-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-scan-url-q-floor.md`
+location: `app/main/routes.py:2203-2216` (`_bounded_scan_url`'s phase 1), `app/main/routes.py:1880-1882` (`_scan_prefill_args`)
+severity: low
+summary: The loop treats every string argument as independently truncatable text, but several are not: `identifier_type`/`identifier_value` are emitted as a pair and the new `del` can remove the value while keeping the 4-character type; wire values like `scan_kind` and `identifier_type` halve to `'GT'`; and `quantity` `1000` -> `10` or a shortened `order_number` renders on the create form as a perfectly plausible value the operator may save as if it were what the label said.
+evidence: `_scan_prefill_args` emits the identifier pair together and `_SCAN_URL_ARG_LIMITS` sizes `identifier_value` at 255, so nothing in `_bounded_scan_url` knows the two travel together or that a normalized GTIN is at most 14 digits. Reachability is narrow — `max` picks the costliest candidate, so a short numeric or enum value is only reached once everything else is already shorter, by which point the URL usually fits — but the loop's own contract offers no bound on it, and phase 1 now runs to exhaustion on every over-budget search scan (DW-142) rather than stopping early as the pre-change halving did. Dropping these fields outright rather than halving them would close it, but must not empty the ECIA create arm entirely, whose `mpn`/`vendor_sku`/`quantity`/`order_number` pre-fill carries no `description` to fall back on (FR40) — which is why it is a design decision rather than a patch.
+status: open
+
+### DW-146: A transport-shrunk pre-fill reaches the create form with nothing marking it as shortened
+origin: spec-scan-url-q-floor-review-3
+source_spec: `_bmad-output/implementation-artifacts/spec-scan-url-q-floor.md`
+location: `app/main/routes.py:2200-2216` (`_bounded_scan_url`'s phase 1), `app/main/routes.py:1073-1080` (`_prefill_form_data`)
+severity: low
+summary: `_prefill_form_data`'s docstring states the module's rule for pre-fill length — "a too-long pre-fill earns a field message rather than being silently shortened behind the operator's back" — but `_bounded_scan_url` shortens pre-fills upstream of it for transport reasons, and the halved value arrives inside its column limit, so it renders as an ordinary valid entry and nothing on the page says it is a prefix of what the label carried.
+evidence: Measured against the live app: an ECIA create URL whose five pre-fills sit at their real `_SCAN_URL_ARG_LIMITS` caps in astral text is 15371 characters unbounded, and `_bounded_scan_url` returns it at 6923 with `description` cut to 63 and `mpn`/`vendor_sku`/`order_number` to 127 — every one of them comfortably inside `products.mpn`'s VARCHAR(255), so `_validate_product_form` accepts them on POST without a field message and a half-MPN saves cleanly. `_scan_url_value` justifies ITS truncation with "a value past the column limit could not have been saved anyway", which does not cover a value cut from inside the limit; and `_scan_banner_args` emits no marker a template could render. Pre-existing rather than caused by this story — the pre-change "halve the longest" loop truncated the same values — and distinct from DW-142 (which is about the search arm's create link losing its pre-fills entirely) and DW-145 (which is about values a prefix of which is a different value, not a shorter one). What is missing is a signal: either a `scan_truncated` marker the create page can turn into a banner, or a rule that transport shrinking drops a pre-fill outright rather than emitting a plausible prefix.
 status: open

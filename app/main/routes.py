@@ -37,6 +37,11 @@ from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
 from decimal import Decimal, InvalidOperation
+# Story 4.5: `_bounded_scan_url` ranks its shrink candidates by what each one
+# actually costs the URL — its encoded length under the rules werkzeug builds
+# query strings with — not by how many characters it holds. See
+# `_URL_QUERY_SAFE` for why the two are not the same thing.
+from urllib.parse import quote_plus
 import traceback
 from config import Config
 
@@ -1963,6 +1968,12 @@ def _scan_search_text(classification):
 # touches, so a scan long enough to be cut here could only have matched through
 # `products.notes` (TEXT) — see `_scan_url_value` on why cutting `q` is not the
 # harmless truncation it looks like.
+#
+# This is the CEILING, not the whole rule. A URL that still overruns the
+# transport with `q` at 1024 is shrunk again by `_bounded_scan_url` — which
+# sheds every pre-fill first and then stops `q` at `_SCAN_URL_Q_FLOOR`, itself
+# past that same set of VARCHARs. So the sentence above stays literally true of
+# a cut `q` as well, and in every alphabet rather than only in ASCII.
 _SCAN_URL_Q_LIMIT = 1024
 
 # Every value a scan-built URL can carry, bounded by the column it targets
@@ -2035,6 +2046,16 @@ def _scan_url_value(name, value):
     it is not claimed away here. `_scan_search_text` itself is uncapped, so
     `TestSearchTextAgreesWithTheResolver` still pins the derivation rule.
 
+    `_SCAN_URL_Q_LIMIT` is where that cut STARTS, not where it ends.
+    `_bounded_scan_url` cuts `q` again when the assembled URL still overruns the
+    transport, and on a multi-byte alphabet it always does — 1024 astral
+    characters percent-encode to 12288, over budget however much else is
+    dropped. That second cut is floored at `_SCAN_URL_Q_FLOOR`, chosen to sit
+    past the very same VARCHARs, so the guarantee reads `_SCAN_URL_Q_LIMIT` down
+    to `_SCAN_URL_Q_FLOOR` and never below: one interval, identical for ASCII
+    and for astral, rather than a truncation point that slides with whatever
+    alphabet happened to be on the label.
+
     Control characters become spaces — in a PRE-FILL, and never in `q`. A wedge
     can deliver NUL or a stray RS/GS, and an `<input>` cannot render one: the
     value would reach `description` (the one required field on the create form)
@@ -2077,6 +2098,39 @@ def _scan_url_args(args):
 # scheme, host and the `Cookie` header that rides alongside it.
 _MAX_SCAN_URL_CHARS = 7000
 
+# How far down `_bounded_scan_url` may cut `q`, and the one number that has to
+# satisfy two unrelated constraints at once. They meet with room to spare rather
+# than in conflict:
+#
+# - From below: 512 is past the largest VARCHAR the fallthrough search touches
+#   (255 — `products.description`/`manufacturer`/`mpn` and
+#   `product_identifiers.value`; `internal_id` is 32), so DW-17's "a cut `q` can
+#   only over-match through `products.notes` (TEXT)" stays literally true of a
+#   `q` sitting on the floor.
+# - From above: twelve characters is the most one Python character can
+#   percent-encode to (4 UTF-8 bytes, each written `%XX`), so a floored `q` is
+#   at worst 512 * 12 = 6144 characters; plus `/products/search?q=` that is
+#   ~6163, inside `_MAX_SCAN_URL_CHARS`. A `q` on the floor is therefore always
+#   transportable on its own, whatever the alphabet.
+#
+# `_SCAN_URL_Q_LIMIT` itself cannot be the floor: 1024 * 12 is 12288, over
+# budget however much else is dropped. One halving is thus the strongest floor
+# the transport can actually guarantee, and it is already double the widest
+# column — so nothing is bought by going lower.
+_SCAN_URL_Q_FLOOR = 512
+
+# The characters werkzeug leaves literal in a query string, so that ranking a
+# shrink candidate by cost can measure the cost the URL will ACTUALLY carry.
+# `werkzeug.urls._urlencode` is `urlencode(items, safe="!$'()*,/:;?@")`, and
+# `urlencode` quotes with `quote_plus` — so a space costs ONE character (`+`)
+# and each of those reserved characters costs one, where the obvious
+# `quote(value, safe='')` charges three apiece. The gap is the same class of
+# error as ranking by character count, not a rounding difference: 255
+# characters of ordinary spaced English score 331 under `quote(safe='')` and
+# really cost 255, so they outrank — and would be cut instead of — a
+# 50-character Cyrillic value that really costs 300.
+_URL_QUERY_SAFE = "!$'()*,/:;?@"
+
 
 def _bounded_scan_url(endpoint, **args):
     """`url_for`, with the assembled URL bounded to what the transport accepts.
@@ -2091,17 +2145,78 @@ def _bounded_scan_url(endpoint, **args):
     expands one character to between one and twelve bytes depending on the
     alphabet, so a per-value byte cap has to assume the worst case for every
     value at once and mangles ordinary non-Latin text to buy a bound it already
-    had. Here the longest value is halved until the URL fits, so an alphabet
-    that encodes compactly is never charged for one that does not.
+    had. Here values are halved until the URL fits, so an alphabet that encodes
+    compactly is never charged for one that does not.
+
+    WHICH value is halved is not "the longest", and that obvious rule was the
+    bug. The arguments are not interchangeable: every one except `q` is a
+    re-editable PRE-FILL, landing in a form field the operator can retype, while
+    `q` is the search term the results page is built from — and cutting `q`
+    widens the match into a superset that `search_products`'s first-50-by-
+    `products.id` window can evict the counted hits out of (`_scan_url_value`
+    spells that out). Halving the longest charged the two the same, and on a
+    multi-byte alphabet `q` IS the longest, so `q` was cut first and its
+    truncation point became a function of the scanned alphabet — ~256 characters
+    for astral text — rather than the `_SCAN_URL_Q_LIMIT` the docstrings claim.
+
+    So, two phases. Every non-`q` argument is exhausted first: the COSTLIEST is
+    halved, and dropped outright once halving empties it, until either the URL
+    fits or nothing is left to shed. Costliest by what the value costs the
+    assembled URL (`_URL_QUERY_SAFE`) rather than by character count, because
+    the same reason a per-value byte cap was wrong makes a character-count
+    ranking wrong here too — and `_scan_url_args` caps every pre-fill at its
+    column, so in the shape production actually emits the candidates are
+    routinely TIED at 255 characters while costing anywhere from 255 to 3060
+    characters of URL. Ranked by characters, `max` breaks that tie by dict order
+    and can halve a compact ASCII value to nothing while the astral value that
+    caused the overrun is never touched.
+
+    Only then is `q` touched, and it is halved against a floor rather than to
+    nothing — `max(len // 2, _SCAN_URL_Q_FLOOR)`, stopping AT the floor instead
+    of passing it. A `q` on the floor fits the budget by itself in the worst
+    alphabet there is, so the halving never has to choose between the floor and
+    the transport, and the promise "`q` is cut to somewhere between
+    `_SCAN_URL_Q_LIMIT` and `_SCAN_URL_Q_FLOOR`, never below" holds for every
+    alphabet instead of only for ASCII.
+
+    Both loops strictly decrease a non-negative integer each iteration
+    (`n // 2 < n` for `n >= 1`; `max(n // 2, floor) < n` for `n > floor`), so
+    both terminate on every input. Phase 1's `break` is neither an error path
+    nor a rare one: it is the ordinary handoff to phase 2, taken by every
+    over-budget search URL carrying nothing but `q` — which is the commonest
+    over-budget shape there is. What cannot happen as the constants stand is
+    RETURNING an over-budget URL: phase 1 can always shed the pre-fills down to
+    the bare path, and phase 2 can always reach a floored `q`, which fits the
+    budget on its own in the worst alphabet. Should an edit to those constants
+    break that, the function still returns the shortest URL it managed rather
+    than raising — an over-long URL is a transport dead end (a 414 or a 400,
+    which is what the budget exists to avoid), but an exception inside `url_for`
+    is the same dead end reached through a 500, and the shorter URL is at least
+    the one with a chance of arriving.
+
+    The `isinstance(value, str)` guard keeps path arguments (`product_detail`'s
+    int `product_id`) out of the candidate set: slicing one would build a URL
+    for a different product, or for none.
     """
     url = url_for(endpoint, **args)
     while len(url) > _MAX_SCAN_URL_CHARS:
-        longest = max((name for name, value in args.items()
-                       if isinstance(value, str) and value),
-                      key=lambda name: len(args[name]), default=None)
-        if longest is None:
+        costliest = max((name for name, value in args.items()
+                         if name != 'q' and isinstance(value, str) and value),
+                        key=lambda name: len(quote_plus(args[name],
+                                                        safe=_URL_QUERY_SAFE)),
+                        default=None)
+        if costliest is None:
             break
-        args[longest] = args[longest][:len(args[longest]) // 2]
+        shrunk = args[costliest][:len(args[costliest]) // 2]
+        if shrunk:
+            args[costliest] = shrunk
+        else:
+            del args[costliest]
+        url = url_for(endpoint, **args)
+    while (len(url) > _MAX_SCAN_URL_CHARS
+           and isinstance(args.get('q'), str)
+           and len(args['q']) > _SCAN_URL_Q_FLOOR):
+        args['q'] = args['q'][:max(len(args['q']) // 2, _SCAN_URL_Q_FLOOR)]
         url = url_for(endpoint, **args)
     return url
 

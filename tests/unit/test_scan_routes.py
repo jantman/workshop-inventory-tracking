@@ -28,13 +28,16 @@ that raises, which no input can produce.
 import logging
 import re
 from html import unescape
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 import pytest
+from flask import url_for
 
 from app.mariadb_catalog_service import CatalogService
-from app.main.routes import (_SCAN_LOG_CHARS, _scan_search_text,
-                             _scan_url_value)
+from app.main.routes import (_MAX_SCAN_URL_CHARS, _SCAN_LOG_CHARS,
+                             _SCAN_URL_Q_FLOOR, _SCAN_URL_Q_LIMIT,
+                             _URL_QUERY_SAFE, _bounded_scan_url,
+                             _scan_search_text, _scan_url_value)
 from app.models import IdentifierType, ScanKind
 from app.utils import scan_router
 from app.utils.scan_input import MAX_SCAN_LENGTH
@@ -794,7 +797,13 @@ class TestTheRoutedUrlIsAlwaysBuildable:
         data = client.post('/api/scan', json={'raw': long_text}).get_json()
 
         assert data['outcome'] == 'search'
-        assert len(_query(data['url'])['q']) <= 1024
+        # Exactly the ceiling, not merely inside it. The interval this bound
+        # lives in has two ends — `_SCAN_URL_Q_LIMIT` down to
+        # `_SCAN_URL_Q_FLOOR` — and the claim the change rests on is that
+        # neither end moves with the alphabet. `<= 1024` would stay green if
+        # this ASCII scan were cut to the floor as an astral one is, which is
+        # the whole failure the floor exists to make impossible.
+        assert len(_query(data['url'])['q']) == _SCAN_URL_Q_LIMIT
         page = client.get(data['url'])
         assert page.status_code == 200
 
@@ -857,6 +866,270 @@ class TestTheRoutedUrlIsAlwaysBuildable:
         assert data['hit_count'] == 1
         assert _query(data['url'])['q'] == raw
         assert _query(data['url'])['description'] == 'SEP ARATED'
+
+    def test_an_astral_search_scan_still_leaves_q_on_the_floor(
+            self, client, test_storage):
+        """Where `q` is cut must not be a function of the scanned ALPHABET.
+
+        One astral character percent-encodes to twelve, so a full
+        `_SCAN_URL_Q_LIMIT` slice of astral text is 12288 characters — over the
+        transport budget no matter what else is dropped, which means the
+        shrinking loop always runs on this alphabet and never runs on ASCII.
+        "Halve the longest until it fits" therefore cut `q` to ~256 here while
+        leaving it at 1024 for the same-length Latin scan, re-opening the
+        eviction DW-17 records at a bound nothing in the code states. The
+        halving now stops at `_SCAN_URL_Q_FLOOR`, which is one number for every
+        alphabet.
+        """
+        raw = '\U0001f600' * MAX_SCAN_LENGTH
+        CatalogService(test_storage).create_product(
+            description='Astral-noted product', notes=raw)
+
+        data = client.post('/api/scan', json={'raw': raw}).get_json()
+
+        assert data['outcome'] == 'search'
+        assert data['url'].startswith('/')
+        assert len(data['url']) <= _MAX_SCAN_URL_CHARS, len(data['url'])
+        q = _query(data['url'])['q']
+        assert len(q) == _SCAN_URL_Q_FLOOR, len(q)
+        # And it has to ARRIVE, which is the whole point of the budget: the
+        # ASCII case at `test_the_search_url_carries_a_bounded_q` follows its
+        # URL and asserts a 200, and a bound the astral case only measures is
+        # not the same claim (FR36/FR40 are about the page, not the string).
+        assert client.get(data['url']).status_code == 200
+
+    def test_every_prefill_is_shed_before_q_is_touched(self, app):
+        """The arguments are not interchangeable, and the shrinking rule has to
+        know it: a pre-fill lands in a form field the operator can retype, while
+        `q` is the one value the results page is built from. So the pre-fills go
+        first — halved, then dropped outright — and `q` is only cut once there
+        is nothing left to shed.
+        """
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_search',
+                                    q='\U0001f600' * _SCAN_URL_Q_LIMIT,
+                                    description='\U0001f600' * 255)
+
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+        assert 'description=' not in url        # dropped, not left empty
+        assert len(_query(url)['q']) == _SCAN_URL_Q_FLOOR
+
+    @pytest.mark.parametrize('q_length', [400, _SCAN_URL_Q_FLOOR],
+                             ids=['under_the_floor', 'on_the_floor'])
+    def test_a_q_already_at_the_floor_is_not_cut_to_pay_for_a_prefill(
+            self, app, q_length):
+        """The floor is a floor, not a target: a `q` that arrives at or under it
+        is left alone and the pre-fill absorbs the whole overrun.
+
+        Both ends of "at or under" are exercised. The "under" case was the only
+        one covered, and it clears the second loop's `len(args['q']) >
+        _SCAN_URL_Q_FLOOR` guard by a margin of 112 characters; a `q` of
+        exactly `_SCAN_URL_Q_FLOOR` is where that comparison is actually
+        decided, and it has to stay strict — `>=` could not shorten a floored
+        `q` (the `max` clamp pins it at the floor), so it would re-evaluate an
+        unchanged URL rather than terminate.
+        """
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_search',
+                                    q='\U0001f600' * q_length,
+                                    description='\U0001f600' * 255)
+
+        query = _query(url)
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+        assert query['q'] == '\U0001f600' * q_length
+        assert 0 < len(query['description']) < 255
+
+    def test_a_floor_length_q_fits_the_budget_in_the_worst_alphabet(self, app):
+        """The property the floor exists to guarantee: a `q` sitting on the
+        floor, in the most expensive alphabet there is and with every other
+        argument gone, is still transportable — so the halving never has to
+        choose between honouring the floor and honouring the budget."""
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_search',
+                                    q='\U0001f600' * _SCAN_URL_Q_FLOOR)
+
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+        assert _query(url)['q'] == '\U0001f600' * _SCAN_URL_Q_FLOOR
+
+    def test_the_floor_arithmetic_holds_from_both_ends(self, app):
+        """The same two constraints stated as arithmetic rather than as
+        behaviour, so a later edit to any of the three constants has to face
+        them: the floor must stay past the largest VARCHAR the fallthrough
+        search touches (255), and a floored `q` must still fit the budget in
+        the worst case."""
+        worst_case_encoded_chars_per_character = 12     # 4 UTF-8 bytes, `%XX`
+        with app.test_request_context():
+            path = _path(_bounded_scan_url('main.product_search'))
+
+        # Strict on both sides, and both strictnesses are load-bearing. A floor
+        # OF 255 would let a cut `q` match a full-width `products.description`,
+        # falsifying DW-17's "only through `products.notes`"; a floor EQUAL to
+        # the limit would make the second loop's `> _SCAN_URL_Q_FLOOR` guard
+        # unsatisfiable, so `q` would never be cut and an astral scan would ship
+        # a 12288-character URL to a 414.
+        assert _SCAN_URL_Q_FLOOR > 255
+        assert _SCAN_URL_Q_FLOOR < _SCAN_URL_Q_LIMIT
+        assert (_SCAN_URL_Q_FLOOR * worst_case_encoded_chars_per_character
+                + len(path) + len('?q=')) <= _MAX_SCAN_URL_CHARS
+
+    def test_a_non_search_arm_still_halves_its_costliest_prefill(self, app):
+        """No `q` to protect, so the rest of the rule stands unchanged: the
+        costliest pre-fill is halved until the URL fits and the cheap ones are
+        left as they were."""
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_add',
+                                    description='\U0001f600' * 1000,
+                                    manufacturer='ACME')
+
+        query = _query(url)
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+        assert query['manufacturer'] == 'ACME'
+        assert 0 < len(query['description']) < 1000
+
+    def test_the_prefill_that_is_shed_is_the_one_that_costs_the_most(self, app):
+        """Which pre-fill is shed is decided by percent-encoded cost, not by
+        character count, and the two rank the real argument set differently.
+
+        `_scan_url_args` caps each pre-fill at the column it targets, so a
+        `category_path` may be twice as many CHARACTERS as a `description` while
+        costing a sixth as much URL: 512 ASCII characters encode to 512, and 255
+        astral ones to 3060. Ranked by characters the loop would cut the ASCII
+        `category_path` — buying 256 characters of budget it did not need and
+        mangling text the operator can read — while the astral values that
+        actually caused the overrun sat untouched. Ranked by cost it leaves the
+        cheap value whole and cuts the expensive one, which is why
+        `category_path` comes back at its full 512 here.
+
+        The three astral values are deliberately given DIFFERENT lengths. At
+        equal lengths they cost exactly the same, `max` breaks the tie by
+        argument order, and which of them survives is then a fact about how
+        this call was written rather than about the ranking rule: reordering
+        the keywords moves the surviving value with them. Distinct costs make
+        the expected outcome unique, so the assertions below pin the rule.
+        """
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_add',
+                                    category_path='C' * 512,
+                                    description='\U0001f600' * 255,
+                                    manufacturer='\U0001f600' * 200,
+                                    vendor_sku='\U0001f600' * 150)
+
+        query = _query(url)
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+        # 512 ASCII characters: the most CHARACTERS in the argument set and the
+        # least URL, so this is the assertion the two metrics disagree on.
+        assert query['category_path'] == 'C' * 512
+        # Per value rather than as a sum: a total under the sum of the inputs
+        # is satisfied by any shrinking of any ONE of them, which would not say
+        # that the costliest is the one being cut. One halving of the costliest
+        # value is enough here, so the two cheaper astral values are spared
+        # whole — and would not be if the loop reached for either of them.
+        assert 0 < len(query['description']) < 255
+        assert query['manufacturer'] == '\U0001f600' * 200
+        assert query['vendor_sku'] == '\U0001f600' * 150
+
+    def test_cost_is_measured_with_the_encoder_that_builds_the_url(self, app):
+        """"What it costs" has to be measured with werkzeug's query encoder,
+        not with the obvious `quote(value, safe='')`.
+
+        The two disagree on the two commonest characters in readable text:
+        werkzeug writes a space as `+` and leaves `!$'()*,/:;?@` literal, all
+        one character apiece, where `quote(safe='')` charges three for each. So
+        spaced English and slash-heavy category paths are over-charged by up to
+        3x, and a value can be ranked costliest while genuinely being the
+        cheapest thing in the argument set -- which is the same cost-blindness
+        as ranking by character count, only subtler.
+
+        Here `description` is half spaces: 3000 characters that cost 3000, but
+        that `quote(safe='')` scores at 6000, above the 1900 Cyrillic
+        characters of `manufacturer` that really do cost 5700. Under the wrong
+        metric `description` is halved first and comes back mangled; under the
+        right one it is never touched and `manufacturer` absorbs the overrun
+        alone. Values are sized past their column caps deliberately, and NOT
+        because the ranking is unobservable at production sizes -- it plainly
+        is observable: five pre-fills at their real 255 caps in astral text
+        build a 15371-character URL that this loop cuts every one of. They are
+        oversized so that the whole overrun turns on ONE comparison between
+        TWO values that the two metrics order oppositely, which is the thing
+        being pinned; at 255 apiece it would take five values to go over
+        budget and the outcome would no longer isolate the metric.
+        """
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_add',
+                                    description='A ' * 1500,
+                                    manufacturer='Ж' * 1900)
+
+        query = _query(url)
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+        assert query['description'] == 'A ' * 1500
+        assert 0 < len(query['manufacturer']) < 1900
+
+    def test_the_safe_set_is_the_one_url_for_actually_uses(self, app):
+        """`_URL_QUERY_SAFE` is a copy of a set werkzeug owns, so something has
+        to notice if the two ever diverge.
+
+        The test above pins the CONSEQUENCE of the cost model — which value the
+        loop reaches for — and would keep passing under a safe set that is
+        merely close enough to keep that one ordering. This pins the model
+        itself, against the only authority that matters: the characters
+        `url_for` emits. It does that without naming
+        `werkzeug.urls._urlencode`, whose leading underscore says it may be
+        renamed; the probe is every printable ASCII character plus one
+        representative of each UTF-8 width, and the predicted cost is compared
+        against the emitted one character for character. A werkzeug upgrade
+        that changes the encoding turns this red instead of silently making
+        the ranking approximate.
+
+        The probe is spelled out rather than built from `_URL_QUERY_SAFE`,
+        which would make the test circular: a character REMOVED from the
+        constant would leave the probe at the same moment, and the one
+        disagreement it caused would go unmeasured.
+        """
+        probe = (''.join(chr(code) for code in range(0x20, 0x7f))
+                 + 'ÉЖ漢\U0001f600')
+        with app.test_request_context():
+            emitted = url_for('main.product_add',
+                              description=probe).split('description=', 1)[1]
+
+        assert emitted == quote_plus(probe, safe=_URL_QUERY_SAFE)
+
+    def test_a_path_argument_is_never_a_shrink_candidate(self, app):
+        """`product_detail`'s `product_id` is an int in the PATH: slicing it
+        would build a URL for a different product, or for none at all."""
+        with app.test_request_context():
+            url = _bounded_scan_url('main.product_detail', product_id=4242,
+                                    description='\U0001f600' * 1000)
+
+        assert _path(url) == '/products/4242'
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
+
+    @pytest.mark.parametrize('endpoint,args', [
+        ('main.product_search', {'q': '\U0001f600' * _SCAN_URL_Q_LIMIT}),
+        ('main.product_search', {'q': 'A' * _SCAN_URL_Q_LIMIT,
+                                 'description': 'A' * 255}),
+        ('main.product_search', {'q': '\U0001f600' * _SCAN_URL_Q_LIMIT,
+                                 'description': '\U0001f600' * 255,
+                                 'manufacturer': '\U0001f600' * 255,
+                                 'category_path': '\U0001f600' * 512}),
+        ('main.product_search', {'q': ''}),
+        ('main.product_add', {}),
+        ('main.product_add', {'description': '\U0001f600' * 255,
+                              'category_path': '\U0001f600' * 512}),
+        ('main.product_detail', {'product_id': 7,
+                                 'scan_value': '\U0001f600' * 255}),
+    ], ids=['q_only', 'ascii', 'everything', 'empty_q', 'bare_create',
+            'create_prefills', 'detail'])
+    def test_every_shape_terminates_with_an_in_app_path(self, app, endpoint,
+                                                        args):
+        """Both loops strictly decrease a non-negative integer each iteration,
+        so neither can spin; and when there is nothing left to shrink the URL is
+        returned as it stands rather than emptied. A long URL is a bad outcome,
+        a dead end is a forbidden one (FR36/FR40)."""
+        with app.test_request_context():
+            url = _bounded_scan_url(endpoint, **args)
+
+        assert url.startswith('/')
+        assert len(url) <= _MAX_SCAN_URL_CHARS, len(url)
 
 
 @pytest.mark.unit
