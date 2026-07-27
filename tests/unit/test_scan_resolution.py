@@ -1595,7 +1595,7 @@ class TestNeverRaisesOnScanData:
         """The one NFR8 hole a pure classifier cannot have: this method is the
         first to put scan text on the wire to a database.
 
-        An unpaired surrogate is a legal `str` that `_clean_scan_input` passes
+        An unpaired surrogate is a legal `str` that `clean_scan_input` passes
         through untouched, but it has no UTF-8 encoding, so binding it as a
         query parameter raises `UnicodeEncodeError` — verified identically
         under SQLite and documented the same for PyMySQL. Nothing stored can

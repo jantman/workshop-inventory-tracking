@@ -288,7 +288,8 @@ class TestWedgeScanCapture:
         assert calls == []
 
     def test_blank_gate_uses_the_servers_trim_set_not_js_trim(self, page, live_server):
-        """The client's "is this blank" test must match `_SCAN_TRIM` exactly.
+        """The client's "is this blank" test must match `SCAN_TRIM` exactly
+        (`app/utils/scan_input.py`).
 
         JS `trim()` strips the full Unicode whitespace set, including \\x0b,
         \\x0c, NBSP and BOM - all of which the server deliberately KEEPS (see
@@ -318,11 +319,16 @@ class TestWedgeScanCapture:
             self, page, live_server, typed):
         """The two implementations of the trim rule, compared end to end.
 
-        `_SCAN_TRIM` and `ScanCapture.stripOuter` are separate copies of one
-        rule, and the client never reads `data.raw` - so nothing else in the
-        suite would notice them diverging; each side is only ever pinned
-        against its own expectations. This drives the real field and compares
-        the server's echo against the client's own function (FR35).
+        `app.utils.scan_input.SCAN_TRIM` and `ScanCapture.stripOuter` are
+        separate copies of one rule, and the client never reads `data.raw` - so
+        nothing else in the suite would notice them diverging; each side is only
+        ever pinned against its own expectations. This drives the real field and
+        compares the server's echo against the client's own function (FR35).
+
+        `tests/unit/test_scan_trim_rule.py` is the fast tripwire for the same
+        invariant - it compares the two as SOURCE TEXT in `nox -s tests`, and
+        cannot execute a line of JavaScript. This test is what actually proves
+        the two agree in a browser, and the unit file does not replace it.
         """
         page.goto(f'{live_server.url}/')
         bodies = record_scan_responses(page, rewrite_url=FRAGMENT_URL)

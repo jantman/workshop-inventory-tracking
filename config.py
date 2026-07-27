@@ -116,13 +116,13 @@ class Config:
     # and carries the measurements; nothing else in the tree may mention it.
     #
     # This bound is ADDITIVE to the existing per-payload guards, not a
-    # replacement for any of them: `MAX_SCAN_LENGTH` still bounds the scan
-    # `raw` field, `ATTACHMENT_MAX_SIZE` (app/mariadb_catalog_service.py) still
-    # bounds an attachment, and `PhotoService.MAX_FILE_SIZE`
-    # (app/photo_service.py) still bounds a photo. Those produce the friendly,
-    # specific error for a merely-oversize file; this one only stops a body the
-    # process should never have buffered at all. Do not lower or remove them
-    # because this exists.
+    # replacement for any of them: `MAX_SCAN_LENGTH` (app/utils/scan_input.py)
+    # still bounds the scan `raw` field, `ATTACHMENT_MAX_SIZE`
+    # (app/mariadb_catalog_service.py) still bounds an attachment, and
+    # `PhotoService.MAX_FILE_SIZE` (app/photo_service.py) still bounds a
+    # photo. Those produce the friendly, specific error for a merely-oversize
+    # file; this one only stops a body the process should never have buffered
+    # at all. Do not lower or remove them because this exists.
     #
     # Residual exposure, recorded rather than implied away: `main.upload_photo`
     # remains unauthenticated and `@csrf.exempt`, and reads its file fully into

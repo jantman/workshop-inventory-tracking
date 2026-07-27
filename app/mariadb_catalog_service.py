@@ -108,10 +108,10 @@ SEARCH_RESULTS_DEFAULT_LIMIT = 50
 SEARCH_RESULTS_MAX_LIMIT = 200
 
 # Longest query search_products will build a LIKE pattern from. Not a cleaning
-# rule and not a second copy of the route's scan trim (`MAX_SCAN_LENGTH` stays
-# in app/main/routes.py): it is a database-safety bound, because a LIKE pattern
-# has a length limit that a search box has no reason to respect. SQLite raises
-# `OperationalError: LIKE or GLOB pattern too complex` past
+# rule and not a second copy of the scan trim (`MAX_SCAN_LENGTH` lives in
+# app/utils/scan_input.py): it is a database-safety bound, because a LIKE
+# pattern has a length limit that a search box has no reason to respect.
+# SQLite raises `OperationalError: LIKE or GLOB pattern too complex` past
 # SQLITE_MAX_LIKE_PATTERN_LENGTH (50000, and escaping doubles the query's
 # metacharacters on the way there), which would break NFR8's "no scan text
 # raises" on the only backend the suite runs. 4096 is far under that on both
@@ -1988,7 +1988,7 @@ class CatalogService:
         Args:
             query: The text to search for — a `str`, or None meaning "no
                 query". Stripped with a bare `str.strip()`, which is WIDER than
-                the route's `_clean_scan_input` (that one strips only
+                `app.utils.scan_input.clean_scan_input` (that one strips only
                 `' \\t\\r\\n'`, deliberately preserving the separators an ECIA
                 envelope is built from): here a leading GS or RS is noise in a
                 search box, not structure. This is the one cleaning
@@ -2165,12 +2165,13 @@ class CatalogService:
         process restart).
 
         **`raw` arrives already cleaned**, the same contract `classify()`
-        states: the caller (`app/main/routes.py`'s `_clean_scan_input`) owns
-        the scan trim rule and the scan length bound. This method restates
-        neither — a service that re-cleaned its scan input would be a third
-        copy of that rule rather than a shared one. Be precise about what that
-        does and does not mean: `raw` is classified exactly as handed over, and
-        the text that reaches a LOOKUP is untouched apart from the AIM strip.
+        states: the caller (via `app/utils/scan_input.py`'s `clean_scan_input`
+        and `MAX_SCAN_LENGTH`) owns the scan trim rule and the scan length
+        bound. This method restates neither — a service that re-cleaned its
+        scan input would be a third copy of that rule rather than a shared one.
+        Be precise about what that does and does not mean: `raw` is classified
+        exactly as handed over, and the text that reaches a LOOKUP is untouched
+        apart from the AIM strip.
         The text that reaches the fallthrough SEARCH is additionally subject to
         whatever `search_products` does to a query — a bare `str.strip()` and a
         pattern-length bound — because that is search-entrypoint behavior every
@@ -2365,7 +2366,7 @@ class CatalogService:
         # this method is the first to send scan text to a database. Text that
         # will not encode to UTF-8 makes the driver raise UnicodeEncodeError on
         # the way out — verified with a lone surrogate ('\ud800'), which
-        # `_clean_scan_input` passes through untouched. Text carrying a NUL
+        # `clean_scan_input` passes through untouched. Text carrying a NUL
         # binds fine and then compares WRONG, because SQLite truncates a LIKE
         # pattern at the first NUL: '\x00' * 4096 — the classic wedge no-read,
         # and a vector this suite already had — resolved to every product in

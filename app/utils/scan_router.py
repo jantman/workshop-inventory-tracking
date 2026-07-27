@@ -65,10 +65,10 @@ What this module deliberately does not do
   finding in itself, so there is exactly one copy anywhere under `app/`, and it
   is `ecia.py`'s.
 - **No trimming of its own.** `classify()` never trims. Its caller has already
-  applied the single cleaning rule (`_clean_scan_input` in
-  `app/main/routes.py`, which trims space/tab/CR/LF and nothing else, because a
-  bare `str.strip()` would eat the RS that terminates an envelope). Re-cleaning
-  here would be a third copy of that rule rather than a shared one.
+  applied the single cleaning rule (`clean_scan_input` in
+  `app/utils/scan_input.py`, which trims space/tab/CR/LF and nothing else,
+  because a bare `str.strip()` would eat the RS that terminates an envelope).
+  Re-cleaning here would be a third copy of that rule rather than a shared one.
 
   Be precise about what that does *not* say. Rule 1 is delegated to
   `gs1.decode`, which begins with `raw.strip()` as its FNC1/CR-LF transmission
@@ -82,7 +82,7 @@ What this module deliberately does not do
 
   And it does not stop at spaces, which is the half worth stating out loud.
   Python's `str.strip()` also eats `\x1c`-`\x1f`, so `gs1.decode` absorbs a
-  transmitted GS/RS while `_clean_scan_input` deliberately does not — that
+  transmitted GS/RS while `clean_scan_input` deliberately does not — that
   cleaner exists precisely to preserve the separators an envelope is built
   from. Net effect: a wedge that prefixes a GS routes an internal label
   correctly (`'\x1d' + internal` -> INTERNAL) and misroutes a distributor

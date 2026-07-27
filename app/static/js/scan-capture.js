@@ -420,8 +420,11 @@ const ScanCapture = {
         }
     },
 
-    // The server's trim rule, mirrored EXACTLY (routes.py `_SCAN_TRIM`).
-    // Used only to decide "is this blank"; the value posted is never trimmed.
+    // The server's trim rule, mirrored EXACTLY (`SCAN_TRIM` in
+    // app/utils/scan_input.py). Used only to decide "is this blank"; the value
+    // posted is never trimmed. tests/unit/test_scan_trim_rule.py reads the
+    // character classes below out of this file and asserts they equal the
+    // Python set, so the two copies cannot drift apart silently.
     stripOuter: function(value) {
         return value.replace(/^[ \t\r\n]+/, '').replace(/[ \t\r\n]+$/, '');
     },

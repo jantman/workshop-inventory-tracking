@@ -12,6 +12,12 @@ pre-existing ones this story changes: `outcome == 'unrouted'`, "the endpoint
 constructs no catalog service", and the three-key response shape. Each was
 written to turn red exactly now.
 
+The trim rule itself is no longer tested here. It moved to
+`app/utils/scan_input.py` (DW-59) and its assertions moved with it to
+`tests/unit/test_scan_input.py`; what stays is the endpoint's own conduct — the
+length refusal, the blank refusal, the log lines — which is transport behavior
+that merely depends on the rule.
+
 Uses the `client` fixture, with real products created through `CatalogService`
 against the shared `test_storage` — no mocking of the service or the ORM. The
 two exceptions are labelled where they appear: the CSRF test builds a second app
@@ -27,11 +33,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from app.mariadb_catalog_service import CatalogService
-from app.main.routes import (MAX_SCAN_LENGTH, _SCAN_LOG_CHARS,
-                             _clean_scan_input, _scan_search_text,
+from app.main.routes import (_SCAN_LOG_CHARS, _scan_search_text,
                              _scan_url_value)
 from app.models import IdentifierType, ScanKind
 from app.utils import scan_router
+from app.utils.scan_input import MAX_SCAN_LENGTH
 from config import Config
 
 
@@ -91,64 +97,6 @@ def _create_link(html):
     match = re.search(r'href="([^"]+)"[^>]*id="scan-banner-create"', html)
     assert match, 'the scan banner did not render a create link'
     return unescape(match.group(1))
-
-
-@pytest.mark.unit
-class TestCleanScanInput:
-    """The one narrow whitespace rule, isolated from the transport."""
-
-    @pytest.mark.parametrize('value, expected', [
-        ('  0123 \r\n', '0123'),                     # every trimmed character at once
-        (' 0123', '0123'),                           # leading space
-        ('0123 ', '0123'),                           # trailing space
-        ('\t0123\t', '0123'),                        # tabs
-        ('\r\n0123\r\n', '0123'),                    # CR/LF a wedge may append
-        ('a b\tc', 'a b\tc'),                        # interior whitespace kept
-        ('96WITabc', '96WITabc'),                    # case never folded
-        ('', ''),                                    # empty stays empty
-        ('   ', ''),                                 # whitespace-only collapses to blank
-    ])
-    def test_trims_only_space_tab_cr_lf(self, value, expected):
-        """FR35: leading/trailing space, tab, CR and LF only."""
-        assert _clean_scan_input(value) == expected
-
-    @pytest.mark.parametrize('value', [
-        '\x1dP123',                                  # leading GS
-        '[)>\x1e06\x1dP123\x1e\x04',                 # full ISO/IEC 15434 format-06 envelope
-        '\x1e06\x1d',                                # bare RS/GS pair
-        '\x04',                                      # trailing EOT alone
-        '\x1c\x1f',                                  # FS/US - str.strip() would eat these
-    ])
-    def test_iso15434_control_characters_are_never_trimmed(self, value):
-        """A bare str.strip() eats \\x1c-\\x1f; Story 4.4's parser needs them."""
-        assert _clean_scan_input(value) == value
-
-    @pytest.mark.parametrize('char', [
-        '\x0b',                                      # VT - a programmable wedge suffix
-        '\x0c',                                      # FF - likewise
-        '\x00',                                      # NUL
-    ], ids=['vertical_tab', 'form_feed', 'nul'])
-    def test_other_control_characters_are_also_never_trimmed(self, char):
-        """Pins the exact boundary of `_SCAN_TRIM`.
-
-        FR35 names space, tab, CR and LF and nothing else, so these survive
-        even though `str.strip()` would remove \\x0b and \\x0c. If a scanner is
-        ever programmed with one of these as a suffix, Story 4.4 sees it in the
-        payload — that is a deliberate consequence of the narrow rule, not an
-        oversight, and this test exists so changing it is a conscious act.
-        """
-        assert _clean_scan_input(f'{char}P123{char}') == f'{char}P123{char}'
-
-    def test_bare_strip_would_have_destroyed_the_envelope(self):
-        """Guards the reason `_SCAN_TRIM` is explicit rather than defaulted.
-
-        Python classifies \\x1c-\\x1f as whitespace, so `str.strip()` with no
-        argument eats the record separator that terminates an ISO/IEC 15434
-        record — Story 4.4 would then parse a truncated envelope.
-        """
-        envelope = '[)>\x1e06\x1dP123\x1e'
-        assert envelope.strip() == '[)>\x1e06\x1dP123'   # this is what NOT to do
-        assert _clean_scan_input(envelope) == envelope   # RS survives
 
 
 @pytest.mark.unit
@@ -290,7 +238,7 @@ class TestScanCaptureEndpoint:
         It bounds the payload the client actually sent, not the scan hiding
         inside it, so a mostly-padding body is refused even though its content
         is nine characters. Pinned because the check's position relative to
-        `_clean_scan_input` is otherwise invisible.
+        `clean_scan_input` is otherwise invisible.
         """
         padded = ' ' * MAX_SCAN_LENGTH + 'STOCKCODE'
         resp = client.post('/api/scan', json={'raw': padded})

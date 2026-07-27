@@ -532,8 +532,8 @@ class TestNeverRaisesOnScanData:
 
     @pytest.mark.unit
     def test_a_4096_character_adversarial_payload_is_free_text(self):
-        """The endpoint's MAX_SCAN_LENGTH worth of the nastiest bytes a
-        keyboard wedge could plausibly emit."""
+        """A full `app.utils.scan_input.MAX_SCAN_LENGTH` worth of the nastiest
+        bytes a keyboard wedge could plausibly emit."""
         chunk = ']d1[)>\x1e0\x1d\x1e\x04]\x00\x1f96WIT'
         raw = (chunk * (4096 // len(chunk) + 1))[:4096]
         assert len(raw) == 4096
@@ -834,8 +834,8 @@ class TestWhitespaceAsymmetryBetweenRules:
     ])
     def test_rules_2_to_4_do_not_tolerate_padding(self, raw):
         """Correct routing for these rules depends on the caller having applied
-        `_clean_scan_input`. Pinned so the dependency is visible rather than
-        discovered by Story 4.3."""
+        `app.utils.scan_input.clean_scan_input`. Pinned so the dependency is
+        visible rather than discovered by Story 4.3."""
         assert classify(raw, ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
 
     @pytest.mark.unit
@@ -844,7 +844,7 @@ class TestWhitespaceAsymmetryBetweenRules:
         cases above cannot show.
 
         `str.strip()` eats \\x1c-\\x1f, so `gs1.decode` absorbs a transmitted
-        GS while `_clean_scan_input` deliberately does not — it exists to
+        GS while `clean_scan_input` deliberately does not — it exists to
         preserve the separators an envelope is built from. So a wedge that
         prefixes a GS routes an internal label correctly and misroutes every
         distributor label to free text, and neither the cleaner nor
@@ -863,10 +863,14 @@ class TestWhitespaceAsymmetryBetweenRules:
     @pytest.mark.unit
     def test_the_cleaned_form_of_each_padded_case_classifies_correctly(self):
         """The other half of the contract: once the caller's rule has run, the
-        same scans route as they should. `_clean_scan_input` trims exactly
-        ' \\t\\r\\n', which is restated here rather than imported because
-        importing a private symbol out of a 3,700-line route module is what the
-        deferred-work entry on that rule's placement is about."""
+        same scans route as they should. The caller's rule
+        (`app.utils.scan_input.clean_scan_input`) trims exactly ' \\t\\r\\n',
+        restated here as a literal rather than imported: this file tests
+        `classify()`, whose whole contract is that it does no trimming of its
+        own, and importing the cleaner would make these cases pass by
+        construction instead of pinning the caller's contract as this module
+        assumes it. That rule's own coverage lives in
+        `tests/unit/test_scan_input.py::TestCleanScanInput`."""
         for raw in (' ' + GTIN13 + ' ', GTIN13 + '\r\n'):
             assert classify(raw.strip(' \t\r\n'), ai=AI, token=TOKEN).kind is ScanKind.GTIN
         assert classify((' ' + ECIA_SHORT).strip(' \t\r\n'),

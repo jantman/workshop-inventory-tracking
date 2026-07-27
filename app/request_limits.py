@@ -3,9 +3,9 @@
 The app is unauthenticated and every JSON route is `@csrf.exempt`, so without a
 bound here an arbitrarily large body is buffered and parsed in full before any
 application-level check can look at it. The per-payload guards
-(`MAX_SCAN_LENGTH`, `ATTACHMENT_MAX_SIZE`, `PhotoService.MAX_FILE_SIZE`) all run
-*after* the bytes are already in memory; this module is what stops them getting
-there.
+(`MAX_SCAN_LENGTH` in `app/utils/scan_input.py`, `ATTACHMENT_MAX_SIZE`,
+`PhotoService.MAX_FILE_SIZE`) all run *after* the bytes are already in memory;
+this module is what stops them getting there.
 
 **Why the enforcement is on the stream and not on the headers.** The obvious
 implementation — a `before_request` hook that inspects `Content-Length`,

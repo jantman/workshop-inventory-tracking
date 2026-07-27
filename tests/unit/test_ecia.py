@@ -326,9 +326,9 @@ class TestNeverRaisesOnScanData:
 
     @pytest.mark.unit
     def test_a_four_kilobyte_adversarial_payload_is_answered(self):
-        """The endpoint's MAX_SCAN_LENGTH worth of the nastiest characters a
-        keyboard wedge could plausibly emit, in an order designed to look like
-        an envelope without being one."""
+        """A full `app.utils.scan_input.MAX_SCAN_LENGTH` worth of the nastiest
+        characters a keyboard wedge could plausibly emit, in an order designed
+        to look like an envelope without being one."""
         chunk = '[)>\x1e0\x1d\x1e\x04]\x001P'
         value = (chunk * (4096 // len(chunk) + 1))[:4096]
         assert len(value) == 4096

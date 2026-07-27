@@ -101,7 +101,7 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Scope**: `app/utils/` only, via an explicit path argument to `pytest --doctest-modules`. Doctests are deliberately *not* enabled repo-wide — that would collect and import every module in the tree.
 
-**Coverage**: 20 doctest items — one per docstring, 51 individual `>>>` examples — across `category.py`, `ecia.py`, `gs1.py`, `gtin.py`, `internal_id.py`, `location_validator.py`, `scan_router.py` and `tag.py`. A new module added under `app/utils/` is picked up automatically, with no `noxfile.py` change.
+**Coverage**: 21 doctest items — one per docstring, 62 individual `>>>` examples — across `category.py`, `ecia.py`, `gs1.py`, `gtin.py`, `internal_id.py`, `location_validator.py`, `scan_input.py`, `scan_router.py` and `tag.py`. A new module added under `app/utils/` is picked up automatically, with no `noxfile.py` change.
 
 **Runtime**: <0.1 seconds of assertions; ~20 seconds wall-clock for a warm session, since it builds its own environment from `requirements.txt` + `requirements-test.txt` like every other nox session.
 

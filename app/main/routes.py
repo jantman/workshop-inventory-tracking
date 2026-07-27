@@ -23,6 +23,13 @@ from app.utils import category as category_util
 # a util call, not classification (AD-4/AD-5): the route never calls classify()
 # and never decides a kind.
 from app.utils import scan_router
+# Story 4.1 (FR35): the scan payload rule — what a captured scan is trimmed of
+# and how long it may be — lives in a pure util the route CONSUMES. It is not
+# the route's rule: the classifier's contract depends on it and the catalog
+# service inherits it. scan-capture.js mirrors the TRIM SET only; the length
+# bound is server-side on purpose, so an over-length paste gets a visible
+# refusal rather than a silent client-side truncation (AD-4).
+from app.utils.scan_input import MAX_SCAN_LENGTH, clean_scan_input
 # Story 3.3: same rule for tags — the canonical form and the comma-separated
 # list are the pure util's business, never re-derived here (AD-4).
 from app.utils import tag as tag_util
@@ -1792,31 +1799,17 @@ def api_record_purchase(product_id):
     }), 201
 
 
-# Story 4.1 (FR35): upper bound on a captured scan. Far longer than any real
-# wedge payload (a full ISO/IEC 15434 format-06 envelope is a few hundred
-# characters); it exists only so a runaway paste is refused, not echoed back.
-MAX_SCAN_LENGTH = 4096
-
-# The ONLY characters trimmed off a captured scan. Deliberately NOT str.strip()
-# with no argument: Python treats \x1c-\x1f as whitespace, so a bare .strip()
-# would eat the trailing RS (\x1e) that terminates an ISO/IEC 15434 envelope
-# and Story 4.4's parser would see a truncated record.
-_SCAN_TRIM = ' \t\r\n'
-
 # How much of a captured scan reaches the log. The endpoint is CSRF-exempt and
 # unthrottled, and `repr` of a control-character-heavy payload is several times
 # longer than the payload itself, so an unbounded log line is an amplification
 # any client can drive. A real payload is well under this.
+#
+# This one stays here while `MAX_SCAN_LENGTH`/`clean_scan_input` moved to
+# `app/utils/scan_input.py`: it bounds what THIS ROUTE writes to its log, it is
+# used nowhere else, and it is a property of the logging done here rather than
+# of the scan-text rule. Moving it would put a route's log policy in a pure
+# util that has no logging.
 _SCAN_LOG_CHARS = 512
-
-
-def _clean_scan_input(value):
-    """Strip leading/trailing space, tab, CR and LF from a captured scan.
-
-    Every other byte — GS (\\x1d), RS (\\x1e), EOT (\\x04), interior
-    whitespace, letter case — survives untouched (FR35).
-    """
-    return value.strip(_SCAN_TRIM)
 
 
 def _ecia_prefill(classification):
@@ -2225,7 +2218,7 @@ def api_scan():
             f'raw must be {MAX_SCAN_LENGTH} characters or fewer',
             400, field='raw')
 
-    cleaned = _clean_scan_input(raw)
+    cleaned = clean_scan_input(raw)
     if not cleaned:
         # `repr` of what arrived, not just "blank": a scanner that has started
         # emitting only its suffix is one of the two likeliest real faults, and

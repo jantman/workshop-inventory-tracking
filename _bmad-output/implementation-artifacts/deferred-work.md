@@ -498,7 +498,8 @@ location: `app/main/routes.py` (`_SCAN_TRIM`, `_clean_scan_input`, `MAX_SCAN_LEN
 see-also: DW-11 item (e) — the rule still needs a home as a pure util
 reason: The epic's single most load-bearing invariant — the exact set of characters trimmed off a scan — lives as a private symbol inside a 3,700-line route module, so downstream consumers must either import an underscore-prefixed name from `app/main/routes.py` or restate the rule.
 evidence: `_SCAN_TRIM`, `_clean_scan_input` and `MAX_SCAN_LENGTH` are defined in `app/main/routes.py` beside the `/api/scan` handler, and `tests/unit/test_scan_routes.py` already imports the private helper directly. Story 4.4's ISO/IEC 15434 parser is correct only if the trim set never widened, and Story 4.1's own code comments and tests treat that boundary as a contract; a second copy of it in `app/utils/scan_router.py` would be free to drift with nothing comparing the two. Story 4.1's Never list forbids creating or changing anything under `app/utils/**`, so the placement is spec-driven rather than an implementation error — but the natural home is a pure util the route imports. Story 4.1's client carries a third copy: `ScanCapture.stripOuter` mirrors the same four characters in JavaScript, which no test compares against the Python set. Per DW-11, the "Story 4.4's parser is correct only if the trim set never widened" line should now read as a statement about shipped code rather than future work.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-scan-trim-rule-single-home
 
 ### DW-60: The scan transport has at-least-once semantics on a client timeout, which is a double-apply risk now that `/api/scan` drives resolution
 origin: migrated from legacy ledger ("4-1-wedge-scan-capture.md"), 2026-07-26
@@ -1210,4 +1211,11 @@ location: `app/static/js/inventory-add.js:200-205` (`startBarcodeCapture`)
 severity: low
 summary: The auto-cancel `setTimeout(..., 10000)` result is never stored and never cleared, and its callback tests only the live `this.scanModeActive` flag — so a timer left over from a completed capture cancels the *next* one if the operator re-arms inside the original 10 s window.
 evidence: `startBarcodeCapture()` ends with a bare `setTimeout(() => { if (this.scanModeActive) this.cancelBarcodeCapture(); }, 10000)`; no handle is kept and `cancelBarcodeCapture()` has nothing to clear. Arm at t=0, scan successfully at t=2 (`processBarcodeInput` → `cancelBarcodeCapture`), arm again at t=5: the first timer fires at t=10, finds `scanModeActive` true again and disarms a capture that is only 5 s old, with no toast and only the button's colour changing back. Bulk entry through Save & Continue re-arms well inside 10 s. Pre-existing and untouched by the DW-56/DW-64 change, which added no timer and altered none; surfaced while reviewing the arm path. The fix is to stash the handle and `clearTimeout` it in `cancelBarcodeCapture()`.
+status: open
+
+### DW-141: Follow-up review still recommended for dw-scan-trim-rule-single-home after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-scan-trim-rule-single-home.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
