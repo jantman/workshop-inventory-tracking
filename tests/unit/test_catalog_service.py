@@ -8,11 +8,122 @@ Exercises product create / get / update via the SQLite test engine
 import pytest
 
 from app.mariadb_catalog_service import CatalogService
+from config import Config
 
 
 @pytest.fixture
 def catalog_service(test_storage):
     return CatalogService(test_storage)
+
+
+def _element_string(internal_id: str, *, ai: str = None, token: str = None) -> str:
+    """The element string `encode_internal_payload` must produce for an id.
+
+    Built from the CONFIGURED pair by default (AD-16), so reconfiguring
+    GS1_INTERNAL_AI / GS1_INTERNAL_TOKEN moves this expectation with the code
+    instead of red-building the suite — the failure mode DW-74 records.
+
+    The FNC1 separator is the one part written out rather than derived: it is a
+    fixed protocol character (the GS control, 0x1D), not a config value, and
+    spelling it here keeps the expectation independent of the module under test.
+    """
+    ai = Config.GS1_INTERNAL_AI if ai is None else ai
+    token = Config.GS1_INTERNAL_TOKEN if token is None else token
+    return f'\x1d{ai}{token}{internal_id}'
+
+
+def _overlong_id() -> str:
+    """An id one character too long for the data field under the CONFIGURED
+    token.
+
+    The bound is on `token + internal_id` together, so a literal length is a
+    hardcoded grammar wearing a different hat: `'A' * 28` overflows beside a
+    three-character token and fits beside a two-character one, which is a red
+    build under reconfiguration in the file DW-74 exists to clean of exactly
+    that.
+    """
+    from app.utils.gs1 import MAX_DATA_FIELD_LENGTH
+
+    length = MAX_DATA_FIELD_LENGTH - len(Config.GS1_INTERNAL_TOKEN) + 1
+    # A token at or past the bound would drive this to zero, and `'A' * 0` is
+    # the blank id — which fails for its own unrelated reason, so the overlong
+    # case would go on passing while testing nothing. Such a token is already
+    # an illegal deployment (the token-room rule refuses it), so this asserts
+    # rather than adjusts: the caller has a bigger problem than this fixture.
+    assert length > 0, (f'GS1_INTERNAL_TOKEN is {len(Config.GS1_INTERNAL_TOKEN)} '
+                        f'characters, leaving no room for an id at all')
+    return 'A' * length
+
+
+OVERLONG_ID = _overlong_id()
+
+
+def _shifted(text: str) -> str:
+    """Advance every character one step within its own class.
+
+    The building block for deriving an alternate grammar from the configured
+    one instead of writing a second pair down: the result is the same length as
+    the input, and — being computed — it is not a string literal at all, so it
+    cannot trip the AD-16 literal guard.
+
+    It does NOT on its own guarantee a usable alternate. A character outside
+    both classes is passed through unchanged, and a shifted value can land on a
+    grammar `gs1` itself refuses (`'32'` shifts to `'43'`, and no element string
+    may open 43). `_alternate_half` is what turns this into a value that is both
+    different and legal; call that, not this.
+
+    A deliberate duplicate of `tests/unit/test_scan_resolution.py`'s helper
+    rather than an import: importing across test modules recreates the coupling
+    a previous sweep removed from `tests/e2e/`, and hoisting it into
+    `tests/conftest.py` would rewrite a file this change does not cover.
+    """
+    out = []
+    for char in text:
+        if char in '0123456789':
+            out.append(str((int(char) + 1) % 10))
+        elif 'A' <= char.upper() <= 'Z':
+            out.append(chr((ord(char.upper()) - ord('A') + 1) % 26 + ord('A')))
+        else:  # pragma: no cover - the configured grammar is alphanumeric
+            out.append(char)
+    return ''.join(out)
+
+
+def _alternate_half(which: str) -> str:
+    """A different value for one half of the grammar (`'ai'` or `'token'`) that
+    still builds a legal marker with the other half left as configured.
+
+    Shifting once is not enough. With `GS1_INTERNAL_AI='32'` the derived AI is
+    `'43'`, which `gs1` refuses outright (FR12d), so the flip tests below would
+    raise instead of flipping — red-building on exactly the config change they
+    exist to prove is supported, which is the DW-74 failure mode reappearing
+    inside the fix for it.
+
+    The shift is a permutation of each character class, so applying it
+    repeatedly walks a cycle and steps off any barred point. Legality is decided
+    by asking `gs1.encode` rather than by restating its rules here: a second
+    copy of "no marker may open 43" would be one more thing to drift, and
+    spelling `'43'` in this file would plant a literal for the AD-16 guard to
+    trip over the day someone configures that token.
+    """
+    from app.utils import gs1
+
+    is_ai = which == 'ai'
+    assert is_ai or which == 'token', which
+    configured = Config.GS1_INTERNAL_AI if is_ai else Config.GS1_INTERNAL_TOKEN
+    candidate = _shifted(configured)
+    for _ in range(36):
+        if candidate != configured:
+            ai = candidate if is_ai else Config.GS1_INTERNAL_AI
+            token = Config.GS1_INTERNAL_TOKEN if is_ai else candidate
+            try:
+                gs1.encode('X', ai=ai, token=token)
+            except gs1.InvalidGs1PayloadError:
+                pass
+            else:
+                return candidate
+        candidate = _shifted(candidate)
+    raise AssertionError(f'no legal alternate {which} derivable from '
+                         f'{configured!r}')
 
 
 def _added_identifiers(catalog_service, product_id):
@@ -914,25 +1025,27 @@ class TestEncodeInternalPayload:
     @pytest.mark.unit
     def test_encodes_with_the_configured_grammar(self, catalog_service):
         assert catalog_service.encode_internal_payload('ABC1234567') == \
-            '\x1d96WITABC1234567'
+            _element_string('ABC1234567')
 
     @pytest.mark.unit
     def test_token_change_flips_output_with_no_code_edit(self, catalog_service, monkeypatch):
-        from config import Config
-        monkeypatch.setattr(Config, 'GS1_INTERNAL_TOKEN', 'ZZZ')
+        # Different from the configured token AND legal beside the configured
+        # AI — `_alternate_half` guarantees both, so this test can neither go
+        # vacuous nor go red on the derivation itself.
+        alt_token = _alternate_half('token')
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_TOKEN', alt_token)
         assert catalog_service.encode_internal_payload('ABC1234567') == \
-            '\x1d96ZZZABC1234567'
+            _element_string('ABC1234567', token=alt_token)
 
     @pytest.mark.unit
     def test_ai_change_flips_output_with_no_code_edit(self, catalog_service, monkeypatch):
-        from config import Config
-        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', '97')
+        alt_ai = _alternate_half('ai')
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', alt_ai)
         assert catalog_service.encode_internal_payload('ABC1234567') == \
-            '\x1d97WITABC1234567'
+            _element_string('ABC1234567', ai=alt_ai)
 
     @pytest.mark.unit
     def test_round_trips_through_decode_under_the_configured_grammar(self, catalog_service):
-        from config import Config
         from app.utils import gs1
 
         pid = catalog_service.create_product(description='widget')
@@ -947,7 +1060,6 @@ class TestEncodeInternalPayload:
         from app.exceptions import ValidationError
         from app.utils import gs1
         from app.utils.gs1 import InvalidGs1PayloadError
-        from config import Config
         # The pure module must genuinely reject this input, or the test below
         # proves nothing about translation — it would pass just as well against
         # a service that validated the id itself and never called gs1.encode.
@@ -964,6 +1076,134 @@ class TestEncodeInternalPayload:
         assert not isinstance(exc_info.value, InvalidGs1PayloadError)
         assert str(pure_exc.value) in str(exc_info.value)
         assert exc_info.value.field == 'internal_id'
+
+
+class TestEncodeAttributesTheFaultToWhoeverCausedIt:
+    """
+    A deployment fault is never reported as bad user data (DW-39).
+
+    Both failures arrive here as the same InvalidGs1PayloadError, but they are
+    not the same kind of problem: a malformed configured grammar is an
+    operator's, in a named config key, while a malformed id is the caller's.
+    Reporting the first as a ValidationError put a perfectly valid id in the
+    error's `value` and pointed `field` at `internal_id` — which the UI
+    interpolates straight into "Please check the internal_id field", sending
+    whoever reads it after the one thing that is not wrong.
+    """
+
+    @pytest.mark.unit
+    def test_a_blank_ai_names_the_ai_key(self, catalog_service, monkeypatch):
+        from app.exceptions import ConfigurationError
+
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', '')
+        with pytest.raises(ConfigurationError) as exc:
+            catalog_service.encode_internal_payload('ABC1234567')
+        assert exc.value.config_key == 'GS1_INTERNAL_AI'
+
+    @pytest.mark.unit
+    def test_a_padded_token_names_the_token_key(self, catalog_service, monkeypatch):
+        """The .env fault that is invisible in an editor."""
+        from app.exceptions import ConfigurationError
+
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_TOKEN',
+                            ' ' + Config.GS1_INTERNAL_TOKEN)
+        with pytest.raises(ConfigurationError) as exc:
+            catalog_service.encode_internal_payload('ABC1234567')
+        assert exc.value.config_key == 'GS1_INTERNAL_TOKEN'
+
+    @pytest.mark.unit
+    def test_a_barred_marker_names_the_pair_not_one_half(self, catalog_service,
+                                                         monkeypatch):
+        """The 43xx rule (FR12d) is checked against `ai + token` jointly, so
+        neither half is individually at fault and naming one would send the
+        operator to the wrong line of .env. '4311' is spelled out for the same
+        reason FNC1 is: it is a fixed GS1 constant — the return-to contact AI
+        the PRD addendum rejected — not this deployment's grammar."""
+        from app.exceptions import ConfigurationError
+
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', '4311')
+        with pytest.raises(ConfigurationError) as exc:
+            catalog_service.encode_internal_payload('ABC1234567')
+        assert exc.value.config_key == 'GS1_INTERNAL_AI/GS1_INTERNAL_TOKEN'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('attr, value, config_key', [
+        ('GS1_INTERNAL_AI', '', 'GS1_INTERNAL_AI'),
+        ('GS1_INTERNAL_TOKEN', '', 'GS1_INTERNAL_TOKEN'),
+        # The token-room rule: a token filling the whole data field leaves no
+        # characters for an id. Its length is computed from the module's own
+        # bound rather than spelled, so raising the bound cannot leave this
+        # case quietly testing an ordinary token.
+        ('GS1_INTERNAL_TOKEN', None, 'GS1_INTERNAL_TOKEN'),
+        # Non-printable: the third per-half rule, the only one with no coverage
+        # of its own above.
+        ('GS1_INTERNAL_AI', '9\t6', 'GS1_INTERNAL_AI'),
+        ('GS1_INTERNAL_AI', '4311', 'GS1_INTERNAL_AI/GS1_INTERNAL_TOKEN'),
+    ])
+    def test_no_config_fault_blames_the_id_it_was_handed(
+            self, catalog_service, monkeypatch, attr, value, config_key):
+        """The defect itself, pinned across every grammar rule that can fire:
+        whatever the config fault, the valid id that was passed in must not turn
+        up as the error's subject, and the key named must be the one to change.
+        """
+        from app.exceptions import ConfigurationError
+        from app.utils.gs1 import MAX_DATA_FIELD_LENGTH
+
+        if value is None:  # the token-room case
+            value = 'W' * MAX_DATA_FIELD_LENGTH
+        monkeypatch.setattr(Config, attr, value)
+        with pytest.raises(ConfigurationError) as exc:
+            catalog_service.encode_internal_payload('ABC1234567')
+        assert exc.value.config_key == config_key
+        # Asserted against the message, which is the only place left where the
+        # id could still surface. The two obvious alternatives cannot fail and
+        # so prove nothing: `getattr(exc.value, 'field', None) != 'internal_id'`
+        # holds because ConfigurationError has no `field` under any
+        # implementation, and `'ABC1234567' not in str(exc.value.details)` holds
+        # because `details` is built from `config_key` and a type tag alone and
+        # the message never reaches it. (An `isinstance` check against
+        # ValidationError would be the same mistake once more: it is a disjoint
+        # sibling, already excluded by `pytest.raises` above.)
+        assert 'ABC1234567' not in str(exc.value)
+
+    @pytest.mark.unit
+    def test_the_pure_error_is_carried_through_and_chained(
+            self, catalog_service, monkeypatch):
+        """The service translates the fault, it does not reword or swallow it:
+        the operator still gets the pure module's own explanation, and the
+        original error stays on __cause__ for the log."""
+        from app.exceptions import ConfigurationError
+        from app.utils import gs1
+        from app.utils.gs1 import InvalidGs1PayloadError
+
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', '')
+        with pytest.raises(InvalidGs1PayloadError) as pure_exc:
+            gs1.encode('ABC1234567', ai=Config.GS1_INTERNAL_AI,
+                       token=Config.GS1_INTERNAL_TOKEN)
+
+        with pytest.raises(ConfigurationError) as exc:
+            catalog_service.encode_internal_payload('ABC1234567')
+        assert str(pure_exc.value) in str(exc.value)
+        assert isinstance(exc.value.__cause__, InvalidGs1PayloadError)
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('bad_id', [
+        '',                     # blank
+        None,                   # not a string
+        'ABC 1234567',          # unencodable character
+        OVERLONG_ID,            # one past what the data field can hold
+    ])
+    def test_a_bad_id_is_still_the_users_fault_not_a_config_error(
+            self, catalog_service, bad_id):
+        """The other direction, so the branch cannot be widened into swallowing
+        genuine user-data faults: with the grammar untouched, each of `encode`'s
+        four id rules is a ValidationError on `internal_id` exactly as before."""
+        from app.exceptions import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            catalog_service.encode_internal_payload(bad_id)
+        assert exc.value.field == 'internal_id'
+        assert exc.value.value == str(bad_id)
 
 
 class TestOwnershipLabelText:
@@ -1054,7 +1294,7 @@ class TestOwnershipLabelText:
         # absent. Asserting substrings on top of it would add nothing but the
         # appearance of coverage — and '43' in particular is not an invariant
         # here at all, since '4' and '3' are both in the internal-id alphabet.
-        assert payload == '\x1d96WITABC1234567'
+        assert payload == _element_string('ABC1234567')
         assert catalog_service.ownership_label_text() == owner
 
     @pytest.mark.unit

@@ -24,7 +24,7 @@ from .database import Product, Purchase, Attachment, ProductIdentifier, ProductT
 from .models import (IdentifierType, ScanKind, ScanResolution,
                      VENDOR_SCOPED_IDENTIFIER_TYPES)
 from .mariadb_storage import MariaDBStorage
-from .exceptions import ValidationError
+from .exceptions import ConfigurationError, ValidationError
 from .utils import gtin, gs1
 from .utils import category as category_util
 from .utils import internal_id as internal_id_util
@@ -1792,17 +1792,47 @@ class CatalogService:
         — though Config itself reads the environment once, at import, so a
         changed .env still needs a process restart.
 
+        The pure module's InvalidGs1PayloadError never leaks, but which domain
+        error replaces it depends on whose fault it reports — that is what the
+        error's `source` carries. A malformed grammar is a deployment fault in a
+        named config key and has nothing to do with the id handed in; reporting
+        it as a ValidationError on `internal_id` would put a perfectly valid id
+        in the error's `value` and send the operator (and the UI, which
+        interpolates `field` into "Please check the ... field") after the one
+        thing that is not wrong.
+
         Raises:
-            ValidationError: if the id (or the configured grammar) cannot be
-                encoded — the pure module's InvalidGs1PayloadError never leaks.
+            ConfigurationError: if the configured grammar is malformed, with
+                `config_key` naming the key to change. The 43xx and split-pair
+                rules are checked against `ai + token` jointly, so neither half
+                is individually at fault and the pair is named instead.
+            ValidationError: if `internal_id` itself cannot be encoded — blank,
+                not a string, unencodable, or too long for the data field —
+                with `field='internal_id'` as before.
         """
         try:
             return gs1.encode(internal_id,
                               ai=Config.GS1_INTERNAL_AI,
                               token=Config.GS1_INTERNAL_TOKEN)
         except gs1.InvalidGs1PayloadError as e:
-            raise ValidationError(str(e), field='internal_id',
-                                  value=str(internal_id))
+            # Only an explicit PAYLOAD source blames the id. Everything else —
+            # including a source this method has never heard of — is attributed
+            # to the configuration, because blaming a valid id is the failure
+            # this branch exists to prevent and it must not be what an
+            # unclassified fault falls back to.
+            if e.source == gs1.InvalidGs1PayloadError.PAYLOAD:
+                raise ValidationError(str(e), field='internal_id',
+                                      value=str(internal_id)) from e
+            # part='marker' is the case that actually reaches the default: the
+            # 43xx and split-pair rules are violated by the pair, not by either
+            # half. part='fnc1_substitute' lands there too — it has no config
+            # key of its own and cannot reach here today, since encode takes no
+            # substitute — rather than being mapped onto an unrelated key.
+            config_key = {
+                'ai': 'GS1_INTERNAL_AI',
+                'token': 'GS1_INTERNAL_TOKEN',
+            }.get(e.part, 'GS1_INTERNAL_AI/GS1_INTERNAL_TOKEN')
+            raise ConfigurationError(str(e), config_key=config_key) from e
 
     def ownership_label_text(self) -> str:
         """
@@ -2307,14 +2337,17 @@ class CatalogService:
             TypeError: propagated from `classify` when `raw` is not a `str` — a
                 caller fault, not a scan.
             gs1.InvalidGs1PayloadError: propagated UNCHANGED when the configured
-                grammar is malformed. This is the one place this file
-                deliberately does not do what `encode_internal_payload` does:
-                that method translates the same exception into a
-                `ValidationError` because its bad input is a user-supplied id,
-                whereas here the input is a *deployment* fault. Translating it
-                would dress a broken configuration up as a rejected scan, and
-                swallowing it would silently disable rule 1 so every label this
-                shop ever printed would quietly start resolving as free text.
+                grammar is malformed. Both methods agree that this is a
+                *deployment* fault and neither blames the scan or the id;
+                they differ only in how far they translate it.
+                `encode_internal_payload` has to catch it anyway (its other
+                failure mode, a bad id, is a `ValidationError`) so it maps the
+                grammar case onto a `ConfigurationError` naming the config key.
+                Here there is nothing to disambiguate, so the pure error travels
+                untouched: translating it would dress a broken configuration up
+                as a rejected scan, and swallowing it would silently disable
+                rule 1 so every label this shop ever printed would quietly start
+                resolving as free text.
 
             Database errors also propagate, as they do from every read method
             here — a backend failure must not masquerade as "no match".

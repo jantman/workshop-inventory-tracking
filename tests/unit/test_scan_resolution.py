@@ -131,24 +131,63 @@ def _internal_scan(internal_id: str, *, ai: str = None, token: str = None) -> st
 def _shifted(text: str) -> str:
     """Advance every character one step within its own class.
 
-    Used to derive an alternate grammar for `TestConfigSeam` from the
-    configured one instead of writing a second pair down. Two properties make
-    it safe for that purpose, and both follow from every character changing:
-    the result is the same length as the input, so "is a substring of" reduces
-    to "is equal to", and it cannot be equal because no character survives. So
-    the alternate grammar can never accidentally *be* the configured grammar,
-    whatever the configured grammar is — and, being computed, it is not a
-    string literal at all, so it cannot trip the AD-16 literal guard either.
+    The building block for deriving an alternate grammar for `TestConfigSeam`
+    from the configured one instead of writing a second pair down: the result
+    is the same length as the input, and — being computed — it is not a string
+    literal at all, so it cannot trip the AD-16 literal guard.
+
+    It does NOT on its own guarantee a usable alternate. A character outside
+    both classes is passed through unchanged, and a shifted pair can land on a
+    grammar `gs1` itself refuses (`'32'` shifts to `'43'`, and no element
+    string may open 43). `_alternate_pair` is what turns this into a grammar
+    that is both different and legal; call that, not this.
     """
     out = []
     for char in text:
-        if char.isdigit():
+        if char in '0123456789':
             out.append(str((int(char) + 1) % 10))
-        elif char.isalpha():
+        elif 'A' <= char.upper() <= 'Z':
             out.append(chr((ord(char.upper()) - ord('A') + 1) % 26 + ord('A')))
         else:  # pragma: no cover - the configured grammar is alphanumeric
             out.append(char)
     return ''.join(out)
+
+
+def _alternate_pair() -> tuple:
+    """An (ai, token) pair that differs from the configured one and is legal.
+
+    Shifting once is not enough. With `GS1_INTERNAL_AI='32'` the derived AI is
+    `'43'`, which `gs1` refuses outright (FR12d) — so the reconfiguration tests
+    below would raise instead of reconfiguring, red-building on exactly the
+    config change they exist to prove is supported. That is the DW-74 failure
+    mode reappearing inside the fix for it.
+
+    Either half may be substituted, alone or together, so all three resulting
+    grammars are checked. The shift is a permutation of each character class,
+    so applying it repeatedly walks a cycle and steps off any barred point.
+    Legality is decided by asking `gs1.encode` rather than by restating its
+    rules here: a second copy of "no marker may open 43" would be one more
+    thing to drift, and spelling `'43'` in this file would plant a literal for
+    the AD-16 guard to trip over the day someone configures that token.
+    """
+    from app.utils import gs1
+
+    ai, token = Config.GS1_INTERNAL_AI, Config.GS1_INTERNAL_TOKEN
+    alt_ai, alt_token = _shifted(ai), _shifted(token)
+    for _ in range(36):
+        if alt_ai != ai and alt_token != token:
+            try:
+                for candidate_ai, candidate_token in (
+                        (alt_ai, alt_token), (alt_ai, token), (ai, alt_token)):
+                    gs1.encode('X', ai=candidate_ai, token=candidate_token)
+            except gs1.InvalidGs1PayloadError:
+                pass
+            else:
+                return alt_ai, alt_token
+        alt_ai, alt_token = _shifted(alt_ai), _shifted(alt_token)
+    raise AssertionError(
+        f'no legal alternate grammar derivable from the configured pair '
+        f'({ai!r}, {token!r})')
 
 
 @pytest.fixture
@@ -1227,12 +1266,10 @@ class TestConfigSeam:
         only hold if the pair is read during the call rather than captured at
         import or cached on the service."""
         configured_scan = _internal_scan(product.internal_id)
-        alt_ai = _shifted(Config.GS1_INTERNAL_AI)
-        alt_token = _shifted(Config.GS1_INTERNAL_TOKEN)
-        # Precondition, not an assertion about the code: if the derived pair
-        # were the configured one the test below would be vacuous.
-        assert (alt_ai, alt_token) != (Config.GS1_INTERNAL_AI,
-                                       Config.GS1_INTERNAL_TOKEN)
+        # Different from the configured pair AND legal under gs1's own rules —
+        # see `_alternate_pair`, which guarantees both so this test cannot go
+        # vacuous or red on the derivation itself.
+        alt_ai, alt_token = _alternate_pair()
 
         # Before: the configured grammar is what resolves.
         assert catalog_service.resolve_scan(
@@ -1261,15 +1298,15 @@ class TestConfigSeam:
         Here it is used first, deliberately."""
         catalog_service.resolve_scan(_internal_scan(product.internal_id))
 
-        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI',
-                            _shifted(Config.GS1_INTERNAL_AI))
+        monkeypatch.setattr(Config, 'GS1_INTERNAL_AI', _alternate_pair()[0])
 
         assert catalog_service.resolve_scan(
             _internal_scan(product.internal_id)
         ).classification.kind is ScanKind.INTERNAL
 
     @pytest.mark.unit
-    @pytest.mark.parametrize('path_name', ['module', 'this test file'])
+    @pytest.mark.parametrize('path_name', [
+        'module', 'this test file', 'tests/unit/test_catalog_service.py'])
     def test_no_executed_string_literal_holds_the_configured_grammar(self, path_name):
         """AD-16's literal ban, enforced over the new service code AND over
         this file.
@@ -1283,8 +1320,35 @@ class TestConfigSeam:
         against a hardcoded `'96WIT…'` would go red the moment the pair was
         reconfigured — turning a supported config change into a broken build,
         which is the same drift from the other direction.
+
+        `tests/unit/test_catalog_service.py` is the third case because that is
+        exactly what had happened there: four expectations spelled the deployed
+        element string out, so reconfiguring the pair red-built the suite (DW-74)
+        until they were rebuilt from `Config`. Guarding the file is what stops it
+        quietly reacquiring the same hardcode.
+
+        That third file widens the residual noted at the bottom of this class,
+        and it is worth naming the cost. It is a catalog-service suite, so it is
+        far denser in short literals than the other two — product descriptions,
+        identifier-type names, probe ids. Measured: no two-digit AI collides,
+        but roughly 75 one-to-three-character TOKENS do (`'X'`, `'id'`, `'MPN'`,
+        `'ABC'`, and `'4311'` among them). Tokens of that length are not what
+        the deployed grammar or any pair in this story's matrix uses, and the
+        alternative — loosening the predicate — is what the 4.3 review pass
+        removed. So the guard stays exact and the collision stays a documented
+        deployment constraint: a one-to-three-character token needs this list
+        revisited, not the predicate.
         """
-        path = self.SOURCE_PATH if path_name == 'module' else Path(__file__)
+        if path_name == 'module':
+            path = self.SOURCE_PATH
+        elif path_name == 'this test file':
+            path = Path(__file__)
+        else:
+            # Resolved from the repository root, so the parametrize id means
+            # what it says. Taking only the basename would silently rescan
+            # tests/unit/ for a path naming any other directory.
+            path = Path(__file__).resolve().parents[2] / path_name
+            assert path.exists(), f'{path} does not exist'
         literals = self._string_literals_outside_docstrings(path)
         ai, token = Config.GS1_INTERNAL_AI, Config.GS1_INTERNAL_TOKEN
         assert ai and token, 'the pair must be configured for this test to mean anything'
@@ -1656,12 +1720,14 @@ class TestCallerAndDeploymentFaults:
     ])
     def test_a_malformed_configured_grammar_propagates_unchanged(
             self, catalog_service, monkeypatch, attr, value):
-        """Deliberately NOT translated to a ValidationError, unlike
-        `encode_internal_payload`: that method's bad input is a user-supplied
-        id, whereas this is a deployment fault. Translating it would dress a
-        broken configuration up as a rejected scan, and swallowing it would
-        silently disable rule 1 so every label this shop printed would quietly
-        resolve as free text."""
+        """Deliberately NOT translated, unlike `encode_internal_payload`, which
+        must catch this exception anyway to tell a grammar fault from a bad id
+        and so maps the grammar case onto a `ConfigurationError`. Here there is
+        nothing to disambiguate — every fault on this path is the deployment's —
+        so the pure error travels untouched. Translating it would dress a broken
+        configuration up as a rejected scan, and swallowing it would silently
+        disable rule 1 so every label this shop printed would quietly resolve as
+        free text."""
         monkeypatch.setattr(Config, attr, value)
         with pytest.raises(InvalidGs1PayloadError):
             catalog_service.resolve_scan('anything at all')

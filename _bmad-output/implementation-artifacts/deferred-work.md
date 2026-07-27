@@ -294,7 +294,8 @@ source_spec: `_bmad-output/implementation-artifacts/2-5-foreign-payload-rejectio
 location: `app/utils/gs1.py` (`decode`, `_require_grammar`)
 reason: A `fnc1_substitute` whose character is also the marker's first character silently breaks every decode of a genuine label — the same total two-way outage the token-room rule fails loudly on, but with no guard.
 evidence: `decode` in `app/utils/gs1.py` strips one leading `FNC1`-or-`fnc1_substitute` prefix before matching the marker, so with `ai='96', token='WIT', fnc1_substitute='9'` the bare scan `'96WITABC1234567'` has its leading `9` consumed, leaves `'6WITABC1234567'`, fails `startswith('96WIT')` and returns `None` — verified by execution. Every internal label becomes unscannable with no error anywhere, which is exactly the failure mode Story 2.5 chose to reject loudly for a too-long token (`_require_grammar`'s token-room rule). The stripping logic is Story 2.4's and predates this change; `fnc1_substitute` has no config key yet (Epic 4 adds one with its consumer), so today it is only reachable from a direct caller — but the guard belongs beside the other grammar checks in `_require_grammar` before that key exists.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-gs1-grammar-configurability
 
 ### DW-37: The category field measures its 512-character limit twice with different rules, so a Unicode case that lengthens on lowercasing turns an accepted form into a generic save failure
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -319,7 +320,8 @@ source_spec: `_bmad-output/implementation-artifacts/2-5-foreign-payload-rejectio
 location: `app/mariadb_catalog_service.py:738-743` (`encode_internal_payload`)
 reason: `encode_internal_payload` reports a *configured-grammar* fault as `ValidationError(field='internal_id', value=<the perfectly valid id>)`, so structured error fields blame user data for an operator's config error.
 evidence: `app/mariadb_catalog_service.py:738-743` catches every `gs1.InvalidGs1PayloadError` and re-raises it with `field='internal_id', value=str(internal_id)`. Verified: with `GS1_INTERNAL_AI='4311'`, `encode_internal_payload('ABC1234567')` raises `ValidationError(field='internal_id', value='ABC1234567')`. The message text is accurate, but `field`/`value` exist precisely so UI and logs can key on them, and they point at valid data. The wrapper is Story 2.4's and the mis-attribution already applied to a blank or padded `GS1_INTERNAL_AI`; Story 2.5 adds two further grammar faults (the 43xx refusal, the token-room rule) that flow through the same path, which is how it surfaced. Fix is to classify the pure error's source and attribute grammar faults to the config key.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-gs1-grammar-configurability
 
 ### DW-40: The database-backed autocomplete dropdown carries no ARIA semantics on any of its six fields
 origin: migrated from legacy ledger ("Deferred from: code review of 1-3-product-create-edit-detail (2026-07-23)"), 2026-07-26
@@ -618,7 +620,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-3-service-scan-resolution.
 location: `tests/unit/test_catalog_service.py` (`TestEncodeInternalPayload`, `TestOwnershipLabelText`)
 reason: Four pre-existing Story 2.4/2.5 tests hardcode the deployed GS1 grammar, so reconfiguring `GS1_INTERNAL_AI`/`GS1_INTERNAL_TOKEN` — the supported change AD-16 exists to make mechanical — is already a red build, independently of Story 4.3.
 evidence: Reproduced by stashing all of Story 4.3's files and re-running at baseline `dd06934` with `GS1_INTERNAL_AI=91 GS1_INTERNAL_TOKEN=ZZ`: the same four tests fail with and without that story's changes. They are `TestEncodeInternalPayload::test_encodes_with_the_configured_grammar`, `::test_token_change_flips_the_payload`, `::test_ai_change_flips_the_payload` and `TestOwnershipLabelText::test_the_two_label_regions_are_disjoint` in `tests/unit/test_catalog_service.py`, all asserting the literal `'\x1d96WITABC1234567'`. AD-16's whole claim is that "one config change flips both encoder and router" mechanically; a suite that goes red on that change contradicts it from the test side, which is precisely the drift `4-2-pure-scan-classifier`'s review pass caught in the classifier's own guard and fixed there. Story 4.3's code and tests are clean under reconfiguration — verified green across AI/token pairs `91/ZZ`, `95/QQ`, `17/AB`, `40/XY`, `01/WT`, and by an exhaustive sweep of all 100 two-digit AIs against every executed string literal in both files. Fixing the four is a change to `tests/unit/test_catalog_service.py`, which was outside that story's four-file scope; the fix is to build the expected element string from `Config` the way `_internal_scan()` in `tests/unit/test_scan_resolution.py` now does.
-status: open
+status: done 2026-07-26
+resolution: resolved by sweep bundle dw-gs1-grammar-configurability
 
 ### DW-75: `search_products` matches only a contiguous substring of a single column, so the FR36 fallthrough finds nothing for multi-word scans and 50 arbitrary rows for a one-character one
 origin: migrated from legacy ledger ("4-3-service-scan-resolution.md"), 2026-07-26
@@ -966,4 +969,22 @@ location: `_bmad-output/implementation-artifacts/3-2-category-rename-with-descen
 severity: low
 summary: DW-111 names only `3-1-materialized-path-categories-with-inline-create.md:201`, but the same standing instruction to future e2e authors appears in two further artifacts — `3-3:35` reads "`clear_test_data()` never truncates `products` and will not truncate `product_tags`", which this sweep falsified on both counts. All four lines additionally cite `tests/e2e/test_server.py:311-332` as the location of `clear_test_data`, a range this sweep's added deletes invalidated.
 evidence: Found by adversarial review of this sweep, which read DW-111 and checked whether its scope was complete; `grep -rn "never truncates\|not truncate\|accumulate" _bmad-output/implementation-artifacts/` returns all five lines. Logged as a separate entry rather than folded into DW-111 because the ledger's existing entries are owned by the orchestrator and are not rewritten by a review pass. It carries the same open question DW-111 does — whether a completed story's artifact is amended in place or annotated — and should be closed in the same motion, not before it.
+status: open
+
+### DW-115: A `GS1_INTERNAL_TOKEN` of 21-29 characters still surfaces as `ValidationError(field='internal_id', value=<the valid id>)` — DW-39's defect in the data-field-overflow corner
+origin: spec-gs1-grammar-configurability-review
+source_spec: `_bmad-output/implementation-artifacts/spec-gs1-grammar-configurability.md`
+location: `app/utils/gs1.py` (`encode`, the data-field bound) and `app/mariadb_catalog_service.py` (`encode_internal_payload`)
+severity: low
+summary: DW-39's fix classifies faults at the raise site, and `encode`'s `len(token) + len(internal_id) > MAX_DATA_FIELD_LENGTH` rule is classified `PAYLOAD` — correctly for an overlong id, but the same rule fires when a *configured token* is what consumed the field, and then a perfectly valid service-generated id is reported as the fault.
+evidence: Verified: with `GS1_INTERNAL_TOKEN = 'W' * 21`, `encode_internal_payload('ABC1234567')` raises `ValidationError(field='internal_id', value='ABC1234567')`. The flip points are exact — a token of 19-20 characters encodes, 21-29 blames the id, and 30+ is caught by the token-room rule as `ConfigurationError(config_key='GS1_INTERNAL_TOKEN')`. Deferred rather than patched because closing it needs a design call this spec's `Never` list forecloses: the overflow is genuinely joint (a 21-character token encodes a 9-character id and refuses a 10-character one), so attributing it correctly means either widening the token-room rule to reserve room for an id — which requires `gs1.py` to know how long a generated internal id is, a coupling AD-4 deliberately avoids — or splitting the bound into a grammar half and a payload half. Mitigating: internal ids are a fixed 10 characters, so any token past 20 fails every id, and the error message itself names the token; only the structured `field`/`value` mis-point.
+status: open
+
+### DW-116: `resolve_scan` still lets a raw `gs1.InvalidGs1PayloadError` reach the request as an anonymous 500, for the identical config fault `encode_internal_payload` now attributes
+origin: spec-gs1-grammar-configurability-review
+source_spec: `_bmad-output/implementation-artifacts/spec-gs1-grammar-configurability.md`
+location: `app/mariadb_catalog_service.py` (`resolve_scan`), `app/error_handlers.py` (`create_error_handlers`)
+severity: low
+summary: After DW-39, a malformed `GS1_INTERNAL_AI`/`GS1_INTERNAL_TOKEN` produces a `ConfigurationError` carrying `config_key` on the encode path and a bare `ValueError` subclass with no registered error handler on the scan path — and the scan path is the one with a production caller today.
+evidence: `resolve_scan` deliberately propagates the pure error unchanged (`4-3-service-scan-resolution.md:76,103`), which is why this was left alone; `app/error_handlers.py` registers handlers for `ValidationError`, `StorageError`, `ItemNotFoundError`, `AuthenticationError` and both `ConfigurationError` classes, but nothing for `gs1.InvalidGs1PayloadError`, so it falls through to the generic 500 with no `error_code`, no `config_key` and no operator-facing hint — while the same misconfiguration reached through `encode_internal_payload` now names the key to change. `encode_internal_payload` has no production consumer until Epic 6's label renderer; `resolve_scan` is reached from the scan endpoint (`app/main/routes.py`). Closing it means deciding where the boundary translation belongs — a `gs1.InvalidGs1PayloadError` handler in `create_error_handlers`, or a translation in `resolve_scan` that Story 4.3 explicitly rejected — which is a call about the scan path's contract, not a patch to this diff.
 status: open

@@ -10,7 +10,9 @@ TestForeignPayloadRejection — and (c) the two grammar bounds Story 2.5 added:
 the data field's length and the barred 43xx AI series.
 """
 
+import copy
 import dataclasses
+import pickle
 
 import pytest
 
@@ -268,6 +270,82 @@ class TestDecode:
         """Only the leading AI+token is consumed; the rest is the id verbatim."""
         payload = decode('96WITWIT1234567', ai=AI, token=TOKEN)
         assert payload.internal_id == 'WIT1234567'
+
+
+class TestFnc1SubstituteCollidesWithTheMarker:
+    """
+    A substitute equal to the marker's first character breaks recognition.
+
+    `decode` removes one leading substitute BEFORE testing the marker, so with
+    ai='96' and fnc1_substitute='9' the genuine label '96WIT…' is consumed down
+    to '6WIT…' and fails the match. That is every label the shop actually
+    prints and scans: `decode` exists to absorb all three FNC1 transmissions,
+    and this collision costs it two of them — stripped (the deployed Tera
+    HW0009) and GS. It is refused the same way the token-room rule refuses the
+    same class of silent failure: loudly, as a grammar fault, before `raw` is
+    looked at.
+
+    It IS a behavioral narrowing, not only a repair, and the last test here
+    pins the case that is given up: a scan that really does carry the
+    substitute used to decode and no longer does.
+    """
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '96WITABC1234567',        # bare, as the deployed Tera HW0009 emits it
+        '\x1d96WITABC1234567',    # ...and GS-framed, which strip() unwraps first
+    ])
+    def test_a_colliding_substitute_is_refused_not_silently_none(self, raw):
+        with pytest.raises(InvalidGs1PayloadError):
+            decode(raw, ai=AI, token=TOKEN, fnc1_substitute=AI[0])
+
+    @pytest.mark.unit
+    def test_the_rule_fires_before_raw_is_inspected(self):
+        """It is a grammar fault, so it does not depend on what arrived: even
+        the non-str input that `decode` otherwise answers with None (NFR8)
+        raises, exactly as a blank token already does."""
+        with pytest.raises(InvalidGs1PayloadError):
+            decode(None, ai=AI, token=TOKEN, fnc1_substitute=AI[0])
+        with pytest.raises(InvalidGs1PayloadError):
+            decode(object(), ai=AI, token=TOKEN, fnc1_substitute=AI[0])
+
+    @pytest.mark.unit
+    def test_only_the_marker_s_first_character_is_barred(self):
+        """The rule is deliberately narrow: it bars the one character `decode`
+        would strip off the front of a genuine label, not every character the
+        marker happens to contain. A substitute matching the AI's second
+        character, or the token's first, strips nothing and still decodes —
+        barring those would refuse working grammars for no reason."""
+        assert decode('96WITABC1234567', ai=AI, token=TOKEN,
+                      fnc1_substitute=AI[1]).internal_id == ID
+        assert decode('96WITABC1234567', ai=AI, token=TOKEN,
+                      fnc1_substitute=TOKEN[0]).internal_id == ID
+
+    @pytest.mark.unit
+    def test_a_non_colliding_substitute_still_strips_and_decodes(self):
+        """The repair must not cost the feature: an ordinary substitute keeps
+        working exactly as before."""
+        assert decode('~96WITABC1234567', ai=AI, token=TOKEN,
+                      fnc1_substitute='~').internal_id == ID
+
+    @pytest.mark.unit
+    def test_gs_itself_is_still_accepted_as_a_substitute(self):
+        """GS can never collide with a marker (the marker is printable ASCII),
+        so the explicit-GS case the module already supported is untouched."""
+        assert decode('\x1d96WITABC1234567', ai=AI, token=TOKEN,
+                      fnc1_substitute=FNC1).internal_id == ID
+
+    @pytest.mark.unit
+    def test_the_substitute_carrying_form_is_given_up_deliberately(self):
+        """The cost of the rule, stated as a test rather than left for someone
+        to rediscover. `'996WIT…'` — a scanner that always emits its substitute
+        — strips cleanly to the marker and decoded correctly before this rule
+        existed. It is refused now because a grammar readable by only one
+        scanner behaviour, out of the three this function is contracted to
+        absorb, is not one to accept silently."""
+        with pytest.raises(InvalidGs1PayloadError):
+            decode('996WITABC1234567', ai=AI, token=TOKEN,
+                   fnc1_substitute=AI[0])
 
 
 class TestForeignPayloadRejection:
@@ -619,6 +697,142 @@ class TestConfigDrivenGrammar:
     def test_payload_reports_the_grammar_it_matched(self):
         payload = decode('97ZZZABC1234567', ai='97', token='ZZZ')
         assert (payload.ai, payload.token) == ('97', 'ZZZ')
+
+
+class TestErrorAttribution:
+    """
+    Every failure says whose it is, as data rather than as English.
+
+    The one exception class covers two entirely different faults: a malformed
+    configured grammar (an operator's, in a named config key) and a malformed
+    `internal_id` (a caller's, in user data). The service layer has to raise a
+    different domain error for each, and parsing the message to decide would be
+    a second, silently drifting copy of the rules. So `source` says which, and
+    `part` names the knob when one is named.
+    """
+
+    @pytest.mark.unit
+    def test_the_two_sources_are_named_constants(self):
+        """Callers branch on these, so they are part of the module's contract
+        and not string literals to be re-spelled at each call site."""
+        assert InvalidGs1PayloadError.GRAMMAR == 'grammar'
+        assert InvalidGs1PayloadError.PAYLOAD == 'payload'
+
+    @pytest.mark.unit
+    def test_source_is_required_and_keyword_only(self):
+        """A raise site that forgets to classify itself must fail loudly here
+        rather than land in whichever branch the caller happened to write
+        first."""
+        with pytest.raises(TypeError):
+            InvalidGs1PayloadError('boom')
+        with pytest.raises(TypeError):
+            InvalidGs1PayloadError('boom', InvalidGs1PayloadError.GRAMMAR)
+
+    @pytest.mark.unit
+    def test_an_unrecognized_source_is_refused_at_construction(self):
+        """Requiring the argument is only half the guarantee. The service's
+        branch is asymmetric on purpose — only an explicit PAYLOAD blames the
+        id — so a misspelled source would not fail anywhere, it would quietly
+        report a bad id as a configuration fault, which is this attribute's own
+        defect running backwards. It is refused where it is written instead."""
+        with pytest.raises(ValueError):
+            InvalidGs1PayloadError('boom', source='typo')
+        with pytest.raises(ValueError):
+            InvalidGs1PayloadError('boom', source=None)
+
+    @pytest.mark.unit
+    def test_the_message_is_still_the_str_of_the_error(self):
+        """The service carries the message through verbatim; the new attributes
+        sit beside it rather than in front of it."""
+        error = InvalidGs1PayloadError('boom',
+                                       source=InvalidGs1PayloadError.GRAMMAR)
+        assert str(error) == 'boom'
+        assert error.part is None
+
+    @pytest.mark.unit
+    def test_the_classification_survives_copying_and_pickling(self):
+        """Exceptions get copied and pickled by logging, task queues and test
+        helpers without anyone deciding to. A keyword-only `source` defeats
+        BaseException's default `__reduce__`, so the module supplies its own —
+        without it, `copy(err)` raises TypeError and the fault classification is
+        lost at exactly the boundary where it is being carried somewhere."""
+        original = InvalidGs1PayloadError(
+            'boom', source=InvalidGs1PayloadError.GRAMMAR, part='token')
+        for rebuilt in (copy.copy(original), copy.deepcopy(original),
+                        pickle.loads(pickle.dumps(original))):
+            assert isinstance(rebuilt, InvalidGs1PayloadError)
+            assert str(rebuilt) == 'boom'
+            assert rebuilt.source == InvalidGs1PayloadError.GRAMMAR
+            assert rebuilt.part == 'token'
+
+    @pytest.mark.unit
+    def test_the_copy_is_faithful_and_not_merely_classified(self):
+        """A hand-written `__reduce__` decides what survives, so what it leaves
+        out is a silent loss rather than an error. Rebuilding the base class by
+        name would downcast a subclass; the two-element form would drop both any
+        attribute a caller had attached and every arg after the first, changing
+        `str()` on the way through. All three are pinned here so the copy stays
+        a copy."""
+        class Subclass(InvalidGs1PayloadError):
+            pass
+
+        original = Subclass('boom', source=InvalidGs1PayloadError.PAYLOAD)
+        original.args = ('boom', 'and the rest')
+        original.annotated_by_a_handler = 'still here'
+
+        rebuilt = copy.deepcopy(original)
+        assert type(rebuilt) is Subclass
+        assert rebuilt.args == ('boom', 'and the rest')
+        assert str(rebuilt) == str(original)
+        assert rebuilt.annotated_by_a_handler == 'still here'
+        assert rebuilt.source == InvalidGs1PayloadError.PAYLOAD
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('call, part', [
+        # Every raise site that names a knob, one case each.
+        (lambda: encode(ID, ai='', token=TOKEN), 'ai'),                # blank
+        (lambda: encode(ID, ai=AI, token=' WIT'), 'token'),            # padded
+        (lambda: encode(ID, ai='9\t6', token=TOKEN), 'ai'),            # control
+        (lambda: encode(ID, ai='4311', token=TOKEN), 'marker'),        # 43xx
+        (lambda: encode(ID, ai=AI,                                     # no room
+                        token='W' * MAX_DATA_FIELD_LENGTH), 'token'),
+        (lambda: decode('96WITABC1234567', ai=AI, token=TOKEN,
+                        fnc1_substitute='~~'), 'fnc1_substitute'),
+        (lambda: decode('96WITABC1234567', ai=AI, token=TOKEN,
+                        fnc1_substitute=AI[0]), 'fnc1_substitute'),
+    ])
+    def test_grammar_faults_name_their_source_and_part(self, call, part):
+        with pytest.raises(InvalidGs1PayloadError) as exc:
+            call()
+        assert exc.value.source == InvalidGs1PayloadError.GRAMMAR
+        assert exc.value.part == part
+
+    @pytest.mark.unit
+    def test_the_split_pair_is_attributed_to_the_marker_not_to_one_half(self):
+        """ai='4' and token='311' assemble the barred string with neither half
+        wrong on its own, so naming one key would send an operator to the wrong
+        line of .env."""
+        with pytest.raises(InvalidGs1PayloadError) as exc:
+            encode('X', ai='4', token='311')
+        assert exc.value.part == 'marker'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('bad_id', [
+        '', None, 'ABC 234567',
+        # Overlong: computed from the bound and this file's own TOKEN, not
+        # spelled. The field counts token + id together, so a literal length is
+        # a grammar hardcode wearing a different hat — raising the bound or
+        # shortening TOKEN would make it a perfectly valid id and the case would
+        # stop testing anything, silently.
+        'A' * (MAX_DATA_FIELD_LENGTH - len(TOKEN) + 1),
+    ])
+    def test_id_faults_are_payload_faults_naming_no_knob(self, bad_id):
+        """Blank, non-str, unencodable and overlong: all four of `encode`'s id
+        rules. None of them is anybody's configuration."""
+        with pytest.raises(InvalidGs1PayloadError) as exc:
+            encode(bad_id, ai=AI, token=TOKEN)
+        assert exc.value.source == InvalidGs1PayloadError.PAYLOAD
+        assert exc.value.part is None
 
 
 class TestInternalPayload:
