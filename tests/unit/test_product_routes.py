@@ -5,6 +5,7 @@ Uses the `client` fixture (CSRF disabled in TestConfig, so POSTs need no token).
 """
 
 import html
+import math
 import re
 import sys
 from decimal import Decimal
@@ -13,7 +14,8 @@ from pathlib import Path
 import pytest
 
 from app.exceptions import ValidationError
-from app.main.routes import _RECEIPT_FIELDS, _RECEIPT_TRIGGER_FIELDS
+from app.main.routes import (_purchase_unit_price, _RECEIPT_FIELDS,
+                             _RECEIPT_TRIGGER_FIELDS, _record_first_receipt)
 from app.mariadb_catalog_service import CatalogService
 
 
@@ -2221,6 +2223,10 @@ _UNSTORABLE_PRICES = [
     ('Infinity', 'Unit Price must be a decimal number.'),
     ('-Infinity', 'Unit Price must be a decimal number.'),
     ('-1.00', 'Unit Price must not be negative.'),
+    # `-0` is ACCEPTED (it is not negative) and stored as `Decimal('0.00')`;
+    # this is the nearest value that is negative, so it pins that the sign is
+    # dropped from a zero and nowhere else.
+    ('-0.001', 'Unit Price must not be negative.'),
     ('1.234', 'Unit Price must have at most two decimal places.'),
     ('0.005', 'Unit Price must have at most two decimal places.'),
     ('1e-30', 'Unit Price must have at most two decimal places.'),
@@ -2543,6 +2549,119 @@ class TestFirstReceiptOnCreate:
         assert resp.status_code == 200
         assert b'must be 255 characters or fewer' in resp.data
         assert product_ids() == set()
+
+
+@pytest.mark.unit
+class TestTheFirstReceiptTriggersOnWhatSurvivesTheParse:
+    """`_record_first_receipt` called DIRECTLY — the only way to reach this rule.
+
+    Every HTTP path into the helper goes through `_validate_product_create_form`
+    first, and that refuses `quantity='abc'` with a field message before
+    `product_add` commits anything, so the class above cannot post the case this
+    one is about; a route test that tried would be asserting the VALIDATOR's
+    behaviour under a name claiming the receipt's. The rule is still worth
+    pinning here rather than dismissing as unreachable: the helper is a second
+    gate in front of `record_purchase`, it runs AFTER the Product has committed
+    and deliberately non-fatally, and `product_add` is not the only caller it
+    could ever have. What the guard stands between is an unusable trigger and a
+    Purchase carrying nothing but the `order_date` the service defaults to
+    today — a row indistinguishable from a receipt someone meant.
+
+    The decline is silent (`None`, no message) in every case here, matching what
+    a form with no receipt at all does. Returning a message would put an error
+    in front of an operator over a field a scan may have filled in for them,
+    which is the trade DW-27 already made in the other direction.
+    """
+
+    def _receipt(self, app, test_storage, form_data):
+        """Run one receipt against a fresh Product; return `(result, purchases)`.
+
+        Inside an app context because the helper's failure path logs through
+        `current_app` — nothing here is expected to take that path, and a test
+        that did would otherwise fail with a context error naming neither the
+        receipt nor the reason.
+        """
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Reel')
+        with app.app_context():
+            result = _record_first_receipt(svc, pid, form_data)
+        return result, svc.get_purchases_for_product(pid)
+
+    def test_an_unusable_quantity_alone_records_nothing(self, app, test_storage):
+        """The hole this closed: `'abc'` is non-blank, so a trigger tested on the
+        raw string fired, and then `_positive_int_string` returned None — one
+        Purchase with a NULL quantity, a NULL everything-else and today's date,
+        reported as a success. There is nothing in that row for the trigger to
+        have meant, so there is no receipt."""
+        result, purchases = self._receipt(app, test_storage, {'quantity': 'abc'})
+
+        assert result is None
+        assert purchases == []
+
+    def test_an_unusable_quantity_beside_a_real_trigger_still_records(
+            self, app, test_storage):
+        """The other trigger survives its own parse — `order_number` has none,
+        its stripped string IS its parsed form — so the receipt is real and the
+        quantity is simply the column it could not fill. Parsing before the
+        guard must not become "any unusable field cancels the receipt": the
+        Purchase the operator meant is still written."""
+        result, purchases = self._receipt(app, test_storage, {
+            'quantity': 'abc', 'order_number': 'PO-1',
+        })
+
+        assert result is None
+        assert len(purchases) == 1
+        assert purchases[0].quantity is None
+        assert purchases[0].order_number == 'PO-1'
+
+    def test_an_unusable_quantity_beside_a_non_trigger_records_nothing(
+            self, app, test_storage):
+        """A vendor is not a trigger (DW-27) and an unusable quantity is no
+        longer one, so the two together are still not a receipt. Worth its own
+        case because it is the shape where something WAS typed: the guard has to
+        be about the trigger fields' parsed values and not about whether the
+        form carried anything at all."""
+        result, purchases = self._receipt(app, test_storage, {
+            'quantity': 'abc', 'vendor': 'Acme',
+        })
+
+        assert result is None
+        assert purchases == []
+
+    def test_a_usable_quantity_alone_still_records_the_receipt(
+            self, app, test_storage):
+        """The control, and the half of the change that must NOT have moved:
+        parsing earlier changes which values trigger, not what a trigger does."""
+        result, purchases = self._receipt(app, test_storage, {'quantity': '2'})
+
+        assert result is None
+        assert len(purchases) == 1
+        assert purchases[0].quantity == 2
+
+    @pytest.mark.parametrize('quantity', [
+        # A quantity `_positive_int_string` refuses for being a NUMBER it will
+        # not take rather than for not being one. `'0'` is the interesting one:
+        # it reads as a quantity, and "zero of them turned up" is not a receipt.
+        # It does NOT arrive from a scan — `_ecia_prefill` puts a label's `Q`
+        # into the field only when `_positive_int_string` already accepts it, so
+        # a `Q 0` record is dropped a step earlier — which is why it is pinned
+        # here, against the guard, rather than left to that gate. Over
+        # `_MAX_INT32` is the other end of the same rule.
+        '0',
+        '-1',
+        '2147483648',
+    ])
+    def test_a_quantity_the_rule_refuses_is_not_a_trigger_either(
+            self, app, test_storage, quantity):
+        """The guard must follow `_positive_int_string`'s verdict and not its own
+        idea of "looks like a number". These are the values where testing the
+        parsed result by TRUTHINESS and testing it for having parsed could come
+        apart — `'0'` reads as a number, parses to None, and is falsy besides."""
+        result, purchases = self._receipt(app, test_storage,
+                                          {'quantity': quantity})
+
+        assert result is None
+        assert purchases == []
 
 
 @pytest.mark.unit
@@ -4249,14 +4368,47 @@ class TestRecordPurchaseEndpointRefusesABodyThatIsNotAnObject:
 # rule and why it exists; this table exists so the two entry points cannot drift
 # apart without a test failing, which two hand-copied per-route lists could not
 # catch — the same reason the routes share `_purchase_unit_price`.
-# `(raw value, None if it must be accepted else the message fragment)`.
+#
+# `(raw value, the Decimal it must STORE if it is accepted, else the message
+# fragment it must be refused with)`. The accepted half spells out the stored
+# value rather than saying only "accepted" because the two questions are not the
+# same one: `-0`, `0E+5` and `0.00E-99999999999999999` are all accepted and all
+# have to arrive in the column as the one `Decimal('0.00')`, and a test that
+# only asked "was it accepted" — or compared with `==`, which every spelling of
+# a number passes — could not tell that apart from storing what was typed.
+# Which SPELLING actually leaves the route is a question no suite reading
+# through SQLite can answer (see `_assert_stored`); the accepted column states
+# it anyway, and `TestAnAcceptedUnitPriceIsNormalizedBeforeItIsStored` is where
+# it is checked.
 _UNIT_PRICE_VERDICTS = [
-    ('2.34', None),
-    ('0', None),
-    ('0.00', None),
-    ('+2.34', None),      # `Decimal` takes a leading sign; both sides must.
-    ('  2.34  ', None),   # both strip before parsing, so padding is not a price
-    ('99999999.99', None),
+    ('2.34', Decimal('2.34')),
+    ('0', Decimal('0.00')),
+    ('0.00', Decimal('0.00')),
+    # `Decimal` takes a leading sign; both sides must.
+    ('+2.34', Decimal('2.34')),
+    # both strip before parsing, so padding is not a price
+    ('  2.34  ', Decimal('2.34')),
+    ('99999999.99', Decimal('99999999.99')),
+    # Spellings `Decimal` keeps and a DECIMAL literal need not take, which is
+    # why the helper returns the quantized value rather than the value as typed:
+    # the driver renders the object with `str()`, so `Decimal('1E+7')` reaches
+    # MariaDB as `'1E+7'` and `Decimal('0.00E-99999999999999999')` as
+    # `'0E-100000000000000001'`, which it refuses outright. `-0` is here as a value
+    # rather than as a refusal on purpose — it is not negative, so the negative
+    # rule never sees it, and dropping its sign is the decision that makes it a
+    # zero instead of a `Decimal('-0.00')` in the column.
+    ('-0', Decimal('0.00')),
+    ('0E+5', Decimal('0.00')),
+    ('0.00E-99999999999999999', Decimal('0.00')),
+    ('1E+7', Decimal('10000000.00')),
+    # The un-normalized spelling a real client actually sends, and the one the
+    # exponent rows above are not: the scale rule is NUMERIC (`price` equals its
+    # own quantize), so trailing zeros pass it, and `str(Decimal('2.3400'))`
+    # keeps all four places. A JSON client that formats currency to four
+    # decimals is accepted — correctly — and used to store a spelling nobody
+    # chose. MariaDB takes that one, so this row is about the normalization
+    # being uniform rather than about a literal being refused.
+    ('2.3400', Decimal('2.34')),
     # Passes the `>= 100000000` ceiling as typed and quantizes PAST the column;
     # refused by the scale rule rather than the magnitude one. Pinned here
     # because the two bounds cover that gap only together.
@@ -4268,6 +4420,10 @@ _UNIT_PRICE_VERDICTS = [
     ('-Infinity', 'decimal number'),
     ('not-a-number', 'decimal number'),
     ('-1.00', 'must not be negative'),
+    # The neighbour of the `-0` row above, and the reason that row is not a
+    # licence to accept anything spelled with a minus: `Decimal('-0.001') < 0`
+    # is True, so the negative rule fires before the scale rule ever sees it.
+    ('-0.001', 'must not be negative'),
     ('100000000', 'less than 100000000'),
     ('1E+30', 'less than 100000000'),
     ('99999999999.99', 'less than 100000000'),
@@ -4277,8 +4433,38 @@ _UNIT_PRICE_VERDICTS = [
 ]
 
 
+# The accepted half of the table above, for the suites that are about what a
+# price BECOMES rather than about whether it is taken. Derived rather than
+# restated so it cannot fall behind the table it is drawn from — a new accepted
+# row is a new case in every suite below without anyone remembering to add it.
+_STORABLE_PRICES = [(raw, verdict) for raw, verdict in _UNIT_PRICE_VERDICTS
+                    if isinstance(verdict, Decimal)]
+
+
 @pytest.mark.unit
-@pytest.mark.parametrize('price, fragment', _UNIT_PRICE_VERDICTS)
+class TestTheUnitPriceVerdictTableIsWellFormed:
+    """One statement about the TABLE, asked once rather than per case.
+
+    The accepted half used to be spelled `None` and is now spelled "a
+    `Decimal`", while the suites below branch on `isinstance(verdict, Decimal)`.
+    A row written any third way — the old `None`, a `float`, an accepted value
+    quoted as `'2.34'` — is not a syntax error and not a caught mistake: it
+    silently takes the REFUSAL branch and fails somewhere inside a route
+    assertion, blaming the code for what is a typo here. `_STORABLE_PRICES` is
+    derived from the same predicate, so such a row also quietly drops out of
+    every normalization suite.
+    """
+
+    def test_every_row_is_a_stored_decimal_or_a_refusal_fragment(self):
+        for raw, verdict in _UNIT_PRICE_VERDICTS:
+            assert isinstance(verdict, (Decimal, str)), \
+                f'the `_UNIT_PRICE_VERDICTS` row for {raw!r} is ' \
+                f'{verdict!r}: a row is a Decimal (accepted, and the value ' \
+                f'stored) or a message fragment (refused), never anything else'
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('price, verdict', _UNIT_PRICE_VERDICTS)
 class TestBothPurchaseEntryPointsAgreeOnUnitPrice:
     """DW-12/DW-25's acceptance criterion, stated as a property: a value one
     entry point accepts the other accepts, and a value one refuses the other
@@ -4287,42 +4473,171 @@ class TestBothPurchaseEntryPointsAgreeOnUnitPrice:
     """
 
     def _product(self, test_storage):
+        # The table's own well-formedness is asserted once, above, rather than
+        # from in here: a malformed row misroutes into the refusal branch below,
+        # and that is a statement about the table and not about either route.
         return CatalogService(test_storage).create_product(description='Reel')
 
-    def test_the_html_form(self, client, test_storage, price, fragment):
-        from decimal import Decimal
+    def _assert_stored(self, svc, pid, verdict):
+        """The accepted half: the two entry points hold the SAME number.
+
+        Compared on `str()` and not on `==` so the assertion states the claim
+        that is actually being made — the driver renders a `Decimal` with
+        `str()`, and `Decimal('-0.00')`, `Decimal('1E+7')` and
+        `Decimal('10000000.00')` all compare equal to the number they mean while
+        spelling it three ways. What this tier can PROVE is narrower than what
+        it states, and deliberately so: SQLite stores `Numeric(10, 2)` as a
+        float and rebuilds it with `'%.2f'`, so the column hands back the
+        two-place form whatever went in, sign included. The spelling is pinned
+        one level down, on the helper's own return
+        (`TestAnAcceptedUnitPriceIsNormalizedBeforeItIsStored`), and against a
+        real DECIMAL column in the integration tier.
+        """
+        assert str(svc.get_purchases_for_product(pid)[0].unit_price) == \
+            str(verdict)
+
+    def test_the_html_form(self, client, test_storage, price, verdict):
         svc = CatalogService(test_storage)
         pid = self._product(test_storage)
 
         resp = client.post(f'/products/{pid}/purchases/add',
                            data={'unit_price': price})
-        if fragment is None:
+        if isinstance(verdict, Decimal):
             assert resp.status_code == 302
-            assert svc.get_purchases_for_product(pid)[0].unit_price == \
-                Decimal(price)
+            self._assert_stored(svc, pid, verdict)
         else:
             assert resp.status_code == 200
-            assert fragment.encode() in resp.data
+            assert verdict.encode() in resp.data
             assert svc.get_purchases_for_product(pid) == []
 
-    def test_the_json_endpoint(self, client, test_storage, price, fragment):
-        from decimal import Decimal
+    def test_the_json_endpoint(self, client, test_storage, price, verdict):
         svc = CatalogService(test_storage)
         pid = self._product(test_storage)
 
         resp = client.post(f'/api/products/{pid}/purchases',
                            json={'unit_price': price})
-        if fragment is None:
+        if isinstance(verdict, Decimal):
             assert resp.status_code == 201
-            assert svc.get_purchases_for_product(pid)[0].unit_price == \
-                Decimal(price)
+            self._assert_stored(svc, pid, verdict)
         else:
             assert resp.status_code == 400
             error = resp.get_json()['error']
             assert error['code'] == 'invalid_field'
             assert error['field'] == 'unit_price'
-            assert fragment in error['message']
+            assert verdict in error['message']
             assert svc.get_purchases_for_product(pid) == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('price, expected', _STORABLE_PRICES)
+class TestAnAcceptedUnitPriceIsNormalizedBeforeItIsStored:
+    """The claim the table's accepted column makes, asserted where SQLite cannot
+    erase it: on `_purchase_unit_price`'s own return value.
+
+    Every route-level suite reads its purchases back through SQLite, which
+    stores `Numeric(10, 2)` as a float and rebuilds it with `'%.2f'`. That
+    column returns the two-place form no matter what went in — `Decimal('-0')`,
+    `Decimal('1E+7')` and `Decimal('0E-100000000000000001')` all come back as
+    the number they mean, correctly spelled — so NO test that goes through
+    storage can tell "the helper normalized it" from "the readback did". The
+    helper's return is the last place the difference is visible in this tier,
+    which is why it is asserted directly here rather than through a route.
+
+    That the difference matters at all is the integration tier's subject
+    (`tests/integration/test_purchase_unit_price_decimal.py`): MariaDB is handed
+    `str()` of whatever `Decimal` the route produced, and it refuses
+    `'0E-100000000000000001'` — the spelling of a zero that reached the driver
+    unquantized — as a literal, losing the whole receipt.
+    """
+
+    def test_the_helper_returns_the_two_place_form(self, price, expected):
+        value, message = _purchase_unit_price(price)
+        assert message is None, f'{price!r} was refused: {message}'
+        # `str()` for the reason given on `_assert_stored` above — and here it
+        # is the whole point rather than a precaution, since `==` holds for
+        # every spelling by construction.
+        assert str(value) == str(expected)
+
+    def test_the_returned_spelling_is_one_a_decimal_literal_takes(
+            self, price, expected):
+        """The property the specific expectations above are instances of, and
+        the one that actually matters to MariaDB: no exponent, no sign, exactly
+        two places after the point. The test above compares against a value
+        someone wrote down by hand, so its failure can only show two unequal
+        strings; this one names the rule being broken, which is what a reader of
+        the failure needs. It is the same reason `_purchase_unit_price` states
+        the rule in its docstring instead of leaving it to be read off the
+        table."""
+        value, _ = _purchase_unit_price(price)
+        assert re.fullmatch(r'\d+\.\d\d', str(value)), \
+            f'{price!r} came back as {str(value)!r}, which is not a DECIMAL literal'
+
+
+@pytest.mark.unit
+class TestANegativeZeroPriceIsEchoedAsAZero:
+    """The one place dropping `-0`'s sign is visible to somebody.
+
+    MariaDB stores `Decimal('-0.00')` as `0.00` either way, so the column never
+    showed the difference and neither does SQLite. The JSON endpoint does:
+    `Purchase.to_dict` renders the column with `float()`, and `float()` keeps a
+    negative zero — so before the sign was dropped, a client that sent
+    `unit_price: "-0"` got `-0.0` back in the 201 body it is meant to trust as
+    what was recorded. Pinned here because it is the whole observable
+    consequence of that decision, and nothing else in this file would notice if
+    it were reverted.
+    """
+
+    def test_the_creation_response_carries_an_unsigned_zero(
+            self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='Reel')
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'unit_price': '-0'})
+
+        assert resp.status_code == 201
+        echoed = resp.get_json()['purchase']['unit_price']
+        assert echoed == 0
+        # `==` cannot tell `-0.0` from `0.0`; `copysign` is what asks the
+        # question this test is named for.
+        assert math.copysign(1, echoed) == 1, \
+            f'the 201 body echoed {echoed!r}, a negative zero'
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('price, expected', _STORABLE_PRICES)
+class TestTheCreateFormStoresTheSameNormalizedPrice:
+    """The THIRD writer of this column, held to the same table as the two above.
+
+    `product_add`'s first receipt reaches `record_purchase` by its own path —
+    `_record_first_receipt`, after the Product has committed — so "both entry
+    points agree" is not a statement about it, and the acceptance criterion is
+    about all three. What this adds is that every value the other two take is
+    taken HERE too and reaches the column as the same number: a create form that
+    grew a price rule of its own would refuse one of these rows, or store a
+    different number, while both classes above stayed green. Parametrized over
+    the derived accepted list so the three suites can only ever be asked about
+    the same values.
+
+    The NUMBER is what this tier can hold it to, not the spelling — the readback
+    is through SQLite, which stores `Numeric(10, 2)` as a float and rebuilds it
+    with `'%.2f'`, so the column re-spells whatever went in (see `_assert_stored`
+    above). Removing the helper's `quantize` would leave every case here green.
+    The spelling is pinned on the helper's own return, one class up, and against
+    a real DECIMAL column in the integration tier; what this class is for is that
+    the third entry point is asked the same question at all.
+    """
+
+    def test_the_first_receipt_block(self, client, test_storage, price, expected):
+        # The quantity is the DW-27 trigger and nothing more: a price alone is
+        # not a receipt, so without one there would be no row to look at.
+        resp = client.post('/products/add', data={
+            'description': 'Priced part', 'quantity': '1', 'unit_price': price,
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        purchase = CatalogService(test_storage).get_purchases_for_product(pid)[0]
+        assert str(purchase.unit_price) == str(expected)
 
 
 # The verdict on ONE purchase date's FORMAT, as one list — the anti-drift device

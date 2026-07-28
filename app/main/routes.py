@@ -1200,8 +1200,10 @@ _PRODUCT_PREFILL_ARGS = (
 
 # The create form's optional first-receipt block. Two tuples, and they are
 # deliberately DIFFERENT sets: this one is everything a Purchase is WRITTEN
-# from, and `_RECEIPT_TRIGGER_FIELDS` below is the subset whose non-blankness
-# decides whether there is a Purchase at all.
+# from, and `_RECEIPT_TRIGGER_FIELDS` below is the subset whose SURVIVING ITS
+# PARSE decides whether there is a Purchase at all. Non-blankness was the rule
+# until DW-187: a `quantity` of `'abc'` is non-blank and stores nothing, so
+# testing the typed string wrote receipts with no content in them.
 #
 # They were one set until DW-27, and being one set is exactly what broke.
 # `_ecia_prefill` puts a distributor label's `P` record into `vendor_sku`, so
@@ -1254,7 +1256,7 @@ _RECEIPT_FIELDS = ('quantity', 'order_number', 'vendor', 'vendor_sku',
 
 # The subset of the above that a Purchase is TRIGGERED by (DW-27). A subset by
 # construction and not merely by coincidence, and the guard below subscripts
-# `values` deliberately: a trigger name that is not also read raises `KeyError`
+# `parsed` deliberately: a trigger name that is not also read raises `KeyError`
 # there, and `product_add` catches it into "An error occurred while creating the
 # product" over a Product that has ALREADY committed — the save-looks-failed
 # resubmit that `_record_first_receipt`'s docstring names FR41 to avoid. Failing
@@ -1262,6 +1264,18 @@ _RECEIPT_FIELDS = ('quantity', 'order_number', 'vendor', 'vendor_sku',
 # exact contents are pinned in `TestFirstReceiptOnCreate`, so narrowing or
 # widening this stays a decision someone makes rather than a line someone slips
 # in, and the pin fails long before any operator meets that traceback.
+#
+# What the guard tests is the value as PARSED, not the typed string: a
+# `quantity` of `'abc'` is not a trigger, because a receipt whose only trigger
+# content is unusable is a row nobody can read. Not every name has a parse of
+# its own — `order_number`'s stripped string IS its parsed form, and only
+# `quantity` and `unit_price` are put through anything — so adding a trigger
+# that DOES have one means adding it to the parse in `_record_first_receipt`
+# too, or the guard silently reads its raw string again and DW-187 reopens for
+# that field. `_record_first_receipt` states the rule where it is enforced; this
+# note exists so a reader of the tuple knows the membership question ("which
+# fields") and the survival question ("with what in them") are answered in two
+# different places.
 _RECEIPT_TRIGGER_FIELDS = ('quantity', 'order_number')
 
 
@@ -1405,9 +1419,10 @@ def _attach_scanned_identifier(service, product_id, form_data):
 def _record_first_receipt(service, product_id, form_data):
     """Record the optional first receipt a create form carried (FR39).
 
-    One Purchase, only when a TRIGGER field is non-blank — a Quantity or an
-    Order Number (`_RECEIPT_TRIGGER_FIELDS`, DW-27). All five `_RECEIPT_FIELDS`
-    are then written onto that one Purchase; when no trigger fires, the other
+    One Purchase, only when a TRIGGER field SURVIVES PARSING — a Quantity that
+    is a positive whole number, or a non-blank Order Number
+    (`_RECEIPT_TRIGGER_FIELDS`, DW-27). All five `_RECEIPT_FIELDS` are then
+    written onto that one Purchase; when no trigger fires, the other
     three are read and discarded rather than refused. Returns an
     operator-facing message on failure, or None. `record_purchase` never raises
     — it returns None — so this is non-fatal in the same way the identifier
@@ -1421,36 +1436,53 @@ def _record_first_receipt(service, product_id, form_data):
     product FR41 exists to prevent. Both siblings above guard the same way.
     """
     values = {name: (form_data.get(name) or '').strip() for name in _RECEIPT_FIELDS}
-    if not any(values[name] for name in _RECEIPT_TRIGGER_FIELDS):
-        return None
-    # `_validate_product_create_form` has already proved these parse; the
-    # fallback is for a caller that reached here another way. The price's
-    # message is discarded for that reason — an unstorable one that got this far
-    # is stored as NULL rather than failing the whole receipt, and the form the
-    # operator actually uses never gets here with one.
+    # Parsed BEFORE the trigger is tested, so what triggers a receipt is a value
+    # that can be STORED rather than a string that can be typed. `order_number`
+    # has no parse of its own — its stripped string is its parsed form — so
+    # `quantity` is the only trigger the order changes, and it is the one that
+    # needed it: tested on its raw string, a `quantity` of `'abc'` triggered and
+    # then parsed to None, writing a Purchase whose only content was the
+    # `order_date` `record_purchase` defaults to today, and reporting success.
+    # Nothing downstream refuses that row, and no reader can tell it from a
+    # receipt someone meant. It now declines instead — silently, exactly as a
+    # blank form does, because refusing would hand the operator a message about
+    # a field a scan may have filled in for them, which is DW-27 in mirror image.
     #
-    # That fallback fails OPEN: an unusable value is dropped rather than refused.
-    # DW-27 halved which field can do that AND have been the thing that
-    # triggered. The PRICE no longer can: it is not a trigger, so an unstorable
-    # one is now always accompanied by a Quantity or an Order Number that meant
-    # the receipt, and the Purchase written is a real one missing a price. The
-    # QUANTITY still can — an unparseable `quantity` alone triggers on its raw
-    # string and then parses to None, writing a row carrying nothing but today's
-    # date, exactly as it has since Story 4.5. That case is on the ledger and is
-    # unchanged here; `product_add` validates first, so no operator reaches it.
-    # Widening the guard is a change to the trigger rule rather than to the parse
-    # (see the ledger), which is why it is not made here.
-    quantity = _positive_int_string(values['quantity'])
-    unit_price, _ = _purchase_unit_price(values['unit_price']) \
-        if values['unit_price'] else (None, None)
+    # `unit_price` is parsed here too, but only because both parses may as well
+    # happen in one place: it is not a trigger, so its position relative to the
+    # guard changes nothing. It is now parsed on every create that carries a
+    # price rather than only on the ones that record a receipt, which is safe
+    # because both parse helpers are TOTAL — they return a value or a message
+    # and raise nothing — and the early return that used to shield them is gone.
+    # Its message is still discarded —
+    # `_validate_product_create_form` has already proved the value parses on the
+    # path an operator takes, and a caller that reached here another way is
+    # better served by the real receipt its trigger asked for, missing a price,
+    # than by no receipt at all. That is the one place this still fails open,
+    # and it can only lose a price from a Purchase something else meant.
+    parsed = dict(
+        values,
+        quantity=_positive_int_string(values['quantity']),
+        unit_price=(_purchase_unit_price(values['unit_price'])[0]
+                    if values['unit_price'] else None),
+    )
+    # "Survived" is spelled out rather than left to truthiness. It happens to be
+    # the same test today — `_positive_int_string` never returns `0`, and a blank
+    # `order_number` is the empty string — but a parsed value has falsy shapes a
+    # string does not: an accepted `Decimal('0.00')` is falsy, so a trigger set
+    # that ever grew `unit_price` would silently never fire. That is the failure
+    # the `KeyError` note above cannot catch, because it is a no-op rather than a
+    # traceback.
+    if all(parsed[name] in (None, '') for name in _RECEIPT_TRIGGER_FIELDS):
+        return None
     try:
         snapshot = service.record_purchase(
             product_id,
-            vendor=values['vendor'] or None,
-            vendor_sku=values['vendor_sku'] or None,
-            quantity=quantity,
-            unit_price=unit_price,
-            order_number=values['order_number'] or None,
+            vendor=parsed['vendor'] or None,
+            vendor_sku=parsed['vendor_sku'] or None,
+            quantity=parsed['quantity'],
+            unit_price=parsed['unit_price'],
+            order_number=parsed['order_number'] or None,
         )
     except Exception as e:
         current_app.logger.error(
@@ -1741,6 +1773,14 @@ _PURCHASE_FIELD_LIMITS = dict(_RECEIPT_FIELD_LIMITS,
 _MAX_UNIT_PRICE = Decimal('100000000')
 _UNIT_PRICE_STEP = Decimal('0.01')
 
+# The one zero this helper returns. `Decimal('-0')` is not negative, so it is
+# accepted, and `quantize` carries the sign through (`Decimal('-0.00')`) — a
+# `str()` MariaDB stores as `0.00` but that no reader of the returned value
+# would guess. Naming the value here rather than negating in place keeps the
+# fact that there is exactly ONE spelling of a zero price visible beside the
+# bounds it belongs with.
+_ZERO_UNIT_PRICE = Decimal('0.00')
+
 
 def _purchase_unit_price(raw):
     """`(price, None)` for a storable unit price, or `(None, message)`.
@@ -1790,6 +1830,28 @@ def _purchase_unit_price(raw):
     still agree, so tightening it would be a new business rule, not the parity
     this helper was extracted for; it is recorded in the deferred-work ledger.
 
+    That leniency is about the SPELLING, and the accepted spellings are wider
+    than a price looks: `-0` is a zero rather than a negative, `1E+7` is ten
+    million, and `0.00E-99999999999999999` is a zero carrying an exponent no
+    column has room for. Each is accepted as the number it spells — and each is
+    RETURNED as one two-place `Decimal`, because the number is all that should
+    survive. That is what the `quantize` on the way out is for, and it is not
+    tidiness: PyMySQL renders a `Decimal` parameter with `str()`, so the SQL
+    literal is whatever spelling the object kept, and the spellings do not fare
+    alike. MariaDB takes `'-0'` and `'1E+7'` — it reads the latter as an
+    approximate-value literal and converts it — but it refuses
+    `'0E-100000000000000001'` outright, which made `record_purchase` return None
+    and left each caller to say so in its own words — "Failed to record the
+    purchase" on the purchase form, a 500 on the JSON endpoint, "its first
+    receipt was not recorded" on the create form — every one of them naming no
+    field, over a price the form had just told them was fine. Normalizing
+    here makes the stored value one number with one spelling rather than a
+    spelling the server happens to tolerate: every caller gets
+    `Decimal('10000000.00')` for every spelling of ten million, and
+    `Decimal('0.00')` for every spelling of zero including the signed one.
+    `tests/integration/test_purchase_unit_price_decimal.py` is where the real
+    column is asked, because SQLite cannot be.
+
     A JSON *number* is judged by the same rules as the string that spells it,
     which is stricter than it may look: `Decimal(str(3.3000000000000003))` has
     seventeen significant digits, so a client that computes a price in binary
@@ -1810,9 +1872,19 @@ def _purchase_unit_price(raw):
         return None, 'Unit Price must not be negative.'
     if price >= _MAX_UNIT_PRICE:
         return None, f'Unit Price must be less than {_MAX_UNIT_PRICE}.'
-    if price != price.quantize(_UNIT_PRICE_STEP):
+    # One `quantize`, used twice: as the scale TEST (a value that survives the
+    # round trip unchanged had at most two places to begin with) and as the
+    # value returned. Reusing it is what makes the two agree by construction —
+    # a second call could only be a second chance to disagree — and it cannot
+    # raise here, because the three checks above have already bounded the
+    # magnitude to `[0, 100000000)`. That is the ordering the paragraph above
+    # calls load-bearing.
+    quantized = price.quantize(_UNIT_PRICE_STEP)
+    if price != quantized:
         return None, 'Unit Price must have at most two decimal places.'
-    return price, None
+    # `-0` reaches here — it is not negative — and `quantize` keeps its sign, so
+    # the sign is dropped explicitly rather than left to the column to swallow.
+    return (_ZERO_UNIT_PRICE if quantized == 0 else quantized), None
 
 
 def _purchase_text_length_error(name, value):
