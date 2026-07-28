@@ -18,6 +18,7 @@ looks like it does.
 """
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -34,10 +35,43 @@ from config import TestConfig
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # The collation every folding assumption in the catalog subsystem rests on.
-# Asserted by tests/integration/test_identifier_collation.py and forced by
-# `integration_db_url` below; see that fixture for why forcing is necessary.
+# PINNED by the schema itself since DW-34 -- `app/database.py`'s
+# MYSQL_TABLE_OPTIONS for the create_all schema, migration a977ca7315df for a
+# migrated one -- and additionally forced at the database level by
+# `integration_db_url` below, which since the pinning serves as a contrast
+# baseline rather than as the thing setting the collation. Asserted by
+# tests/integration/test_identifier_collation.py (create_all schema) and
+# tests/integration/test_migrations.py (migrated schema).
 REQUIRED_COLLATION = 'utf8mb4_unicode_ci'
 REQUIRED_CHARSET = 'utf8mb4'
+
+# The one column deliberately NOT folded: products.internal_id is a case-stable
+# generated identifier whose validator (`is_valid_internal_id`) is
+# case-sensitive by design, so a folding collation there would make MariaDB
+# disagree with both that validator and SQLite (DW-73).
+BINARY_COLLATION = 'utf8mb4_bin'
+BINARY_COLUMNS = {('products', 'internal_id')}
+
+# A database default collation deliberately DIFFERENT from EVERY pinned value,
+# for the tests that build a schema inside `database_default(...)` and then
+# assert the schema pinned its own. It has to differ from the binary pin as well
+# as from the folding one: with utf8mb4_bin as the contrast, "products
+# .internal_id is utf8mb4_bin" would be satisfied identically by the pin and by
+# plain inheritance, leaving the one column whose pin is most behaviorally
+# load-bearing (DW-73) the one the contrast tests could not actually prove.
+# utf8mb4_general_ci is a legal default a deployment could genuinely have and
+# equals neither pin.
+CONTRAST_COLLATION = 'utf8mb4_general_ci'
+
+# The contrast for tests that must SEED rows the target collation will fold --
+# a pre-existing collision, which is only insertable while the schema does not
+# yet fold it. CONTRAST_COLLATION is no good for that: utf8mb4_general_ci folds
+# accents in the Latin-1 range just as utf8mb4_unicode_ci does, so 'cafe' and
+# 'café' collide there too and the seeding fails before the test begins.
+# utf8mb4_bin folds nothing, which is exactly what seeding needs. The two
+# contrasts are separate constants rather than one compromise because no single
+# collation can both differ from every pin AND fold nothing.
+NON_FOLDING_COLLATION = BINARY_COLLATION
 
 # The naming rule a database must satisfy before this tier is willing to destroy
 # it: a '_test' suffix, or the bare name 'test'. A 'test' SUBSTRING would also
@@ -125,6 +159,146 @@ def alembic_config() -> AlembicConfig:
     return cfg
 
 
+@contextmanager
+def database_default(engine, collation, charset=REQUIRED_CHARSET):
+    """Run the block with the DATABASE default set to ``charset``/``collation``.
+
+    The point of every caller is the same: a schema built inside a database
+    whose default is the target cannot be told apart from a schema that pins
+    nothing, because both end up with the right collation. Building it inside a
+    database whose default is WRONG is what turns the pinning into something a
+    test can observe.
+
+    Most callers vary only the COLLATION, which is what the schema pins per
+    column, so ``charset`` defaults to ``REQUIRED_CHARSET``. It is a parameter
+    rather than a constant because one refusal in the migration is keyed on the
+    database CHARSET instead -- ``downgrade()`` will not convert back to a
+    narrower default, since that would replace unrepresentable characters with
+    ``?`` -- and a branch no test can reach is a branch that can be inverted or
+    deleted with the tier still green.
+
+    The restore is absolute rather than a save/restore: it goes back to exactly
+    what the session-scoped ``integration_db_url`` fixture set, which is the
+    only value any other test in the tier may observe. That fixture runs once,
+    so a restore that merely undid the caller's own delta would leave the
+    database wherever a previously-failed block had put it.
+    """
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            f'ALTER DATABASE `{engine.url.database}` '
+            f'CHARACTER SET {charset} COLLATE {collation}'))
+    try:
+        yield
+    finally:
+        with engine.begin() as conn:
+            conn.execute(sa.text(
+                f'ALTER DATABASE `{engine.url.database}` CHARACTER SET '
+                f'{REQUIRED_CHARSET} COLLATE {REQUIRED_COLLATION}'))
+
+
+# Alembic's own bookkeeping table, excluded from every collation check in this
+# tier: Alembic creates it itself, on its own terms, and no revision may assume
+# anything about how. Excluded by NAME rather than by filtering to the model
+# tables, so a stray or legacy table -- which `_drop_all_tables` exists because
+# migration tests leave behind -- is still visible to the guards below.
+ALEMBIC_TABLE = 'alembic_version'
+
+
+def table_collations(engine) -> dict:
+    """``{table: default collation}`` for every table but ``alembic_version``."""
+    with engine.connect() as conn:
+        rows = conn.execute(sa.text(
+            'SELECT table_name, table_collation '
+            'FROM information_schema.tables WHERE table_schema = database()'))
+        return {row[0]: row[1] for row in rows if row[0] != ALEMBIC_TABLE}
+
+
+def column_collations(engine) -> dict:
+    """``{(table, column): collation}`` for every column that HAS a collation.
+
+    ``collation_name`` is NULL for numeric, datetime and BLOB columns, so the
+    filter is what confines this to the columns a collation can be pinned on.
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(sa.text(
+            'SELECT table_name, column_name, collation_name '
+            'FROM information_schema.columns WHERE table_schema = database() '
+            'AND collation_name IS NOT NULL'))
+        return {(row[0], row[1]): row[2] for row in rows
+                if row[0] != ALEMBIC_TABLE}
+
+
+def expected_column_collations() -> dict:
+    """The collation every collatable column in the models must have.
+
+    Derived from ``Base.metadata`` rather than hard-coded, so a column added
+    later is covered on the day it is added rather than the day someone
+    remembers to extend a list.
+
+    Two type families qualify, and the second is easy to miss: every ``String``
+    (``sa.Text`` is a ``String`` subclass, so it is included), and ``sa.JSON``,
+    because MariaDB implements JSON as a ``LONGTEXT`` alias and therefore
+    reports a collation for it -- a fixed ``utf8mb4_bin``, which
+    ``CONVERT TO CHARACTER SET`` overwrites like any other text column and the
+    migration restores explicitly. Asserting it is what keeps the migrated and
+    the ``create_all`` schema equal on ``products.attributes``. BLOB columns
+    (`photos.*_data`, `attachments.content`) have no collation at all.
+    """
+    expected = {}
+    for name, table in Base.metadata.tables.items():
+        for column in table.columns:
+            key = (name, column.name)
+            if isinstance(column.type, sa.JSON):
+                expected[key] = BINARY_COLLATION
+            elif isinstance(column.type, sa.String):
+                expected[key] = (BINARY_COLLATION if key in BINARY_COLUMNS
+                                 else REQUIRED_COLLATION)
+    return expected
+
+
+def assert_schema_is_pinned(engine) -> None:
+    """Assert every table default and collatable column carries the pinned value.
+
+    Shared by the two schema guards because they check the same claim against
+    two INDEPENDENTLY maintained schemas -- ``create_all`` from the models in
+    test_identifier_collation.py, the Alembic chain in test_migrations.py. What
+    is deliberately not shared is the behavioral folding check each file keeps
+    of its own: this one compares collation NAMES, which is the only way to see
+    that the value stopped being whatever the server chose, while a folding
+    probe is what proves the property the catalog actually depends on. Both are
+    wanted, and neither subsumes the other.
+
+    Both set comparisons are two-directional on purpose: a table or column the
+    schema has and the models do not is exactly as interesting as the reverse,
+    and pre-filtering either side to the models would make that undetectable.
+    """
+    observed_tables = table_collations(engine)
+    assert set(observed_tables) == set(Base.metadata.tables), (
+        f'schema tables and model tables disagree; only in the schema: '
+        f'{sorted(set(observed_tables) - set(Base.metadata.tables))}, only in '
+        f'the models: {sorted(set(Base.metadata.tables) - set(observed_tables))}')
+    wrong_default = {table: collation
+                     for table, collation in observed_tables.items()
+                     if collation != REQUIRED_COLLATION}
+    assert wrong_default == {}, (
+        f'these tables do not default to {REQUIRED_COLLATION} and would '
+        f'compare their strings under whatever the server chose: '
+        f'{wrong_default}')
+
+    observed = column_collations(engine)
+    expected = expected_column_collations()
+    assert set(observed) == set(expected), (
+        f'collatable columns and model columns disagree; only in the schema: '
+        f'{sorted(set(observed) - set(expected))}, only in the models: '
+        f'{sorted(set(expected) - set(observed))}')
+    mismatched = {key: (observed.get(key), value)
+                  for key, value in expected.items()
+                  if observed.get(key) != value}
+    assert mismatched == {}, (
+        f'columns whose collation is not the pinned one, as '
+        f'(observed, expected): {mismatched}')
+
+
 @pytest.fixture(scope='session')
 def integration_db_url(mariadb_testcontainer) -> str:
     """The URL of the live MariaDB database these tests run against.
@@ -144,21 +318,27 @@ def integration_db_url(mariadb_testcontainer) -> str:
     The resolved target is checked by ``_assert_safe_target`` before anything
     destructive touches it.
 
-    The database is then FORCED to utf8mb4 / utf8mb4_unicode_ci. This is not
-    belt-and-braces: the ``MARIADB_COLLATION_SERVER`` env var that
-    ``mariadb_testcontainer`` (and the CI service container) sets is not a
-    variable the official mariadb entrypoint interprets, so the server keeps its
-    own built-in default -- which on 11.8 is ``utf8mb4_uca1400_ai_ci``, not
-    ``utf8mb4_unicode_ci``. Forcing it here makes the collation under test a
-    property of the harness rather than of the image's release notes, so the
-    tier means the same thing on every MariaDB version.
+    The database default is then FORCED to utf8mb4 / utf8mb4_unicode_ci. The
+    ``MARIADB_COLLATION_SERVER`` env var that ``mariadb_testcontainer`` (and the
+    CI service container) sets is not a variable the official mariadb entrypoint
+    interprets, so the server otherwise keeps its own built-in default -- which
+    on 11.8 is ``utf8mb4_uca1400_ai_ci``, not ``utf8mb4_unicode_ci``. Forcing it
+    makes the starting point a property of the harness rather than of the
+    image's release notes, so the tier means the same thing on every MariaDB
+    version.
 
-    Be honest about what that costs: because the schema pins no collation of its
-    own (DW-51), the guard in test_identifier_collation.py can only confirm that
-    the columns inherited what this fixture set -- it cannot detect that a
-    *deployment* got a different one. It therefore also asserts that the
-    collation actually folds case and accents, which is the property the catalog
-    subsystem depends on and the only one worth guarding.
+    What that force is now FOR has changed, and it is worth being exact. It used
+    to be the only thing setting the collation of any column, so the guard in
+    test_identifier_collation.py could confirm only that the columns inherited
+    what this fixture set -- it could not detect that a *deployment* got a
+    different one, which is what DW-51 recorded. Since DW-34 the schema pins
+    charset and collation itself (``app/database.py``'s MYSQL_TABLE_OPTIONS,
+    migration a977ca7315df), so this ``ALTER DATABASE`` is a CONTRAST BASELINE:
+    it fixes the value the schema would inherit if it pinned nothing, which is
+    what makes ``assert_schema_is_pinned`` meaningful for the create_all schema
+    and lets test_migrations.py flip the default to something else on purpose
+    and still demand the pinned values. The behavioral folding assertions stay
+    beside the name ones for the reason ``assert_schema_is_pinned`` gives.
 
     ``ALTER DATABASE`` needs only the ALTER privilege, which the container and
     the CI service container both grant the app user on its own database; if

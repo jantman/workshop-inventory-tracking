@@ -2139,8 +2139,12 @@ class CatalogService:
           `'WÜRTH'` is unreachable by any casing of that word under the unit
           suite, while MariaDB's `utf8mb4_unicode_ci` folds `Ü`/`ü` — and
           `LOWER()` does not change MariaDB's comparison collation, so there an
-          accent-insensitive `cafe`/`café` match survives too. The divergence
-          is the one already recorded at `app/database.py:1084-1088`; it is
+          accent-insensitive `cafe`/`café` match survives too. That is the
+          PINNED MariaDB collation, not an inherited one — every table is
+          `utf8mb4_unicode_ci` by declaration (`app/database.py`'s
+          `MYSQL_TABLE_OPTIONS`, migration a977ca7315df) — so the divergence is
+          a fixed property of the two backends rather than of a deployment. It
+          is the one `ProductTag`'s docstring records; it is
           pinned by `TestSearchProducts` and deferred rather than papered over,
           because closing it means either a custom SQLite collation (an
           app-level engine change) or the Epic 8 mechanism decision AD-17
@@ -2368,10 +2372,13 @@ class CatalogService:
             # engine-level collation or Epic 8's mechanism decision.
             #
             # Under MariaDB it is NOT a byte comparison and this disjunct is not
-            # the narrow one: `=` runs under the column's `utf8mb4_unicode_ci`
-            # collation, which is case- AND accent-insensitive and PAD SPACE,
-            # and `LOWER()` does not change that, so both disjuncts are
-            # collation-folded and 'WURTH-1' can equal a stored 'WÜRTH-1'.
+            # the narrow one: `=` runs under the column's collation, which for
+            # both `products.mpn` and `product_identifiers.value` is PINNED to
+            # `utf8mb4_unicode_ci` (`app/database.py`, migration a977ca7315df)
+            # rather than inherited from the server, and which is case- AND
+            # accent-insensitive and PAD SPACE, and `LOWER()` does not change
+            # that, so both disjuncts are collation-folded and 'WURTH-1' can
+            # equal a stored 'WÜRTH-1'.
             # `resolve_scan`'s docstring states the consequence: what "equality"
             # reaches here is backend-dependent, and this method picks a landing
             # rather than adding a hit, so the divergence `search_products`
@@ -2610,7 +2617,16 @@ class CatalogService:
           `classification.normalized_value` — the bare, token-stripped id, which
           is what the column actually stores. The `<ai><token>` prefix is an
           encoding artifact present in no column, so searching the raw scan
-          would find nothing by construction.
+          would find nothing by construction. This lookup is an exact `==` and
+          it means the SAME thing on both backends: `products.internal_id` is
+          pinned to `utf8mb4_bin` (`app/database.py`, migration a977ca7315df),
+          which is the case-sensitive comparison `is_valid_internal_id`
+          already performs and the binary one SQLite performs by default. So a
+          lower-cased scan of a valid id resolves to no product HERE and falls
+          through to the free-text search on both — the divergence DW-73
+          recorded, closed by pinning rather than by folding the filter (which
+          would have made this lookup disagree with the UNIQUE constraint that
+          admitted the row).
         - `gtin`: looks up a `GTIN` identifier row on
           `classification.normalized_value`, which the classifier already
           normalized to the canonical 14-digit key (AD-7: lookup is against the
@@ -2671,9 +2687,11 @@ class CatalogService:
           hit list: the predicate is
           `column = value OR LOWER(column) = LOWER(value)`, which under SQLite
           (the only backend any test here runs) means byte-identical or
-          ASCII-case-folded, and under MariaDB's `utf8mb4_unicode_ci` means
-          whatever that collation equates — accent-insensitive and PAD SPACE,
-          since `LOWER()` does not change MariaDB's comparison collation. So
+          ASCII-case-folded, and under the `utf8mb4_unicode_ci` both columns
+          are PINNED to on MariaDB (`app/database.py`, migration a977ca7315df)
+          means whatever that collation equates — accent-insensitive and PAD
+          SPACE, since `LOWER()` does not change MariaDB's comparison
+          collation. So
           `WURTH-1` can land on a product stored `WÜRTH-1` in production and
           cannot in the unit suite. That is the same backend divergence
           `search_products` documents and the ledger records; it is wider here

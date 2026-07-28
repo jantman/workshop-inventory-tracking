@@ -289,7 +289,8 @@ source_spec: `_bmad-output/implementation-artifacts/2-1-typed-identifier-entity-
 location: `uq_product_identifiers_type_value_scope` on `product_identifiers`
 reason: `product_identifiers` uniqueness is case-sensitive under SQLite (unit tests) but case-insensitive under MariaDB's default collation, so identifier case-semantics differ between test and prod.
 evidence: SQLite's default `BINARY` collation is case-sensitive; MariaDB's default `utf8mb4_*_ci` is case-insensitive. The `uq_product_identifiers_type_value_scope` index therefore enforces different uniqueness for case-differing values (e.g. `B01abc` vs `B01ABC`) in prod vs the passing unit tests. No live caller yet; resolving well needs a per-type case-semantics decision (numeric GTIN / uppercase INTERNAL & ASIN are case-stable; MPN / VENDOR_SKU may not be) — e.g. pin a binary collation on the key columns or fold case explicitly.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-decision-dw-34
 decision: 2026-07-26 Pin a per-column collation in a migration — Decide the case semantics per column - a binary collation on the case-stable identifier columns (`products.internal_id`, and `product_identifiers.value` for the types that are case-stable) and an explicit `_ci` collation where folding is wanted - then pin it in a migration covering every existing table, together with an explicit charset, so the deployed behavior stops depending on the server default. Reconcile with the code paths written against folding semantics (`set_product_tags`' collision handling, `list_tags`' Python grouping, `rename_category_path`'s equivalents) and decide whether deployed data needs migrating. This also unblocks DW-51 and DW-73.
 
 ### DW-35: `create_product`'s let-the-UNIQUE-constraint-arbitrate retry design is exercised only against SQLite, never against the MariaDB backend it runs on
@@ -1722,4 +1723,29 @@ location: `app/main/routes.py` (`_record_first_receipt`'s fail-open parse fallba
 severity: medium
 summary: DW-187 records the fail-open parse hazard — a non-blank receipt field that triggers on its raw string and then parses to `None`, writing a Purchase whose only content is today's date — and its evidence pins the repro as `_record_first_receipt(svc, pid, {'unit_price': 'abc'})`. Since DW-27 that exact call returns `None` before any write, because `unit_price` is no longer a trigger. The hazard is still real but now reaches through `quantity` alone (`{'quantity': 'abc'}`), so whoever picks DW-187 up will run a reproducer that passes and may conclude the entry is stale when half of it is live.
 evidence: Found by the second review of DW-27 and confirmed against the code: the guard is now `any(values[name] for name in _RECEIPT_TRIGGER_FIELDS)` with `_RECEIPT_TRIGGER_FIELDS = ('quantity', 'order_number')`, so a form_data carrying only `unit_price` short-circuits at the guard and never reaches `_purchase_unit_price`. DW-187 also states that it "is the same question DW-27 opens from the other side, so the two should be settled together"; DW-27 shipped without narrowing or annotating it. Filed as a NEW entry rather than an edit because the orchestrator owns DW-187's status and resolution. The rewritten comment in `_record_first_receipt` now states the post-DW-27 split accurately (price closed, quantity open) and is the current source of truth; DW-187's own evidence is what is out of date. Closing this means re-scoping DW-187 to the `quantity` path and correcting its reproducer — an edit to an existing entry, which is a decision for whoever owns the ledger.
+status: open
+
+### DW-196: three MEDIUMBLOB columns lose their variant under a `mariadb+pymysql://` URL, so `create_all` builds them as 64 KB BLOBs
+origin: spec-dw-34-pinned-column-collations-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-34-pinned-column-collations.md`
+location: `app/database.py:743-744` (`Photo.medium_data`, `Photo.original_data`), `app/database.py:1050` (`Attachment.content`)
+severity: medium
+summary: All three columns are `LargeBinary().with_variant(MEDIUMBLOB, 'mysql')`, naming only the `mysql` dialect. SQLAlchemy resolves `with_variant()` on `dialect.name`, which is `mariadb` for a `mariadb+pymysql://` URL, so under that perfectly valid scheme `Base.metadata.create_all` emits plain `BLOB` (65,535 bytes) instead of `MEDIUMBLOB` (16 MB) — silently capping photo and attachment storage at 64 KB.
+evidence: Found by the follow-up review of DW-34 and confirmed empirically by compiling `CreateTable(Photo.__table__)` against both dialects: `mysql` renders `medium_data MEDIUMBLOB NOT NULL`, `mariadb` renders `medium_data BLOB NOT NULL`. Pre-existing (the lines are untouched by DW-34's diff) and surfaced only because DW-34 documents this exact single-dialect failure mode five times over and fixes it for `Product.internal_id` alone, via `with_variant(..., 'mysql', 'mariadb')`. Production is NOT currently affected: the deployed schema is built by the Alembic chain, and `dce1254cd381` issues an explicit `MODIFY COLUMN ... MEDIUMBLOB`. The exposure is the `create_all` path — the integration tier's `integration_schema` fixture and any deployment bootstrapped without migrations. The one-line fix is to add `'mariadb'` to each of the three variants; it is filed rather than patched because it is outside DW-34's intent contract ("do not add a collation to BLOB/`MEDIUMBLOB` ... columns") and because `tests/unit/test_database_schema.py::test_internal_id_is_the_only_column_that_overrides_the_table_collation` already walks every column under both server dialects, so the guard that would prove the fix wants extending to column TYPE rather than just to `COLLATE`.
+status: open
+
+### DW-197: the Alembic chain as a whole cannot run in offline/`--sql` mode, so "generate the SQL and hand it to a DBA" has never worked
+origin: spec-dw-34-pinned-column-collations-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-34-pinned-column-collations.md`
+location: `migrations/versions/8213852b0b94_*.py`, `56dc95692b79_*.py`, `f8e66632ee42_*.py`, `5aeb89e22451_*.py`
+severity: low
+summary: Four revisions read or write rows through `op.get_bind()`, which has no live connection under `alembic upgrade --sql`. The chain therefore cannot be rendered to a script for out-of-band review or execution, and the failures are incidental (a `TypeError` or an empty result set) rather than an explicit refusal.
+evidence: Deferred by the first review pass of DW-34 and carried forward per that pass's note. Pre-existing and independent of DW-34, which only made its own revision (`a977ca7315df`) refuse offline mode explicitly rather than adding a fifth silent failure — verified: `command.upgrade(cfg, '68707d1f48bf:a977ca7315df', sql=True)` now raises a `RuntimeError` naming the reason. Closing this means either giving the four data-migration revisions an explicit offline refusal of their own (cheap, honest, and consistent with `a977ca7315df`) or deciding that offline mode is unsupported for this project and saying so once, in `migrations/env.py`, instead of four times.
+status: open
+
+### DW-198: Follow-up review still recommended for dw-decision-dw-34 after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-dw-34-pinned-column-collations.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

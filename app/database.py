@@ -22,6 +22,39 @@ from .models import ItemType, ItemShape, ThreadSeries, ThreadHandedness, Dimensi
 
 Base = declarative_base()
 
+# Charset/collation pinned on EVERY table below, mirroring the migration that
+# converts the deployed schema (revision a977ca7315df). Both halves matter:
+#
+# * `mysql_charset` / `mysql_collate` are dialect-scoped kwargs -- SQLAlchemy
+#   renders them only for MySQL/MariaDB, so the SQLite schema the unit tier
+#   builds with `create_all` is unaffected.
+# * The `mariadb_` pair is NOT redundant. SQLAlchemy resolves dialect kwargs by
+#   `dialect.name`, which is 'mysql' for a `mysql+pymysql://` URL but 'mariadb'
+#   for a `mariadb+pymysql://` one -- both perfectly valid ways to reach the
+#   same server. With only the `mysql_` pair, a `mariadb+pymysql://` URL gets a
+#   bare `CREATE TABLE`, which is the same outcome as declaring nothing at all.
+#
+# That outcome is the defect this constant exists to fix: a bare `CREATE TABLE`
+# leaves every string column inheriting whatever `@@collation_database` happens
+# to be, which made the case/accent folding the catalog subsystem is written
+# against (`add_identifier`'s duplicate rejection, `set_product_tags`' collision
+# handling, `list_tags`' Python-side grouping, `rename_category_path`'s
+# non-canonical-overlap refusal) a property of the server's build defaults
+# rather than of this schema -- and MariaDB 11.8's own default is
+# `utf8mb4_uca1400_ai_ci`, not this.
+#
+# The one deliberate exception is `Product.internal_id`; see the comment there.
+# Keep this dict, the migration and tests/integration/test_migrations.py in
+# agreement -- the migrated schema and the `create_all` schema are maintained
+# independently and only the integration tier compares them.
+MYSQL_TABLE_OPTIONS = {
+    'mysql_charset': 'utf8mb4',
+    'mysql_collate': 'utf8mb4_unicode_ci',
+    'mariadb_charset': 'utf8mb4',
+    'mariadb_collate': 'utf8mb4_unicode_ci',
+}
+
+
 class InventoryItem(Base):
     """
     Main inventory items table.
@@ -90,6 +123,8 @@ class InventoryItem(Base):
 
         # Ensure valid JA ID format (MariaDB/MySQL compatible)
         CheckConstraint("ja_id REGEXP '^JA[0-9]{6}$'", name='ck_valid_ja_id_format'),
+
+        MYSQL_TABLE_OPTIONS,
     )
     
     # Enum properties for automatic conversion between database strings and enum objects
@@ -648,6 +683,8 @@ class MaterialTaxonomy(Base):
         
         # Levels 2 and 3 should have parents (in most cases)
         # Note: We'll handle this in business logic rather than DB constraint for flexibility
+
+        MYSQL_TABLE_OPTIONS,
     )
     
     def __repr__(self):
@@ -724,6 +761,10 @@ class Photo(Base):
             "content_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf')",
             name='ck_photo_valid_content_type'
         ),
+
+        # BLOB columns carry no collation; the table default below only reaches
+        # filename/content_type/sha256_hash.
+        MYSQL_TABLE_OPTIONS,
     )
 
     def __repr__(self):
@@ -789,6 +830,8 @@ class ItemPhotoAssociation(Base):
 
         # Index for efficient lookups
         Index('ix_item_photo_associations_ja_id_order', 'ja_id', 'display_order'),
+
+        MYSQL_TABLE_OPTIONS,
     )
 
     def __repr__(self):
@@ -839,7 +882,28 @@ class Product(Base):
     # .create_product is the sole writer, generating a candidate via
     # app/utils/internal_id.py and retrying when this UNIQUE constraint rejects
     # it. A DB-side default would create a second writer and defeat that.
-    internal_id = Column(String(32), nullable=False)
+    #
+    # The ONE binary-collated column in the schema, and the one exception to
+    # MYSQL_TABLE_OPTIONS above. `is_valid_internal_id` is deliberately
+    # case-SENSITIVE ("silently upper-casing input would let two different
+    # scanned strings map to one identifier"), so a folding collation here
+    # would make MariaDB disagree with the validator that admitted the value
+    # and with SQLite: `resolve_scan`'s `Product.internal_id == value` would
+    # land a lower-cased scan on a product in production and fall through to a
+    # free-text search under the unit suite (DW-73). `utf8mb4_bin` makes all
+    # three agree. Nothing is lost by not folding -- issued ids are upper-case
+    # Crockford base-32 by construction.
+    #
+    # `.with_variant()` is not decoration: a bare
+    # `String(32, collation='utf8mb4_bin')` renders `COLLATE utf8mb4_bin` into
+    # SQLite DDL too, which that backend rejects, taking the whole unit suite
+    # with it. Both dialect names are named for the reason MYSQL_TABLE_OPTIONS
+    # gives -- a `mariadb+pymysql://` URL reports `dialect.name == 'mariadb'`,
+    # and a variant keyed only on 'mysql' would leave the column folding there.
+    internal_id = Column(
+        String(32).with_variant(
+            String(32, collation='utf8mb4_bin'), 'mysql', 'mariadb'),
+        nullable=False)
 
     # Core catalog fields (FR2) — all optional (FR3/FR4/FR61)
     manufacturer = Column(String(255), nullable=True)
@@ -864,6 +928,12 @@ class Product(Base):
 
     __table_args__ = (
         UniqueConstraint('internal_id', name='uq_products_internal_id'),
+
+        # Table default; internal_id overrides it per-column (see above), so
+        # this reaches manufacturer/mpn/description/notes/category_path. The
+        # folding default is what `search_products`' category prefix filter and
+        # `rename_category_path`'s overlap refusal are written against.
+        MYSQL_TABLE_OPTIONS,
     )
 
     def __repr__(self):
@@ -926,6 +996,8 @@ class Purchase(Base):
 
     __table_args__ = (
         UniqueConstraint('request_key', name='uq_purchases_request_key'),
+
+        MYSQL_TABLE_OPTIONS,
     )
 
     product = relationship('Product', back_populates='purchases')
@@ -985,6 +1057,8 @@ class Attachment(Base):
         CheckConstraint('(product_id IS NULL) <> (purchase_id IS NULL)',
                         name='ck_attachment_one_owner'),
         CheckConstraint('file_size > 0', name='ck_attachment_positive_file_size'),
+
+        MYSQL_TABLE_OPTIONS,
     )
 
     # One-directional (no back_populates → Product/Purchase are untouched).
@@ -1044,6 +1118,15 @@ class ProductIdentifier(Base):
     __table_args__ = (
         UniqueConstraint('identifier_type', 'value', 'vendor_scope',
                          name='uq_product_identifiers_type_value_scope'),
+
+        # `value` stays FOLDING, deliberately. One column carries every
+        # identifier type, so a per-type collation is not expressible in DDL;
+        # folding is a no-op for the case-stable types (GTIN digits, upper-case
+        # INTERNAL, ASIN) and is exactly the semantics `add_identifier`'s
+        # duplicate rejection and tests/integration/test_identifier_collation.py
+        # assert for MPN/VENDOR_SKU. The per-type distinction lives in Python
+        # normalization, not in the collation.
+        MYSQL_TABLE_OPTIONS,
     )
 
     # One-directional (no back_populates → Product is untouched).
@@ -1081,10 +1164,12 @@ class ProductTag(Base):
     is the sole writer and normalizes before insert.
 
     uq_product_tags_product_tag is FR16's "a tag is unique per Product". Note
-    MariaDB's utf8mb4_unicode_ci also folds accents, so `café` and `cafe` —
-    distinct canonical tags in Python — collide there and not under SQLite's
-    binary collation; CatalogService catches that UNIQUE violation and raises a
-    caught ValidationError, never a raw IntegrityError.
+    `tag` is PINNED to utf8mb4_unicode_ci (MYSQL_TABLE_OPTIONS above, and the
+    migration that converts a deployed schema), not left to the server default,
+    and that collation folds accents as well as case: `café` and `cafe` —
+    distinct canonical tags in Python — collide on MariaDB and not under
+    SQLite's binary collation; CatalogService catches that UNIQUE violation and
+    raises a caught ValidationError, never a raw IntegrityError.
     """
     __tablename__ = 'product_tags'
 
@@ -1099,6 +1184,8 @@ class ProductTag(Base):
 
     __table_args__ = (
         UniqueConstraint('product_id', 'tag', name='uq_product_tags_product_tag'),
+
+        MYSQL_TABLE_OPTIONS,
     )
 
     # One-directional (no back_populates → Product is untouched).

@@ -24,7 +24,11 @@ from alembic.script import ScriptDirectory
 
 from app.database import Base
 from app.utils.internal_id import is_valid_internal_id
-from tests.integration.conftest import alembic_config
+from tests.integration.conftest import (ALEMBIC_TABLE, CONTRAST_COLLATION,
+                                        NON_FOLDING_COLLATION,
+                                        REQUIRED_CHARSET, alembic_config,
+                                        assert_schema_is_pinned,
+                                        database_default, table_collations)
 
 # The revision that introduced product_identifiers -- the state Story 2.4's
 # backfill migrates *from*, and the target its downgrade returns to.
@@ -84,6 +88,39 @@ REQUIRED_UNIQUE_CONSTRAINTS = {
 # here against the MIGRATED schema -- the guard in test_identifier_collation.py
 # only sees the create_all one, and the two are maintained independently.
 FOLDING_COLUMNS = (('product_identifiers', 'value'), ('product_tags', 'tag'))
+
+# The revision that pins an explicit charset and per-column collation, and the
+# one before it (DW-34). Hard-coded like the Story 2.4 pair above, and checked
+# against the script directory before use.
+COLLATION_REVISION = 'a977ca7315df'
+BEFORE_COLLATION = '68707d1f48bf'
+
+# Two internal ids differing only in case. Distinct under utf8mb4_bin, one value
+# under any _ci collation -- so inserting both is the direct test of which one
+# uq_products_internal_id is arbitrating with.
+INTERNAL_ID_UPPER = 'ABC1234567'
+INTERNAL_ID_LOWER = 'abc1234567'
+
+# A tag pair that is distinct under a binary collation and collides under
+# utf8mb4_unicode_ci, which folds accents as well as case. Seeded before the
+# collation revision to trigger its pre-flight abort.
+TAG_UNACCENTED = 'cafe'
+TAG_ACCENTED = 'café'
+
+# A database default NARROWER than utf8mb4, for the one refusal keyed on the
+# charset rather than on the collation: `downgrade()` converts every table back
+# to the database default, and doing that to latin1 would replace every
+# unrepresentable character in the stored text with '?'. Kept distinct from
+# CONTRAST_COLLATION, which is a utf8mb4 collation and cannot exercise it.
+NARROW_CHARSET = 'latin1'
+NARROW_COLLATION = 'latin1_swedish_ci'
+
+# The shape `MODIFY internal_id VARCHAR(32) NOT NULL COLLATE ...` restates. The
+# drift check above discards 'modify_type' and 'modify_nullable' to suppress
+# reflection noise, and assert_schema_is_pinned compares collations only, so
+# without this a MODIFY that narrowed the column or dropped its NOT NULL would
+# pass the whole tier.
+INTERNAL_ID_COLUMN_TYPE = 'varchar(32)'
 
 
 @pytest.fixture
@@ -243,6 +280,483 @@ class TestMigrationRunner:
 
         assert _table_names(blank_database) - {'alembic_version'} == set()
         assert _rows(blank_database, 'SELECT version_num FROM alembic_version') == []
+
+
+class TestPinnedCollations:
+    """DW-34's revision: the schema states its own charset and collation.
+
+    Every other collation assertion in this file observes only what the columns
+    INHERITED from ``integration_db_url``'s ``ALTER DATABASE``. That was the
+    honest limit of the old guard and the reason DW-51 stayed open: a fixture
+    that forces the database default cannot tell a schema that pins the
+    collation apart from one that merely happens to be created inside a database
+    with the right default, and a *deployment* gets no such fixture. The tests
+    below close that by making the inherited value differ from the target on
+    purpose (test_identifier_collation.py does the same for the ``create_all``
+    schema, which is built and maintained independently of this chain).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _revision_chain_is_what_this_class_assumes(self, alembic_env):
+        """Fail naming the constants to update if the chain is reordered.
+
+        Same guard, and same reason, as ``TestInternalIdBackfill.backfilled``:
+        a revision inserted between these two would otherwise turn the
+        pre-flight test into an opaque Alembic error or, worse, a silent test
+        of a different migration.
+        """
+        script = ScriptDirectory.from_config(alembic_env)
+        assert script.get_revision(COLLATION_REVISION).down_revision == \
+            BEFORE_COLLATION, (
+                f'{COLLATION_REVISION} no longer follows {BEFORE_COLLATION} '
+                f'directly; update the constants in this module')
+
+    @pytest.mark.integration
+    def test_migrated_schema_pins_the_charset_and_collation(
+            self, alembic_env, blank_database):
+        """Every table defaults to utf8mb4/utf8mb4_unicode_ci and every string
+        column reports that collation -- except ``products.internal_id``, which
+        reports utf8mb4_bin."""
+        command.upgrade(alembic_env, 'head')
+
+        assert_schema_is_pinned(blank_database)
+
+        # Keyed by (table, column), not by table: the query returns one row per
+        # COLUMN, so collapsing it onto table_name would keep whichever column
+        # came last and let a single unconverted column pass unseen.
+        # ``alembic_version`` is excluded for the reason conftest states -- it
+        # is Alembic's table, created on its own terms, and asserting its
+        # charset would make this test depend on the very database default it
+        # exists to prove the schema does not depend on.
+        wrong_charset = {(row[0], row[1]): row[2] for row in _rows(
+            blank_database,
+            'SELECT table_name, column_name, character_set_name '
+            'FROM information_schema.columns '
+            'WHERE table_schema = database() '
+            'AND character_set_name IS NOT NULL '
+            'AND character_set_name <> :charset '
+            'AND table_name <> :alembic', charset=REQUIRED_CHARSET,
+            alembic=ALEMBIC_TABLE)}
+        assert wrong_charset == {}, (
+            f'columns on a character set other than {REQUIRED_CHARSET} survive '
+            f'the migration: {wrong_charset}')
+
+        # The binary pin is applied by a `MODIFY`, and MySQL's MODIFY REPLACES
+        # a column definition rather than patching it -- so the statement has
+        # to restate `VARCHAR(32) NOT NULL`, and getting that restatement wrong
+        # is invisible to every other check here: `_structural_diffs` discards
+        # 'modify_type' and 'modify_nullable', and `assert_schema_is_pinned`
+        # compares collations. A narrowed column would silently truncate every
+        # id it stores.
+        column_type, is_nullable = _rows(
+            blank_database,
+            'SELECT column_type, is_nullable '
+            'FROM information_schema.columns WHERE table_schema = database() '
+            "AND table_name = 'products' AND column_name = 'internal_id'")[0]
+        assert (column_type.lower(), is_nullable) == \
+            (INTERNAL_ID_COLUMN_TYPE, 'NO'), (
+                f'the MODIFY that pins internal_id binary also redefined it as '
+                f'{column_type} nullable={is_nullable}; it is meant to restate '
+                f'{INTERNAL_ID_COLUMN_TYPE} NOT NULL unchanged')
+
+    @pytest.mark.integration
+    def test_pinning_beats_a_contrary_database_default(
+            self, alembic_env, blank_database):
+        """The chain applied inside a database whose default is
+        ``CONTRAST_COLLATION`` still produces the pinned collations.
+
+        This is the test the pinning exists for, and the one that could not be
+        written before it: with the database default set to the target, every
+        assertion above passes just as well against a schema that declares
+        nothing at all. Here the inherited value is deliberately WRONG -- and
+        wrong for BOTH pins, folding and binary, which is why the contrast is a
+        third collation rather than one of the two. Only a schema that states
+        its own collation can pass. The default is restored unconditionally --
+        the database is session-scoped and shared with every other test in the
+        tier.
+
+        This is also, incidentally, the tier's only guard on revisions added
+        AFTER the pinning one, and that is worth stating rather than relying on:
+        `alembic revision --autogenerate` never decorates an `op.create_table()`
+        with mysql_charset/mysql_collate, and the revision under test pins the
+        nine tables that existed when it was written rather than the database
+        default. A table introduced by a later revision therefore inherits
+        `@@collation_database` again -- and because this test upgrades to
+        `head` rather than to COLLATION_REVISION, and does so inside a database
+        whose default is deliberately wrong, that table fails here.
+        """
+        with database_default(blank_database, CONTRAST_COLLATION):
+            command.upgrade(alembic_env, 'head')
+
+            assert_schema_is_pinned(blank_database)
+
+    @pytest.mark.integration
+    def test_migrated_internal_id_is_case_sensitive_while_tags_fold(
+            self, alembic_env, blank_database):
+        """Two internal ids differing only in case coexist; two tags differing
+        only in case do not.
+
+        The pair asserted together, because the value of the binary pin is
+        precisely that it differs from the schema-wide default: a run that
+        proved only the first would also pass on a schema where NOTHING folds,
+        which is the deployment DW-34 exists to make impossible.
+        """
+        command.upgrade(alembic_env, 'head')
+
+        with blank_database.begin() as conn:
+            for value in (INTERNAL_ID_UPPER, INTERNAL_ID_LOWER):
+                conn.execute(sa.text(
+                    'INSERT INTO products (internal_id, created_at, updated_at) '
+                    'VALUES (:v, NOW(), NOW())'), {'v': value})
+
+        stored = {row[0] for row in _rows(
+            blank_database, 'SELECT internal_id FROM products')}
+        assert stored == {INTERNAL_ID_UPPER, INTERNAL_ID_LOWER}, (
+            'uq_products_internal_id folded two ids that differ only in case; '
+            'products.internal_id is meant to be utf8mb4_bin')
+
+        # ...and the exact-equality lookup resolve_scan performs agrees with
+        # is_valid_internal_id rather than with the folding default (DW-73).
+        assert [row[0] for row in _rows(
+            blank_database,
+            'SELECT internal_id FROM products WHERE internal_id = :v',
+            v=INTERNAL_ID_LOWER)] == [INTERNAL_ID_LOWER]
+
+        product_id = _rows(blank_database,
+                           'SELECT id FROM products LIMIT 1')[0][0]
+        with blank_database.begin() as conn:
+            conn.execute(sa.text(
+                'INSERT INTO product_tags (product_id, tag, created_at) '
+                'VALUES (:pid, :tag, NOW())'),
+                {'pid': product_id, 'tag': TAG_UNACCENTED})
+        with pytest.raises(sa.exc.IntegrityError):
+            with blank_database.begin() as conn:
+                conn.execute(sa.text(
+                    'INSERT INTO product_tags (product_id, tag, created_at) '
+                    'VALUES (:pid, :tag, NOW())'),
+                    {'pid': product_id, 'tag': TAG_ACCENTED})
+
+    @pytest.mark.integration
+    def test_preflight_aborts_before_any_ddl_on_a_pre_existing_collision(
+            self, alembic_env, blank_database):
+        """Rows that fold together under the target stop the migration dead.
+
+        MySQL commits DDL implicitly, so an ``ALTER TABLE`` that failed partway
+        down the list would strand a half-converted schema no revision
+        describes. The migration's pre-flight check exists to turn that into an
+        actionable abort with nothing changed, and 'nothing changed' is what the
+        second half of this test asserts -- the whole schema, not just
+        ``product_tags``, is still on the contrasting collation afterwards.
+
+        The seeding needs a NON-FOLDING default, not merely a contrasting one:
+        under ``utf8mb4_unicode_ci`` -- or under ``CONTRAST_COLLATION``, which
+        folds Latin-1 accents just the same -- the two tags could not have been
+        inserted in the first place, which is the point.
+        """
+        with database_default(blank_database, NON_FOLDING_COLLATION):
+            command.upgrade(alembic_env, BEFORE_COLLATION)
+
+            with blank_database.begin() as conn:
+                product_id = conn.execute(sa.text(
+                    'INSERT INTO products (internal_id, created_at, updated_at) '
+                    'VALUES (:v, NOW(), NOW())'),
+                    {'v': INTERNAL_ID_UPPER}).lastrowid
+                for tag in (TAG_UNACCENTED, TAG_ACCENTED):
+                    conn.execute(sa.text(
+                        'INSERT INTO product_tags (product_id, tag, created_at) '
+                        'VALUES (:pid, :tag, NOW())'),
+                        {'pid': product_id, 'tag': tag})
+
+            with pytest.raises(RuntimeError) as exc_info:
+                command.upgrade(alembic_env, COLLATION_REVISION)
+
+            message = str(exc_info.value)
+            assert 'product_tags' in message
+            assert 'uq_product_tags_product_tag' in message
+            assert TAG_ACCENTED in message and TAG_UNACCENTED in message
+
+            # No DDL was issued: every table still carries the collation it
+            # inherited, and the revision was not stamped.
+            collations = set(table_collations(blank_database).values())
+            assert collations == {NON_FOLDING_COLLATION}, (
+                f'the aborted migration converted something: {collations}')
+            assert [row[0] for row in _rows(
+                blank_database, 'SELECT version_num FROM alembic_version')] == \
+                [BEFORE_COLLATION]
+
+    @pytest.mark.integration
+    def test_rows_with_a_null_unique_key_are_not_a_collision(
+            self, alembic_env, blank_database):
+        """Many purchases with no ``request_key`` do not stop the upgrade.
+
+        MySQL allows unlimited NULLs in a UNIQUE index, so rows with a NULL
+        anywhere in the key are exempt from uniqueness and can neither collide
+        nor be reported as colliding. The pre-flight has to exclude them by
+        hand, and getting that wrong is not a subtle failure: ``request_key`` is
+        only written by Epic 7's idempotency path, which has not landed, so
+        almost every purchase in a real database leaves it NULL. A check that
+        grouped them would abort the upgrade on essentially every deployment
+        while every test that seeds no purchases -- which is all of the others
+        -- went on passing.
+        """
+        with database_default(blank_database, CONTRAST_COLLATION):
+            command.upgrade(alembic_env, BEFORE_COLLATION)
+
+            with blank_database.begin() as conn:
+                product_id = conn.execute(sa.text(
+                    'INSERT INTO products (internal_id, created_at, updated_at) '
+                    'VALUES (:v, NOW(), NOW())'),
+                    {'v': INTERNAL_ID_UPPER}).lastrowid
+                for _ in range(3):
+                    conn.execute(sa.text(
+                        'INSERT INTO purchases '
+                        '(product_id, request_key, created_at, updated_at) '
+                        'VALUES (:pid, NULL, NOW(), NOW())'),
+                        {'pid': product_id})
+
+            command.upgrade(alembic_env, COLLATION_REVISION)
+
+            assert_schema_is_pinned(blank_database)
+
+    @pytest.mark.integration
+    def test_preflight_catches_an_internal_id_collision(
+            self, alembic_env, blank_database):
+        """The transient the migration's docstring devotes a paragraph to.
+
+        ``products.internal_id`` ends up ``utf8mb4_bin``, which only LOOSENS
+        uniqueness, so it looks like it needs no pre-flight. It does: the
+        table-wide ``CONVERT TO`` runs first and puts the column under the
+        folding collation, and the ``MODIFY`` that pins it binary runs after --
+        so two ids differing only in case fail the conversion, five tables into
+        the list. Asserted rather than argued, because the argument is subtle
+        enough that a future reordering could quietly invalidate it.
+        """
+        with database_default(blank_database, NON_FOLDING_COLLATION):
+            command.upgrade(alembic_env, BEFORE_COLLATION)
+
+            with blank_database.begin() as conn:
+                for value in (INTERNAL_ID_UPPER, INTERNAL_ID_LOWER):
+                    conn.execute(sa.text(
+                        'INSERT INTO products '
+                        '(internal_id, created_at, updated_at) '
+                        'VALUES (:v, NOW(), NOW())'), {'v': value})
+
+            with pytest.raises(RuntimeError) as exc_info:
+                command.upgrade(alembic_env, COLLATION_REVISION)
+
+            message = str(exc_info.value)
+            assert 'uq_products_internal_id' in message
+            assert INTERNAL_ID_UPPER in message and INTERNAL_ID_LOWER in message
+            assert set(table_collations(blank_database).values()) == \
+                {NON_FOLDING_COLLATION}
+
+    @pytest.mark.integration
+    def test_preflight_compares_only_a_prefix_indexs_prefix(
+            self, alembic_env, blank_database):
+        """A prefix index is checked on its prefix, not on the whole column.
+
+        ``information_schema.statistics.sub_part`` is the only reason
+        ``_unique_indexes`` emits ``LEFT(...)``, and no index in the models is a
+        prefix one -- so without a test the branch that stops the check
+        UNDER-reporting is dead code. A deployed schema is free to have one,
+        which is the whole reason the pre-flight discovers indexes instead of
+        listing them.
+
+        The two values are equal in their first five characters after folding
+        and differ afterwards: a check grouping the FULL column would see two
+        distinct keys and let the migration through to a duplicate-key failure
+        mid-conversion.
+        """
+        with database_default(blank_database, NON_FOLDING_COLLATION):
+            command.upgrade(alembic_env, BEFORE_COLLATION)
+
+            with blank_database.begin() as conn:
+                conn.execute(sa.text(
+                    'CREATE UNIQUE INDEX ux_products_mpn_prefix '
+                    'ON products (mpn(5))'))
+                # The internal ids are unrelated and plainly distinct, so the
+                # only index that can fire is the prefix one.
+                for internal_id, mpn in (('AAAA111111', 'cafe-1'),
+                                         ('BBBB222222', 'café-2')):
+                    conn.execute(sa.text(
+                        'INSERT INTO products '
+                        '(internal_id, mpn, created_at, updated_at) '
+                        'VALUES (:v, :mpn, NOW(), NOW())'),
+                        {'v': internal_id, 'mpn': mpn})
+
+            with pytest.raises(RuntimeError) as exc_info:
+                command.upgrade(alembic_env, COLLATION_REVISION)
+
+            assert 'ux_products_mpn_prefix' in str(exc_info.value)
+            assert set(table_collations(blank_database).values()) == \
+                {NON_FOLDING_COLLATION}
+
+    @pytest.mark.integration
+    def test_upgrade_refuses_a_schema_that_is_not_already_utf8mb4(
+            self, alembic_env, blank_database):
+        """Converting a narrower charset would be a WIDENING, so it is refused.
+
+        Three consequences the migration cannot undo, all documented in its
+        docstring: index keys grow past the 767-byte limit of the row formats a
+        deployment this vintage is likely to use, ``TEXT`` is silently promoted
+        to ``MEDIUMTEXT`` so the migrated schema stops matching ``create_all``,
+        and ``downgrade()`` -- which refuses to convert back to a narrower
+        default -- becomes unreachable. Only one table is moved here because the
+        check has to fail on ANY of them, not just on a uniformly-latin1 schema.
+        """
+        command.upgrade(alembic_env, BEFORE_COLLATION)
+        with blank_database.begin() as conn:
+            conn.execute(sa.text(
+                'ALTER TABLE `product_tags` CONVERT TO CHARACTER SET latin1'))
+
+        with pytest.raises(RuntimeError) as exc_info:
+            command.upgrade(alembic_env, COLLATION_REVISION)
+
+        message = str(exc_info.value)
+        assert 'product_tags' in message and 'latin1' in message
+        assert [row[0] for row in _rows(
+            blank_database, 'SELECT version_num FROM alembic_version')] == \
+            [BEFORE_COLLATION]
+
+    @pytest.mark.integration
+    def test_upgrade_refuses_when_a_table_is_missing(
+            self, alembic_env, blank_database):
+        """A dropped table is a refusal, not an ERROR 1146 six tables in.
+
+        ``TABLES`` in the migration is a fixed list and the schema it converts
+        is a deployed one, so the two can disagree. The conversion loop would
+        otherwise commit every table before the missing one and then die.
+
+        Run inside ``CONTRAST_COLLATION`` for the reason the refusal exists: at
+        the tier's normal default the surviving tables are already on the target
+        collation, so a check that ran AFTER the conversion loop instead of
+        before it would leave a schema indistinguishable from an untouched one
+        and this test could not tell the difference. With a contrary default,
+        "nothing was converted" is observable.
+        """
+        with database_default(blank_database, CONTRAST_COLLATION):
+            command.upgrade(alembic_env, BEFORE_COLLATION)
+            with blank_database.begin() as conn:
+                conn.execute(sa.text('SET FOREIGN_KEY_CHECKS = 0'))
+                conn.execute(sa.text('DROP TABLE `product_tags`'))
+                conn.execute(sa.text('SET FOREIGN_KEY_CHECKS = 1'))
+
+            with pytest.raises(RuntimeError) as exc_info:
+                command.upgrade(alembic_env, COLLATION_REVISION)
+
+            assert 'product_tags' in str(exc_info.value)
+            assert set(table_collations(blank_database).values()) == \
+                {CONTRAST_COLLATION}
+            assert [row[0] for row in _rows(
+                blank_database,
+                'SELECT version_num FROM alembic_version')] == \
+                [BEFORE_COLLATION]
+
+    @pytest.mark.integration
+    def test_preflight_handles_an_index_mixing_a_string_and_a_binary_column(
+            self, alembic_env, blank_database):
+        """A UNIQUE index over a VARCHAR and a BLOB prefix is checked, not fatal.
+
+        Two branches meet here and neither is reachable from the models, which
+        is precisely why a deployed schema is what the pre-flight discovers
+        rather than what it assumes:
+
+        * the ``collatable`` flag. Appending ``COLLATE utf8mb4_unicode_ci`` to a
+          binary-charset column is `ERROR 1253`, not a no-op, so a key mixing
+          the two would crash the check instead of reporting through it.
+        * the ``sub_part`` prefix on that binary member. Grouping on the whole
+          BLOB instead of its first N bytes would UNDER-report -- and the values
+          below are byte-identical over the prefix and differ afterwards, so a
+          check that missed it would pass and hand the conversion a
+          duplicate-key failure mid-loop.
+
+        The reported sample comes back as `bytes` rather than `str` for the same
+        reason (CONCAT_WS over a binary argument is binary), which is the third
+        thing asserted: the abort must be the actionable RuntimeError, not an
+        AttributeError from the code that formats it.
+        """
+        payload = b'0123456789abcdef'
+        with database_default(blank_database, NON_FOLDING_COLLATION):
+            command.upgrade(alembic_env, BEFORE_COLLATION)
+
+            with blank_database.begin() as conn:
+                conn.execute(sa.text(
+                    'CREATE UNIQUE INDEX ux_photos_filename_thumb '
+                    'ON photos (filename, thumbnail_data(16))'))
+                for filename, suffix in ((TAG_UNACCENTED, b'-one'),
+                                         (TAG_ACCENTED, b'-two')):
+                    conn.execute(sa.text(
+                        'INSERT INTO photos (filename, content_type, '
+                        'file_size, thumbnail_data, medium_data, '
+                        'original_data, created_at, updated_at) '
+                        "VALUES (:name, 'image/jpeg', 1, :thumb, :thumb, "
+                        ':thumb, NOW(), NOW())'),
+                        {'name': f'{filename}.jpg',
+                         'thumb': payload + suffix})
+
+            with pytest.raises(RuntimeError) as exc_info:
+                command.upgrade(alembic_env, COLLATION_REVISION)
+
+            assert 'ux_photos_filename_thumb' in str(exc_info.value)
+            assert set(table_collations(blank_database).values()) == \
+                {NON_FOLDING_COLLATION}
+
+    @pytest.mark.integration
+    def test_downgrade_refuses_a_narrower_database_default(
+            self, alembic_env, blank_database):
+        """Reversing into a latin1 default would silently mangle stored text.
+
+        ``downgrade()`` converts every table to whatever the database default
+        is, so a narrower default turns the reversal into a lossy transcoding:
+        every character the target charset cannot represent becomes '?', with no
+        way back. The refusal is the only branch in either direction keyed on
+        the database CHARSET rather than on a collation, and until
+        ``database_default`` could vary the charset nothing could reach it --
+        so an inverted comparison here would have shipped green.
+        """
+        command.upgrade(alembic_env, COLLATION_REVISION)
+
+        with database_default(blank_database, NARROW_COLLATION,
+                              charset=NARROW_CHARSET):
+            with pytest.raises(RuntimeError) as exc_info:
+                command.downgrade(alembic_env, BEFORE_COLLATION)
+
+            assert NARROW_CHARSET in str(exc_info.value)
+            # Refused before any DDL: the schema still carries the pins.
+            assert_schema_is_pinned(blank_database)
+            assert [row[0] for row in _rows(
+                blank_database,
+                'SELECT version_num FROM alembic_version')] == \
+                [COLLATION_REVISION]
+
+    @pytest.mark.integration
+    def test_downgrade_restores_the_database_default(
+            self, alembic_env, blank_database):
+        """Reversing the revision hands every table back to the DB default.
+
+        The tier's other downgrade test runs with the database default already
+        at the target, so its ``CONVERT TO`` is a no-op and proves nothing about
+        the reversal. Here the default differs from both pins, so the tables
+        must actually move -- and ``products.internal_id``, whose binary pin is
+        per-column DDL rather than a table default, has to give it up along with
+        everything else.
+        """
+        with database_default(blank_database, CONTRAST_COLLATION):
+            command.upgrade(alembic_env, COLLATION_REVISION)
+            assert_schema_is_pinned(blank_database)
+
+            command.downgrade(alembic_env, BEFORE_COLLATION)
+
+            assert set(table_collations(blank_database).values()) == \
+                {CONTRAST_COLLATION}
+            internal_id = _rows(
+                blank_database,
+                'SELECT collation_name FROM information_schema.columns '
+                "WHERE table_schema = database() AND table_name = 'products' "
+                "AND column_name = 'internal_id'")[0][0]
+            assert internal_id == CONTRAST_COLLATION, (
+                'the binary pin survived the downgrade; CONVERT TO CHARACTER '
+                'SET is supposed to override the per-column collation too')
 
 
 class TestInternalIdBackfill:
