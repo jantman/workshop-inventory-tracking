@@ -33,7 +33,9 @@ import uuid
 
 import pytest
 from playwright.sync_api import expect
+from sqlalchemy.orm import sessionmaker
 
+from app.database import Product, Purchase
 from tests.e2e.conftest import SCAN_INPUT, simulate_wedge_scan, unstored_gtin
 
 
@@ -76,6 +78,40 @@ def _create_product(page, live_server, description, query=''):
     page.locator('button[type="submit"]').click()
     expect(page.locator('body')).to_contain_text(description, timeout=10000)
     return page.url
+
+
+def _purchases_for(live_server, description):
+    """Every Purchase belonging to the Product carrying `description`, as plain
+    dicts of column values.
+
+    Asked of the database rather than of the product page, because the property
+    under test is an ABSENCE: a page that renders no purchase proves only that
+    the template rendered none, which a change to that template could keep true
+    while the row went on existing in the FR20/FR21 history. Same
+    `sessionmaker(bind=live_server.engine)` pattern the item-status e2e uses.
+
+    Dicts rather than the ORM instances, because the session is closed before
+    the caller reads them: a detached instance answers today only because
+    `close()` happens not to expire loaded attributes, and an `expire_on_commit`
+    change or a deferred column would turn every read into a
+    `DetachedInstanceError` twenty minutes into an e2e run.
+
+    `.one()` rather than `.first()`: `description` carries this run's uuid token,
+    so exactly one Product may match, and a second one would mean the test
+    created a product it did not intend to and is asserting about the wrong row.
+    """
+    Session = sessionmaker(bind=live_server.engine)
+    session = Session()
+    try:
+        product = session.query(Product).filter_by(description=description).one()
+        return [
+            {column.name: getattr(purchase, column.name)
+             for column in Purchase.__table__.columns}
+            for purchase in session.query(Purchase)
+                                   .filter_by(product_id=product.id).all()
+        ]
+    finally:
+        session.close()
 
 
 @pytest.mark.e2e
@@ -183,6 +219,71 @@ class TestScanLandsOnACreateForm:
 
         page.wait_for_url('**/products/add**', timeout=10000)
         expect(page.locator('#description')).to_have_value(scanned, timeout=10000)
+
+
+@pytest.mark.e2e
+class TestSavingAScanPrefilledCreateForm:
+    """DW-27: what a SCAN pre-filled into the first-receipt block is not by
+    itself a receipt.
+
+    `TestScanLandsOnACreateForm` above stops at the pre-filled form and never
+    submits it, and that is exactly where the bug lived: the save is the step
+    that used to write a Purchase — every column NULL but the vendor SKU, dated
+    today — that the operator never entered.
+    """
+
+    def test_a_part_number_only_envelope_saved_records_no_purchase(
+            self, page, live_server):
+        """The operator scanned to CATALOGUE a part, not to receive one."""
+        supplier_pn = _token('catsup').upper()
+        customer_pn = _token('catcust').upper()
+        description = f'Scan routing catalogued part {_token("cat")}'
+
+        page.goto(f'{live_server.url}/')
+        # Deliberately no `Q` and no `K`: this label states two part numbers and
+        # nothing whatsoever about a shipment, so the only thing it reaches the
+        # receipt block with is the Vendor SKU it derives from the `P` record.
+        _scan_raw(page, _envelope(f'1P{supplier_pn}', f'P{customer_pn}'))
+
+        page.wait_for_url('**/products/add**', timeout=10000)
+        expect(page.locator('#vendor_sku')).to_have_value(customer_pn, timeout=10000)
+        expect(page.locator('#quantity')).to_have_value('')
+        expect(page.locator('#order_number')).to_have_value('')
+
+        # The one field the operator has to type, and nothing else — the vendor
+        # SKU is left exactly as the scan handed it over, which is what an
+        # operator who has no reason to touch it would do.
+        page.locator('#description').fill(description)
+        page.locator('button[type="submit"]').click()
+
+        expect(page.locator('body')).to_contain_text(description, timeout=10000)
+        assert _purchases_for(live_server, description) == []
+
+    def test_the_same_scan_with_a_typed_quantity_records_one_purchase(
+            self, page, live_server):
+        """...and the receiving case still works, carrying the scanned SKU with
+        it. This is why DW-27 narrowed the TRIGGER and not the set of fields the
+        Purchase is written from: a vendor SKU nobody typed is still worth
+        storing once something on the form says a shipment actually arrived."""
+        supplier_pn = _token('recvsup').upper()
+        customer_pn = _token('recvcust').upper()
+        description = f'Scan routing received part {_token("recv")}'
+
+        page.goto(f'{live_server.url}/')
+        _scan_raw(page, _envelope(f'1P{supplier_pn}', f'P{customer_pn}'))
+
+        page.wait_for_url('**/products/add**', timeout=10000)
+        expect(page.locator('#vendor_sku')).to_have_value(customer_pn, timeout=10000)
+
+        page.locator('#description').fill(description)
+        page.locator('#quantity').fill('42')
+        page.locator('button[type="submit"]').click()
+
+        expect(page.locator('body')).to_contain_text(description, timeout=10000)
+        purchases = _purchases_for(live_server, description)
+        assert len(purchases) == 1
+        assert purchases[0]['quantity'] == 42
+        assert purchases[0]['vendor_sku'] == customer_pn
 
 
 @pytest.mark.e2e

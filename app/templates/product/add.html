@@ -219,8 +219,12 @@
             </div>
             {% endif %}
 
-            {# Story 4.5 (FR39): the optional first receipt. Blank throughout
-               records nothing; any non-blank field records one Purchase. #}
+            {# Story 4.5 (FR39): the optional first receipt. A Quantity or an
+               Order Number records one Purchase, carrying Vendor, Unit Price and
+               Vendor SKU with it; with both of those blank nothing is recorded,
+               whatever the other three hold. Narrowed from "any non-blank field"
+               by DW-27, because a distributor scan pre-fills Vendor SKU and the
+               wider rule booked a receipt the operator never entered. #}
             <div class="card mb-3" id="first-receipt">
                 <div class="card-header">First Receipt <span class="text-muted small">(optional)</span></div>
                 <div class="card-body">
@@ -267,9 +271,12 @@
                         </div>
                     </div>
                     <div class="form-text">
-                        Leave blank to create the product without a purchase record.
-                        Unit Price is what one item cost: a plain decimal number, no
-                        currency symbol, at most two decimal places.
+                        A Quantity or an Order Number records one purchase, with
+                        Vendor, Unit Price and Vendor SKU saved alongside it. Leave
+                        both blank and no purchase is recorded — including when a
+                        scan filled in the Vendor SKU for you. Unit Price is what one
+                        item cost: a plain decimal number, no currency symbol, at
+                        most two decimal places.
                     </div>
                 </div>
             </div>

@@ -1196,14 +1196,47 @@ _PRODUCT_PREFILL_ARGS = (
     'duplicate_of',
 )
 
-# The create form's optional first-receipt block. Present-and-non-blank on any
-# one of them is what makes `product_add` record a Purchase.
-# `unit_price` (DW-22) is a trigger like the other four, deliberately: what this
-# tuple READS and what it TRIGGERS on are one set, so a form carrying a price and
-# nothing else records the purchase it describes rather than silently discarding
-# it — which is the very complaint DW-22 was filed over. It is NOT in
-# `_RECEIPT_FIELD_LIMITS`, which is text columns only; its rule is numeric and
-# lives in `_purchase_unit_price`.
+# The create form's optional first-receipt block. Two tuples, and they are
+# deliberately DIFFERENT sets: this one is everything a Purchase is WRITTEN
+# from, and `_RECEIPT_TRIGGER_FIELDS` below is the subset whose non-blankness
+# decides whether there is a Purchase at all.
+#
+# They were one set until DW-27, and being one set is exactly what broke.
+# `_ecia_prefill` puts a distributor label's `P` record into `vendor_sku`, so
+# scanning a part-number-only envelope, typing a description and saving recorded
+# a Purchase nobody asked for — vendor, quantity, unit price and order number all
+# NULL, a `vendor_sku` the operator never typed, and an `order_date` that
+# `record_purchase` defaults to today — into the FR20/FR21 history. `vendor` is
+# out for a reason of meaning rather than of exposure: no ECIA record carries a
+# vendor, so no SCAN supplies one, but `_PRODUCT_PREFILL_ARGS` does carry it and
+# `product_search` forwards that whitelist, so a query string can put one in
+# front of the operator. It is excluded because naming WHO sells the part is not
+# saying a shipment came, and a lone `unit_price` (DW-22) is likewise a fact
+# about the PRODUCT. So the trigger is exactly the two fields a human plausibly
+# types as part of a RECEIPT.
+# `quantity` and `order_number` stay triggers even when a label pre-filled them:
+# those are receipt content rather than identity, and the operator confirms them
+# on the form before saving.
+#
+# All five names here are still read whenever a trigger fires, so DW-22's
+# complaint stays fixed rather than reverted: a quantity plus a price records ONE
+# priced Purchase, not a second one added afterwards. When no trigger fires,
+# `vendor`, `vendor_sku` and `unit_price` are silently not written, and the
+# block's help text — not a validation error — is what tells the operator so.
+# Making the MISSING TRIGGER itself the error would recreate DW-27 in mirror
+# image, handing a refusal to an operator over a field a scan filled in for them.
+#
+# What is NOT waived is validation of the values themselves. The rules in
+# `_validate_product_create_form` never consult the trigger, so an unstorable
+# `unit_price` or an over-long `vendor`/`vendor_sku` is still refused even when
+# both triggers are blank and a storable value in that same position would have
+# been dropped. The asymmetry is deliberate rather than an oversight: the
+# operator is asked to fix what the column cannot hold, and is never asked to
+# supply a receipt they did not have. `docs/user-manual.md` states it too, so
+# the surprise is documented on the surface the operator actually reads.
+#
+# `unit_price` is NOT in `_RECEIPT_FIELD_LIMITS`, which is text columns only; its
+# rule is numeric and lives in `_purchase_unit_price`.
 #
 # It is deliberately NOT in `_PRODUCT_PREFILL_ARGS` either, which is a THIRD set
 # and not this one: that whitelist bounds what a query string may put in front of
@@ -1216,6 +1249,18 @@ _PRODUCT_PREFILL_ARGS = (
 # typed value through `form_data` regardless, which is the path that matters.
 _RECEIPT_FIELDS = ('quantity', 'order_number', 'vendor', 'vendor_sku',
                    'unit_price')
+
+# The subset of the above that a Purchase is TRIGGERED by (DW-27). A subset by
+# construction and not merely by coincidence, and the guard below subscripts
+# `values` deliberately: a trigger name that is not also read raises `KeyError`
+# there, and `product_add` catches it into "An error occurred while creating the
+# product" over a Product that has ALREADY committed — the save-looks-failed
+# resubmit that `_record_first_receipt`'s docstring names FR41 to avoid. Failing
+# that loudly beats `.get()` quietly never triggering. The containment and the
+# exact contents are pinned in `TestFirstReceiptOnCreate`, so narrowing or
+# widening this stays a decision someone makes rather than a line someone slips
+# in, and the pin fails long before any operator meets that traceback.
+_RECEIPT_TRIGGER_FIELDS = ('quantity', 'order_number')
 
 
 def _identifier_type_choices():
@@ -1358,7 +1403,10 @@ def _attach_scanned_identifier(service, product_id, form_data):
 def _record_first_receipt(service, product_id, form_data):
     """Record the optional first receipt a create form carried (FR39).
 
-    One Purchase, only when at least one receipt field is non-blank. Returns an
+    One Purchase, only when a TRIGGER field is non-blank — a Quantity or an
+    Order Number (`_RECEIPT_TRIGGER_FIELDS`, DW-27). All five `_RECEIPT_FIELDS`
+    are then written onto that one Purchase; when no trigger fires, the other
+    three are read and discarded rather than refused. Returns an
     operator-facing message on failure, or None. `record_purchase` never raises
     — it returns None — so this is non-fatal in the same way the identifier
     attach above is, and for the same reason.
@@ -1371,7 +1419,7 @@ def _record_first_receipt(service, product_id, form_data):
     product FR41 exists to prevent. Both siblings above guard the same way.
     """
     values = {name: (form_data.get(name) or '').strip() for name in _RECEIPT_FIELDS}
-    if not any(values.values()):
+    if not any(values[name] for name in _RECEIPT_TRIGGER_FIELDS):
         return None
     # `_validate_product_create_form` has already proved these parse; the
     # fallback is for a caller that reached here another way. The price's
@@ -1379,11 +1427,15 @@ def _record_first_receipt(service, product_id, form_data):
     # is stored as NULL rather than failing the whole receipt, and the form the
     # operator actually uses never gets here with one.
     #
-    # That fallback fails OPEN, on both parsed fields alike: an unusable value is
-    # dropped, and if it was the ONLY non-blank field the row above still
-    # triggered on its raw string, so the Purchase written carries nothing but
-    # today's date. `quantity` has behaved that way since Story 4.5 and the price
-    # inherits it; `product_add` validates first, so no operator can reach it.
+    # That fallback fails OPEN: an unusable value is dropped rather than refused.
+    # DW-27 halved which field can do that AND have been the thing that
+    # triggered. The PRICE no longer can: it is not a trigger, so an unstorable
+    # one is now always accompanied by a Quantity or an Order Number that meant
+    # the receipt, and the Purchase written is a real one missing a price. The
+    # QUANTITY still can — an unparseable `quantity` alone triggers on its raw
+    # string and then parses to None, writing a row carrying nothing but today's
+    # date, exactly as it has since Story 4.5. That case is on the ledger and is
+    # unchanged here; `product_add` validates first, so no operator reaches it.
     # Widening the guard is a change to the trigger rule rather than to the parse
     # (see the ledger), which is why it is not made here.
     quantity = _positive_int_string(values['quantity'])

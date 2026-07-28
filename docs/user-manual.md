@@ -728,7 +728,9 @@ path, but there is no page that lists them.
    reads "Separate tags with commas. Tags are stored lowercase." See
    [Tags](#tags).
 5. **First Receipt** (optional): fill this in if you are cataloguing something
-   that just arrived. See below.
+   that just arrived. A **Quantity** or an **Order Number** is what actually
+   records the purchase — the other three fields are saved alongside one of
+   those and dropped without one. See below.
 6. **Submit**: click **Add Product**. **Cancel** abandons the form and returns
    you to the dashboard — not to wherever you came from, and without asking, so
    on a scan-routed form it throws away everything the scan pre-filled.
@@ -761,20 +763,31 @@ length; it need not match what you count on screen.
 The **First Receipt (optional)** card records the purchase the product arrived
 on, so you do not have to create the product and then immediately add a
 purchase to it. It has five fields — **Quantity**, **Order Number**, **Vendor**,
-**Unit Price** and **Vendor SKU** — and its help text reads "Leave blank to
-create the product without a purchase record. Unit Price is what one item cost:
-a plain decimal number, no currency symbol, at most two decimal places."
+**Unit Price** and **Vendor SKU** — and its help text reads "A Quantity or an
+Order Number records one purchase, with Vendor, Unit Price and Vendor SKU saved
+alongside it. Leave both blank and no purchase is recorded — including when a
+scan filled in the Vendor SKU for you. Unit Price is what one item cost: a plain
+decimal number, no currency symbol, at most two decimal places."
 
-- Leave **all five** blank and no purchase is created at all.
-- Fill in **any one** of them and exactly one purchase row is recorded. That
-  includes **Unit Price** on its own: a price with everything else blank still
-  records the purchase, so what you paid is never quietly dropped.
+- Fill in **Quantity** or **Order Number** — either one, or both — and exactly
+  one purchase row is recorded. Whatever you put in **Vendor**, **Unit Price**
+  and **Vendor SKU** is saved onto that same row.
+- Leave **both** of those blank and no purchase is created at all, no matter what
+  the other three hold. **Vendor**, **Unit Price** and **Vendor SKU** are saved
+  only *alongside* a **Quantity** or an **Order Number**; on their own they are
+  dropped silently rather than refused. If you meant to record what arrived, add
+  whichever of those two you know.
 - There is no order date on this block; the recorded purchase is dated today.
 - **A scan may have filled this block for you.** A distributor envelope can put
   its quantity, order number and vendor SKU onto the form — not always, and not
-  necessarily all three (see [Scanning](#scanning)) — and the rule above does not
-  care who typed them: a populated block records a purchase either way. Check the
-  block, and clear it if what the label states is not what actually arrived.
+  necessarily all three (see [Scanning](#scanning)). A scanned **Vendor SKU** on
+  its own records nothing, and that is the point: a distributor label states its
+  own part number whether or not anything arrived, so a scan-and-save used just
+  to catalogue a part no longer books a purchase you never entered. A scanned
+  **Quantity** or **Order Number** *does* record one — those describe a shipment
+  rather than a part — and the rule does not care that the scan, rather than you,
+  filled them in. Check the block before saving, and clear it if what the label
+  states is not what actually arrived.
 
 **Quantity** must be a whole number greater than zero and no larger than
 2147483647; anything else is refused with
@@ -783,7 +796,14 @@ a plain decimal number, no currency symbol, at most two decimal places."
 **Unit Price** follows exactly the same rules — and gives exactly the same
 messages — as the **Unit Price** on the purchase form; see
 [Purchases and Attachments](#purchases-and-attachments). Nothing at all is
-created when it is refused: neither the product nor the purchase.
+created when it is refused: neither the product nor the purchase. It is checked
+whether or not it is going to be recorded, so a price the server cannot store is
+still refused when **Quantity** and **Order Number** are both blank — even though
+a storable one in that same position would simply be dropped. The same goes for
+length: an over-long **Vendor** or **Vendor SKU** is refused with its own message
+even when there is no **Quantity** or **Order Number** for it to be saved
+alongside, so occasionally you must shorten a value the system was going to
+discard anyway.
 
 The product is saved before the receipt is written, so the two can come apart.
 If that happens the product still exists and you are told so:
@@ -856,6 +876,14 @@ Nothing is written until you tick it — submitting without it is refused with
 When the scan carried an identifier, the warning gains one more sentence: "The
 scanned identifier stays with that product — an identifier is unique within its
 scope, so the same one cannot be attached here as well under the same scope."
+
+A distributor-label scan carries its **Quantity**, **Order Number** and **Vendor
+SKU** onto this form too, so the **First Receipt** card can be populated here
+before you touch it. The rule is the one described in
+[The First Receipt Block](#the-first-receipt-block): a pre-filled **Quantity** or
+**Order Number** records a purchase against the *new* product when you save, a
+pre-filled **Vendor SKU** on its own records nothing. Check that card before
+ticking the confirmation box.
 
 Only a **GTIN** scan carries an identifier onto this form, so only that path
 shows a **Scanned Identifier** card here at all — arrive from an internal or
@@ -1077,6 +1105,13 @@ did not resolve to one record. It is headed **Search: `<query>`**, offers a
 and a **Matching Products** card with columns **Internal ID**, **Description**,
 **Manufacturer / MPN** and **Category**.
 
+**Create a new product** is not a blank form when a scan brought you here. It
+carries the scan's pre-fill onto the add form — the part number, the identifier,
+and whatever receipt values the label stated — and the refine box carries them
+too, so narrowing the search does not throw them away. That includes
+**Quantity** and **Order Number**, which record a purchase when you save it; see
+[The First Receipt Block](#the-first-receipt-block).
+
 **Know its limits before you rely on it.** Richer search — filters, facets,
 paging and relevance ranking — is future work and is *not* available today:
 
@@ -1151,7 +1186,11 @@ three landings, decided by whether anything was found:
    adds the identifier type and value in parentheses after that sentence. The
    banner offers **Add a purchase** and **Create a separate product instead**.
 2. **No record, but free-text hits** → the search results page,
-   `/products/search?q=…`.
+   `/products/search?q=…`. Its **Create a new product** button carries the
+   scan's pre-fill onward, so the add form reached that way arrives filled in
+   just as landing 3 would have filled it — **Quantity** and **Order Number**
+   included. The warning under landing 3 applies here too: check the **First
+   Receipt** card before saving.
 3. **No record and no hits** → the add form, pre-filled. *What* is pre-filled
    depends on the kind of scan, and only some kinds fill **Label Description**:
    - A **GTIN** scan fills the **Scanned Identifier** card, and nothing else.
@@ -1163,9 +1202,17 @@ three landings, decided by whether anything was found:
      states a customer part number *different* from the one used for the MPN, and
      **Quantity** only when the label's quantity is a plain whole number — a `0`
      or a scaled `1.5K` is deliberately left blank rather than handed to you as a
-     validation error on a field you never typed.
+     validation error on a field you never typed. Mind that **Quantity** and
+     **Order Number** are the two fields that record a purchase when you save
+     (see [The First Receipt Block](#the-first-receipt-block)): a label that
+     pre-fills either will book one on a form you only meant to catalogue with,
+     so clear them if nothing actually arrived. A pre-filled **Vendor SKU** never
+     books anything on its own.
    - A **distributor envelope naming no part number** fills whatever else it
-     carried *and* drops the raw label text into **Label Description**.
+     carried *and* drops the raw label text into **Label Description**. "Whatever
+     else" includes **Quantity** and **Order Number**, so the same warning
+     applies: this form can arrive ready to book a purchase without your having
+     typed anything at all.
    - **Anything else** — a shop-printed internal label, free text — goes into
      **Label Description**. Not quite verbatim: control characters become spaces
      and the text is cut to the field's 255 characters, so a very long scan

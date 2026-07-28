@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.exceptions import ValidationError
+from app.main.routes import _RECEIPT_FIELDS, _RECEIPT_TRIGGER_FIELDS
 from app.mariadb_catalog_service import CatalogService
 
 
@@ -1466,6 +1467,91 @@ class TestProductAddPrefill:
 
 
 @pytest.mark.unit
+class TestAPrefilledFormIsSavedBack:
+    """The round trip `TestProductAddPrefill` above stops one step short of:
+    GET the form the way a scan opens it, then POST back exactly what the
+    operator would have — the pre-filled values untouched plus the one field
+    they had to type.
+
+    DW-27 lived in that gap. Every test above either GETs a pre-filled form and
+    never submits it, or POSTs a form built by hand; nothing submitted a
+    SCAN-shaped one, so nothing saw that a part-number-only ECIA label
+    (`1P`+`P`, no `Q`, no `K`) put its `P` record into `vendor_sku` and thereby
+    recorded a Purchase the operator never entered.
+
+    The query string used is the one a scan of that envelope produces,
+    verbatim: `?mpn=ABC-123&vendor_sku=XYZ-999`. Its producer is
+    `POST /api/scan` -> `_scan_destination`, which is where to look if this
+    literal ever needs re-deriving.
+    """
+
+    PREFILL = '/products/add?mpn=ABC-123&vendor_sku=XYZ-999'
+
+    def _prefilled_form_values(self, client):
+        """GET the scan-routed form and return what its inputs would submit.
+
+        The values are READ BACK OUT of the rendered page rather than restated
+        as literals, which is the whole point of going through the GET: a
+        pre-fill that arrived double-escaped, truncated or under another name
+        would then be what the POST carries, and the round trip would fail here
+        instead of passing on values the browser would never have sent.
+
+        The WHOLE receipt block is read and returned, blanks included, because a
+        browser submits every control it renders — and because reading only the
+        populated ones would hollow out the test below. That test asserts an
+        ABSENCE of Purchases; a helper that neither read nor posted `quantity`
+        would go on asserting an empty history even if a later pre-fill change
+        armed that field, passing over precisely the regression it exists to
+        catch. The equality below is what fails instead, and it is the unit-test
+        counterpart of the `#quantity`/`#order_number` emptiness the e2e checks.
+        """
+        resp = client.get(self.PREFILL)
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        values = {name: _input_value(body, name)
+                  for name in ('mpn',) + _RECEIPT_FIELDS}
+        assert values == {'mpn': 'ABC-123', 'vendor_sku': 'XYZ-999',
+                          'quantity': '', 'order_number': '',
+                          'vendor': '', 'unit_price': ''}
+        return values
+
+    def test_a_scanned_part_number_saved_with_a_description_records_no_purchase(
+            self, client, test_storage):
+        """The DW-27 repro. The operator scanned to CATALOGUE a part, not to
+        receive one: the only non-blank receipt field is the vendor SKU the scan
+        supplied, so the Product exists and its FR20/FR21 history is empty."""
+        data = self._prefilled_form_values(client)
+        data['description'] = 'Scanned part'
+
+        resp = client.post('/products/add', data=data)
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        svc = CatalogService(test_storage)
+        assert svc.get_product(pid) is not None
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_same_form_with_a_typed_quantity_records_one_purchase(
+            self, client, test_storage):
+        """...and the receiving case still works, carrying the scanned SKU with
+        it. This is why the narrowing is a change to the TRIGGER and not to the
+        read set: the vendor SKU nobody typed is still worth storing once
+        something says a shipment actually arrived."""
+        data = self._prefilled_form_values(client)
+        data['description'] = 'Scanned part'
+        data['quantity'] = '42'
+
+        resp = client.post('/products/add', data=data)
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        purchases = CatalogService(test_storage).get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        assert purchases[0].quantity == 42
+        assert purchases[0].vendor_sku == 'XYZ-999'
+
+
+@pytest.mark.unit
 class TestScannedIdentifierAttach:
     """Saving a scanned create form attaches the identifier (FR40)."""
 
@@ -1791,7 +1877,9 @@ class TestFirstReceiptOnCreate:
     def _created_id(self, resp):
         return int(resp.headers['Location'].rstrip('/').split('/')[-1])
 
-    def test_a_receipt_field_records_one_purchase(self, client, test_storage):
+    def test_the_trigger_fields_record_one_purchase(self, client, test_storage):
+        """Named for the trigger rather than for "a receipt field": since DW-27
+        three of the five record nothing on their own, and only these two do."""
         resp = client.post('/products/add', data={
             'description': 'Received part',
             'quantity': '5',
@@ -1831,34 +1919,122 @@ class TestFirstReceiptOnCreate:
         pid = self._created_id(resp)
         assert CatalogService(test_storage).get_purchases_for_product(pid) == []
 
-    def test_a_price_alone_records_one_purchase(self, client, test_storage):
-        """DW-22: the price is a TRIGGER, not merely a field that is read when
-        something else already triggered. Leaving it out of `_RECEIPT_FIELDS`
-        would silently discard exactly this submission."""
+    def test_an_order_number_alone_records_one_purchase(self, client, test_storage):
+        """The other half of the DW-27 trigger. An order number with nothing
+        beside it is still a receipt — it names a shipment — so it records the
+        one Purchase, with every other column NULL."""
         resp = client.post('/products/add', data={
-            'description': 'Priced part',
-            'unit_price': '0.50',
-            'quantity': '', 'order_number': '', 'vendor': '', 'vendor_sku': '',
+            'description': 'Ordered part',
+            'order_number': 'PO-1',
+            'quantity': '', 'vendor': '', 'vendor_sku': '', 'unit_price': '',
         })
         assert resp.status_code == 302
         pid = self._created_id(resp)
 
         purchases = CatalogService(test_storage).get_purchases_for_product(pid)
         assert len(purchases) == 1
-        assert purchases[0].unit_price == Decimal('0.50')
+        assert purchases[0].order_number == 'PO-1'
+        # Every other column NULL, asserted rather than implied: a partial
+        # receipt must not acquire a default the operator never supplied. The
+        # price-alone test this replaced carried the same guard.
         assert purchases[0].quantity is None
         assert purchases[0].vendor is None
+        assert purchases[0].unit_price is None
+
+    @pytest.mark.parametrize('field, value', [
+        ('unit_price', '0.50'),
+        ('vendor', 'DigiKey'),
+        ('vendor_sku', 'XYZ-999'),
+    ])
+    def test_a_non_trigger_field_alone_records_nothing(
+            self, client, test_storage, field, value):
+        """DW-27: these three are READ when a receipt is triggered and are not
+        triggers themselves, so each one alone creates the Product and no
+        Purchase at all.
+
+        `vendor_sku` is the case the bug was filed over — a distributor scan
+        pre-fills it from the label's `P` record, so triggering on it booked a
+        receipt dated today that the operator never entered. `vendor` is out for
+        a different reason — nothing pre-fills it, but naming who sells the part
+        is not saying a shipment came — and a lone price (DW-22's trigger,
+        removed here) is likewise a fact about the product.
+
+        Deliberately NOT an error: a scan fills `vendor_sku` in, so refusing the
+        shape would hand the operator a message about a field they never typed.
+        The value is dropped and the block's help text is what says so.
+        """
+        resp = client.post('/products/add', data={
+            'description': 'Not a receipt',
+            'quantity': '', 'order_number': '', 'vendor': '', 'vendor_sku': '',
+            'unit_price': '',
+            field: value,
+        })
+        assert resp.status_code == 302
+        pid = self._created_id(resp)
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+    def test_all_three_non_triggers_together_still_record_nothing(
+            self, client, test_storage):
+        """The shape the parametrize above cannot reach, and the one the manual
+        promises about in as many words: "no matter what the other three hold".
+
+        Equivalent to any one of them alone under today's `any()`, which is the
+        reason to pin it separately — the promise the documentation makes is
+        about the COMBINATION, so a future guard that special-cased "a full
+        vendor/price/SKU set surely means a receipt" would falsify the manual
+        while every single-field test above stayed green. It is also the
+        realistic forgetting: who sold it, what it cost and their part number
+        all typed, and no quantity. Dropped silently rather than refused; the
+        silence itself is on the ledger as DW-194.
+        """
+        resp = client.post('/products/add', data={
+            'description': 'Not a receipt either',
+            'vendor': 'DigiKey', 'unit_price': '12.50',
+            'vendor_sku': '296-1234-ND',
+            'quantity': '', 'order_number': '',
+        })
+        assert resp.status_code == 302
+        pid = self._created_id(resp)
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+    def test_the_trigger_is_a_subset_of_what_is_read(self):
+        """DW-27 split one tuple into two, and containment is the cheap half of
+        keeping the split safe: `_record_first_receipt` subscripts a dict built
+        from the READ set, so a name that triggers without being read raises
+        `KeyError` on every create POST — caught by `product_add` into "An error
+        occurred while creating the product" over a Product that has already
+        committed, which is the save-looks-failed resubmit FR41 exists to
+        prevent. This assertion is what makes that a red test rather than a
+        traceback an operator finds.
+
+        It is only the cheap half. `_record_first_receipt` consumes the read set
+        through hardcoded keys rather than by iterating it, so membership here
+        does NOT prove a given name is passed to `record_purchase` — what proves
+        that, per field, is the behavioural tests above and in
+        `test_all_five_receipt_fields_are_carried`. Do not read this assertion
+        as covering more than it says.
+
+        The exact contents are pinned beside it so narrowing or widening the
+        trigger stays a decision someone makes rather than a line someone slips
+        in; `unit_price` in particular was a trigger for one day (DW-22) and is
+        deliberately not one now.
+        """
+        assert set(_RECEIPT_TRIGGER_FIELDS) <= set(_RECEIPT_FIELDS)
+        assert _RECEIPT_TRIGGER_FIELDS == ('quantity', 'order_number')
 
     @pytest.mark.parametrize('blank', ['', '   '])
-    def test_a_blank_price_beside_another_field_is_not_an_error(
+    def test_a_blank_price_beside_a_trigger_is_not_an_error(
             self, client, test_storage, blank):
         """A blank stores NULL, exactly as it does on `purchase_add`. Whitespace
         is a blank too — both sites `.strip()`, so a stray space is neither a
-        refusal nor a value, and the Purchase is the one the other field asked
-        for."""
+        refusal nor a value, and the Purchase is the one the quantity asked for.
+
+        The quantity is what changed here, not the assertion: DW-27 took the
+        trigger away from the price and from the vendor beside it, so this needs
+        a real trigger to still be about the price at all."""
         resp = client.post('/products/add', data={
             'description': 'Unpriced part',
-            'vendor': 'DigiKey', 'unit_price': blank,
+            'quantity': '3', 'vendor': 'DigiKey', 'unit_price': blank,
         })
         assert resp.status_code == 302
         pid = self._created_id(resp)
@@ -1867,11 +2043,16 @@ class TestFirstReceiptOnCreate:
         assert purchase.unit_price is None
         assert purchase.vendor == 'DigiKey'
 
-    def test_whitespace_alone_is_not_a_trigger(self, client, test_storage):
-        """The counterpart: a space typed into the price and nothing else is not
-        a receipt, so the Story 1.3 path still costs no Purchase."""
+    @pytest.mark.parametrize('field', ['unit_price', 'quantity', 'order_number'])
+    def test_whitespace_alone_is_not_a_trigger(self, client, test_storage, field):
+        """A space typed into one field and nothing else is not a receipt, so
+        the Story 1.3 path still costs no Purchase. Covered on BOTH triggers as
+        well as on the price because the two kinds now differ: whitespace in a
+        trigger field is the one place the `.strip()` is what stands between a
+        blank form and a spurious Purchase, so neither trigger may be the one
+        that goes untested."""
         resp = client.post('/products/add', data={
-            'description': 'Just a product', 'unit_price': '   ',
+            'description': 'Just a product', field: '   ',
         })
         assert resp.status_code == 302
         pid = self._created_id(resp)
@@ -1890,9 +2071,9 @@ class TestFirstReceiptOnCreate:
         # longer contains would otherwise fail with a bare `IndexError`, or
         # silently widen the slice to the whole rest of the page.
         assert 'id="first-receipt"' in body
-        assert 'Leave blank to create the product' in body
+        assert 'A Quantity or an Order Number records one purchase' in body
         card = body.split('id="first-receipt"')[1] \
-                   .split('Leave blank to create the product')[0]
+                   .split('A Quantity or an Order Number records one purchase')[0]
 
         control, = _form_controls(card, ['unit_price'])
         assert 'name="unit_price"' in control
@@ -1935,8 +2116,12 @@ class TestFirstReceiptOnCreate:
 
     def test_the_boundary_price_the_column_holds_is_stored(
             self, client, test_storage):
+        """The quantity is the DW-27 trigger and nothing more: without one the
+        price would now be dropped rather than stored, so the boundary this test
+        is about could not be asserted at all."""
         resp = client.post('/products/add', data={
-            'description': 'Expensive part', 'unit_price': '99999999.99',
+            'description': 'Expensive part', 'quantity': '1',
+            'unit_price': '99999999.99',
         })
         assert resp.status_code == 302
         pid = self._created_id(resp)
@@ -2047,10 +2232,17 @@ class TestTheFirstReceiptPriceMatchesThePurchaseForm:
     ])
     def test_both_forms_accept_and_store_the_same_price(
             self, client, test_storage, price, stored):
+        """The create form carries a `quantity` and the purchase form does not,
+        and that asymmetry is the DW-27 trigger rule rather than anything about
+        the price: only the create form makes a Purchase conditional at all, and
+        without a trigger there would be no stored price on that side to compare.
+        What is asserted — that the two surfaces store the same value — is
+        unchanged."""
         svc = CatalogService(test_storage)
 
         created = client.post('/products/add',
                               data={'description': 'Priced part',
+                                    'quantity': '1',
                                     'unit_price': price})
         assert created.status_code == 302
         new_id = int(created.headers['Location'].rstrip('/').split('/')[-1])
@@ -2508,7 +2700,13 @@ class TestScannedIdentifierTyping:
         namespace — so it comes from the identifier block's own input and from
         nothing else. The receipt block's Vendor is a different fact about a
         different table, and coupling the two would let a purchase rewrite an
-        identity nothing on the form said it touched (DW-20)."""
+        identity nothing on the form said it touched (DW-20).
+
+        The `quantity` is there because DW-27 stopped a lone receipt Vendor from
+        recording anything: the trigger, not the assertion, is what changed. The
+        vendor still has to reach the Purchase and only the Purchase, and now
+        there is a Purchase for it to reach.
+        """
         svc = CatalogService(test_storage)
         resp = client.post('/products/add', data={
             'description': 'Scanned part',
@@ -2516,6 +2714,7 @@ class TestScannedIdentifierTyping:
             'identifier_value': '296-1234-ND',
             'identifier_vendor': 'DigiKey',
             'vendor': 'Mouser',
+            'quantity': '1',
         })
         assert resp.status_code == 302
         pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
