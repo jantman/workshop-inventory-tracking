@@ -3370,6 +3370,225 @@ class TestBothPurchaseEntryPointsAgreeOnUnitPrice:
             assert svc.get_purchases_for_product(pid) == []
 
 
+# The verdict on a purchase's date PAIR, as ONE list, for the same reason
+# `_UNIT_PRICE_VERDICTS` is one list: the rule has one definition
+# (`_purchase_date_order_error`) and the two entry points must not drift apart
+# from it. Unlike the price rules this one is not a column bound — no column can
+# say "received on or after ordered" — so this table is the whole specification
+# of it. `(order_date, received_date, None if accepted else the fragment)`.
+#
+# Padded values are NOT pinned here, unlike `_UNIT_PRICE_VERDICTS`: the two
+# entry points share the ordering rule but not the parse that feeds it, so
+# `' 2026-01-01 '` is still stripped by the form and refused by the endpoint.
+# That divergence is DW-191's — to be closed with DW-88, which owns the shared
+# date parse — not this rule's, and a row here would claim a parity that does
+# not exist yet.
+_DATE_ORDER_VERDICTS = [
+    ('2026-01-01', '2026-01-05', None),
+    # Equal dates pass: the rule is "must not precede", not "must follow".
+    ('2026-01-01', '2026-01-01', None),
+    ('2026-01-05', '2026-01-01', 'must not be earlier than'),
+    # The three partial cases, deliberately untouched by DW-24. The second is
+    # the interesting one: the service defaults the missing `order_date` to
+    # today, so the stored row DOES have received before order — and is still
+    # accepted, because refusing it is a wider rule than the one decided.
+    ('2026-01-05', '', None),
+    ('', '2020-01-01', None),
+    ('', '', None),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('order_date, received_date, fragment',
+                         _DATE_ORDER_VERDICTS)
+class TestBothPurchaseEntryPointsAgreeOnDateOrder:
+    """DW-24 as a property: a date pair one entry point accepts the other
+    accepts, and a pair one refuses the other refuses with the same message
+    against the same field, `received_date`. Only the SHAPE of the refusal
+    differs — a re-rendered field message versus the AD-13 envelope. The claim
+    is about the ORDERING rule, which is shared; the format rule underneath it
+    still is not (DW-88), which is why no padded value appears in the table.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def _assert_stored(self, svc, pid, order_date, received_date, today):
+        """An accepted pair is stored as typed, except a blank `order_date`,
+        which `record_purchase` fills with today.
+
+        `today` is read by the caller BEFORE the POST and both sides of a
+        midnight crossing are allowed: recomputing `date.today()` here would
+        fail the two blank-`order_date` rows on any run that straddles it.
+        """
+        from datetime import date
+        purchases = svc.get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        if order_date:
+            assert purchases[0].order_date == date.fromisoformat(order_date)
+        else:
+            assert purchases[0].order_date in (today, date.today())
+        assert purchases[0].received_date == (date.fromisoformat(received_date)
+                                              if received_date else None)
+
+    def test_the_html_form(self, client, test_storage, order_date,
+                           received_date, fragment):
+        from datetime import date
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        today = date.today()
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'order_date': order_date,
+                                 'received_date': received_date})
+        if fragment is None:
+            assert resp.status_code == 302
+            self._assert_stored(svc, pid, order_date, received_date, today)
+        else:
+            assert resp.status_code == 200
+            # Against the CONTROL, not the page: the form gives `order_date` an
+            # identical `invalid-feedback` slot, so a page-wide substring check
+            # would stay green if the message were filed under the wrong field —
+            # which is half of what this class claims.
+            body = resp.data.decode()
+            assert fragment in body
+            assert 'is-invalid' in _form_controls(body, ['received_date'])[0]
+            assert 'is-invalid' not in _form_controls(body, ['order_date'])[0]
+            assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_json_endpoint(self, client, test_storage, order_date,
+                               received_date, fragment):
+        from datetime import date
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        today = date.today()
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'order_date': order_date,
+                                 'received_date': received_date})
+        if fragment is None:
+            assert resp.status_code == 201
+            self._assert_stored(svc, pid, order_date, received_date, today)
+        else:
+            assert resp.status_code == 400
+            error = resp.get_json()['error']
+            assert error['code'] == 'invalid_field'
+            assert error['field'] == 'received_date'
+            assert fragment in error['message']
+            assert svc.get_purchases_for_product(pid) == []
+
+
+@pytest.mark.unit
+class TestAMalformedDateIsNeverAlsoCalledOutOfOrder:
+    """`_purchase_date_order_error` compares two parsed `date`s, so a date that
+    never parsed cannot reach it — the form leaves it `None` and the endpoint
+    has already returned. That is why the check sits after the parsing on both
+    sides, and this is what holds it there: move it earlier and a typo in
+    `order_date` starts also accusing `received_date`.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def test_the_html_form_reports_only_the_format_error(
+            self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'order_date': 'nope',
+                                 'received_date': '2026-01-01'})
+        assert resp.status_code == 200
+        assert b'Order Date must be an ISO date' in resp.data
+        assert b'must not be earlier than' not in resp.data
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_html_form_does_not_clobber_the_received_date_message(
+            self, client, test_storage):
+        """The collision case: both messages are filed under the SAME key,
+        `errors['received_date']`, so an ordering check that ran on an unparsed
+        date would overwrite the format message with one about a comparison
+        that never happened."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'order_date': '2026-01-05',
+                                 'received_date': 'nope'})
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert 'Received Date must be an ISO date' in body
+        assert 'must not be earlier than' not in body
+        assert 'is-invalid' in _form_controls(body, ['received_date'])[0]
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_json_endpoint_reports_only_the_format_error(
+            self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'order_date': 'nope',
+                                 'received_date': '2026-01-01'})
+        assert resp.status_code == 400
+        error = resp.get_json()['error']
+        assert error['field'] == 'order_date'
+        assert 'ISO date' in error['message']
+        assert 'must not be earlier than' not in error['message']
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_json_endpoint_refuses_the_unparsed_received_date_first(
+            self, client, test_storage):
+        """The endpoint's counterpart to the collision above: the format
+        failure returns before the ordering check is ever reached, so the one
+        `field` AD-13 carries names the date that is actually unreadable."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'order_date': '2026-01-05',
+                                 'received_date': 'nope'})
+        assert resp.status_code == 400
+        error = resp.get_json()['error']
+        assert error['field'] == 'received_date'
+        assert 'ISO date' in error['message']
+        assert 'must not be earlier than' not in error['message']
+        assert svc.get_purchases_for_product(pid) == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('field, body, fragment', [
+    ('vendor', {'vendor': 'v' * 256}, '255 characters or fewer'),
+    ('unit_price', {'unit_price': '-1.00'}, 'must not be negative'),
+    ('quantity', {'quantity': 'abc'}, 'must be an integer'),
+])
+class TestTheDateOrderRuleIsJudgedLastOnTheJsonEndpoint:
+    """The endpoint is first-failure-wins and its block comment says the
+    cross-field date rule is judged LAST of all — not merely after the two date
+    formats. Nothing else pinned that: the call can be hoisted above the
+    `_PURCHASE_FIELD_LIMITS` loop, the price rule or the `quantity` parse and
+    the rest of the suite stays green, at which point a body with an
+    out-of-order pair stops naming the field the caller must actually fix. The
+    HTML side needs no counterpart — it accumulates every error rather than
+    choosing one.
+    """
+
+    def test_another_bad_field_is_named_before_the_out_of_order_pair(
+            self, client, test_storage, field, body, fragment):
+        svc = CatalogService(test_storage)
+        pid = CatalogService(test_storage).create_product(description='Reel')
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json=dict(body, order_date='2026-01-05',
+                                     received_date='2026-01-01'))
+        assert resp.status_code == 400
+        error = resp.get_json()['error']
+        assert error['field'] == field
+        assert fragment in error['message']
+        assert 'must not be earlier than' not in error['message']
+        assert svc.get_purchases_for_product(pid) == []
+
+
 @pytest.mark.unit
 class TestFirstReceiptFailureIsNeverFatal:
     """Everything after `create_product` commits is non-fatal, by construction."""

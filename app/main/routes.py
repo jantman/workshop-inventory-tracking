@@ -1781,15 +1781,57 @@ def _purchase_text_length_error(name, value):
     return None
 
 
+def _purchase_date_order_error(order_date, received_date):
+    """The out-of-order message for a purchase's date pair, or `None` — the
+    third rule both entry points share (DW-24).
+
+    Unlike the other two helpers this is not a column bound; nothing in
+    `purchases` can express "received on or after ordered", so both entry points
+    validated each date's format independently and neither ever compared them.
+    The rule lives beside them rather than in the service for the same reason
+    they do: `record_purchase` validates nothing by design, so
+    `_parse_purchase_form` and `api_record_purchase` are the two HTTP gates in
+    front of it. They are not the only writers — `record_amazon_purchase` takes
+    both dates and, exactly like the price rule, does NOT inherit this one; the
+    day it gets a route, the rule has to be applied there too.
+
+    The arguments are already-parsed `date` values, not the raw strings, which
+    is what makes the interaction with the format rules resolve itself: an
+    unparseable date is `None` on the form side and has already short-circuited
+    the request on the JSON side, so this is never reached with a non-date and a
+    malformed date reports only its own format message. That also bounds what
+    sharing this rule buys. The two entry points now agree about ORDER, but they
+    still reach these two dates through two unshared parses that disagree about
+    padding (the form strips, the endpoint does not — DW-191) and about which
+    ISO grammar the `YYYY-MM-DD` message actually names (DW-88). Both close
+    together, in the one shared date helper that gives the FORMAT rule the
+    single definition the other columns already have.
+
+    Falsy on either side means the pair is accepted. A `received_date` with no
+    `order_date` is left alone even though `record_purchase` then defaults
+    `order_date` to `date.today()` (mariadb_catalog_service.py) and can store a
+    row where received precedes order: refusing that — or replicating the
+    default here to compare against — would be a broader rule than the one
+    decided. The comparison is `<`, so equal dates are accepted: the rule is
+    "must not precede", not "must follow".
+    """
+    if order_date and received_date and received_date < order_date:
+        return 'Received Date must not be earlier than Order Date.'
+    return None
+
+
 def _parse_purchase_form(form_data):
     """Parse the HTML purchase form into the typed values the service takes.
 
     Returns `(values, errors)`. The bounds on `unit_price` and on the text
     columns live in `_purchase_unit_price` and `_purchase_text_length_error`,
-    which `api_record_purchase` applies to those same columns, so the two entry
-    points cannot come to disagree about them; the only difference is the shape
-    of the refusal (a field message on a re-render rather than the AD-13 JSON
-    envelope).
+    and the one cross-field rule — a `received_date` may not precede its
+    `order_date` — in `_purchase_date_order_error`; `api_record_purchase`
+    applies all three, so the two entry points cannot come to disagree about
+    them; the only difference is the shape of the refusal (a field message on a
+    re-render rather than the AD-13 JSON envelope). The dates' own FORMAT rule
+    is still the one thing here that is NOT shared, and the two do disagree
+    about it — see DW-88 and `_purchase_date_order_error`.
 
     `quantity` is deliberately NOT shared, and the two entry points do still
     differ on it: the JSON endpoint's shipped contract takes a JSON integer,
@@ -1841,6 +1883,14 @@ def _parse_purchase_form(form_data):
                 values[name] = date.fromisoformat(raw_date)
             except ValueError:
                 errors[name] = f'{label} must be an ISO date (YYYY-MM-DD).'
+
+    # After the loop, so a date that failed to parse is `None` here and gets its
+    # own format message rather than also being called out of order — the two
+    # would otherwise contend for this very key.
+    message = _purchase_date_order_error(values['order_date'],
+                                         values['received_date'])
+    if message:
+        errors['received_date'] = message
 
     return values, errors
 
@@ -1964,16 +2014,20 @@ def api_record_purchase(product_id):
 
     # Parse/validate typed fields at the boundary; the service takes typed values.
     # `unit_price` and the four text columns are bounded by the same two helpers
-    # the HTML form applies (`_parse_purchase_form`), so the two entry points
-    # cannot disagree about THOSE columns; only the shape of the refusal
-    # differs. `quantity` below is deliberately not shared — see that
-    # function's docstring. The helpers' human-readable message is reused
-    # verbatim: `error.field` already carries the machine name a client keys on,
-    # and a second message string is exactly the divergence sharing them avoids.
+    # the HTML form applies (`_parse_purchase_form`), and the ORDER of the date
+    # pair by a third, `_purchase_date_order_error`, so the two entry points
+    # cannot disagree about THOSE rules; only the shape of the refusal differs.
+    # `quantity` below is deliberately not shared — see that function's
+    # docstring — and neither is the dates' own format rule (DW-88). The
+    # helpers' human-readable message is reused verbatim:
+    # `error.field` already carries the machine name a client keys on, and a
+    # second message string is exactly the divergence sharing them avoids.
     #
     # First failure wins, and the text columns are judged first, so a body with
     # several bad fields names the earliest one in `_PURCHASE_FIELD_LIMITS`.
-    # AD-13's envelope carries one `field`; the caller fixes and re-POSTs.
+    # AD-13's envelope carries one `field`; the caller fixes and re-POSTs. The
+    # cross-field date rule is judged last of all, because it needs both dates
+    # parsed and must not pre-empt either one's own format message.
     for name in _PURCHASE_FIELD_LIMITS:
         message = _purchase_text_length_error(name, body.get(name))
         if message:
@@ -2010,6 +2064,11 @@ def api_record_purchase(product_id):
     received_date, err = _parse_date(body.get('received_date'), 'received_date')
     if err:
         return err
+
+    message = _purchase_date_order_error(order_date, received_date)
+    if message:
+        return _catalog_json_error('invalid_field', message, 400,
+                                   field='received_date')
 
     try:
         snapshot = service.record_purchase(
