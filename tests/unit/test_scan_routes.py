@@ -462,6 +462,23 @@ class TestScanRoutingOutcomes:
         assert _query(data['url']) == {'identifier_type': 'GTIN',
                                        'identifier_value': GTIN_UNSTORED_KEY}
 
+    def test_the_wedge_no_read_is_not_routed_as_a_trade_item_number(
+            self, client, test_storage):
+        """DW-69, end to end. An all-zero run passes mod-10, so before the
+        refusal in `gtin.py` this scan answered `kind: gtin` and pre-filled the
+        create form with `identifier_type=GTIN, identifier_value=
+        00000000000000` — a meaningless number the operator would have saved
+        onto a real product. It is now free text, so it pre-fills `description`
+        instead and attaches no identifier."""
+        data = client.post('/api/scan', json={'raw': '00000000'}).get_json()
+
+        assert data['kind'] == ScanKind.FREE_TEXT.value
+        assert data['outcome'] == 'create'
+        assert _path(data['url']) == '/products/add'
+        # Exact equality, not two `not in` checks: it pins the ABSENCE of
+        # `identifier_type`/`identifier_value` and every other key at once.
+        assert _query(data['url']) == {'description': '00000000'}
+
     def test_ecia_label_with_no_product_prefills_mpn_quantity_and_order(
             self, client, test_storage):
         """FR39: a distributor scan pre-fills MPN, quantity and order references.
@@ -529,7 +546,8 @@ class TestScanRoutingOutcomes:
         '[)>\x1e06\x1d1PABC\x1dQ10\x1d\x1e\x04',     # ecia
         '\x00' * 8,                                  # unstorable text
         ' [)>\x1e06\x1d\x1e\x04',                    # a degraded envelope
-    ], ids=['gtin', 'free_text', 'ecia', 'nul_run', 'degraded'])
+        '0' * 8,                                     # the wedge no-read
+    ], ids=['gtin', 'free_text', 'ecia', 'nul_run', 'degraded', 'no_read'])
     def test_no_scan_dead_ends(self, client, raw):
         """FR36/FR40, stated as one property: there is no input for which the
         operator is left where they were or shown an error page."""

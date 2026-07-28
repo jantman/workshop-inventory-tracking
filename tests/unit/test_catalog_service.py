@@ -715,6 +715,9 @@ class TestCatalogServiceIdentifiers:
         # Unknown-but-valid GTIN and an invalid input both return None (no raise).
         assert catalog_service.find_product_id_by_gtin('00012345678929') is None
         assert catalog_service.find_product_id_by_gtin('not-a-gtin') is None
+        # The wedge no-read is refused by gtin.py, so the lookup path inherits
+        # it and misses rather than resolving the all-zero key (DW-69).
+        assert catalog_service.find_product_id_by_gtin('00000000') is None
 
 
 class TestRecordAmazonPurchase:

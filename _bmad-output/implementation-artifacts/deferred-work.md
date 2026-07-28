@@ -603,7 +603,8 @@ source_spec: `_bmad-output/implementation-artifacts/4-2-pure-scan-classifier.md`
 location: `app/utils/gtin.py` (`is_valid_gtin`, `normalize_gtin`), `app/utils/scan_router.py` (rule 3)
 reason: An all-zero digit run — the classic keyboard-wedge no-read output — passes the mod-10 check and classifies as a `gtin` with normalized key `00000000000000`, indistinguishable from a real scan.
 evidence: Verified: `classify('00000000')` and `classify('00000000000000')` both return `kind=GTIN, normalized_value='00000000000000'`, because zero is a valid check digit over all zeros. `'00000000'` is one of the more plausible real faults on this hardware, and under Story 4.3 it drives a product lookup, misses, and lands the operator on a create form pre-filled with a meaningless GTIN. The fix does not belong in `app/utils/scan_router.py`: rule 3 delegates validity entirely to `gtin.is_valid_gtin`/`normalize_gtin` under AD-16, and adding a zero-run check there would be a second copy of GTIN validity the rule exists to prevent. `app/utils/gtin.py` is the right home and is a frozen Epic 2 contract Story 4.2 held read-only ("Satisfying FR36 would require changing `app/utils/gtin.py` ... that is a human decision"). Neither the I/O matrix nor any test covers it in either direction, so the current behavior is accidental rather than chosen.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-decision-dw-69
 decision: 2026-07-26 Refuse all-zero runs in `gtin.py` — Make `is_valid_gtin` refuse an all-zero digit run (and have `normalize_gtin` follow it), so a wedge no-read classifies as `free_text` rather than as a trade item number. Note that this also affects the write path - an all-zero GTIN can no longer be stored as a validated identifier - which is the intended consequence. Pin it in the classifier I/O matrix in both directions: `'00000000'` must not be `gtin`, and a genuine GTIN with a zero check digit must still be.
 
 ### DW-70: A GS1 element string carrying AI `01` classifies as `free_text`, because FR36 rule 3 recognizes only a bare all-digit trade item number
@@ -1758,4 +1759,49 @@ location: `app/main/routes.py` (route-side `log_audit_operation(..., 'input', ..
 severity: low
 summary: Every catalog route logs the `input` phase under the ROUTE's name while the service logs `success` and `error` under the SERVICE METHOD's name, so the two halves of one operation never share an `audit_operation` value. Grepping the audit log for either name returns half the lifecycle, and the `item_id` cannot rejoin them because the input record carries no `item_id` at all.
 evidence: Surfaced by the DW-48 follow-up review, which found `tag_rename`/`rename_tag` and then confirmed the split is systemic rather than a slip in the new code: `product_add`/`create_product`, `product_edit`/`update_product`, `purchase_add`/`record_purchase` and `category_rename`/`rename_category_path` all pair the same way (verified by enumerating the `log_audit_operation` call sites in both files). It is pre-existing and was propagated, not introduced, by DW-48 — the new page mirrors `category_rename` exactly, which is why the review did not patch it here: fixing one pair alone would make the tag page the only member of the family that joins, which is worse than a consistent split. `app/logging_config.py:415` states the point of the audit trail is "to enable data reconstruction", which is precisely what the split defeats. Closing this means picking one naming side for the whole surface (the service method's name is the better anchor, since it is what the `success`/`error` records and the `item_id` already key on) and moving every route-side `input` call onto it in one pass.
+status: open
+
+### DW-200: an all-zero GTIN identifier already stored in a deployed database becomes unreachable by lookup and unrecreatable
+origin: spec-dw-69-gtin-all-zero-refusal-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-69-gtin-all-zero-refusal.md`
+location: `app/mariadb_catalog_service.py` (`find_product_id_by_gtin`), `product_identifiers` table
+severity: medium
+summary: Before DW-69, `add_identifier` accepted `'00000000'` and stored it as the validated `GTIN` value `'00000000000000'`. Such a row survives the change but can no longer be resolved: `find_product_id_by_gtin` now returns `None` for every all-zero input, and the value can never be re-entered as a `GTIN`. The row is findable only by the `product_identifiers.value` substring arm of `search_products` — an accident, not a designed fallback — and it still occupies the identifier uniqueness index.
+evidence: Found by the DW-69 review. The DW-69 spec's Block If named "any existing product identifier row in a fixture, migration, or seed"; fixtures, migrations and seeds are clean (verified), but the population actually at risk is the deployed database, which the Block If never named. Confirmed by reading `find_product_id_by_gtin` (`normalize_gtin` inside a `try`, `InvalidGtinError` → `None`) — the new refusal reaches it with no code change. The human decision behind DW-69 accepted the write-path consequence explicitly ("an all-zero GTIN can no longer be stored as a validated identifier - which is the intended consequence") but did not address pre-existing rows. Closing this means running a detection query — `SELECT id, product_id FROM product_identifiers WHERE identifier_type = 'GTIN' AND value = '00000000000000'` — and deciding per row between deletion and re-typing as `GTIN_UNVALIDATED` (which still accepts the value verbatim, pinned by `test_the_quarantine_type_also_takes_the_wedge_no_read`). Not patched under DW-69 because a data migration is outside its intent contract and the right disposition is a human call.
+status: open
+
+### DW-201: the free-text search for an all-zero no-read substring-matches real GTIN keys
+origin: spec-dw-69-gtin-all-zero-refusal-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-69-gtin-all-zero-refusal.md`
+location: `app/mariadb_catalog_service.py` (`search_products`, the `product_identifiers.value` LIKE arm), `app/utils/scan_router.py` (rule 4)
+severity: medium
+summary: DW-69 routes the wedge no-read to `free_text`, which is the intended outcome, but `search_products` then runs `LIKE '%00000000%'` against identifier values. Every GTIN-8 stored in the catalog normalizes to a 14-digit key with six leading zeros, so a no-read can return a list of unrelated products as apparent scan hits — presented to the operator as if the failed scan matched something.
+evidence: Found by the DW-69 edge-case review. The zero-padding to 14 is `gtin.py`'s documented invariant, so the collision is structural rather than incidental: `'00000000'` is a substring of `'00000000012348'`, the canonical key for the GTIN-8 `'00012348'` already used as a test vector. Not patched under DW-69, whose intent contract forbids zero-run logic in the service and router ("Do not add zero-run logic to `app/utils/scan_router.py`, `app/mariadb_catalog_service.py`, or `app/main/routes.py`"). Closing this means deciding whether a no-read should short-circuit to an empty hit set before the search runs, or whether misleading hits are acceptable given the operator can see the query. Related to [DW-202].
+status: open
+
+### DW-202: a failed scan pre-fills the create form's required `description` with the no-read text
+origin: spec-dw-69-gtin-all-zero-refusal-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-69-gtin-all-zero-refusal.md`
+location: `app/main/routes.py` (the `free_text` create pre-fill)
+severity: low
+summary: Post-DW-69 a wedge no-read routes to `free_text` and, matching nothing, lands on `/products/add?description=00000000`. That is a strict improvement over the pre-DW-69 outcome (a create form carrying `identifier_type=GTIN, identifier_value=00000000000000`), but the operator can still save a product whose description is a failed scan, in the one field the form requires.
+evidence: Found by the DW-69 edge-case review and pinned as current behavior by `test_the_wedge_no_read_is_not_routed_as_a_trade_item_number` in `tests/unit/test_scan_routes.py`, which asserts `_query(url) == {'description': '00000000'}`. The pre-fill is Story 4.5's general free-text rule and is correct for genuine free text; the question is whether a recognizable no-read deserves an exception. Not patched under DW-69 (routes are out of its intent contract). Related to [DW-201].
+status: open
+
+### DW-203: the `GTIN_UNVALIDATED` advisory says "without check-digit validation" for refusals that are not check-digit failures
+origin: spec-dw-69-gtin-all-zero-refusal-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-69-gtin-all-zero-refusal.md`
+location: `app/mariadb_catalog_service.py` (`add_identifier`'s `ValidationError` message), `app/main/routes.py` (`_validate_product_create_form`)
+severity: low
+summary: Every GTIN refusal is shown to the operator as the util's message plus a fixed clause: "Choose the GTIN_UNVALIDATED type to keep the value exactly as entered, without check-digit validation." Four of the five refusal reasons are not check-digit failures, and the all-zero one actively contradicts the clause — `'00000000'` passes mod-10 and is refused for a different reason, so the operator is told to bypass a check that did not fire.
+evidence: Pre-existing (the clause was already loose for the non-digit, wrong-length and non-`str` reasons) and surfaced by DW-69, which adds a fifth reason where the mismatch is not merely loose but false. The exact concatenation is asserted byte-for-byte by nine rows of `tests/unit/test_product_routes.py::TestGtinCheckDigitRefusedBeforeTheWrite::test_every_way_the_util_refuses_a_gtin_is_refused_here`, so rewording is a coordinated change across the service, the route and that table — too broad to patch inside DW-69's contract. Closing this means restating the clause in terms of what `GTIN_UNVALIDATED` actually does (holds the value verbatim, unvalidated) rather than naming one of the five checks it skips.
+status: open
+
+### DW-204: an all-zero part number inside an ECIA envelope pre-fills `mpn` and can be stored as an identifier, which the GTIN rule cannot reach
+origin: spec-dw-69-gtin-all-zero-refusal-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-69-gtin-all-zero-refusal.md`
+location: `app/main/routes.py` (`_ecia_prefill` / `_scan_create_prefill`), `app/utils/ecia.py`
+severity: medium
+summary: DW-69 keeps a wedge no-read out of the GTIN namespace, but the same no-read arriving as the `1P`/`P` part-number field of an ECIA envelope still pre-fills `mpn` on the create form and can be saved as an `MPN` identifier. The rule that a failed scan must not become a trade identifier holds for one scan path and not the other.
+evidence: Found by the DW-69 adversarial and edge-case review passes. `_scan_create_prefill` returns `_ecia_prefill(classification)` whenever it yields a non-blank `mpn`, and `mpn` is set from the first non-blank of `1P`/`P` with no value-level judgement — MPNs are deliberately not check-digit or format validated (`test_a_non_gtin_type_is_not_check_digit_judged` pins that only the `GTIN` branch is normalized). So `[)>{RS}06{GS}1P00000000{GS}{RS}{EOT}` pre-fills `mpn=00000000` and a save stores it. Not patched under DW-69, whose intent contract confines the rule to `app/utils/gtin.py` ("Do not add zero-run logic to `app/utils/scan_router.py`, `app/mariadb_catalog_service.py`, or `app/main/routes.py`") and forbids broadening it beyond GTINs. Closing this means deciding whether "is this field a scanner no-read" is a question the ECIA prefill should ask at all, and if so where it lives given AD-16 keeps per-namespace validity behind its own util. Related to [DW-202].
 status: open

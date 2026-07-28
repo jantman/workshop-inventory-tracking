@@ -302,6 +302,7 @@ class TestGtinRecognition:
         ('012345678905', '00012345678905'),     # UPC-A
         (GTIN13, GTIN13_KEY),                   # EAN-13
         (GTIN13_KEY, GTIN13_KEY),               # GTIN-14, already canonical
+        ('00000012345670', '00000012345670'),   # check digit 0 — not a no-read
     ])
     def test_every_accepted_length_normalizes_to_the_14_digit_key(self, raw, key):
         c = classify(raw, ai=AI, token=TOKEN)
@@ -323,6 +324,8 @@ class TestGtinRecognition:
     @pytest.mark.parametrize('raw', [
         '9506000134353',                        # bad check digit (last digit of GTIN13 + 1)
         '012345678900',                         # bad check digit, UPC-A length
+        '00000000',                             # wedge no-read: mod-10 valid, refused by gtin.py
+        '00000000000000',                       # the same no-read, already 14 wide
         '12345678901',                          # 11 digits — not an accepted length
         '0109506000134352',                     # 16 digits — an AI-01 element string, not a GTIN
         '1234567',                              # 7 digits

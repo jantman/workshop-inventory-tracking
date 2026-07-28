@@ -22,7 +22,10 @@ class TestComputeCheckDigit:
     @pytest.mark.unit
     @pytest.mark.parametrize('data13, expected', [
         ('0001234567890', 5),   # UPC-A 012345678905 padded
-        ('0000000000000', 0),   # all zeros → 0
+        # All zeros → 0. `compute_check_digit` is pure arithmetic and stays so:
+        # the all-zero key is refused as a GTIN by `normalize_gtin` (DW-69,
+        # below), NOT by making this function lie about the mod-10 sum.
+        ('0000000000000', 0),
         ('0000000001234', 8),   # GTIN-8 00012348 padded
         ('0001234567892', 9),   # a distinct valid GTIN's data
     ])
@@ -112,6 +115,47 @@ class TestNormalizeGtin:
             normalize_gtin(bad)
 
     @pytest.mark.unit
+    @pytest.mark.parametrize('bad', [
+        '00000000',         # GTIN-8 length
+        '000000000000',     # UPC-A length
+        '0000000000000',    # EAN-13 length
+        '00000000000000',   # GTIN-14 length, already the padded key
+    ])
+    def test_all_zero_run_of_any_accepted_length_is_refused(self, bad):
+        """The wedge no-read passes mod-10 (zero IS the check digit over all
+        zeros), so nothing but this rule keeps it out of the GTIN namespace."""
+        with pytest.raises(InvalidGtinError) as exc:
+            normalize_gtin(bad)
+        assert str(exc.value) == f'GTIN must not be all zeros: {bad!r}.'
+
+    @pytest.mark.unit
+    def test_a_zero_check_digit_is_not_an_all_zero_run(self):
+        """The rule is 'all zeros', not 'ends in zero' — a genuine GTIN whose
+        check digit happens to be 0 must survive it."""
+        assert normalize_gtin('00000012345670') == '00000012345670'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('good, key', [
+        ('10000007', '00000010000007'),              # GTIN-8, one nonzero digit
+        ('100000000007', '00100000000007'),          # UPC-A
+        ('1000000000009', '01000000000009'),         # EAN-13
+        ('10000000000007', '10000000000007'),        # GTIN-14
+    ])
+    def test_one_nonzero_digit_is_enough_to_be_a_gtin(self, good, key):
+        """The nearest neighbours of the no-read on every accepted length. The
+        rule is exact equality with the zero key, not 'mostly zeros'."""
+        assert normalize_gtin(good) == key
+
+    @pytest.mark.unit
+    def test_an_all_zero_run_of_a_wrong_length_keeps_its_length_message(self):
+        """Ordering, pinned: the zero-run check sits AFTER the length check, so
+        the operator is told the true first fault."""
+        with pytest.raises(InvalidGtinError) as exc:
+            normalize_gtin('00000')
+        assert str(exc.value) == \
+            "GTIN must be 8, 12, 13, or 14 digits, got 5: '00000'."
+
+    @pytest.mark.unit
     def test_non_ascii_digits_rejected(self):
         # Arabic-Indic digits are .isdigit() True but not ASCII → rejected.
         with pytest.raises(InvalidGtinError):
@@ -137,6 +181,7 @@ class TestIsValidGtin:
         '00012345678905',
         '00012348',
         '0012345678905',
+        '00000012345670',  # a genuine GTIN whose check digit is 0
     ])
     def test_true_for_valid(self, value):
         assert is_valid_gtin(value) is True
@@ -147,6 +192,10 @@ class TestIsValidGtin:
         'ABC123',         # non-digit
         '1234567',        # wrong length
         '',               # empty
+        '00000000',       # the wedge no-read, in each accepted length
+        '000000000000',
+        '0000000000000',
+        '00000000000000',
         None,             # non-str — must not raise (contract: never raises)
         12345678905,      # int — must not raise
     ])

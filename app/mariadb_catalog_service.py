@@ -2171,9 +2171,11 @@ class CatalogService:
         # --- Normalize + check-digit-validate GTIN (Story 2.2, FR9/FR10) ---
         # Only GTIN is normalized: the stored, snapshotted, and
         # uniqueness-checked value becomes the canonical 14-digit key, so every
-        # encoding of one product collides on the shared key. A check-digit
-        # failure is surfaced as a domain ValidationError (never a raw
-        # InvalidGtinError) that offers the GTIN_UNVALIDATED path.
+        # encoding of one product collides on the shared key. ANY refusal by
+        # `normalize_gtin` — a non-digit, a wrong length, an all-zero run (the
+        # wedge no-read) or a failed check digit — is surfaced as a domain
+        # ValidationError (never a raw InvalidGtinError) that offers the
+        # GTIN_UNVALIDATED path.
         # GTIN_UNVALIDATED is stored exactly as entered — never normalized.
         #
         # DW-23: `_validate_product_create_form` now calls the same util and

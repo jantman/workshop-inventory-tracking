@@ -1026,16 +1026,18 @@ def _validate_product_create_form(form_data):
     # The fourth and last purely-checkable identifier fault, and the only one
     # `add_identifier` still judged after the commit — where a refusal costs a
     # product that exists with its identifier dropped behind an advisory flash.
-    # No scan can land here (`classify()` types a value GTIN only once its check
-    # digit has validated); it takes a value or a type entered by hand, either
+    # No scan can land here (`classify()` types a value GTIN only once
+    # `normalize_gtin` has ACCEPTED it — the whole of that acceptance, not the
+    # check digit alone); it takes a value or a type entered by hand, either
     # in the form or in the query string that pre-fills it (`_scan_banner_args`
     # passes `scan_value` through to `identifier_value` unjudged).
     #
     # The judgement is a CALL into app/utils/gtin.py, never a re-derivation, so
     # the form refuses exactly the set `add_identifier` refuses and the two
     # cannot drift. `InvalidGtinError` is caught WHOLE: one raise covers a
-    # non-digit, a wrong length and a failed check digit, and narrowing to the
-    # check digit would mean re-listing the other two here. The canonical key is
+    # non-digit, a wrong length, an all-zero run (the wedge no-read) and a
+    # failed check digit, and narrowing to any one of them would mean re-listing
+    # the other three here. The canonical key is
     # discarded — the service stays the sole normalizer on the write path
     # (AD-4).
     #

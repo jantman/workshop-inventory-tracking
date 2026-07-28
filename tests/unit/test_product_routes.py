@@ -1998,8 +1998,10 @@ class TestGtinCheckDigitRefusedBeforeTheWrite:
     over-long value — were already moved; these tests pin the fourth, and every
     way it must NOT fire.
 
-    Reachable only by hand: `classify()` types a value `GTIN` only once its
-    check digit has validated, so no scan can pre-fill a value this refuses.
+    Reachable only by hand: `classify()` types a value `GTIN` only once
+    `normalize_gtin` has accepted it, so no scan can pre-fill a value this
+    refuses. The gate is that whole acceptance, not the check digit alone —
+    the all-zero row below is refused by a rule mod-10 would have passed.
     """
 
     def test_a_bad_check_digit_is_refused_with_nothing_written(
@@ -2051,6 +2053,11 @@ class TestGtinCheckDigitRefusedBeforeTheWrite:
         # re-deriving the rule.
         ('٠١٢٣٤٥٦٧٨٩٠٥',
          "GTIN must contain only digits: '٠١٢٣٤٥٦٧٨٩٠٥'."),
+        # The wedge no-read, hand-entered. It passes mod-10, so only the util's
+        # all-zero rule keeps it out — and the route inherits that too, which is
+        # the point: this row exists so the write-path consequence is pinned
+        # rather than left a silent side effect of a change to gtin.py.
+        ('00000000', "GTIN must not be all zeros: '00000000'."),
     ])
     def test_every_way_the_util_refuses_a_gtin_is_refused_here(
             self, client, product_ids, identifier_value, message):
@@ -2098,6 +2105,22 @@ class TestGtinCheckDigitRefusedBeforeTheWrite:
         rows = CatalogService(test_storage).get_identifiers_for_product(pid)
         assert [r.value for r in rows
                 if r.identifier_type == 'GTIN_UNVALIDATED'] == ['012345678900']
+
+    def test_the_quarantine_type_also_takes_the_wedge_no_read(
+            self, client, test_storage):
+        """The all-zero refusal's message points at the same `<select>`, so the
+        escape hatch has to actually hold the value it was offered for."""
+        resp = client.post('/products/add', data={
+            'description': 'Quarantined no-read',
+            'identifier_type': 'GTIN_UNVALIDATED',
+            'identifier_value': '00000000',
+        })
+        assert resp.status_code == 302
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        rows = CatalogService(test_storage).get_identifiers_for_product(pid)
+        assert [r.value for r in rows
+                if r.identifier_type == 'GTIN_UNVALIDATED'] == ['00000000']
 
     def test_a_non_gtin_type_is_not_check_digit_judged(self, client, test_storage):
         """An MPN that happens to be twelve digits is not a GTIN, and the one

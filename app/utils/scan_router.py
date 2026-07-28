@@ -53,9 +53,14 @@ What this module deliberately does not do
   `mariadb_catalog_service.encode_internal_payload` already passes them into
   `gs1.encode` — so one config change moves the encoder and this router
   together, with no code edit.
-- **No check-digit or 14-digit arithmetic (AD-16 again).** Rule 3 asks
-  `gtin.is_valid_gtin` and `gtin.normalize_gtin`; the accepted lengths, the
-  mod-10 weights and the canonical key length all stay in `app/utils/gtin.py`.
+- **No check-digit or 14-digit arithmetic (AD-16 again).** Rule 3 makes exactly
+  one call, `gtin.normalize_gtin`, and reads its refusal as "not a GTIN". Every
+  question of GTIN validity stays in `app/utils/gtin.py` — the accepted
+  lengths, the mod-10 weights, the canonical key length, and the refusal of an
+  all-zero run (the wedge no-read), which reaches rule 3 as an ordinary
+  `InvalidGtinError` and falls through to `free_text` with no code here. A
+  local zero-run test would be the second copy of GTIN validity this bullet
+  exists to prevent.
 - **No format-06 grammar of its own (AD-16 again).** Rule 2 is delegated whole
   to `app/utils/ecia.py`, which owns the message header, envelope recognition
   and the MH10.8.2 identifier grammar. This module never re-derives the header
@@ -319,13 +324,14 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
             )
 
     # Rule 3 — a bare manufacturer trade item number. The ASCII-digit guard is
-    # load-bearing rather than a restatement of what `is_valid_gtin` checks:
+    # load-bearing rather than a restatement of what `normalize_gtin` checks:
     # `normalize_gtin` deliberately tolerates surrounding whitespace, and
     # Python counts GS/RS (\x1c-\x1f) as whitespace, so without this guard
     # '\x1d9506000134352' — a fragment of a distributor label — would classify
-    # as a clean GTIN. A scan is judged as it arrived. The accepted lengths and
-    # the check digit stay behind `is_valid_gtin`; re-listing {8, 12, 13, 14}
-    # here would be the second copy AD-16 exists to prevent.
+    # as a clean GTIN. A scan is judged as it arrived. The accepted lengths,
+    # the check digit and the all-zero refusal stay behind `normalize_gtin`;
+    # re-listing {8, 12, 13, 14} here — or re-testing for a zero run — would be
+    # the second copy AD-16 exists to prevent.
     #
     # Normalization is attempted inside the guard rather than after asking
     # `is_valid_gtin` first, so NFR8 holds structurally rather than by luck.
