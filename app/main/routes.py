@@ -968,6 +968,29 @@ def _validate_product_create_form(form_data):
             f'Quantity must be a whole number greater than zero and no more '
             f'than {_MAX_INT32}.')
 
+    # DW-22: the block's price, judged by `_purchase_unit_price` — the single
+    # definition of what `Purchase.unit_price` accepts, which `purchase_add` and
+    # `api_record_purchase` already share. This form deliberately restates none
+    # of it and emits its messages verbatim, because a third hand-copied list is
+    # exactly how the first two came to disagree about this column. It is judged
+    # HERE, in front of `create_product`, for the reason the identifier rules
+    # below are: the Purchase is written after the commit and non-fatally, so a
+    # price the column cannot hold would otherwise cost the whole receipt. A
+    # bare `Decimal(...)` would not do: SQLite (what the unit suite runs on)
+    # hides both the eight-digit magnitude and the two-place scale, and
+    # `Decimal('NaN')` parses, reports success and stores NULL.
+    #
+    # No `'unit_price' not in errors` guard, unlike the length loops above: this
+    # is the only rule in the file that keys on the name, so a first-writer-wins
+    # test here would be a condition that cannot be false, advertising a
+    # collision no reader could find. The `quantity` rule directly above is
+    # written the same way, for the same reason.
+    unit_price = (form_data.get('unit_price') or '').strip()
+    if unit_price:
+        _, message = _purchase_unit_price(unit_price)
+        if message:
+            errors['unit_price'] = message
+
     # The identifier is judged HERE, before `create_product` commits, for the
     # reason the duplicate gate is: `_attach_scanned_identifier` runs after the
     # commit and is deliberately non-fatal, so anything it refuses there is a
@@ -1175,7 +1198,24 @@ _PRODUCT_PREFILL_ARGS = (
 
 # The create form's optional first-receipt block. Present-and-non-blank on any
 # one of them is what makes `product_add` record a Purchase.
-_RECEIPT_FIELDS = ('quantity', 'order_number', 'vendor', 'vendor_sku')
+# `unit_price` (DW-22) is a trigger like the other four, deliberately: what this
+# tuple READS and what it TRIGGERS on are one set, so a form carrying a price and
+# nothing else records the purchase it describes rather than silently discarding
+# it — which is the very complaint DW-22 was filed over. It is NOT in
+# `_RECEIPT_FIELD_LIMITS`, which is text columns only; its rule is numeric and
+# lives in `_purchase_unit_price`.
+#
+# It is deliberately NOT in `_PRODUCT_PREFILL_ARGS` either, which is a THIRD set
+# and not this one: that whitelist bounds what a query string may put in front of
+# the operator, and nothing in the app emits a price into one. No distributor
+# envelope carries one (`ECIA_FIELD_KEYS` has none), `_scan_banner_args` forwards
+# only `mpn`/`quantity`/`order_number`/`vendor_sku`, and `product_search` forwards
+# the whitelist itself. Adding it would widen that surface for no producer;
+# `test_a_url_borne_price_does_not_prefill_the_block` pins the omission so it
+# stays a decision rather than an oversight. A POST re-render round-trips the
+# typed value through `form_data` regardless, which is the path that matters.
+_RECEIPT_FIELDS = ('quantity', 'order_number', 'vendor', 'vendor_sku',
+                   'unit_price')
 
 
 def _identifier_type_choices():
@@ -1333,15 +1373,29 @@ def _record_first_receipt(service, product_id, form_data):
     values = {name: (form_data.get(name) or '').strip() for name in _RECEIPT_FIELDS}
     if not any(values.values()):
         return None
-    # `_validate_product_create_form` has already proved this parses; the fallback is
-    # for a caller that reached here another way.
+    # `_validate_product_create_form` has already proved these parse; the
+    # fallback is for a caller that reached here another way. The price's
+    # message is discarded for that reason — an unstorable one that got this far
+    # is stored as NULL rather than failing the whole receipt, and the form the
+    # operator actually uses never gets here with one.
+    #
+    # That fallback fails OPEN, on both parsed fields alike: an unusable value is
+    # dropped, and if it was the ONLY non-blank field the row above still
+    # triggered on its raw string, so the Purchase written carries nothing but
+    # today's date. `quantity` has behaved that way since Story 4.5 and the price
+    # inherits it; `product_add` validates first, so no operator can reach it.
+    # Widening the guard is a change to the trigger rule rather than to the parse
+    # (see the ledger), which is why it is not made here.
     quantity = _positive_int_string(values['quantity'])
+    unit_price, _ = _purchase_unit_price(values['unit_price']) \
+        if values['unit_price'] else (None, None)
     try:
         snapshot = service.record_purchase(
             product_id,
             vendor=values['vendor'] or None,
             vendor_sku=values['vendor_sku'] or None,
             quantity=quantity,
+            unit_price=unit_price,
             order_number=values['order_number'] or None,
         )
     except Exception as e:

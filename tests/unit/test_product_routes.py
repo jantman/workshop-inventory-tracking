@@ -6,6 +6,7 @@ Uses the `client` fixture (CSRF disabled in TestConfig, so POSTs need no token).
 
 import html
 import re
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -1744,6 +1745,45 @@ class TestGtinCheckDigitRefusedBeforeTheWrite:
             identifiers_before
 
 
+# DW-22: the prices `_purchase_unit_price` refuses, with the message it gives
+# for each. Shared by the create form's own refusal test and by the parity class
+# below, so the two surfaces are asked about the SAME values — a list restated
+# per surface could only drift, which is the divergence sharing the helper
+# removed in the first place.
+#
+# It is a SUPERSET of every value the two pre-existing per-surface classes ask
+# about in isolation — `TestPurchaseFormRefusesWhatTheColumnCannotHold` and
+# `TestRecordPurchaseEndpointHoldsTheSameColumnBounds` — so the parity class
+# below cannot pass on a narrower set than either surface is held to alone.
+# Keep it that way when either of those lists grows.
+_UNSTORABLE_PRICES = [
+    ('abc', 'Unit Price must be a decimal number.'),
+    ('1,25', 'Unit Price must be a decimal number.'),
+    ('$1.25', 'Unit Price must be a decimal number.'),
+    # Parseable but non-finite: the same refusal, because an unchecked parse
+    # would report success and store NULL. `-Infinity` is refused as "not a
+    # number" rather than as negative — `is_finite()` is checked first — so it
+    # also pins that ordering. `nan` is here beside `NaN` because `Decimal` is
+    # case-insensitive about it and both older lists ask about the lowercase
+    # spelling.
+    ('NaN', 'Unit Price must be a decimal number.'),
+    ('nan', 'Unit Price must be a decimal number.'),
+    ('sNaN', 'Unit Price must be a decimal number.'),
+    ('Infinity', 'Unit Price must be a decimal number.'),
+    ('-Infinity', 'Unit Price must be a decimal number.'),
+    ('-1.00', 'Unit Price must not be negative.'),
+    ('1.234', 'Unit Price must have at most two decimal places.'),
+    ('0.005', 'Unit Price must have at most two decimal places.'),
+    ('1e-30', 'Unit Price must have at most two decimal places.'),
+    # Past the eight digits `Numeric(10, 2)` holds. `99999999.995` is caught by
+    # the SCALE rule, not the ceiling — it is below 100000000 as typed.
+    ('100000000', 'Unit Price must be less than 100000000.'),
+    ('99999999999.99', 'Unit Price must be less than 100000000.'),
+    ('1E+30', 'Unit Price must be less than 100000000.'),
+    ('99999999.995', 'Unit Price must have at most two decimal places.'),
+]
+
+
 @pytest.mark.unit
 class TestFirstReceiptOnCreate:
     """The create form's optional first receipt (FR39)."""
@@ -1765,15 +1805,20 @@ class TestFirstReceiptOnCreate:
         assert purchases[0].quantity == 5
         assert purchases[0].order_number == 'PO-1'
 
-    def test_all_four_receipt_fields_are_carried(self, client, test_storage):
+    def test_all_five_receipt_fields_are_carried(self, client, test_storage):
         resp = client.post('/products/add', data={
             'description': 'Received part',
             'quantity': '2', 'order_number': 'PO-2',
             'vendor': 'DigiKey', 'vendor_sku': '296-1234-ND',
+            'unit_price': '1.25',
         })
         pid = self._created_id(resp)
         purchase = CatalogService(test_storage).get_purchases_for_product(pid)[0]
         assert (purchase.vendor, purchase.vendor_sku) == ('DigiKey', '296-1234-ND')
+        assert purchase.quantity == 2
+        # DW-22: the whole point — the arrival is priced by the create form, so
+        # no second Purchase is needed and FR20/FR21's history stays one row.
+        assert purchase.unit_price == Decimal('1.25')
 
     def test_no_receipt_field_records_nothing(self, client, test_storage):
         """The Story 1.3 create path is untouched: blank throughout writes no
@@ -1781,9 +1826,152 @@ class TestFirstReceiptOnCreate:
         resp = client.post('/products/add', data={
             'description': 'Just a product',
             'quantity': '', 'order_number': '', 'vendor': '', 'vendor_sku': '',
+            'unit_price': '',
         })
         pid = self._created_id(resp)
         assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+    def test_a_price_alone_records_one_purchase(self, client, test_storage):
+        """DW-22: the price is a TRIGGER, not merely a field that is read when
+        something else already triggered. Leaving it out of `_RECEIPT_FIELDS`
+        would silently discard exactly this submission."""
+        resp = client.post('/products/add', data={
+            'description': 'Priced part',
+            'unit_price': '0.50',
+            'quantity': '', 'order_number': '', 'vendor': '', 'vendor_sku': '',
+        })
+        assert resp.status_code == 302
+        pid = self._created_id(resp)
+
+        purchases = CatalogService(test_storage).get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        assert purchases[0].unit_price == Decimal('0.50')
+        assert purchases[0].quantity is None
+        assert purchases[0].vendor is None
+
+    @pytest.mark.parametrize('blank', ['', '   '])
+    def test_a_blank_price_beside_another_field_is_not_an_error(
+            self, client, test_storage, blank):
+        """A blank stores NULL, exactly as it does on `purchase_add`. Whitespace
+        is a blank too — both sites `.strip()`, so a stray space is neither a
+        refusal nor a value, and the Purchase is the one the other field asked
+        for."""
+        resp = client.post('/products/add', data={
+            'description': 'Unpriced part',
+            'vendor': 'DigiKey', 'unit_price': blank,
+        })
+        assert resp.status_code == 302
+        pid = self._created_id(resp)
+
+        purchase = CatalogService(test_storage).get_purchases_for_product(pid)[0]
+        assert purchase.unit_price is None
+        assert purchase.vendor == 'DigiKey'
+
+    def test_whitespace_alone_is_not_a_trigger(self, client, test_storage):
+        """The counterpart: a space typed into the price and nothing else is not
+        a receipt, so the Story 1.3 path still costs no Purchase."""
+        resp = client.post('/products/add', data={
+            'description': 'Just a product', 'unit_price': '   ',
+        })
+        assert resp.status_code == 302
+        pid = self._created_id(resp)
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+    def test_the_price_input_renders_inside_the_first_receipt_card(self, client):
+        """On GET, not merely on a re-render: the field has to be OFFERED, and
+        offered in the block whose help text describes it. Sliced on the card's
+        own id rather than searched page-wide, because an input with the right
+        name somewhere else on the form would satisfy every other assertion here
+        while putting the price outside the receipt it prices."""
+        body = client.get('/products/add').data.decode()
+        # Bounded at the bottom by the card's own help text — the last thing
+        # inside it — so the slice is the block's controls and nothing after it.
+        # Both markers are asserted first: splitting on a string the page no
+        # longer contains would otherwise fail with a bare `IndexError`, or
+        # silently widen the slice to the whole rest of the page.
+        assert 'id="first-receipt"' in body
+        assert 'Leave blank to create the product' in body
+        card = body.split('id="first-receipt"')[1] \
+                   .split('Leave blank to create the product')[0]
+
+        control, = _form_controls(card, ['unit_price'])
+        assert 'name="unit_price"' in control
+        assert 'readonly' not in control and 'disabled' not in control
+        # Against the slice, not the page: the whole point of slicing is that a
+        # same-named control outside the card must not satisfy these.
+        assert _input_value(card, 'unit_price') == ''
+
+    def test_a_url_borne_price_does_not_prefill_the_block(self, client):
+        """`unit_price` is deliberately absent from `_PRODUCT_PREFILL_ARGS`:
+        nothing in the app emits a price into a query string, so the whitelist
+        does not widen for it. Pinned so adding it stays a decision someone
+        makes rather than a line someone slips in — the sibling receipt fields
+        DO pre-fill, which is exactly what makes the omission easy to misread as
+        an oversight."""
+        body = client.get('/products/add?unit_price=1.25&quantity=3').data.decode()
+
+        assert _input_value(body, 'quantity') == '3'
+        assert _input_value(body, 'unit_price') == ''
+
+    @pytest.mark.parametrize('price, message', _UNSTORABLE_PRICES)
+    def test_an_unstorable_price_rerenders_and_writes_nothing(
+            self, client, product_ids, price, message):
+        """Judged before `create_product` commits, and with
+        `_purchase_unit_price`'s own message — the same helper `purchase_add`
+        and `api_record_purchase` apply, so all three agree about this column.
+
+        Asserted through `_shown_keyed_errors` rather than page-wide, because
+        the message has to reach the operator BESIDE the box they typed in: a
+        rule keyed on a name the template gives no `invalid-feedback` slot
+        renders nowhere at all, and a page-wide substring cannot tell the two
+        apart. Whole-list equality also proves nothing ELSE was refused."""
+        resp = client.post('/products/add',
+                           data={'description': 'Nope', 'unit_price': price})
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert _shown_keyed_errors(body) == [message]
+        assert 'is-invalid' in _form_controls(body, ['unit_price'])[0]
+        assert product_ids() == set()
+
+    def test_the_boundary_price_the_column_holds_is_stored(
+            self, client, test_storage):
+        resp = client.post('/products/add', data={
+            'description': 'Expensive part', 'unit_price': '99999999.99',
+        })
+        assert resp.status_code == 302
+        pid = self._created_id(resp)
+
+        purchase = CatalogService(test_storage).get_purchases_for_product(pid)[0]
+        assert purchase.unit_price == Decimal('99999999.99')
+
+    def test_a_refused_price_is_still_in_the_input_on_the_rerender(
+            self, client, product_ids):
+        """The typed value round-trips through `form_data` like every sibling
+        field, so the operator corrects a price rather than retyping it."""
+        resp = client.post('/products/add',
+                           data={'description': '', 'unit_price': '1.234'})
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        control, = _form_controls(resp.data.decode(), ['unit_price'])
+        assert 'value="1.234"' in control
+
+    def test_a_good_price_survives_a_bounce_on_another_field(
+            self, client, product_ids):
+        """The commoner half of the round-trip, and the one that costs the
+        operator something: the price was fine and the form came back for a
+        DIFFERENT reason. The test above only proves a REFUSED price is
+        re-rendered — a `form_data` lookup dropped from the price input alone
+        would still pass it, because that input carries `is-invalid` on exactly
+        the submissions it covers. Here the price is the one field with nothing
+        wrong with it, so losing it is pure retyping."""
+        resp = client.post('/products/add',
+                           data={'description': '', 'unit_price': '1.25'})
+        assert resp.status_code == 200
+        assert product_ids() == set()
+        body = resp.data.decode()
+        # The price itself was not what was refused.
+        assert _shown_keyed_errors(body) == ['Label Description is required.']
+        assert _input_value(body, 'unit_price') == '1.25'
 
     @pytest.mark.parametrize('quantity', ['abc', '0', '-3', '2.5'])
     def test_an_unusable_quantity_rerenders_and_writes_nothing(
@@ -1807,6 +1995,79 @@ class TestFirstReceiptOnCreate:
         assert resp.status_code == 200
         assert b'must be 255 characters or fewer' in resp.data
         assert product_ids() == set()
+
+
+@pytest.mark.unit
+class TestTheFirstReceiptPriceMatchesThePurchaseForm:
+    """DW-22 added a THIRD entry point writing `purchases.unit_price`, and the
+    property that matters is not that the create form has some price rule but
+    that it has the SAME one: an operator who is refused a price on one surface
+    and accepted on the other has been told two different things about one
+    column. `_purchase_unit_price` is what makes that true — this asks the two
+    HTML surfaces the same questions and compares their answers, so a future
+    copy of the rule into either route fails here rather than in production.
+
+    `api_record_purchase` is the third surface and is already pinned against the
+    purchase form by `TestRecordPurchaseEndpointHoldsTheSameColumnBounds`, so
+    the agreement is transitive and is not restated here.
+    """
+
+    def _create_form_errors(self, client, price):
+        """Every message the create form renders beside a field for `price`."""
+        resp = client.post('/products/add',
+                           data={'description': 'Priced part',
+                                 'unit_price': price})
+        assert resp.status_code == 200
+        return _shown_keyed_errors(resp.data.decode())
+
+    def _purchase_form_errors(self, client, test_storage, price):
+        """The same, from `purchase_add` against a product that already exists."""
+        pid = CatalogService(test_storage).create_product(description='Reel')
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'unit_price': price})
+        assert resp.status_code == 200
+        return _shown_keyed_errors(resp.data.decode())
+
+    @pytest.mark.parametrize('price, message', _UNSTORABLE_PRICES)
+    def test_both_forms_refuse_the_same_price_with_the_same_message(
+            self, client, test_storage, price, message):
+        assert self._create_form_errors(client, price) == [message]
+        assert self._purchase_form_errors(client, test_storage, price) == [message]
+
+    @pytest.mark.parametrize('price, stored', [
+        ('1.25', Decimal('1.25')),
+        ('0', Decimal('0')),
+        ('99999999.99', Decimal('99999999.99')),
+        # `Decimal` is lenient about both of these and neither entry point
+        # tightens it (recorded in the ledger against `_purchase_unit_price`),
+        # so the create form must be lenient in exactly the same way rather
+        # than accidentally stricter.
+        ('1_0', Decimal('10')),
+        ('1E+2', Decimal('100')),
+    ])
+    def test_both_forms_accept_and_store_the_same_price(
+            self, client, test_storage, price, stored):
+        svc = CatalogService(test_storage)
+
+        created = client.post('/products/add',
+                              data={'description': 'Priced part',
+                                    'unit_price': price})
+        assert created.status_code == 302
+        new_id = int(created.headers['Location'].rstrip('/').split('/')[-1])
+
+        existing_id = svc.create_product(description='Reel')
+        recorded = client.post(f'/products/{existing_id}/purchases/add',
+                               data={'unit_price': price})
+        assert recorded.status_code == 302
+
+        # Counted, not just indexed: this is the test that exercises the widest
+        # set of accepted values, so a create path that ever wrote the receipt
+        # twice would otherwise pass it on `[0]` alone.
+        created_purchases = svc.get_purchases_for_product(new_id)
+        recorded_purchases = svc.get_purchases_for_product(existing_id)
+        assert len(created_purchases) == len(recorded_purchases) == 1
+        assert created_purchases[0].unit_price == stored
+        assert recorded_purchases[0].unit_price == stored
 
 
 @pytest.mark.unit
@@ -3443,11 +3704,12 @@ class TestTheEditFormOnlyEnforcesWhatItRenders:
     reads (DW-13, DW-29).
 
     The first-receipt block (`quantity`, `vendor`, `vendor_sku`,
-    `order_number`) and the scanned-identifier card (`identifier_type`,
-    `identifier_value`) exist on `add.html` alone; `product_edit` writes none of
-    them and `edit.html` has no input and no `invalid-feedback` block for any of
-    them. While those rules lived in the shared validator, a POST carrying one
-    earned a 200 that wrote nothing and said nothing anywhere on the page.
+    `order_number`, `unit_price`) and the scanned-identifier card
+    (`identifier_type`, `identifier_value`) exist on `add.html` alone;
+    `product_edit` writes none of them and `edit.html` has no input and no
+    `invalid-feedback` block for any of them. While those rules lived in the
+    shared validator, a POST carrying one earned a 200 that wrote nothing and
+    said nothing anywhere on the page.
     """
 
     def _make_product(self, test_storage, **kwargs):
@@ -3460,6 +3722,7 @@ class TestTheEditFormOnlyEnforcesWhatItRenders:
         {'vendor': 'x' * 300},                # the Purchase column bounds
         {'vendor_sku': 'x' * 300},
         {'order_number': 'x' * 300},
+        {'unit_price': 'abc'},                # the Purchase price rule (DW-22)
         {'identifier_type': 'NOT_A_TYPE', 'identifier_value': 'x' * 300},
     ])
     def test_an_add_only_field_is_ignored_rather_than_refused(
@@ -3498,12 +3761,13 @@ class TestTheEditFormOnlyEnforcesWhatItRenders:
         body = client.get(f'/products/edit/{pid}').data.decode()
 
         for name in ('quantity', 'vendor', 'vendor_sku', 'order_number',
-                     'identifier_type', 'identifier_value'):
+                     'unit_price', 'identifier_type', 'identifier_value'):
             assert f'name="{name}"' not in body
 
     @pytest.mark.parametrize('extra, message', [
         ({'quantity': '0'}, b'whole number greater than zero'),
         ({'vendor': 'x' * 300}, b'must be 255 characters or fewer'),
+        ({'unit_price': 'abc'}, b'Unit Price must be a decimal number.'),
         ({'identifier_type': 'NOT_A_TYPE',
           'identifier_value': '00012345678905'}, b'Choose a valid identifier type.'),
     ])

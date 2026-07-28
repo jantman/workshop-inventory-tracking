@@ -183,7 +183,8 @@ source_spec: `4-5-scan-outcome-routing-in-the-ui.md`
 severity: low
 summary: The create form's First Receipt block carries `quantity`, `order_number`, `vendor` and `vendor_sku` and no `unit_price`, and there is no purchase edit or delete route anywhere — so the only way to price the receipt captured on create is to record a SECOND Purchase, which then duplicates the row in the FR20/FR21 history and skews "Last paid".
 evidence: Found by the second adversarial review of Story 4.5. `_RECEIPT_FIELDS` is exactly the four field names the intent contract listed for that fieldset, so adding `unit_price` would deviate from it; `grep -n "@bp.route.*purchase" app/main/routes.py` shows only `purchases/add` and the untouched JSON endpoint, so nothing can amend a Purchase after the fact. A distributor label carries no price either (nothing in `ECIA_FIELD_KEYS` is one), so the pre-fill loses nothing — the gap is only for the operator who knows the price while creating the product. Either the block gains the field or the story's scope should say plainly that first-receipt capture is price-less; a purchase edit path would close it more generally and belongs with whatever story gives Purchases a management surface.
-status: open
+status: done 2026-07-27
+resolution: resolved by sweep bundle dw-decision-dw-22
 decision: 2026-07-26 Add `unit_price` to the First Receipt block — Add `unit_price` to `_RECEIPT_FIELDS` and to the create form's First Receipt fieldset, validated with the same `Numeric(10, 2)` magnitude/scale/non-finite rules `_parse_purchase_form` applies, so the receipt captured at create time can be priced without a second Purchase. Update the fieldset's help text and the tests that pin the four-field set.
 
 ### DW-23: A GTIN check-digit failure is still judged after the commit, and the recovery its message names does not exist
@@ -1629,4 +1630,49 @@ location: this ledger, `DW-181`; `app/templates/product/add.html` (`identifier_v
 severity: low
 summary: DW-181 says the template hardcodes 255 "twice more" and names `maxlength="255"` on both `identifier_value` and `identifier_vendor`; `identifier_value` carries no `maxlength` at all, so whoever closes DW-181 will hunt a copy that does not exist — and will miss the live question, which is that `identifier_value` is the outlier among the form's text inputs rather than `identifier_vendor` being a duplication.
 evidence: Found by the adversarial review of DW-20 and confirmed: `grep -n maxlength app/templates/product/add.html` returns `description`, `manufacturer`, `mpn`, `identifier_vendor`, `quantity`, `order_number`, `vendor` and `vendor_sku` — and no `identifier_value`. `category_path` and `tags` omit it with an explanatory comment each; `identifier_value` omits it with none, though its 255 limit is enforced server-side by `_IDENTIFIER_VALUE_LIMIT`. Filed as a new entry rather than an edit to DW-181 because the orchestrator owns existing entries' status and resolution. Closing it means correcting DW-181's location/summary and deciding whether `identifier_value` should gain the attribute its siblings have or gain the comment its two deliberate-omission neighbours have.
+status: open
+
+### DW-186: Quantity and Unit Price sit side by side on one card and disagree about what a number is
+origin: spec-dw-22-first-receipt-unit-price-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-22-first-receipt-unit-price.md`
+location: `app/main/routes.py` (`_positive_int_string` vs `_purchase_unit_price`), `app/templates/product/add.html` (the `#first-receipt` card)
+severity: low
+summary: `Quantity` is judged by `_positive_int_string`, whose `.isascii() and .isdigit()` rule refuses `1_0` and `٥` on purpose; `Unit Price`, one box away in the same card, is judged by `_purchase_unit_price`, which is `Decimal(str(...))` and therefore stores `1_0` as 10 and `٥` as 5 without a word — so two adjacent inputs on one block apply two different definitions of "a number", and the card's help text calls the price "a plain decimal number", which `1_0` is not.
+evidence: Found by the adversarial review of DW-22 and verified in the interpreter: `Decimal('1_0') == 10` and `Decimal('٥') == 5`. Pre-existing and deliberate at the helper — `_purchase_unit_price`'s docstring records the leniency, notes that both of its entry points have always behaved this way, and says tightening it would be a new business rule rather than the parity the helper was extracted for. DW-22 did not change that, but it is what puts the two rules on the same card for the first time: before it, the strict field and the lenient one were on different pages. `tests/unit/test_product_routes.py::TestTheFirstReceiptPriceMatchesThePurchaseForm::test_both_forms_accept_and_store_the_same_price` now pins the leniency as intended behaviour, so closing this means deciding the rule deliberately, not discovering it. Closing it means choosing one definition for the whole application — most likely tightening `_purchase_unit_price` for all three of its entry points at once (HTML purchase form, JSON endpoint, create form), which is a contract change for `api_record_purchase` and so cannot be scoped to the create form.
+status: open
+
+### DW-187: `_record_first_receipt`'s defensive re-parse can write a Purchase with every column NULL
+origin: spec-dw-22-first-receipt-unit-price-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-22-first-receipt-unit-price.md`
+location: `app/main/routes.py` (`_record_first_receipt`)
+severity: low
+summary: The trigger test (`if not any(values.values())`) runs on the RAW strings while the parse that follows discards anything unusable, so a caller reaching this function with a single unusable receipt value — `quantity='abc'`, or now `unit_price='abc'` — records a Purchase whose every column is NULL but the server-defaulted order date, and reports success.
+evidence: Found by the edge-case review of DW-22 and reproduced by calling `_record_first_receipt(svc, pid, {'unit_price': 'abc'})` directly: `any(values.values())` is true on the string, both parsed fields come back None, and `record_purchase` writes the empty row. The shape is pre-existing — `{'quantity': 'abc'}` alone has done the same since Story 4.5 — and DW-22 widens it by one field rather than introducing it. Unreachable through the UI: `product_add` is the only caller and `_validate_product_create_form` refuses every one of these before the write, which is why the fallback is documented as being for "a caller that reached here another way". Closing it means deciding what the trigger rule actually is — non-blank raw text, or a value that survived parsing — which is the same question DW-27 opens from the other side, so the two should be settled together.
+status: open
+
+### DW-188: the user manual quotes the create form's help text verbatim and nothing pins the quotation
+origin: spec-dw-22-first-receipt-unit-price-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-22-first-receipt-unit-price.md`
+location: `docs/user-manual.md` (the First Receipt Block section), `app/templates/product/add.html` (the `#first-receipt` `form-text`)
+severity: low
+summary: The manual reproduces the card's help text word for word — a quotation DW-22 grew from one sentence to three clauses — and no test compares the two, so an edit to the template silently falsifies the manual, exactly as DW-20's review found for the identifier card's refusal message.
+evidence: Found by the adversarial review of DW-22 and confirmed: `grep -rn "Leave blank to create the product" tests/` returns nothing, and the same run's DW-20 follow-up had already had to correct one stale verbatim quotation in this file. Quoting rendered strings is a deliberate convention of the manual rather than an accident, so the fix is not to stop quoting; it is to make the convention checkable. Closing it means deciding how — a test that asserts the manual's quoted strings appear in the templates and messages they claim to come from, or a generated section — and applying it to the whole manual rather than to this one paragraph, since the same exposure exists for every message table in it.
+status: open
+
+### DW-189: `_purchase_unit_price` accepts `-0` and zeros with extreme exponents
+origin: spec-dw-22-first-receipt-unit-price-review-1
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-22-first-receipt-unit-price.md`
+location: `app/main/routes.py` (`_purchase_unit_price`)
+severity: low
+summary: `-0` passes the "must not be negative" rule (`Decimal('-0') < 0` is False) and `0.00E-99999999999999999` passes the scale rule (it equals its own quantize), so both are accepted and handed to the driver as `Decimal` values whose `str()` is not a shape a MySQL DECIMAL literal takes — unlike the underscore/non-ASCII leniency, neither is among the exceptions the helper's docstring records as deliberate.
+evidence: Found by the edge-case review of DW-22 and reproduced through `POST /products/add`: `-0` is accepted, and `0.00E-99999999999999999` is accepted and returned as `Decimal('0E-100000000000000001')`. Both store as `0.00` under SQLite, which is what the unit suite runs on, so nothing here fails today; the MariaDB behaviour is untested. Wholly pre-existing and reachable from all three entry points that write the column — the HTML purchase form and `api_record_purchase` have accepted these since DW-12, and DW-22 only adds a third door to the same room. Closing it means normalizing in the helper (quantize the accepted value before returning it, and decide whether `-0` is a refusal or a zero) so that every caller stores the same number, and covering it in the integration suite where a real DECIMAL column can answer.
+status: open
+
+### DW-190: the forms' numeric inputs offer no numeric affordance — no `inputmode`, no placeholder, on either receipt surface
+origin: spec-dw-22-first-receipt-unit-price-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-22-first-receipt-unit-price.md`
+location: `app/templates/product/add.html` (the `#first-receipt` card's `quantity` and `unit_price`), `app/templates/product/purchase_add.html` (`quantity`, `unit_price`)
+severity: low
+summary: All four numeric inputs on the two purchase-capture surfaces are bare `type="text"` with no `inputmode`, no `placeholder` and no `step`, so a tablet — the plausible device for cataloguing a parcel at the bench — opens an alphabetic keyboard for a digits-only field, and the operator is told the price's format only by help text two fields below the box.
+evidence: Found by the adversarial review of DW-22 and confirmed: `grep -rn "inputmode" app/templates/` returns nothing at all, and `grep -rn 'placeholder=' app/templates/product/*.html` shows the convention is already established elsewhere in these very files — `order_date`/`received_date` carry `placeholder="YYYY-MM-DD"` and `category_path`/`tags` carry worked examples — just never on a numeric field. Wholly pre-existing and symmetrical across both surfaces: DW-22 mirrored `purchase_add.html`'s markup exactly as its spec directed, so it added a fourth instance rather than the first. `type="number"` is NOT the fix — it would hand the browser a second, silent opinion about what a price is, on top of the two the application already disagrees about (see DW-186), and would let a browser discard a value the server means to refuse with a message. Closing it means adding `inputmode="numeric"`/`inputmode="decimal"` and a format placeholder to all four inputs in one pass, and deciding whether the price's format guidance belongs in a per-field `form-text` under the control (as `order_date`'s "Defaults to today when left blank." already is) rather than appended to the card-level help text.
 status: open

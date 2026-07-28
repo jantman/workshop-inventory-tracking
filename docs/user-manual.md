@@ -760,12 +760,15 @@ length; it need not match what you count on screen.
 
 The **First Receipt (optional)** card records the purchase the product arrived
 on, so you do not have to create the product and then immediately add a
-purchase to it. It has four fields — **Quantity**, **Order Number**, **Vendor**
-and **Vendor SKU** — and its help text reads "Leave blank to create the product
-without a purchase record."
+purchase to it. It has five fields — **Quantity**, **Order Number**, **Vendor**,
+**Unit Price** and **Vendor SKU** — and its help text reads "Leave blank to
+create the product without a purchase record. Unit Price is what one item cost:
+a plain decimal number, no currency symbol, at most two decimal places."
 
-- Leave **all four** blank and no purchase is created at all.
-- Fill in **any one** of them and exactly one purchase row is recorded.
+- Leave **all five** blank and no purchase is created at all.
+- Fill in **any one** of them and exactly one purchase row is recorded. That
+  includes **Unit Price** on its own: a price with everything else blank still
+  records the purchase, so what you paid is never quietly dropped.
 - There is no order date on this block; the recorded purchase is dated today.
 - **A scan may have filled this block for you.** A distributor envelope can put
   its quantity, order number and vendor SKU onto the form — not always, and not
@@ -776,6 +779,11 @@ without a purchase record."
 **Quantity** must be a whole number greater than zero and no larger than
 2147483647; anything else is refused with
 `Quantity must be a whole number greater than zero and no more than 2147483647.`
+
+**Unit Price** follows exactly the same rules — and gives exactly the same
+messages — as the **Unit Price** on the purchase form; see
+[Purchases and Attachments](#purchases-and-attachments). Nothing at all is
+created when it is refused: neither the product nor the purchase.
 
 The product is saved before the receipt is written, so the two can come apart.
 If that happens the product still exists and you are told so:
@@ -1275,6 +1283,10 @@ one and have it keep its stored value — that distinction only matters to the
 | `MPN must be 255 characters or fewer.` (or the same message for another bounded field) | Shorten the value. You will normally meet this on a scan-routed form, since the input itself stops you typing past the limit — and silently shortens anything you paste. |
 | `Category path is too long: N characters (max 512).` | Shorten the path. `N` is the length of the path as it would be *stored*, so it need not match what you typed — see [How a Category Is Stored](#how-a-category-is-stored). This field is not capped in the browser, so you can meet it on anything you type or paste. |
 | `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. |
+| `Unit Price must be a decimal number.` | Type the price as plain digits and at most one point — no currency symbol, no thousands separator. You will see this on the First Receipt block and on the purchase form alike. |
+| `Unit Price must not be negative.` | Prices are what you paid, not a credit. Drop the minus sign. |
+| `Unit Price must have at most two decimal places.` | Round to cents yourself; the stored column keeps two places and will not round for you. |
+| `Unit Price must be less than 100000000.` | The price of **one** item is stored, not the order total, and it must be under 100000000. |
 | `The product was saved, but its first receipt was not recorded. Add the purchase from the product page.` | The product exists. Use **Add a purchase** on it; do not re-submit the create form. |
 | `The product was saved, but its tags were not: …` | The product exists. Open **Edit** and enter the tags again (or different ones, if the message says so). |
 | `GTIN check digit is invalid: … Choose the GTIN_UNVALIDATED type to keep the value exactly as entered, without check-digit validation.` | Nothing was saved. Fix the value, or change **Type** to `GTIN_UNVALIDATED`, and submit again. You will also see this wording for a `GTIN` of the wrong length or one carrying anything but plain ASCII digits. |

@@ -248,7 +248,17 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-12 mb-3">
+                        {# DW-22: Unit Price heads row 2 so it sits under Quantity on
+                           md+ — the two values that multiply. No maxlength: the rule
+                           is numeric (`_purchase_unit_price`), not a character count. #}
+                        <div class="col-md-3 mb-3">
+                            <label for="unit_price" class="form-label">Unit Price</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.unit_price %} is-invalid{% endif %}"
+                                   id="unit_price" name="unit_price"
+                                   value="{{ form_data.get('unit_price', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.unit_price %}<div class="invalid-feedback d-block">{{ validation_errors.unit_price }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-9 mb-3">
                             <label for="vendor_sku" class="form-label">Vendor SKU</label>
                             <input type="text" class="form-control{% if validation_errors and validation_errors.vendor_sku %} is-invalid{% endif %}"
                                    id="vendor_sku" name="vendor_sku" maxlength="255"
@@ -258,6 +268,8 @@
                     </div>
                     <div class="form-text">
                         Leave blank to create the product without a purchase record.
+                        Unit Price is what one item cost: a plain decimal number, no
+                        currency symbol, at most two decimal places.
                     </div>
                 </div>
             </div>
