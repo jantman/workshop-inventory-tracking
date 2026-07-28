@@ -758,7 +758,8 @@ location: `app/main/routes.py` (`api_record_purchase`, the `int(quantity)` block
 severity: medium
 summary: `POST /api/products/<id>/purchases` parses `quantity` as a bare `int(...)` with no bound, so an over-32-bit value reaches the `INTEGER` column and comes back as the generic 500 naming no field — precisely the failure DW-25 named — while `3.7` is silently stored as `3`, `true` as `1`, and `0`/negative are accepted. The HTML form refuses all of them with a field message.
 evidence: Reproduced against the real app by the follow-up review of the json-purchase-bounds-parity bundle: `{"quantity": 100000000000000000000}` answers HTTP 500 `{"code": "server_error", "message": "Failed to record purchase"}` with nothing stored and no field named; `{"quantity": 1099511627776}` answers 201 under SQLite (which widens the column) and cannot be stored under MariaDB, so the unit suite structurally cannot see it — the same backend-invisibility argument `_purchase_unit_price`'s docstring makes for the price column, one screen below it. `{"quantity": 3.7}` -> 201 storing `3`; `{"quantity": true}` -> 201 storing `1`; `{"quantity": "٥"}` -> 201 storing `5`. Deliberately out of that bundle's scope: its intent contract's Never list forbids touching `quantity` on the JSON side because `_positive_int_string` takes a string while the shipped JSON contract takes an int, and mirroring the form's parser would break that contract. That argument rules out reusing the PARSER, not bounding the already-parsed int: `0 < quantity <= _MAX_INT32` on the parsed value breaks no contract and closes the 500. Any change here must keep `{'quantity': 5}` working (`test_record_purchase_endpoint_creates_201`).
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-json-purchase-endpoint-hardening
 
 ### DW-87: A non-string value for a purchase text column bypasses the length rule and reaches the write path, where a long one is a generic 500 and a boolean becomes the string "1"
 origin: spec-json-purchase-bounds-parity-followup-review
@@ -794,7 +795,8 @@ location: `app/main/routes.py` (`api_record_purchase`, `request.get_json(silent=
 severity: low
 summary: `request.get_json(silent=True) or {}` keeps a JSON array, string or number as-is, and the first `body.get(...)` then raises `AttributeError`, which escapes as the generic 500 shape rather than AD-13's `{success: false, error: {code, message, field}}` with a 400.
 evidence: Reproduced by the follow-up review: `client.post('/api/products/<id>/purchases', json=[1, 2])` raises `AttributeError: 'list' object has no attribute 'get'`; in production `app/error_handlers.py` answers it as a generic 500 whose body is not the AD-13 envelope this endpoint otherwise honors. Pre-existing and unchanged in kind — before the json-purchase-bounds-parity bundle the first dereference was `body.get('unit_price')` inside a `try` catching only `(InvalidOperation, ValueError)`, so an `AttributeError` escaped there too; only the line number moved. Closing it is a two-line `isinstance(body, dict)` guard returning `invalid_request` with 400, and the same guard is likely wanted on every AD-13 endpoint that reads a JSON body rather than on this one alone.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-json-purchase-endpoint-hardening
 
 ### DW-91: The JSON log formatter emits `request.url` and `user_agent` unbounded on the very record whose message the 413 handler carefully truncates
 origin: spec-request-body-size-limit-followup-review
@@ -1842,4 +1844,49 @@ origin: review-budget-followup
 source_spec: `spec-dw-70-ai-01-element-string.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-209: the legacy JSON routes still answer a non-object body with a generic 500, the DW-90 shape outside AD-13
+origin: spec-json-purchase-endpoint-hardening-review
+source_spec: `_bmad-output/implementation-artifacts/spec-json-purchase-endpoint-hardening.md`
+location: `app/main/routes.py` (`validate_type_shape` :4014, `print_label` :4394, `api_admin_export` :5008, and the other `request.get_json() or {}` readers at :3389, :4157, :4550, :4607, :5193, :5553; `app/admin/routes.py` :114, :163)
+severity: low
+summary: DW-90 closed the non-object-body hole on `api_record_purchase` and ended by saying the same guard "is likely wanted on every AD-13 endpoint that reads a JSON body rather than on this one alone". Every AD-13 endpoint is now covered, but roughly a dozen legacy inventory/admin JSON routes still read `request.get_json() or {}` and then `data.get(...)`, so a JSON array or non-empty scalar body raises `AttributeError` into the surrounding `except Exception` and comes back as a generic 500 rather than a 400 naming what was wrong.
+evidence: Verified on this checkout while closing DW-90. The three AD-13 readers are all guarded: `api_record_purchase` now refuses a non-dict (this spec), `api_scan` coerces to `{}` because an absent `raw` is a refusal one line later (`app/main/routes.py:2748`), and `/api/inventory/items` refuses inside `_normalize_json_item_payload` (`app/main/routes.py:471`, `raise ValueError('Request body must be a JSON object')`) — so DW-90's own recommendation is satisfied for the family it named. The legacy routes are a different family with the same defect: `data = request.get_json() or {}` followed by `data.get(...)`, where `[1, 2] or {}` is `[1, 2]`. They are outside AD-13 (string `error`, not the object envelope), which is why this is a separate entry rather than part of DW-90 — closing it means deciding whether those routes get a shared body-shape guard and what envelope its refusal uses, which is a question about the legacy surface, not about purchases.
+status: open
+
+### DW-210: the architecture spine still prescribes `request.get_json() or {}`, which the purchase endpoint no longer does
+origin: spec-json-purchase-endpoint-hardening-review
+source_spec: `_bmad-output/implementation-artifacts/spec-json-purchase-endpoint-hardening.md`
+location: `_bmad-output/planning-artifacts/architecture/architecture-workshop-inventory-tracking-2026-07-22/ARCHITECTURE-SPINE.md` ("API success" row, line 152)
+severity: low
+summary: The spine's Consistency Conventions table gives the body-reading convention for JSON routes as "body via `request.get_json() or {}`". DW-90 required exactly that expression to be replaced on `api_record_purchase`, so the spine now describes something one shipped endpoint deliberately does not do, and a future endpoint written from the spine inherits the hole DW-90 closed.
+evidence: Read on this checkout at ARCHITECTURE-SPINE.md line 152, alongside the "API errors" row (153) the same endpoint does honor. The conflict is real but narrow: `or {}` is a safe shorthand wherever an empty body is already a refusal (`api_scan`), and unsafe only where every field is optional so `{}` is itself a valid write — which is the case the spine does not distinguish. Not amended under this spec, whose scope is one route: the spine governs every future JSON endpoint, so restating the convention is an architecture decision (probably "decode, then refuse a non-object; `or {}` only where an empty body cannot write") rather than a side effect of a bugfix. The reason for the departure is recorded in the code at `app/main/routes.py:2079` so a reader of either artifact can find the other. Related to [DW-209].
+status: open
+
+### DW-211: a whitespace-only `quantity` is refused on the JSON endpoint while a whitespace-only `unit_price` means "no price"
+origin: spec-json-purchase-endpoint-hardening-review
+source_spec: `_bmad-output/implementation-artifacts/spec-json-purchase-endpoint-hardening.md`
+location: `app/main/routes.py` (`api_record_purchase`, the `quantity` parse against the `unit_price` strip six lines above it)
+severity: low
+summary: `api_record_purchase` strips a string `unit_price` before its `None`/`''` gate, so `{"unit_price": "  "}` records a purchase with no price. The `quantity` parse has no such strip and tests `quantity not in (None, '')` against the raw value, so `{"quantity": "  "}` reaches `int('  ')` and answers 400 "quantity must be an integer" — while the HTML form strips both and treats a blank quantity as no quantity.
+evidence: Verified on this checkout: `{"quantity": "  "}` -> 400, `{"unit_price": "  "}` -> 201 with a NULL price. Pre-existing and unchanged in kind by this spec — `int('  ')` raised `ValueError` into the same refusal before the bound was added; only the neighbouring code moved. The `unit_price` strip was added deliberately by the json-purchase-bounds-parity follow-up review ("a whitespace-only price means 'no price' as it does on the form"), and the same argument applies verbatim to `quantity`; it was not applied because that bundle's contract put `quantity` on its Never list, and this bundle's contract scopes the `quantity` work to bounding the parsed int. Closing it is a one-line strip of a string `quantity` before the emptiness gate, and it is worth doing with DW-88's shared date parse, since the dates have the same untrimmed gate. Related to [DW-86], [DW-89].
+status: open
+
+### DW-212: a deeply nested JSON body raises RecursionError straight past `get_json(silent=True)` into a generic 500, on every JSON route
+origin: spec-json-purchase-endpoint-hardening-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-json-purchase-endpoint-hardening.md`
+location: `app/main/routes.py` (every `request.get_json(...)` reader, including `api_record_purchase` :2117, `api_scan` :2760, `_normalize_json_item_payload`'s callers, and the legacy readers DW-209 lists); `app/admin/routes.py` :114, :163
+severity: medium
+summary: `silent=True` suppresses only the decoder's `ValueError`/`BadRequest`. CPython's JSON scanner recurses per nesting level, so a body of a few hundred KB of nested brackets raises `RecursionError` out of `get_json` itself — before any route code runs — and escapes as the generic 500 shape rather than the AD-13 envelope, on routes that are `@csrf.exempt` and unthrottled.
+evidence: Reproduced on this checkout against a live app built like `tests/conftest.py`: `POST /api/products/1/purchases` with `'{"a":' * 100000 + '1' + '}' * 100000` (600,001 bytes, i.e. under the 1 MiB `MAX_REQUEST_BODY_BYTES` cap that `app/request_limits.py` enforces at the WSGI layer) raises `RecursionError` out of `request.get_json(silent=True)`; the same body at depth 20000 answers 201. Pre-existing and unchanged in kind by this spec — the shipped `request.get_json(silent=True) or {}` raised in exactly the same place, and the new `isinstance` guard sits one line later, so it never sees the body. Not this route's problem to solve alone: the fix is either a nesting-depth or a smaller body bound applied where `get_json` is called across the app, or catching `RecursionError` alongside the decode, and choosing between them is a question about the whole JSON surface. Related to [DW-209], [DW-90].
+status: open
+
+### DW-213: `_positive_int_string`'s comment names `sys.int_info.str_digits_check_threshold` for a limit that constant does not hold
+origin: spec-json-purchase-endpoint-hardening-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-json-purchase-endpoint-hardening.md`
+location: `app/main/routes.py:841-844` (the comment inside `_positive_int_string`)
+severity: low
+summary: The comment says "CPython refuses to parse one longer than `sys.int_info.str_digits_check_threshold` (4300)". That constant is 640 — the floor `sys.set_int_max_str_digits()` will accept, not the parse limit. The limit the code is actually describing is `sys.get_int_max_str_digits()` / `sys.int_info.default_max_str_digits`, which is 4300 only by default and is settable per process.
+evidence: Measured on this checkout: `sys.int_info.str_digits_check_threshold` is 640, `sys.int_info.default_max_str_digits` and `sys.get_int_max_str_digits()` are both 4300. The guard the comment defends is correct — `len(digits) > len(str(_MAX_INT32))` returns None long before any parse limit matters — so this is a wrong citation, not a wrong bound, which is why it is low. Not fixed under this spec: its intent contract's Never list forbids touching `_positive_int_string`. The two copies this spec's own change introduced were corrected in place (`app/main/routes.py`'s body-shape comment and the test docstring both now cite `sys.get_int_max_str_digits()`), and both note the form helper's misnaming so the surviving copy is discoverable from either. Related to [DW-86].
 status: open

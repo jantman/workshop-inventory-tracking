@@ -6,6 +6,7 @@ Uses the `client` fixture (CSRF disabled in TestConfig, so POSTs need no token).
 
 import html
 import re
+import sys
 from decimal import Decimal
 from pathlib import Path
 
@@ -3666,7 +3667,14 @@ class TestRecordPurchaseEndpointHoldsTheSameColumnBounds:
     too, as the AD-13 envelope rather than a re-render, and every value it
     accepts is accepted here. `quantity` is NOT one of those columns: the two
     entry points still parse it differently by design (see
-    `_parse_purchase_form`), so nothing here claims parity for it.
+    `_parse_purchase_form`), so nothing here claims parity for it. What they DO
+    now agree on is that column's 32-bit bound, applied to the parsed int on
+    this side and to the raw digit string on the form's — see
+    `TestRecordPurchaseEndpointBoundsQuantityToTheColumn` (DW-86) for this
+    endpoint's `quantity` rules, and
+    `TestBothPurchaseEntryPointsAgreeOnQuantityBounds` for the agreement itself,
+    which is a table rather than a claim precisely because the two write the
+    bound as separate expressions and could otherwise drift apart.
     """
 
     def _product(self, test_storage):
@@ -3849,6 +3857,392 @@ class TestRecordPurchaseEndpointHoldsTheSameColumnBounds:
         resp = self._post(client, pid, {'vendor': 5})
         assert resp.status_code == 201
         assert len(svc.get_purchases_for_product(pid)) == 1
+
+
+@pytest.mark.unit
+class TestRecordPurchaseEndpointBoundsQuantityToTheColumn:
+    """DW-86: `quantity` was the last column on this endpoint with no bound at
+    all. `Purchase.quantity` is an INTEGER, which MariaDB stores in 32 bits, and
+    a bare `int()` produced values it cannot hold: `2147483648` and up failed the
+    write and came back as the generic `server_error` 500 naming no field — the
+    DW-25 symptom every other column here had already lost — while `0` and `-3`
+    were stored exactly as typed and a JSON `1e400`, which `json.loads` decodes
+    to `float('inf')`, raised `OverflowError` straight past a catch that named
+    only `TypeError` and `ValueError`.
+
+    Every assertion below is about what the ROUTE answers, never about the write
+    failing, and that is deliberate: this suite runs on SQLite, which widens
+    INTEGER silently and stores whatever it is handed. A backend that refuses an
+    over-wide value would make some of these pass for the wrong reason, and the
+    one this suite actually uses would make them pass for no reason at all.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def _post(self, client, pid, body):
+        return client.post(f'/api/products/{pid}/purchases', json=body)
+
+    def _refusal(self, resp, fragment):
+        """Assert the AD-13 refusal shape for a `quantity` rule and nothing more."""
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data['success'] is False
+        assert data['error']['code'] == 'invalid_field'
+        assert data['error']['field'] == 'quantity'
+        assert fragment in data['error']['message']
+
+    @pytest.mark.parametrize('quantity, stored', [(5, 5), (1, 1),
+                                                  (2147483647, 2147483647),
+                                                  ('5', 5)])
+    def test_a_storable_quantity_is_accepted_as_an_int_or_a_digit_string(
+            self, client, test_storage, quantity, stored):
+        """The shipped contract, including the exact edge: the bound is
+        inclusive on the largest value the column can hold, and both the JSON
+        int and the string that spells it are accepted. The string is the reason
+        the form's `_positive_int_string` is NOT reused here — it takes a string
+        and this contract takes either, so the parsers stay separate and only
+        the column's bound is shared."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {'quantity': quantity})
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].quantity == stored
+
+    @pytest.mark.parametrize('quantity', [2147483648, 100000000000000000000])
+    def test_a_quantity_past_the_column_names_its_field_instead_of_failing_the_write(
+            self, client, test_storage, quantity):
+        """The 500 DW-86 names. `2147483648` is one past the column and the
+        twenty-digit value is far past it; neither is storable, and before this
+        both reached the write and returned `server_error` with no field for the
+        caller to act on."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'quantity': quantity}),
+                      'no more than 2147483647')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('literal', ['1e400', 'Infinity', '-Infinity',
+                                         'NaN'])
+    def test_a_non_finite_json_number_is_refused_rather_than_raised(
+            self, client, test_storage, literal):
+        """`1e400` has no Python float, so `json.loads` gives `float('inf')` and
+        `int(inf)` raises `OverflowError` — which is neither a `TypeError` nor a
+        `ValueError`, so it escaped the parse catch entirely and became a 500.
+
+        `Infinity`, `-Infinity` and `NaN` are the same hole reached by the
+        spelling a client is likelier to send: Python's encoder EMITS those
+        three for the non-finite floats, and its decoder accepts them by
+        default, so a client that round-trips a `float('inf')` through
+        `json.dumps` sends `Infinity` and not `1e400`. The first two raise
+        `OverflowError` like `1e400`; `NaN` raises `ValueError` and was already
+        caught. All four are unparseable quantities and answer as that field.
+
+        Posted as raw bodies rather than through `json=`: none of these is a
+        literal `json.dumps` produces from a value this test could pass, so the
+        only way to ask the question is to send the bytes a client would send."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           data='{"quantity": ' + literal + '}',
+                           content_type='application/json')
+        self._refusal(resp, 'must be an integer')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('quantity', [0, -3])
+    def test_a_non_positive_quantity_is_refused_rather_than_stored_as_typed(
+            self, client, test_storage, quantity):
+        """No backend was ever going to object to these — they fit the column
+        perfectly — so they were recorded as purchases of zero and of minus
+        three items. The form has always refused them; this is the half of the
+        bound that is about meaning rather than width."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'quantity': quantity}),
+                      'greater than 0')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('quantity', ['abc', [1], {}])
+    def test_an_unparseable_quantity_is_still_refused_the_same_way(
+            self, client, test_storage, quantity):
+        """Unchanged behavior, pinned because the parse catch grew a third
+        exception: a value `int()` cannot read at all must still be the
+        `invalid_field` refusal it already was, not a new code. Both halves of
+        the ORIGINAL catch are represented — `'abc'` raises `ValueError`, the
+        list and the dict raise `TypeError` — so widening it to `OverflowError`
+        cannot be shown to have narrowed it."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'quantity': quantity}),
+                      'must be an integer')
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_a_digit_string_python_cannot_parse_is_still_a_quantity_refusal(
+            self, client, test_storage):
+        """The STRING half of CPython's integer-parse cap, and the half this
+        endpoint's contract is the reason for: it accepts `"5"` as well as `5`,
+        so a caller can send an over-long value as a string. Then the object is
+        well-formed, `get_json` returns a `dict`, and `int()` raises
+        `ValueError` like any other unreadable quantity — so this one IS named
+        against `quantity`, unlike the same digits sent as a bare literal, which
+        never becomes a `dict` at all and is answered by the body-shape guard
+        (see `TestRecordPurchaseEndpointRefusesABodyThatIsNotAnObject`).
+
+        The length is read from `sys.get_int_max_str_digits()` rather than
+        written as 4300, because the cap is per-process settable
+        (`PYTHONINTMAXSTRDIGITS`, `-X int_max_str_digits`) and a hard-coded
+        boundary would be an assertion about the environment."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        oversized = '9' * (sys.get_int_max_str_digits() + 1)
+        self._refusal(self._post(client, pid, {'quantity': oversized}),
+                      'must be an integer')
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('body', [{'vendor': 'X'}, {'quantity': None},
+                                      {'quantity': ''}])
+    def test_an_absent_or_empty_quantity_still_records_a_null(
+            self, client, test_storage, body):
+        """No quantity is not a bad quantity, and the new bound must not read
+        `None` as "not greater than zero" — which is why it is guarded by
+        `quantity is not None` rather than folded into the comparison."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, body)
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].quantity is None
+
+    @pytest.mark.parametrize('quantity, stored', [(3.7, 3), (True, 1)])
+    def test_a_coercible_quantity_is_still_taken_as_int_reads_it(
+            self, client, test_storage, quantity, stored):
+        """Pinned as a DELIBERATE non-change, not as an endorsement. `int()`
+        truncates `3.7` to 3 and reads `True` as 1, and both still answer 201 and
+        store that number. This is `int()`'s coercion lenience — the exact
+        counterpart of `Decimal`'s on `unit_price`, which accepts `'1_0'` as 10
+        and `'٥'` as 5 (DW-89) — and it is left alone on purpose: refusing a
+        value that is not a whole number is a new business rule about what a
+        client may send, not the column bound DW-86 closes. The endpoint's
+        message says only what is enforced here for exactly that reason, rather
+        than borrowing the form's "whole number" sentence.
+        """
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = self._post(client, pid, {'quantity': quantity})
+        assert resp.status_code == 201
+        assert svc.get_purchases_for_product(pid)[0].quantity == stored
+
+    @pytest.mark.parametrize('quantity', [False, 0.5, 0.999])
+    def test_a_value_that_truncates_to_zero_is_refused_as_the_zero_it_became(
+            self, client, test_storage, quantity):
+        """Where the kept coercion and the new bound meet, and the only place
+        this change moves a value that is not out of range. `int()` reads
+        `False` as 0 and truncates any fraction under 1 to 0, and the bound
+        judges what `int()` returned, so all three are now refused where they
+        were stored as 0 before — a purchase of zero items either way, so the
+        refusal is the same one `{'quantity': 0}` gets.
+
+        The message is the honest cost of parsing before bounding: `0.5` is told
+        it must be greater than 0 when it already was. Diagnosing it separately
+        would mean a "whole number" rule, which is exactly what this endpoint
+        does not have — `3.7` must still store 3."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(self._post(client, pid, {'quantity': quantity}),
+                      'greater than 0')
+        assert svc.get_purchases_for_product(pid) == []
+
+
+@pytest.mark.unit
+class TestRecordPurchaseEndpointRefusesABodyThatIsNotAnObject:
+    """DW-90: `request.get_json(silent=True) or {}` left a JSON array, string or
+    number exactly as decoded, so the first `body.get(...)` raised
+    `AttributeError` and the caller got a generic 500 instead of the AD-13
+    envelope this endpoint honors everywhere else. Every OTHER way of failing to
+    send an object — no body, a literal `null`, bytes that are not JSON, a good
+    object with the wrong content type — took the falsy branch instead and
+    recorded a purchase nobody had asked for, dated today.
+
+    The refusal names no field, and that is the shape being asserted as much as
+    the status: AD-13's `field` identifies a JSON key, and a body that is not an
+    object has no key to name, so `error` must carry `code` and `message` and
+    nothing else. All of them share one message, on the same reasoning as
+    `_purchase_unit_price`'s single "decimal number" string: it states the
+    requirement, not the diagnosis, because `silent=True` hands the route the
+    same `None` for all of them.
+
+    This endpoint refuses where its sibling `api_scan` coerces a non-dict body
+    to `{}`. The difference is what an empty body MEANS: there, `raw` is
+    required and its absence is already a refusal, so coercion only picks the
+    message; here every field is optional and `{}` is a valid request, so
+    coercion would answer 201 and write a row.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def _refusal(self, resp):
+        """Assert the AD-13 body-shape refusal: `invalid_request`, no `field`."""
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data['success'] is False
+        error = data['error']
+        assert error['code'] == 'invalid_request'
+        assert 'field' not in error
+        assert 'JSON object' in error['message']
+
+    @pytest.mark.parametrize('raw', ['[1, 2]', '"hello"', '5'])
+    def test_a_non_object_json_body_is_refused_not_dereferenced(
+            self, client, test_storage, raw):
+        """The three DW-90 named: each decodes to something without a `.get`,
+        which is where the `AttributeError` 500 came from. Posted as raw bytes
+        rather than through `json=` so the literal on the wire is the one named
+        here.
+
+        All three are truthy, so all three survived `or {}` unchanged and
+        reached the `.get`. The falsy non-objects — which `or {}` rewrote into a
+        valid empty request instead, and which are the reason the expression
+        could not be kept in front of this check — are the next test down."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases', data=raw,
+                           content_type='application/json')
+        self._refusal(resp)
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('raw', ['[]', '0', 'null'])
+    def test_a_falsy_body_is_refused_rather_than_read_as_an_empty_request(
+            self, client, test_storage, raw):
+        """The values that did NOT 500 and are the more interesting half: `or
+        {}` turned each of them into a valid empty request and recorded a
+        purchase. `null` belongs here rather than with the three above — it
+        decodes to `None`, which never reached a `.get` — and `[]` and `0` are
+        why the shipped `or {}` could not be kept in front of the guard: `[] or
+        {}` and `0 or {}` are both `{}`, so two of the very bodies being refused
+        would have been rewritten into a valid one before `isinstance` ever saw
+        them."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases', data=raw,
+                           content_type='application/json')
+        self._refusal(resp)
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_a_request_with_no_body_at_all_is_refused_not_recorded(
+            self, client, test_storage):
+        """The behavior change this closes rather than merely stops crashing:
+        `get_json(silent=True)` returned None, `or {}` made it an empty request,
+        and the endpoint answered 201 with a purchase dated today. A POST that
+        says nothing is not a purchase."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(client.post(f'/api/products/{pid}/purchases'))
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_an_unparseable_body_is_refused_not_recorded(
+            self, client, test_storage):
+        """Same 201-with-a-row as the empty body, from a client that meant to
+        send JSON and got the bytes wrong — the case where silently recording a
+        row is least defensible."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases', data='{oops',
+                           content_type='application/json')
+        self._refusal(resp)
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_an_integer_literal_python_cannot_parse_is_refused_here(
+            self, client, test_storage):
+        """A well-formed object that is nonetheless refused for its SHAPE, and
+        the one arrival worth naming: CPython will not parse an integer literal
+        longer than `sys.get_int_max_str_digits()`, so `json` raises inside
+        `get_json` and the body never becomes a `dict` at all. The caller is
+        told the body must be an object, which is a true requirement and a poor
+        diagnosis; the alternative is a second decode purely to describe an
+        over-long number. One digit fewer still reaches the `quantity` bound and
+        is named as that field — the boundary is CPython's, not this route's,
+        and it is the same cap `_positive_int_string` documents for the form.
+
+        The two lengths are derived from `sys.get_int_max_str_digits()` rather
+        than written as 4301 and 4300: that cap is 4300 only by default and is
+        per-process settable (`PYTHONINTMAXSTRDIGITS`, `-X int_max_str_digits`),
+        so hard-coding it would assert something about the environment instead
+        of about the route. (The form helper's comment calls this constant
+        `sys.int_info.str_digits_check_threshold`, which is a different number
+        entirely — 640, the floor the setter accepts.)"""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+        limit = sys.get_int_max_str_digits()
+
+        self._refusal(client.post(f'/api/products/{pid}/purchases',
+                                  data='{"quantity": ' + '9' * (limit + 1) + '}',
+                                  content_type='application/json'))
+        assert svc.get_purchases_for_product(pid) == []
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           data='{"quantity": ' + '9' * limit + '}',
+                           content_type='application/json')
+        assert resp.status_code == 400
+        error = resp.get_json()['error']
+        assert error['code'] == 'invalid_field'
+        assert error['field'] == 'quantity'
+        assert 'no more than 2147483647' in error['message']
+        assert svc.get_purchases_for_product(pid) == []
+
+    @pytest.mark.parametrize('kwargs', [
+        {'data': '{"quantity": 5}', 'content_type': 'text/plain'},
+        {'data': '{"quantity": 5}'},
+        {'data': {'quantity': '5'}},
+    ])
+    def test_an_object_sent_as_the_wrong_media_type_is_refused_not_dropped(
+            self, client, test_storage, kwargs):
+        """`get_json` reads only a JSON content type, so these bodies — two of
+        them a perfectly good object, one of them a form encoding — decoded to
+        `None` and answered 201 with every value silently discarded. Refusing
+        them is the point of the guard as much as the array is: a client whose
+        request was ignored is worse off than one that was told no.
+
+        This is why the message names `application/json` rather than only the
+        object shape: for these three the shape was never the problem."""
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        self._refusal(client.post(f'/api/products/{pid}/purchases', **kwargs))
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_an_empty_object_still_records_a_purchase(
+            self, client, test_storage):
+        """The case the guard must NOT catch, and the reason it tests
+        `isinstance(body, dict)` rather than truthiness: `{}` is falsy and is a
+        perfectly valid request, since every field of a purchase is optional.
+        Note what it stores — nothing the caller sent, but not an all-null row
+        either: `record_purchase` fills `order_date` with today."""
+        from datetime import date
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        today = date.today()
+        resp = client.post(f'/api/products/{pid}/purchases', json={})
+        assert resp.status_code == 201
+        purchases = svc.get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        assert purchases[0].vendor is None
+        assert purchases[0].quantity is None
+        assert purchases[0].unit_price is None
+        # Both sides of a midnight crossing, as `_DATE_ORDER_VERDICTS` does.
+        assert purchases[0].order_date in (today, date.today())
 
 
 # The verdict on a `unit_price`, as ONE list. The classes above spell out each
@@ -4115,6 +4509,90 @@ class TestAMalformedDateIsNeverAlsoCalledOutOfOrder:
         assert 'ISO date' in error['message']
         assert 'must not be earlier than' not in error['message']
         assert svc.get_purchases_for_product(pid) == []
+
+
+# The verdict on a `quantity`, as ONE list — the same anti-drift device as
+# `_UNIT_PRICE_VERDICTS`, and needed MORE here, because the two entry points do
+# not share a helper for this column. The form runs `_positive_int_string` and
+# the endpoint bounds what `int()` returned, so the 32-bit rule is written twice
+# in two spellings (`parsed <= 0 or parsed > _MAX_INT32` against
+# `not 0 < quantity <= _MAX_INT32`) and only `_MAX_INT32` itself is shared. A
+# claim that they agree is therefore only worth what this table pins.
+#
+# Only the VERDICT is shared, not the message: the form promises a whole number
+# and the endpoint does not (`3.7` stores 3 there, DW-86/DW-89), so the two
+# sentences must differ and each side asserts its own in full, below. Neither
+# side varies its wording by WHICH half of the bound was broken — one sentence
+# states the whole rule — so a per-row fragment could only ever repeat the
+# ceiling, and a table keyed on `'2147483647'` would still pass if either side
+# stopped mentioning the lower bound at all. Hence: the row carries the verdict,
+# and the message is pinned whole against the constants below.
+#
+# For the same reason the table holds only bound-relevant values: `'٥'`, `'1_0'`
+# and `3.7` are exactly where the two still disagree, by design.
+_FORM_QUANTITY_REFUSAL = ('Quantity must be a whole number greater than zero '
+                          'and no more than 2147483647.')
+_JSON_QUANTITY_REFUSAL = 'quantity must be greater than 0 and no more than 2147483647'
+
+_QUANTITY_BOUND_VERDICTS = [
+    (1, True),
+    (5, True),
+    (2147483647, True),   # the largest the INTEGER column holds
+    (2147483648, False),   # one past it
+    (100000000000000000000, False),
+    (0, False),
+    (-3, False),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('quantity, storable', _QUANTITY_BOUND_VERDICTS)
+class TestBothPurchaseEntryPointsAgreeOnQuantityBounds:
+    """DW-86 as a property: a quantity one entry point stores the other stores,
+    and one that cannot go in the column is refused by both against the field
+    `quantity` — as a re-rendered field message on the form and as the AD-13
+    envelope on the endpoint. This is the whole of the parity claimed for this
+    column; the PARSERS still differ, deliberately, which is why the sibling
+    class's docstring disclaims the rest of it.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def test_the_html_form(self, client, test_storage, quantity, storable):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        # A form field is always a string; that difference is the reason the
+        # two parsers cannot be shared, and the reason this is a table.
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'quantity': str(quantity)})
+        if storable:
+            assert resp.status_code == 302
+            assert svc.get_purchases_for_product(pid)[0].quantity == quantity
+        else:
+            assert resp.status_code == 200
+            # The whole sentence, so a message that dropped either half of the
+            # rule fails here rather than passing on the ceiling alone.
+            assert _FORM_QUANTITY_REFUSAL in resp.data.decode()
+            assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_json_endpoint(self, client, test_storage, quantity, storable):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'quantity': quantity})
+        if storable:
+            assert resp.status_code == 201
+            assert svc.get_purchases_for_product(pid)[0].quantity == quantity
+        else:
+            assert resp.status_code == 400
+            error = resp.get_json()['error']
+            assert error['code'] == 'invalid_field'
+            assert error['field'] == 'quantity'
+            assert error['message'] == _JSON_QUANTITY_REFUSAL
+            assert svc.get_purchases_for_product(pid) == []
 
 
 @pytest.mark.unit

@@ -2064,7 +2064,64 @@ def api_record_purchase(product_id):
     if service.get_product(product_id) is None:
         return _catalog_json_error('not_found', f'Product {product_id} not found', 404)
 
-    body = request.get_json(silent=True) or {}
+    # The decoded body must be a JSON OBJECT, and anything else is refused here
+    # rather than coerced into one. `api_scan` does coerce (it turns a non-dict
+    # body into `{}`), and that is right THERE because an absent `raw` is itself
+    # a refusal one line later, so the coercion only picks the message. Here it
+    # would decide whether a ROW IS WRITTEN: every field of a purchase is
+    # optional, so `{}` is a valid request that records a Purchase — one with no
+    # values of its own except the `order_date` `record_purchase` defaults to
+    # today — and coercing `[1, 2]`, `"hello"`, `5`, `null`, bytes that are not
+    # JSON, or no body at all would record a purchase the caller never
+    # described. That is DW-90: the array/string/number cases reached
+    # `body.get(...)` and came back as an `AttributeError` 500, outside the
+    # AD-13 envelope this endpoint otherwise honors, and the rest answered 201.
+    # The architecture spine's "API success" row still gives `request.get_json()
+    # or {}` as the shorthand for reading a body; it predates an endpoint whose
+    # fields are all optional, where that shorthand is what writes the row.
+    #
+    # The shipped `or {}` could not be kept in front of this check: `[] or {}`
+    # and `0 or {}` are both `{}`, so two of the very bodies being refused would
+    # have been rewritten into a valid one before `isinstance` ever saw them.
+    #
+    # ONE message for every way a body fails to arrive as an object, on the same
+    # reasoning as `_purchase_unit_price`'s single `not_a_number` string: the
+    # caller's fix is the same in all of them, and `silent=True` collapses them
+    # into the same `None` anyway. So it states the requirement rather than the
+    # diagnosis, and states the whole of it — a wrong or absent content type
+    # lands here too, a perfectly good object sent as `text/plain` included
+    # (before this it answered 201 with every field silently dropped). The one
+    # arrival that surprises: a well-formed object carrying an integer literal
+    # longer than `sys.get_int_max_str_digits()`, which CPython refuses to parse
+    # at all, so `json` raises and this refusal answers for it rather than the
+    # `quantity` one. That limit is 4300 by DEFAULT and is per-process settable
+    # (`PYTHONINTMAXSTRDIGITS`, `-X int_max_str_digits`), so the digit count is
+    # the interpreter's business and not a number this route promises. It is the
+    # same cap `_positive_int_string` documents for the form — where the comment
+    # misnames it `sys.int_info.str_digits_check_threshold`, which is 640: the
+    # FLOOR `set_int_max_str_digits` accepts, not the parse limit.
+    #
+    # The decoded type is logged so an operator integrating a client has
+    # something to go on, but it separates less than it looks like: only the
+    # bodies `get_json` DID decode — a list, a string, a number — are told apart.
+    # No body, a literal `null`, unparseable bytes, a non-JSON content type and
+    # the over-long literal above all decode to `None` and emit the same line.
+    # That is the price of `silent=True`, and the same conflation the single
+    # message makes. What would discriminate them is `request.content_type` and
+    # whether any body bytes arrived — both client-supplied and unbounded, on a
+    # route that is `@csrf.exempt` and unthrottled, which is exactly why the log
+    # carries a type name instead: bounded by construction, like the body is not.
+    #
+    # `field` is deliberately not passed: AD-13's `field` names a JSON key, and
+    # a body that is not an object has no key to name.
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        current_app.logger.warning(
+            'Purchase rejected: body decoded to %s, not a JSON object',
+            type(body).__name__)
+        return _catalog_json_error(
+            'invalid_request',
+            'Request body must be a JSON object sent as application/json.', 400)
 
     # Parse/validate typed fields at the boundary; the service takes typed values.
     # `unit_price` and the four text columns are bounded by the same two helpers
@@ -2098,11 +2155,54 @@ def api_record_purchase(product_id):
         if message:
             return _catalog_json_error('invalid_field', message, 400, field='unit_price')
 
+    # `OverflowError` is caught alongside the other two because it is neither of
+    # them: `json.loads` decodes `1e400` to `float('inf')`, and `int(inf)` raises
+    # `OverflowError`, which escaped this handler entirely and reached the
+    # generic 500 below naming no field. A number the client can spell in JSON
+    # but Python cannot make an int of is an unparseable quantity like any other.
     try:
         quantity = body.get('quantity')
         quantity = int(quantity) if quantity not in (None, '') else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return _catalog_json_error('invalid_field', 'quantity must be an integer', 400, field='quantity')
+
+    # The bound is the COLUMN's, applied to the PARSED int. `Purchase.quantity`
+    # is an INTEGER, which MariaDB stores in 32 bits, so `2147483648` and up
+    # cannot be stored at all: the write failed and the caller got the generic
+    # `server_error` 500 naming no field — the DW-25 symptom every other column
+    # on this endpoint no longer has (DW-86). The unit suite cannot see any of
+    # that, because it runs on SQLite, which widens INTEGER silently and stores
+    # the value happily; a green suite therefore proves less than it appears to
+    # for this column, which is exactly why the bound is stated here rather than
+    # left to the backend. `0` and `-3` fail the same expression for a different
+    # reason: they are not quantities of anything, and no backend was ever going
+    # to object to them, so they were stored as typed.
+    #
+    # The parse above deliberately is NOT the form's `_positive_int_string`.
+    # That helper takes the raw string a form field always is and admits ASCII
+    # digits only; this endpoint's shipped contract accepts both the JSON int
+    # `5` and the string `"5"`, so reusing it would break callers. Bounding the
+    # parsed value is what lets the two entry points share the column's rule
+    # without sharing a parser that cannot be shared.
+    #
+    # What this does NOT add is a "whole number" rule. `int()` still coerces
+    # `3.7` to 3, `True` to 1 and `'٥'` to 5, and all three still answer 201 —
+    # that is `int()`'s lenience, the counterpart of `Decimal`'s on the price
+    # (DW-89), and narrowing it would be a new business rule rather than the
+    # bound this closes. Keeping it does move two values across the line, since
+    # the bound judges what `int()` returned: `False` and any fraction under 1
+    # (`0.5`) truncate to 0 and are refused as the zero they became, where they
+    # used to be stored as 0. So the message does NOT reuse the form's sentence
+    # ("Quantity must be a whole number greater than zero and no more than
+    # 2147483647"): that sentence promises a rule this endpoint does not apply,
+    # and 0.5 is not in fact "not greater than 0" until `int()` has had it. It
+    # says only what is enforced here, in the lowercase machine-facing wording
+    # of the `'quantity must be an integer'` message just above it.
+    if quantity is not None and not 0 < quantity <= _MAX_INT32:
+        return _catalog_json_error(
+            'invalid_field',
+            f'quantity must be greater than 0 and no more than {_MAX_INT32}',
+            400, field='quantity')
 
     def _parse_date(value, field):
         if value in (None, ''):
