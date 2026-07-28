@@ -10,6 +10,7 @@ from app.mariadb_inventory_service import SearchFilter
 from app.mariadb_inventory_service import InventoryService
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.database import InventoryItem
+from app.utils.sql_text import SEARCH_QUERY_MAX_LENGTH
 
 
 class TestSearchFilter:
@@ -708,6 +709,99 @@ class TestFieldValueSuggestions:
             event.remove(populated.engine, 'before_cursor_execute', record)
 
         assert statements == [], statements
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('field', ['vendor', 'thread_size',
+                                       'purchase_location', 'location',
+                                       'sub_location'])
+    @pytest.mark.parametrize('query', [
+        'a' * (SEARCH_QUERY_MAX_LENGTH + 1),
+        'a' * (SEARCH_QUERY_MAX_LENGTH * 20),
+        # Over-length AND unstorable. Either guard alone answers this
+        # correctly, which is the point: they are one pair, and neither is
+        # allowed to be the only thing standing between this text and a query.
+        'a' * SEARCH_QUERY_MAX_LENGTH + '\x00' * 100,
+    ], ids=['one-over', 'far-over', 'over-and-unstorable'])
+    def test_over_length_query_answers_nothing_without_querying(
+            self, populated, field, query):
+        """DW-95 for the five item fields: `search_products` has always treated
+        length and storability as one guard pair, and this method had only the
+        storability half — so a `q` of any size became a `%…%` pattern matched
+        against every row. Past SQLITE_MAX_LIKE_PATTERN_LENGTH that pattern
+        raises `OperationalError` out of an endpoint contracted to answer 200,
+        and escaping doubles the metacharacters on the way there. `[]` before
+        the session opens, which the emitted-SQL spy asserts — a guard that ran
+        after the query would still be a query, which is the whole cost being
+        avoided."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                field, query=query) == []
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements == [], statements
+
+    @pytest.mark.unit
+    def test_the_length_bound_is_inclusive_at_its_own_boundary(self, service):
+        """The bound is stated as `> SEARCH_QUERY_MAX_LENGTH`, so a query of
+        exactly that length is still queried and still matches. Both sides are
+        asserted here because only the pair pins the comparison operator: a
+        `>=` typo would leave the over-length case green while silently
+        refusing a query the contract accepts.
+
+        Both seeded vendors are longer than the column's declared
+        `String(200)`. SQLite does not enforce that width, and the claim under
+        test is where the service's guard falls, not what the schema would
+        hold — a value short enough to store honestly could never contain a
+        4096-character substring to match. The over-length one is stored (under
+        a DIFFERENT character, so the two queries cannot match each other's
+        row) precisely so the second assertion distinguishes "the guard
+        refused" from "nothing was there to find": with the guard removed, that
+        query returns the row."""
+        at_bound = 'v' * SEARCH_QUERY_MAX_LENGTH
+        over_bound = 'w' * (SEARCH_QUERY_MAX_LENGTH + 1)
+        service.add_item(self._make_item('JA000060', vendor=at_bound))
+        service.add_item(self._make_item('JA000061', vendor=over_bound))
+
+        assert service.get_field_value_suggestions(
+            'vendor', query=at_bound) == [at_bound]
+        assert service.get_field_value_suggestions(
+            'vendor', query=over_bound) == []
+
+    @pytest.mark.unit
+    def test_an_over_length_location_still_runs_its_equality_filter(
+            self, populated):
+        """`location` is bounded by storability but deliberately NOT by length.
+        The length rule is about what a LIKE pattern can carry, and this is an
+        equality comparison — it binds fine at any size and matches nothing,
+        which is already the right answer. Asserting the SQL was emitted is the
+        only way to tell that apart from a short-circuit: both return `[]`, and
+        a guard added here would look correct while quietly diverging from the
+        stated reasoning."""
+        from sqlalchemy import event
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(populated.engine, 'before_cursor_execute', record)
+        try:
+            assert populated.get_field_value_suggestions(
+                'sub_location',
+                location='L' * (SEARCH_QUERY_MAX_LENGTH + 100)) == []
+        finally:
+            event.remove(populated.engine, 'before_cursor_execute', record)
+
+        assert statements, 'the equality filter never reached the database'
 
     @pytest.mark.unit
     @pytest.mark.parametrize('field', ['vendor', 'thread_size',

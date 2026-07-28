@@ -823,7 +823,10 @@ class InventoryService:
                 or empty, returns ``limit`` distinct values in
                 alphabetical order. Text that cannot reach the database
                 intact (``sql_text.is_storable_text``: NULs and unpaired
-                surrogates) answers ``[]`` without querying.
+                surrogates), and text longer than
+                ``sql_text.SEARCH_QUERY_MAX_LENGTH``, both answer ``[]``
+                without querying. The length bound is inclusive: a query
+                of exactly that many characters is still matched.
             limit: Maximum number of suggestions to return. Clamped to
                 [1, 50].
             location: Only meaningful when ``field == 'sub_location'``.
@@ -843,7 +846,37 @@ class InventoryService:
 
         # Judged on the arguments AS PASSED, before the strip/lower below, and
         # answered without opening a session — the same sentence that describes
-        # the catalog half of this endpoint. A NUL survives cleaning and
+        # the catalog half of this endpoint. Two questions, asked in the order
+        # `search_products` asks them: they are one guard pair, and this method
+        # had only the second half of it (DW-95).
+        #
+        # LENGTH first. A LIKE pattern has a ceiling the operator has no reason
+        # to know about — SQLite raises `OperationalError: LIKE or GLOB pattern
+        # too complex` past SQLITE_MAX_LIKE_PATTERN_LENGTH, and
+        # `sql_text.escape_like_literal` doubles every metacharacter on the way
+        # there — so an unbounded `q` reaching the pattern below turns an
+        # endpoint contracted to answer 200 into a 500, and does it only on the
+        # backend the unit suite runs. `[]` rather than a truncated pattern,
+        # which would answer a DIFFERENT question by offering values that do
+        # not contain what was typed; and `[]` rather than a 400, because
+        # nothing about the request is malformed — text that long simply
+        # matches nothing. Measured on the argument AS PASSED, so that it sits
+        # with the guard it pairs with, ahead of the session — which is not
+        # quite the subject `search_products` measures: that one strips first
+        # and bounds `query.strip()`. One rule, read one line apart, and the
+        # difference is visible only to a direct caller that passes padding it
+        # did not strip (4096 spaces plus a word is refused here and searched
+        # there). Through this endpoint the two coincide, because the route
+        # strips before it forwards — which is also what this bound does NOT
+        # reach: 100 KB of spaces plus ten characters arrives here as ten
+        # characters, and the kilobytes were the transport's problem, never
+        # this method's. The browser refuses to send over-long text in the
+        # first place (see `MAX_QUERY_CHARS` in
+        # app/static/js/field-autocomplete.js), so the two ends agree that
+        # over-long means "no suggestions" and not "error"; this guard is what
+        # makes that true for every other client too.
+        #
+        # STORABILITY second. A NUL survives cleaning and
         # reaches the LIKE pattern, where SQLite truncates the pattern to a
         # prefix of itself: `'\x00'` alone degenerates to the bare `%` that
         # offers EVERY stored value, and `'a\x00b'` silently answers a
@@ -860,7 +893,16 @@ class InventoryService:
         # an ignored argument zero a vendor lookup. Its failure mode is the
         # surrogate half rather than the NUL half — the filter is an equality,
         # which compares whole — but an unbindable parameter is a 500 either
-        # way, and this endpoint answers arbitrary text without raising.
+        # way, and this endpoint answers arbitrary text without raising. For
+        # the same reason it gets NO length bound: the length rule above is
+        # about what a LIKE pattern can carry, and an equality comparison is
+        # not a pattern — a 5000-character `location` binds fine and matches
+        # nothing, which is already the right answer. (The browser bounds it
+        # anyway, because at that end the rule is about the request line rather
+        # than the pattern. Same number, different questions.)
+        if (isinstance(query, str)
+                and len(query) > sql_text.SEARCH_QUERY_MAX_LENGTH):
+            return []
         if isinstance(query, str) and not sql_text.is_storable_text(query):
             return []
         if (field == 'sub_location' and isinstance(location, str) and location

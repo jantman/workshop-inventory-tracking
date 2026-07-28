@@ -1,10 +1,11 @@
 """
-SQL text-safety utilities (Stories 3.1-4.3; DW-42, DW-77).
+SQL text-safety utilities (Stories 3.1-4.3; DW-42, DW-77, DW-95).
 
-This module is the single source of truth for the two questions a `LIKE`
+This module is the single source of truth for the three questions a `LIKE`
 pattern built from user text has to answer before it is built: how a literal
-piece of text is escaped so it cannot act as a wildcard, and whether the text
-can reach the database intact and mean what it says at all.
+piece of text is escaped so it cannot act as a wildcard, whether the text can
+reach the database intact and mean what it says at all, and how much of it a
+pattern may carry.
 
 "Single source of truth" is a statement about these rules, not yet a census of
 the callers: the suggestion, product-search, scan-resolution and category-
@@ -28,7 +29,7 @@ arguments are request-shaped and may legitimately be `None`.
 
 Why it is its own module
 ------------------------
-Every caller of these two rules is somewhere that cannot import the others.
+Every caller of these rules is somewhere that cannot import the others.
 `app/mariadb_catalog_service.py` and `app/mariadb_inventory_service.py` sit on
 opposite sides of the AD-1 service seam and must never import each other, and
 `app/utils/category.py` — where the first escaper happened to land, because
@@ -36,15 +37,54 @@ Story 3.2 needed one — scopes itself to the canonical form of a materialized
 category path, so escaping a vendor name has no business depending on it. The
 result was three independent copies of one four-line function, agreeing today
 and free to drift tomorrow (DW-42). A sibling pure module is the one seam all
-three can reach, and it gives `is_storable_text` a home both services can
-reach too, which is what lets the NUL/surrogate guard cover all seven fields
-of the one suggestions endpoint instead of two.
+three can reach, and it gives `is_storable_text` and SEARCH_QUERY_MAX_LENGTH a
+home both services can reach too. For the NUL/surrogate guard that is what lets
+one rule cover all seven fields of the one suggestions endpoint instead of two.
+For the length bound the two callers are NOT the two halves of that endpoint:
+they are `CatalogService.search_products` and
+`InventoryService.get_field_value_suggestions`, the two places that build a
+`LIKE` pattern out of a free-text query, one on each side of the seam. The
+suggestions endpoint's catalog half arrives at its own bound a different way —
+`normalize_category_path` (512) and `normalize_tag` (64) reject over-length
+input before any pattern exists — and so is deliberately not a caller here.
+None of this is a census either: the `ilike()` interpolations named in the
+paragraph above are still outside every rule in this module, the length rule
+now included.
 
-Neither function knows anything about a dialect: escaping is a property of the
-`LIKE` grammar, and the storability rules below are stated against the two
-backends this application runs (SQLite in the test suite, MariaDB in
+Nothing here knows anything about a dialect: escaping is a property of the
+`LIKE` grammar, and the storability and length rules below are stated against
+the two backends this application runs (SQLite in the test suite, MariaDB in
 production).
 """
+
+
+# Longest run of operator text any caller here will build a LIKE pattern from.
+# Not a cleaning rule and not a second copy of the scan trim (`MAX_SCAN_LENGTH`
+# lives in app/utils/scan_input.py): it is a database-safety bound, because a
+# LIKE pattern has a length limit that a search box or an autocomplete input
+# has no reason to respect. SQLite raises `OperationalError: LIKE or GLOB
+# pattern too complex` past SQLITE_MAX_LIKE_PATTERN_LENGTH (50000, and
+# `escape_like_literal` doubles the query's metacharacters on the way there),
+# which would break NFR8's "no scan text raises" on the only backend the suite
+# runs. 4096 is far under that on both backends and coincides with the route's
+# own scan cap, so no scan can reach it.
+#
+# It lives HERE rather than on either service because two callers ask it:
+# `CatalogService.search_products`, which named it first, and
+# `InventoryService.get_field_value_suggestions`, which was missing the length
+# half of the same guard pair (DW-95). Those two sit on opposite sides of the
+# AD-1 seam and must never import each other, so mirroring the number into the
+# second one would recreate exactly the drift DW-42 closed for the escaper —
+# two numbers agreeing today and free to disagree tomorrow, with the
+# disagreement visible only as one endpoint accepting text the other refuses.
+#
+# The rule is INCLUSIVE, and every caller states it as `len(text) > this`: a
+# query of exactly this many characters is still queried. Callers answer
+# over-length text with the no-match answer rather than truncating it, for the
+# reason `is_storable_text`'s callers do: a truncated pattern answers a
+# DIFFERENT question — it returns rows that do not contain the query — and a
+# plausible wrong answer is worse than an empty right one.
+SEARCH_QUERY_MAX_LENGTH = 4096
 
 
 # The character `escape_like_literal` prefixes to every LIKE metacharacter it

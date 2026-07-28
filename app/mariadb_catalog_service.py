@@ -32,6 +32,7 @@ from .utils import internal_id as internal_id_util
 from .utils import scan_router
 from .utils import sql_text
 from .utils import tag as tag_util
+from .utils.sql_text import SEARCH_QUERY_MAX_LENGTH
 from config import Config
 
 # The logger setup_logging() already configures for this module.
@@ -112,16 +113,11 @@ MAX_TAGS_NAMED_IN_ERROR = 8
 SEARCH_RESULTS_DEFAULT_LIMIT = 50
 SEARCH_RESULTS_MAX_LIMIT = 200
 
-# Longest query search_products will build a LIKE pattern from. Not a cleaning
-# rule and not a second copy of the scan trim (`MAX_SCAN_LENGTH` lives in
-# app/utils/scan_input.py): it is a database-safety bound, because a LIKE
-# pattern has a length limit that a search box has no reason to respect.
-# SQLite raises `OperationalError: LIKE or GLOB pattern too complex` past
-# SQLITE_MAX_LIKE_PATTERN_LENGTH (50000, and escaping doubles the query's
-# metacharacters on the way there), which would break NFR8's "no scan text
-# raises" on the only backend the suite runs. 4096 is far under that on both
-# backends and coincides with the route's own scan cap, so no scan can reach it.
-SEARCH_QUERY_MAX_LENGTH = 4096
+# SEARCH_QUERY_MAX_LENGTH now lives in app/utils/sql_text.py (DW-95) and is
+# imported at the top of this module. That import is a deliberate RE-EXPORT as
+# well as a use — `from app.mariadb_catalog_service import
+# SEARCH_QUERY_MAX_LENGTH` is an existing spelling — so it is not dead weight
+# even if `search_products` below is one day the only reader left here.
 
 
 def _clean(value):

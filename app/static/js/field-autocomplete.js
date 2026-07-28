@@ -45,6 +45,53 @@
     const DEFAULT_DEBOUNCE_MS = 200;
     const DEFAULT_LIMIT = 10;
 
+    // The most operator-supplied text this component will put on the wire, per
+    // parameter. Deliberately the same number as the server's
+    // SEARCH_QUERY_MAX_LENGTH (app/utils/sql_text.py), and a SECOND COPY of it
+    // by necessity: there is no build step and no module system here, so
+    // nothing on this side can import it. `tests/unit/test_autocomplete_
+    // markup.py` pins the two together, because drift between them is SILENT —
+    // a smaller number here quietly stops offering suggestions the server
+    // would happily have answered, and a larger one puts back the request this
+    // exists to prevent.
+    //
+    // This is the SERVER'S rule restated, not the transport's — MAX_URL_CHARS
+    // below is the transport's — which is why it bounds `location` too even
+    // though the server does not: the server's bound is about the LIKE
+    // PATTERN, and an equality filter is not a pattern, but a `location` this
+    // long is still a request nothing can answer usefully, and refusing it
+    // here costs nothing.
+    //
+    // Two caveats a reader should not have to discover:
+    // - The UNITS differ. `String.length` counts UTF-16 code units and
+    //   Python's `len` counts code points, so 2049 astral characters (emoji,
+    //   CJK extension B) are refused here and would have been answered there.
+    //   The divergence is in the conservative direction, on input no
+    //   suggestion list could match anyway, and the alternative — spreading
+    //   into an array to count code points on every keystroke — buys nothing
+    //   for it.
+    // - For `category_path` and `tags` this number is not the server's bound
+    //   at all. Those two are answered by CatalogService, where
+    //   `normalize_category_path` (512) and `normalize_tag` (64) reject far
+    //   sooner and answer `[]` with `normalized: null`. This cap is only ever
+    //   their ceiling, never their limit.
+    //
+    // Refusing rather than truncating, for the same reason the server answers
+    // `[]` rather than truncating: a shortened query is a different question,
+    // and silently answering it would offer the operator values their field
+    // does not contain.
+    const MAX_QUERY_CHARS = 4096;
+
+    // The transport's rule, and the one the pasted-value defect (DW-162) is
+    // actually about. Deliberately the same number as `_MAX_SCAN_URL_CHARS`
+    // in app/main/routes.py, which bounds the scan redirect for this exact
+    // reason and states it: below gunicorn's 8190-byte request line and
+    // nginx's 8 KB header buffer, with room for the scheme, host and the
+    // Cookie header riding alongside. Same transport, same ceiling — and
+    // `tests/unit/test_autocomplete_markup.py` pins the two together, as it
+    // does for MAX_QUERY_CHARS.
+    const MAX_URL_CHARS = 7000;
+
     function debounce(fn, ms) {
         let timer = null;
         const wrapped = function (...args) {
@@ -320,9 +367,23 @@
             };
         }
 
+        /**
+         * The URL to ask for suggestions with, or `null` when the field holds
+         * text this component refuses to send (see MAX_QUERY_CHARS).
+         *
+         * The refusal lives here, not in fetchAndRender, so the fragment is
+         * read in ONE place: duplicating `currentFragment().fragment.trim()`
+         * into the caller would give the guard and the request two chances to
+         * disagree about what the operator typed — and in multi-value mode
+         * `currentFragment` depends on the live caret, so the two readings are
+         * not even guaranteed to be the same string.
+         *
+         * @returns {?string} the request URL, or null to send nothing
+         */
         buildUrl() {
             const params = new URLSearchParams();
             const q = this.currentFragment().fragment.trim();
+            if (q.length > MAX_QUERY_CHARS) return null;
             if (q) params.append('q', q);
             // In multi-value mode render() drops every suggestion the field
             // already carries elsewhere, and that filtering happens AFTER the
@@ -336,11 +397,24 @@
             params.append('limit', String(this.limit + overFetch));
             if (this.locationField) {
                 const loc = (this.locationField.value || '').trim();
+                if (loc.length > MAX_QUERY_CHARS) return null;
                 if (loc) params.append('location', loc);
             }
             const qs = params.toString();
             const base = `/api/inventory/field-suggestions/${encodeURIComponent(this.field)}`;
-            return qs ? `${base}?${qs}` : base;
+            const url = qs ? `${base}?${qs}` : base;
+            // The bound the request line actually has, measured on the
+            // FINISHED url, which is the thing that gets sent. The per-value
+            // checks above cannot stand in for it, for the two reasons
+            // `_bounded_scan_url` already writes down: percent-encoding
+            // expands one character to between one and twelve bytes depending
+            // on the alphabet, so 4096 characters of CJK is a ~37 KB request
+            // line; and two values each individually under the cap still add
+            // up, so `q` and `location` at 4096 apiece clear both checks and
+            // emit 8259 bytes, past gunicorn's 8190. Since `params.toString()`
+            // has already encoded, `url.length` IS the byte count.
+            if (url.length > MAX_URL_CHARS) return null;
+            return url;
         }
 
         async fetchAndRender() {
@@ -350,8 +424,34 @@
             // an older query's suggestions (and, worse, its `normalized`
             // create candidate) could overwrite what the user is typing now.
             const seq = ++this.requestSeq;
+            // A refusal, not a failure, so it takes the same route a query
+            // that matched nothing takes and says nothing on the console:
+            // console.warn in this file means something unexpected happened,
+            // and declining to send a request whose answer we already know is
+            // `[]` is an ordinary decision.
+            //
+            // hide() AND announce(0, null), which is render()'s no-matches
+            // pair and not the fetch-failure paths' bare hide(). The operator
+            // this refusal is most likely to reach is one who pasted rather
+            // than typed, and hide() CLEARS the live region — so a bare hide()
+            // would answer a screen reader with silence, and wipe the previous
+            // announcement doing it, where the server's own `[]` for the same
+            // input says "No suggestions". The two ends have to agree for
+            // every operator, not just the sighted one.
+            //
+            // AFTER the sequence bump above, deliberately: a request for the
+            // shorter value that was in the field a moment ago may still be in
+            // flight, and rendering its suggestions over a field the operator
+            // has since pasted five kilobytes into is exactly the stale-render
+            // the sequence number exists to stop.
+            const url = this.buildUrl();
+            if (url === null) {
+                this.hide();
+                this.announce(0, null);
+                return;
+            }
             try {
-                const response = await fetch(this.buildUrl());
+                const response = await fetch(url);
                 if (seq !== this.requestSeq) return;
                 if (!response.ok) {
                     this.hide();

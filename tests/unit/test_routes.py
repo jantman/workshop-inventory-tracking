@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from app.models import ItemType, ItemShape
 from app.main.routes import _parse_item_from_form
+from app.utils.sql_text import SEARCH_QUERY_MAX_LENGTH
 
 
 class TestParseItemFromForm:
@@ -1989,6 +1990,52 @@ class TestFieldSuggestionsRoute:
         assert body == {'success': True,
                         'field': url.split('/')[-1].split('?')[0],
                         'suggestions': []}
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('field', ['vendor', 'thread_size',
+                                       'purchase_location', 'location',
+                                       'sub_location'])
+    def test_over_length_query_is_an_empty_200_on_an_item_field(
+            self, client, populated, field
+    ):
+        """DW-95 through the route, which is the only thing that proves the
+        guard is REACHABLE: the route forwards `q` with nothing but a
+        `.strip()` and no length rule of its own, so if the service ever
+        stopped asking, nothing between the browser and the LIKE pattern
+        would.
+
+        An ordinary answer, not an error — a 400 would claim the request was
+        malformed when it merely matches nothing — and the body stays exactly
+        the three keys these consumers have always received (NFR9). The query
+        is one character past the imported constant rather than a round literal
+        so that raising the bound cannot leave this test passing for a length
+        it no longer describes.
+
+        A row carrying that exact text is seeded first, so an empty list is the
+        guard's answer rather than an absent one: without the guard the query
+        runs and returns it. (The value is longer than every one of these
+        columns is declared to be; SQLite does not enforce that, and no
+        honestly-sized value could contain a 4097-character substring.)"""
+        over = 'a' * (SEARCH_QUERY_MAX_LENGTH + 1)
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        with populated.app_context():
+            InventoryService(
+                populated.config['STORAGE_BACKEND']
+            ).add_item(InventoryItem(
+                ja_id='JA000004', item_type='Bar', shape='Round',
+                material='Steel', length=100, width=10,
+                location=over, sub_location=over, vendor=over,
+                purchase_location=over, thread_size=over,
+                active=True, precision=False,
+            ))
+
+        response = client.get(
+            f'/api/inventory/field-suggestions/{field}?q={over}')
+        assert response.status_code == 200
+        assert response.get_json() == {'success': True,
+                                       'field': field,
+                                       'suggestions': []}
 
     @pytest.mark.unit
     def test_unknown_field_still_400_after_the_split(self, client, products):

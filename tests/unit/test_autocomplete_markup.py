@@ -16,6 +16,15 @@ the three declarations it replaced.
 Scanned as text rather than parsed: the files are Jinja templates, and an HTML
 parser would either choke on the `{% ... %}` tags or need them stripped first,
 which is more machinery than a class-list check deserves.
+
+The same idiom, applied to the component's own source, is what pins the one
+number `field-autocomplete.js` is forced to duplicate from the server
+(`MAX_QUERY_CHARS`, DW-95). There is no build step and no module system on that
+side, so the browser cannot import `SEARCH_QUERY_MAX_LENGTH`; nothing at
+runtime notices if the two drift, because a browser bound that disagrees with
+the server's still produces a working dropdown that merely answers a different
+question. Reading the literal out of the source is the only place the two can
+be compared at all.
 """
 
 import re
@@ -23,9 +32,13 @@ from pathlib import Path
 
 import pytest
 
+from app.main.routes import _MAX_SCAN_URL_CHARS
+from app.utils.sql_text import SEARCH_QUERY_MAX_LENGTH
+
 APP_ROOT = Path(__file__).resolve().parents[2] / 'app'
 TEMPLATE_ROOT = APP_ROOT / 'templates'
 MAIN_CSS = APP_ROOT / 'static' / 'css' / 'main.css'
+FIELD_AUTOCOMPLETE_JS = APP_ROOT / 'static' / 'js' / 'field-autocomplete.js'
 
 #: The attribute this change deleted, in the exact form all sixteen carried.
 LEGACY_INLINE_STYLE = 'max-height: 200px; overflow-y: auto; z-index: 1000'
@@ -177,6 +190,153 @@ class TestSuggestionsMenuRule:
         # The reason they cannot merge, still true of the legacy rule.
         assert '!important' in _rule_body(css, '.autocomplete-dropdown')
         assert '!important' not in _rule_body(css, '.suggestions-menu')
+
+
+#: The browser's copy of the server's query-length bound, as declared. Anchored
+#: to `const` at the head of a line so a mention of the name in prose or in an
+#: expression cannot be mistaken for the declaration. The leading `\s*` is
+#: required rather than incidental — every declaration in that file is indented
+#: inside its IIFE — so this deliberately cannot tell the module constant from
+#: an equally-indented local of the same name, and `search` reads whichever
+#: comes first. A second declaration of this name is a defect either way.
+MAX_QUERY_CHARS_DECL = re.compile(
+    r'^\s*const MAX_QUERY_CHARS\s*=\s*(?P<value>\d+);', re.MULTILINE)
+
+#: The browser's copy of the transport bound, same anchoring, same reason.
+MAX_URL_CHARS_DECL = re.compile(
+    r'^\s*const MAX_URL_CHARS\s*=\s*(?P<value>\d+);', re.MULTILINE)
+
+#: The whole refusal block, matched as ONE unit rather than as three
+#: independent substring searches. Ordering and adjacency are the property
+#: under test: `hide()` present SOMEWHERE in the method proves nothing, and a
+#: block that hides and announces but forgets to `return` falls through to
+#: `fetch(null)` — a `GET /null`, a 404, and a hide that reads as "no matches".
+#: That is a refusal handled as a failure, which is exactly what this pins
+#: shut, and no unordered `in` check can see it.
+REFUSAL_BLOCK = re.compile(
+    r'if \(url === null\) \{\s*'
+    r'this\.hide\(\);\s*'
+    r'this\.announce\(0, null\);\s*'
+    r'return;\s*'
+    r'\}')
+
+
+def _js_without_comments(source):
+    """`field-autocomplete.js` with its comments stripped, for the same reason
+    `_css_without_comments` exists.
+
+    The comments in this file argue ABOUT the identifiers these tests search
+    for — the MAX_QUERY_CHARS block spells out what `console.warn` means here,
+    and the refusal's own comment says why it must not use one — so a raw text
+    search finds the prose instead of the code, and the "no warning on this
+    path" assertion would fail on the sentence explaining that there is none.
+
+    Only whole-line `//` comments are removed: that is how every comment in
+    this file is written, and stripping trailing ones would need the string
+    literals parsed to avoid eating a `//` inside one.
+    """
+    without_blocks = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
+    return re.sub(r'^[ \t]*//.*$', '', without_blocks, flags=re.MULTILINE)
+
+
+def _js_slice(source, start, end):
+    """The text of `source` from `start` up to the next `end` after it.
+
+    Both markers are asserted rather than allowed to return -1, because a
+    renamed method would otherwise silently reduce the assertions below to
+    searches over an empty string — the vacuous-pass failure mode that
+    `test_the_templates_are_actually_being_scanned` guards the other half of
+    this module against.
+    """
+    begin = source.find(start)
+    assert begin != -1, f'field-autocomplete.js no longer contains `{start}`'
+    stop = source.find(end, begin)
+    assert stop != -1, (
+        f'field-autocomplete.js no longer has `{end}` after `{start}`')
+    return source[begin:stop]
+
+
+@pytest.mark.unit
+class TestQueryLengthBoundTripwire:
+    """The two numbers the component is forced to duplicate (DW-95, DW-162):
+    the server's query bound and the transport's URL bound. Neither can be
+    imported by a browser with no build step and no module system, and drift in
+    either is SILENT — a dropdown that quietly stops appearing looks exactly
+    like one that found nothing."""
+
+    @pytest.fixture
+    def source(self):
+        return _js_without_comments(
+            FIELD_AUTOCOMPLETE_JS.read_text(encoding='utf-8'))
+
+    def test_the_browser_copy_equals_the_server_constant(self, source):
+        """Compared against the IMPORTED constant, never a repeated literal:
+        the failure this guards is precisely that one of the two numbers
+        changed, and a third hardcoded copy in the test would be free to agree
+        with whichever one it was written beside."""
+        match = MAX_QUERY_CHARS_DECL.search(source)
+        assert match is not None, (
+            'field-autocomplete.js no longer declares MAX_QUERY_CHARS')
+        assert int(match.group('value')) == SEARCH_QUERY_MAX_LENGTH, (
+            'the browser and the server disagree about how long a suggestion '
+            'query may be; they are one rule stated twice')
+
+    def test_the_transport_bound_equals_the_scan_redirect_bound(self, source):
+        """`MAX_URL_CHARS` and `_MAX_SCAN_URL_CHARS` are not two policies that
+        happen to agree — they are one statement about one transport (gunicorn's
+        request line, nginx's header buffer), made in the two places that build
+        a URL from operator text. Whichever of the two a future reader measures
+        against a real server, the other has to move with it."""
+        match = MAX_URL_CHARS_DECL.search(source)
+        assert match is not None, (
+            'field-autocomplete.js no longer declares MAX_URL_CHARS')
+        assert int(match.group('value')) == _MAX_SCAN_URL_CHARS, (
+            'the autocomplete request and the scan redirect disagree about '
+            'what this transport accepts')
+
+    def test_build_url_bounds_the_finished_url_and_not_only_its_parts(
+            self, source):
+        """Three checks, because the per-value pair cannot do the transport's
+        job alone and the finished-URL check cannot do the server's.
+
+        `q` and `location` are each held to the SERVER's number so the browser
+        does not ask a question the answer to which is already known to be
+        `[]`. But percent-encoding expands one character to up to twelve bytes,
+        and two values each individually under the cap still sum — `q` and
+        `location` at 4096 apiece clear both per-value checks and emit 8259
+        bytes, past gunicorn's 8190. Only the check on the assembled, already-
+        encoded string bounds what actually goes on the wire, which is the
+        defect (DW-162) this exists for. `_bounded_scan_url` reached the same
+        conclusion for the same transport and writes down why."""
+        build_url = _js_slice(source, '        buildUrl() {',
+                              '        async fetchAndRender()')
+        assert 'q.length > MAX_QUERY_CHARS) return null;' in build_url
+        assert 'loc.length > MAX_QUERY_CHARS) return null;' in build_url
+        assert 'url.length > MAX_URL_CHARS) return null;' in build_url
+        # Measured AFTER `params.toString()`, or it measures the wrong string.
+        assert build_url.index('const qs = params.toString();') < \
+            build_url.index('url.length > MAX_URL_CHARS')
+
+    def test_the_refusal_hides_announces_and_returns_without_warning(
+            self, source):
+        """Three properties of one block, pinned as one block (see
+        REFUSAL_BLOCK for why the adjacency is the point).
+
+        It must `hide()` AND `announce(0, null)`, which is render()'s
+        no-matches pair: hide() clears the live region, so a bare hide() would
+        answer a screen reader with silence where the server's own `[]` for the
+        same input says "No suggestions" — the pasted-value operator is exactly
+        the one most likely to reach this path. It must `return`, or it falls
+        into `fetch(null)`. And it must sit ahead of the `try` that owns
+        `console.warn`, this file's signal for an UNEXPECTED failure: a refusal
+        whose answer is already known is an ordinary decision, and one handled
+        inside the fetch could not help but be reported as a failure."""
+        preamble = _js_slice(source, '        async fetchAndRender() {',
+                             '            try {')
+        assert 'const url = this.buildUrl();' in preamble
+        assert REFUSAL_BLOCK.search(preamble) is not None, (
+            'the refusal no longer hides, announces and returns as one block')
+        assert 'console.warn' not in preamble
 
 
 PRODUCT_DROPDOWNS = ['category_path-suggestions', 'tags-suggestions']
