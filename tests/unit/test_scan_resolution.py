@@ -492,8 +492,10 @@ class TestInternalResolution:
 
 
 class TestGtinResolution:
-    """Rule 3, AD-7: lookup is against the normalized-14 namespace, so every
-    encoding of one trade item number reaches the same product."""
+    """The GTIN rule, AD-7: lookup is against the normalized-14 namespace, so
+    every encoding of one trade item number reaches the same product. Since
+    DW-70 that includes the manufacturer's AI-01 element string, which FR36
+    rule 3 unwraps before this arm ever sees it."""
 
     @pytest.mark.unit
     @pytest.mark.parametrize('stored, scanned', [
@@ -505,6 +507,10 @@ class TestGtinResolution:
         (GTIN8, GTIN8),              # GTIN-8 as printed
         (GTIN8, GTIN8_KEY),          # ...as a GTIN-14
         (GTIN8_KEY, GTIN8),          # stored in the padded form, scanned bare
+        (GTIN13, '01' + GTIN13_KEY),                    # DW-70: the AI-01 element string
+        (GTIN13, '\x1d01' + GTIN13_KEY),                # ...FNC1-framed off a GS1-128
+        (GTIN13, ']d101' + GTIN13_KEY),                 # ...out of a GS1 DataMatrix
+        (GTIN13, '01' + GTIN13_KEY + '\x1d10LOT42'),    # ...with a batch/lot chained after it
     ])
     def test_every_encoding_collapses_to_one_product(self, catalog_service,
                                                      product, stored, scanned):
@@ -1647,6 +1653,41 @@ class TestFallthrough:
         assert calls == ['RES 10K']
         assert r.classification.raw == ']d1RES 10K'
         assert [p.id for p in r.free_text_hits] == [product.id]
+
+    @pytest.mark.unit
+    def test_an_ai_01_scan_that_misses_searches_the_element_string_it_arrived_as(
+            self, catalog_service, product, monkeypatch):
+        """DW-70's miss path, which is where the AI-01 arm and the bare-GTIN arm
+        stop agreeing — and therefore the one worth pinning rather than
+        arguing. `_fallthrough_text` hands the `gtin` arm the AIM-stripped RAW
+        scan, so an AI-01 scan that finds no product searches for the whole
+        element string: a text no column holds, where the bare number at least
+        stands a chance of appearing in a description. Deferred as DW-205; this
+        pins the behavior meanwhile, so a fix moves a red test rather than
+        landing silently."""
+        calls = _spy_on_search(catalog_service, monkeypatch)
+
+        r = catalog_service.resolve_scan(']d101' + GTIN13_KEY)
+
+        assert r.classification.kind is ScanKind.GTIN
+        assert r.classification.normalized_value == GTIN13_KEY
+        assert r.product is None                      # nothing stored under that GTIN
+        assert calls == ['01' + GTIN13_KEY]           # NOT GTIN13, and NOT the normalized key
+        assert catalog_service.scan_search_text(r) == '01' + GTIN13_KEY
+
+    @pytest.mark.unit
+    def test_an_ai_01_scan_whose_number_is_invalid_falls_through_as_free_text(
+            self, catalog_service, product):
+        """The other AI-01 miss, one rule further down: rule 3 extracts, rule 4
+        refuses (bad check digit, and the all-zero wedge no-read of DW-69), and
+        rule 5 catches what is left. No scan dead-ends whatever the barcode
+        carried."""
+        for raw in ('0109506000134353', '0100000000000000'):
+            r = catalog_service.resolve_scan(raw)
+            assert r.classification.kind is ScanKind.FREE_TEXT
+            assert r.classification.normalized_value is None
+            assert r.product is None
+            assert catalog_service.scan_search_text(r) == raw
 
     @pytest.mark.unit
     def test_nothing_matching_anything_is_a_legal_terminal_state(

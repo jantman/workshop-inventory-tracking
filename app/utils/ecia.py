@@ -71,7 +71,7 @@ What this module deliberately does not do
   a value.
 - **No lookup and no classification precedence.** Resolving a parsed part
   number against the catalog is `mariadb_catalog_service.resolve_scan`'s, and
-  the order the four FR36 rules are tried in is `scan_router.classify`'s. This
+  the order the FR36 rules are tried in is `scan_router.classify`'s. This
   module only reads the label.
 """
 

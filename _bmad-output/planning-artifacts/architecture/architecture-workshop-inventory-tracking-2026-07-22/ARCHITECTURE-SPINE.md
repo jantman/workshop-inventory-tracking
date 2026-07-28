@@ -57,7 +57,7 @@ Dependency direction is one-way down the layers (see *Structural Seed*).
 ### AD-5 — One scan classifier owns routing precedence; resolution is the service's
 - **Binds:** Epic 4 and every surface that accepts a scan
 - **Prevents:** client JS and multiple routes classifying the same scan differently; a malformed distributor barcode crashing the scan path
-- **Rule:** `app/utils/scan_router.py` is the sole **classifier** and is pure (no DB). It implements the FR36 precedence in order — (1) GS1 AI-96 + configured token → `internal`; (2) ISO/IEC 15434 format-06 envelope → `ecia`; (3) all-digit length 8 or 12–14 with valid GTIN check digit → `gtin` (normalized); (4) else → `free_text`. Rule-1 recognition **delegates to `gs1.decode()`** (AD-16). On a malformed/unrecognized format-06 envelope it classifies as `free_text` carrying the raw scan and never raises (satisfies **NFR8**). It returns a frozen `ScanClassification` (AD-15); DB **lookup and the no-match free-text fallthrough live in the service** (AD-15), not the router.
+- **Rule:** `app/utils/scan_router.py` is the sole **classifier** and is pure (no DB). It implements the FR36 precedence in order — (1) GS1 AI-96 + configured token → `internal`; (2) ISO/IEC 15434 format-06 envelope → `ecia`; (3) an element string opening with AI 01 → its 14-digit trade item number becomes the value rule 4 judges *(amended 2026-07-28, DW-70)*; (4) all-digit length 8 or 12–14 with valid GTIN check digit → `gtin` (normalized); (5) else → `free_text`. Rules 1 and 3 **delegate recognition to `app/utils/gs1.py`** — `gs1.decode()` and `gs1.decode_trade_item_number()` respectively — and rule 2 to `app/utils/ecia.py` (AD-16). Rules 3 and 4 share one `gtin.normalize_gtin` call, so rule 3 produces no `ScanKind` of its own and an AI-01 scan is a `gtin` classification indistinguishable from a bare one. On a malformed/unrecognized format-06 envelope it classifies as `free_text` carrying the raw scan and never raises (satisfies **NFR8**). It returns a frozen `ScanClassification` (AD-15); DB **lookup and the no-match free-text fallthrough live in the service** (AD-15), not the router.
 
 ### AD-6 — Stock status is stored-manual; all reorder signals are derived, never stored
 - **Binds:** Epics 5, 7, 8, 10
@@ -259,7 +259,7 @@ app/
     gtin.py                      # NEW — normalize + check-digit (pure)
     internal_id.py               # NEW — internal-id CANDIDATE generator (pure)
     gs1.py                       # NEW — AI-96 encode + decode, FNC1 grammar (pure)
-    scan_router.py               # NEW — FR36 precedence classifier (pure); delegates to gs1.decode
+    scan_router.py               # NEW — FR36 precedence classifier (pure); delegates to gs1.decode, gs1.decode_trade_item_number, ecia, gtin
     category.py                  # NEW — normalize_category_path (pure)
   static/js/
     field-autocomplete.js        # + autocomplete-WITH-CREATE variant for Category/Tag

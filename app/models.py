@@ -511,7 +511,11 @@ class ScanClassification:
     the highest-consequence hole open.
 
     Attributes:
-        kind: Which of the four FR36 rules matched. Always set.
+        kind: Which FR36 rule matched. Always set. There are more rules than
+            there are kinds since DW-70 — rule 3 reads a manufacturer's AI-01
+            element string and hands its digits to the GTIN rule, so it
+            produces no kind of its own and an AI-01 scan is a `GTIN`
+            classification indistinguishable from a bare one except by `raw`.
         normalized_value: The canonical form of what was scanned, in the shape
             the matching kind defines:
 

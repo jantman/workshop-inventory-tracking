@@ -1252,7 +1252,7 @@ never required.
 
 #### What Happens to a Scan
 
-The system classifies the scan by four rules, in order:
+The system classifies the scan by five rules, in order:
 
 1. A GS1 element string carrying this system's configured application
    identifier and token — a product label this shop printed — is looked up
@@ -1264,20 +1264,54 @@ The system classifies the scan by four rules, in order:
    products. The system reads them; nothing here writes them.
 2. An ISO/IEC 15434 format-06 envelope (the header `[)>`, a record separator,
    then `06`) is parsed as a distributor ECIA label.
-3. An all-digit value of length 8 or 12-14 that passes the GTIN check digit is
+3. A scan that *starts* with a GS1 element string carrying application
+   identifier `01` — how a manufacturer encodes a product number on a box, in a
+   2D DataMatrix or in a striped GS1-128 alike — has its 14-digit product
+   number read out, and that number is then handled by rule 4. Anything the
+   barcode carries after the product number (a batch, a date, a serial) is
+   ignored, so long as it *starts* like something a GS1 barcode would carry.
+   Only the two characters right after the product number are checked: if they
+   are digits, the rest is ignored whatever it is, and if they are not, the
+   whole scan is refused and searched as free text by rule 5. So a `01`
+   barcode followed by ` RES 10K` is searched as text — the space is not the
+   start of anything a GS1 barcode carries — while the same barcode followed
+   by `17 RES 10K` is read as a product number, because `17` could be the
+   start of a date field, and the text after it is dropped. The `01` has to come
+   first, too — if the product number is buried behind a batch or a date, the
+   system does not go looking for it.
+4. An all-digit value of length 8 or 12-14 that passes the GTIN check digit is
    normalized to 14 digits and looked up as a GTIN.
-4. Anything else is searched as free text across identifiers, descriptions and
+5. Anything else is searched as free text across identifiers, descriptions and
    MPNs.
 
 A GTIN that passes its check digit but matches no product does not dead-end: it
 falls through to the free-text search within the same scan. ASIN is *not*
 scan-recognized — it exists only as a type you can pick by hand on the
-**Scanned Identifier** card — so a scanned ASIN is handled by rule 4. A valid
+**Scanned Identifier** card — so a scanned ASIN is handled by rule 5. A valid
 envelope with nothing readable in it degrades to free text.
+
+Rule 3 is why scanning the manufacturer's own GS1 barcode is treated exactly
+like scanning a plain retail barcode: the product number inside it is pulled
+out and handled by rule 4, so the same number reaches the same place by either
+route. If the number inside that barcode fails its check digit — or is the run
+of zeros a scanner emits when it did not really read anything — it falls
+through to the free-text search, as the bare number would. One difference to
+know about on that fallthrough: what gets searched is what you scanned, so a
+scan of the whole GS1 barcode searches for the whole barcode's text — `01`,
+product number, batch and all — which is unlikely to match anything. If a
+manufacturer's barcode comes back empty-handed, try the printed number beside
+it before concluding the product is not in the system.
+
+One thing to watch: the GS1 barcode on an outer carton or a multi-pack often
+carries a *different* product number from the retail barcode on the item inside
+it — same product, different packaging level, and the packaging level is part
+of the number. Scanning the two therefore gets you two records unless you
+attach both numbers to one product by hand. Whichever you scan first is the one
+the create form fills in.
 
 #### Where a Scan Lands
 
-Those four rules are how a scan is *classified*. What you actually see is one of
+Those five rules are how a scan is *classified*. What you actually see is one of
 three landings, decided by whether anything was found:
 
 1. **A record matched** → the product's own page, carrying a blue banner headed

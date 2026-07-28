@@ -10,6 +10,17 @@ imports, no I/O. Its only failure signal is `InvalidGs1PayloadError`, a plain
 translates it into a domain `ConfigurationError` when the configured grammar is
 what is wrong and a `ValidationError` when the supplied id is.
 
+Since DW-70 the module recognizes exactly **two** element strings, and the
+number is deliberately two rather than "some": the configured internal one
+(`encode`/`decode`, everything below) and GS1's AI 01 trade item number
+(`decode_trade_item_number`, at the foot of the file). The second exists
+because the scan classifier needed a manufacturer's `01<gtin>` symbol to route
+as the GTIN it carries, and the alternative to putting it here was
+`scan_router.py` growing element-string field arithmetic of its own — the drift
+AD-16 exists to prevent. What this module is still not is a general GS1 parser:
+there is no AI table, no FNC1-delimited field splitting, and nothing reads a
+third AI. Adding one is a decision, not an increment.
+
 The element string
 ------------------
 One element string, built from exactly four parts in this order:
@@ -92,6 +103,18 @@ per FR37 that belongs to the scan classifier, which inspects the prefix before
 delegating here. A renderer that needs the bare data field without FNC1 should
 gain a parameter on `encode` here rather than re-deriving the grammar somewhere
 else.
+
+The same rule decided where DW-70's AI-01 recognition went: a *foreign* element
+string is still an element string, and the module that owns the grammar is the
+one entitled to read it. `decode_trade_item_number` is a sibling of `decode`
+rather than a widening of it, because `decode`'s `Optional[InternalPayload]`
+return is a frozen Story 2.4/2.5 contract whose `internal_id`/`ai`/`token`
+fields say nothing about a trade item number, and because
+`tests/unit/test_gs1.py` pins that every AI-01 vector decodes to None precisely
+so a foreign payload can never be mistaken for one of ours. The two recognizers
+therefore disagree about `'0109506000134352'` on purpose: `decode` says "not
+ours", `decode_trade_item_number` says "a trade item number, here it is", and
+both answers are correct.
 """
 
 from dataclasses import dataclass
@@ -106,6 +129,26 @@ FNC1 = '\x1d'
 # bounded data field" above. Raising it is a standards-conformant change; the
 # constant exists so that decision is made in one place.
 MAX_DATA_FIELD_LENGTH = 30
+
+# GS1's Application Identifier for a trade item number (GTIN), and the length
+# of the field that follows it. AI 01 is `n2+n14` in the General
+# Specifications: a predefined-length AI whose data field is exactly 14 digits,
+# so no separator terminates it and the next element string abuts it directly.
+# These are constants rather than parameters because AI 01 is assigned by GS1
+# and is the same on every label in the world — unlike the internal grammar
+# above, which is this deployment's and therefore arrives from config (FR12c).
+# The length is named rather than inlined so the two places that need it (the
+# slice and the bound it is checked against) cannot disagree.
+_TRADE_ITEM_AI = '01'
+_TRADE_ITEM_LENGTH = 14
+
+# The shortest an Application Identifier can be. GS1 assigns AIs of two to four
+# digits, so two is the least any element string following a fixed-length field
+# can present — which is exactly what `decode_trade_item_number` needs to tell
+# `01<gtin>17260101` (a GTIN and an expiry date) from `01<gtin>1 RES 10K` (free
+# text with a lucky sixteen-character prefix). Named rather than inlined because
+# it is a fact about the standard, not about the slice that uses it.
+_MIN_AI_LENGTH = 2
 
 # No element string may open with this prefix. FR12d: ownership / return
 # information is human-readable label text, never an encoded element string, and
@@ -570,3 +613,173 @@ def decode(raw: Any, *, ai: str, token: str,
         return None
 
     return InternalPayload(internal_id=internal_id, ai=ai, token=token, raw=raw)
+
+
+def decode_trade_item_number(raw: Any) -> Optional[str]:
+    """
+    Read the trade item number out of a payload opening with AI 01, or None.
+
+    This is FR36 rule 3's whole implementation: a manufacturer's GS1-128 or GS1
+    DataMatrix encodes a GTIN as the element string `01` + 14 digits, which is
+    the most common way a number arrives on a box, and the scan classifier
+    needs those 14 digits so it can route the scan as the GTIN it carries
+    rather than as a text search. Recognition lives here rather than in
+    `app/utils/scan_router.py` for the reason rule 1 is delegated here too
+    (AD-16): element-string grammar has exactly one owner, and a classifier
+    that re-derived field arithmetic would be the second copy.
+
+    **The digits are returned UNJUDGED.** They are not padded, not
+    length-checked against the accepted GTIN forms, not check-digit verified
+    and not tested for the all-zero wedge no-read — this function answers "an
+    element string carrying AI 01 was here, and this is its data field",
+    nothing more. `app/utils/gtin.py` is the only thing entitled to say whether
+    those digits are a GTIN, and the caller hands them to `normalize_gtin` for
+    exactly that. So `decode_trade_item_number('0109506000134353')` returns a
+    number with a broken check digit, cheerfully, and the classifier then
+    refuses it in the same arm that refuses a bare bad GTIN.
+
+    **Only a payload *opening* with AI 01 is read.** AI 01 is predefined-length
+    (`n2+n14`), so nothing delimits its field: on a real label the next element
+    string abuts it directly. That is what makes the tail rule the recognition
+    rule — after the 14 digits there must be nothing, or the opening of another
+    Application Identifier, which per the General Specifications is two to four
+    ASCII digits. Exactly one FNC1 may stand between the two, and it is a
+    separator and not an exemption: what follows it is judged by the same test,
+    so `'01<gtin>\\x1d10LOT42'` is read and `'01<gtin>\\x1dRES 10K'` is not. A
+    *second* separator is not tolerated — `'01<gtin>\\x1d\\x1d10LOT42'` is
+    refused — because a doubled GS encloses an empty element string, which the
+    General Specifications do not permit; the strictness is deliberate and
+    pinned, and it is not symmetric with the leading side, where `str.strip()`
+    absorbs any number of separators before the AI. Two
+    digits is the shortest prefix any following element string can present, and
+    `_MIN_AI_LENGTH` is what the tail is held to: one digit followed by
+    anything else (`'…13435217'` is an AI, `'…1343521 RES 10K'` is not) is a
+    string that merely *resembles* an element string.
+
+    **Be precise about what that test can and cannot do.** It rejects a tail
+    carrying a letter, a space or any other non-digit in its first two
+    characters, which is what keeps free text that happens to open with sixteen
+    useful-looking characters a text search. It CANNOT look past those two
+    characters, and nothing here could: `'01' + <14 digits> + '17260101'` is a
+    perfectly ordinary GTIN-plus-expiry-date label, `'01' + <14 digits> +
+    '10LOT42'` is one too, and a longer number that is not an element string at
+    all is character-for-character identical to the first. Telling them apart
+    needs an AI table with every field length in it — the general GS1 parser
+    this module deliberately is not — so the residual is accepted rather than
+    papered over, and stated at its true width: **any** scan opening `01`, whose
+    next 14 characters pass the mod-10 check, and whose following two characters
+    — after one optional FNC1 — are ASCII digits, is read as a trade item
+    number, whatever follows those two. `'01' + <valid gtin> + '789'`,
+    `'01' + <valid gtin> + '17ABC'` and `'01' + <valid gtin> + '\\x1d17 RES 10K'`
+    are all read. The positions are stated relative to the element string and
+    not as absolute offsets into `raw` on purpose: the padding and the leading
+    FNC1 this function tolerates (below) shift every absolute position, so
+    "the seventeenth character of the scan" would be wrong for exactly the
+    transmission shapes this function exists to accept.
+
+    That residual is not free. If the extracted digits happen to match a
+    catalog GTIN — and digits 3-16 of such a scan are a valid GTIN by
+    construction — the scan resolves to that product rather than falling
+    through to a free-text search, so the cost is a wrong answer and not merely
+    a wasted lookup. It is accepted anyway because the alternative is either an
+    AI table (out of scope, and a decision rather than an increment) or
+    refusing the legal `01`+`17`+`10` chains that this rule exists to read.
+
+    The reverse is deliberately not supported either: an AI-01 element string
+    appearing *after* another one (`'\\x1d10LOT42\\x1d0109506000134352'`) is not
+    read, because finding it would require knowing where AI 10's
+    variable-length field ends — the same missing table.
+
+    Transmission tolerance mirrors `decode` exactly — `raw.strip()`, then one
+    optional leading FNC1 — because both functions recognize element strings
+    arriving from the same symbologies through the same keyboard wedge (FR37a).
+    An AIM symbology identifier is *not* stripped, for the same reason `decode`
+    does not strip one: per FR37 that is the classifier's job and it has
+    already run by the time this is called.
+
+    Args:
+        raw: The scanned/received string. Any object is accepted.
+
+    Returns:
+        The 14 digits verbatim, exactly as they appeared after the AI, or None
+        if `raw` does not open with an AI-01 element string.
+
+    Raises:
+        Nothing, ever, for any `raw` whatsoever — a non-`str` included (NFR8).
+        Unlike `decode` there is no grammar to be misconfigured: AI 01 is
+        assigned by GS1, not by this deployment, so this function takes no
+        `ai`/`token`/`fnc1_substitute` argument and has no configuration fault
+        to report.
+
+    Examples:
+        >>> decode_trade_item_number('0109506000134352')
+        '09506000134352'
+        >>> decode_trade_item_number('\\x1d0109506000134352\\x1d10LOT42')
+        '09506000134352'
+        >>> decode_trade_item_number('9506000134352') is None
+        True
+    """
+    if not isinstance(raw, str):
+        return None
+
+    # Identical to `decode`'s preamble, deliberately: `str.strip()` already
+    # removes leading/trailing GS characters (Python counts 0x1C-0x1F as
+    # whitespace), so the FNC1 removal below is redundant-but-explicit — it
+    # documents that an element string may arrive FNC1-framed rather than doing
+    # work. `decode`'s substitute arm has no counterpart here: no config key
+    # for a substitute exists, and re-deriving one would be the second copy of
+    # a rule that is tied to the internal marker. If a substitute is ever
+    # configured, both recognizers gain it together.
+    candidate = raw.strip()
+    if candidate.startswith(FNC1):
+        candidate = candidate[len(FNC1):]
+
+    if not candidate.startswith(_TRADE_ITEM_AI):
+        return None
+
+    start = len(_TRADE_ITEM_AI)
+    end = start + _TRADE_ITEM_LENGTH
+    digits = candidate[start:end]
+    # The length test is what the slice cannot do: a short string slices short
+    # rather than failing. `isdigit()` alone would accept Arabic-Indic and
+    # other Unicode digit characters, which would build a key that cannot be
+    # compared or stored as plain digits — the same reason `gtin.normalize_gtin`
+    # demands ASCII.
+    if (len(digits) != _TRADE_ITEM_LENGTH
+            or not digits.isascii() or not digits.isdigit()):
+        return None
+
+    tail = candidate[end:]
+    if tail:
+        # See the docstring: a fixed-length field is followed by a separator,
+        # by another element string, or by nothing. A separator is not an
+        # exemption — what follows *it* is another element string in its turn,
+        # so the opener test applies on both sides of it. Testing only the
+        # abutted side would have made a GS a licence for anything at all
+        # (`'01<gtin>\x1dRES 10K 0805'` would be read as a trade item number).
+        #
+        # `_MIN_AI_LENGTH` characters rather than one is what makes the test
+        # worth making — every AI is at least two digits, so a single digit
+        # followed by a letter or a space is free text with a lucky prefix,
+        # and testing only the first character would have admitted it.
+        #
+        # Exactly one FNC1 is consumed, so a doubled separator leaves a FNC1 as
+        # the opener and is refused: a doubled GS encloses an empty element
+        # string, which the grammar does not permit.
+        rest = tail[len(FNC1):] if tail.startswith(FNC1) else tail
+        opener = rest[:_MIN_AI_LENGTH]
+        # `rest` can only be empty when `tail` is exactly one FNC1, which
+        # `raw.strip()` above has already made impossible (Python counts
+        # 0x1C-0x1F as whitespace, so a trailing separator never survives to be
+        # seen here). The `rest and` guard is therefore redundant-but-explicit,
+        # exactly as the leading-FNC1 removal is: it states that an element
+        # string may end at a separator rather than doing work. Tests that pin
+        # `'01' + <14 digits> + FNC1` reach this function with an EMPTY tail and
+        # exercise `strip()`, not this branch; the branch that reads a
+        # separated tail is pinned by the `'\x1d10LOT42'` / `'\x1dRES 10K'`
+        # pair, which is where the real behavior lives.
+        if rest and (len(opener) != _MIN_AI_LENGTH
+                     or not opener.isascii() or not opener.isdigit()):
+            return None
+
+    return digits

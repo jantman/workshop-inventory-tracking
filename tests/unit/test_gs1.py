@@ -12,6 +12,7 @@ the data field's length and the barred 43xx AI series.
 
 import copy
 import dataclasses
+import inspect
 import pickle
 
 import pytest
@@ -22,6 +23,7 @@ from app.utils.gs1 import (
     InternalPayload,
     InvalidGs1PayloadError,
     decode,
+    decode_trade_item_number,
     encode,
 )
 
@@ -29,6 +31,13 @@ from app.utils.gs1 import (
 AI = '96'
 TOKEN = 'WIT'
 ID = 'ABC1234567'
+
+# The other element string this module recognizes (DW-70): GS1's AI 01, whose
+# predefined-length field is a 14-digit trade item number. `TRADE_ITEM` is the
+# canonical form of the EAN-13 `9506000134352` the rest of the repo uses as its
+# GTIN vector, and `EL` is the element string a manufacturer encodes it as.
+TRADE_ITEM = '09506000134352'
+EL = '01' + TRADE_ITEM
 
 
 class TestEncode:
@@ -470,6 +479,255 @@ class TestForeignPayloadRejection:
         payload = decode('96WITTY42', ai=AI, token=TOKEN)
         assert payload is not None
         assert payload.internal_id == 'TY42'
+
+
+class TestDecodeTradeItemNumber:
+    """
+    The second element string this module recognizes (DW-70, FR36 rule 3).
+
+    AI 01 is how a manufacturer encodes a GTIN on a box, and the scan
+    classifier needs the 14 digits out of it so the scan routes as the GTIN it
+    carries. Recognition lives here rather than in `scan_router.py` because
+    element-string grammar has exactly one owner (AD-16).
+
+    Two things this class exists to pin above all others. First, the function
+    does not *judge*: it returns the digits verbatim and unvalidated, because
+    `app/utils/gtin.py` alone decides whether digits are a GTIN. Second, only a
+    payload *opening* with AI 01 is read — AI 01 is predefined-length
+    (`n2+n14`) so nothing delimits its field, and the tail rule (a digit, a
+    FNC1, or nothing) is what separates a real element-string chain from free
+    text that happens to start with sixteen useful-looking characters.
+    """
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL,                            # bare — what the deployed Tera HW0009 emits (FR37a)
+        FNC1 + EL,                     # FNC1 transmitted as GS
+        ' ' + EL + ' ',                # a wedge that pads
+        EL + '\r\n',                   # ...and the trailing CR/LF a keyboard wedge appends
+        EL + '17260101',               # an abutted AI 17 expiry date — no separator exists
+        EL + '10LOT42',                # ...or an abutted AI 10 batch/lot
+        EL + FNC1 + '10LOT42',         # a GS-separated variable-length field after it
+        EL + FNC1,                     # a trailing separator — absorbed by strip(), never seen as a tail
+        FNC1 + EL + FNC1 + '10LOT42',  # the realistic full GS1-128 transmission
+    ])
+    def test_every_transmission_shape_yields_the_trade_item_number(self, raw):
+        assert decode_trade_item_number(raw) == TRADE_ITEM
+
+    @pytest.mark.unit
+    def test_the_digits_are_returned_verbatim(self):
+        """Not re-padded, not re-derived: exactly the 14 characters that
+        followed the AI, leading zero and all."""
+        assert decode_trade_item_number(EL) == EL[2:]
+        assert len(decode_trade_item_number(EL)) == 14
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, expected', [
+        ('0109506000134353', '09506000134353'),   # a broken mod-10 check digit
+        ('0100000000000000', '00000000000000'),   # the wedge no-read (DW-69)
+        ('0100000000012348', '00000000012348'),   # a GTIN-8's value, zero-padded into the field
+        ('0100012345678905', '00012345678905'),   # ...and a UPC-A's
+    ])
+    def test_the_number_is_returned_unjudged(self, raw, expected):
+        """The function answers "an AI-01 element string was here, and this is
+        its field" and nothing else. Validity is `app/utils/gtin.py`'s alone
+        (AD-16), so a broken check digit and the all-zero no-read both come
+        back cheerfully — the classifier then refuses them in the same arm that
+        refuses the bare numbers."""
+        assert decode_trade_item_number(raw) == expected
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL + 'ABC',                    # a letter cannot open an AI
+        EL + ' RES 10K',               # ...nor a space: this is free text with a lucky prefix
+        EL + '\x1e10LOT42',            # RS is not the separator GS1 uses between fields
+        EL + '-17260101',              # punctuation
+        EL + ']d1',                    # an AIM prefix in the wrong place
+        EL + '1 RES 10K 0805',         # one digit then text — the case tail[0] alone admitted
+        EL + '5X',                     # ...and its shortest form
+        EL + '1',                      # a single trailing digit: no AI is one character
+        EL + FNC1 + 'RES 10K 0805',    # a GS is a separator, not a licence for anything
+        EL + FNC1 + '1 RES 10K',       # ...so the two-digit test applies past it too
+        EL + FNC1 + ']d1[)>',          # ...including to a second symbology's worth of junk
+        EL + FNC1 + FNC1 + '10LOT42',  # a doubled GS encloses an empty element string
+        EL + FNC1 + ' 10LOT42',        # ...and a separator does not license padding either
+    ])
+    def test_a_tail_that_is_not_another_element_string_is_not_a_match(self, raw):
+        """AI 01 is predefined-length, so what follows the 14 digits is either
+        another AI, a FNC1, or the end of the scan — and an AI is two to four
+        digits, so the tail is judged on its first TWO characters. Judging only
+        the first would make `'0109506000134352' + '1 RES 10K 0805'` a GTIN
+        scan, which is the free text this rule exists to keep out.
+
+        A FNC1 does not exempt what follows it. It separates one element string
+        from the next, so the next one is still an element string and is held
+        to the same test — exempting it would have made a single transmitted GS
+        enough to admit any free text at all behind a lucky prefix.
+
+        Exactly one FNC1 is consumed, so a doubled separator leaves a FNC1 as
+        the opener and is refused. That is deliberate — a doubled GS encloses
+        an empty element string, which the grammar does not permit — and it is
+        asymmetric with the leading side, where `str.strip()` absorbs any
+        number of separators before the AI. The asymmetry is pinned here and
+        in `test_the_leading_side_absorbs_separators_the_tail_does_not` rather
+        than left to be rediscovered."""
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    def test_the_leading_side_absorbs_separators_the_tail_does_not(self):
+        """The two sides of the element string do not tolerate the same thing,
+        and the difference is `str.strip()` rather than a decision: it eats any
+        run of leading separators (Python counts 0x1C-0x1F as whitespace),
+        while the tail slice consumes exactly one. Stated as a test because
+        neither side's behavior is obvious from the other's."""
+        assert decode_trade_item_number(FNC1 * 3 + EL) == TRADE_ITEM
+        assert decode_trade_item_number(EL + FNC1 * 2 + '10LOT42') is None
+        # And a doubled separator with nothing after it is read, because
+        # `strip()` removes the whole trailing run before any tail is seen.
+        assert decode_trade_item_number(EL + FNC1 * 2) == TRADE_ITEM
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL + '789',                    # a 19-digit run: indistinguishable from AI 78 + data
+        EL + '17260101' + '2',         # ...and a legal chain with one digit too many
+        EL + '17ABC',                  # two digits then anything: the test cannot look past them
+        EL + FNC1 + '17 RES 10K',      # ...and that is just as true past a separator
+    ])
+    def test_a_tail_opening_with_two_digits_is_read_and_that_is_accepted(self, raw):
+        """The residual the two-digit test cannot close, pinned so it is a
+        stated property rather than a surprise, and pinned at its true width:
+        the test reads exactly two characters, so *anything* may follow them.
+
+        A pure digit run is character-for-character identical to a legal
+        element-string chain, and telling them apart needs an AI table this
+        module deliberately has no part of. Note what the cost of that is: the
+        digits handed back are a valid GTIN by construction, so if the catalog
+        holds it the scan resolves to that product rather than falling through
+        to a free-text search. A wrong answer, not a wasted lookup — accepted
+        because the alternative is refusing the legal `01`+`17`+`10` chains
+        this rule exists to read."""
+        assert decode_trade_item_number(raw) == TRADE_ITEM
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '010950600013435',             # 13 digits — one short
+        '01950600013435',              # 12 digits
+        '01',                          # the AI alone
+        '019',                         # the AI and one digit
+        '01' + '0' * 14 + 'X',         # 14 digits then a non-digit, non-GS tail
+        '01' + '0' * 13 + 'X' + '0',   # a non-digit *inside* the fixed-length field
+    ])
+    def test_the_field_must_be_exactly_fourteen_digits(self, raw):
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '01' + '٩٥٠٦٠٠٠١٣٤٣٥٢',        # Arabic-Indic digits: str.isdigit() accepts them
+        '01' + '０１２３４５６７８９０１２３',   # full-width digits, likewise
+        '01' + '١' * 14,               # a whole field of them
+    ])
+    def test_non_ascii_digits_are_not_a_trade_item_number(self, raw):
+        """`str.isdigit()` alone would build a key that cannot be compared or
+        stored as plain digits — the same reason `gtin.normalize_gtin` demands
+        ASCII."""
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        FNC1 + '00123456789012345675',  # AI 00, SSCC
+        FNC1 + '21SN0001',              # AI 21, serial number
+        FNC1 + '17260101',              # AI 17, expiry date
+        FNC1 + '10LOT42',               # AI 10, batch/lot
+        '0209506000134352',             # AI 02, a trade item number of a *contained* item
+        AI + TOKEN + ID,                # this module's own internal element string
+    ])
+    def test_any_other_ai_is_not_read(self, raw):
+        """There is no AI table here and there is not meant to be one: exactly
+        one foreign AI is recognized, and widening that is a decision."""
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        FNC1 + '10LOT42' + FNC1 + EL,   # ours second, after a variable-length field
+        '17260101' + EL,                # ...abutted after a fixed-length one
+        FNC1 + '21SN0001' + FNC1 + EL,  # ...after a serial number
+    ])
+    def test_ai_01_after_another_element_string_is_not_read(self, raw):
+        """Only a payload *opening* with AI 01 is read. Finding one further in
+        would mean knowing where a variable-length field ends, which is the
+        general GS1 parser this module deliberately is not."""
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        ']d1' + EL,                    # DataMatrix
+        ']d2' + EL,                    # DataMatrix, FNC1 in first position
+        ']C1' + EL,                    # GS1-128
+    ])
+    def test_an_aim_prefix_is_not_stripped_here(self, raw):
+        """Exactly as `decode` refuses one: per FR37 the prefix narrows the
+        symbology class and stripping it is the classifier's job, which has
+        already run by the time this is called."""
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        None,                          # absent
+        123,                           # an int
+        b'0109506000134352',           # bytes — the transport decodes, we do not
+        12.0,                          # a float
+        ['0109506000134352'],          # a list
+        object(),                      # anything else
+    ])
+    def test_a_non_str_returns_none_and_never_raises(self, raw):
+        """NFR8 goes further here than in `decode`: there is no grammar to be
+        misconfigured, so this function has no reachable exception at all."""
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '',                            # empty
+        '   ',                         # whitespace only
+        FNC1 * 50,                     # a storm of separators
+        '\x00' * 100,                  # a NUL run
+        ''.join(chr(i) for i in range(32)),  # every C0 control character
+        '\x01\x1f' * 2048,             # 4096 characters of control characters
+        '0' * 4096,                    # ...and of digits, which open like an AI
+        '\U0001f600' * 100,            # astral-plane characters
+        '\ud83d',                      # a lone surrogate, as Python allows in a str
+    ])
+    def test_hostile_scan_data_returns_none_and_never_raises(self, raw):
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.unit
+    def test_it_takes_no_grammar_arguments(self):
+        """AI 01 is assigned by GS1, not by this deployment, so unlike `decode`
+        this function reads no configuration and has no `ai`/`token`/
+        `fnc1_substitute` knob to be handed a bad value for.
+
+        Asserted on the signature rather than only on the `TypeError`: the
+        raise proves nothing about this design, since any callable lacking
+        those keywords produces it. The parameter list is the claim.
+        """
+        assert (list(inspect.signature(decode_trade_item_number).parameters)
+                == ['raw'])
+        with pytest.raises(TypeError):
+            decode_trade_item_number(EL, ai=AI, token=TOKEN)
+
+    @pytest.mark.unit
+    def test_the_two_recognizers_disagree_about_the_same_string_on_purpose(self):
+        """The boundary DW-70 had to preserve. `decode` says "not ours" for an
+        AI-01 element string — Story 2.4/2.5 froze that, and
+        `TestForeignPayloadRejection` pins it — while
+        `decode_trade_item_number` says "a trade item number, here it is".
+        Both answers are correct, and a sibling function is what keeps them
+        machine-checked instead of overloading one return type."""
+        assert decode(EL, ai=AI, token=TOKEN) is None
+        assert decode_trade_item_number(EL) == TRADE_ITEM
+        # ...and the mirror image, so neither recognizer has quietly widened.
+        internal = AI + TOKEN + ID
+        assert decode(internal, ai=AI, token=TOKEN).internal_id == ID
+        assert decode_trade_item_number(internal) is None
 
 
 class TestDataFieldLengthBound:

@@ -370,14 +370,19 @@ The system accepts scanner input as keyboard-wedge keystrokes, requiring no scan
 - A scan terminated by Enter is captured on any page with the scan field focused.
 
 #### FR36: Structural routing precedence
-The system routes scanned input by inspecting structure, in order: (1) GS1 element string with AI 96 + configured token → direct Internal-Identifier lookup; (2) ISO/IEC 15434 format-06 envelope header `[)>`RS`06` → ECIA parse; (3) an all-digit value of length 8 or 12–14 passing GTIN check-digit validation → GTIN lookup after normalization; (4) anything else → free-text search across identifiers, descriptions, MPNs. A rule-3 value that passes the check digit but matches no Product GTIN falls through to free-text search within the same scan rather than dead-ending. Realizes UJ-3, UJ-4.
+The system routes scanned input by inspecting structure, in order: (1) GS1 element string with AI 96 + configured token → direct Internal-Identifier lookup; (2) ISO/IEC 15434 format-06 envelope header `[)>`RS`06` → ECIA parse; (3) a GS1 element string opening with AI 01 → the 14-digit trade item number it carries becomes the value rule 4 judges; (4) an all-digit value of length 8 or 12–14 passing GTIN check-digit validation → GTIN lookup after normalization; (5) anything else → free-text search across identifiers, descriptions, MPNs. A rule-4 value that passes the check digit but matches no Product GTIN falls through to free-text search within the same scan rather than dead-ending. Realizes UJ-3, UJ-4.
+
+*Amended 2026-07-28 (DW-70).* Rule 3 was added between the envelope rule and the bare-GTIN rule; the original rules 3 and 4 became 4 and 5 unchanged. AI 01 is how a manufacturer encodes a GTIN in a GS1-128 or GS1 DataMatrix, and under the original four rules every form of it fell to free-text search — spec-conformant, and against this requirement's stated purpose. Rule 3 is a substitution rather than a new classification: it produces no new scan kind, and the extracted number is validated and normalized by rule 4, so an AI-01 scan and a bare scan of the same number are indistinguishable downstream.
+
 **Consequences (testable):**
-- Each of the four input classes routes to its stated handler; a value matching none falls to free-text search.
+- Each of the five rules routes its input to that rule's stated handler; a value matching none falls to free-text search. Note the count of rules exceeds the count of handlers: rule 3 substitutes a value and hands it to rule 4 rather than owning a handler of its own, so five rules produce four classifications.
 - A GTIN-8 (8-digit, valid check digit) is normalized and looked up, not dropped to free-text.
 - A 13-digit number with a valid check digit but no GTIN match still returns free-text results, not an error.
+- A GS1 element string carrying AI 01 resolves as the GTIN it carries in all three transmission shapes — bare, FNC1-prefixed, and behind an AIM symbology identifier — and with further element strings appended after it.
+- An AI-01 element string whose trade item number fails GTIN validation (bad check digit, all zeros) falls through to free-text search, exactly as the bare number would.
 
 #### FR37: AIM symbology identifiers narrow, not decide
-If the scanner emits AIM symbology identifiers, the system uses them to narrow the symbology class; the AI/token structural inspection of FR36 (rules 1 vs 3) still selects the handler, because `]d1` denotes *any* GS1 DataMatrix (an internal AI-96 symbol and a manufacturer's AI-01 GTIN symbol alike). Routing falls back to pure structural inspection when the identifier is absent. (`]d2` is not what this system emits.)
+If the scanner emits AIM symbology identifiers, the system uses them to narrow the symbology class; the AI/token structural inspection of FR36 (internal rule 1 vs the AI-01 rule 3) still selects the handler, because `]d1` denotes *any* GS1 DataMatrix (an internal AI-96 symbol and a manufacturer's AI-01 GTIN symbol alike). Routing falls back to pure structural inspection when the identifier is absent. (`]d2` is not what this system emits.)
 **Consequences (testable):**
 - A `]d1`-prefixed scan is confirmed a GS1 DataMatrix, then routed by its AI/token (internal vs GTIN); routing is unchanged when the prefix is absent.
 

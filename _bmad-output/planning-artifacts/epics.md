@@ -70,7 +70,7 @@ This document provides the complete epic and story breakdown for the Product Cat
 
 **Scanning & Scan Routing (CAP-4)**
 - FR35: Keyboard-wedge scanner input, no scanner-specific driver.
-- FR36: Structural routing precedence: (1) AI-96+token → internal; (2) ISO/IEC 15434 format-06 → ECIA; (3) 8 or 12–14 digits w/ valid check digit → GTIN (fall through to free-text on no match); (4) else → free-text.
+- FR36: Structural routing precedence: (1) AI-96+token → internal; (2) ISO/IEC 15434 format-06 → ECIA; (3) an element string opening with AI 01 → the trade item number it carries becomes the value rule 4 judges (amended 2026-07-28, DW-70); (4) 8 or 12–14 digits w/ valid check digit → GTIN (fall through to free-text on no match); (5) else → free-text.
 - FR37: AIM symbology identifiers narrow the symbology class only; structural inspection selects the handler (AIM not emitted by the deployed scanner — optional path).
 - FR37a: FNC1 transmission tolerance (GS 0x1D / substitute / stripped); deployed scanner strips FNC1 → recognize by `96WIT` prefix.
 - FR38: Parse ECIA MH10.8.2 (format-06) barcodes; extract `P`, `1P`, `Q`, `K`, `1K`, `9D`/`10D`.
@@ -452,8 +452,9 @@ So that each kind of barcode is understood correctly and deterministically.
 
 **Given** the pure `app/utils/scan_router.py` classifier (no DB — AD-4/AD-5) returning a frozen `ScanClassification`
 **When** it receives input
-**Then** it applies FR36 precedence: (1) a `96WIT`-prefixed payload → `internal` (delegating recognition to `gs1.decode()`, tolerating stripped FNC1 — AD-16, FR37a); (2) an ISO/IEC 15434 format-06 envelope → `ecia`; (3) an all-digit value of length 8 or 12–14 with a valid GTIN check digit → `gtin` (normalized); (4) anything else → `free_text`
+**Then** it applies FR36 precedence: (1) a `96WIT`-prefixed payload → `internal` (delegating recognition to `gs1.decode()`, tolerating stripped FNC1 — AD-16, FR37a); (2) an ISO/IEC 15434 format-06 envelope → `ecia`; (3) a payload opening with AI 01 → its 14-digit trade item number becomes the value rule 4 judges (delegating recognition to `gs1.decode_trade_item_number()` — AD-16); (4) an all-digit value of length 8 or 12–14 with a valid GTIN check digit → `gtin` (normalized); (5) anything else → `free_text`
 **And** an AIM `]d1` prefix, if ever present, only narrows the symbology class; the AI/token still selects the handler (FR37)
+**And** (amended 2026-07-28, DW-70) rules 3 and 4 share one `gtin.normalize_gtin` call, so an AI-01 scan produces the same `ScanClassification` as a bare scan of the number it carries, `raw` aside — and an AI-01 payload whose number fails validation falls to `free_text` with no code of its own
 
 ### Story 4.3: Service scan resolution
 

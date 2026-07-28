@@ -3263,7 +3263,8 @@ class CatalogService:
                                   free_text_hits=hits)
 
         else:
-            # ScanKind.FREE_TEXT, rule 4 — the fallthrough that always matches,
+            # ScanKind.FREE_TEXT, the last FR36 rule — the fallthrough that
+            # always matches (rule 4 before DW-70, rule 5 after it),
             # so there is nothing to look up and the search always runs.
             product = None
 

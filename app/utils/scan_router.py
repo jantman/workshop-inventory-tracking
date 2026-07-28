@@ -12,26 +12,37 @@ application context and no database.
 
 The precedence (FR36)
 ---------------------
-Exactly four rules, tried in this order, first match wins, and rule 4 always
+Exactly five rules, tried in this order, first match wins, and rule 5 always
 matches — so every scan is classified and none dead-ends:
 
 1. An internal element string under the configured grammar -> `INTERNAL`.
 2. An ISO/IEC 15434 format-06 envelope carrying at least
    one recognized data identifier                        -> `ECIA`.
-3. A bare, check-digit-valid trade item number           -> `GTIN`.
-4. Anything else                                         -> `FREE_TEXT`.
+3. A GS1 element string opening with AI 01 -> its trade item number becomes
+   the value rule 4 judges.
+4. A check-digit-valid trade item number                 -> `GTIN`.
+5. Anything else                                         -> `FREE_TEXT`.
 
-The order is not arbitrary. Rules 1 and 3 overlap by construction: an internal
+The order is not arbitrary. Rules 1 and 4 overlap by construction: an internal
 payload whose configured token happens to be numeric can also be a
 check-digit-valid all-digit string, so an ordering is required and "ours wins"
 is the only safe one — a label this shop printed must never resolve to somebody
-else's trade item. Rule 2 precedes rule 3 only because an envelope is never
+else's trade item. Rule 2 precedes the rest only because an envelope is never
 all-digits; the ordering there is documentation, not arbitration.
+
+Rule 3 is the odd one: it is not a classification at all but a *substitution*,
+which is why it has no `ScanKind` of its own. A manufacturer's GS1-128 or GS1
+DataMatrix carries a GTIN as the element string `01` + 14 digits, and once
+those digits are extracted the scan simply *is* a GTIN scan — so rule 3 hands
+them to rule 4 and every question of GTIN validity is answered exactly once, by
+the arm a bare GTIN already went through. It cannot steal a bare GTIN from rule
+4 either: an AI-01 match needs at least 16 characters and every length rule 4
+accepts is 8, 12, 13 or 14, so the two candidate sets are disjoint.
 
 Rule 2 is the one rule that can recognize its own shape and still decline. A
 valid format-06 header wrapping nothing this system can read — an empty
 message, or records in no identifier grammar — does NOT classify `ECIA`: it
-falls through to rules 3 and 4 and lands on `FREE_TEXT` carrying the raw scan
+falls through to rules 3-5 and lands on `FREE_TEXT` carrying the raw scan
 (AD-5, NFR8). `ECIA` exists so a consumer can pre-fill a form from named
 fields, and answering it with no fields would put the operator on a screen that
 says "distributor label" about a scan nothing could be read from, while
@@ -45,22 +56,27 @@ What this module deliberately does not do
 - **No lookup.** No database, no `CatalogService`, no fallthrough-to-search.
   `resolve_scan()` and `search_products()` belong to Story 4.3 (AD-4/AD-5), and
   a classifier that could touch a session would not be callable from Epic 7.
-- **No internal-payload matching of its own (AD-16).** Rule 1 is delegated
-  whole to `gs1.decode()`. This module never pattern-matches the Application
-  Identifier or the token, holds no literal default for either, and never
-  re-derives the grammar. The pair arrives as keyword arguments from the one
-  named config pair the service reads, exactly as
+- **No element-string matching of its own (AD-16).** Rules 1 and 3 are
+  delegated whole to `app/utils/gs1.py`, which owns GS1 element-string grammar
+  — `gs1.decode()` for the internal one, `gs1.decode_trade_item_number()` for
+  AI 01. This module never pattern-matches an Application Identifier, holds no
+  AI literal and no literal default for the internal grammar, and does no
+  element-string field arithmetic. The internal pair arrives as keyword
+  arguments from the one named config pair the service reads, exactly as
   `mariadb_catalog_service.encode_internal_payload` already passes them into
   `gs1.encode` — so one config change moves the encoder and this router
-  together, with no code edit.
-- **No check-digit or 14-digit arithmetic (AD-16 again).** Rule 3 makes exactly
-  one call, `gtin.normalize_gtin`, and reads its refusal as "not a GTIN". Every
-  question of GTIN validity stays in `app/utils/gtin.py` — the accepted
-  lengths, the mod-10 weights, the canonical key length, and the refusal of an
-  all-zero run (the wedge no-read), which reaches rule 3 as an ordinary
-  `InvalidGtinError` and falls through to `free_text` with no code here. A
-  local zero-run test would be the second copy of GTIN validity this bullet
-  exists to prevent.
+  together, with no code edit. AI 01 takes no argument at all, because GS1
+  assigns it and this deployment does not.
+- **No check-digit or 14-digit arithmetic (AD-16 again).** Rules 3 and 4 share
+  **one** arm, which makes exactly one call, `gtin.normalize_gtin`, and reads
+  its refusal as "not a GTIN". Every question of GTIN validity stays in
+  `app/utils/gtin.py` — the accepted lengths, the mod-10 weights, the canonical
+  key length, and the refusal of an all-zero run (the wedge no-read), which
+  reaches the arm as an ordinary `InvalidGtinError` and falls through to
+  `free_text` with no code here. A local zero-run test would be the second copy
+  of GTIN validity this bullet exists to prevent. Sharing one arm is what makes
+  "an AI-01 scan resolves exactly as the bare number would" a structural fact
+  rather than two implementations that currently agree.
 - **No format-06 grammar of its own (AD-16 again).** Rule 2 is delegated whole
   to `app/utils/ecia.py`, which owns the message header, envelope recognition
   and the MH10.8.2 identifier grammar. This module never re-derives the header
@@ -75,27 +91,36 @@ What this module deliberately does not do
   because a bare `str.strip()` would eat the RS that terminates an envelope).
   Re-cleaning here would be a third copy of that rule rather than a shared one.
 
-  Be precise about what that does *not* say. Rule 1 is delegated to
-  `gs1.decode`, which begins with `raw.strip()` as its FNC1/CR-LF transmission
-  tolerance, so a padded internal payload still classifies as `INTERNAL` while
-  a padded GTIN or envelope does not. The two policies are asymmetric on
-  purpose — the tolerance belongs to the grammar that needs it, and inventing a
-  matching tolerance here would be the third copy of the trim rule — but the
-  asymmetry is real, it is pinned by tests, and it means correct routing for
-  rules 2-4 depends on the caller having cleaned the input. It also means a
-  leading space defeats the AIM strip below.
+  Be precise about what that does *not* say. Rules 1 and 3 are delegated to
+  `app/utils/gs1.py`, and both of its recognizers begin with `raw.strip()` as
+  their FNC1/CR-LF transmission tolerance — they read element strings arriving
+  from the same symbologies through the same wedge, so they share one
+  transmission policy. A padded internal payload therefore classifies as
+  `INTERNAL`, and since DW-70 a padded AI-01 element string classifies as
+  `GTIN`, while a padded *bare* GTIN or envelope does not. The two policies are
+  asymmetric on purpose — the tolerance belongs to the grammar that needs it,
+  and inventing a matching tolerance here would be the third copy of the trim
+  rule — but the asymmetry is real, it is pinned by tests, and it means correct
+  routing for rules 2, 4 and 5 depends on the caller having cleaned the input.
+  It also means a leading space defeats the AIM strip below. Note the line the
+  asymmetry falls on is which *module* judges the value, not which kind comes
+  out: the same `GTIN` classification tolerates padding when it arrived inside
+  an element string and refuses it when it arrived bare.
 
   And it does not stop at spaces, which is the half worth stating out loud.
-  Python's `str.strip()` also eats `\x1c`-`\x1f`, so `gs1.decode` absorbs a
-  transmitted GS/RS while `clean_scan_input` deliberately does not — that
-  cleaner exists precisely to preserve the separators an envelope is built
-  from. Net effect: a wedge that prefixes a GS routes an internal label
+  Python's `str.strip()` also eats `\x1c`-`\x1f`, so both `gs1` recognizers
+  absorb a transmitted GS/RS while `clean_scan_input` deliberately does not
+  — that cleaner exists precisely to preserve the separators an envelope is
+  built from. Net effect: a wedge that prefixes a GS routes an internal label
   correctly (`'\x1d' + internal` -> INTERNAL) and misroutes a distributor
   label (`'\x1d' + envelope` -> FREE_TEXT), because rule 2 anchors on the
-  header and judges the scan as it arrived. Neither this module nor the
-  cleaner can close that alone — absorbing separators here would re-open the
-  trim rule this module refuses to own, and stripping them in the cleaner
-  would destroy the envelope's structure — so the case is pinned by
+  header and judges the scan as it arrived. An FNC1-framed AI-01 element
+  string is on the tolerant side, being rule 3's, so a GS-framed
+  manufacturer barcode routes correctly where a GS-framed envelope does not.
+  Neither this module nor the cleaner can close that alone — absorbing
+  separators here would re-open the trim rule this module refuses to own, and
+  stripping them in the cleaner would destroy the envelope's structure — so
+  the case is pinned by
   `TestWhitespaceAsymmetryBetweenRules` and left to the story that owns the
   caller seam. It has never been observed on the deployed Tera HW0009, which
   emits no separator prefix at all.
@@ -196,7 +221,7 @@ def strip_aim_prefix(value: str) -> str:
     payload can. That makes stripping it a classification concern, and
     `app/utils/gs1.py` says so explicitly: `decode` sees a prefixed payload as
     foreign and returns None, leaving the strip to this module. Doing it once,
-    here, at the front, means all four rules see the same candidate and no rule
+    here, at the front, means all five rules see the same candidate and no rule
     has to know AIM exists.
 
     Stripped **once**: a second identifier would be data emitted by a scanner
@@ -218,7 +243,7 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
     """
     Classify one captured scan by structure (FR36, FR37).
 
-    Applies the four precedence rules described in the module docstring and
+    Applies the five precedence rules described in the module docstring and
     returns the first match. Deterministic: the result depends on nothing but
     `(raw, ai, token)` — no clock, no config read, no database, no global
     state.
@@ -236,7 +261,10 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
         A `ScanClassification`. `ecia_fields` is a non-empty mapping when
         `kind` is `ECIA` and None for every other kind — an envelope with
         nothing readable in it degrades to `FREE_TEXT` rather than to an empty
-        mapping (see the module docstring).
+        mapping (see the module docstring). A `GTIN` result carries the
+        canonical 14-digit key whether the number arrived bare or inside an
+        AI-01 element string: rules 3 and 4 share one arm, so the two forms of
+        one product are indistinguishable downstream except through `raw`.
 
     Raises:
         TypeError: if `raw` is not a `str`. A non-string is a caller fault —
@@ -262,6 +290,13 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
         no-dead-end behavior FR36 wants, but it does mean the id length limit
         is an input to classification.
 
+        Rule 3 has the mirror-image exit, and it is deliberate: an AI-01
+        element string is *recognized* by `gs1.decode_trade_item_number` but
+        *judged* by rule 4, so `'0109506000134353'` (a broken check digit) and
+        `'0100000000000000'` (the wedge no-read) are recognized, refused and
+        fall through to `FREE_TEXT` — exactly as the bare numbers inside them
+        would. There is no separate AI-01 failure path to keep in step.
+
     Examples:
         The grammar below is illustrative, not the deployed one — this module
         holds no literal default for either half (AD-16).
@@ -270,6 +305,8 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
         >>> c.kind is ScanKind.INTERNAL, c.normalized_value
         (True, 'ABC1234567')
         >>> classify('9506000134352', ai='91', token='ZZ').normalized_value
+        '09506000134352'
+        >>> classify('0109506000134352', ai='91', token='ZZ').normalized_value
         '09506000134352'
     """
     if not isinstance(raw, str):
@@ -300,13 +337,14 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
         )
 
     # Rule 2 — a distributor envelope. Delegated whole to the format-06 grammar
-    # module, exactly as rule 1 is delegated to gs1 and rule 3 to gtin: this
-    # module asks both questions and arbitrates, and re-derives neither.
+    # module, exactly as rules 1 and 3 are delegated to gs1 and rule 4 to
+    # gtin: this module asks the questions and arbitrates, and re-derives none
+    # of the grammars.
     # Nothing to normalize — an envelope's content is its fields.
     #
     # The `if fields` is the NFR8 degradation, not an optimization: a valid
     # header carrying nothing recognized falls out of this branch and lands on
-    # rule 4 with the raw scan, because an `ECIA` classification with nothing
+    # rule 5 with the raw scan, because an `ECIA` classification with nothing
     # in it is a kind whose whole purpose (pre-filling a form) has no input.
     # Neither call can raise on a `str`, so no rule below is reachable only by
     # luck.
@@ -323,7 +361,37 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
                 raw=raw,
             )
 
-    # Rule 3 — a bare manufacturer trade item number. The ASCII-digit guard is
+    # Rule 3 — a manufacturer's AI-01 element string. Delegated whole to the
+    # Epic 2 grammar module, exactly as rule 1 is: this module asks whether an
+    # element string carrying a trade item number was scanned and takes the
+    # digits, and holds no AI literal and no field arithmetic of its own
+    # (AD-16). Like `gs1.decode` it never raises and absorbs the same FNC1 and
+    # whitespace transmission variance.
+    #
+    # This is a substitution, not a classification — it produces no kind and no
+    # early return, it only changes *which value* rule 4 judges. A miss cannot
+    # lose a bare GTIN: an AI-01 match needs at least 16 characters (the
+    # two-digit AI plus its 14-digit field) and every length rule 4 accepts is
+    # 8, 12, 13 or 14, so the two candidate sets are disjoint and `candidate`
+    # is what a non-match falls back to.
+    #
+    # It widens one thing worth stating out loud, because a consumer could
+    # reasonably have assumed otherwise before DW-70: `raw` on a `GTIN`
+    # classification is NO LONGER ASCII digits by construction. Until rule 3
+    # existed, the only route to `GTIN` was the guard below, so a `GTIN`
+    # classification's `raw` was always an optional AIM prefix plus digits.
+    # A rule-3 hit now carries whatever the wedge sent — separators, a batch
+    # and serial, trailing text, a lone surrogate — while `normalized_value`
+    # stays exactly as narrow as it ever was. Read `normalized_value` for the
+    # key; treat `raw` as untrusted scan data on every kind alike. The one
+    # consumer that feeds `raw` onward is `_fallthrough_text`, whose
+    # `search_products` landing already refuses unstorable text, and
+    # `TestGtinRawIsNoLongerDigitsByConstruction` pins the widening so it
+    # cannot be re-assumed silently.
+    trade_item = gs1.decode_trade_item_number(candidate)
+    gtin_candidate = candidate if trade_item is None else trade_item
+
+    # Rule 4 — a trade item number, however it arrived. The ASCII-digit guard is
     # load-bearing rather than a restatement of what `normalize_gtin` checks:
     # `normalize_gtin` deliberately tolerates surrounding whitespace, and
     # Python counts GS/RS (\x1c-\x1f) as whitespace, so without this guard
@@ -331,7 +399,9 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
     # as a clean GTIN. A scan is judged as it arrived. The accepted lengths,
     # the check digit and the all-zero refusal stay behind `normalize_gtin`;
     # re-listing {8, 12, 13, 14} here — or re-testing for a zero run — would be
-    # the second copy AD-16 exists to prevent.
+    # the second copy AD-16 exists to prevent. The guard is redundant for a
+    # rule-3 hit, whose digits are ASCII by construction, and is kept as one
+    # test rather than split so there is exactly one arm to keep correct.
     #
     # Normalization is attempted inside the guard rather than after asking
     # `is_valid_gtin` first, so NFR8 holds structurally rather than by luck.
@@ -340,18 +410,22 @@ def classify(raw: Any, *, ai: str, token: str) -> ScanClassification:
     # detail of gtin.py, and any future divergence between the predicate and
     # the normalizer would let `InvalidGtinError` escape a function contracted
     # never to raise on scan data. One call, one try, no double parse.
-    if candidate.isascii() and candidate.isdigit():
+    if gtin_candidate.isascii() and gtin_candidate.isdigit():
         try:
             return ScanClassification(
                 kind=ScanKind.GTIN,
-                normalized_value=gtin.normalize_gtin(candidate),
+                normalized_value=gtin.normalize_gtin(gtin_candidate),
                 ecia_fields=None,
                 raw=raw,
             )
         except gtin.InvalidGtinError:
-            pass  # Not a trade item number after all — fall through to rule 4.
+            # Not a trade item number after all — fall through to rule 5. One
+            # `except` for both rules, so an AI-01 payload with a broken check
+            # digit or an all-zero no-read is refused by the same code that
+            # refuses the bare number, rather than by a second copy of it.
+            pass
 
-    # Rule 4 — the fallthrough, which always matches. Not an error and not a
+    # Rule 5 — the fallthrough, which always matches. Not an error and not a
     # failure: an unrecognized scan is a search, and Story 4.5 lands it on
     # results or on a pre-filled create form.
     return ScanClassification(

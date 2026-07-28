@@ -2,9 +2,10 @@
 Unit tests for the pure scan classifier (Story 4.2, app/utils/scan_router.py).
 
 Exercises `classify()` and the frozen `ScanClassification` / `ScanKind` shapes
-against every row of the story's I/O & edge-case matrix: FR36's four-rule
-precedence, FR37's optional AIM symbology prefix, FR37a's bare deployed-wedge
-form, and NFR8's "a scan never raises".
+against every row of the story's I/O & edge-case matrix: FR36's five-rule
+precedence (four when this story shipped; DW-70 added the AI-01 rule third),
+FR37's optional AIM symbology prefix, FR37a's bare deployed-wedge form, and
+NFR8's "a scan never raises".
 
 Requires **no fixtures at all** — the same posture as tests/unit/test_gtin.py
 and tests/unit/test_gs1.py. That is not incidental tidiness: AD-4/AD-5 make the
@@ -56,6 +57,11 @@ ECIA_FULL = '[)>\x1e06\x1dP12345\x1d1PABC\x1dQ10\x1d\x1e\x04'
 # A check-digit-valid EAN-13 and its canonical 14-digit key.
 GTIN13 = '9506000134352'
 GTIN13_KEY = '09506000134352'
+
+# The same number as a manufacturer encodes it in a GS1-128 or GS1 DataMatrix:
+# the AI-01 element string, which is `01` + the 14-digit key (DW-70, FR36 rule
+# 3). Named once here because every AI-01 case below is built from it.
+EL = '01' + GTIN13_KEY
 
 
 class TestScanClassificationShape:
@@ -158,7 +164,7 @@ class TestInternalRecognition:
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
         '96XYZ' + ID,                          # AI 96 but a foreign token (FR12a)
-        '0109506000134352',                    # AI 01 GTIN-14 element string
+        EL,                                    # AI 01 element string — a GTIN since DW-70
         '\x1d21SN0001',                        # AI 21 serial number
         'B08N5WRWNW',                          # Amazon ASIN
         'JA000123',                            # this system's legacy metal-stock JA ID
@@ -294,7 +300,12 @@ class TestEciaEnvelopeRecognition:
 
 
 class TestGtinRecognition:
-    """FR36 rule 3: a bare trade item number, validated and normalized by gtin.py."""
+    """FR36 rule 4: a trade item number, validated and normalized by gtin.py.
+
+    Rule 4 judges a bare number and the digits DW-70's rule 3 lifted out of an
+    AI-01 element string through one shared arm; the AI-01 forms live in
+    `TestTradeItemElementString` below.
+    """
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw, key', [
@@ -327,7 +338,6 @@ class TestGtinRecognition:
         '00000000',                             # wedge no-read: mod-10 valid, refused by gtin.py
         '00000000000000',                       # the same no-read, already 14 wide
         '12345678901',                          # 11 digits — not an accepted length
-        '0109506000134352',                     # 16 digits — an AI-01 element string, not a GTIN
         '1234567',                              # 7 digits
         '123456789',                            # 9 digits
         '950-6000134352',                       # separator
@@ -356,8 +366,188 @@ class TestGtinRecognition:
         assert c.raw == raw                     # the prefix survives on `raw`
 
 
+class TestTradeItemElementString:
+    """
+    FR36 rule 3 (DW-70): a manufacturer's AI-01 element string resolves as the
+    GTIN it carries.
+
+    AI 01 in a GS1-128 or a GS1 DataMatrix is the most common way a GTIN
+    reaches this shop on a box, and until DW-70 every form of it classified
+    `free_text` — spec-conformant under the original four rules, and against
+    FR36's stated purpose that any barcode in the shop resolves from one wedge
+    scan.
+
+    The rule is a substitution rather than a kind: `gs1.decode_trade_item_number`
+    lifts the 14 digits out and the *existing* GTIN arm judges them (AD-16), so
+    every assertion here is really the same assertion — an AI-01 scan produces
+    the classification the bare number inside it would have produced, `raw`
+    aside. That includes the refusals: a broken check digit and the all-zero
+    wedge no-read fall through to `free_text` with no AI-01-specific code to
+    keep in step (FR37, FR37a, NFR8).
+    """
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL,                                     # FR37a: the deployed wedge strips FNC1 entirely
+        '\x1d' + EL,                            # GS transmitted in first position
+        ']d1' + EL,                             # FR37: behind a DataMatrix AIM identifier
+        ']d2' + EL,                             # ...the FNC1-in-first-position modifier
+        ']C1' + EL,                             # ...and behind a GS1-128 one
+        ']C1\x1d' + EL,                         # both at once: what such hardware really emits
+    ])
+    def test_every_transmission_form_yields_the_same_gtin(self, raw):
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.GTIN
+        assert c.normalized_value == GTIN13_KEY
+        assert c.ecia_fields is None
+        assert c.raw == raw                     # verbatim: the prefix and the GS survive
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL + '17260101',                        # an abutted AI 17 expiry date
+        EL + '10LOT42',                         # an abutted AI 10 batch/lot
+        EL + '\x1d10LOT42',                     # ...GS-separated, as a real label chains them
+        EL + '\x1d',                            # a trailing separator — strip() eats it; no tail is seen
+        '\x1d' + EL + '\x1d10LOT42',            # the full GS1-128 transmission
+    ])
+    def test_further_element_strings_after_it_are_ignored(self, raw):
+        """AI 01 is predefined-length, so the next element string abuts it and
+        no separator is required. Nothing here parses the tail — it only has to
+        look like another element string."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.GTIN
+        assert c.normalized_value == GTIN13_KEY
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL + 'ABC',                             # a letter cannot open an AI
+        EL + ' RES 10K',                        # free text with a lucky 16-character prefix
+        EL + '\x1e10LOT42',                     # RS, not GS — the wrong separator
+        EL + '1 RES 10K 0805',                  # one digit then text: an AI is never one digit
+        EL + '5X',                              # ...and its shortest form
+        EL + '\x1dRES 10K 0805',                # a GS separates element strings; it exempts nothing
+        EL + '\x1d1 RES 10K',                   # ...so one digit past a GS is still not an AI
+    ])
+    def test_a_tail_that_is_not_an_element_string_is_free_text(self, raw):
+        """The tail rule is the recognition rule: after a fixed-length field
+        comes another element string — optionally behind a GS — or the end of
+        the scan, and an element string opens with two to four digits. Note a
+        *trailing* RS is a different case: `str.strip()` absorbs it, so it
+        lands on the padded row below rather than here.
+
+        The one-digit-then-text vectors are the classifier-level regression
+        guard for a defect this rule actually had, where the tail was judged on
+        its first character alone and `classify(EL + '1 RES 10K 0805')`
+        returned `GTIN`. `tests/unit/test_gs1.py` pins the recognizer; this
+        pins the answer the scan surface gets, which is what the defect was."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.FREE_TEXT
+        assert c.normalized_value is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, key', [
+        ('01' + '00000000012348', '00000000012348'),    # a GTIN-8's value in the field
+        ('01' + '00012345678905', '00012345678905'),    # ...and a UPC-A's
+        ('01' + GTIN13_KEY, GTIN13_KEY),                # ...and an EAN-13's
+        ('01' + '00000012345670', '00000012345670'),    # check digit 0 — not a no-read
+    ])
+    def test_every_accepted_gtin_value_inside_the_field_normalizes(self, raw, key):
+        """AI 01's field is always 14 digits, so the shorter forms arrive
+        already zero-padded and `normalize_gtin` has nothing left to pad."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.GTIN
+        assert c.normalized_value == key
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        '0109506000134353',                     # a broken mod-10 check digit
+        '0100000000000000',                     # the wedge no-read, refused by gtin.py (DW-69)
+        '010950600013435',                      # 13 digits — the field is short
+        '01' + '0' * 14 + 'X',                  # 14 digits then a non-element-string tail
+        '01٩٥٠٦٠٠٠١٣٤٣٥٢',                       # Arabic-Indic digits — ASCII only
+        '\x1d10LOT42\x1d' + EL,                 # AI 01 not in first position
+        '0209506000134352',                     # AI 02, a contained trade item — not read
+    ])
+    def test_every_rejection_reason_falls_through_to_free_text(self, raw):
+        """Recognition failures and validity failures land in the same place,
+        which is the point: the refusals come from `gs1.py`'s tail/length rules
+        and from `gtin.py`'s check digit and all-zero rule, and rule 3 owns
+        neither."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.FREE_TEXT
+        assert c.normalized_value is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, bare', [
+        (EL, GTIN13),                                   # the deployed-wedge form
+        ('\x1d' + EL, GTIN13_KEY),                      # FNC1 transmitted
+        (']d1' + EL, GTIN13),                           # AIM-prefixed
+        (EL + '\x1d10LOT42', GTIN13),                   # with a batch/lot appended
+    ])
+    def test_the_result_is_byte_identical_to_the_bare_numbers(self, raw, bare):
+        """The acceptance criterion stated directly: everything but `raw` must
+        match, because both forms went through one `normalize_gtin` call in one
+        arm. Anything else would mean rules 3 and 4 had forked."""
+        wrapped = classify(raw, ai=AI, token=TOKEN)
+        plain = classify(bare, ai=AI, token=TOKEN)
+        assert dataclasses.replace(wrapped, raw=bare) == plain
+
+    @pytest.mark.unit
+    def test_the_classifier_names_no_application_identifier(self):
+        """AD-16 restated as behavior rather than as source inspection
+        (`TestModulePurity` does the latter): recognition is delegated, so it
+        answers for AI 01 and for nothing else this module could have
+        hand-rolled beside it."""
+        assert classify('0209506000134352', ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
+        assert classify('\x1d17260101', ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
+        assert classify('\x1d21SN0001', ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
+        assert classify('\x1d00123456789012345675', ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
+
+
+class TestGtinRawIsNoLongerDigitsByConstruction:
+    """
+    An invariant DW-70 widened, pinned so no consumer can re-assume it.
+
+    Until rule 3 existed, the only route to `ScanKind.GTIN` was the all-digit
+    guard, so a `GTIN` classification's `raw` was always an optional AIM prefix
+    followed by ASCII digits. A rule-3 hit carries whatever the wedge sent —
+    separators, a batch and a serial, trailing text, even a lone surrogate —
+    while `normalized_value` stays exactly as narrow as it always was.
+
+    This is a *pin*, not a complaint: `normalized_value` is the key, and `raw`
+    is untrusted scan data on every kind alike. It exists because "a GTIN scan
+    is digits" is the kind of assumption a future consumer of `raw` would make
+    silently, and because the one consumer that feeds `raw` onward
+    (`_fallthrough_text` -> `search_products`) now sees a character class from
+    the `gtin` arm that it previously only ever saw from `free_text`.
+    """
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        EL + '\x1d10LOT42\x1d21SN0001',         # a real GS1-128: separators and two more fields
+        EL + '17ABC',                           # the accepted two-digit-tail residual
+        EL + '\x1d00\x00',                      # a NUL riding in on a garbled scan
+        EL + '\x1d10\ud83d',                    # ...and a lone surrogate, which is not storable text
+    ])
+    def test_a_gtin_classification_may_carry_any_raw_at_all(self, raw):
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.GTIN
+        assert c.normalized_value == GTIN13_KEY  # the key is as narrow as ever
+        assert c.raw == raw                      # ...and raw is verbatim, whatever it holds
+        assert not (c.raw.isascii() and c.raw.isdigit())
+
+    @pytest.mark.unit
+    def test_a_bare_gtin_still_reaches_the_kind_only_through_digits(self):
+        """The other half of the statement: rule 4 on its own is unchanged, so
+        the widening is rule 3's doing and nothing else's."""
+        c = classify(GTIN13, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.GTIN
+        assert c.raw.isascii() and c.raw.isdigit()
+        assert classify('\x1d' + GTIN13, ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
+
+
 class TestFreeTextFallthrough:
-    """FR36 rule 4: always matches, so no scan ever dead-ends."""
+    """FR36 rule 5: always matches, so no scan ever dead-ends."""
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
@@ -390,13 +580,13 @@ class TestPrecedenceOrder:
     """FR36: the first matching rule wins, and the result is deterministic."""
 
     @pytest.mark.unit
-    def test_rule_1_beats_rule_3_when_the_token_is_numeric(self):
+    def test_rule_1_beats_rule_4_when_the_token_is_numeric(self):
         """A value that is simultaneously a valid EAN-13 and an internal
         payload is OURS: a label this shop printed must never resolve to
         somebody else's trade item.
         """
         raw = '9601234567898'                   # valid EAN-13 check digit, opens '960'
-        assert is_valid_gtin(raw)               # rule 3 would have matched
+        assert is_valid_gtin(raw)               # rule 4 would have matched
         c = classify(raw, ai=AI, token='0')     # ...but the grammar '96' + '0' matches first
         assert c.kind is ScanKind.INTERNAL
         assert c.normalized_value == '1234567898'
@@ -404,15 +594,57 @@ class TestPrecedenceOrder:
         assert classify(raw, ai=AI, token=TOKEN).kind is ScanKind.GTIN
 
     @pytest.mark.unit
-    def test_rule_2_beats_rule_4_for_an_envelope(self):
+    def test_rule_1_beats_rule_3_for_an_ai_01_element_string(self):
+        """The same arbitration one rule further down (DW-70). A deployment
+        configured with `ai='0'`/`token='1'` claims the very prefix AI 01 uses,
+        and ours still wins — the AI-01 rule cannot capture a label this shop
+        printed, whatever the configured grammar happens to be."""
+        c = classify(EL, ai='0', token='1')
+        assert c.kind is ScanKind.INTERNAL
+        assert c.normalized_value == GTIN13_KEY  # the data field after '0' + '1'
+        # And under the deployed grammar the same string is the GTIN it carries.
+        assert classify(EL, ai=AI, token=TOKEN).kind is ScanKind.GTIN
+
+    @pytest.mark.unit
+    def test_rule_2_beats_rules_3_and_5_for_an_envelope(self):
+        """Two orderings, of different strengths, named honestly.
+
+        Against rule 5 this is real arbitration: an envelope's text would
+        otherwise be perfectly good free text, and the assertion below fails if
+        rule 2 stops running first. Against rule 3 it is documentation only —
+        an envelope opens '[)>' and can never be an element string, so no input
+        exists that both rules could claim — but it is pinned so a future rule
+        inserted above rule 3 cannot quietly reorder the group."""
         assert classify(ECIA_SHORT, ai=AI, token=TOKEN).kind is ScanKind.ECIA
+        assert classify(ECIA_FULL, ai=AI, token=TOKEN).kind is ScanKind.ECIA
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw, kind, key', [
+        (GTIN13, ScanKind.GTIN, GTIN13_KEY),            # EAN-13
+        ('00012348', ScanKind.GTIN, '00000000012348'),  # GTIN-8
+        ('012345678905', ScanKind.GTIN, '00012345678905'),  # UPC-A
+        (GTIN13_KEY, ScanKind.GTIN, GTIN13_KEY),        # GTIN-14, already canonical
+        ('9506000134353', ScanKind.FREE_TEXT, None),    # bad check digit
+        ('00000000', ScanKind.FREE_TEXT, None),         # the wedge no-read
+        ('12345678901', ScanKind.FREE_TEXT, None),      # 11 digits — not an accepted length
+        ('\x1d' + GTIN13, ScanKind.FREE_TEXT, None),    # a bare GTIN is judged as it arrived
+    ])
+    def test_no_bare_gtin_vector_moved_when_rule_3_was_inserted(self, raw, kind, key):
+        """DW-70's disjointness claim, pinned rather than argued: an AI-01
+        match needs at least 16 characters and every length rule 4 accepts is
+        8, 12, 13 or 14, so rule 3 cannot reach a bare trade item number and
+        every one of these classifies exactly as it did at `28bff4a`."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is kind
+        assert c.normalized_value == key
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
         INTERNAL_SCAN,                          # rule 1
         ECIA_SHORT,                             # rule 2
-        GTIN13,                                 # rule 3
-        'RES 10K 0805 1%',                      # rule 4
+        EL,                                     # rule 3
+        GTIN13,                                 # rule 4
+        'RES 10K 0805 1%',                      # rule 5
     ])
     def test_classification_depends_on_nothing_but_its_arguments(self, raw):
         """Deterministic and repeatable — no clock, no config read, no state."""
@@ -424,9 +656,10 @@ class TestPrecedenceOrder:
     @pytest.mark.parametrize('raw', [
         INTERNAL_SCAN,                          # rule 1
         ECIA_SHORT,                             # rule 2
-        GTIN13,                                 # rule 3
-        'RES 10K 0805 1%',                      # rule 4
-        '',                                     # rule 4, degenerate
+        EL,                                     # rule 3
+        GTIN13,                                 # rule 4
+        'RES 10K 0805 1%',                      # rule 5
+        '',                                     # rule 5, degenerate
     ])
     def test_every_scan_gets_exactly_one_kind(self, raw):
         c = classify(raw, ai=AI, token=TOKEN)
@@ -527,6 +760,10 @@ class TestNeverRaisesOnScanData:
         '9' * 4096,                             # a very long all-digit string
         '\U0001f600' * 100,                     # astral-plane characters
         '\ud83d',                               # a lone surrogate, as Python allows in a str
+        '01',                                   # rule 3's AI with nothing behind it
+        '01' + '0' * 4094,                      # ...and with 4094 characters behind it
+        '01' + '\ud83d' * 100,                  # a lone surrogate where the field should be
+        '01' + '\x1d' * 50,                     # ...and a separator storm instead
     ])
     def test_hostile_scan_data_still_returns_a_classification(self, raw):
         c = classify(raw, ai=AI, token=TOKEN)
@@ -665,8 +902,8 @@ class TestModulePurity:
     the whole suite green. These read the source instead."""
 
     SOURCE_PATH = Path(scan_router.__file__)
-    # One name per delegated rule: rule 1 to `gs1`, rule 2 to `ecia`, rule 3 to
-    # `gtin`. Rule 4 has no grammar to delegate.
+    # One name per delegated rule: rules 1 and 3 to `gs1`, rule 2 to `ecia`,
+    # rule 4 to `gtin`. Rule 5 has no grammar to delegate.
     ALLOWED_APP_UTILS_NAMES = frozenset({'ecia', 'gs1', 'gtin'})
 
     def _tree(self):
@@ -740,6 +977,43 @@ class TestModulePurity:
                 f'AD-16 requires it to arrive as an argument.')
 
     @pytest.mark.unit
+    def test_no_executed_string_literal_holds_an_application_identifier(self):
+        """The same rule for the AI DW-70 added (FR36 rule 3), which config
+        does *not* supply — GS1 assigns AI 01, so there is no `Config` value to
+        read and the guard has to name it.
+
+        That makes this the one AD-16 invariant with no config seam behind it,
+        and therefore the one most likely to be re-derived inline by a later
+        edit ("it is two characters, why call a function"). Recognition is
+        `app/utils/gs1.py`'s whole job; a literal here that the module could
+        act on would be the second copy of a grammar, which is the same defect
+        the sibling test above exists to catch.
+        """
+        offenders = [lit for lit in self._string_literals_outside_docstrings()
+                     if '01' in lit]
+        assert not offenders, (
+            f'app/utils/scan_router.py executes a string literal holding an '
+            f'Application Identifier: {offenders!r}. Rule 3 delegates whole to '
+            f'gs1.decode_trade_item_number (AD-16).')
+
+    @pytest.mark.unit
+    def test_the_gtin_arm_has_exactly_one_normalize_call(self):
+        """Rules 3 and 4 share one arm, so an AI-01 scan and a bare scan of the
+        same number are validated by one call and cannot diverge.
+
+        Asserted on the AST rather than argued in a comment: two
+        `normalize_gtin` call sites would be two places for the check digit,
+        the accepted lengths and the all-zero refusal to drift apart, and the
+        behavioral tests would pass for as long as the two copies happened to
+        agree. Counted for `InvalidGtinError` too, since a second `except` is
+        how a second arm would announce itself.
+        """
+        attributes = [node.attr for node in ast.walk(self._tree())
+                      if isinstance(node, ast.Attribute)]
+        assert attributes.count('normalize_gtin') == 1
+        assert attributes.count('InvalidGtinError') == 1
+
+    @pytest.mark.unit
     def test_the_whole_import_set_is_exactly_the_declared_four(self):
         """An allow-list, not a deny-list of modules somebody thought of.
 
@@ -811,13 +1085,20 @@ class TestModulePurity:
 
 
 class TestWhitespaceAsymmetryBetweenRules:
-    """`classify()` trims nothing itself, but rule 1 is delegated to
-    `gs1.decode`, which opens with `raw.strip()` as its FNC1/CR-LF
-    transmission tolerance. The result is that a padded internal payload
-    classifies and a padded GTIN or envelope does not. That asymmetry is
-    deliberate — a matching tolerance here would be a third copy of the trim
-    rule the caller already owns — but it was previously undocumented and
-    untested, so the module could have drifted either way unnoticed."""
+    """`classify()` trims nothing itself, but rules 1 and 3 are delegated to
+    `app/utils/gs1.py`, and both of its recognizers open with `raw.strip()` as
+    their FNC1/CR-LF transmission tolerance. The result is that a padded
+    internal payload or AI-01 element string classifies and a padded *bare*
+    GTIN or envelope does not. That asymmetry is deliberate — a matching
+    tolerance here would be a third copy of the trim rule the caller already
+    owns — but it was previously undocumented and untested, so the module could
+    have drifted either way unnoticed.
+
+    DW-70 widened it from one rule to two, and in doing so made it visible
+    inside a single kind: the same `GTIN` classification tolerates padding when
+    the number arrived inside an element string and refuses it when the number
+    arrived bare. The line falls on which module judges the value, not on which
+    kind comes out."""
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
@@ -830,12 +1111,28 @@ class TestWhitespaceAsymmetryBetweenRules:
 
     @pytest.mark.unit
     @pytest.mark.parametrize('raw', [
-        ' ' + GTIN13 + ' ',                     # rule 3 judges the scan as it arrived...
+        ' ' + EL + ' ',                         # the same wedge padding...
+        EL + '\r\n',                            # ...the same CR+LF suffix...
+        '\x1e\x1d' + EL,                        # ...and the same separators
+        EL + '\x1e',                            # a trailing RS, absorbed by strip()
+    ])
+    def test_rule_3_tolerates_the_same_padding_for_the_same_reason(self, raw):
+        """`gs1.decode_trade_item_number` mirrors `gs1.decode`'s preamble
+        exactly, because both read element strings arriving from the same
+        symbologies through the same wedge (FR37a)."""
+        c = classify(raw, ai=AI, token=TOKEN)
+        assert c.kind is ScanKind.GTIN
+        assert c.normalized_value == GTIN13_KEY
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('raw', [
+        ' ' + GTIN13 + ' ',                     # rule 4 judges the scan as it arrived...
         GTIN13 + '\r\n',
         ' ' + ECIA_SHORT,                       # ...and so does rule 2
         ' ]d1' + INTERNAL_SCAN,                 # a leading space even defeats the AIM strip
+        ' ]d1' + EL,                            # ...for rule 3 exactly as for rule 1
     ])
-    def test_rules_2_to_4_do_not_tolerate_padding(self, raw):
+    def test_rules_2_4_and_5_do_not_tolerate_padding(self, raw):
         """Correct routing for these rules depends on the caller having applied
         `app.utils.scan_input.clean_scan_input`. Pinned so the dependency is
         visible rather than discovered by Story 4.3."""
@@ -846,19 +1143,24 @@ class TestWhitespaceAsymmetryBetweenRules:
         """The half that actually costs something, and that the space-only
         cases above cannot show.
 
-        `str.strip()` eats \\x1c-\\x1f, so `gs1.decode` absorbs a transmitted
-        GS while `clean_scan_input` deliberately does not — it exists to
-        preserve the separators an envelope is built from. So a wedge that
-        prefixes a GS routes an internal label correctly and misroutes every
-        distributor label to free text, and neither the cleaner nor
+        `str.strip()` eats \\x1c-\\x1f, so both `gs1` recognizers absorb a
+        transmitted GS while `clean_scan_input` deliberately does not — it
+        exists to preserve the separators an envelope is built from. So a wedge
+        that prefixes a GS routes an internal label correctly and misroutes
+        every distributor label to free text, and neither the cleaner nor
         `classify()` can close that alone. Pinned so the behavior is visible
         to the story that owns the caller seam rather than discovered from a
         DigiKey label that silently searched.
+
+        DW-70 put the AI-01 form on the tolerant side, which is the shape a
+        GS1-128 wedge actually emits — and left the bare GTIN on the strict
+        one, so the two `GTIN` lines below disagree about the same number.
         """
         assert classify('\x1d' + INTERNAL_SCAN, ai=AI, token=TOKEN).kind is ScanKind.INTERNAL
         assert classify('\x1d' + ECIA_SHORT, ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
         assert classify('\x1e' + ECIA_SHORT, ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
         assert classify('\x1d' + GTIN13, ai=AI, token=TOKEN).kind is ScanKind.FREE_TEXT
+        assert classify('\x1d' + EL, ai=AI, token=TOKEN).kind is ScanKind.GTIN
         # And the cleaner cannot be the fix: its trim set is exactly ' \t\r\n'
         # because stripping GS/RS would destroy the envelope it is protecting.
         assert ('\x1d' + ECIA_SHORT).strip(' \t\r\n') == '\x1d' + ECIA_SHORT

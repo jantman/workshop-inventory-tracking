@@ -24,11 +24,12 @@ warnings: ['oversized']
 
 **Always:**
 - `classify()` is **pure**: no `flask`, no `current_app`, no `config`, no `sqlalchemy`, no `app.database`, no I/O. The only permitted imports are the standard library, `app.models`, `app.utils.gs1` and `app.utils.gtin` (AD-4, AD-5).
-- Precedence is fixed and exhaustive — the first rule that matches wins, and rule 4 always matches (FR36):
+- Precedence is fixed and exhaustive — the first rule that matches wins, and the last rule always matches (FR36). **Amended 2026-07-28 by `spec-dw-70-ai-01-element-string.md`**, which inserted rule 3 and renumbered the two below it; the list as this story shipped it was rules 1, 2, the old 3 (now 4) and the old 4 (now 5):
   1. `gs1.decode(candidate, ai=ai, token=token)` returns a payload → `internal`, `normalized_value = payload.internal_id` (the token-stripped id `decode` already returns).
   2. candidate opens with the ISO/IEC 15434 format-06 header → `ecia`, `normalized_value = None`.
-  3. candidate is all ASCII digits, length 8/12/13/14, and `gtin.is_valid_gtin(candidate)` → `gtin`, `normalized_value = gtin.normalize_gtin(candidate)` (14 digits).
-  4. anything else → `free_text`, `normalized_value = None`.
+  3. *(DW-70)* `gs1.decode_trade_item_number(candidate)` returns 14 digits → those digits become the value rule 4 judges. No kind of its own: a substitution, not a classification.
+  4. candidate is all ASCII digits, length 8/12/13/14, and `gtin.is_valid_gtin(candidate)` → `gtin`, `normalized_value = gtin.normalize_gtin(candidate)` (14 digits). *(DW-70: rules 3 and 4 share this one arm, so an AI-01 scan and a bare scan of the same number produce identical classifications.)*
+  5. anything else → `free_text`, `normalized_value = None`.
 - Internal recognition is **delegated, never reimplemented** (AD-16). `scan_router` must not pattern-match the AI or the token itself, must contain no literal `'96'`/`'WIT'`, and must not re-derive a check digit or a 14-digit form — one config change moves encoder and router together.
 - An AIM symbology identifier (`]` + one ASCII letter + one digit, e.g. `]d1`, `]C1`) is stripped **once** from the front before the rules run, and only narrows the symbology class — the payload still selects the handler (FR37). `gs1.decode` deliberately does not strip it (`app/utils/gs1.py:89-91`), so the classifier must. A leading `]` that is not that exact 3-character shape is data, not a prefix, and is left alone.
 - `raw` on the returned `ScanClassification` is the **verbatim** argument, AIM prefix and all — never the stripped candidate, never re-trimmed. `classify()` performs no whitespace handling of its own; its caller has already applied the one cleaning rule (`_clean_scan_input`, `app/main/routes.py:1071-1077`).
@@ -56,7 +57,8 @@ All rows call `classify(raw, ai='96', token='WIT')`. `ecia_fields` is `None` in 
 | Internal, bare (deployed wedge, FR37a) | `'96WITABC1234567'` | `kind=INTERNAL`, `normalized_value='ABC1234567'`, `raw` verbatim | No error expected |
 | Internal, FNC1 transmitted | `'\x1d96WITABC1234567'` | Identical to the bare row — `decode` absorbs it | No error expected |
 | Internal behind an AIM prefix (FR37) | `']d196WITABC1234567'` | `kind=INTERNAL`, `normalized_value='ABC1234567'`, `raw` still carries `]d1` | No error expected |
-| Rule 1 beats rule 3 | `ai='96'`, `token='0'`, a 13-digit value opening `960` whose check digit is valid | `kind=INTERNAL`, `normalized_value` = the 10 digits after `960` — not `kind=GTIN` | No error expected |
+| Rule 1 beats the GTIN rule (rule 3 as shipped, rule 4 after DW-70) | `ai='96'`, `token='0'`, a 13-digit value opening `960` whose check digit is valid | `kind=INTERNAL`, `normalized_value` = the 10 digits after `960` — not `kind=GTIN` | No error expected |
+| Rule 1 beats rule 3 *(added 2026-07-28, DW-70)* | `ai='0'`, `token='1'`, `raw='0109506000134352'` | `kind=INTERNAL` — the internal grammar matches before the AI-01 rule can claim the same prefix | No error expected |
 | ECIA format-06 envelope | `'[)>\x1e06\x1dP123\x1e\x04'` | `kind=ECIA`, `normalized_value=None` | No error expected |
 | ECIA behind an AIM prefix | `']d1[)>\x1e06\x1dP123\x1e\x04'` | `kind=ECIA` | No error expected |
 | Damaged envelope header | `'[)>06\x1dP123'`, `'[)>\x1e05\x1dP123'`, `'[)>\x1e06P123'` | `kind=FREE_TEXT` (NFR8 — never an exception, never a false `ecia`) | No error expected |
@@ -64,7 +66,8 @@ All rows call `classify(raw, ai='96', token='WIT')`. `ecia_fields` is `None` in 
 | Valid GTIN-13 | `'9506000134352'` | `kind=GTIN`, `normalized_value='09506000134352'` | No error expected |
 | Valid GTIN-14 / UPC-A / GTIN-8 | `'09506000134352'` / `'012345678905'` / `'00012348'` | `kind=GTIN`, normalized to `'09506000134352'` / `'00012345678905'` / `'00000000012348'` | No error expected |
 | Bad GTIN check digit | `'9506000134353'` | `kind=FREE_TEXT` | No error expected |
-| All-digit, wrong length | `'12345678901'` (11), `'0109506000134352'` (16) | `kind=FREE_TEXT` | No error expected |
+| All-digit, wrong length | `'12345678901'` (11) | `kind=FREE_TEXT` | No error expected |
+| AI-01 element string | `'0109506000134352'` (16) | `kind=FREE_TEXT` as this story shipped; **amended 2026-07-28 by DW-70 to `kind=GTIN`, `normalized_value='09506000134352'`** — the 16-digit form is now read by rule 3 and judged by rule 4 | No error expected |
 | Digits with a separator or sign | `'950-6000134352'`, `'+9506000134352'`, `'٩٥٠٦٠٠٠١٣٤٣٥٢'` (Arabic-Indic) | `kind=FREE_TEXT` — ASCII digits only | No error expected |
 | Free text | `'RES 10K 0805 1%'` | `kind=FREE_TEXT`, `normalized_value=None` | No error expected |
 | Empty string | `''` | `kind=FREE_TEXT`, `raw=''` | No error expected |
@@ -101,6 +104,15 @@ All rows call `classify(raw, ai='96', token='WIT')`. `ecia_fields` is `None` in 
 - Given `nox -s tests`, when it runs, then it is green, including the new `tests/unit/test_scan_router.py`, with no previously passing test newly failing.
 
 ## Spec Change Log
+
+### 2026-07-28 — FR36's precedence changed after this story was `done`
+
+DW-70 (`_bmad-output/implementation-artifacts/spec-dw-70-ai-01-element-string.md`) inserted a fifth FR36 rule, so the precedence this story froze is no longer the deployed one. Recorded here rather than silently rewritten: this story's intent contract is history, and the amendment states the new rule beside the old one.
+
+- **What changed.** A GS1 element string opening with AI 01 is now read as rule 3, between the ECIA envelope and the bare-GTIN rule, and the 14 digits it carries become the value the GTIN rule judges. The old rules 3 and 4 are now 4 and 5, unchanged in every other respect.
+- **Where.** The Always precedence list and two I/O-matrix rows above, plus PRD FR36, `epics.md` (the FR list and this story's acceptance criteria), the PRD addendum's 4.2 line, and `docs/user-manual.md`'s "What Happens to a Scan".
+- **What did not change.** No `ScanKind` member, no `ScanClassification` field, no route, template, JS or e2e test — rule 3 produces no kind of its own and hands its digits to the existing `gtin` arm, so an AI-01 scan *is* a GTIN scan from the moment it leaves the classifier. Every non-AI-01 vector in this story's matrix classifies exactly as it did at `28bff4a`; an AI-01 match needs at least 16 characters and every length the GTIN rule accepts is 8, 12, 13 or 14, so the two candidate sets are disjoint.
+- **Why it was not this story's to make.** A fifth rule is a requirements decision, which is why this story recorded it as a residual risk rather than closing it. That risk bullet is now marked closed.
 
 ## Review Triage Log
 
@@ -227,7 +239,7 @@ This pass changed no routing behavior: every I/O-matrix vector classifies exactl
 
 **Residual risks:**
 - `__post_init__` now rejects constructions that previously succeeded. Nothing in the repo builds a `ScanClassification` except `classify()`, which is proven compliant, but Stories 4.3/4.5/7/9 will be the first real callers and will meet these guards before they meet any consumer test.
-- An AI-01 element string — the most common manufacturer encoding of a GTIN on a box — classifies as `free_text`. Spec-conformant under FR36's four rules; newly deferred, because a fifth rule is a requirements decision.
+- ~~An AI-01 element string — the most common manufacturer encoding of a GTIN on a box — classifies as `free_text`. Spec-conformant under FR36's four rules; newly deferred, because a fifth rule is a requirements decision.~~ **Closed 2026-07-28 by DW-70** (`_bmad-output/implementation-artifacts/spec-dw-70-ai-01-element-string.md`): the requirements decision was taken, FR36 gained the fifth rule, and an AI-01 element string now resolves as the GTIN it carries through the same `gtin` arm a bare GTIN already used.
 - A wedge that prefixes a separator misroutes distributor envelopes to `free_text` while internal labels still route correctly, because `gs1.decode` strips control characters and `_clean_scan_input` deliberately does not. Pinned and documented; deferred, because both fixes cross this story's boundaries.
 - The strict ECIA header check may not match what a real wedge transmits (deferred; needs the physical scanner).
 - `strip_aim_prefix` implements the intent contract's AIM shape exactly, which is narrower than ISO/IEC 15424 allows for a few symbologies; deferred rather than widened.
