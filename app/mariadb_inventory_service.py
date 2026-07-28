@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import and_, desc, asc, func, case
 
 from .mariadb_storage import MariaDBStorage
-from .db import resolve_engine
+from .db import binary_order_key, resolve_engine
 from .database import InventoryItem
 from .models import ItemType, ItemShape
 # Using enhanced InventoryItem directly instead of separate Item dataclass
@@ -816,6 +816,14 @@ class InventoryService:
         Ordering when ``query`` is omitted: alphabetized
         (case-insensitive).
 
+        WHICH spelling of a value that exists in several casings is
+        offered is part of the contract, not an accident of the plan:
+        the sort's last key compares byte-wise (``db.binary_order_key``),
+        so the same spelling comes back on every call, and on MariaDB it
+        is the binary-lowest one — over ASCII, the most-uppercase.
+        Accented and unaccented spellings are separate values here and
+        both are offered; only casing collapses.
+
         Args:
             field: One of the keys in ``FIELD_SUGGESTION_COLUMNS``. Any
                 other value raises ``ValueError``.
@@ -953,9 +961,13 @@ class InventoryService:
                     ), 1),
                     else_=2,
                 )
-                base = base.order_by(rank, func.lower(column), column)
+                base = base.order_by(rank, func.lower(column),
+                                     binary_order_key(
+                                         column, self.engine.dialect.name))
             else:
-                base = base.order_by(func.lower(column), column)
+                base = base.order_by(func.lower(column),
+                                     binary_order_key(
+                                         column, self.engine.dialect.name))
 
             # SQL narrows, Python decides. There is deliberately NO
             # `.distinct()` here: MariaDB's folding collation would collapse
@@ -979,15 +991,32 @@ class InventoryService:
             # transfer — a buffering driver has already fetched everything, and
             # PyMySQL's server-side cursor drains the rest at close.
             #
-            # The `column` tiebreak breaks the ties DISTINCT used to hide:
+            # The trailing tiebreak breaks the ties DISTINCT used to hide:
             # without it every duplicate row sorts equal, and the early break
-            # lets the plan pick which spelling the operator is offered. It is
-            # TOTAL only under a binary collation — SQLite, where the suite
-            # runs. Under MariaDB's folding `_ci` collation the tiebreak column
-            # folds case and accents too, so genuine case variants still tie on
-            # both keys and the spelling offered stays plan-dependent there.
-            # Deferred: a `COLLATE utf8mb4_bin` tiebreak behind a dialect
-            # branch is what would close it.
+            # below lets the plan pick which spelling the operator is offered.
+            # It has to compare BYTE-WISE to do that, which is why it goes
+            # through `db.binary_order_key` rather than naming `column`
+            # directly: a bare column tiebreak is total under SQLite, which
+            # compares text byte-wise anyway, but under MariaDB's pinned
+            # `utf8mb4_unicode_ci` it folds case and accents exactly like the
+            # `LOWER()` key ahead of it, so `McMaster` and `mcmaster` tied on
+            # every key and the offered spelling was whatever the plan happened
+            # to emit first. The helper emits `COLLATE utf8mb4_bin` on
+            # MySQL/MariaDB and the bare column everywhere else, so on each
+            # backend the ordering is now decided by the query and the same
+            # spelling is offered on every call — on MariaDB, the binary-lowest
+            # one. (Two caveats, both stated in full on `db.binary_order_key`:
+            # `utf8mb4_bin` is PAD SPACE, so trailing-whitespace variants still
+            # tie — unobservable here because the loop below strips; and the two
+            # backends need not agree with each other, because SQLite's
+            # `lower()` folds ASCII only.) Only this third key is collated:
+            # `rank` and `func.lower(column)` are deliberately left
+            # folding, because that is what keeps `cafe` and `café` adjacent in
+            # the offered list rather than sorted apart.
+            #
+            # The catalog half (`CatalogService.get_field_value_suggestions`)
+            # routes its tiebreak through the same helper; the rule has one
+            # home so the two endpoints cannot drift.
             seen_lower = set()
             unique = []
             for (value,) in base.yield_per(SUGGESTION_ROW_BATCH):

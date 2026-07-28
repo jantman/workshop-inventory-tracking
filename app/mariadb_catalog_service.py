@@ -24,7 +24,7 @@ from .database import Product, Purchase, Attachment, ProductIdentifier, ProductT
 from .models import (IdentifierType, ScanKind, ScanResolution,
                      VENDOR_SCOPED_IDENTIFIER_TYPES)
 from .mariadb_storage import MariaDBStorage
-from .db import resolve_engine
+from .db import binary_order_key, resolve_engine
 from .exceptions import ConfigurationError, ValidationError
 from .utils import gtin, gs1
 from .utils import category as category_util
@@ -627,6 +627,15 @@ class CatalogService:
         identically, and `Electronics / Power` matches the stored
         `electronics/power`).
 
+        WHICH spelling of a value stored in several casings is offered is part
+        of the contract, not an accident of the plan: the sort's last key
+        compares byte-wise (`db.binary_order_key`), so the same spelling comes
+        back on every call, and on MariaDB it is the binary-lowest one — over
+        ASCII, the most-uppercase. Today's write path canonicalizes both fields
+        to lower case, so only rows predating that rule can differ this way.
+        Accented and unaccented spellings are separate values here and both are
+        offered; only casing collapses.
+
         Args:
             field: One of the keys in the module-level FIELD_SUGGESTION_COLUMNS.
             query: Optional filter, normalized then matched case-insensitively
@@ -736,9 +745,13 @@ class CatalogService:
                     ), 1),
                     else_=2,
                 )
-                base = base.order_by(rank, func.lower(column), column)
+                base = base.order_by(rank, func.lower(column),
+                                     binary_order_key(
+                                         column, self.engine.dialect.name))
             else:
-                base = base.order_by(func.lower(column), column)
+                base = base.order_by(func.lower(column),
+                                     binary_order_key(
+                                         column, self.engine.dialect.name))
 
             # SQL narrows, Python decides — the same division that
             # `list_category_paths` and `list_tags` make. There is deliberately
@@ -766,16 +779,32 @@ class CatalogService:
             # drains the remainder when the cursor closes. The row count, not
             # the transfer, is what the `ORDER BY` already forced.
             #
-            # The `column` tiebreak breaks the ties DISTINCT used to hide:
+            # The trailing tiebreak breaks the ties DISTINCT used to hide:
             # without it every duplicate row sorts equal, and the early break
-            # lets the plan decide which spelling of a value the operator is
-            # offered. It makes the ordering TOTAL only under a binary
-            # collation — SQLite, where the suite runs. Under MariaDB's folding
-            # `_ci` collation the tiebreak column compares case- and
-            # accent-insensitively too, so genuine case variants still tie on
-            # both keys and the spelling offered stays plan-dependent there.
-            # Deferred: closing it needs a `COLLATE utf8mb4_bin` tiebreak
-            # behind a dialect branch the SQLite-only suite cannot verify.
+            # below lets the plan decide which spelling of a value the operator
+            # is offered. It has to compare BYTE-WISE to decide anything, which
+            # is why it goes through `db.binary_order_key` rather than naming
+            # `column` directly: a bare column tiebreak is total under SQLite,
+            # which compares text byte-wise anyway, but under MariaDB's pinned
+            # `utf8mb4_unicode_ci` it folds case and accents exactly like the
+            # `LOWER()` key ahead of it, so `Relays` and `relays` tied on every
+            # key and the offered spelling was whatever the plan happened to
+            # emit first. The helper emits `COLLATE utf8mb4_bin` on
+            # MySQL/MariaDB and the bare column everywhere else, so on each
+            # backend the ordering is now decided by the query and the same
+            # spelling is offered on every call — on MariaDB, the binary-lowest
+            # one. (Two caveats, both stated in full on `db.binary_order_key`:
+            # `utf8mb4_bin` is PAD SPACE, so trailing-whitespace variants still
+            # tie — unobservable here because the loop below strips; and the two
+            # backends need not agree with each other, because SQLite's
+            # `lower()` folds ASCII only.) Only this third key is collated:
+            # `rank` and `func.lower(column)` are deliberately left
+            # folding, which is what keeps `cafe` and `café` adjacent in the
+            # offered list rather than sorted apart.
+            #
+            # The inventory half (`InventoryService.get_field_value_suggestions`)
+            # routes its tiebreak through the same helper; the rule has one home
+            # so the two endpoints cannot drift.
             seen_lower = set()
             unique = []
             for (value,) in base.yield_per(SUGGESTION_ROW_BATCH):

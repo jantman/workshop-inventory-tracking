@@ -28,6 +28,7 @@ from sqlalchemy import create_engine
 
 from app.database import Base
 from app.mariadb_catalog_service import CatalogService
+from app.mariadb_inventory_service import InventoryService
 from app.mariadb_storage import MariaDBStorage
 from config import TestConfig
 
@@ -448,5 +449,30 @@ def integration_catalog_service(integration_schema, integration_db_url):
     assert result.success, f'could not connect to the integration database: {result.error}'
     try:
         yield CatalogService(storage)
+    finally:
+        storage.close()
+
+
+@pytest.fixture
+def integration_inventory_service(integration_schema, integration_db_url):
+    """An ``InventoryService`` bound to the live MariaDB database.
+
+    The inventory-side counterpart of ``integration_catalog_service``, built the
+    same production way -- ``MariaDBStorage`` first, service on top -- so the
+    engine, pool and DIALECT are the deployed ones. The dialect is the part this
+    fixture exists for: ``get_field_value_suggestions`` now chooses its ORDER BY
+    tiebreak on ``engine.dialect.name`` (``app/db.py``'s ``binary_order_key``),
+    and the SQLite unit tier only ever exercises the identity branch of that
+    choice.
+
+    Each service fixture builds its own storage rather than sharing one: they
+    are independent objects in production too, and a shared one would make the
+    order the tests happen to request them observable through the pool.
+    """
+    storage = MariaDBStorage(database_url=integration_db_url)
+    result = storage.connect()
+    assert result.success, f'could not connect to the integration database: {result.error}'
+    try:
+        yield InventoryService(storage)
     finally:
         storage.close()

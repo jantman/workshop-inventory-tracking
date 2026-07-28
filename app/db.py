@@ -45,12 +45,20 @@ reach those bare fixture engines, nor the ones ``PhotoService`` and
 ``BaseExportService`` still build from ``Config``. DW-72 therefore has to cover
 each of those sites (or consolidate them first). Nothing of the sort is
 registered yet -- DW-72 is a separate item.
+
+One thing here is NOT about engine lifetime: :func:`binary_order_key`, the
+dialect-aware ORDER BY tiebreak both ``get_field_value_suggestions`` readers
+share. It lives here because it is chosen from ``engine.dialect.name`` and this
+module is what both services already import for the engine itself; it is not a
+general SQL-text rule (those live in ``app/utils/sql_text.py``) but a property
+of the connection the engine owns.
 """
 
 import threading
 from typing import Any, Dict, Optional
 
 from flask import current_app
+from sqlalchemy import collate
 from sqlalchemy.engine import Engine
 
 from .mariadb_storage import MariaDBStorage
@@ -60,6 +68,87 @@ STORAGE_EXTENSION_KEY = 'workshop_inventory_storage'
 
 # Guards first-touch creation of the app-scoped storage.
 _storage_lock = threading.Lock()
+
+# The two dialect names that reach a MySQL-family server. BOTH are required for
+# the same reason ``app/database.py``'s MYSQL_TABLE_OPTIONS declares the
+# ``mysql_`` and ``mariadb_`` kwarg pairs: SQLAlchemy resolves on
+# ``dialect.name``, which is 'mysql' for a ``mysql+pymysql://`` URL and
+# 'mariadb' for a ``mariadb+pymysql://`` one -- both perfectly ordinary ways to
+# reach the same server, so a branch that knew only one name would silently fall
+# through to the identity case under the other scheme. Same frozenset the
+# collation migration (a977ca7315df) keys its own no-op guard on.
+MYSQL_DIALECTS = frozenset({'mysql', 'mariadb'})
+
+# The deployment's binary collation -- the one that folds no CASE and no
+# ACCENTS. Pinned on ``products.internal_id`` by the schema (DW-73) and used
+# below purely as an ORDER BY key, where it is what separates spellings the
+# folding ``_ci`` collation groups. It is PAD SPACE, not NO PAD, so it is not
+# quite a total order: values differing only in TRAILING whitespace still
+# compare equal under it (``utf8mb4_nopad_bin`` is the collation that would not).
+# That residue is unobservable here because the readers below `.strip()` every
+# value before offering it, so the spellings a caller can actually tell apart
+# are exactly the ones this key orders.
+BINARY_COLLATION = 'utf8mb4_bin'
+
+
+def binary_order_key(column: Any, dialect_name: Optional[str]) -> Any:
+    """
+    Return ``column`` as an ORDER BY key that compares byte-wise.
+
+    On MySQL/MariaDB every column this is called with is
+    ``utf8mb4_unicode_ci`` -- the schema's table-wide default, which
+    ``products.internal_id`` is the deliberate exception to (it is pinned
+    ``utf8mb4_bin``; see ``app/database.py``). The default folds case AND
+    accents. That is what the catalog subsystem's uniqueness rules depend on,
+    but it makes the column a useless *tiebreaker*: two rows differing only in
+    case compare equal on it, so a sort that ends there is still partial and
+    the query plan -- not the query -- decides which spelling of a duplicated
+    value a reader sees first. Collating the key to ``utf8mb4_bin`` for the
+    comparison alone breaks those ties deterministically without touching which
+    rows come back or how any other key groups them. See ``BINARY_COLLATION``
+    above for the one tie it does NOT break (trailing whitespace) and why that
+    is unobservable at the suggestion boundary.
+
+    Under every other dialect the column is returned UNCHANGED. SQLite already
+    compares text byte-wise, so its ordering is total without help, and a
+    ``COLLATE utf8mb4_bin`` it does not know would be a syntax error rather than
+    a no-op. That identity branch is also what keeps duck-typed and mock
+    storages working: anything whose ``engine.dialect.name`` is not one of the
+    two real names simply gets its column back.
+
+    Determinism per backend is not the same as agreement BETWEEN backends, and
+    only the former is claimed. SQLite's ``lower()`` folds ASCII only, so for
+    case variants carrying non-ASCII letters its ``LOWER()`` key does not tie
+    and this tiebreak never runs there, while on MariaDB the folding collation
+    ties and it does -- each backend answers stably, with possibly different
+    spellings. Production is MariaDB; the SQLite/MariaDB case-folding
+    divergence itself is DW-72's subject, not this helper's.
+
+    Precondition on the MySQL branch: the columns sorted through here are
+    ``utf8mb4``, pinned table-wide by migration ``a977ca7315df`` (DW-34).
+    ``COLLATE utf8mb4_bin`` is legal only against that charset, so a database
+    whose migrations have not been applied -- still ``latin1`` or ``utf8mb3``
+    -- answers error 1253 rather than a sort order. That is the same
+    migrated-schema assumption every other statement in this application
+    already makes, and it is stated here only because this is the first place a
+    READ depends on it: an un-migrated server used to answer suggestion
+    requests (nondeterministically) and now would not answer them at all.
+
+    A dialect NAME is taken rather than an engine so this stays pure and
+    unit-testable, and so callers that already hold ``self.engine`` do the one
+    attribute walk at the call site where it is obvious what is being asked.
+
+    Args:
+        column: A SQLAlchemy column expression to sort on.
+        dialect_name: ``engine.dialect.name``; ``None`` and unknown names both
+            take the identity branch.
+
+    Returns:
+        ``collate(column, 'utf8mb4_bin')`` on MySQL/MariaDB, else ``column``.
+    """
+    if dialect_name in MYSQL_DIALECTS:
+        return collate(column, BINARY_COLLATION)
+    return column
 
 
 def _unwrap(app: Any) -> Any:
