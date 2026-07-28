@@ -91,7 +91,10 @@ def test_the_tag_listing_links_to_the_filter(page, live_server):
     page.goto(f'{live_server.url}/products/tags')
     row = page.locator('#tag-table tr', has_text=tag)
     expect(row).to_be_visible(timeout=10000)
-    row.locator('a').click()
+    # Scoped to the filter link by href, not a bare `a`: DW-48 gave every row a
+    # second action (Rename), so a bare locator is a strict-mode violation
+    # rather than a miss — and this test is about the FILTER link specifically.
+    row.locator('a[href*="/products/tags/filter"]').click()
 
     expect(page.locator('#filter-tag')).to_have_text(tag, timeout=10000)
     expect(page.locator('#tagged-product-table')).to_contain_text(

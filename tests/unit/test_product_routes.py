@@ -1370,6 +1370,345 @@ class TestTagPages(object):
         assert b'href="/products/tags"' in resp.data
 
 
+@pytest.mark.unit
+class TestTagRenamePage(object):
+    """The rename-and-merge page below the browser (DW-48, FR16): the listing
+    is where the counts live, so it is where the action belongs, and the form's
+    preview is the confirmation."""
+
+    def _make_product(self, test_storage, tags=None, **kwargs):
+        kwargs.setdefault('description', 'Seed product')
+        service = CatalogService(test_storage)
+        product_id = service.create_product(**kwargs)
+        if tags:
+            service.set_product_tags(product_id, tags)
+        return product_id
+
+    def _row(self, body, tag):
+        """The listing row for `tag` alone, so an action assertion cannot be
+        satisfied by a link sitting in some other row."""
+        marker = f'<code>{tag}</code>'.encode()
+        assert marker in body, f'no listing row for {tag}'
+        start = body.index(marker)
+        return body[start:body.index(b'</tr>', start)]
+
+    def test_every_listing_row_offers_both_actions(self, client, test_storage):
+        """Both, on every row: there is no non-canonical carve-out here the way
+        there is on the categories page. `product_tags` shipped empty and every
+        writer of it normalizes before writing — `set_product_tags`, and the
+        rename this very link leads to — so a stored tag IS canonical whichever
+        one wrote it."""
+        self._make_product(test_storage, tags=['ssr'])
+        self._make_product(test_storage, tags=['heat sink'])
+
+        resp = client.get('/products/tags')
+        assert resp.status_code == 200
+        for tag, query in (('ssr', b'tag=ssr'), ('heat sink', b'tag=heat+sink')):
+            row = self._row(resp.data, tag)
+            assert b'View products' in row
+            assert b'Rename' in row
+            assert b'/products/tags/rename?' + query in row
+            assert b'/products/tags/filter?' + query in row
+
+    def test_the_form_previews_the_tag_and_its_count(self, client, test_storage):
+        self._make_product(test_storage, tags=['ssr'])
+        self._make_product(test_storage, tags=['ssr'])
+        self._make_product(test_storage, tags=['rectifier'])
+
+        resp = client.get('/products/tags/rename?tag=ssr')
+        assert resp.status_code == 200
+        assert b'id="rename-source">ssr<' in resp.data
+        # Two products carry ssr; the third tag is none of this page's business.
+        assert b'id="rename-total">2<' in resp.data
+        # The merge rule is stated up front, because the GET cannot know the
+        # destination and so cannot enumerate what a merge would do.
+        assert b'the two are merged' in resp.data
+        # The destination input starts empty — read off the input's OWN tag, so
+        # a page-wide `value=""` in some other element cannot satisfy it.
+        start = resp.data.index(b'id="new_tag"')
+        assert b'value=""' in resp.data[start:resp.data.index(b'>', start)]
+        # Nothing was refused, so no field is marked invalid.
+        assert b'is-invalid' not in resp.data
+
+    def test_the_form_normalizes_its_argument(self, client, test_storage):
+        """`?tag=` goes through the same util the product form does, so a
+        padded or upper-cased link still resolves onto the stored tag."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get('/products/tags/rename?tag=++SSR+')
+        assert resp.status_code == 200
+        assert b'id="rename-source">ssr<' in resp.data
+
+    def test_the_form_with_an_unused_tag_redirects(self, client, test_storage):
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get('/products/tags/rename?tag=nosuchtag',
+                          follow_redirects=True)
+        assert resp.status_code == 200
+        assert b'No products carry tag &#34;nosuchtag&#34;' in resp.data
+        # No form was rendered, so nothing could be submitted against it.
+        assert b'id="rename-source"' not in resp.data
+
+    @pytest.mark.parametrize('query', [
+        'a,b',              # the separator: no stored tag can contain it
+        'x' * 200,          # past the 64-character limit
+    ])
+    def test_the_form_names_an_unusable_tag_as_unusable(self, client,
+                                                        test_storage, query):
+        """A value no tag could ever BE is a different problem from a tag
+        nothing happens to carry.
+
+        Both resolve to zero products, but "No products carry tag "a,b"" sends
+        someone who followed a truncated or hand-edited link looking for a tag
+        that disappeared, when the link is what mangled it. The sibling
+        `tag_filter` route draws this distinction for the same input class, in
+        the same words.
+        """
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get(f'/products/tags/rename?tag={query}',
+                          follow_redirects=True)
+        assert resp.status_code == 200
+        assert b'not a usable tag' in resp.data
+        assert b'No products carry tag' not in resp.data
+        assert b'id="rename-source"' not in resp.data
+
+    @pytest.mark.parametrize('query', [
+        '',                     # no ?tag= at all
+        '?tag=',                # present but blank
+        '?tag=+++',             # whitespace only
+    ])
+    def test_the_form_with_no_tag_says_so(self, client, test_storage, query):
+        """`No products carry tag ""` would name the wrong problem: nothing was
+        picked."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get(f'/products/tags/rename{query}',
+                          follow_redirects=True)
+        assert resp.status_code == 200
+        assert b'Pick a tag to rename' in resp.data
+
+    def test_post_renames_and_reports_what_happened(self, client, test_storage):
+        first = self._make_product(test_storage, tags=['ssr'])
+        second = self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': ' Relay '})
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith('/products/tags')
+
+        service = CatalogService(test_storage)
+        assert service.get_tags_for_product(first) == ['relay']
+        assert service.get_tags_for_product(second) == ['relay']
+
+        # The flash names both CANONICAL forms and the count.
+        listing = client.get(resp.headers['Location'])
+        assert b'Renamed tag &#34;ssr&#34; to &#34;relay&#34;' in listing.data
+        assert b'2 product(s) updated' in listing.data
+        # Nothing merged, so the page does not claim anything did.
+        assert b'merged into it' not in listing.data
+
+    def test_post_onto_an_existing_tag_merges_and_says_so(self, client,
+                                                          test_storage):
+        """The merge is reported SEPARATELY: a merged product ends up with one
+        new-tag row where it carried two tags, so a single "N updated" would
+        overstate what the listing then shows against the destination."""
+        moved = self._make_product(test_storage, tags=['ssr'])
+        merged = self._make_product(test_storage, tags=['ssr', 'relay'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': 'relay'})
+        assert resp.status_code == 302
+
+        service = CatalogService(test_storage)
+        assert service.get_tags_for_product(moved) == ['relay']
+        # One relay, and no product lost an unrelated tag.
+        assert service.get_tags_for_product(merged) == ['relay']
+
+        listing = client.get(resp.headers['Location'])
+        assert b'1 product(s) updated' in listing.data
+        assert b'1 product(s) already carried &#34;relay&#34;' in listing.data
+        # And the vocabulary followed: only the destination is left.
+        assert b'<code>ssr</code>' not in listing.data
+        assert b'<code>relay</code>' in listing.data
+
+    def test_a_pure_merge_does_not_report_zero_updated(self, client,
+                                                       test_storage):
+        """When EVERY carrying product already holds the destination, nothing
+        was rewritten — and the rename sentence is wrong twice over.
+
+        It would lead with "0 product(s) updated" and then be contradicted by a
+        second sentence reporting products that plainly did change. The whole
+        operation was a merge, so it is described as one.
+        """
+        first = self._make_product(test_storage, tags=['ssr', 'relay'])
+        second = self._make_product(test_storage, tags=['ssr', 'relay'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': 'relay'})
+        assert resp.status_code == 302
+
+        service = CatalogService(test_storage)
+        assert service.get_tags_for_product(first) == ['relay']
+        assert service.get_tags_for_product(second) == ['relay']
+
+        listing = client.get(resp.headers['Location'])
+        assert b'Merged tag &#34;ssr&#34; into &#34;relay&#34;' in listing.data
+        assert b'2 product(s)' in listing.data
+        # Neither the zero nor the sentence that contradicts it.
+        assert b'0 product(s) updated' not in listing.data
+        assert b'Renamed tag' not in listing.data
+
+    def test_post_on_a_refusal_rerenders_and_changes_nothing(self, client,
+                                                             test_storage):
+        pid = self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': ' SSR '})
+        assert resp.status_code == 200  # re-rendered form, not a redirect
+        assert b'is already this tag' in resp.data
+        # The typed destination is retained, exactly as submitted.
+        assert _input_value(resp.data.decode(), 'new_tag') == ' SSR '
+        assert CatalogService(test_storage).get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.parametrize('old_tag, expected', [
+        ('nosuchtag', b'No products carry tag'),   # carried by no product
+        ('', b'Select a tag to rename'),           # blank
+        ('a,b', b'separator between tags'),        # unusable: cannot be a tag
+        ('x' * 200, b'too long'),                  # unusable: over-length
+    ])
+    def test_a_refused_source_goes_back_to_the_listing(self, client,
+                                                       test_storage, old_tag,
+                                                       expected):
+        """A refusal naming the SOURCE must not re-render the form.
+
+        `old_tag` is a HIDDEN input, so the re-rendered page would offer
+        nothing to correct: submitting it again reproduces the identical
+        refusal forever and the only way off the page is Cancel. Every one of
+        these is a property of a value the form does not let the operator
+        touch, so it goes back to the listing with the reason — the same answer
+        the GET guard already gives for the same three inputs.
+        """
+        pid = self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': old_tag, 'new_tag': 'relay'})
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith('/products/tags')
+
+        listing = client.get(resp.headers['Location'])
+        assert expected in listing.data
+        # No form came back, so there is no dead end to resubmit — and the
+        # page cannot state the problem a second time under "Products
+        # affected" either.
+        assert b'id="rename-source"' not in listing.data
+        assert b'No products carry this tag' not in listing.data
+        assert CatalogService(test_storage).get_tags_for_product(pid) == ['ssr']
+
+    def test_a_refused_destination_marks_that_field(self, client,
+                                                    test_storage):
+        """The other half: a destination refusal IS actionable, so the form
+        comes back with the field the service named painted invalid."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': 'a,b'})
+        assert resp.status_code == 200
+        assert b'is-invalid' in resp.data
+        assert b'id="new_tag-error"' in resp.data
+        # The REASON has to be reachable from the input, not just a pointer to
+        # it: the feedback slot deliberately does not restate the message, so
+        # the alert carrying it is named first in `aria-describedby` — without
+        # that, a screen reader on the invalid field announces "see the message
+        # at the top of the page" and nothing else.
+        assert b'aria-describedby="rename-error new_tag-error"' in resp.data
+        assert b'id="rename-error"' in resp.data
+
+    def test_a_retryable_refusal_does_not_paint_the_destination_invalid(
+            self, client, test_storage, monkeypatch):
+        """The concurrent-writer race is refused on `new_tag`, but the typed
+        destination was never the problem.
+
+        The identical submission succeeds once the racing transaction is done,
+        so marking the input would render the race identically to a permanent
+        collation collision and tell the operator to change a value that is
+        fine. The field alone cannot tell the two apart, which is why the
+        service marks the race `retryable` — and why this route consumes it,
+        the way `_apply_product_tags` already does.
+        """
+        self._make_product(test_storage, tags=['ssr'])
+
+        def _race(*args, **kwargs):
+            error = ValidationError(
+                "Another change added 'relay' to one of these products at the "
+                'same time, so nothing was renamed.',
+                field='new_tag', value='relay')
+            error.retryable = True
+            raise error
+
+        monkeypatch.setattr(CatalogService, 'rename_tag', _race)
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': 'relay'})
+        assert resp.status_code == 200
+        # The reason is stated, and the typed value is kept for the retry.
+        assert b'at the same time' in resp.data
+        assert _input_value(resp.data.decode(), 'new_tag') == 'relay'
+        # ...but nothing is marked wrong, because nothing is.
+        assert b'is-invalid' not in resp.data
+        assert b'id="new_tag-error"' not in resp.data
+
+    def test_a_rejection_is_reported_exactly_once(self, client, test_storage):
+        """One rejection is one problem: printing the same sentence in the
+        alert AND under the input reads as two."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': 'ssr'})
+        assert resp.status_code == 200
+        assert resp.data.count(b'is already this tag') == 1
+        # The field is still marked, and still has something to describe it.
+        assert b'is-invalid' in resp.data
+        assert b'id="new_tag-error"' in resp.data
+
+    def test_post_reports_a_backend_failure_without_a_second_error(
+            self, client, test_storage, monkeypatch):
+        """The generic failure branch also re-runs the preview, which would
+        raise again on a dead backend — the operator must still get a page,
+        and must not be told something the page could not establish."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('backend down')
+
+        monkeypatch.setattr(CatalogService, 'rename_tag', _boom)
+        monkeypatch.setattr(CatalogService, 'list_tags', _boom)
+
+        resp = client.post('/products/tags/rename',
+                           data={'old_tag': 'ssr', 'new_tag': 'relay'})
+        assert resp.status_code == 200
+        assert b'An error occurred while renaming the tag' in resp.data
+        # "No products carry this tag" / "Products affected: 0" beside a
+        # backend error reads as if the operator's tag had just been emptied.
+        assert b'No products carry this tag' not in resp.data
+        assert b'id="rename-total">0<' not in resp.data
+        assert b'id="preview-unavailable"' in resp.data
+
+    def test_the_destination_input_is_not_capped(self, client, test_storage):
+        """The 64-character limit is on the NORMALIZED tag, and normalization
+        trims and collapses whitespace — so a cap on what is typed would refuse
+        padding the server would have thrown away. The server is the only
+        enforcer."""
+        self._make_product(test_storage, tags=['ssr'])
+
+        resp = client.get('/products/tags/rename?tag=ssr')
+        new_tag_tag, = _form_controls(resp.data.decode(), ['new_tag'])
+        assert 'maxlength' not in new_tag_tag
+        # And no autocomplete either: an existing destination is LEGAL here, so
+        # offering the vocabulary would invite an accidental merge.
+        assert 'autocomplete="off"' in new_tag_tag
+
+
 # ---------------------------------------------------------------------------
 # Story 4.5: the three landings a routed scan can point at (FR39/FR40/FR41).
 # All additions below are OPTIONAL fields on shipped forms — every Story 1.3

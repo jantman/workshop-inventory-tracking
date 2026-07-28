@@ -12,9 +12,9 @@ here turns that divergence from an assumption into a checked fact.
 
 The collation guard at the top is the load-bearing assertion: if the deployed
 collation ever stops folding, ``set_product_tags``' flush ordering,
-``find_products_by_tag``'s re-check and ``rename_category_path``'s
-unclaimed-row handling all quietly become elaborate no-ops. It must fail a test,
-not pass silently.
+``find_products_by_tag``'s re-check, ``rename_tag``'s Python partition and
+``rename_category_path``'s unclaimed-row handling all quietly become elaborate
+no-ops. It must fail a test, not pass silently.
 """
 
 import pytest
@@ -39,6 +39,13 @@ MPN_CANONICAL = 'SHARED-1'
 MPN_CASE_DIFFERING = 'shared-1'
 MPN_ACCENT_BASE = 'REF-1'
 MPN_ACCENT_DIFFERING = 'RÉF-1'
+
+# One tag, written two ways. Two DISTINCT canonical tags in Python -- nothing
+# in app/utils/tag.py folds accents -- and one and the same value to
+# ``uq_product_tags_product_tag`` under utf8mb4_unicode_ci. Every rename
+# decision below turns on that gap.
+TAG_ACCENTED = 'café'
+TAG_UNACCENTED = 'cafe'
 
 # One internal id, written two ways. Two rows under products.internal_id's
 # pinned utf8mb4_bin; a UNIQUE violation under any folding collation -- which
@@ -285,3 +292,111 @@ class TestEciaScanUnderFoldingCollation:
         assert resolution.product is not None
         assert resolution.product.id == product_a
         assert resolution.free_text_hits == ()
+
+
+class TestTagRenameUnderFoldingCollation:
+    """``rename_tag``'s partition with the real collation deciding (DW-48).
+
+    The method narrows with one ``tag = old OR tag = new`` and then partitions
+    the rows by exact Python equality, on the premise that the SQL hands back
+    MORE than it asked for. Under SQLite it never does -- the binary collation
+    makes that filter exact, so the unit tier can only reach these branches by
+    widening the query on purpose. Here the collation does the widening itself,
+    which is the only place the premise is checked rather than simulated.
+    """
+
+    @pytest.mark.integration
+    def test_a_folded_near_miss_is_not_dragged_along(self,
+                                                     integration_catalog_service):
+        """Product A carries 'café', product B carries 'cafe'; renaming 'cafe'
+        moves ONLY B.
+
+        The SELECT returns both rows here -- that is what the folding does --
+        so leaving A's tag alone is a decision the Python partition makes, not
+        something the query did for it. Getting this wrong would silently
+        rewrite a tag its product's owner deliberately spelled with an accent.
+        """
+        service = integration_catalog_service
+        near_miss = service.create_product(description='accented')
+        carrier = service.create_product(description='plain')
+        assert near_miss is not None and carrier is not None
+        service.set_product_tags(near_miss, [TAG_ACCENTED])
+        service.set_product_tags(carrier, [TAG_UNACCENTED])
+
+        assert service.rename_tag(TAG_UNACCENTED, 'ssr') == (1, 0)
+
+        assert service.get_tags_for_product(near_miss) == [TAG_ACCENTED]
+        assert service.get_tags_for_product(carrier) == ['ssr']
+
+    @pytest.mark.integration
+    def test_a_folded_destination_conflict_is_refused(self,
+                                                      integration_catalog_service):
+        """One product carrying both 'ssr' and 'café' cannot take a rename of
+        'ssr' -> 'cafe'.
+
+        The destination is a distinct string in Python and the same value to
+        the unique index, so the rewrite would collide with a row the product
+        also means to keep, and discarding either is the one outcome neither
+        ``rename_tag`` nor ``set_product_tags`` allows. The refusal is decided
+        BEFORE the write, so the message can name the product -- a rolled-back
+        flush cannot. This is the branch the unit tier stages by hand; here the
+        collation produces it.
+        """
+        service = integration_catalog_service
+        conflicted = service.create_product(description='both spellings')
+        clean = service.create_product(description='just ssr')
+        assert conflicted is not None and clean is not None
+        service.set_product_tags(conflicted, ['ssr', TAG_ACCENTED])
+        service.set_product_tags(clean, ['ssr'])
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.rename_tag('ssr', TAG_UNACCENTED)
+        assert exc_info.value.field == 'new_tag'
+        assert str(conflicted) in str(exc_info.value)
+
+        # Atomic: the product that COULD have moved did not, either.
+        assert service.get_tags_for_product(conflicted) == sorted(
+            ['ssr', TAG_ACCENTED])
+        assert service.get_tags_for_product(clean) == ['ssr']
+
+    @pytest.mark.integration
+    def test_fixing_an_accent_renames_in_place(self, integration_catalog_service):
+        """'cafe' -> 'café' is a real rename, not a no-op and not a merge.
+
+        The two are one value to the index, so the UPDATE rewrites the row to a
+        key that folds onto the key it already had -- legal only because it is
+        the SAME row. Nothing in the unit tier can tell this apart from any
+        other rename; here it is the case most likely to trip the unique index
+        if the method ever grew a delete-then-insert shortcut.
+        """
+        service = integration_catalog_service
+        product = service.create_product(description='misspelled')
+        assert product is not None
+        service.set_product_tags(product, [TAG_UNACCENTED, 'keepme'])
+
+        assert service.rename_tag(TAG_UNACCENTED, TAG_ACCENTED) == (1, 0)
+
+        assert service.get_tags_for_product(product) == sorted(
+            [TAG_ACCENTED, 'keepme'])
+
+    @pytest.mark.integration
+    def test_a_merge_leaves_one_row_and_loses_no_other_tag(
+            self, integration_catalog_service):
+        """The merge, run where the unique constraint is the real one.
+
+        Product B already carries the destination, so its source row is deleted
+        rather than rewritten -- and the deletes are flushed before the
+        rewrites, which is what keeps a row on its way out from colliding with
+        one being rewritten under the folding index.
+        """
+        service = integration_catalog_service
+        moved = service.create_product(description='source only')
+        merged = service.create_product(description='both tags')
+        assert moved is not None and merged is not None
+        service.set_product_tags(moved, ['ssr'])
+        service.set_product_tags(merged, ['ssr', 'relay', 'keepme'])
+
+        assert service.rename_tag('ssr', 'relay') == (1, 1)
+
+        assert service.get_tags_for_product(moved) == ['relay']
+        assert service.get_tags_for_product(merged) == ['keepme', 'relay']

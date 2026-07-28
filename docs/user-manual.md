@@ -1076,10 +1076,16 @@ rather than just saving again.
 #### Browse Tags
 
 **Products** → **Browse Tags** (`/products/tags`) shows the **Assigned Tags**
-card with columns **Tag** and **Products**, and a **View products** action on
-each row that takes you to `/products/tags/filter?tag=<tag>`. That page is
-headed **Tag: `<tag>`** and lists **Tagged Products** with columns
-**Description**, **Manufacturer / MPN** and **Category**.
+card with columns **Tag**, **Products** and **Actions**. Every row offers two
+actions: **View products**, which takes you to
+`/products/tags/filter?tag=<tag>`, and **Rename** (see below). Unlike **Manage
+Categories** there is no "not canonical" row here — the tag table is only ever
+written through something that normalizes first (the product form, and the
+rename below), so every stored tag is already canonical and every row can be
+renamed.
+
+The filter page is headed **Tag: `<tag>`** and lists **Tagged Products** with
+columns **Description**, **Manufacturer / MPN** and **Category**.
 
 Tags on a product's own page are clickable badges pointing at the same filter.
 
@@ -1091,6 +1097,101 @@ carries it."
 Two guards send you back to the tag list: `Pick a tag to filter by.` when no tag
 was given, and "That is not a usable tag, so nothing could carry it. Pick one
 from the list." for a tag no product could ever hold.
+
+#### Renaming a Tag
+
+Renaming a tag fixes a typo, or standardizes two spellings, across every product
+carrying it at once — without opening a single product form.
+
+1. **Navigate**: **Browse Tags**, then **Rename** on the row you want.
+2. **Read the preview**: the **What Will Change** card names the **Tag** and how
+   many **Products affected** carry it, over the note "Every product carrying
+   this tag is retagged in one transaction. If a product already carries the new
+   tag, the two are merged — it keeps one copy of the new tag and loses none of
+   its other tags." This preview *is* the confirmation step. It cannot show what
+   the *destination* side will look like, because you have not typed the
+   destination yet — that is what the merge note is stating instead.
+3. **Type the destination** into **New Tag \***. Nothing is cut off as you type
+   — the 64-character limit is on the stored tag, and normalization trims what
+   you type before measuring it. This field deliberately has no autocomplete:
+   an existing tag *is* a legal destination here, so offering the vocabulary
+   would invite a merge you never meant. The help under it reads "Normalized the
+   same way as the product form: trimmed, internal whitespace collapsed,
+   lowercased, no `,`. An existing tag is allowed here — the two are merged."
+4. **Submit**: click **Rename Tag**, or **Cancel** to back out.
+
+**Renaming onto an existing tag merges the two.** This is the deliberate
+opposite of the category rename, which refuses a merge outright. A product sits
+in one category, so folding two branches together would have to throw one away;
+a product carries many tags, so the union of two tag sets loses nothing. A
+product that already carries the destination simply drops its copy of the old
+tag — it ends up with *one* copy of the new one, and every other tag it carries
+is left alone.
+
+**A merge cannot be undone by renaming back.** Once `ssr` is merged into
+`relay`, nothing records which products arrived that way, so renaming `relay`
+back to `ssr` moves every product carrying `relay` — including the ones that
+only ever carried it.
+
+On success you are returned to the listing with
+`Renamed tag "old" to "new" — N product(s) updated.` When something merged, a
+second sentence follows:
+`M product(s) already carried "new", so their "old" was merged into it.` The two
+counts are reported separately on purpose: a merged product's tag count goes
+*down*, so a single total would overstate what the listing then shows. When
+*every* carrying product already held the destination, nothing was rewritten at
+all and the message says so in one sentence instead:
+`Merged tag "old" into "new" — all M product(s) carrying it already carried "new", so their "old" was dropped rather than rewritten.`
+
+A rename can be refused, and nothing at all is written when it is. Where you
+land afterwards depends on which of the two values was refused: a refusal that
+names the **destination** brings the form straight back with your typed value
+intact and that field marked, while a refusal that names the **source** sends
+you back to the listing with the message. The source is a hidden field on that
+form — there would be nothing on the page to correct, and re-submitting would
+reproduce the same refusal forever.
+
+- `Enter the new tag.` — the destination was left blank.
+- `Select a tag to rename.` — the submission named no source tag. (Note the
+  wording: the guard that fires *before* the form is shown says "Pick a tag to
+  rename." instead.)
+- `'x' is already this tag — nothing to rename.` — the two normalize to the same
+  value, so `ssr` → `SSR` is refused rather than silently doing nothing.
+- `No products carry tag 'x'.`
+- `Tag is too long: N characters (max 64).` and
+  `A tag cannot contain ',' — that is the separator between tags.` — the same
+  two rules the product form applies, judged on whichever of the two values you
+  gave; if it was the destination, the field marked in red tells you so.
+- `The tag to rename contains characters that cannot be stored or matched.` /
+  `The new tag contains characters that cannot be stored or matched.` — only a
+  hand-edited value can produce this.
+- `Cannot rename to 'cafe': product(s) 1, 2 already carry 'café', which the database treats as the same tag. Rename those first, or pick another destination.`
+  The database compares tags with accents and case folded (the same rule the
+  [Tags](#tags) section describes), so a product carrying *both* spellings
+  cannot take this rename — one of the two would have to be discarded, and
+  neither is yours to discard. Long lists are named in part and end
+  `, ... (N in total)`.
+- `Another change added 'x' to one of these products at the same time, so nothing was renamed.`
+  Worth simply submitting again; nothing about the rename was wrong. This is the
+  one destination refusal that leaves **New Tag** *unmarked* — the value you
+  typed was never the problem.
+- `An error occurred while renaming the tag. Please try again.` — the rename did
+  not run at all. On this one the form comes back with **Products affected**
+  reading `unknown` and the note "The tag could not be read, so how many
+  products carry it is unknown," because the preview could not be rebuilt
+  either.
+
+Three guards fire before the form is even shown, each sending you back to the
+listing: `Pick a tag to rename.` when no tag was given, "That is not a usable
+tag, so nothing could carry it. Pick one from the list." when the link carried
+something no tag could ever be (over-length, or containing a `,` — only a
+truncated or hand-edited link produces it), and `No products carry tag "X".`
+when nothing carries it.
+
+There is deliberately no way to **delete** a tag from every product at once.
+Removing a tag everywhere is destructive in a way a rename is not, and it would
+want its own confirmation step; clear tags one product at a time on the product
+form instead.
 
 ### Finding a Product
 

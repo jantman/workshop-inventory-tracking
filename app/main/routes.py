@@ -3072,6 +3072,193 @@ def tag_list():
                            tags=service.list_tags())
 
 
+def _tag_rename_preview(service, raw_tag):
+    """
+    Resolve a `?tag=` (or posted `old_tag`) into what a rename would move.
+
+    Returns (source, total) where `source` is the canonical source tag or None
+    when the value carries no usable tag at all, and `total` is how many
+    products carry it. A zero `total` means nothing carries the tag — there is
+    nothing to rename.
+
+    An UNUSABLE value (over-length, or carrying the `,` separator) is folded
+    into that same `(None, 0)` on purpose, but only because every caller has
+    already answered it: the GET refuses it by name before reaching here, and
+    the POST only gets here to REBUILD the preview beside a message the service
+    already produced. Folding it in is what keeps this helper from raising
+    InvalidTagError into `_rerender`'s backend-failure handler, where it would
+    be reported as "the tag could not be read" — a database problem the
+    operator does not have.
+
+    Deliberately thinner than `_category_rename_preview`, and the asymmetry is
+    the operation's own: a category rename can enumerate the whole subtree it
+    will move because the destination is irrelevant to WHICH rows move, while a
+    tag rename's outcome depends on a destination the operator has not typed
+    yet. So this previews the source and its count, and the form states the
+    merge rule up front rather than inventing a second confirmation step.
+    """
+    try:
+        source = tag_util.normalize_tag(raw_tag)
+    except tag_util.InvalidTagError:
+        # See the note above: the callers have already distinguished this case,
+        # so here it collapses into the same "nothing carries it" shape as any
+        # other miss rather than escaping as an exception.
+        source = None
+    if source is None:
+        return None, 0
+    # Keyed on the canonical form against `list_tags`, which groups in Python —
+    # so this reads the count for THIS tag rather than for whatever the
+    # database's collation would have folded onto it.
+    return source, dict(service.list_tags()).get(source, 0)
+
+
+@bp.route('/products/tags/rename', methods=['GET', 'POST'])
+def tag_rename():
+    """Rename a tag across every product carrying it, merging on collision
+    (FR16).
+
+    The GET previews the tag and how many products carry it — the preview IS
+    the confirmation. The POST hands both values to CatalogService, which does
+    every affected row in one transaction and explains any refusal as a
+    ValidationError.
+
+    Unlike the category rename there is no canonicality guard on the way in:
+    `product_tags` was created empty and EVERY writer of it normalizes before
+    it writes — `set_product_tags`, and now this page's own `rename_tag`, which
+    stores the canonical destination and nothing else. So a stored tag is
+    canonical by construction and a normalized `?tag=` can only resolve to the
+    row it came from. (The claim is about the normalizing, not about there
+    being one writer: a second writer that normalizes cannot introduce a
+    non-canonical row either.)
+    """
+    service = _get_catalog_service()
+
+    if request.method == 'GET':
+        raw_tag = request.args.get('tag', '')
+        if not raw_tag.strip():
+            # Reached without picking a row (a bookmark, or a hand-typed URL);
+            # "no products carry ''" would describe the wrong problem.
+            flash('Pick a tag to rename.', 'error')
+            return redirect(url_for('main.tag_list'))
+        try:
+            tag_util.normalize_tag(raw_tag)
+        except tag_util.InvalidTagError:
+            # Over-length, or carrying the `,` separator: no stored tag can
+            # ever equal it, so the preview below would answer "no products
+            # carry it" — true, but a description of the wrong problem. Someone
+            # who followed a truncated or hand-edited link would go looking for
+            # a tag that vanished instead of for the link that mangled it. Same
+            # answer, in the same words, as `tag_filter` gives the same input
+            # class just below.
+            flash('That is not a usable tag, so nothing could carry it. '
+                  'Pick one from the list.', 'error')
+            return redirect(url_for('main.tag_list'))
+        source, total = _tag_rename_preview(service, raw_tag)
+        if not total:
+            flash(f'No products carry tag "{raw_tag}".', 'error')
+            return redirect(url_for('main.tag_list'))
+        return render_template('product/tag_rename.html',
+                               title=f'Rename {source}', source=source,
+                               total=total, new_tag='', error_field=None,
+                               error_message=None, preview_failed=False)
+
+    form_data = request.form.to_dict()
+    log_audit_operation('tag_rename', 'input', form_data=form_data)
+    raw_old = form_data.get('old_tag', '')
+    new_tag = form_data.get('new_tag', '')
+
+    def _rerender(message, error_field='new_tag'):
+        preview_failed = False
+        try:
+            source, total = _tag_rename_preview(service, raw_old)
+        except Exception:
+            # The preview is a second trip to the database, so on a backend
+            # failure it fails too — and re-raising here would replace the
+            # message the operator needs with a 500 page. The template is told
+            # the count is UNKNOWN rather than zero: rendering "no products
+            # carry this tag" next to a database error would state, as fact,
+            # something never established — and read as if the operator's tag
+            # had vanished.
+            source, total = None, 0
+            preview_failed = True
+        return render_template('product/tag_rename.html',
+                               title=f'Rename {source or raw_old}',
+                               source=source or raw_old, total=total,
+                               new_tag=new_tag, error_field=error_field,
+                               error_message=message,
+                               preview_failed=preview_failed)
+
+    try:
+        renamed, merged = service.rename_tag(raw_old, new_tag)
+    except ValidationError as e:
+        # A refused rename never writes anything (the service is atomic), but
+        # where the operator is sent depends on whether they can DO anything
+        # about it, and that is what the refused field says.
+        field = e.field or 'new_tag'
+        if field == 'old_tag':
+            # The source is a HIDDEN input, so re-rendering the form would hand
+            # back a page with nothing to correct: resubmitting reproduces the
+            # identical refusal forever and the only way out is Cancel. Blank,
+            # unusable, or carried by no product — every one of them is a
+            # property of a value the form does not let the operator touch, so
+            # this goes back to the listing with the reason, exactly as the GET
+            # guard already does for the same three inputs. (It also stops the
+            # page stating the problem twice: the alert, and the card's "No
+            # products carry this tag." underneath it.)
+            flash(str(e), 'error')
+            return redirect(url_for('main.tag_list'))
+        if getattr(e, 'retryable', False):
+            # The concurrent-writer race. Nothing about the destination is
+            # wrong — the identical submission succeeds once the racing
+            # transaction is done — so the input is NOT painted invalid; the
+            # message above the form already explains it. Marking it would
+            # render the race identically to a permanent collation collision
+            # and tell the operator to change a value that was never the
+            # problem, which is the same distinction `_apply_product_tags`
+            # draws off this flag.
+            return _rerender(str(e), error_field=None)
+        # A destination refusal the operator CAN act on: re-render with the
+        # reason and the typed value intact, marking the field the service
+        # named rather than always blaming the destination.
+        return _rerender(str(e), error_field=field)
+    except Exception as e:
+        current_app.logger.error(f'Error renaming tag {raw_old!r}: {e}\n{traceback.format_exc()}')
+        return _rerender('An error occurred while renaming the tag. '
+                         'Please try again.', error_field=None)
+
+    # Both values normalized cleanly (the rename succeeded), so the flash can
+    # report the canonical forms actually stored.
+    old_canonical = tag_util.normalize_tag(raw_old)
+    new_canonical = tag_util.normalize_tag(new_tag)
+    if renamed:
+        message = (f'Renamed tag "{old_canonical}" to "{new_canonical}" — '
+                   f'{renamed} product(s) updated.')
+        if merged:
+            # Reported SEPARATELY from the rewrite count, because the two
+            # outcomes differ in a way the operator can check: a merged product
+            # ends up with ONE new-tag row where it previously carried two
+            # tags, so a single "N product(s) updated" would overstate what the
+            # tag listing will now show against the destination.
+            message += (f' {merged} product(s) already carried '
+                        f'"{new_canonical}", so their "{old_canonical}" was '
+                        f'merged into it.')
+    else:
+        # NOTHING was rewritten: every carrying product already had the
+        # destination, so the operation was a pure merge and the source tag
+        # simply stopped existing. The renamed-count sentence is not merely
+        # uninformative here, it is wrong twice over — it leads with "0
+        # product(s) updated" and is then contradicted by the merge sentence
+        # reporting products that plainly were changed. (A rename where BOTH
+        # counts are zero never reaches this line: the service refuses a source
+        # no product carries.)
+        message = (f'Merged tag "{old_canonical}" into "{new_canonical}" — '
+                   f'all {merged} product(s) carrying it already carried '
+                   f'"{new_canonical}", so their "{old_canonical}" was dropped '
+                   f'rather than rewritten.')
+    flash(message, 'success')
+    return redirect(url_for('main.tag_list'))
+
+
 @bp.route('/products/tags/filter')
 def tag_filter():
     """List exactly the products carrying one tag, whatever their categories

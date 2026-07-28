@@ -56,9 +56,14 @@ it never asked for.
 
 Future extensibility:
 --------------------
-Nothing further is planned here. A tag rename, merge or delete, should one ever
-be specified, would belong in the service — it is a decision about rows, not a
-property of a tag string.
+Nothing further is planned here, and the one thing that WAS since specified
+landed where this note said it would: `CatalogService.rename_tag` (DW-48)
+renames a tag across every product carrying it and merges it into an existing
+destination. It calls `normalize_tag` for both of its arguments and decides
+everything else itself, because which rows move, which are deleted as
+duplicates and which collide under the database's collation are decisions about
+rows — not properties of a tag string. A delete is still unspecified and would
+belong in the same place for the same reason.
 """
 
 from typing import List, Optional

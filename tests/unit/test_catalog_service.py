@@ -3234,3 +3234,598 @@ class TestTagFieldValueSuggestions:
         assert catalog_service.get_field_value_suggestions('tags') == ['ssr']
         assert catalog_service.get_field_value_suggestions('category_path') == [
             'electronics/power']
+
+
+def _rename_tag_error(catalog_service, old_tag, new_tag):
+    """Attempt a tag rename expected to be REFUSED; return the ValidationError.
+
+    Centralizes the local `app.exceptions` import the rest of this module uses
+    per-test, since every rejection row of DW-48's matrix needs it.
+    """
+    from app.exceptions import ValidationError
+    with pytest.raises(ValidationError) as exc_info:
+        catalog_service.rename_tag(old_tag, new_tag)
+    return exc_info.value
+
+
+def _tagged(catalog_service, *tags, description='p'):
+    """A product carrying `tags`; returns its id."""
+    product_id = catalog_service.create_product(description=description)
+    if tags:
+        catalog_service.set_product_tags(product_id, list(tags))
+    return product_id
+
+
+def _fold_the_select(monkeypatch, *spellings):
+    """Make `rename_tag`'s one narrowing SELECT hand back the near-misses named
+    in `spellings`, the way MariaDB's collation does and SQLite's binary one
+    never can.
+
+    `rename_tag` narrows with `or_(tag == old, tag == new)`. Under
+    utf8mb4_unicode_ci that equality also matches a stored 'café' for a 'cafe'
+    filter, which is the entire reason the method partitions in Python
+    afterwards — and the entire thing the unit tier cannot otherwise stage. So
+    the module's `or_` is replaced with one that ORs the REAL clauses plus an
+    equality against each named spelling: `_fold_the_select(monkeypatch,
+    'café')` says "the database considers 'café' to fold onto one of these two
+    tags", and says nothing about any other row.
+
+    Naming the spellings is what makes the stub FAITHFUL rather than merely
+    wider. An always-true predicate would drag EVERY product_tags row into the
+    result, so a moving product carrying any unrelated tag would land in
+    `folded`, be reported as a conflict, and let the conflict tests pass
+    against a partition that had nothing to do with folding — the one thing
+    they exist to check. utf8mb4_unicode_ci folds case and accents, not
+    'keepme' onto 'relay'.
+
+    The rows are REAL rows from the test database rather than a stubbed query
+    result, so what is under test is the partition, which is where the decision
+    actually lives. The patch is undone by pytest's `monkeypatch` fixture at
+    teardown; no test here needs it to outlive the call.
+    """
+    import app.mariadb_catalog_service as service_module
+    from app.database import ProductTag
+
+    real_or = service_module.or_
+
+    def folding_or(*clauses):
+        return real_or(*clauses,
+                       *[ProductTag.tag == spelling for spelling in spellings])
+
+    monkeypatch.setattr('app.mariadb_catalog_service.or_', folding_or)
+
+
+class TestRenameTag:
+    """Renaming a tag moves every carrying product and MERGES into an existing
+    destination — the opposite of the category rename, because a Product
+    carries many tags and the union of two tag sets is lossless (DW-48,
+    FR16)."""
+
+    @pytest.mark.unit
+    def test_rename_moves_every_carrying_product(self, catalog_service):
+        """The matrix's plain-rename row: three products carry 'ssr', nothing
+        carries 'relay', so three rows are rewritten and none merged."""
+        carriers = [_tagged(catalog_service, 'ssr') for _ in range(3)]
+        untouched = _tagged(catalog_service, 'rectifier')
+
+        assert catalog_service.rename_tag('ssr', 'relay') == (3, 0)
+
+        for pid in carriers:
+            assert catalog_service.get_tags_for_product(pid) == ['relay']
+        assert catalog_service.get_tags_for_product(untouched) == ['rectifier']
+        # The vocabulary followed: 'ssr' is gone because nothing carries it.
+        assert dict(catalog_service.list_tags()) == {'relay': 3,
+                                                     'rectifier': 1}
+
+    @pytest.mark.unit
+    def test_renaming_onto_an_existing_tag_merges(self, catalog_service):
+        """The matrix's merge row: P1,P2 carry 'ssr'; P2,P3 carry 'relay'.
+
+        P1's row is rewritten and P2's 'ssr' row is DELETED — P2 already
+        carries the destination, and a second row would be the duplicate the
+        unique constraint refuses. The counts distinguish the two outcomes
+        because the operator can see the difference on the listing.
+        """
+        p1 = _tagged(catalog_service, 'ssr')
+        p2 = _tagged(catalog_service, 'ssr', 'relay', 'keepme')
+        p3 = _tagged(catalog_service, 'relay')
+
+        assert catalog_service.rename_tag('ssr', 'relay') == (1, 1)
+
+        assert catalog_service.get_tags_for_product(p1) == ['relay']
+        # ONE relay row, not two — and the tag that had nothing to do with the
+        # rename survived it.
+        assert catalog_service.get_tags_for_product(p2) == ['keepme', 'relay']
+        assert [row.tag for row in _tag_rows(catalog_service, p2)].count(
+            'relay') == 1
+        assert catalog_service.get_tags_for_product(p3) == ['relay']
+
+    @pytest.mark.unit
+    def test_both_arguments_are_normalized(self, catalog_service):
+        """The matrix row: '  SSR ' -> ' Relay ' is 'ssr' -> 'relay'."""
+        pid = _tagged(catalog_service, 'ssr')
+
+        assert catalog_service.rename_tag('  SSR ', ' Relay ') == (1, 0)
+        assert catalog_service.get_tags_for_product(pid) == ['relay']
+
+    @pytest.mark.unit
+    def test_a_merge_is_still_one_transaction(self, catalog_service,
+                                              monkeypatch):
+        """Deletes and rewrites land in ONE transaction — not a commit per
+        row, so a failure halfway can never leave a tag half-renamed."""
+        commits = []
+        session_factory = catalog_service.Session
+
+        def counting_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_commit = session.commit
+
+            def commit():
+                commits.append(1)
+                return real_commit()
+
+            session.commit = commit
+            return session
+
+        for _ in range(3):
+            _tagged(catalog_service, 'ssr')
+        _tagged(catalog_service, 'ssr', 'relay')
+        monkeypatch.setattr(catalog_service, 'Session', counting_factory)
+
+        assert catalog_service.rename_tag('ssr', 'relay') == (3, 1)
+        assert commits == [1]
+
+    @pytest.mark.unit
+    def test_deletes_are_flushed_before_the_rewrites(self, catalog_service):
+        """A merge must emit its DELETEs before its UPDATEs.
+
+        SQLAlchemy's unit of work orders updates before deletes, so a product
+        whose 'ssr' row is on its way out would still hold it while a SIBLING
+        product's row is rewritten onto 'relay' — and under MariaDB's folding
+        unique index a rewrite can collide with a row that is already leaving.
+        SQLite cannot reproduce the folding, but the statement ORDER the fix
+        turns on is observable anywhere.
+        """
+        from sqlalchemy import event
+
+        _tagged(catalog_service, 'ssr')
+        _tagged(catalog_service, 'ssr', 'relay')
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            verb = statement.strip().split(None, 1)[0].upper()
+            if verb in ('UPDATE', 'DELETE') and 'product_tags' in statement:
+                statements.append(verb)
+
+        event.listen(catalog_service.engine, 'before_cursor_execute', record)
+        try:
+            catalog_service.rename_tag('ssr', 'relay')
+        finally:
+            event.remove(catalog_service.engine, 'before_cursor_execute',
+                         record)
+
+        assert statements == ['DELETE', 'UPDATE'], (
+            f'expected the delete to precede the rewrite, got {statements}')
+
+    # --- The folding collation's two shapes, staged on SQLite ---------------
+
+    @pytest.mark.unit
+    def test_a_folded_near_miss_is_not_dragged_along(self, catalog_service,
+                                                     monkeypatch):
+        """The matrix row: P1 carries 'café', P2 carries 'cafe'; renaming
+        'cafe' moves ONLY P2.
+
+        Membership in the moving set is exact Python equality, never what the
+        SQL matched — so a row the collation folded onto the source is left
+        exactly where it is rather than silently rewritten to a tag its
+        product's owner never typed.
+        """
+        near_miss = _tagged(catalog_service, 'café')
+        carrier = _tagged(catalog_service, 'cafe')
+        bystander = _tagged(catalog_service, 'unrelated')
+        _fold_the_select(monkeypatch, 'café')
+
+        assert catalog_service.rename_tag('cafe', 'x') == (1, 0)
+
+        assert catalog_service.get_tags_for_product(near_miss) == ['café']
+        assert catalog_service.get_tags_for_product(carrier) == ['x']
+        # 'unrelated' folds onto nothing, so the SELECT never hands it over —
+        # and a tag the query never saw is a tag the rename cannot have moved.
+        assert catalog_service.get_tags_for_product(bystander) == ['unrelated']
+
+    @pytest.mark.unit
+    def test_a_folded_destination_conflict_is_refused(self, catalog_service,
+                                                      monkeypatch):
+        """The matrix row: P1 carries 'ssr' AND 'café'; renaming 'ssr' ->
+        'cafe' is refused, naming the product.
+
+        Two tags the operator deliberately spelled differently are one row to
+        the index, so the rewrite would collide with a row P1 also means to
+        keep. Discarding either is the one outcome neither this method nor
+        `set_product_tags` allows — and the refusal is decided BEFORE any write,
+        because a rolled-back flush cannot say which products were involved.
+        """
+        conflicted = _tagged(catalog_service, 'ssr', 'café')
+        clean = _tagged(catalog_service, 'ssr')
+        _fold_the_select(monkeypatch, 'café')
+
+        error = _rename_tag_error(catalog_service, 'ssr', 'cafe')
+        assert error.field == 'new_tag'
+        assert str(conflicted) in str(error)
+        assert 'café' in str(error)
+        # Nothing was written — not even for the product that could have moved.
+        assert catalog_service.get_tags_for_product(conflicted) == ['café',
+                                                                    'ssr']
+        assert catalog_service.get_tags_for_product(clean) == ['ssr']
+
+    @pytest.mark.unit
+    def test_an_unrelated_tag_on_a_moving_product_is_not_a_conflict(
+            self, catalog_service, monkeypatch):
+        """The complement of the refusal below: a MOVING product may carry
+        other tags, and carrying them is not a collision.
+
+        Only a tag the database folds onto the destination can collide with the
+        rewrite. 'keepme' folds onto nothing, so the mover is renamed and keeps
+        it — while a genuine near-miss on a DIFFERENT product is handed to the
+        partition in the same query and correctly ignored. Without this row,
+        every conflict test above would still pass against a partition that
+        refused on any second tag whatsoever.
+        """
+        mover = _tagged(catalog_service, 'ssr', 'keepme')
+        near_miss = _tagged(catalog_service, 'café')
+        _fold_the_select(monkeypatch, 'café')
+
+        assert catalog_service.rename_tag('ssr', 'cafe') == (1, 0)
+
+        assert catalog_service.get_tags_for_product(mover) == ['cafe', 'keepme']
+        assert catalog_service.get_tags_for_product(near_miss) == ['café']
+
+    @pytest.mark.unit
+    def test_the_conflict_list_states_that_it_was_truncated(
+            self, catalog_service, monkeypatch):
+        """An operator who fixes the named products and hits the identical
+        error again must be told the list was only ever partial.
+
+        BOTH lists in the message are capped, so both are staged past the cap
+        here: every conflicted product carries its own distinct near-miss
+        spelling. A silently sliced spellings list is the same trap as a
+        silently sliced id list — fix the ones on screen, hit the identical
+        error, and there is nothing saying a spelling was withheld.
+        """
+        import re
+
+        from app.mariadb_catalog_service import MAX_TAGS_NAMED_IN_ERROR
+
+        spellings = [f'café{i:02d}' for i in range(MAX_TAGS_NAMED_IN_ERROR + 3)]
+        conflicted = sorted(_tagged(catalog_service, 'ssr', spelling)
+                            for spelling in spellings)
+        _fold_the_select(monkeypatch, *spellings)
+
+        message = str(_rename_tag_error(catalog_service, 'ssr', 'cafe'))
+
+        # The two lists are PARSED out of the message rather than probed with
+        # `str(pid) in message`: product 1's id is a substring of the "11 in
+        # total" figure the truncation marker prints, so a containment check
+        # counts ids the message never named and cannot pin the cap at all.
+        ids, tags = re.search(
+            r'product\(s\) (.*?) already carry (.*?), which the database',
+            message).groups()
+
+        named_ids, _, id_marker = ids.partition(', ... ')
+        assert [int(pid) for pid in named_ids.split(', ')] == (
+            conflicted[:MAX_TAGS_NAMED_IN_ERROR])
+        assert id_marker == f'({len(conflicted)} in total)'
+
+        named_tags, _, tag_marker = tags.partition(', ... ')
+        assert named_tags.split(', ') == [
+            f"'{spelling}'" for spelling in spellings[:MAX_TAGS_NAMED_IN_ERROR]]
+        assert tag_marker == f'({len(spellings)} in total)'
+
+    # --- Rejections: every one leaves the rows untouched --------------------
+
+    @pytest.mark.unit
+    def test_a_source_nothing_carries_is_rejected(self, catalog_service):
+        pid = _tagged(catalog_service, 'ssr')
+
+        error = _rename_tag_error(catalog_service, 'nosuchtag', 'relay')
+        assert error.field == 'old_tag'
+        assert 'nosuchtag' in str(error)
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    def test_a_no_op_rename_is_rejected(self, catalog_service):
+        """'ssr' -> 'SSR' is the same canonical tag, so there is nothing to
+        rename and no row to report having renamed."""
+        pid = _tagged(catalog_service, 'ssr')
+
+        error = _rename_tag_error(catalog_service, 'ssr', ' SSR ')
+        assert error.field == 'new_tag'
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('old_tag, new_tag, field', [
+        ('', 'x', 'old_tag'),          # empty source
+        ('   ', 'x', 'old_tag'),       # whitespace source
+        (None, 'x', 'old_tag'),        # absent source
+        ('ssr', '', 'new_tag'),        # empty destination
+        ('ssr', '   ', 'new_tag'),     # whitespace destination
+        ('ssr', None, 'new_tag'),      # absent destination
+    ])
+    def test_blank_arguments_are_rejected(self, catalog_service, old_tag,
+                                          new_tag, field):
+        pid = _tagged(catalog_service, 'ssr')
+
+        error = _rename_tag_error(catalog_service, old_tag, new_tag)
+        assert error.field == field
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('old_tag, new_tag, field', [
+        (5, 'x', 'old_tag'),                 # non-string source
+        ('ssr', ['x'], 'new_tag'),           # non-string destination
+        ('a' * 200, 'x', 'old_tag'),         # over-length source
+        ('ssr', 'b' * 200, 'new_tag'),       # over-length destination
+        ('a,b', 'x', 'old_tag'),             # separator in the source
+        ('ssr', 'c,d', 'new_tag'),           # separator in the destination
+    ])
+    def test_unusable_arguments_are_rejected(self, catalog_service, old_tag,
+                                             new_tag, field):
+        """A request error, not a 500: the util's InvalidTagError is converted
+        rather than allowed to escape."""
+        pid = _tagged(catalog_service, 'ssr')
+
+        error = _rename_tag_error(catalog_service, old_tag, new_tag)
+        assert error.field == field
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('old_tag, new_tag, field', [
+        ('a\x00b', 'x', 'old_tag'),        # NUL in the source
+        ('\x00', 'x', 'old_tag'),          # ...alone
+        ('a\ud800b', 'x', 'old_tag'),      # unpaired surrogate in the source
+        ('ssr', 'c\x00d', 'new_tag'),      # NUL in the destination
+        ('ssr', 'c\ud800d', 'new_tag'),    # unpaired surrogate there
+    ])
+    def test_unstorable_arguments_are_rejected_before_anything_is_scanned(
+            self, catalog_service, old_tag, new_tag, field):
+        """Normalization lowercases and collapses whitespace, so a NUL or an
+        unpaired surrogate survives it into the bound equality filter. A
+        surrogate cannot be encoded at all; a NUL compares as something other
+        than what it says on at least one backend, so the source would match
+        nothing (reporting the wrong problem) or the destination would be
+        WRITTEN in a form no later lookup could find. Both are refused up
+        front, naming the offending argument, with nothing written.
+
+        The emitted-SQL spy is what makes 'before anything is scanned' an
+        assertion rather than a title: field and unchanged-row checks alone
+        would also hold for a guard that ran after the SELECT.
+        """
+        from sqlalchemy import event
+
+        pid = _tagged(catalog_service, 'ssr')
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if 'product_tags' in statement.lower():
+                statements.append(statement)
+
+        event.listen(catalog_service.engine, 'before_cursor_execute', record)
+        try:
+            error = _rename_tag_error(catalog_service, old_tag, new_tag)
+        finally:
+            event.remove(catalog_service.engine, 'before_cursor_execute',
+                         record)
+
+        assert error.field == field
+        assert statements == [], statements
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    # --- The IntegrityError backstop: a concurrent writer only --------------
+
+    @pytest.mark.unit
+    def test_a_concurrent_duplicate_is_refused_as_retryable(
+            self, catalog_service, monkeypatch):
+        """The matrix row: a racing writer commits the destination tag onto a
+        moving product between the SELECT and the flush.
+
+        Every collision this method can SEE is refused before the write, so a
+        duplicate key at flush time can only be one it could not see. Nothing
+        about the rename is wrong, which is why the refusal is marked
+        `retryable` — the identical submission succeeds once the racing
+        transaction is done, and a caller keying on the field alone would tell
+        the operator to pick a different destination that was never the
+        problem.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+
+        pid = _tagged(catalog_service, 'ssr')
+        session_factory = catalog_service.Session
+
+        def colliding_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag)
+                           for obj in session.dirty):
+                    return real_flush(*a, **kw)
+                raise IntegrityError('UPDATE', {}, Exception('duplicate'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', colliding_factory)
+
+        error = _rename_tag_error(catalog_service, 'ssr', 'relay')
+        assert error.field == 'new_tag'
+        assert 'relay' in str(error)
+        assert getattr(error, 'retryable', False) is True
+
+        monkeypatch.undo()
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    @pytest.mark.unit
+    def test_an_integrity_error_that_is_not_a_duplicate_is_re_raised(
+            self, catalog_service, monkeypatch):
+        """Mislabelling an FK failure as a concurrent duplicate would send the
+        operator to retry a rename that will fail forever — and, because a
+        ValidationError is deliberately not audited, would erase a real
+        operational failure from the audit log."""
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ProductTag
+
+        pid = _tagged(catalog_service, 'ssr')
+        session_factory = catalog_service.Session
+
+        def failing_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag)
+                           for obj in session.dirty):
+                    return real_flush(*a, **kw)
+                raise IntegrityError('UPDATE', {},
+                                     Exception('foreign key constraint fails'))
+
+            session.flush = flush
+            return session
+
+        monkeypatch.setattr(catalog_service, 'Session', failing_factory)
+
+        recorded = []
+        monkeypatch.setattr(
+            'app.logging_config.log_audit_operation',
+            lambda op, status, **kw: recorded.append((op, status)))
+
+        with pytest.raises(IntegrityError):
+            catalog_service.rename_tag('ssr', 'relay')
+
+        # The audit record is the only trace an operational failure leaves.
+        assert ('rename_tag', 'error') in recorded
+
+        monkeypatch.undo()
+        assert catalog_service.get_tags_for_product(pid) == ['ssr']
+
+    # --- Audit ---------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_a_successful_rename_records_both_counts(self, catalog_service,
+                                                     monkeypatch):
+        """One success record carrying both canonical forms and both counts —
+        the merge is invisible in the row count alone."""
+        _tagged(catalog_service, 'ssr')
+        merged = _tagged(catalog_service, 'ssr', 'relay')
+
+        recorded = []
+        monkeypatch.setattr(
+            'app.logging_config.log_audit_operation',
+            lambda op, status, **kw: recorded.append((op, status, kw)))
+
+        assert catalog_service.rename_tag(' SSR ', 'Relay') == (1, 1)
+
+        assert [(op, status) for op, status, _ in recorded] == [
+            ('rename_tag', 'success')]
+        _, _, kwargs = recorded[0]
+        # Keyed on the CANONICAL source, so the same tag's history does not
+        # split by how the operator spelled it that day.
+        assert kwargs['item_id'] == 'tag:ssr'
+        # The merged products are named, not just counted: renaming back does
+        # not undo a merge, so this list is the only record of which products
+        # lost 'ssr' rather than having it rewritten.
+        assert kwargs['changes'] == {'old_tag': 'ssr', 'new_tag': 'relay',
+                                     'products_renamed': 1,
+                                     'products_merged': 1,
+                                     'merged_product_ids': [merged]}
+
+    @pytest.mark.unit
+    def test_a_rename_that_merges_nothing_records_an_empty_merge_list(
+            self, catalog_service, monkeypatch):
+        """No merge, no ids — the key is always present so a reader never has
+        to tell "no products were merged" from "an older record that did not
+        say"."""
+        _tagged(catalog_service, 'ssr')
+
+        recorded = []
+        monkeypatch.setattr(
+            'app.logging_config.log_audit_operation',
+            lambda op, status, **kw: recorded.append((op, status, kw)))
+
+        assert catalog_service.rename_tag('ssr', 'relay') == (1, 0)
+
+        _, _, kwargs = recorded[0]
+        assert kwargs['changes']['products_merged'] == 0
+        assert kwargs['changes']['merged_product_ids'] == []
+
+    @pytest.mark.unit
+    def test_a_refused_rename_writes_no_audit_record(self, catalog_service,
+                                                     monkeypatch):
+        """A refused rename is ordinary validation, not an operational failure
+        — auditing one would bury the real failures among operator typos."""
+        _tagged(catalog_service, 'ssr')
+
+        recorded = []
+        monkeypatch.setattr(
+            'app.logging_config.log_audit_operation',
+            lambda op, status, **kw: recorded.append((op, status)))
+
+        _rename_tag_error(catalog_service, 'nosuchtag', 'relay')
+        _rename_tag_error(catalog_service, 'ssr', 'SSR')
+        _rename_tag_error(catalog_service, '', 'relay')
+
+        assert recorded == []
+
+    @pytest.mark.unit
+    def test_a_failed_audit_log_cannot_mask_the_failure_it_records(
+            self, catalog_service, monkeypatch):
+        """The error arm's audit call must not REPLACE the exception it was
+        asked to record — the caller would see 'audit sink down' instead of the
+        database failure that actually killed the rename, and the real cause
+        would appear nowhere at all."""
+        from app.database import ProductTag
+
+        _tagged(catalog_service, 'ssr')
+        session_factory = catalog_service.Session
+
+        def failing_factory(*args, **kwargs):
+            session = session_factory(*args, **kwargs)
+            real_flush = session.flush
+
+            def flush(*a, **kw):
+                if not any(isinstance(obj, ProductTag)
+                           for obj in session.dirty):
+                    return real_flush(*a, **kw)
+                raise RuntimeError('the real database failure')
+
+            session.flush = flush
+            return session
+
+        def _audit_boom(*args, **kwargs):
+            raise RuntimeError('audit sink down')
+
+        monkeypatch.setattr(catalog_service, 'Session', failing_factory)
+        monkeypatch.setattr('app.logging_config.log_audit_operation',
+                            _audit_boom)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            catalog_service.rename_tag('ssr', 'relay')
+        assert 'the real database failure' in str(exc_info.value)
+
+    @pytest.mark.unit
+    def test_a_failed_audit_log_cannot_undo_a_committed_rename(
+            self, catalog_service, monkeypatch):
+        """Past the commit the rename HAS happened; raising here would make the
+        route tell the operator to retry a rename that already succeeded — and
+        send them to a tag that no longer exists."""
+        pid = _tagged(catalog_service, 'ssr')
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('audit sink down')
+
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _boom)
+
+        assert catalog_service.rename_tag('ssr', 'relay') == (1, 0)
+        assert catalog_service.get_tags_for_product(pid) == ['relay']

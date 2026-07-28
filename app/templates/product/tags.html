@@ -37,6 +37,19 @@
                                        href="{{ url_for('main.tag_filter', tag=tag) }}">
                                         <i class="bi bi-funnel"></i> View products
                                     </a>
+                                    {# DW-48: every row gets the Rename link,
+                                       with none of the categories page's
+                                       "Not canonical" carve-out. product_tags
+                                       shipped empty and every writer of it
+                                       normalizes — set_product_tags, and the
+                                       rename this link leads to — so a stored
+                                       tag IS canonical, whichever one wrote
+                                       it. There is no legacy row a normalized
+                                       ?tag= could resolve away from. #}
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                       href="{{ url_for('main.tag_rename', tag=tag) }}">
+                                        <i class="bi bi-pencil"></i> Rename
+                                    </a>
                                 </td>
                             </tr>
                             {% endfor %}

@@ -91,8 +91,12 @@ _FIELD_SUGGESTION_MODELS = {
     'tags': ProductTag,
 }
 
-# How many tags a collision message may name before it starts summarizing. A
-# flash listing every one of MAX_TAGS_PER_PRODUCT (50) tags is not actionable.
+# How many items a collision message may name before it starts summarizing:
+# tags in `set_product_tags`, and in `rename_tag` both the conflicting
+# spellings and the product ids carrying them. A flash listing every one of
+# MAX_TAGS_PER_PRODUCT (50) tags is not actionable — and the product-id list
+# has no ceiling of its own at all, since every product carrying the source tag
+# could end up in it, which is the stronger reason to bound it.
 MAX_TAGS_NAMED_IN_ERROR = 8
 
 # Free-text search bounds (Story 4.3, AD-17). No requirement caps the number of
@@ -1437,6 +1441,319 @@ class CatalogService:
             return sorted(counts.items())
         finally:
             session.close()
+
+    def rename_tag(self, old_tag, new_tag) -> Tuple[int, int]:
+        """
+        Rename a tag across every product carrying it, MERGING it into the
+        destination where a product already carries that too, and return
+        (renamed, merged) (DW-48, FR16).
+
+        Both arguments are normalized first, so the operator may type
+        `'  SSR '` for the stored `ssr`. Every affected row is loaded on ONE
+        session, rewritten or deleted, and committed ONCE: either every
+        carrying product ends up on the new tag or none does.
+
+        That is a promise about the rows the SELECT below SAW, not about the
+        tag as a whole: nothing is locked, so a concurrent writer that ADDS the
+        source tag to some other product between that SELECT and the COMMIT
+        leaves that product behind, still carrying a tag this rename reported
+        having moved everywhere. `rename_category_path` documents the same
+        limitation on its own check-then-write, and for the same reason: this
+        is a single-operator workshop application, and the guarantee is against
+        the operator's own mistakes, not against a race.
+
+        A rename onto a tag that ALREADY EXISTS is a MERGE, not a rejection —
+        the opposite of `rename_category_path`, and for the reason that method
+        states in reverse. A Product carries at most one category, so folding
+        two branches together would have to discard one of them; a Product
+        carries many tags, so the union of two tag sets is lossless and
+        well-defined. A product already carrying the destination simply has its
+        source row DELETED (it would otherwise become a duplicate the unique
+        constraint refuses), which is what the second return value counts.
+
+        What is refused is the OTHER collision kind, the one Python cannot
+        resolve on its own: `product_tags.tag` is `utf8mb4_unicode_ci`, which
+        folds case AND accents, so a product carrying `café` and `ssr` cannot
+        take a rename of `ssr` -> `cafe` — the two are one row to the index and
+        two deliberately different strings to the operator. Silently dropping
+        either is the one outcome neither this method nor `set_product_tags`
+        allows, so it is named and refused with nothing written. That check
+        runs BEFORE any row is touched, which is what leaves the IntegrityError
+        handler below as a backstop for a concurrent writer alone.
+
+        SQL narrows, Python decides. The single query matches under the
+        column's collation, so it also hands back near-misses (`café` for a
+        `cafe` filter); membership in the moving set and in the occupied set is
+        settled by exact Python string equality, never by what the SQL matched.
+        A folded near-miss on a product that is NOT moving is left exactly
+        where it is.
+
+        Unlike create_product/update_product, failures are RAISED, not
+        swallowed into a False: a refused rename is an operator-facing decision
+        that has to explain itself.
+
+        Args:
+            old_tag: The tag to rename, as typed.
+            new_tag: The tag it becomes, as typed.
+
+        Returns:
+            (renamed, merged): how many rows were rewritten to the new tag, and
+            how many were removed because their product already carried it.
+            Their sum is the number of products affected.
+
+        Raises:
+            ValidationError: with field='old_tag' when the source is blank,
+                unusable, unstorable or carried by no product; with
+                field='new_tag' when the destination is blank, unusable,
+                unstorable, identical to the source, or folds onto a tag a
+                moving product already carries. Nothing is written in any of
+                those cases. Any integrity failure that is NOT a duplicate key
+                keeps its own identity and is re-raised.
+
+                The concurrent-writer case additionally carries
+                `retryable=True`, the same signal `set_product_tags` sets:
+                nothing about the rename is wrong and the identical submission
+                succeeds once the racing transaction is done, unlike a folded
+                collision, which is refused for as long as the tags stay as
+                they are.
+        """
+        from .logging_config import log_audit_operation
+
+        # --- Argument checks run BEFORE the session is opened: they are pure,
+        # they can be answered without the database, and keeping them out here
+        # means the handlers below never have to ask whether a session exists.
+        # (A rejection is a request error, not a 500: the util's
+        # InvalidTagError never leaks out.) ---
+        try:
+            old_canonical = tag_util.normalize_tag(old_tag)
+        except tag_util.InvalidTagError as e:
+            raise ValidationError(str(e), field='old_tag', value=str(old_tag))
+        try:
+            new_canonical = tag_util.normalize_tag(new_tag)
+        except tag_util.InvalidTagError as e:
+            raise ValidationError(str(e), field='new_tag', value=str(new_tag))
+
+        if old_canonical is None:
+            raise ValidationError(
+                'Select a tag to rename.',
+                field='old_tag', value=str(old_tag))
+        if new_canonical is None:
+            raise ValidationError(
+                'Enter the new tag.',
+                field='new_tag', value=str(new_tag))
+        # Normalization collapses whitespace and lowercases, so a NUL or an
+        # unpaired surrogate survives it and reaches the equality filter below
+        # as a bound parameter. A surrogate cannot be encoded at all (the
+        # driver raises), and a NUL compares as something other than what it
+        # says on at least one backend — so the source would match nothing
+        # (reported as the wrong problem) or the destination would be WRITTEN
+        # in a form no later lookup could find. Refused up front, before the
+        # session opens, so nothing is written either way. See
+        # `sql_text.is_storable_text`.
+        if not sql_text.is_storable_text(old_canonical):
+            raise ValidationError(
+                'The tag to rename contains characters that cannot be stored '
+                'or matched.',
+                field='old_tag', value=str(old_tag))
+        if not sql_text.is_storable_text(new_canonical):
+            raise ValidationError(
+                'The new tag contains characters that cannot be stored or '
+                'matched.',
+                field='new_tag', value=str(new_tag))
+        if old_canonical == new_canonical:
+            # Refused on the arguments alone, whether or not the tag exists.
+            # `ssr` -> `SSR` normalizes to the same value, so there is nothing
+            # to rename and no row to report having renamed.
+            raise ValidationError(
+                f"'{new_canonical}' is already this tag — nothing to rename.",
+                field='new_tag', value=new_canonical)
+
+        # Keyed on the CANONICAL source, matching the `changes` payload below:
+        # keying on the value as typed would file the same tag's history under
+        # `tag:  SSR ` and `tag:ssr` depending on how the operator spelled it
+        # that day.
+        audit_id = f'tag:{old_canonical}'
+
+        session = self.Session()
+        try:
+            # ONE query for both tags. Under MariaDB's collation the equality
+            # filter also matches folded near-misses, which is deliberate: they
+            # are exactly what the partition below has to see in order to
+            # refuse the one collision it cannot resolve. The SQL narrows; the
+            # exact Python comparisons decide.
+            rows = (session.query(ProductTag)
+                    .filter(or_(ProductTag.tag == old_canonical,
+                                ProductTag.tag == new_canonical))
+                    .all())
+
+            moving = [row for row in rows if row.tag == old_canonical]
+            occupied = {row.product_id for row in rows
+                        if row.tag == new_canonical}
+            # Empty on SQLite (binary collation), non-empty only where the
+            # database folded something onto one of the two tags.
+            folded = [row for row in rows
+                      if row.tag not in (old_canonical, new_canonical)]
+
+            if not moving:
+                raise ValidationError(
+                    f"No products carry tag '{old_canonical}'.",
+                    field='old_tag', value=old_canonical)
+
+            moving_products = {row.product_id for row in moving}
+            # A folded row on a product that is NOT moving is none of this
+            # rename's business — `café` stays put while `cafe` is renamed away
+            # from underneath it. A folded row on a product that IS moving is
+            # the refusal: that product already carries a tag the index treats
+            # as the destination, so rewriting its source row would collide
+            # with a row it also means to keep. Detected here, before anything
+            # is written, rather than left to the IntegrityError below — a
+            # rolled-back flush cannot say WHICH products were involved, and
+            # that is the only actionable part of the message.
+            #
+            # A folded row on a MOVING product can only be folding onto the
+            # destination, never onto the source, and that is what lets the
+            # message below call these rows "the same tag" as the destination
+            # without checking which side of the filter each one matched:
+            # `uq_product_tags_product_tag` is under the same folding
+            # collation, so one product physically cannot hold both `ssr` and a
+            # spelling the index reads as `ssr`. If that constraint ever stops
+            # folding, this message starts lying and the partition has to be
+            # split by side.
+            conflicts = [row for row in folded
+                         if row.product_id in moving_products]
+            if conflicts:
+                # Both lists are capped, and the cap is STATED: an operator who
+                # fixes the named products and hits the identical-looking error
+                # again would otherwise have no way to know the list was ever
+                # partial (`set_product_tags` bounds its own collision message
+                # the same way, for the same reason).
+                shown = sorted({row.product_id for row in conflicts})
+                listed = ', '.join(str(pid)
+                                   for pid in shown[:MAX_TAGS_NAMED_IN_ERROR])
+                if len(shown) > MAX_TAGS_NAMED_IN_ERROR:
+                    listed += f', ... ({len(shown)} in total)'
+                # The spellings are capped and marked the same way, for the
+                # same reason: a silently sliced list of spellings sends the
+                # operator to fix the ones it named, and the rename is refused
+                # again by a spelling that was there all along and never
+                # appeared on screen.
+                distinct = sorted({row.tag for row in conflicts})
+                spellings = ', '.join(
+                    f"'{tag}'" for tag in distinct[:MAX_TAGS_NAMED_IN_ERROR])
+                if len(distinct) > MAX_TAGS_NAMED_IN_ERROR:
+                    spellings += f', ... ({len(distinct)} in total)'
+                raise ValidationError(
+                    f"Cannot rename to '{new_canonical}': product(s) {listed} "
+                    f'already carry {spellings}, which the database treats as '
+                    f'the same tag. Rename those first, or pick another '
+                    f'destination.',
+                    field='new_tag', value=new_canonical)
+
+            # The merge, decided in Python and applied as a DELETE: a product
+            # already carrying the destination would otherwise end up with two
+            # rows the unique constraint refuses — and a tag set is a set, so
+            # dropping the duplicate loses nothing.
+            merges = [row for row in moving if row.product_id in occupied]
+            rewrites = [row for row in moving
+                        if row.product_id not in occupied]
+            # Captured HERE, before the deletes below: the merge is the one
+            # part of this rename that renaming back does NOT undo (that would
+            # carry the destination's original members along with it), and a
+            # count cannot say WHICH products lost the old tag. Since the audit
+            # log is the only record the operation leaves, the ids go in it, or
+            # the merge is unreconstructible. Read now because a deleted row
+            # stops being able to answer for its product_id once the session
+            # has flushed and committed.
+            merged_ids = sorted(row.product_id for row in merges)
+
+            try:
+                for row in merges:
+                    session.delete(row)
+                if merges:
+                    # Deletes are flushed FIRST, deliberately, for the reason
+                    # `set_product_tags` documents: SQLAlchemy's unit of work
+                    # emits inserts and updates before deletes, so a row on its
+                    # way out would still be present when a sibling row is
+                    # rewritten onto the destination — and under the folding
+                    # unique index that is a collision with a row that is
+                    # already leaving. Same transaction either way; only the
+                    # statement order changes.
+                    session.flush()
+                for row in rewrites:
+                    row.tag = new_canonical
+                session.flush()
+            except IntegrityError as exc:
+                # Everything this method can decide has been decided, so a
+                # duplicate key here means a CONCURRENT writer committed the
+                # destination tag onto one of the moving products between the
+                # SELECT above and this flush. Roll the failed flush back, then
+                # work out whether that is what happened at all.
+                session.rollback()
+                if not self._is_duplicate_key_violation(exc):
+                    # Not a uniqueness violation (an FK broken by a
+                    # concurrently-deleted product, a column constraint, a
+                    # storage-level failure). Nothing here can diagnose it, and
+                    # dressing it up as a tag conflict would send the operator
+                    # hunting for one that does not exist AND erase the failure
+                    # from the audit log, since a ValidationError is
+                    # deliberately not audited.
+                    raise
+                error = ValidationError(
+                    f"Another change added '{new_canonical}' to one of these "
+                    f'products at the same time, so nothing was renamed.',
+                    field='new_tag', value=new_canonical)
+                # RETRYABLE, unlike the folded collision above: nothing about
+                # this rename is wrong, so the IDENTICAL submission succeeds
+                # once the racing transaction is done. Saying so on the
+                # exception is what stops a caller telling the operator to pick
+                # a different destination that was never the problem — the
+                # field alone cannot distinguish the two.
+                error.retryable = True
+                raise error
+
+            session.commit()
+        except ValidationError:
+            # A refused rename is ordinary validation, not an operational
+            # failure — same as set_product_tags, it rolls back and re-raises
+            # without an audit-error record.
+            session.rollback()
+            raise
+        except Exception as e:
+            session.rollback()
+            try:
+                log_audit_operation('rename_tag', 'error', item_id=audit_id,
+                                    error_details=str(e),
+                                    logger_name='mariadb_catalog_service')
+            except Exception as audit_err:
+                # An audit sink that is down must not REPLACE the failure it
+                # was asked to record: the caller would then see 'audit sink
+                # down' in place of the database error that actually killed the
+                # rename, and the real cause would appear nowhere at all.
+                logger.warning(
+                    f'Tag rename {old_canonical!r} -> {new_canonical!r} '
+                    f'failed, and its audit log failed too: {audit_err}')
+            raise
+        finally:
+            session.close()
+
+        # Past the commit the rename HAS happened. Audit-logging therefore sits
+        # outside the try and cannot raise: the caller renders a failure
+        # message from any exception, and telling the operator to retry a
+        # rename that already succeeded would send them to a tag that no longer
+        # exists.
+        try:
+            log_audit_operation('rename_tag', 'success', item_id=audit_id,
+                                changes={'old_tag': old_canonical,
+                                         'new_tag': new_canonical,
+                                         'products_renamed': len(rewrites),
+                                         'products_merged': len(merges),
+                                         'merged_product_ids': merged_ids},
+                                logger_name='mariadb_catalog_service')
+        except Exception as e:
+            logger.warning(
+                f'Tag rename {old_canonical!r} -> {new_canonical!r} '
+                f'committed, but its audit log failed: {e}')
+        return len(rewrites), len(merges)
 
     def find_products_by_tag(self, tag) -> List[Product]:
         """

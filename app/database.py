@@ -1160,8 +1160,10 @@ class ProductTag(Base):
     when the last product drops it.
 
     `tag` always holds the canonical form app/utils/tag.py defines (trimmed,
-    internal whitespace collapsed, lowercase); CatalogService.set_product_tags
-    is the sole writer and normalizes before insert.
+    internal whitespace collapsed, lowercase). What makes that true is not that
+    one method owns the column but that EVERY writer of it normalizes first —
+    CatalogService.set_product_tags before insert, and CatalogService.rename_tag
+    before it rewrites a row onto a new tag.
 
     uq_product_tags_product_tag is FR16's "a tag is unique per Product". Note
     `tag` is PINNED to utf8mb4_unicode_ci (MYSQL_TABLE_OPTIONS above, and the

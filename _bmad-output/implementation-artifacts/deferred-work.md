@@ -415,7 +415,8 @@ source_spec: `_bmad-output/implementation-artifacts/3-3-free-form-tags.md`
 location: `app/templates/product/tags.html`
 reason: `/products/tags` shows each tag with a product count next to an Actions column offering nothing but "View products", so a typo'd tag can only be corrected by editing every carrying product one form at a time.
 evidence: Story 3.3's Never list explicitly excludes tag rename, merge and delete, so `app/templates/product/tags.html` ships the count and the link and no mutation. The asymmetry with the category half of the same epic is the point: Story 3.2 gave `/products/categories` a rename that carries descendants atomically, and the tag page now sits beside it in the same navbar dropdown showing a count it cannot act on. A tag rename/merge is materially simpler than the category one (no descendants, no path rewriting — an `UPDATE product_tags SET tag=` plus the same collision decision `rename_category_path` already makes), and the page that knows the counts is where it belongs.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-decision-dw-48
 decision: 2026-07-26 Build tag rename and merge — Add rename (and merge-on-collision, following `rename_category_path`'s existing collision decision) to `/products/tags`, with a service method on `CatalogService` mirroring the category one, the same audit logging, and coverage for the folding-collation cases `set_product_tags` already handles. Leave delete out unless it falls out for free - removing a tag from every product is a destructive bulk operation that wants its own confirmation.
 
 ### DW-49: `get_field_value_suggestions` applies `DISTINCT` in SQL, so under MariaDB's folding collation one of two distinct stored values is never offered
@@ -1748,4 +1749,13 @@ origin: review-budget-followup
 source_spec: `spec-dw-34-pinned-column-collations.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260726-064033-76c4; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-199: the audit log files every catalog operation's `input` phase under a different name than its `success`/`error`, so no operation's lifecycle can be grepped as one
+origin: spec-dw-48-tag-rename-and-merge-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-48-tag-rename-and-merge.md`
+location: `app/main/routes.py` (route-side `log_audit_operation(..., 'input', ...)` calls), `app/mariadb_catalog_service.py` (service-side `'success'`/`'error'` calls)
+severity: low
+summary: Every catalog route logs the `input` phase under the ROUTE's name while the service logs `success` and `error` under the SERVICE METHOD's name, so the two halves of one operation never share an `audit_operation` value. Grepping the audit log for either name returns half the lifecycle, and the `item_id` cannot rejoin them because the input record carries no `item_id` at all.
+evidence: Surfaced by the DW-48 follow-up review, which found `tag_rename`/`rename_tag` and then confirmed the split is systemic rather than a slip in the new code: `product_add`/`create_product`, `product_edit`/`update_product`, `purchase_add`/`record_purchase` and `category_rename`/`rename_category_path` all pair the same way (verified by enumerating the `log_audit_operation` call sites in both files). It is pre-existing and was propagated, not introduced, by DW-48 — the new page mirrors `category_rename` exactly, which is why the review did not patch it here: fixing one pair alone would make the tag page the only member of the family that joins, which is worse than a consistent split. `app/logging_config.py:415` states the point of the audit trail is "to enable data reconstruction", which is precisely what the split defeats. Closing this means picking one naming side for the whole surface (the service method's name is the better anchor, since it is what the `success`/`error` records and the `item_id` already key on) and moving every route-side `input` call onto it in one pass.
 status: open

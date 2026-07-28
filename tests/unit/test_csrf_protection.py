@@ -129,6 +129,7 @@ FORM_TEMPLATE_ENDPOINTS = [
     ('product/edit.html', 'main.product_edit', {'product_id': 1}),
     ('product/purchase_add.html', 'main.purchase_add', {'product_id': 1}),
     ('product/category_rename.html', 'main.category_rename', {}),
+    ('product/tag_rename.html', 'main.tag_rename', {}),
     ('product/detail.html', 'main.product_upload_attachment', {'product_id': 1}),
     ('admin/add_material.html', 'admin.add_material', {}),
 ]
