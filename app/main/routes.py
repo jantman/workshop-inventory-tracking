@@ -1835,6 +1835,125 @@ def _purchase_text_length_error(name, value):
     return None
 
 
+# The two date columns this form and `api_record_purchase` write, mapped to the
+# label their refusal wears. Keyed the way `_PURCHASE_FIELD_LIMITS` is keyed, and
+# for the same reason: the loop that parses them and the mapping that labels them
+# are then the same set of columns, so a third date column cannot be parsed
+# without a label or labelled without being parsed.
+_PURCHASE_DATE_LABELS = {'order_date': 'Order Date',
+                         'received_date': 'Received Date'}
+
+
+def _purchase_date(name, value):
+    """`(date, None)` for a storable purchase date, `(None, message)` for a
+    refusal, and `(None, None)` for no date at all.
+
+    The single definition of what `Purchase.order_date` and
+    `Purchase.received_date` accept, applied by both HTTP entry points that write
+    them — `_parse_purchase_form` and `api_record_purchase`. Like the other three
+    helpers beside it, it lives here rather than in the service because
+    `record_purchase` validates nothing by design and those two routes are the
+    only gates in front of it; `record_amazon_purchase` takes both dates and does
+    NOT inherit this rule either.
+
+    The grammar it enforces is exactly the one the message names: an ASCII,
+    zero-padded, four-digit-year `YYYY-MM-DD` calendar date, and nothing else.
+    That is narrower than `date.fromisoformat`, which since 3.11 parses most of
+    ISO 8601 — and the gap was not cosmetic. `'2026-W01-1'` is a week date that
+    parses to `2025-12-29`, so a purchase the operator spelled in 2026 was
+    recorded in the previous year, by a string the refusal sentence says is not
+    accepted (DW-88). `'20260101'` is the same surprise, quieter only because it
+    lands on the day meant. Not every rejection is the round-trip's, though, and
+    the difference matters to anyone tempted to simplify this: `'2026-1-1'`,
+    `'٢٠٢٦-٠١-٠١'` and `'2026-01-01T00:00:00'` never parse at all and are refused
+    by the `except` below, while the week and basic formats parse fine and are
+    refused only by the comparison. Test a change to this function with a value
+    from the SECOND group; the first group stays refused with the guard deleted.
+
+    The round-trip comparison IS the grammar rule, and deliberately so: no regex
+    (`re` is not imported in this module and should not start to be for one
+    field) and no `strptime`, whose `%Y`/`%m`/`%d` match Unicode decimal digits
+    and unpadded numbers — it would accept `'٢٠٢٦-٠١-٠١'` and `'2026-1-1'`, the
+    two spellings this exists to refuse. `date.isoformat()` always prints exactly
+    zero-padded `YYYY-MM-DD` for a year of four digits, so requiring the parse to
+    print back what was given admits every canonical spelling and no other: the
+    wider grammars parse to a date whose canonical form is a DIFFERENT string.
+    Years below 1000 (`'0999-01-01'`, `'0001-01-01'`) round-trip and stay
+    accepted, because they were already accepted and narrowing the range would be
+    a new business rule rather than the parity this closes. That is deliberate
+    and it costs nothing: MariaDB's `1000-01-01` floor is the range its `DATE`
+    type is DOCUMENTED to support, not one it enforces — 11.8 under
+    `STRICT_TRANS_TABLES` stores `'0999-01-01'` and `'0001-01-01'` and reads them
+    back with no error and no warning. So unlike `_purchase_unit_price`'s
+    `DECIMAL(10,2)` bound and the `quantity` ceiling, which guard real column
+    limits, there is no production failure here for a year bound to prevent, and
+    stating one would refuse a value the database stores.
+
+    It strips because the form always did and the endpoint never did, which is
+    the whole of DW-191: `' 2026-01-01 '` was a 302 and a stored row through the
+    form and a 400 through the endpoint, for a value both agree means the same
+    day. Stripping here — before the round-trip comparison, so the padding is
+    gone by the time canonicity is judged — is what makes the two answers one
+    answer, and it also lets a padded pair reach `_purchase_date_order_error` as
+    dates rather than dying as a format error first.
+
+    A non-`str` is refused rather than `str()`-coerced. The coercion is what let
+    the JSON integer `20260101` be stored as a date the caller never spelled, and
+    a JSON number is not a date in any spelling; `_purchase_text_length_error`
+    makes the mirror-image choice for the same reason (it counts characters, so a
+    non-string is not its business). Absence is decided BEFORE the type check, so
+    `None` still means "no date given" rather than becoming a refusal.
+
+    Absent stays absent, and three things spell it: `None`, `''` and a
+    whitespace-only string. All three return `(None, None)` — every Purchase
+    column is nullable (FR61) and a blank `order_date` is filled with today by
+    the service (DW-192), so "no date" is a valid request, not a bad one.
+
+    The human-labelled sentence is returned as-is and `api_record_purchase`
+    renders it verbatim, exactly as it already does for `_purchase_unit_price`
+    and `_purchase_text_length_error`: AD-13's `field` already carries the
+    machine name a client keys on, and a second message string differing only in
+    case is precisely the divergence sharing a helper removes (the endpoint's own
+    sentence used to be `'order_date must be an ISO date (YYYY-MM-DD)'`, without
+    the period).
+
+    That message change is not the only break for JSON callers, and the smaller
+    half of it. Three input classes flipped verdict too: `20260101` (the integer),
+    `'20260101'` and `'2026-W01-1'` each used to answer 201 and store a row and
+    now answer 400, while `'   '` used to answer 400 and now answers 201, storing
+    a purchase dated today. `ApiClient.record_purchase` (app/api_client.py)
+    forwards a caller's dict verbatim, so an integration spelling a date in
+    compact form or as a number starts failing with no change on its side — which
+    is the point: those rows were the defect, not the contract.
+    """
+    # The label lookup is unconditional, like `_purchase_text_length_error`'s:
+    # an unmapped column name is a programming error and must fail the same way
+    # whether or not a value happened to be supplied, rather than passing
+    # silently on `None` and raising `KeyError` — a 500 outside the AD-13
+    # envelope — the first time someone fills the field in.
+    label = _PURCHASE_DATE_LABELS[name]
+    # Before the type check: `None` is not a bad date, it is no date.
+    if value is None:
+        return None, None
+    # One string for every way a value fails to be a `YYYY-MM-DD` date, on the
+    # same reasoning as `_purchase_unit_price`'s single `not_a_number`: the
+    # operator's fix is the same in all of them, and the message states the
+    # requirement rather than the diagnosis.
+    message = f'{label} must be an ISO date (YYYY-MM-DD).'
+    if not isinstance(value, str):
+        return None, message
+    text = value.strip()
+    if not text:
+        return None, None
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return None, message
+    if parsed.isoformat() != text:
+        return None, message
+    return parsed, None
+
+
 def _purchase_date_order_error(order_date, received_date):
     """The out-of-order message for a purchase's date pair, or `None` — the
     third rule both entry points share (DW-24).
@@ -1853,13 +1972,12 @@ def _purchase_date_order_error(order_date, received_date):
     is what makes the interaction with the format rules resolve itself: an
     unparseable date is `None` on the form side and has already short-circuited
     the request on the JSON side, so this is never reached with a non-date and a
-    malformed date reports only its own format message. That also bounds what
-    sharing this rule buys. The two entry points now agree about ORDER, but they
-    still reach these two dates through two unshared parses that disagree about
-    padding (the form strips, the endpoint does not — DW-191) and about which
-    ISO grammar the `YYYY-MM-DD` message actually names (DW-88). Both close
-    together, in the one shared date helper that gives the FORMAT rule the
-    single definition the other columns already have.
+    malformed date reports only its own format message. Both entry points now
+    reach this through the same parse, `_purchase_date`, which gave the FORMAT
+    rule the single definition the other columns already had — so the padding
+    divergence (DW-191) and the over-wide ISO grammar (DW-88) that used to sit
+    under this rule are closed, and a padded pair is compared as the two dates it
+    spells rather than refused by one side as a format error.
 
     Falsy on either side means the pair is accepted. A `received_date` with no
     `order_date` is left alone even though `record_purchase` then defaults
@@ -1879,13 +1997,12 @@ def _parse_purchase_form(form_data):
 
     Returns `(values, errors)`. The bounds on `unit_price` and on the text
     columns live in `_purchase_unit_price` and `_purchase_text_length_error`,
-    and the one cross-field rule — a `received_date` may not precede its
-    `order_date` — in `_purchase_date_order_error`; `api_record_purchase`
-    applies all three, so the two entry points cannot come to disagree about
-    them; the only difference is the shape of the refusal (a field message on a
-    re-render rather than the AD-13 JSON envelope). The dates' own FORMAT rule
-    is still the one thing here that is NOT shared, and the two do disagree
-    about it — see DW-88 and `_purchase_date_order_error`.
+    the dates' own FORMAT rule in `_purchase_date`, and the one cross-field
+    rule — a `received_date` may not precede its `order_date` — in
+    `_purchase_date_order_error`; `api_record_purchase` applies all four, so the
+    two entry points cannot come to disagree about them; the only difference is
+    the shape of the refusal (a field message on a re-render rather than the
+    AD-13 JSON envelope).
 
     `quantity` is deliberately NOT shared, and the two entry points do still
     differ on it: the JSON endpoint's shipped contract takes a JSON integer,
@@ -1928,15 +2045,13 @@ def _parse_purchase_form(form_data):
         else:
             values['quantity'] = parsed_quantity
 
-    for name, label in (('order_date', 'Order Date'),
-                        ('received_date', 'Received Date')):
-        raw_date = (form_data.get(name) or '').strip()
-        values[name] = None
-        if raw_date:
-            try:
-                values[name] = date.fromisoformat(raw_date)
-            except ValueError:
-                errors[name] = f'{label} must be an ISO date (YYYY-MM-DD).'
+    # Both date columns and their labels come from `_PURCHASE_DATE_LABELS`, for
+    # the reason given on that mapping; the strip and the label wording this loop
+    # used to carry itself now live inside the helper, so the endpoint gets both.
+    for name in _PURCHASE_DATE_LABELS:
+        values[name], message = _purchase_date(name, form_data.get(name))
+        if message:
+            errors[name] = message
 
     # After the loop, so a date that failed to parse is `None` here and gets its
     # own format message rather than also being called out of order — the two
@@ -2125,14 +2240,17 @@ def api_record_purchase(product_id):
 
     # Parse/validate typed fields at the boundary; the service takes typed values.
     # `unit_price` and the four text columns are bounded by the same two helpers
-    # the HTML form applies (`_parse_purchase_form`), and the ORDER of the date
-    # pair by a third, `_purchase_date_order_error`, so the two entry points
-    # cannot disagree about THOSE rules; only the shape of the refusal differs.
-    # `quantity` below is deliberately not shared — see that function's
-    # docstring — and neither is the dates' own format rule (DW-88). The
-    # helpers' human-readable message is reused verbatim:
-    # `error.field` already carries the machine name a client keys on, and a
-    # second message string is exactly the divergence sharing them avoids.
+    # the HTML form applies (`_parse_purchase_form`), each date's FORMAT by a
+    # third, `_purchase_date`, and the ORDER of the pair by a fourth,
+    # `_purchase_date_order_error`, so the two entry points cannot disagree about
+    # THOSE rules; only the shape of the refusal differs. `quantity` below is
+    # deliberately not shared — see that function's docstring — and is now the
+    # only column here that is not. The helpers' human-readable message is reused
+    # verbatim: `error.field` already carries the machine name a client keys on,
+    # and a second message string is exactly the divergence sharing them avoids.
+    # That reuse is what changed the two date refusals from the lowercase
+    # `'order_date must be an ISO date (YYYY-MM-DD)'` this endpoint used to spell
+    # itself to the form's labelled sentence (DW-88/DW-191).
     #
     # First failure wins, and the text columns are judged first, so a body with
     # several bad fields names the earliest one in `_PURCHASE_FIELD_LIMITS`.
@@ -2204,20 +2322,30 @@ def api_record_purchase(product_id):
             f'quantity must be greater than 0 and no more than {_MAX_INT32}',
             400, field='quantity')
 
-    def _parse_date(value, field):
-        if value in (None, ''):
-            return None, None
-        try:
-            return date.fromisoformat(str(value)), None
-        except ValueError:
-            return None, _catalog_json_error('invalid_field', f'{field} must be an ISO date (YYYY-MM-DD)', 400, field=field)
-
-    order_date, err = _parse_date(body.get('order_date'), 'order_date')
-    if err:
-        return err
-    received_date, err = _parse_date(body.get('received_date'), 'received_date')
-    if err:
-        return err
+    # Over `_PURCHASE_DATE_LABELS` rather than two hand-written calls, for the
+    # reason the text columns above are judged by a loop over
+    # `_PURCHASE_FIELD_LIMITS`: the set of columns this route JUDGES is then the
+    # same set the form judges, by construction, so neither entry point can come
+    # to apply the format rule to a column the other skips.
+    #
+    # That is all it buys, and the limit is worth naming: the mapping is not an
+    # extension point. A third date column added to it would be parsed here and
+    # then dropped, because the `record_purchase` call below names `order_date`
+    # and `received_date` individually — and it would not reach the form's
+    # render or pre-fill either, which read `_PURCHASE_FORM_FIELDS`. Adding a
+    # date column means touching all three; see the deferred-work ledger.
+    #
+    # Insertion order is the judging order, so `order_date` still answers first
+    # when both dates are malformed (pinned by
+    # `TestTheJsonEndpointJudgesTheDatesInMappingOrder`).
+    dates = {}
+    for name in _PURCHASE_DATE_LABELS:
+        dates[name], message = _purchase_date(name, body.get(name))
+        if message:
+            return _catalog_json_error('invalid_field', message, 400,
+                                       field=name)
+    order_date = dates['order_date']
+    received_date = dates['received_date']
 
     message = _purchase_date_order_error(order_date, received_date)
     if message:

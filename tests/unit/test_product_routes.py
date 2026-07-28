@@ -4325,6 +4325,225 @@ class TestBothPurchaseEntryPointsAgreeOnUnitPrice:
             assert svc.get_purchases_for_product(pid) == []
 
 
+# The verdict on ONE purchase date's FORMAT, as one list — the anti-drift device
+# this pair never had while the two entry points parsed their dates separately.
+# It is what closes DW-88 (`date.fromisoformat` accepts most of ISO 8601, so
+# `'2026-W01-1'` recorded a purchase in 2025 through a message that says only
+# `YYYY-MM-DD` is taken) and DW-191 (the form stripped and the endpoint did not,
+# so `' 2026-01-01 '` was a stored row one way and a 400 the other). Both are now
+# one rule in `_purchase_date`, and this table is the whole statement of it.
+#
+# `(value, verdict)`, where the verdict is one of:
+#   'stored'  -- accepted; the column holds `date.fromisoformat(value.strip())`
+#   'absent'  -- accepted as NO date, which is not the same as accepted: the
+#                column stays NULL (`received_date`) or is filled with today by
+#                the service (`order_date`, DW-192)
+#   'refused' -- the one message, `'<Label> must be an ISO date (YYYY-MM-DD).'`
+#
+# Every row runs against BOTH date columns and BOTH entry points (the class
+# below crosses this table with the field name), because the rule is the columns'
+# and not one column's. The one row that cannot: a value that is not a string.
+# An HTML form field is always a string — Werkzeug decodes the body into `str` —
+# so the JSON integer `20260101` has no form spelling at all, and the form half
+# skips it explicitly rather than the table quietly omitting the case that used
+# to be `str()`-coerced and stored as a date the caller never spelled.
+#
+# The matrix's last row — a malformed date that is ALSO out of order — is not
+# here because it is about two fields at once; it lives in
+# `TestAMalformedDateIsNeverAlsoCalledOutOfOrder`, which pins it on both sides.
+_DATE_FORMAT_VERDICTS = [
+    ('2026-01-01', 'stored'),
+    # DW-191: padded on both sides now, and stripped to the same day.
+    (' 2026-01-01 ', 'stored'),
+    # Years below 1000 round-trip through `date.isoformat()` and were always
+    # accepted; pinned so the round-trip rule is not mistaken for a range rule.
+    # This suite runs on SQLite, but the row is not green only because of that:
+    # MariaDB's `1000-01-01` floor is the range its `DATE` type is DOCUMENTED to
+    # support and not one it enforces, and 11.8 under `STRICT_TRANS_TABLES`
+    # stores `'0999-01-01'` without error or warning. So there is no production
+    # failure hiding behind this row.
+    ('0999-01-01', 'stored'),
+    ('9999-12-31', 'stored'),
+    # The three spellings of "no date given". None of them is a refusal.
+    (None, 'absent'),
+    ('', 'absent'),
+    ('   ', 'absent'),
+    # DW-88: these three PARSE and are still refused, because they print back as
+    # a different string than they were given — the round-trip comparison is the
+    # grammar rule, and these are the only rows that exercise it. The week date
+    # is the one that changed a stored value: it is 2025-12-29.
+    ('2026-W01-1', 'refused'),
+    ('2026-W01', 'refused'),
+    ('20260101', 'refused'),
+    # A JSON number, refused rather than `str()`-coerced — the one row with no
+    # form spelling at all, for the reason given above.
+    (20260101, 'refused'),
+    # These never parsed on either side and must stay refused — they are caught
+    # by the `except`, NOT by the round-trip comparison, so they would all stay
+    # green if it were deleted. `strptime` would have taken the first two, which
+    # is why the check is not `strptime`.
+    ('2026-1-1', 'refused'),
+    ('٢٠٢٦-٠١-٠١', 'refused'),
+    ('2026-01-01T00:00:00', 'refused'),
+    ('2026-02-30', 'refused'),
+    ('nope', 'refused'),
+    ('07/01/2026', 'refused'),
+]
+
+# Restated here rather than imported from `_PURCHASE_DATE_LABELS`: the label is
+# half of what the refusal promises, and a test that read the mapping under test
+# would agree with any relabelling, including one that swapped the two.
+_DATE_FORMAT_LABELS = {'order_date': 'Order Date',
+                       'received_date': 'Received Date'}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('field', ['order_date', 'received_date'])
+@pytest.mark.parametrize('value, verdict', _DATE_FORMAT_VERDICTS)
+class TestBothPurchaseEntryPointsAgreeOnDateFormat:
+    """DW-88/DW-191 as a property: a date one entry point accepts the other
+    accepts and stores as the same day, and a date one refuses the other refuses
+    with the same message against the same field. Only the SHAPE of the refusal
+    differs — a re-rendered field message versus the AD-13 envelope, where the
+    human-labelled sentence is reused verbatim because `error.field` already
+    carries the machine name.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def _message(self, field):
+        return f'{_DATE_FORMAT_LABELS[field]} must be an ISO date (YYYY-MM-DD).'
+
+    def _assert_stored(self, svc, pid, field, value, verdict, today):
+        """The two accepted verdicts, which differ in what lands in the column:
+        a `'stored'` date is the STRIPPED value, and an `'absent'` one leaves
+        `received_date` NULL while the service fills `order_date` with today.
+
+        `today` is read by the caller BEFORE the POST and both sides of a
+        midnight crossing are allowed, as in `_DATE_ORDER_VERDICTS`: recomputing
+        `date.today()` here would fail the absent-`order_date` rows on any run
+        that straddles it.
+        """
+        from datetime import date
+        purchases = svc.get_purchases_for_product(pid)
+        assert len(purchases) == 1
+        stored = getattr(purchases[0], field)
+        if verdict == 'stored':
+            assert stored == date.fromisoformat(value.strip())
+        elif field == 'received_date':
+            assert stored is None
+        else:
+            assert stored in (today, date.today())
+
+    def test_the_html_form(self, client, test_storage, field, value, verdict):
+        from datetime import date
+        if not isinstance(value, str) and value is not None:
+            pytest.skip('a form field is always a string, so a JSON number has '
+                        'no spelling here; the JSON half below carries the row')
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        # `None` is spelled on a form by not submitting the field at all — the
+        # request Werkzeug turns back into `form.get(name) is None`.
+        data = {} if value is None else {field: value}
+        today = date.today()
+        resp = client.post(f'/products/{pid}/purchases/add', data=data)
+
+        if verdict == 'refused':
+            assert resp.status_code == 200
+            body = resp.data.decode()
+            assert self._message(field) in body
+            # Against the CONTROL, not the page: both date fields render an
+            # identical `invalid-feedback` slot, so a page-wide substring check
+            # would stay green if the message were filed under the other one.
+            other = ('received_date' if field == 'order_date'
+                     else 'order_date')
+            assert 'is-invalid' in _form_controls(body, [field])[0]
+            assert 'is-invalid' not in _form_controls(body, [other])[0]
+            assert svc.get_purchases_for_product(pid) == []
+            return
+
+        assert resp.status_code == 302
+        self._assert_stored(svc, pid, field, value, verdict, today)
+
+    def test_the_json_endpoint(self, client, test_storage, field, value,
+                               verdict):
+        from datetime import date
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        today = date.today()
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={field: value})
+
+        if verdict == 'refused':
+            assert resp.status_code == 400
+            error = resp.get_json()['error']
+            assert error['code'] == 'invalid_field'
+            # The MACHINE name in `field`, the HUMAN-labelled sentence in
+            # `message` — the same string the form renders, byte for byte.
+            assert error['field'] == field
+            assert error['message'] == self._message(field)
+            assert svc.get_purchases_for_product(pid) == []
+            return
+
+        assert resp.status_code == 201
+        self._assert_stored(svc, pid, field, value, verdict, today)
+
+
+@pytest.mark.unit
+class TestTheJsonEndpointJudgesTheDatesInMappingOrder:
+    """Which date a body with TWO bad dates is refused for. The table above
+    cannot say: it sends one bad date at a time, so it stays green whichever
+    order the endpoint judges them in.
+
+    The endpoint answers with the FIRST failure and iterates
+    `_PURCHASE_DATE_LABELS`, so the answer is that mapping's insertion order —
+    `order_date`. That is what the boundary comment in `api_record_purchase`
+    claims, and without this it is a claim a reordering of the mapping literal
+    would silently falsify.
+
+    The form is the deliberate contrast: it collects rather than
+    short-circuits, so the same pair comes back with BOTH messages on their own
+    controls. Nothing is stored either way.
+    """
+
+    def _product(self, test_storage):
+        return CatalogService(test_storage).create_product(description='Reel')
+
+    def test_the_json_endpoint_names_order_date(self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/api/products/{pid}/purchases',
+                           json={'order_date': 'nope',
+                                 'received_date': 'also nope'})
+
+        assert resp.status_code == 400
+        error = resp.get_json()['error']
+        assert error['code'] == 'invalid_field'
+        assert error['field'] == 'order_date'
+        assert error['message'] == 'Order Date must be an ISO date (YYYY-MM-DD).'
+        assert svc.get_purchases_for_product(pid) == []
+
+    def test_the_html_form_reports_both(self, client, test_storage):
+        svc = CatalogService(test_storage)
+        pid = self._product(test_storage)
+
+        resp = client.post(f'/products/{pid}/purchases/add',
+                           data={'order_date': 'nope',
+                                 'received_date': 'also nope'})
+
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert 'Order Date must be an ISO date (YYYY-MM-DD).' in body
+        assert 'Received Date must be an ISO date (YYYY-MM-DD).' in body
+        assert 'is-invalid' in _form_controls(body, ['order_date'])[0]
+        assert 'is-invalid' in _form_controls(body, ['received_date'])[0]
+        assert svc.get_purchases_for_product(pid) == []
+
+
 # The verdict on a purchase's date PAIR, as ONE list, for the same reason
 # `_UNIT_PRICE_VERDICTS` is one list: the rule has one definition
 # (`_purchase_date_order_error`) and the two entry points must not drift apart
@@ -4332,17 +4551,23 @@ class TestBothPurchaseEntryPointsAgreeOnUnitPrice:
 # say "received on or after ordered" — so this table is the whole specification
 # of it. `(order_date, received_date, None if accepted else the fragment)`.
 #
-# Padded values are NOT pinned here, unlike `_UNIT_PRICE_VERDICTS`: the two
-# entry points share the ordering rule but not the parse that feeds it, so
-# `' 2026-01-01 '` is still stripped by the form and refused by the endpoint.
-# That divergence is DW-191's — to be closed with DW-88, which owns the shared
-# date parse — not this rule's, and a row here would claim a parity that does
-# not exist yet.
+# A padded pair IS pinned here now, as `_UNIT_PRICE_VERDICTS` pins one: both
+# entry points reach these dates through `_purchase_date`, which strips before
+# it parses, so `' 2026-01-01 '` is the same day to both (DW-191, with DW-88).
+# The row belongs to THIS table and not only to `_DATE_FORMAT_VERDICTS` because
+# it claims something that table cannot: the strip happens before the comparison,
+# so a padded pair is judged by the ORDERING rule as the two dates it spells
+# rather than dying as a format error on one side first.
 _DATE_ORDER_VERDICTS = [
     ('2026-01-01', '2026-01-05', None),
+    (' 2026-01-01 ', ' 2026-01-05 ', None),
     # Equal dates pass: the rule is "must not precede", not "must follow".
     ('2026-01-01', '2026-01-01', None),
     ('2026-01-05', '2026-01-01', 'must not be earlier than'),
+    # The other half of that claim: a padded pair that IS out of order is
+    # refused by this rule and not by a format error, which is only true if the
+    # strip runs first.
+    (' 2026-01-05 ', ' 2026-01-01 ', 'must not be earlier than'),
     # The three partial cases, deliberately untouched by DW-24. The second is
     # the interesting one: the service defaults the missing `order_date` to
     # today, so the stored row DOES have received before order — and is still
@@ -4350,6 +4575,13 @@ _DATE_ORDER_VERDICTS = [
     ('2026-01-05', '', None),
     ('', '2020-01-01', None),
     ('', '', None),
+    # The same partial case spelled with padding, which is where the new absence
+    # rule and this one meet: `'   '` is "no date" to `_purchase_date` on BOTH
+    # sides now (the endpoint used to answer 400 for it), so this row stores a
+    # purchase whose `order_date` the service fills with today and whose
+    # `received_date` is six years earlier — accepted, for the reason the
+    # unpadded row above it is.
+    ('   ', '2020-01-01', None),
 ]
 
 
@@ -4361,30 +4593,43 @@ class TestBothPurchaseEntryPointsAgreeOnDateOrder:
     accepts, and a pair one refuses the other refuses with the same message
     against the same field, `received_date`. Only the SHAPE of the refusal
     differs — a re-rendered field message versus the AD-13 envelope. The claim
-    is about the ORDERING rule, which is shared; the format rule underneath it
-    still is not (DW-88), which is why no padded value appears in the table.
+    is about the ORDERING rule; the format rule underneath it is shared too now
+    (`_purchase_date`, DW-88/DW-191), which is what lets the padded rows in the
+    table be about ordering rather than about a parse the two sides disagree on.
     """
 
     def _product(self, test_storage):
         return CatalogService(test_storage).create_product(description='Reel')
 
     def _assert_stored(self, svc, pid, order_date, received_date, today):
-        """An accepted pair is stored as typed, except a blank `order_date`,
-        which `record_purchase` fills with today.
+        """An accepted pair is stored as the day it spells, except a blank
+        `order_date`, which `record_purchase` fills with today.
+
+        The comparison strips, because the ROUTES strip: a padded row is stored
+        as `2026-01-01`, and `date.fromisoformat(' 2026-01-01 ')` raises. That
+        is also why a blank is tested with `.strip()` — `'   '` is "no date" to
+        `_purchase_date` and must be "no date" to this assertion too.
 
         `today` is read by the caller BEFORE the POST and both sides of a
         midnight crossing are allowed: recomputing `date.today()` here would
-        fail the two blank-`order_date` rows on any run that straddles it.
+        fail the blank-`order_date` rows on any run that straddles it.
+
+        `or ''` before the strip so a `None` row — how `_DATE_FORMAT_VERDICTS`
+        thirty lines above spells absence, and the spelling someone extending
+        this table will reach for — fails as a readable assertion rather than as
+        an `AttributeError` inside this helper.
         """
         from datetime import date
         purchases = svc.get_purchases_for_product(pid)
         assert len(purchases) == 1
-        if order_date:
-            assert purchases[0].order_date == date.fromisoformat(order_date)
+        if (order_date or '').strip():
+            assert purchases[0].order_date == \
+                date.fromisoformat(order_date.strip())
         else:
             assert purchases[0].order_date in (today, date.today())
-        assert purchases[0].received_date == (date.fromisoformat(received_date)
-                                              if received_date else None)
+        assert purchases[0].received_date == (
+            date.fromisoformat(received_date.strip())
+            if (received_date or '').strip() else None)
 
     def test_the_html_form(self, client, test_storage, order_date,
                            received_date, fragment):
