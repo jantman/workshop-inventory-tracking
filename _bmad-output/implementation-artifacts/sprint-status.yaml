@@ -89,7 +89,7 @@ development_status:
 
   # Epic 5 — Stock Tracking & Reorder Signals
   epic-5: backlog
-  5-1-tri-state-quantity-and-location: backlog
+  5-1-tri-state-quantity-and-location: done
   5-2-reorder-threshold-and-derived-effective-low: backlog
   5-3-manual-stock-status: backlog
   5-4-derived-on-order-and-recently-received: backlog

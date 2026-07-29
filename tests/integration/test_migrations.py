@@ -24,11 +24,14 @@ from alembic.script import ScriptDirectory
 
 from app.database import Base
 from app.utils.internal_id import is_valid_internal_id
-from tests.integration.conftest import (ALEMBIC_TABLE, CONTRAST_COLLATION,
+from tests.integration.conftest import (ALEMBIC_TABLE, BINARY_COLLATION,
+                                        CONTRAST_COLLATION,
                                         NON_FOLDING_COLLATION,
-                                        REQUIRED_CHARSET, alembic_config,
+                                        REQUIRED_CHARSET, REQUIRED_COLLATION,
+                                        alembic_config,
                                         assert_schema_is_pinned,
-                                        database_default, table_collations)
+                                        column_collations, database_default,
+                                        table_collations)
 
 # The revision that introduced product_identifiers -- the state Story 2.4's
 # backfill migrates *from*, and the target its downgrade returns to.
@@ -515,6 +518,19 @@ class TestPinnedCollations:
                         {'pid': product_id})
 
             command.upgrade(alembic_env, COLLATION_REVISION)
+            # ...and then on to head, because `assert_schema_is_pinned` compares
+            # the observed columns against `Base.metadata`, which describes the
+            # END of the chain. Stopping at COLLATION_REVISION was equivalent
+            # only while that revision happened to be head; the first additive
+            # revision after it (2c837402a89a) made a halted schema legitimately
+            # disagree with the models. The claim under test is unaffected —
+            # what matters is that the pre-flight let the upgrade through with
+            # those NULL request_keys in place, and it has by the line above.
+            # Continuing inside the contrary default is worth something extra:
+            # ADD COLUMN inherits the TABLE's charset/collation, so the new
+            # columns must come out pinned rather than picking the database
+            # default back up.
+            command.upgrade(alembic_env, 'head')
 
             assert_schema_is_pinned(blank_database)
 
@@ -714,7 +730,25 @@ class TestPinnedCollations:
         ``database_default`` could vary the charset nothing could reach it --
         so an inverted comparison here would have shipped green.
         """
+        # Stopped AT the revision under test rather than run on to head: this
+        # exercises that revision's own downgrade branch, and reaching it from
+        # head would first run every later revision's downgrade — 2c837402a89a
+        # drops four columns and succeeds — so "nothing was changed" would no
+        # longer be true of the schema by the time the refusal fired.
         command.upgrade(alembic_env, COLLATION_REVISION)
+
+        # Snapshotted rather than compared against `Base.metadata`, which
+        # describes head and therefore carries columns a schema halted here has
+        # never had. A before/after comparison is also the stronger statement of
+        # the claim: "refused before any DDL" is exactly "the schema is the one
+        # we walked in with", whatever revision that happens to be. The two
+        # value assertions keep it from being vacuous — an equal pair of BROKEN
+        # snapshots would otherwise pass.
+        pinned_tables = table_collations(blank_database)
+        pinned_columns = column_collations(blank_database)
+        assert set(pinned_tables.values()) == {REQUIRED_COLLATION}
+        assert set(pinned_columns.values()) == {REQUIRED_COLLATION,
+                                                BINARY_COLLATION}
 
         with database_default(blank_database, NARROW_COLLATION,
                               charset=NARROW_CHARSET):
@@ -723,7 +757,8 @@ class TestPinnedCollations:
 
             assert NARROW_CHARSET in str(exc_info.value)
             # Refused before any DDL: the schema still carries the pins.
-            assert_schema_is_pinned(blank_database)
+            assert table_collations(blank_database) == pinned_tables
+            assert column_collations(blank_database) == pinned_columns
             assert [row[0] for row in _rows(
                 blank_database,
                 'SELECT version_num FROM alembic_version')] == \
@@ -742,7 +777,14 @@ class TestPinnedCollations:
         everything else.
         """
         with database_default(blank_database, CONTRAST_COLLATION):
-            command.upgrade(alembic_env, COLLATION_REVISION)
+            # Run to head, not merely to COLLATION_REVISION: `assert_schema_is_
+            # pinned` measures against `Base.metadata`, which describes the end
+            # of the chain, and the later additive revisions' columns have to be
+            # in place for that comparison to mean anything. The downgrade below
+            # still crosses the revision under test — it just crosses the ones
+            # after it first, which drop their own columns and are no-ops for
+            # every collation this test reads.
+            command.upgrade(alembic_env, 'head')
             assert_schema_is_pinned(blank_database)
 
             command.downgrade(alembic_env, BEFORE_COLLATION)

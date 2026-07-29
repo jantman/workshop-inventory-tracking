@@ -60,6 +60,33 @@
                         {% else %}—{% endif %}
                     </dd>
 
+                    {# Story 5.1 (FR23/FR24/FR25). The quantity string is built
+                       by the route — `Not tracked`, `In stock: 0` or
+                       `In stock: N`, three distinct literals so untracked can
+                       never be misread as none-on-hand — and so is the age, which
+                       is None exactly when there is no stamp. The template
+                       chooses nothing and computes nothing; a `or '—'` here would
+                       silently turn a tracked zero into the same dash every other
+                       empty field on this page uses. The age is the age of the
+                       COUNT, so it does not move when some other field is
+                       edited. #}
+                    <dt class="col-sm-3">Quantity on hand</dt>
+                    <dd class="col-sm-9" id="product-quantity">
+                        {{ quantity_display }}{% if quantity_verified_age %}
+                        <span class="text-muted small">(counted {{ quantity_verified_age }})</span>
+                        {% endif %}
+                    </dd>
+
+                    {# Both parts joined, and `select` drops whichever is unset —
+                       so a sub-location recorded without a location still shows
+                       rather than being swallowed by the dash. Only when the
+                       pair is empty entirely does this read `—`, like every
+                       other absent field here (and unlike the quantity above,
+                       whose "absent" is a state with a name). #}
+                    {% set location_parts = [product.location, product.sub_location] | select | list %}
+                    <dt class="col-sm-3">Location</dt>
+                    <dd class="col-sm-9" id="product-location">{{ location_parts | join(' / ') if location_parts else '—' }}</dd>
+
                     <dt class="col-sm-3">Notes</dt>
                     <dd class="col-sm-9">{{ product.notes or '—' }}</dd>
                 </dl>

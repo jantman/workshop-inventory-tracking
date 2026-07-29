@@ -22,7 +22,7 @@
                shared validator gains later surfaces here by default rather than
                vanishing. Above the card because the operator must see it
                without knowing which field to look at. #}
-            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags'] %}
+            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags', 'quantity_on_hand', 'location', 'sub_location'] %}
             {% for field, message in (validation_errors or {}).items() if field not in keyed_error_fields %}
             <div class="alert alert-danger" role="alert" id="form-error-{{ field }}">
                 <i class="bi bi-exclamation-triangle"></i> {{ message }}
@@ -96,6 +96,98 @@
                             <label for="notes" class="form-label">Notes</label>
                             <textarea class="form-control" id="notes" name="notes" rows="3">{{ form_data.get('notes', '') }}</textarea>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Story 5.1 (FR23/FR24/FR25/FR27): the opt-in stock block, matching
+               add.html's — same names, same ids, same validation — because
+               `_validate_product_form` judges these three for BOTH forms and a
+               control on only one of them would be a rule the other could not
+               satisfy. The prose differs where the forms genuinely differ: only
+               this one can move an EXISTING verification date, so what records
+               that date is explained on the recount box below rather than in
+               the card's shared help text. This form has no First Receipt
+               block, so `quantity_on_hand` has no near-neighbour to be confused
+               with here.
+
+               Blank is a MEANINGFUL value on this form in particular: clearing
+               Quantity On Hand stops tracking and clears the recorded count time
+               with it, exactly as clearing Category removes the category. #}
+            <div class="card mb-3" id="stock-and-location">
+                <div class="card-header">Stock &amp; Location <span class="text-muted small">(optional)</span></div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity_on_hand" class="form-label">Quantity On Hand</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.quantity_on_hand %} is-invalid{% endif %}"
+                                   id="quantity_on_hand" name="quantity_on_hand" maxlength="10"
+                                   value="{{ form_data.get('quantity_on_hand', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.quantity_on_hand %}<div class="invalid-feedback d-block">{{ validation_errors.quantity_on_hand }}</div>{% endif %}
+                            {# The ONE deliberate exception to add/edit parity in
+                               this story, and it is here rather than on add.html
+                               because it has nothing to re-confirm there: on a
+                               create there is no stored count, so every non-blank
+                               quantity is a first assertion and always records the
+                               date. Here there IS a stored count, and this form
+                               re-posts it pre-filled on every save — so key
+                               presence cannot mean "I counted it". A CHANGED
+                               number speaks for itself; this box is how an
+                               operator says the number is unchanged BECAUSE they
+                               counted it again. #}
+                            <div class="form-check mt-2">
+                                {# `|trim`, character for character the route's own test
+                                   (`bool((form_data.get(...) or '').strip())`). Without it
+                                   the two disagreed about a whitespace-only value: the
+                                   route read `quantity_recounted='   '` as NOT a recount
+                                   and left the stamp alone, while this line read the same
+                                   body as truthy and re-rendered the box TICKED — handing
+                                   the operator a form whose next save would refresh a
+                                   verification date the first save had correctly refused.
+                                   Both tests live where they are read; keep them equal. #}
+                                <input class="form-check-input" type="checkbox"
+                                       id="quantity_recounted" name="quantity_recounted"
+                                       {% if (form_data.get('quantity_recounted') or '')|trim %}checked{% endif %}>
+                                <label class="form-check-label" for="quantity_recounted">
+                                    I recounted this — refresh the verification date
+                                </label>
+                                <div class="form-text">
+                                    Tick this only if you counted again and got the
+                                    <em>same</em> number. Saving a different number always
+                                    records the new count date; saving an unchanged one
+                                    without this box leaves the existing date exactly where
+                                    it is, so editing anything else here never makes an old
+                                    count look fresh.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="location" class="form-label">Location</label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.location %} is-invalid{% endif %}"
+                                       id="location" name="location" maxlength="100"
+                                       value="{{ form_data.get('location', '') }}" autocomplete="off">
+                                <div id="location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
+                            </div>
+                            {% if validation_errors and validation_errors.location %}<div class="invalid-feedback d-block">{{ validation_errors.location }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="sub_location" class="form-label">Sub-Location</label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.sub_location %} is-invalid{% endif %}"
+                                       id="sub_location" name="sub_location" maxlength="100"
+                                       value="{{ form_data.get('sub_location', '') }}" autocomplete="off">
+                                <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
+                            </div>
+                            {% if validation_errors and validation_errors.sub_location %}<div class="invalid-feedback d-block">{{ validation_errors.sub_location }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="form-text">
+                        Quantity On Hand is your own count. Leave it <strong>blank</strong>
+                        and this product is <strong>not tracked</strong> at all; enter
+                        <strong>0</strong> to record that you have none. Receiving a
+                        purchase never changes the count. Location and Sub-Location share
+                        their suggestions with the inventory items.
                     </div>
                 </div>
             </div>

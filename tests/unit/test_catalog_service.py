@@ -5,6 +5,8 @@ Exercises product create / get / update via the SQLite test engine
 (the `test_storage` fixture). Mirrors the InventoryService test approach.
 """
 
+from decimal import Decimal
+
 import pytest
 
 from app.mariadb_catalog_service import CatalogService
@@ -3832,3 +3834,490 @@ class TestRenameTag:
 
         assert catalog_service.rename_tag('ssr', 'relay') == (1, 0)
         assert catalog_service.get_tags_for_product(pid) == ['relay']
+
+
+# --- Story 5.1: tri-state quantity, verification stamp, product locations ----
+
+
+def _stored_stamp(catalog_service, product_id):
+    """The product's `quantity_verified_at`, read back through the service."""
+    return catalog_service.get_product(product_id).quantity_verified_at
+
+
+def _backdate_stamp(catalog_service, product_id, when):
+    """Force `quantity_verified_at` to `when`, bypassing the service.
+
+    Written directly on purpose. The service's whole contract is that it stamps
+    NOW, so there is no supported way to assert a count in the past — and every
+    "the stamp did NOT move" test needs a stamp old enough that a re-stamp would
+    be unmistakable rather than a sub-millisecond difference.
+    """
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Product
+
+    Session = sessionmaker(bind=catalog_service.engine)
+    session = Session()
+    try:
+        session.query(Product).filter(Product.id == product_id).update(
+            {'quantity_verified_at': when})
+        session.commit()
+    finally:
+        session.close()
+    return when
+
+
+@pytest.mark.unit
+class TestProductQuantityWriteContract:
+    """The FR23/FR25 write contract, one test per row of the story's I/O matrix.
+
+    The contract is only interesting because two columns move as one: clearing
+    the count always clears the stamp, and the stamp moves only on a real
+    ASSERTION — a changed number, an unchanged one the operator explicitly
+    recounted, or a tracked number that somehow has no stamp. Every case below
+    therefore asserts BOTH columns, not just the one it names, and every
+    "unchanged" assertion compares against the exact datetime captured before
+    the call: a `>=` would pass whether or not the stamp moved.
+    """
+
+    def test_a_new_product_is_untracked(self, catalog_service):
+        """The default and the whole reason the column is nullable: tracking is
+        opt-in per Product, so creating one commits to nothing."""
+        pid = catalog_service.create_product(description='Fresh')
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_create_may_assert_a_quantity_and_is_stamped(self, catalog_service):
+        pid = catalog_service.create_product(description='Counted at birth',
+                                             quantity_on_hand='4')
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at is not None
+
+    def test_the_recount_flag_is_a_no_op_on_create(self, catalog_service):
+        """On a create there is nothing stored to re-confirm, so the flag
+        changes nothing: a non-blank quantity stamps either way. Asserted so the
+        argument's presence cannot quietly grow a meaning here."""
+        with_flag = catalog_service.create_product(
+            description='Flagged', quantity_on_hand='4',
+            quantity_recounted=True)
+        without = catalog_service.create_product(
+            description='Unflagged', quantity_on_hand='4')
+        for pid in (with_flag, without):
+            product = catalog_service.get_product(pid)
+            assert product.quantity_on_hand == 4
+            assert product.quantity_verified_at is not None
+
+    def test_create_with_a_blank_quantity_stays_untracked(self, catalog_service):
+        """A blank string is what an untouched form field submits, so it has to
+        mean the same thing as an omitted argument — not `0`."""
+        pid = catalog_service.create_product(description='Blank field',
+                                             quantity_on_hand='')
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_asserting_zero_is_tracked_not_cleared(self, catalog_service):
+        """The distinction the whole story exists for: `0` is a COUNT."""
+        pid = catalog_service.create_product(description='Empty bin')
+        assert catalog_service.update_product(pid, quantity_on_hand='0') is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 0
+        assert product.quantity_verified_at is not None
+
+    def test_asserting_n_stores_and_stamps(self, catalog_service):
+        pid = catalog_service.create_product(description='Stocked')
+        assert catalog_service.update_product(pid, quantity_on_hand='4') is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at is not None
+
+    def test_an_integer_argument_is_accepted_too(self, catalog_service):
+        """The route hands strings, but the service is a service: a caller that
+        already has an int must not have to stringify it to be understood — and
+        the comparison against the stored INT must still see them as equal."""
+        pid = catalog_service.create_product(description='Typed')
+        assert catalog_service.update_product(pid, quantity_on_hand=7) is True
+        assert catalog_service.get_product(pid).quantity_on_hand == 7
+
+    def test_reasserting_the_same_value_without_the_flag_leaves_the_stamp(
+            self, catalog_service):
+        """THE defect this rule exists to prevent, at the service boundary.
+
+        The edit form renders `quantity_on_hand` pre-filled, so every browser
+        save re-posts it. If key presence were the trigger, fixing a typo in the
+        description would re-date a count taken three months ago — destroying
+        exactly the staleness signal FR25 asks to be surfaced rather than
+        silently corrected. Compared for EQUALITY against the stored value
+        captured first; `>=` would pass either way and could not fail.
+        """
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Recounted',
+                                             quantity_on_hand='4')
+        old = _backdate_stamp(catalog_service, pid,
+                              datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(pid, quantity_on_hand='4') is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == old
+
+    def test_an_unrelated_field_edit_leaves_the_stamp(self, catalog_service):
+        """The same rule from the other direction: a description change that
+        carries the pre-filled quantity along with it is still not a count."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Typo',
+                                             quantity_on_hand='4')
+        old = _backdate_stamp(catalog_service, pid,
+                              datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, description='Typo fixed', quantity_on_hand='4') is True
+        product = catalog_service.get_product(pid)
+        assert product.description == 'Typo fixed'
+        assert product.quantity_verified_at == old
+
+    def test_reasserting_the_same_value_with_the_flag_moves_the_stamp(
+            self, catalog_service):
+        """The case a value comparison cannot see: the operator counted again
+        and got the same number. Without this the recount would be unrecordable
+        and the age would keep climbing on a count that was just taken."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Recounted',
+                                             quantity_on_hand='4')
+        old = _backdate_stamp(catalog_service, pid,
+                              datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, quantity_on_hand='4', quantity_recounted=True) is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at > old
+
+    @pytest.mark.parametrize('recounted', [False, True],
+                             ids=['no_flag', 'with_flag'])
+    def test_a_changed_value_always_moves_the_stamp(self, catalog_service,
+                                                    recounted):
+        """A different number is an assertion on its own terms — the flag is
+        irrelevant to it, in either position."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Changed',
+                                             quantity_on_hand='4')
+        old = _backdate_stamp(catalog_service, pid,
+                              datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, quantity_on_hand='5',
+            quantity_recounted=recounted) is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 5
+        assert product.quantity_verified_at > old
+
+    def test_a_blank_quantity_clears_both_columns(self, catalog_service):
+        """Untracking. The stamp must go with the count — an age displayed
+        beside no number is an assertion about a count nobody made."""
+        pid = catalog_service.create_product(description='Untrack me',
+                                             quantity_on_hand='4')
+        assert _stored_stamp(catalog_service, pid) is not None
+        assert catalog_service.update_product(pid, quantity_on_hand='') is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_the_flag_is_ignored_on_a_blank_quantity(self, catalog_service):
+        """A recount that finds the product untracked is an UNTRACK, not a
+        verification: both columns go to NULL and no stamp is written."""
+        pid = catalog_service.create_product(description='Untrack me anyway',
+                                             quantity_on_hand='4')
+        assert catalog_service.update_product(
+            pid, quantity_on_hand='', quantity_recounted=True) is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_the_flag_alone_with_no_quantity_key_changes_nothing(
+            self, catalog_service):
+        """The flag asserts nothing by itself: with no `quantity_on_hand` key in
+        the update there is no submitted count to interpret, so the
+        partial-update rule applies untouched."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Flag alone',
+                                             quantity_on_hand='4')
+        old = _backdate_stamp(catalog_service, pid,
+                              datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, description='Flag alone', quantity_recounted=True) is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == old
+
+    def test_a_missing_stamp_on_a_tracked_quantity_is_repaired(
+            self, catalog_service):
+        """A state this write contract otherwise makes impossible — a count with
+        no record of when it was taken. Re-asserting the same number repairs it
+        rather than leaving a tracked quantity permanently ageless, which would
+        otherwise render as a count with no staleness at all."""
+        pid = catalog_service.create_product(description='Ageless',
+                                             quantity_on_hand='4')
+        _backdate_stamp(catalog_service, pid, None)
+        assert _stored_stamp(catalog_service, pid) is None
+
+        assert catalog_service.update_product(pid, quantity_on_hand='4') is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at is not None
+
+    def test_a_none_quantity_clears_both_columns(self, catalog_service):
+        """Same rule for a caller that passes None rather than ''. The KEY's
+        presence is what says "clear"; the value only says what to clear to."""
+        pid = catalog_service.create_product(description='Untrack me too',
+                                             quantity_on_hand='4')
+        assert catalog_service.update_product(pid, quantity_on_hand=None) is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_an_absent_key_leaves_both_columns_alone(self, catalog_service):
+        """The partial-update rule, unchanged: an update that never mentions the
+        quantity must not untrack a product, and must not refresh its stamp
+        either — nobody counted anything."""
+        pid = catalog_service.create_product(description='Untouched',
+                                             quantity_on_hand='4')
+        stamp = _stored_stamp(catalog_service, pid)
+        assert catalog_service.update_product(pid, description='Renamed') is True
+        product = catalog_service.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+
+    def test_quantity_recounted_is_not_a_product_field(self, catalog_service):
+        """It is a per-request flag, not a column and not an accepted field.
+
+        Named in `_PRODUCT_FIELDS` it would be `setattr`-ed onto the Product and
+        blow up (or, worse, be persisted); reachable through `**fields` it would
+        be a caller-settable column by another name.
+        """
+        from app.mariadb_catalog_service import _PRODUCT_FIELDS
+        from app.database import Product
+
+        assert 'quantity_recounted' not in _PRODUCT_FIELDS
+        assert 'quantity_recounted' not in Product.__table__.columns.keys()
+
+    def test_quantity_verified_at_is_not_accepted_from_a_caller(
+            self, catalog_service):
+        """It is DERIVED from the act of asserting a count, never supplied.
+
+        A caller able to set it could claim a count was verified at a time no
+        count was taken — precisely the lie the age display exists to prevent —
+        so the name is absent from `_PRODUCT_FIELDS` and is dropped in silence,
+        exactly as `internal_id` is.
+        """
+        from datetime import datetime
+
+        pid = catalog_service.create_product(description='No backdating',
+                                             quantity_on_hand='4')
+        stamp = _stored_stamp(catalog_service, pid)
+        assert catalog_service.update_product(
+            pid, quantity_verified_at=datetime(1999, 1, 1)) is True
+        assert _stored_stamp(catalog_service, pid) == stamp
+
+    def test_the_quantity_pair_is_recorded_in_the_audit_snapshot(
+            self, catalog_service, monkeypatch):
+        """`to_dict()` is what the audit log stores, so a column missing from it
+        is a column whose history cannot be read back."""
+        records = []
+
+        def _capture(operation, status, **kwargs):
+            records.append((operation, status, kwargs.get('item_after')))
+
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _capture)
+
+        pid = catalog_service.create_product(description='Audited',
+                                             quantity_on_hand='0')
+        assert records[-1][0] == 'create_product'
+        assert records[-1][2]['quantity_on_hand'] == 0
+        assert records[-1][2]['quantity_verified_at'] is not None
+
+    @pytest.mark.parametrize('bad', [2.9, Decimal('2.9'), True, -5,
+                                     2147483648, '-5', 'abc'],
+                             ids=['float', 'decimal', 'bool', 'negative-int',
+                                  'over-int32', 'negative-string',
+                                  'not-a-number'])
+    def test_a_value_the_column_cannot_hold_is_refused_not_truncated(
+            self, catalog_service, bad):
+        """The service's own contract, distinct from the form rule.
+
+        `int()` alone honours neither the type nor the bounds: it turns 2.9 into
+        2 and True into 1, so an accidental float or boolean from a
+        non-form caller would store a silently WRONG count and — worse — stamp
+        it as freshly verified, which is precisely the lie FR25's age display
+        exists to prevent. Refused instead, which `update_product` reports as
+        False, and the stored state is untouched.
+        """
+        pid = catalog_service.create_product(description='Guarded',
+                                             quantity_on_hand='4')
+        before = catalog_service.get_product(pid)
+
+        assert catalog_service.update_product(
+            pid, quantity_on_hand=bad) is False
+
+        after = catalog_service.get_product(pid)
+        assert after.quantity_on_hand == before.quantity_on_hand == 4
+        assert after.quantity_verified_at == before.quantity_verified_at
+
+    def test_a_zero_padded_string_is_the_magnitude_it_names(
+            self, catalog_service):
+        """`int()` is not total over digit strings — CPython refuses one longer
+        than 4300 digits — and the form rule bounds the MAGNITUDE, so a padded
+        string is valid input that must not die here."""
+        pid = catalog_service.create_product(description='Padded',
+                                             quantity_on_hand='0' * 5000 + '4')
+        assert catalog_service.get_product(pid).quantity_on_hand == 4
+
+        assert catalog_service.update_product(
+            pid, quantity_on_hand='0' * 5000) is True
+        assert catalog_service.get_product(pid).quantity_on_hand == 0
+
+
+@pytest.mark.unit
+class TestProductLocationWrite:
+    """FR27's stored half — plain optional strings, cleaned like every other."""
+
+    def test_create_and_update_store_the_pair(self, catalog_service):
+        pid = catalog_service.create_product(description='Shelved',
+                                             location='  Bin 7  ',
+                                             sub_location='Left tray')
+        product = catalog_service.get_product(pid)
+        assert product.location == 'Bin 7'  # `_clean` trims, as elsewhere
+        assert product.sub_location == 'Left tray'
+
+        assert catalog_service.update_product(pid, location='Rack 3') is True
+        assert catalog_service.get_product(pid).location == 'Rack 3'
+
+    def test_blank_clears_to_null(self, catalog_service):
+        """Backfill-forward: an emptied optional field stores NULL, not ''. It
+        matters more here than usual — a '' row would be filtered out of the
+        suggestion query anyway, so a stored blank would be invisible AND
+        undeletable-looking."""
+        pid = catalog_service.create_product(description='Unshelved',
+                                             location='Bin 7',
+                                             sub_location='Left tray')
+        assert catalog_service.update_product(pid, location='',
+                                              sub_location='   ') is True
+        product = catalog_service.get_product(pid)
+        assert product.location is None
+        assert product.sub_location is None
+
+    def test_an_absent_key_leaves_the_pair_alone(self, catalog_service):
+        pid = catalog_service.create_product(description='Still shelved',
+                                             location='Bin 7')
+        assert catalog_service.update_product(pid, description='Renamed') is True
+        assert catalog_service.get_product(pid).location == 'Bin 7'
+
+
+@pytest.mark.unit
+class TestProductLocationSuggestions:
+    """`get_product_location_suggestions` — the catalog half of FR27's shared
+    vocabulary, held to the same ordering and guard contract as the item half so
+    the merge of the two is equivalent to one query over both tables."""
+
+    @pytest.fixture
+    def stocked(self, catalog_service):
+        for description, location, sub_location in (
+            ('a', 'Bin 7', 'Left tray'),
+            ('b', 'Bin 70', 'Right tray'),
+            ('c', 'Attic', 'Left tray'),
+            ('d', 'Top Bin', 'Under'),
+            ('e', 'bin 7', 'Left tray'),      # a case variant of Bin 7
+            ('f', None, None),                # untouched by this story
+        ):
+            catalog_service.create_product(description=description,
+                                           location=location,
+                                           sub_location=sub_location)
+        return catalog_service
+
+    def test_unknown_field_raises_value_error(self, catalog_service):
+        """Which is what the route turns into its existing 400 — the same
+        contract both `get_field_value_suggestions` methods carry."""
+        with pytest.raises(ValueError):
+            catalog_service.get_product_location_suggestions('vendor')
+
+    def test_unfiltered_is_alphabetical_and_deduped(self, stocked):
+        """No query means one tier: alphabetized case-insensitively, with the
+        case variants of one value collapsed to a single offered spelling."""
+        assert stocked.get_product_location_suggestions('location') == [
+            'Attic', 'Bin 7', 'Bin 70', 'Top Bin']
+
+    def test_the_ranking_tiers(self, stocked):
+        """Exact match, then starts-with, then contains — the endpoint's rule,
+        mirrored here so the merged answer cannot be ordered differently from
+        an unmerged one."""
+        assert stocked.get_product_location_suggestions(
+            'location', query='bin') == ['Bin 7', 'Bin 70', 'Top Bin']
+        assert stocked.get_product_location_suggestions(
+            'location', query='bin 7') == ['Bin 7', 'Bin 70']
+
+    def test_limit_is_respected(self, stocked):
+        assert stocked.get_product_location_suggestions(
+            'location', limit=2) == ['Attic', 'Bin 7']
+
+    def test_sub_location_is_scoped_by_its_parent(self, stocked):
+        """The one behavioural difference from the item half: the parent
+        compared is `Product.location`, so this answers "what sub-locations do
+        PRODUCTS stored at Bin 7 use"."""
+        assert stocked.get_product_location_suggestions(
+            'sub_location', location='Bin 7') == ['Left tray']
+        assert stocked.get_product_location_suggestions(
+            'sub_location', location='Bin 70') == ['Right tray']
+        assert stocked.get_product_location_suggestions('sub_location') == [
+            'Left tray', 'Right tray', 'Under']
+
+    def test_unstorable_and_overlong_queries_answer_nothing_unqueried(
+            self, stocked):
+        """The same pair of guards the item half carries, and for the same
+        reason: this method runs on the SAME request, so a guard missing here
+        would put products into a merged answer the item half correctly refused
+        to contribute to. Asserted with an emitted-SQL spy, because a guard that
+        ran after the query would still be a query."""
+        from sqlalchemy import event
+        from app.utils.sql_text import SEARCH_QUERY_MAX_LENGTH
+
+        statements = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            statements.append(statement)
+
+        event.listen(stocked.engine, 'before_cursor_execute', record)
+        try:
+            assert stocked.get_product_location_suggestions(
+                'location', query='\x00') == []
+            assert stocked.get_product_location_suggestions(
+                'location', query='a\x00b') == []
+            assert stocked.get_product_location_suggestions(
+                'location', query='a' * (SEARCH_QUERY_MAX_LENGTH + 1)) == []
+            assert stocked.get_product_location_suggestions(
+                'sub_location', location='a\x00b') == []
+        finally:
+            event.remove(stocked.engine, 'before_cursor_execute', record)
+
+        assert statements == [], statements
+
+    def test_the_location_fields_are_not_in_the_dispatch_whitelist(self):
+        """The membership that would break the endpoint rather than extend it.
+
+        `FIELD_SUGGESTION_COLUMNS` decides which service answers a field
+        INSTEAD of the other; `location` there would point the item form's own
+        lookup at the products table. The bidirectional vocabulary is built by
+        calling this method IN ADDITION, which is why its columns live in a
+        private map of their own.
+        """
+        from app.mariadb_catalog_service import (FIELD_SUGGESTION_COLUMNS,
+                                                 _PRODUCT_LOCATION_COLUMNS)
+        assert set(_PRODUCT_LOCATION_COLUMNS) == {'location', 'sub_location'}
+        assert not (set(_PRODUCT_LOCATION_COLUMNS)
+                    & set(FIELD_SUGGESTION_COLUMNS))

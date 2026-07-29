@@ -32,12 +32,17 @@ from playwright.sync_api import expect
 
 from tests.e2e.pages.add_item_page import AddItemPage
 
-#: The five item-form fields plus the two product-form ones — every target in
+#: The five item-form fields plus the product-form ones — every target in
 #: the component's auto-init list. The point of doing the wiring in JS is that
-#: it reaches all of them, so the sweep test checks all of them.
+#: it reaches all of them, so the sweep test checks all of them. `location` and
+#: `sub_location` appear on BOTH lists because both forms render those ids; the
+#: component has one entry for each and it serves whichever form is open.
 ITEM_FORM_FIELDS = ['thread_size', 'purchase_location', 'vendor', 'location',
                     'sub_location']
-PRODUCT_FORM_FIELDS = ['category_path', 'tags']
+#: Story 5.1 (FR27) put `location` and `sub_location` on the product forms too,
+#: under the ids the auto-init list already names — so the same two entries now
+#: reach four forms, and the sweep below checks them on all of them.
+PRODUCT_FORM_FIELDS = ['category_path', 'tags', 'location', 'sub_location']
 
 #: Matches any attribute value, so `not_to_have_attribute(name, ANY_VALUE)`
 #: asserts the attribute is ABSENT. Used instead of a bare

@@ -14,7 +14,7 @@ extend this class (scan resolution, search_products, capture, derived signals).
 import logging
 from collections.abc import Mapping
 from typing import Dict, List, Optional, Tuple
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker, defer
 from sqlalchemy import case, exists, func, or_
@@ -42,8 +42,23 @@ logger = logging.getLogger('mariadb_catalog_service')
 # Product fields the create/update surface accepts. internal_id is deliberately
 # ABSENT (Story 2.4): it is assigned once by create_product and is immutable, so
 # update_product silently ignores any attempt to change it.
+#
+# `quantity_verified_at` is ABSENT for a different reason (Story 5.1): it is not
+# a field a caller may set at all. It is DERIVED from the act of asserting a
+# quantity — `_apply_quantity_assertion` below is its only writer — so a caller
+# that named it here would be able to claim a count was verified at a time no
+# count was taken, which is exactly the lie FR25's age display exists to
+# prevent. Being absent from this tuple means `update_product` drops it
+# silently, the same way it drops `internal_id`.
+#
+# `quantity_recounted` is absent for a THIRD reason: it is not a column and not
+# a field. It is a per-request FLAG (the edit form's recount checkbox) that only
+# changes how a submitted `quantity_on_hand` is interpreted, so it arrives as
+# its own keyword-only argument rather than through `**fields`, and nothing
+# persists it.
 _PRODUCT_FIELDS = (
     'manufacturer', 'mpn', 'description', 'notes', 'category_path', 'attributes',
+    'quantity_on_hand', 'location', 'sub_location',
 )
 
 # How many internal-id candidates create_product will try before giving up
@@ -90,6 +105,25 @@ FIELD_SUGGESTION_COLUMNS = {
 # map that the ONE endpoint can still dispatch on by membership.
 _FIELD_SUGGESTION_MODELS = {
     'tags': ProductTag,
+}
+
+# Story 5.1 (FR27): the product columns that feed the LOCATION vocabulary,
+# keyed by the same public field names the item side already uses.
+#
+# Deliberately a SEPARATE, private map and emphatically not two more entries in
+# FIELD_SUGGESTION_COLUMNS above. That one is the shared endpoint's dispatch
+# key: a field in it is answered by this service INSTEAD of by
+# InventoryService, so adding `location` there would point the item form's own
+# location lookup at the products table and drop the item vocabulary on the
+# floor. `tests/unit/test_catalog_service.py` pins the two dispatch whitelists
+# as disjoint precisely to stop that. The route instead calls
+# `get_product_location_suggestions` IN ADDITION to the item method and merges
+# the two ordered answers (app/utils/suggestion_merge.py), which is what makes
+# the vocabulary bidirectional without either service querying the other's
+# table (AD-1/AD-2).
+_PRODUCT_LOCATION_COLUMNS = {
+    'location': 'location',
+    'sub_location': 'sub_location',
 }
 
 # How many items a collision message may name before it starts summarizing:
@@ -153,6 +187,106 @@ def _clean(value):
         value = value.strip()
         return value or None
     return value
+
+
+# The widest count `products.quantity_on_hand` can hold: it is a plain
+# `Integer`, which is a signed 32-bit column on MariaDB. Stated here as well as
+# in `routes._MAX_INT32` on purpose — the route's copy bounds what an OPERATOR
+# may type and belongs with the message that explains the refusal, this one
+# bounds what any CALLER may store and belongs with the only writer.
+_MAX_QUANTITY_ON_HAND = 2147483647
+
+
+def _apply_quantity_assertion(product, value, recounted: bool = False) -> None:
+    """Write a MANUAL quantity assertion onto `product` (Story 5.1, FR23/FR25).
+
+    The ONE home for the tri-state write contract, called by both
+    `create_product` and `update_product` so the two cannot disagree about what
+    asserting a count means. Reaching this function at all means the caller
+    PROVIDED the field — `product_edit` builds its update dict from present POST
+    keys only — so all that is left to decide is what the value says.
+
+    - A blank or None value CLEARS both columns, and `recounted` is IGNORED.
+      "Not tracked" is a state, not an absence of one, and a
+      `quantity_verified_at` left behind on an untracked Product would put an
+      age on a page beside no number. A recount that finds the product untracked
+      is an untrack, not a verification.
+    - Any other value sets `quantity_on_hand`, and refreshes
+      `quantity_verified_at` to `datetime.now()` when — and only when — the
+      submission is really an ASSERTION:
+        1. the submitted number DIFFERS from the stored one (which covers first
+           tracking, NULL -> N);
+        2. the number is unchanged but `recounted` is true — the operator
+           ticked the edit form's recount box, having counted again and found
+           the same number, which is the one case a value comparison cannot
+           see;
+        3. the stored quantity is non-NULL but its stamp is NULL — a repair of
+           a state this contract otherwise makes impossible.
+      In every other case the stamp is left EXACTLY as stored.
+
+    Why key presence cannot be the trigger. The edit form renders
+    `quantity_on_hand` pre-filled, so a browser re-posts it on every save — key
+    presence is a property of the form's markup, not of operator intent. Making
+    it the trigger meant a description typo fix re-dated the count, defeating
+    the staleness signal FR25 exists to surface rather than correct. Hence the
+    changed-value test plus the explicit checkbox.
+
+    Order matters below: the comparison and the NULL-stamp check both read the
+    STORED values, so the assignment to `quantity_on_hand` comes last.
+
+    `_clean` cannot express any of this. It maps `''` to None and passes `0`
+    through, but it has no way to distinguish "cleared" from "absent", and it
+    knows nothing of the second column.
+
+    Not a second copy of the FORM rule: the route validator
+    (`_non_negative_int_string`) owns what an operator may type, and a
+    differently-shaped parse here is how the two would come to disagree. What
+    this does own is the TYPE and the BOUNDS of what reaches the column, because
+    those are the service's own contract and `int()` alone honours neither:
+    `int(2.9)` is 2 and `int(True)` is 1, so a caller passing a float or a
+    boolean by accident would get a silently truncated count stamped as
+    freshly verified, and a negative or over-32-bit value would reach a column
+    that cannot hold it. Each of those raises here instead, and the caller's own
+    except-log-return-False handler reports it — the same treatment any other
+    bad service argument gets.
+
+    Leading zeros are stripped before `int()` for the reason
+    `_non_negative_int_string` states: `int()` is not total over digit strings
+    (CPython refuses one longer than 4300 digits). `'0' * 5000` passes the form
+    rule, whose bound is on the MAGNITUDE, and would otherwise turn a valid
+    submission into a generic "failed to update" here.
+
+    Naive local `datetime.now()`, matching
+    `mariadb_materials_admin_service.py` and `logging_config.py`, so the stamp
+    and the age comparison in `app/utils/age_display.py` read the same clock;
+    `func.now()` would be the database's, which need not agree with the process
+    rendering the page.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        product.quantity_on_hand = None
+        product.quantity_verified_at = None
+        return
+
+    # `bool` first: it is a subclass of `int`, so an unguarded isinstance check
+    # would wave `True` through as the count 1.
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise TypeError(
+            f'quantity_on_hand must be an int or a digit string, not '
+            f'{type(value).__name__}')
+    if isinstance(value, str):
+        new_quantity = int(value.strip().lstrip('0') or '0')
+    else:
+        new_quantity = value
+    if not 0 <= new_quantity <= _MAX_QUANTITY_ON_HAND:
+        raise ValueError(
+            f'quantity_on_hand must be between 0 and '
+            f'{_MAX_QUANTITY_ON_HAND}, not {new_quantity}')
+
+    if (new_quantity != product.quantity_on_hand
+            or recounted
+            or product.quantity_verified_at is None):
+        product.quantity_verified_at = datetime.now()
+    product.quantity_on_hand = new_quantity
 
 
 # How many rows the suggestion read turns into ORM row objects at a time, and
@@ -359,7 +493,10 @@ class CatalogService:
                 .first()) is not None
 
     def create_product(self, *, manufacturer=None, mpn=None, description=None,
-                        notes=None, category_path=None, attributes=None) -> Optional[int]:
+                        notes=None, category_path=None, attributes=None,
+                        quantity_on_hand=None, location=None,
+                        sub_location=None,
+                        quantity_recounted: bool = False) -> Optional[int]:
         """
         Create a Product and return its new integer id, or None on failure.
 
@@ -367,6 +504,22 @@ class CatalogService:
         (the route requires a Label Description); blank strings are coerced to
         NULL. Returns the id (captured before the session closes) rather than
         the ORM object to avoid detached-attribute access downstream.
+
+        Story 5.1: `quantity_on_hand` defaults to None, which is the UNTRACKED
+        state and not a zero — a Product created by any path (this method is the
+        only one) starts untracked, and only an explicit assertion here or
+        through `update_product` begins tracking it. A caller that DOES pass a
+        value gets the same tri-state contract `update_product` applies; see
+        `_apply_quantity_assertion`. There is no `quantity_verified_at`
+        argument, deliberately.
+
+        `quantity_recounted` is accepted and is a deliberate NO-OP here, kept
+        only so the two write surfaces have one shape. On a create there is no
+        stored value to re-confirm: a brand-new Product has
+        `quantity_verified_at IS NULL`, so the assertion rule's third clause
+        fires and every non-blank quantity stamps whether the flag is set or
+        not. `product_add` therefore never reads the checkbox, and `add.html`
+        never renders it.
 
         This is the SOLE writer of products.internal_id (Story 2.4, AD-8). It
         draws a candidate from the pure generator, writes the Product AND its
@@ -396,7 +549,17 @@ class CatalogService:
                     # this field — blank normalizes to None.
                     category_path=category_util.normalize_category_path(category_path),
                     attributes=attributes,
+                    # Story 5.1 (FR27): ordinary optional strings, cleaned like
+                    # every other one. Only the quantity pair needs a rule.
+                    location=_clean(location),
+                    sub_location=_clean(sub_location),
                 )
+                # After the constructor rather than inside it: the tri-state
+                # rule writes TWO columns from one argument, and the one place
+                # that decides both is `_apply_quantity_assertion`, so create
+                # and update cannot drift.
+                _apply_quantity_assertion(product, quantity_on_hand,
+                                          quantity_recounted)
                 session.add(product)
                 # The derived read index (FR7): same transactional step, same
                 # value, global scope (INTERNAL is not vendor-scoped, AD-9).
@@ -462,7 +625,8 @@ class CatalogService:
             if 'session' in locals():
                 session.close()
 
-    def update_product(self, product_id: int, **fields) -> bool:
+    def update_product(self, product_id: int, *,
+                       quantity_recounted: bool = False, **fields) -> bool:
         """
         Update the given Product's fields. Returns True on success, False if the
         product does not exist or the update fails. Only recognized product
@@ -472,6 +636,21 @@ class CatalogService:
         Together with create_product this is one of the only two writers of
         products.category_path, so a supplied value is canonicalized through
         app/utils/category.py on the way in (Story 3.1) — see the field loop.
+
+        Story 5.1 adds `quantity_on_hand`, `location` and `sub_location` to the
+        accepted set. The quantity is the one field here that is not simply
+        cleaned and assigned: passing it may also write `quantity_verified_at`,
+        and passing it BLANK clears both (see `_apply_quantity_assertion`).
+        `quantity_verified_at` is not accepted as a field of its own and a
+        caller naming it is ignored, exactly as `internal_id` is.
+
+        `quantity_recounted` is KEYWORD-ONLY and is not a field: it never enters
+        `**fields`, is never matched against `_PRODUCT_FIELDS` and is never
+        persisted. It is the edit form's recount checkbox, and all it does is
+        tell the assertion rule that an UNCHANGED number was genuinely counted
+        again — the one assertion a value comparison cannot see. It is ignored
+        outright when no `quantity_on_hand` key is supplied, and when the
+        supplied one is blank.
         """
         from .logging_config import log_audit_operation
         try:
@@ -485,6 +664,20 @@ class CatalogService:
 
             for key, value in fields.items():
                 if key not in _PRODUCT_FIELDS:
+                    continue
+                if key == 'quantity_on_hand':
+                    # Story 5.1: the one field whose write can touch a SECOND
+                    # column, so it cannot go through the `cleaned`/`setattr`
+                    # tail below. Reaching this branch at all means the key was
+                    # PRESENT in the caller's kwargs — a key the caller omitted
+                    # never enters this loop, and that is what keeps "absent
+                    # means untouched" and "present but blank means clear"
+                    # different answers (routes.py's `update_fields` builds
+                    # itself from present POST keys only). Whether the stamp
+                    # then moves is the assertion rule's decision, not this
+                    # loop's.
+                    _apply_quantity_assertion(product, value,
+                                              quantity_recounted)
                     continue
                 if key == 'attributes':
                     cleaned = value
@@ -805,6 +998,145 @@ class CatalogService:
             # The inventory half (`InventoryService.get_field_value_suggestions`)
             # routes its tiebreak through the same helper; the rule has one home
             # so the two endpoints cannot drift.
+            seen_lower = set()
+            unique = []
+            for (value,) in base.yield_per(SUGGESTION_ROW_BATCH):
+                v = value.strip() if value else ''
+                if not v:
+                    continue
+                key = v.lower()
+                if key in seen_lower:
+                    continue
+                seen_lower.add(key)
+                unique.append(v)
+                if len(unique) >= limit:
+                    break
+
+            return unique
+
+        finally:
+            session.close()
+
+    def get_product_location_suggestions(
+        self,
+        field: str,
+        query: Optional[str] = None,
+        limit: int = 10,
+        location: Optional[str] = None,
+    ) -> List[str]:
+        """
+        Return distinct existing `products.location` / `.sub_location` values
+        (Story 5.1, FR27) — the catalog half of ONE shared vocabulary.
+
+        This is deliberately NOT reachable through `FIELD_SUGGESTION_COLUMNS`.
+        That map is the shared endpoint's DISPATCH key, and membership decides
+        which service answers a field outright; putting `location` in it would
+        route the ITEM form's location lookup at the products table and silence
+        the item vocabulary entirely (`test_the_two_suggestion_whitelists_are_
+        disjoint` pins the two maps as disjoint for exactly that reason). So
+        this method has its own private column map and its own name, and the
+        route calls it IN ADDITION to `InventoryService.get_field_value_
+        suggestions`, merging the two ordered lists through
+        `app/utils/suggestion_merge.py`.
+
+        Every guard, the ordering, the absence of `DISTINCT` and the
+        case-insensitive Python dedup mirror the inventory half exactly, because
+        the merge is only equivalent to a single query over both tables if both
+        halves rank under the SAME total order. The reasoning behind each is
+        written out on `InventoryService.get_field_value_suggestions` and on
+        `get_field_value_suggestions` above and is not repeated here; what
+        follows is only what differs.
+
+        What differs: the parent-location filter compares `Product.location`
+        rather than `InventoryItem.location`, so a `sub_location` lookup scoped
+        to `Bin 7` sees the sub-locations of products stored at `Bin 7` and
+        nothing else — a product's own parent, never an item's.
+
+        Args:
+            field: `'location'` or `'sub_location'`. Any other value raises
+                ValueError, which the route turns into its existing 400.
+            query: Optional case-insensitive substring filter. Over-length
+                (`sql_text.SEARCH_QUERY_MAX_LENGTH`, inclusive) and unstorable
+                text both answer `[]` without querying.
+            limit: Maximum number of suggestions. Clamped to [1, 50];
+                non-integer values fall back to 10.
+            location: Only meaningful for `sub_location`; restricts results to
+                sub-locations recorded under that product location
+                (case-insensitive).
+
+        Returns:
+            List of distinct value strings, ordered exactly as the item half
+            orders its own.
+
+        Raises:
+            ValueError: if `field` is not one of the two.
+        """
+        column_name = _PRODUCT_LOCATION_COLUMNS.get(field)
+        if column_name is None:
+            raise ValueError(f"Unsupported field for suggestions: {field!r}")
+
+        # Judged on the arguments AS PASSED and answered without opening a
+        # session, in the same order and for the same reasons the item half
+        # states at length. They are not defensiveness duplicated for its own
+        # sake: this method is called on the SAME request as that one, so a
+        # guard missing here would answer an over-long or NUL-bearing query with
+        # products where the item half correctly answered nothing — the merged
+        # list would then contradict both of the contracts it is made of.
+        if (isinstance(query, str)
+                and len(query) > SEARCH_QUERY_MAX_LENGTH):
+            return []
+        if isinstance(query, str) and not sql_text.is_storable_text(query):
+            return []
+        if (field == 'sub_location' and isinstance(location, str) and location
+                and not sql_text.is_storable_text(location)):
+            return []
+
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 10
+        limit = max(1, min(limit, 50))
+
+        column = getattr(Product, column_name)
+        q = (query or '').strip().lower()
+
+        session = self.Session()
+        try:
+            base = session.query(column).filter(
+                column.isnot(None),
+                func.trim(column) != '',
+            )
+
+            if field == 'sub_location' and location:
+                base = base.filter(
+                    func.lower(Product.location) == func.lower(location)
+                )
+
+            if q:
+                escaped = sql_text.escape_like_literal(q)
+                pattern = f'%{escaped}%'
+                base = base.filter(
+                    func.lower(column).like(
+                        pattern, escape=sql_text.LIKE_ESCAPE_CHAR)
+                )
+                rank = case(
+                    (func.lower(column) == q, 0),
+                    (func.lower(column).like(
+                        f'{escaped}%', escape=sql_text.LIKE_ESCAPE_CHAR
+                    ), 1),
+                    else_=2,
+                )
+                base = base.order_by(rank, func.lower(column),
+                                     binary_order_key(
+                                         column, self.engine.dialect.name))
+            else:
+                base = base.order_by(func.lower(column),
+                                     binary_order_key(
+                                         column, self.engine.dialect.name))
+
+            # No `.distinct()`, dedup in Python, lazy read bounded by `limit` —
+            # see the two sibling methods for why each of those three is the way
+            # it is.
             seen_lower = set()
             unique = []
             for (value,) in base.yield_per(SUGGESTION_ROW_BATCH):

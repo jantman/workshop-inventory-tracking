@@ -123,6 +123,68 @@
                 </div>
             </div>
 
+            {# Story 5.1 (FR23/FR24/FR25/FR27): the opt-in stock block. The same
+               three controls as edit.html — same names, same ids, same
+               validation — because the rule that validates them
+               (`_validate_product_form`) is shared and a control on only one of
+               the two forms would be a rule the other form could not satisfy.
+               The one deliberate difference is edit.html's recount checkbox,
+               which has nothing to re-confirm here: see the comment beside it
+               there.
+
+               Quantity On Hand is TRI-STATE and blank is one of the three
+               states, which is why the help text says so out loud: blank means
+               "not tracked", 0 means "tracked, none on hand". It is NOT the
+               First Receipt block's Quantity below — that one writes a Purchase.
+
+               Location/Sub-Location carry the ids `field-autocomplete.js`
+               already auto-initializes (`location`, and `sub_location` scoped by
+               `locationFieldId: 'location'`), so the markup alone wires the
+               dropdowns; no JS change was needed for this story. #}
+            <div class="card mb-3" id="stock-and-location">
+                <div class="card-header">Stock &amp; Location <span class="text-muted small">(optional)</span></div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity_on_hand" class="form-label">Quantity On Hand</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.quantity_on_hand %} is-invalid{% endif %}"
+                                   id="quantity_on_hand" name="quantity_on_hand" maxlength="10"
+                                   value="{{ form_data.get('quantity_on_hand', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.quantity_on_hand %}<div class="invalid-feedback d-block">{{ validation_errors.quantity_on_hand }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="location" class="form-label">Location</label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.location %} is-invalid{% endif %}"
+                                       id="location" name="location" maxlength="100"
+                                       value="{{ form_data.get('location', '') }}" autocomplete="off">
+                                <div id="location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
+                            </div>
+                            {% if validation_errors and validation_errors.location %}<div class="invalid-feedback d-block">{{ validation_errors.location }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="sub_location" class="form-label">Sub-Location</label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control{% if validation_errors and validation_errors.sub_location %} is-invalid{% endif %}"
+                                       id="sub_location" name="sub_location" maxlength="100"
+                                       value="{{ form_data.get('sub_location', '') }}" autocomplete="off">
+                                <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100 suggestions-menu"></div>
+                            </div>
+                            {% if validation_errors and validation_errors.sub_location %}<div class="invalid-feedback d-block">{{ validation_errors.sub_location }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="form-text">
+                        Quantity On Hand is your own count. Leave it <strong>blank</strong>
+                        and this product is <strong>not tracked</strong> at all; enter
+                        <strong>0</strong> to record that you have none. Saving a number
+                        here records when you counted it, and the product page shows how
+                        long ago that was. Receiving a purchase never changes the count.
+                        Location and Sub-Location share their suggestions with the
+                        inventory items.
+                    </div>
+                </div>
+            </div>
+
             {# Story 4.5 (FR40): the identifier a scan carried, shown only when
                the scan supplied one and always editable before it is saved. The
                type list comes from the route (identifier_type_choices) so the

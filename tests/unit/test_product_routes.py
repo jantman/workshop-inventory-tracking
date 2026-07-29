@@ -89,14 +89,41 @@ def _shown_keyed_errors(body):
         r'<div class="invalid-feedback d-block">(.*?)</div>', body, re.S)]
 
 
+def _checkbox_is_checked(body, control_id):
+    """Whether the named checkbox rendered ticked.
+
+    A checkbox carries its state as the bare `checked` attribute, not as a
+    value, so `_input_value` cannot read one — and its SUBMITTED form is the
+    other way round again: a browser omits an unticked box from the POST body
+    entirely rather than sending it false. `_rendered_edit_form` below relies on
+    both halves of that.
+    """
+    tag = _form_controls(body, [control_id])[0]
+    return re.search(r'\schecked\b', tag) is not None
+
+
 def _rendered_edit_form(body):
     """The edit form as a POST body: every control it rendered, with the value
     it rendered. What a client that re-posts the page it was handed would send.
     """
     data = {name: _input_value(body, name)
             for name in ('description', 'manufacturer', 'mpn', 'category_path',
-                         'tags')}
+                         'tags',
+                         # Story 5.1. Listed here for the reason the helper
+                         # exists: a client re-posting the page it was handed
+                         # must round-trip these too, and `quantity_on_hand` is
+                         # the one field where a rendering bug (`or ''` over a
+                         # tracked 0) silently untracks the product on that
+                         # re-post.
+                         'quantity_on_hand', 'location', 'sub_location')}
     data['notes'] = _textarea_value(body, 'notes')
+    # Story 5.1's recount checkbox, submitted the way a browser submits one:
+    # present only when ticked. Faithfulness matters more here than anywhere
+    # else in this helper — a key sent unconditionally would make every
+    # re-post of the rendered form a recount, which is precisely the behaviour
+    # the re-stamp rule exists to forbid.
+    if _checkbox_is_checked(body, 'quantity_recounted'):
+        data['quantity_recounted'] = 'on'
     return data
 
 
@@ -5677,6 +5704,15 @@ class TestTheSharedGateIsVisibleOnBothForms:
         # block's entire contents now, and a prefix would have let a truncated
         # or mangled message pass for a rendered one.
         ('tags', {'tags': 'x' * 100}, 'Tag is too long: 100 characters (max 64).'),
+        # Story 5.1 — all three keyed by the SHARED validator, so all three
+        # must have a slot on the edit form as well as on the create one.
+        ('quantity_on_hand', {'quantity_on_hand': '-1'},
+         'Quantity On Hand must be a whole number of zero or more and no more '
+         'than 2147483647. Leave it blank to stop tracking the quantity.'),
+        ('location', {'location': 'x' * 101},
+         'Location must be 100 characters or fewer.'),
+        ('sub_location', {'sub_location': 'x' * 101},
+         'Sub-Location must be 100 characters or fewer.'),
     ]
 
     @pytest.mark.parametrize('field, extra, message', KEYED_FIELD_CASES)
@@ -5957,3 +5993,547 @@ class TestACommittedEditWithAFailedFollowupTellsBothTruths:
         detail = client.get(resp.headers['Location'])
         assert b'Product updated successfully!' in detail.data
         assert b'tags were not' not in detail.data
+
+
+# --- Story 5.1: tri-state quantity and location through the forms -----------
+
+
+def _detail_field(body, element_id):
+    """The rendered text of the detail page's `<dd id="...">`, whitespace
+    collapsed — the `<dd>` spans several template lines, so a raw comparison
+    would be asserting about the indentation."""
+    match = re.search(r'<dd\b[^>]*\bid="%s"[^>]*>(.*?)</dd>' % re.escape(element_id),
+                      body, re.S)
+    assert match is not None, f'no <dd id="{element_id}"> on the page'
+    text = re.sub(r'<[^>]+>', '', match.group(1))
+    return html.unescape(' '.join(text.split()))
+
+
+def _backdate_stamp(test_storage, product_id, when):
+    """Force `quantity_verified_at` to `when`, bypassing the service.
+
+    Written directly on purpose: the service's whole contract is that it stamps
+    NOW, so there is no supported way to assert a count in the past — and every
+    assertion about an age, or about a stamp that must NOT move, needs a stored
+    value old enough to be unmistakable.
+    """
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Product
+
+    Session = sessionmaker(bind=test_storage.engine)
+    session = Session()
+    try:
+        session.query(Product).filter(Product.id == product_id).update(
+            {'quantity_verified_at': when})
+        session.commit()
+    finally:
+        session.close()
+    return when
+
+
+@pytest.mark.unit
+class TestProductStockForms:
+    """The three new controls on BOTH forms, and the write they produce.
+
+    Add/edit parity is not decoration here: the rule that judges these fields
+    lives in the shared validator, so a control missing from one template would
+    be a rule that template's operator could never satisfy.
+    """
+
+    @pytest.mark.parametrize('url_factory', [
+        lambda pid: '/products/add',
+        lambda pid: f'/products/edit/{pid}',
+    ], ids=['add', 'edit'])
+    def test_both_forms_render_the_three_controls(
+            self, client, test_storage, url_factory):
+        pid = CatalogService(test_storage).create_product(description='Seed')
+        body = client.get(url_factory(pid)).data.decode()
+        tags = _form_controls(body, ['quantity_on_hand', 'location',
+                                     'sub_location'])
+        assert 'maxlength="10"' in tags[0]
+        assert 'maxlength="100"' in tags[1]
+        assert 'maxlength="100"' in tags[2]
+        # The ids field-autocomplete.js auto-initializes, so the markup alone
+        # wires the dropdowns — that is why this story needed no JS change.
+        assert 'id="location-suggestions"' in body
+        assert 'id="sub_location-suggestions"' in body
+        # The blank-means-untracked meaning has to be ON the form: it is the one
+        # thing about this field a reader cannot guess from its label.
+        assert 'not tracked' in body
+
+    def test_the_recount_checkbox_is_on_the_edit_form_only(
+            self, client, test_storage):
+        """The single deliberate exception to add/edit parity (Story 5.1).
+
+        On a create there is no stored count to re-confirm — every non-blank
+        quantity is a first assertion and always stamps — so the control would
+        be a switch with nothing behind it, and `product_add` reads no such key.
+        """
+        pid = CatalogService(test_storage).create_product(description='Seed')
+
+        edit_body = client.get(f'/products/edit/{pid}').data.decode()
+        checkbox = _form_controls(edit_body, ['quantity_recounted'])[0]
+        assert 'type="checkbox"' in checkbox
+        assert not _checkbox_is_checked(edit_body, 'quantity_recounted')
+
+        add_body = client.get('/products/add').data.decode()
+        assert 'quantity_recounted' not in add_body
+
+    def test_create_with_only_a_description_is_untracked(
+            self, client, test_storage):
+        resp = client.post('/products/add', data={'description': 'Bare'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+        assert product.location is None
+
+    def test_create_carries_the_three_fields(self, client, test_storage):
+        resp = client.post('/products/add', data={
+            'description': 'Stocked', 'quantity_on_hand': '4',
+            'location': 'Bin 7', 'sub_location': 'Left tray'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at is not None
+        assert product.location == 'Bin 7'
+        assert product.sub_location == 'Left tray'
+
+    def test_a_recount_key_on_create_changes_nothing(self, client,
+                                                     test_storage):
+        """The I/O matrix's create row: the flag is identical to its absence
+        here, because a create always stamps a non-blank quantity anyway."""
+        resp = client.post('/products/add', data={
+            'description': 'Flagged create', 'quantity_on_hand': '4',
+            'quantity_recounted': 'on'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at is not None
+
+    def test_the_new_fields_never_record_a_purchase(self, client, test_storage):
+        """`quantity_on_hand` is a PRODUCT column and shares a page with the
+        first-receipt `quantity`, which is a Purchase column. The two must stay
+        entirely separate: a stock count is not a shipment, so nothing here may
+        reach `_RECEIPT_TRIGGER_FIELDS`."""
+        from app.main.routes import _RECEIPT_FIELDS, _RECEIPT_TRIGGER_FIELDS
+
+        for name in ('quantity_on_hand', 'location', 'sub_location',
+                     'quantity_recounted'):
+            assert name not in _RECEIPT_TRIGGER_FIELDS
+            assert name not in _RECEIPT_FIELDS
+
+        resp = client.post('/products/add', data={
+            'description': 'No receipt here', 'quantity_on_hand': '4',
+            'location': 'Bin 7'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+    def test_edit_asserts_zero_then_n_then_untracks(self, client, test_storage):
+        """The three states walked in order, through the form each time."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Walked')
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'quantity_on_hand': '0'})
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand == 0
+        assert product.quantity_verified_at is not None
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'quantity_on_hand': '4'})
+        assert svc.get_product(pid).quantity_on_hand == 4
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'quantity_on_hand': ''})
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_a_post_without_the_key_leaves_the_quantity_alone(
+            self, client, test_storage):
+        """The partial-update rule: absent is not blank. A non-browser client
+        that PATCHes one field must not untrack the product."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Untouched', quantity_on_hand='4')
+        stamp = svc.get_product(pid).quantity_verified_at
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Renamed'})
+        assert resp.status_code == 302
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+
+    def test_reposting_the_rendered_edit_form_keeps_a_tracked_zero(
+            self, client, test_storage):
+        """The bug a `{{ x or '' }}` in the template would cause: 0 is falsy, so
+        a naive render blanks the field, and this form reads blank as
+        "stop tracking". A client that changes nothing would untrack every
+        product sitting at zero."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Empty bin', quantity_on_hand='0',
+                                 location='Bin 7', sub_location='Left tray')
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        assert _input_value(body, 'quantity_on_hand') == '0'
+        client.post(f'/products/edit/{pid}', data=_rendered_edit_form(body))
+
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand == 0
+        assert product.location == 'Bin 7'
+        assert product.sub_location == 'Left tray'
+
+    @pytest.mark.parametrize('bad', ['-1', '2.5', '1_0', '٥', 'abc',
+                                     '2147483648'],
+                             ids=['negative', 'decimal', 'underscore',
+                                  'non_ascii_numeral', 'letters', 'over_int32'])
+    def test_a_bad_quantity_rerenders_with_a_keyed_error_and_writes_nothing(
+            self, client, test_storage, bad):
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Guarded', quantity_on_hand='4')
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Guarded',
+                                 'quantity_on_hand': bad})
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert any(m.startswith('Quantity On Hand must be')
+                   for m in _shown_keyed_errors(body)), body
+        # The message must hang off the FIELD, not off the unkeyed fallback.
+        assert 'id="form-error-quantity_on_hand"' not in body
+        assert svc.get_product(pid).quantity_on_hand == 4  # nothing written
+
+    def test_the_bad_quantity_also_refuses_a_create(self, client, product_ids):
+        resp = client.post('/products/add',
+                           data={'description': 'Guarded', 'quantity_on_hand': '-1'})
+        assert resp.status_code == 200
+        assert any(m.startswith('Quantity On Hand must be')
+                   for m in _shown_keyed_errors(resp.data.decode()))
+        assert product_ids() == set()
+
+    @pytest.mark.parametrize('field, message', [
+        ('location', 'Location must be 100 characters or fewer.'),
+        ('sub_location', 'Sub-Location must be 100 characters or fewer.'),
+    ])
+    def test_an_overlong_location_rerenders_with_a_keyed_error(
+            self, client, test_storage, field, message):
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Guarded', location='Bin 7')
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Guarded', field: 'x' * 101})
+        assert resp.status_code == 200
+        assert message in _shown_keyed_errors(resp.data.decode())
+        assert svc.get_product(pid).location == 'Bin 7'  # nothing written
+
+    def test_a_refused_submit_round_trips_the_typed_values(
+            self, client, test_storage):
+        """The typed-but-refused values come back on the re-render, so a single
+        bad field does not cost the operator the other two — the recount tick
+        included, since re-ticking a box the operator already ticked is how a
+        refused submit would silently become a non-recount."""
+        pid = CatalogService(test_storage).create_product(description='Guarded')
+        resp = client.post(f'/products/edit/{pid}', data={
+            'description': 'Guarded', 'quantity_on_hand': 'abc',
+            'location': 'Bin 7', 'sub_location': 'Left tray',
+            'quantity_recounted': 'on'})
+        body = resp.data.decode()
+        assert _input_value(body, 'quantity_on_hand') == 'abc'
+        assert _input_value(body, 'location') == 'Bin 7'
+        assert _input_value(body, 'sub_location') == 'Left tray'
+        assert _checkbox_is_checked(body, 'quantity_recounted')
+
+    def test_an_unticked_box_does_not_round_trip_as_ticked(
+            self, client, test_storage):
+        """The other half, and the one that would be a real defect: a re-render
+        that ticked the box for an operator who did not would turn their next
+        save into a recount they never asked for."""
+        pid = CatalogService(test_storage).create_product(description='Guarded')
+        resp = client.post(f'/products/edit/{pid}', data={
+            'description': 'Guarded', 'quantity_on_hand': 'abc'})
+        assert not _checkbox_is_checked(resp.data.decode(),
+                                        'quantity_recounted')
+
+
+@pytest.mark.unit
+class TestTheVerificationStampOnlyMovesOnAnAssertion:
+    """The defect the re-stamp rule exists to prevent, exercised through the
+    real form rather than through the service.
+
+    The edit template renders `quantity_on_hand` pre-filled, so every browser
+    save re-posts the key — which is why key presence cannot be the assertion
+    trigger. These tests re-post the form EXACTLY as it was rendered, changing
+    one thing at a time, and compare the stored stamp for EQUALITY against the
+    datetime captured before the call: a `>=` or an identity check would pass
+    whether or not the stamp moved and could not fail.
+    """
+
+    def test_editing_only_the_description_does_not_move_the_stamp(
+            self, client, test_storage):
+        """The whole point of FR25: the age shown is the age of the COUNT, so
+        fixing a typo three months later must leave the count reading three
+        months old."""
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Typo', quantity_on_hand='4')
+        old = _backdate_stamp(test_storage, pid,
+                              datetime.now() - timedelta(days=95))
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        data = _rendered_edit_form(body)
+        assert data['quantity_on_hand'] == '4'
+        assert 'quantity_recounted' not in data
+        data['description'] = 'Typo fixed'
+
+        resp = client.post(f'/products/edit/{pid}', data=data)
+        assert resp.status_code == 302
+
+        product = svc.get_product(pid)
+        assert product.description == 'Typo fixed'
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == old
+
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text == 'In stock: 4 (counted 3 months ago)'
+
+    def test_the_same_round_trip_with_the_box_ticked_moves_the_stamp(
+            self, client, test_storage):
+        """The one case a value comparison cannot see, and the reason the box
+        exists: the operator counted again and got the same number."""
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Recounted', quantity_on_hand='4')
+        old = _backdate_stamp(test_storage, pid,
+                              datetime.now() - timedelta(days=95))
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        data = _rendered_edit_form(body)
+        data['quantity_recounted'] = 'on'
+
+        resp = client.post(f'/products/edit/{pid}', data=data)
+        assert resp.status_code == 302
+
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at > old
+
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text == 'In stock: 4 (counted just now)'
+
+    def test_an_empty_recount_key_is_not_a_recount(
+            self, client, test_storage):
+        """A browser omits an unticked checkbox, but a JS serializer that posts
+        every control sends `quantity_recounted=` for it. Presence alone would
+        read that as "I counted it again" and refresh a date nobody earned —
+        and it would disagree with `edit.html`, which re-renders the box UNTICKED
+        for exactly the same body.
+        """
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Serialized',
+                                 quantity_on_hand='4')
+        old = _backdate_stamp(test_storage, pid,
+                              datetime.now() - timedelta(days=95))
+
+        data = _rendered_edit_form(
+            client.get(f'/products/edit/{pid}').data.decode())
+        data['quantity_recounted'] = ''
+
+        assert client.post(f'/products/edit/{pid}',
+                           data=data).status_code == 302
+        assert svc.get_product(pid).quantity_verified_at == old
+
+    def test_a_whitespace_recount_leaves_the_box_unticked_on_re_render(
+            self, client, test_storage):
+        """The route reads `quantity_recounted='   '` as NOT a recount, because
+        its test strips. `edit.html` must apply the SAME test: reading that body
+        as truthy would re-render the box ticked, and the operator's next save
+        of the form they were handed would then refresh a verification date this
+        save had just correctly refused to touch.
+        """
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Whitespace', quantity_on_hand='4')
+        old = _backdate_stamp(test_storage, pid,
+                              datetime.now() - timedelta(days=95))
+
+        data = _rendered_edit_form(
+            client.get(f'/products/edit/{pid}').data.decode())
+        data['quantity_recounted'] = '   '
+        # Forced down the re-render path, which is where the disagreement shows.
+        data['description'] = ''
+
+        html = client.post(f'/products/edit/{pid}', data=data).data.decode()
+        assert svc.get_product(pid).quantity_verified_at == old
+
+        box = re.search(r'<input[^>]*name="quantity_recounted"[^>]*>', html)
+        assert box is not None
+        assert 'checked' not in box.group(0)
+
+    def test_a_stamp_without_a_count_shows_no_age(self, client, test_storage):
+        """The write contract moves the two columns together, so this row is one
+        only a restored backup or a hand-run UPDATE can produce. The page must
+        still not read `Not tracked (counted 3 months ago)` — an age for a count
+        the same line says does not exist.
+        """
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Orphaned stamp')
+        _backdate_stamp(test_storage, pid,
+                        datetime.now() - timedelta(days=95))
+
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text == 'Not tracked'
+
+    def test_a_changed_quantity_moves_the_stamp_without_the_box(
+            self, client, test_storage):
+        """A different number speaks for itself — the box is for the unchanged
+        case only, and requiring it for a changed one would make every ordinary
+        count silently keep the old date."""
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Changed', quantity_on_hand='4')
+        old = _backdate_stamp(test_storage, pid,
+                              datetime.now() - timedelta(days=95))
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        data = _rendered_edit_form(body)
+        data['quantity_on_hand'] = '5'
+
+        assert client.post(f'/products/edit/{pid}',
+                           data=data).status_code == 302
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand == 5
+        assert product.quantity_verified_at > old
+
+    def test_ticking_the_box_while_clearing_the_quantity_untracks(
+            self, client, test_storage):
+        """A recount that finds the product untracked is an untrack, not a
+        verification: the flag is ignored and both columns go to NULL."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Untrack', quantity_on_hand='4')
+
+        assert client.post(f'/products/edit/{pid}', data={
+            'description': 'Untrack', 'quantity_on_hand': '',
+            'quantity_recounted': 'on'}).status_code == 302
+
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand is None
+        assert product.quantity_verified_at is None
+
+    def test_the_box_alone_with_no_quantity_key_changes_nothing(
+            self, client, test_storage):
+        """A non-browser client that sends only the flag has asserted nothing:
+        there is no submitted count for it to qualify."""
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Flag alone', quantity_on_hand='4')
+        old = _backdate_stamp(test_storage, pid,
+                              datetime.now() - timedelta(days=95))
+
+        assert client.post(f'/products/edit/{pid}', data={
+            'description': 'Flag alone',
+            'quantity_recounted': 'on'}).status_code == 302
+
+        product = svc.get_product(pid)
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == old
+
+    def test_a_tracked_quantity_with_no_stamp_is_repaired(
+            self, client, test_storage):
+        """A state the write contract otherwise makes impossible. Left alone it
+        would render a count with no age at all, forever."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Ageless', quantity_on_hand='4')
+        _backdate_stamp(test_storage, pid, None)
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        assert client.post(f'/products/edit/{pid}',
+                           data=_rendered_edit_form(body)).status_code == 302
+
+        assert svc.get_product(pid).quantity_verified_at is not None
+
+
+@pytest.mark.unit
+class TestProductDetailQuantityDisplay:
+    """FR23/FR24/FR25 on the page: three distinct literals plus an age."""
+
+    def test_untracked_reads_not_tracked_and_shows_no_age(
+            self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='Bare')
+        body = client.get(f'/products/{pid}').data.decode()
+        assert _detail_field(body, 'product-quantity') == 'Not tracked'
+        assert 'counted' not in body
+        assert _detail_field(body, 'product-location') == '—'
+
+    def test_zero_reads_in_stock_zero_not_a_dash(self, client, test_storage):
+        """The reading FR24 forbids losing: a tracked zero must not collapse
+        into the same `—` an absent field uses, and must not read as untracked."""
+        pid = CatalogService(test_storage).create_product(
+            description='Empty bin', quantity_on_hand='0')
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text.startswith('In stock: 0')
+        assert 'Not tracked' not in text
+
+    def test_n_reads_in_stock_n_with_an_age(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(
+            description='Stocked', quantity_on_hand='4')
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text.startswith('In stock: 4')
+        assert '(counted just now)' in text
+
+    def test_the_age_reflects_the_stored_stamp(self, client, test_storage):
+        """Stale, not silently corrected: the page states how old the count is."""
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Stale', quantity_on_hand='4')
+        _backdate_stamp(test_storage, pid,
+                        datetime.now() - timedelta(days=95))
+
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text == 'In stock: 4 (counted 3 months ago)'
+
+    def test_the_location_pair_renders_joined(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(
+            description='Shelved', location='Bin 7', sub_location='Left tray')
+        body = client.get(f'/products/{pid}').data.decode()
+        assert _detail_field(body, 'product-location') == 'Bin 7 / Left tray'
+
+    def test_receiving_a_purchase_changes_neither_column(
+            self, client, test_storage):
+        """FR25's hard boundary: a receipt is not a count. Exercised through the
+        real purchase form, because that is the path an operator takes."""
+        from datetime import date
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Received', quantity_on_hand='4')
+        before = svc.get_product(pid)
+
+        resp = client.post(f'/products/{pid}/purchases/add', data={
+            'vendor': 'Mouser', 'quantity': '10',
+            'order_date': date(2026, 7, 1).isoformat(),
+            'received_date': date(2026, 7, 9).isoformat()})
+        assert resp.status_code == 302
+        assert len(svc.get_purchases_for_product(pid)) == 1
+
+        after = svc.get_product(pid)
+        assert after.quantity_on_hand == before.quantity_on_hand == 4
+        assert after.quantity_verified_at == before.quantity_verified_at
+        text = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-quantity')
+        assert text.startswith('In stock: 4')

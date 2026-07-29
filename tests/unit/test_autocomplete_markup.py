@@ -339,7 +339,11 @@ class TestQueryLengthBoundTripwire:
         assert 'console.warn' not in preamble
 
 
-PRODUCT_DROPDOWNS = ['category_path-suggestions', 'tags-suggestions']
+PRODUCT_DROPDOWNS = ['category_path-suggestions', 'tags-suggestions',
+                     # Story 5.1 (FR27): the product form's own Location pair,
+                     # sharing the item form's ids and therefore the item form's
+                     # auto-init entries — the markup is the whole wiring.
+                     'location-suggestions', 'sub_location-suggestions']
 ITEM_DROPDOWNS = ['thread_size-suggestions', 'location-suggestions',
                   'sub_location-suggestions', 'purchase_location-suggestions',
                   'vendor-suggestions']

@@ -691,6 +691,13 @@ The **Label Description** is what you will recognise the product by; it is also
 the heading of the product's own page. Every other field is optional, and a
 product with nothing but a description is perfectly valid.
 
+Both forms also carry a **Stock & Location** card — **Quantity On Hand**,
+**Location** and **Sub-Location**, all optional, all left alone unless you fill
+them in. Stock tracking is opt-in per product and a new product tracks nothing;
+see [Stock and Location](#stock-and-location). The product's own page shows
+these as a **Quantity on hand** row (`Not tracked`, `In stock: 0` or
+`In stock: N`, with the age of your last count beside it) and a **Location** row.
+
 Each product also gets an **Internal ID** when it is created. You do not type
 it — the system generates it, it is the value this shop's own product labels are
 designed to encode, and it is one of the values the catalog search looks at. It
@@ -727,11 +734,14 @@ path, but there is no page that lists them.
 4. **Tags** (optional): type them separated by commas. The help under the field
    reads "Separate tags with commas. Tags are stored lowercase." See
    [Tags](#tags).
-5. **First Receipt** (optional): fill this in if you are cataloguing something
+5. **Stock & Location** (optional): **Quantity On Hand**, **Location** and
+   **Sub-Location**. All three are optional and none of them is filled in for
+   you. See [Stock and Location](#stock-and-location) below.
+6. **First Receipt** (optional): fill this in if you are cataloguing something
    that just arrived. A **Quantity** or an **Order Number** is what actually
    records the purchase — the other three fields are saved alongside one of
    those and dropped without one. See below.
-6. **Submit**: click **Add Product**. **Cancel** abandons the form and returns
+7. **Submit**: click **Add Product**. **Cancel** abandons the form and returns
    you to the dashboard — not to wherever you came from, and without asking, so
    on a scan-routed form it throws away everything the scan pre-filled.
 
@@ -757,6 +767,71 @@ shorter or longer than what you typed, so the browser has no way to cut the
 value off in the right place. An over-long path is refused beside the field with
 `Category path is too long: N characters (max 512).`, where `N` is the stored
 length; it need not match what you count on screen.
+
+#### Stock and Location
+
+The **Stock & Location (optional)** card carries three fields, and it is on both
+the add and the edit form with the same labels and the same rules. The edit form
+carries one control the add form does not — the recount checkbox, described
+below, which only makes sense once there is a saved count to re-confirm.
+
+**Quantity On Hand** is *your own count*, and it has **three** distinct
+meanings — this is the one field on the form where leaving it blank says
+something rather than nothing:
+
+| What you enter | What the product page shows | What it means |
+|----------------|-----------------------------|---------------|
+| nothing (blank) | `Not tracked` | You are not counting this product at all. This is what every new product starts as. |
+| `0` | `In stock: 0` | You *are* counting it, and you have none. |
+| `4` | `In stock: 4` | You are counting it, and you have four. |
+
+`Not tracked` and `In stock: 0` are deliberately different sentences. Nothing
+guesses a count for you, and the system stays completely usable with the field
+never filled in — counting a handful of products you cannot afford to run out of
+is the intended use, not counting everything.
+
+**Saving a *new* number records when you counted**, and the product page shows
+the age of that count beside the number — `In stock: 4 (counted 3 months ago)`.
+That age is the age of the *count*, not of the last time you edited the product,
+and it is deliberately left to grow old: an out-of-date count is worth knowing
+about, so nothing quietly refreshes it.
+
+Two things follow from that, and both are on purpose:
+
+- **Editing anything else leaves the date exactly where it was.** The edit form
+  always shows the saved quantity in its box and always submits it, so fixing a
+  typo in the description sends the same number back — and a number that has not
+  changed is not a new count. Your `counted 3 months ago` still reads
+  `counted 3 months ago` afterwards.
+- **The recount checkbox is how you say you counted again.** Under Quantity On
+  Hand on the edit form is **"I recounted this — refresh the verification
+  date"**. Tick it when you counted again and got the *same* number: that is the
+  one case the system cannot tell apart from not having counted at all. Saving a
+  *different* number always records the new date on its own, ticked or not, so
+  the box is only ever needed for an unchanged one. It is not on the add form,
+  where every number you enter is a first count and is dated automatically.
+
+Nothing else in the system ever touches the number or its date: in particular,
+**recording or receiving a purchase never changes the count**. If ten more
+arrive, count them and save the new number yourself.
+
+Clearing the field back to blank stops tracking and forgets the count date with
+it — and it does so even if the recount box is ticked, because a recount that
+finds you are no longer tracking the product is an untrack, not a verification.
+Enter plain ASCII digits, zero or more, up to `2147483647`; anything else is
+refused beside the field with
+`Quantity On Hand must be a whole number of zero or more and no more than
+2147483647. Leave it blank to stop tracking the quantity.`
+
+Do not confuse this with the **First Receipt** block's **Quantity** further down
+the add form. That one records how many arrived on a *purchase*; this one is how
+many you *have*. They are separate fields and neither writes the other.
+
+**Location** and **Sub-Location** are free text, up to 100 characters each, and
+they draw on the **same vocabulary as the inventory items** — the dropdown under
+each offers locations already in use, whether an item or another product is
+stored there, and a location you type here is offered on the item forms
+afterwards. Both are shown on the product page as `Location / Sub-Location`.
 
 #### The First Receipt Block
 
@@ -1435,8 +1510,10 @@ timestamps.
 
 1. **Navigate**: open the product page and click **Edit**.
 2. **Change what you need**: the **Edit Product** form carries the same
-   six-field **Product Information** card, with the same labels, help text and
-   limits as the add form.
+   six-field **Product Information** card and the same **Stock & Location**
+   card, with the same labels, help text and limits as the add form — plus one
+   control the add form has no use for, the **"I recounted this"** checkbox
+   under Quantity On Hand.
 3. **Submit**: click **Update Product**, or **Cancel** to return to the product
    page unchanged.
 
@@ -1453,9 +1530,18 @@ message — the edit landed; only the tags need fixing.
 The edit form has no **Scanned Identifier** card, no **First Receipt** block and
 no duplicate-confirmation block — those belong to creation only. Clearing a
 field clears the stored value, which is how you remove a category or all of a
-product's tags. (The form always submits every field, so there is no way to omit
-one and have it keep its stored value — that distinction only matters to the
-[REST API](#rest-api).)
+product's tags — and how you stop tracking a quantity, which also forgets when
+you last counted it. (The form always submits every field, so there is no way to
+omit one and have it keep its stored value — that distinction only matters to
+the [REST API](#rest-api).)
+
+Editing a product is the *only* way its **Quantity On Hand** ever changes.
+Recording a purchase, marking one received, or anything else in the system will
+leave it exactly as you last saved it — including the "counted N ago" age, which
+is why that age is shown rather than quietly refreshed. Even editing the product
+leaves that age alone unless you actually change the number or tick
+**"I recounted this — refresh the verification date"**; see
+[Stock and Location](#stock-and-location).
 
 ### Troubleshooting Products
 
@@ -1464,7 +1550,10 @@ one and have it keep its stored value — that distinction only matters to the
 | `Label Description is required.` | Every product needs a description; it is the only required field. |
 | `MPN must be 255 characters or fewer.` (or the same message for another bounded field) | Shorten the value. You will normally meet this on a scan-routed form, since the input itself stops you typing past the limit — and silently shortens anything you paste. |
 | `Category path is too long: N characters (max 512).` | Shorten the path. `N` is the length of the path as it would be *stored*, so it need not match what you typed — see [How a Category Is Stored](#how-a-category-is-stored). This field is not capped in the browser, so you can meet it on anything you type or paste. |
-| `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. |
+| `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. This is the **First Receipt** block's Quantity, on the add form only. |
+| `Quantity On Hand must be a whole number of zero or more and no more than 2147483647. Leave it blank to stop tracking the quantity.` | Enter plain ASCII digits — no signs, separators or decimals. `0` is allowed here and means "none on hand"; blank means "not tracking this at all". See [Stock and Location](#stock-and-location). |
+| `Location must be 100 characters or fewer.` (or the same message for **Sub-Location**) | Shorten the value. Both share their 100-character limit with the inventory items' own location fields, because they share one vocabulary. |
+| The "counted N ago" age did not change after you saved | That is intended: saving the same number is not a new count. Tick **"I recounted this — refresh the verification date"** on the edit form if you did count it again. |
 | `Unit Price must be a decimal number.` | Type the price as plain digits and at most one point — no currency symbol, no thousands separator. You will see this on the First Receipt block and on the purchase form alike. |
 | `Unit Price must not be negative.` | Prices are what you paid, not a credit. Drop the minus sign. |
 | `Unit Price must have at most two decimal places.` | Round to cents yourself; the stored column keeps two places and will not round for you. |

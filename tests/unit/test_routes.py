@@ -2057,3 +2057,136 @@ class TestFieldSuggestionsRoute:
         response = client.get('/api/inventory/field-suggestions/category_path')
         assert response.status_code == 500
         assert response.get_json()['success'] is False
+
+    # --- Merged location vocabulary (Story 5.1, FR27) --------------------
+    # `location` and `sub_location` stay ITEM-dispatched and keep their
+    # three-key response body; what changes is that a second, product-sourced
+    # query is merged into the answer, so the vocabulary is bidirectional.
+
+    @pytest.fixture
+    def products_with_locations(self, populated):
+        from app.mariadb_catalog_service import CatalogService
+        with populated.app_context():
+            service = CatalogService(populated.config['STORAGE_BACKEND'])
+            # 'Attic' exists only on a product; 'shelf a' duplicates the items'
+            # 'Shelf A' in a different casing; 'Bin 7' duplicates an item
+            # SUB-location but is a product LOCATION, which must not confuse
+            # the two fields.
+            service.create_product(description='p1', location='Attic',
+                                   sub_location='Crate 2')
+            service.create_product(description='p2', location='shelf a',
+                                   sub_location='Middle')
+            service.create_product(description='p3', location='Bin 7',
+                                   sub_location='Front')
+        return populated
+
+    @pytest.mark.unit
+    def test_a_product_only_location_is_offered(self, client,
+                                                products_with_locations):
+        """The half FR27 adds: a location typed on the PRODUCT form comes back
+        from the same endpoint the item form asks."""
+        body = client.get(
+            '/api/inventory/field-suggestions/location').get_json()
+        assert 'Attic' in body['suggestions']
+
+    @pytest.mark.unit
+    def test_item_only_locations_are_still_offered(self, client,
+                                                   products_with_locations):
+        """The half that must not regress: merging is additive, and an item
+        vocabulary that vanished the day a product grew a location would be a
+        worse bug than never having merged at all."""
+        body = client.get(
+            '/api/inventory/field-suggestions/location').get_json()
+        assert 'Rack 3' in body['suggestions']
+
+    @pytest.mark.unit
+    def test_a_value_in_both_sources_collapses_case_insensitively(
+            self, client, products_with_locations):
+        """`Shelf A` (items) and `shelf a` (products) are ONE value to the
+        operator, so the merged list offers exactly one spelling of it — the
+        byte-wise-lowest, which over ASCII is the more upper-case one."""
+        suggestions = client.get(
+            '/api/inventory/field-suggestions/location').get_json()['suggestions']
+        assert [s for s in suggestions if s.lower() == 'shelf a'] == ['Shelf A']
+
+    @pytest.mark.unit
+    def test_the_merged_list_respects_limit(self, client,
+                                            products_with_locations):
+        """`limit` bounds the MERGED answer, not each source — two sources each
+        honouring it independently would return up to twice what was asked."""
+        body = client.get(
+            '/api/inventory/field-suggestions/location?limit=2').get_json()
+        assert len(body['suggestions']) == 2
+        # And it is the top 2 of the union under the shared order, not the top 2
+        # of whichever source was queried first: 'Attic' is product-sourced and
+        # 'Bin 7' is a product location, both alphabetically ahead of every
+        # item-sourced value.
+        assert body['suggestions'] == ['Attic', 'Bin 7']
+
+    @pytest.mark.unit
+    def test_the_merged_list_is_ranked_not_concatenated(
+            self, client, products_with_locations):
+        """One order over the union. Concatenating the two ordered lists would
+        put every item value ahead of every product value regardless of the
+        query, which is the failure a merge helper exists to prevent."""
+        body = client.get(
+            '/api/inventory/field-suggestions/location').get_json()
+        assert body['suggestions'] == ['Attic', 'Bin 7', 'Rack 3', 'Shelf A']
+
+    @pytest.mark.unit
+    def test_sub_location_scoping_filters_both_sources(
+            self, client, products_with_locations):
+        """A parent location scopes the products' sub-locations by the PRODUCT's
+        own location and the items' by the ITEM's — never one by the other."""
+        body = client.get(
+            '/api/inventory/field-suggestions/sub_location?location=Shelf%20A'
+        ).get_json()
+        # 'Top'/'Bottom' are the items at Shelf A; 'Middle' is the product at
+        # 'shelf a' (case-insensitive, like the item filter).
+        assert set(body['suggestions']) == {'Top', 'Bottom', 'Middle'}
+        # 'Crate 2' belongs to the product in the Attic and 'Bin 7' is an item
+        # sub-location under Rack 3 — neither is under Shelf A.
+        assert 'Crate 2' not in body['suggestions']
+        assert 'Bin 7' not in body['suggestions']
+
+    @pytest.mark.unit
+    def test_the_merged_fields_keep_their_three_key_body(
+            self, client, products_with_locations):
+        """NFR9: the response shape these two fields have always returned is
+        unchanged — no `normalized`, no create affordance, nothing new at all."""
+        for url in ('/api/inventory/field-suggestions/location',
+                    '/api/inventory/field-suggestions/sub_location?location=Shelf%20A'):
+            body = client.get(url).get_json()
+            assert set(body) == {'success', 'field', 'suggestions'}
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize('field', ['vendor', 'thread_size',
+                                       'purchase_location'])
+    def test_the_untouched_item_fields_ignore_the_products(
+            self, client, products_with_locations, field):
+        """The other three item fields stay on the single-source path. Asserted
+        by seeding products that carry values in the LOCATION columns and
+        checking those values reach none of them — a merge wired on the wrong
+        field would show up here and nowhere else."""
+        body = client.get(
+            f'/api/inventory/field-suggestions/{field}').get_json()
+        assert set(body) == {'success', 'field', 'suggestions'}
+        assert 'Attic' not in body['suggestions']
+        assert 'Crate 2' not in body['suggestions']
+
+    @pytest.mark.unit
+    def test_a_product_side_failure_is_a_500_not_a_partial_list(
+            self, client, products_with_locations, monkeypatch):
+        """A half-answered merge would silently claim the product vocabulary is
+        empty, which is exactly the "successful-looking 200" the item half's own
+        failure contract refuses."""
+        from app.mariadb_catalog_service import CatalogService
+
+        def boom(self, *args, **kwargs):
+            raise RuntimeError('simulated database failure')
+
+        monkeypatch.setattr(CatalogService, 'get_product_location_suggestions',
+                            boom)
+        response = client.get('/api/inventory/field-suggestions/location')
+        assert response.status_code == 500
+        assert response.get_json()['success'] is False

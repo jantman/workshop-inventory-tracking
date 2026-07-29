@@ -867,9 +867,11 @@ class Product(Base):
     detail than a Label Description (FR3/FR4/FR61) — every field below except
     the PK and timestamps is nullable to support backfill-forward creation.
 
-    Story 1.1 shipped the FR2 columns and Story 2.4 added internal_id. Later
-    stories/epics extend this table via their own migrations: stock/quantity/
-    location fields (Epic 5), equivalent_group_id (Epic 10).
+    Story 1.1 shipped the FR2 columns and Story 2.4 added internal_id. Story 5.1
+    added the tri-state quantity, its verification stamp and the optional
+    location pair. Later stories/epics extend this table via their own
+    migrations: reorder_threshold and stock_status/stock_status_at (Stories
+    5.2/5.3), equivalent_group_id (Epic 10).
     """
     __tablename__ = 'products'
 
@@ -919,6 +921,35 @@ class Product(Base):
     # Generic sa.JSON maps to native JSON on MariaDB, serialized TEXT on SQLite.
     attributes = Column(JSON, nullable=True)
 
+    # Opt-in stock tracking (Story 5.1, FR23/FR24/FR25). THREE states, not two:
+    # NULL means "not tracked at all", 0 means "tracked, none on hand", N means
+    # "tracked, N on hand". No server_default and no NOT NULL, so a Product
+    # created by any path starts untracked and stays that way until an operator
+    # asserts a count — broad quantity coverage is an explicit non-goal, and an
+    # inaccurate count is worse than an absent one.
+    #
+    # quantity_verified_at is the age FR25 surfaces rather than corrects. It
+    # moves ONLY with a MANUAL assertion of quantity_on_hand: CatalogService
+    # stamps it when the submitted count DIFFERS from the stored one, when the
+    # operator explicitly re-confirms an unchanged one via the edit form's
+    # recount checkbox, or when a tracked quantity somehow has no stamp at all;
+    # it clears when the quantity is cleared. Merely re-posting the pre-filled
+    # value while editing some other field is NOT an assertion and leaves this
+    # column exactly where it was — the age displayed is the age of the COUNT,
+    # never of the last edit. Nothing on the purchase/receipt path writes either
+    # column: receiving a Purchase is not a count.
+    quantity_on_hand = Column(Integer, nullable=True)
+    quantity_verified_at = Column(DateTime, nullable=True)
+
+    # Optional physical storage (Story 5.1, FR27). Deliberately the same names
+    # and the same width as InventoryItem.location/sub_location above, because
+    # the two tables feed ONE autocomplete vocabulary through the one existing
+    # endpoint — a product location typed here is offered on the item form and
+    # vice versa. Same width so neither side can hold a value the other's column
+    # would truncate.
+    location = Column(String(100), nullable=True)
+    sub_location = Column(String(100), nullable=True)
+
     # Timestamps (created_at/updated_at convention for all catalog tables)
     created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
@@ -951,6 +982,17 @@ class Product(Base):
             'notes': self.notes,
             'category_path': self.category_path,
             'attributes': self.attributes,
+            # Story 5.1. Present here because this dict IS the audit snapshot
+            # every product mutation records — a column missing from it is a
+            # column the audit log cannot see changing, and the quantity is
+            # precisely the value whose history an operator would want to read.
+            # quantity_on_hand is emitted raw so that 0 and None stay distinct
+            # in the log exactly as they are in the column.
+            'quantity_on_hand': self.quantity_on_hand,
+            'quantity_verified_at': (self.quantity_verified_at.isoformat()
+                                     if self.quantity_verified_at else None),
+            'location': self.location,
+            'sub_location': self.sub_location,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

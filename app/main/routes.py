@@ -44,6 +44,15 @@ from app.utils import tag as tag_util
 # route derives none of that itself; it only catches `InvalidGtinError` and
 # renders the message the util wrote (AD-4).
 from app.utils import gtin
+# Story 5.1: the two pure utils this story needs. `describe_age` turns a
+# verification stamp into the phrase the product page shows beside the count
+# (FR25) — the route computes it and the template renders it (AD-5).
+# `merge_suggestions` re-ranks the item-sourced and product-sourced location
+# lists into the one answer the shared suggestion endpoint returns (FR27); the
+# merge is a pure function precisely so neither service has to query the other's
+# table (AD-1/AD-2).
+from app.utils.age_display import describe_age
+from app.utils.suggestion_merge import merge_suggestions
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
@@ -791,6 +800,12 @@ _PRODUCT_FIELD_LIMITS = {
     'description': ('Label Description', 255),
     'manufacturer': ('Manufacturer', 255),
     'mpn': ('MPN', 255),
+    # Story 5.1 (FR27). Both columns are VARCHAR(100), the same width as their
+    # inventory_items namesakes — the two tables feed one vocabulary, so a
+    # value one side accepted and the other could not hold would be a
+    # suggestion that cannot be taken.
+    'location': ('Location', 100),
+    'sub_location': ('Sub-Location', 100),
 }
 
 # Story 4.5: the create form's optional "first receipt" block writes a Purchase,
@@ -827,14 +842,22 @@ _IDENTIFIER_VENDOR_LIMIT = 255
 _MAX_INT32 = 2147483647
 
 
-def _positive_int_string(value):
-    """The value as a positive 32-bit int, or None if it is not one.
+def _non_negative_int_string(value):
+    """The value as a non-negative 32-bit int, or None if it is not one.
+
+    The SHARED rule, and the one `_positive_int_string` below is a narrowing of.
+    Story 5.1 needed a `quantity_on_hand` that accepts `0` — that is a
+    meaningful, distinct state (tracked, none on hand) rather than an absent
+    value — and the alternative to sharing was a second copy of a rule with
+    three separate subtleties in it, which is how two forms come to disagree
+    about one column.
 
     Deliberately NOT `int()`. `int('1_0')` is 10 and `int('٥')` is 5, so a form
     that promises "a whole number" would silently store something the operator
     did not type. `.isascii() and .isdigit()` is the rule the message states:
     ASCII digits, nothing else — no sign, no separator, no exponent, no
-    non-ASCII numeral.
+    non-ASCII numeral. It also rules out `-1` and `2.5` without a rule of its
+    own, which is why neither is mentioned in either message.
     """
     text = (value or '').strip()
     if not (text.isascii() and text.isdigit()):
@@ -851,7 +874,22 @@ def _positive_int_string(value):
     if len(digits) > len(str(_MAX_INT32)):
         return None
     parsed = int(digits)
-    if parsed <= 0 or parsed > _MAX_INT32:
+    if parsed > _MAX_INT32:
+        return None
+    return parsed
+
+
+def _positive_int_string(value):
+    """The value as a POSITIVE 32-bit int, or None if it is not one.
+
+    Behaviourally unchanged by the Story 5.1 split: it is exactly
+    `_non_negative_int_string` with zero excluded. Everything it judges —
+    `Purchase.quantity`, `duplicate_of`, the scanned `Q` record, the JSON
+    purchase API — treats `0` as meaningless, so the exclusion stays here rather
+    than moving into the shared rule.
+    """
+    parsed = _non_negative_int_string(value)
+    if parsed is None or parsed <= 0:
         return None
     return parsed
 
@@ -882,8 +920,12 @@ def _validate_product_form(form_data):
     This is the SHARED half: the Product columns `add.html` and `edit.html` both
     render, the tag field they both render, and the FR41 duplicate gate.
 
-    The receipt, `quantity` and identifier rules deliberately do NOT live here
-    any more; they moved to `_validate_product_create_form`. Owning every rule
+    The receipt, first-receipt `quantity` and identifier rules deliberately do
+    NOT live here any more; they moved to `_validate_product_create_form`. Note
+    that Story 5.1's `quantity_on_hand` is a DIFFERENT field on a different
+    table and belongs here, precisely because both templates render it — the two
+    names are near-neighbours and the split between them is the whole point of
+    this docstring. Owning every rule
     centrally so no caller could bypass one sounded like the safe default and
     was not: `product_edit` renders no first-receipt block and no scanned
     identifier card, reads none of those keys and writes none of them, so an
@@ -940,6 +982,34 @@ def _validate_product_form(form_data):
             tag_util.parse_tag_list(form_data.get('tags'))
         except tag_util.InvalidTagError as e:
             errors['tags'] = str(e)
+
+    # Story 5.1 (FR23/FR24). SHARED, not create-only, for the reason this
+    # function exists: `quantity_on_hand` is rendered by BOTH product templates
+    # and read by both routes, so a rule living in
+    # `_validate_product_create_form` would let an edit POST write an unusable
+    # value while the create form refused it.
+    #
+    # Judged by `_non_negative_int_string`, NOT by `_positive_int_string`: `0`
+    # is a state this column means something by ("tracked, none on hand"), which
+    # is exactly what separates this field from the create form's first-receipt
+    # `quantity` two blocks down. A BLANK value is not an error and never
+    # reaches the check — blank is how the operator says "not tracked", and the
+    # service clears both columns for it.
+    #
+    # The recount checkbox is deliberately NOT validated: it is a checkbox, so
+    # every value a browser can send means "checked" and its absence means
+    # "not checked". There is no third thing for a rule to refuse.
+    #
+    # No `not in errors` guard: this is the only rule keyed on the name, so a
+    # first-writer-wins test would be a condition that cannot be false. Same
+    # shape and same reason as the `quantity` and `unit_price` rules in the
+    # create-only validator.
+    quantity_on_hand = (form_data.get('quantity_on_hand') or '').strip()
+    if quantity_on_hand and _non_negative_int_string(quantity_on_hand) is None:
+        errors['quantity_on_hand'] = (
+            f'Quantity On Hand must be a whole number of zero or more and no '
+            f'more than {_MAX_INT32}. Leave it blank to stop tracking the '
+            f'quantity.')
     return errors
 
 
@@ -1173,6 +1243,12 @@ def _product_form_data(product, tags=None):
     `tags` comes from a dedicated service call (they live in their own table,
     and the Product is detached), and is rendered back into the single
     comma-separated field the form submits.
+
+    Story 5.1's `quantity_recounted` checkbox is deliberately NOT seeded here.
+    It is a per-submission intent ("I counted it again"), not a stored value, so
+    a GET must always render it unticked; on a failed submit the POST body's own
+    key survives through the `{**stored, **form_data}` merge at the re-render
+    sites, which is exactly the round-trip the other controls get.
     """
     return {
         'description': product.description or '',
@@ -1181,6 +1257,15 @@ def _product_form_data(product, tags=None):
         'category_path': product.category_path or '',
         'tags': tag_util.format_tag_list(tags),
         'notes': product.notes or '',
+        # Story 5.1. `is None` rather than `or ''`, which is not pedantry here:
+        # a tracked quantity of 0 is falsy, and `product.quantity_on_hand or ''`
+        # would render the "tracked, none on hand" state as an EMPTY field —
+        # which this form reads as "stop tracking", so re-saving an untouched
+        # edit page would silently untrack every product sitting at zero.
+        'quantity_on_hand': ('' if product.quantity_on_hand is None
+                             else str(product.quantity_on_hand)),
+        'location': product.location or '',
+        'sub_location': product.sub_location or '',
     }
 
 
@@ -1554,6 +1639,19 @@ def product_add():
             mpn=form_data.get('mpn'),
             category_path=form_data.get('category_path'),
             notes=form_data.get('notes'),
+            # Story 5.1. An omitted or blank `quantity_on_hand` is the UNTRACKED
+            # default, so `.get()` returning None is exactly right and no
+            # present-key dance is needed here — there is no stored value for an
+            # absent key to preserve on a create.
+            #
+            # `quantity_recounted` is deliberately NOT read: on a create there
+            # is nothing stored to re-confirm, every non-blank quantity is a
+            # first assertion and stamps regardless, and `add.html` renders no
+            # such control. A POST that carries the key anyway is simply
+            # ignored.
+            quantity_on_hand=form_data.get('quantity_on_hand'),
+            location=form_data.get('location'),
+            sub_location=form_data.get('sub_location'),
         )
         if not new_id:
             flash('Failed to create product. Please try again.', 'error')
@@ -1667,12 +1765,43 @@ def _scan_arrival_banner(product_id):
     }
 
 
+# The three fixed strings the tri-state quantity renders as (Story 5.1,
+# FR23/FR24). Three DISTINCT literals is the requirement, not an implementation
+# detail: a reader must never be able to confuse "not tracked" with "none on
+# hand", so the untracked state gets its own words rather than the `—` every
+# other absent field on the detail page uses, and the zero state says `0` rather
+# than falling back to that dash.
+_QUANTITY_UNTRACKED_DISPLAY = 'Not tracked'
+
+
+def _product_quantity_display(product):
+    """The finished quantity string the product detail page renders (AD-5).
+
+    Computed here rather than in Jinja because the template must not be the
+    place a domain rule lives — and because the rule is genuinely easy to get
+    wrong in a template: `{{ product.quantity_on_hand or 'Not tracked' }}` reads
+    naturally and is exactly the bug, since a tracked 0 is falsy and would
+    render as untracked.
+    """
+    if product.quantity_on_hand is None:
+        return _QUANTITY_UNTRACKED_DISPLAY
+    return f'In stock: {product.quantity_on_hand}'
+
+
 @bp.route('/products/<int:product_id>')
 def product_detail(product_id):
     """View a Product by its direct URL (FR6), with purchase history (FR20/FR21).
 
     Story 4.5: when the URL carries `scan_kind`, the page additionally shows the
     scan-arrival banner (FR41). Without it nothing changes.
+
+    Story 5.1: the tri-state quantity and the AGE of its verification stamp are
+    computed here and handed to the template as finished strings (AD-5). The age
+    is None whenever there is no stamp — which is exactly when there is no
+    tracked quantity either, since the two columns only ever move together — and
+    the template renders nothing rather than an empty parenthesis. The age shown
+    is the age of the last COUNT, not of the last edit: the write contract only
+    re-stamps on a real assertion.
     """
     service = _get_catalog_service()
     product = service.get_product(product_id)
@@ -1688,6 +1817,18 @@ def product_detail(product_id):
                            title=product.description or f'Product {product_id}',
                            product=product, purchases=purchases, last_paid=last_paid,
                            attachments=attachments, tags=tags,
+                           quantity_display=_product_quantity_display(product),
+                           # Gated on the quantity, not on the stamp alone. The
+                           # write contract moves the two columns together, so
+                           # a stamp without a count is a state this app cannot
+                           # produce — but a restored backup or a hand-run
+                           # UPDATE can, and the ungated version rendered
+                           # `Not tracked (counted 3 months ago)`: an age for a
+                           # count the same line says does not exist.
+                           quantity_verified_age=(
+                               describe_age(product.quantity_verified_at)
+                               if product.quantity_on_hand is not None
+                               else None),
                            scan_banner=_scan_arrival_banner(product_id))
 
 
@@ -3091,8 +3232,13 @@ def product_edit(product_id):
         # shows every omitted field blank, and this form's own rule is that a
         # present-but-empty field CLEARS — so a client that re-posts the page
         # it was handed turns a transient read failure into a wiped
-        # manufacturer, mpn, category, notes and tag list. The operator is told
-        # so in the one place they are already looking.
+        # manufacturer, mpn, category, notes, tag list, location and
+        # sub_location. Story 5.1 added one field to that list that is worse
+        # than the rest: a blank `quantity_on_hand` does not merely clear a
+        # string, it UNTRACKS the product, nulling `quantity_verified_at` with
+        # it — and unlike a retypeable category, the date somebody counted is
+        # not recoverable by retyping. The operator is told so in the one place
+        # they are already looking.
         try:
             stored = _product_form_data(
                 product, service.get_tags_for_product(product_id))
@@ -3120,11 +3266,36 @@ def product_edit(product_id):
         # means "not provided", not "clear this" — a present-but-empty field
         # still clears (the service coerces blanks to NULL).
         update_fields = {'description': form_data.get('description')}
-        for field in ('manufacturer', 'mpn', 'category_path', 'notes'):
+        # Story 5.1's three join the list unchanged, and the present-key rule is
+        # what gives `quantity_on_hand` its tri-state write: an absent key
+        # leaves the count and its verification stamp alone, while a key sent
+        # EMPTY clears both (the service's `_apply_quantity_assertion`). A key
+        # sent with a NUMBER re-stamps only if it is a real assertion — a
+        # changed value, or an unchanged one the operator explicitly recounted.
+        for field in ('manufacturer', 'mpn', 'category_path', 'notes',
+                      'quantity_on_hand', 'location', 'sub_location'):
             if field in form_data:
                 update_fields[field] = form_data[field]
 
-        ok = service.update_product(product_id, **update_fields)
+        # The recount checkbox (Story 5.1). NOT a field and never in
+        # `update_fields`: it is not a column, is never persisted, and only
+        # tells the service how to read the quantity that IS in there.
+        # `product_add` reads no such key.
+        #
+        # Present AND non-blank, not merely present. A browser omits an unticked
+        # box entirely and sends `on` for a ticked one, so for the form itself
+        # the two rules agree — but a JS serializer that posts every control
+        # sends `quantity_recounted=` for the unticked box, and reading that as
+        # a recount would refresh the verification date of a count nobody took,
+        # which is the one thing this whole control exists to prevent. It is
+        # also the test `edit.html` itself applies when it decides whether to
+        # re-render the box ticked (`{% if form_data.get(...) %}`), so route and
+        # template now agree about what the same body means.
+        recounted = bool((form_data.get('quantity_recounted') or '').strip())
+
+        ok = service.update_product(product_id,
+                                    quantity_recounted=recounted,
+                                    **update_fields)
         if not ok:
             flash('Failed to update product. Please try again.', 'error')
             return render_template('product/edit.html', title=title, product=product,
@@ -4011,13 +4182,27 @@ def material_suggestions():
         }), 500
 
 
+# The two fields whose vocabulary is drawn from BOTH tables (Story 5.1, FR27).
+#
+# Not a third dispatch whitelist: these names stay in
+# `InventoryService.FIELD_SUGGESTION_COLUMNS` and are still ANSWERED by the item
+# service exactly as before. Membership here only adds a second, product-sourced
+# query whose ordered result is merged into the first. That is what makes the
+# vocabulary bidirectional — a location typed on the product form is offered on
+# the item form and vice versa — without either service reaching into the
+# other's table, and without `location` appearing in the catalog dispatch map
+# where it would REPLACE the item lookup instead of adding to it.
+_MERGED_LOCATION_FIELDS = ('location', 'sub_location')
+
+
 @bp.route('/api/inventory/field-suggestions/<field>')
 def inventory_field_suggestions(field):
     """Return distinct existing values for a whitelisted field.
 
     Used by the Add/Edit Item forms to autocomplete free-form fields
-    (Thread Size, Purchase Location, Vendor, Location, Sub-Location), and
-    since Story 3.1 by the product form's Category field.
+    (Thread Size, Purchase Location, Vendor, Location, Sub-Location), by the
+    product form's Category and Tags fields since Stories 3.1/3.3, and by the
+    product form's own Location / Sub-Location since Story 5.1.
 
     ONE endpoint, two sources (AD-14): fields in the catalog whitelist are
     served by CatalogService (products), everything else by InventoryService
@@ -4026,6 +4211,14 @@ def inventory_field_suggestions(field):
     autocomplete-with-create UI displays so the browser never reimplements
     normalization. The five pre-existing fields keep byte-identical request
     handling and response bodies, `normalized` included (i.e. absent).
+
+    Story 5.1 adds a THIRD shape for `location` / `sub_location` alone: still
+    item-dispatched, still no `normalized` key and still no create affordance,
+    but the item answer is merged with a product-sourced one under the same
+    ordering rule (`app/utils/suggestion_merge.py`). The response body is
+    byte-identical to what those two fields have always returned — same three
+    keys — so nothing about the existing consumers changes except that the list
+    can now contain a value only a Product carries.
     """
     query = request.args.get('q', '').strip()
     limit_raw = request.args.get('limit', '10')
@@ -4057,6 +4250,29 @@ def inventory_field_suggestions(field):
                 limit=limit,
                 location=location,
             )
+            if field in _MERGED_LOCATION_FIELDS:
+                # Story 5.1 (FR27). Two independent top-`limit` reads under one
+                # total order, re-ranked into the top-`limit` of their union —
+                # see `merge_suggestions` for why truncating each source first
+                # loses nothing. Both are asked for `limit`, not for half of it:
+                # either table alone may hold the whole answer.
+                #
+                # Deliberately inside the same `try`: a catalog failure here is
+                # the same kind of failure an item failure is, and it must reach
+                # the 500 below rather than be swallowed into a partial list
+                # that silently claims the product vocabulary is empty.
+                product_suggestions = _get_catalog_service() \
+                    .get_product_location_suggestions(
+                        field,
+                        query=query or None,
+                        limit=limit,
+                        location=location,
+                    )
+                suggestions = merge_suggestions(
+                    (suggestions, product_suggestions),
+                    query=query or None,
+                    limit=limit,
+                )
     except ValueError as e:
         return jsonify({
             'success': False,
