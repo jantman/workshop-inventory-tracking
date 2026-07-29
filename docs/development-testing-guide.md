@@ -99,9 +99,9 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Purpose**: Executes the `>>>` docstring examples in `app/utils/` so the documented behavior of the pure identifier/encoding/classification helpers (AD-4) cannot silently rot.
 
-**Scope**: `app/utils/` only, via an explicit path argument to `pytest --doctest-modules`. Doctests are deliberately *not* enabled repo-wide — that would collect and import every module in the tree.
+**Scope**: `app/utils/` only, via an explicit path argument to `pytest --doctest-modules`. Doctests are deliberately *not* enabled repo-wide — that would collect and import every module in the tree. Because that leaves an example written anywhere else unexecuted forever, `tests/unit/test_doctest_scope.py` (run by `nox -s tests`) fails if a `>>>` prompt appears in `app/` outside `app/utils/` or in a repo-root module, naming each `path:line` and pointing back at this session — so if that test goes red, move the example under `app/utils/` where it becomes a test, or drop the prompt.
 
-**Coverage**: 21 doctest items — one per docstring, 62 individual `>>>` examples — across `category.py`, `ecia.py`, `gs1.py`, `gtin.py`, `internal_id.py`, `location_validator.py`, `scan_input.py`, `scan_router.py` and `tag.py`. A new module added under `app/utils/` is picked up automatically, with no `noxfile.py` change.
+**Coverage**: 23 doctest items — one per docstring, 73 individual `>>>` examples — across `category.py`, `ecia.py`, `gs1.py`, `gtin.py`, `internal_id.py`, `location_validator.py`, `scan_input.py`, `scan_router.py`, `sql_text.py` and `tag.py`. A new module added under `app/utils/` is picked up automatically, with no `noxfile.py` change.
 
 **Runtime**: <0.1 seconds of assertions; ~20 seconds wall-clock for a warm session, since it builds its own environment from `requirements.txt` + `requirements-test.txt` like every other nox session.
 
@@ -502,7 +502,7 @@ python app/api_client.py --url http://localhost:5000 --input item.json
 ### Running Tests During Development
 
 1. **Quick validation**: `nox -s tests`
-2. **Docstring examples**: `nox -s doctests` — required whenever you touch `app/utils/`
+2. **Docstring examples**: `nox -s doctests` — required whenever you touch `app/utils/`. Note the reverse constraint applies everywhere else: a `>>>` prompt added under `app/` outside `app/utils/`, or in a repo-root module, fails `nox -s tests` (see the Doctests scope above)
 3. **Full validation**: `nox -s tests && nox -s doctests && nox -s integration && nox -s e2e`
 4. **Coverage check**: `nox -s coverage` (check `htmlcov/index.html`)
 

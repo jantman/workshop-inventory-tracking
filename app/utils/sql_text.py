@@ -96,7 +96,7 @@ LIKE_ESCAPE_CHAR = '\\'
 
 
 def escape_like_literal(value: str) -> str:
-    """
+    r"""
     Return `value` with every `LIKE` metacharacter escaped against
     LIKE_ESCAPE_CHAR, so the text matches literally.
 
@@ -118,9 +118,54 @@ def escape_like_literal(value: str) -> str:
         value: Literal text to embed in a LIKE pattern.
 
     Returns:
-        The same text with `\\`, `%` and `_` each prefixed by
+        The same text with `\`, `%` and `_` each prefixed by
         LIKE_ESCAPE_CHAR. Wildcards the CALLER wants live (the surrounding
         `%…%`) are concatenated by the caller, after this returns.
+
+    Examples:
+        Text carrying no metacharacter comes back untouched, and each of the
+        two wildcards is prefixed where it stands:
+
+        >>> print(escape_like_literal('plain text'))
+        plain text
+        >>> print(escape_like_literal('10%'))
+        10\%
+        >>> print(escape_like_literal('power_supplies'))
+        power\_supplies
+
+        The escape character is a metacharacter too, so a backslash the caller
+        typed comes back doubled — otherwise it would escape whatever followed
+        it in the pattern:
+
+        >>> print(escape_like_literal('a\\b'))
+        a\\b
+
+        This next case is the FIRST/after rule above, made executable: the
+        input's own backslash is doubled and the `%` is escaped exactly once,
+        so the pattern matches those two characters literally. Escaping `%`
+        first would instead double the backslash this function had just
+        inserted and leave the `%` live as a wildcard.
+
+        >>> print(escape_like_literal('\\%'))
+        \\\%
+
+        And applying the function twice escapes the escapes it inserted the
+        first time — the deliberate non-idempotency above, seen from the
+        output side rather than argued for in prose:
+
+        >>> print(escape_like_literal(escape_like_literal('10%')))
+        10\\\%
+
+        The examples `print` rather than echo the value because a bare
+        expression shows the `repr`, which doubles every backslash on its own
+        account — and exactly which backslashes THIS function inserted is what
+        the whole docstring is about. For the same reason this docstring is a
+        RAW string: without the `r` prefix Python collapses every backslash
+        pair above before doctest ever sees it, changing both the example
+        inputs and the expected outputs, and `nox -s doctests` goes red for a
+        reason that has nothing to do with this function. `is_storable_text`
+        below is deliberately NOT raw — its prose spells `\\x00` and needs the
+        escape — so do not "make the module consistent" in either direction.
     """
     return (
         value.replace(LIKE_ESCAPE_CHAR, LIKE_ESCAPE_CHAR * 2)

@@ -917,7 +917,8 @@ location: `noxfile.py` (`doctests` session), `app/**` outside `app/utils/`
 severity: low
 summary: The new `doctests` session executes docstring examples under `app/utils/` only. A future `>>>` example in a route, service, or model docstring is unexecuted documentation, exactly as the `app/utils/` examples were before this story, and nothing fails or warns to say so.
 evidence: `grep -rn '^\s*>>> ' --include='*.py' app/ manage.py config.py` returns zero matches outside `app/utils/` today, so this is a latent gap rather than a live defect — which is why it is deferred rather than patched. The scoping is deliberate (running `--doctest-modules` tree-wide imports every module, including the Flask/ORM layers, which the story's intent explicitly rules out), so closing this is not "widen the path": it means either a cheap tripwire test that greps for `>>>` outside `app/utils/` and fails with a pointer to this session, or a documented convention that examples belong in the pure-utils layer. `_bmad-output/project-context.md` now states the boundary, which is the minimum mitigation; the tripwire is the open decision.
-status: open
+status: done 2026-07-29
+resolution: resolved by sweep bundle dw-doctest-coverage-round-2
 
 ### DW-104: `app/utils/sql_text.py` states its LIKE-escaping contract entirely in prose, so the module with the subtlest semantics contributes nothing to the new doctests session
 origin: spec-pure-util-doctest-session
@@ -926,7 +927,8 @@ location: `app/utils/sql_text.py`
 severity: low
 summary: The `doctests` session added by this story executes every `>>>` example under `app/utils/`, but `sql_text.py` has zero of them despite documenting exact `%`/`_`/`\` replacement semantics, replacement *ordering*, and non-idempotency in narrative docstrings — the class of contract doctests exist to pin.
 evidence: `grep -c '>>>' app/utils/*.py` returns `0` for `sql_text.py` and `__init__.py`; the other eight modules supply all 20 collected items. `escape_like_literal` is a dependency of `app/utils/category.py`'s `descendant_like_pattern` (imported at `category.py:59`) and was last touched by the DW-42/DW-49/DW-77 sweep, so its behavior is both load-bearing and actively changing. Not caused by this story — the module had no examples before it either, and the story's scope was "run the examples that exist", not "write new ones" (its Never list forbids adding directives or deleting examples but says nothing about authoring). Closing it means writing `>>>` examples for `escape_like_literal` covering each metacharacter, the escape character itself, and the documented ordering guarantee; they would then be collected automatically with no `noxfile.py` change.
-status: open
+status: done 2026-07-29
+resolution: resolved by sweep bundle dw-doctest-coverage-round-2
 
 ### DW-105: `pytest.ini` declares `database` and `screenshot` markers that nothing registers, so fixing DW-102 would turn `nox -s screenshots` red
 origin: spec-pure-util-doctest-session
@@ -2154,4 +2156,47 @@ location: `pytest.ini` (`addopts`), `app/photo_service.py:119-120,134,390,604`
 severity: medium
 summary: Activating `pytest.ini` (DW-102) turned on a blanket warnings suppressor that had never taken effect in the file's entire life. Every nox session now prints a bare warning count with no detail, and nobody has ever assessed what is behind it — `nox -s tests` reports `3 warnings`, all of which are `DeprecationWarning: datetime.datetime.utcnow() is deprecated`, raised from `app/photo_service.py`, which is production code that breaks on a future Python.
 evidence: Verified: `nox -s tests` ends `3542 passed, 2 skipped, 466 deselected, 3 warnings` with no summary body; re-running with `--override-ini="addopts=--verbose --tb=short --strict-markers --strict-config"` reveals the three `utcnow()` deprecations at `app/photo_service.py:119`, `:120` and `:134` (`grep -n "utcnow()" app/photo_service.py` shows five call sites in total, so the count grows as more of the module is exercised — `nox -s coverage` reports 1681 warnings). This is not a defect introduced by the activation story, which correctly preserved the ini author's declared `addopts`; it is a pre-existing blind spot that the activation made real, and it is the exact defect class DW-102 belonged to — a setting nobody had validated because it had never run. Note that an *unsuppressed* `PytestUnknownMarkWarning` is what made DW-102 discoverable in the first place, so suppression is directly load-bearing against future discovery. Not fixed in the activation pass because triaging 1681 warnings is its own piece of work and un-suppressing blind would replace a bare count with a 1681-line summary on every run. Closing it means choosing among: dropping `--disable-warnings`, replacing it with a targeted `filterwarnings =` allowlist that keeps new warnings visible, and/or fixing the `utcnow()` call sites to `datetime.now(timezone.utc)`.
+status: open
+
+### DW-239: `app/utils/is_storable_text` states its whole contract in prose, including empirical claims no example executes — the unexecuted half of the module DW-104 half-closed
+origin: spec-doctest-coverage-round-2-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-doctest-coverage-round-2.md`
+location: `app/utils/sql_text.py:177-` (`is_storable_text`)
+severity: low
+summary: DW-104 named `escape_like_literal` only, so that function now carries six executed `>>>` examples while its sibling in the same module — the one function `sql_text.py` has left — still documents its behavior entirely in narrative, in the one package where an example would be run automatically.
+evidence: `nox -s doctests` collects exactly one item from `sql_text.py` (`app.utils.sql_text.escape_like_literal`); `is_storable_text`'s docstring contributes none. Its prose makes specific, checkable empirical claims — that `search_products('\x00')` returns all five stored products, and that `'a\x00b'` runs as `'%a'` — that no test executes and that would be cheap to pin as examples, exactly the rotted-in-place risk DW-104 was filed against. Not caused by the round-2 work, whose `Always` list explicitly froze `is_storable_text`'s text ("`LIKE_ESCAPE_CHAR`, `is_storable_text` and the module docstring keep their current text"), so closing it is a deliberate follow-on rather than an omission. Closing it means writing `>>>` examples for the two character classes it rejects; they are collected with no `noxfile.py` change. Note the docstring is deliberately NOT a raw string (its prose spells `\\x00`), so examples added there must respect that, or the string form must change with the escapes converted.
+status: open
+
+### DW-240: The doctest **Coverage** counts in `docs/development-testing-guide.md` are hand-maintained and unpinned, and had already rotted once before being corrected
+origin: spec-doctest-coverage-round-2-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-doctest-coverage-round-2.md`
+location: `docs/development-testing-guide.md` (`#### 3. Doctests` -> **Coverage**)
+severity: low
+summary: The guide states the doctests session's item and example counts as literal numbers maintained by hand. Nothing executes or checks them, so they drift the moment anyone adds an example — which is the exact class of documentation rot the tripwire one paragraph above them exists to prevent.
+evidence: Measured at `356be4e` (before the round-2 work) the tree had 22 doctest items / 67 examples while the guide said 21 / 62 — wrong by one item and five examples, having last been recounted before `gs1.decode_trade_item_number` and further `gtin.py`/`scan_router.py` examples landed. The round-2 work corrected the line to the measured 23 / 73 but added nothing that pins it, so the next example added to any of the ten `app/utils/` modules makes it wrong again with no test going red. Closing it means either a unit test asserting the documented numbers against a `doctest.DocTestFinder` count over `app/utils/`, or replacing the literal counts with a qualitative statement ("one item per documented function") that cannot rot. Note the same guide's module list is a second hand-maintained enumeration with the same property.
+status: open
+
+### DW-241: Nothing asserts that CI still invokes `nox -s doctests`, so deleting one workflow step stops every docstring example running in CI with all guards green
+origin: spec-doctest-coverage-round-2-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-doctest-coverage-round-2.md`
+location: `.github/workflows/test.yml:49`, `tests/unit/test_doctest_scope.py`
+severity: low
+summary: `tests/unit/test_doctest_scope.py` exempts `app/utils/` from its scan on the premise that the doctests session executes it, and guards four ways that premise can break inside `noxfile.py` and `pytest.ini`. The fifth — the CI step that actually invokes the session on every push — is deliberately not asserted, so removing it leaves the exemption covering a session CI no longer runs.
+evidence: `.github/workflows/test.yml:49` is the only place CI names `nox -s doctests`; the guard instead asserts `doctests` is in `nox.options.sessions`, which governs a bare local `nox` run rather than CI. Deleting the workflow step leaves both tripwire tests passing while no docstring example runs in CI. The omission is a considered trade-off, recorded in the guard test's own docstring, not an oversight: a unit test reaching into a workflow file couples them tightly and breaks on any CI restructuring. Closing it means deciding whether that coupling is worth it — e.g. a YAML-parsing assertion that some workflow step runs the session, or accepting the gap explicitly and closing this entry.
+status: open
+
+### DW-242: Doctest coverage can be narrowed from INSIDE `app/utils/` with both tripwires green — a per-example `# doctest: +SKIP` disables an example silently
+origin: spec-doctest-coverage-round-2-followup-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-doctest-coverage-round-2.md`
+location: `tests/unit/test_doctest_scope.py`, `app/utils/**`
+severity: low
+summary: `tests/unit/test_doctest_scope.py` guards the outside of `app/utils/` (no prompts there) and the session's invocation (it still targets `app/utils`), but nothing guards the inside: the number of examples actually executed within the exempt tree is assumed, never measured, so an example can be disabled or excluded without a single test going red.
+evidence: Proven in scratch: a docstring whose second example carries `>>> 1 + 1  # doctest: +SKIP` / `99` collects and reports `1 passed` with no skip indicator and no count change — so the metacharacter example DW-104 exists to pin can be silently switched off. (A whole-docstring `+SKIP` does surface as `s`; a per-example one does not.) Two further routes to the same outcome: an `app/utils/conftest.py` carrying `collect_ignore = ['sql_text.py']`, which drops the session to 22 items with every guard green. The third route — `--ignore`/`--deselect` in the session's own `session.run` call — was closed as a patch in this review pass (`NARROWING_FLAGS`), which is what makes the remaining two worth filing rather than leaving as prose. Not caused by the round-2 work in the sense that its spec scoped the tripwire to "examples outside the package" plus "the session still targets the package"; an inside-the-tree guard was never in scope, and the spec's `Never` list forbids `# doctest:` directives as an instruction to the implementer with no enforcement mechanism behind it. Closing it means measuring rather than assuming: a unit test asserting the collected item/example count over `app/utils/` via `doctest.DocTestFinder` (which would also close DW-240's documentation half, and is the fix that entry already proposes), and/or scanning `app/utils/**/*.py` for `# doctest:` the same way `_scanned_files()` scans its complement — roughly four lines reusing machinery already in the file.
+status: open
+
+### DW-243: Follow-up review still recommended for dw-doctest-coverage-round-2 after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-doctest-coverage-round-2.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260728-175554-2d63; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
