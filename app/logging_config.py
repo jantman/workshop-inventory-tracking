@@ -72,18 +72,201 @@ def _serializable_key(key):
         return REDACTED_VALUE
 
 def _redact_payload(value):
-    """Fail-closed entry point for the audit helpers.
+    """Fail-closed entry point for every helper that logs a caller's dict.
 
     `_redact_sensitive` walks caller-supplied objects, and a payload whose
     `items()` or iteration raises would otherwise propagate out of a *logging*
     call and fail the request it was only meant to describe. A logging helper
     must never be the thing that breaks its caller, so the whole payload
     collapses to the marker instead -- fail closed, never fail open.
+
+    Callers that NEST the result under a key of their own (the audit helpers)
+    use this directly; callers that MERGE it into the record go through
+    `_redact_merge`, which is the same walk plus the one guarantee `dict.update`
+    needs -- see there for why the difference matters.
     """
     try:
         return _redact_sensitive(value)
     except Exception:
         return REDACTED_VALUE
+
+# Every name `logging.Logger.makeRecord` refuses to accept in `extra`. It
+# raises `KeyError("Attempt to overwrite %r in LogRecord")` for any key that is
+# `message`/`asctime` or already an attribute of the record -- so a caller dict
+# carrying `name` (one of the commonest form fields), `module`, `filename`,
+# `args`, `lineno` or `levelname` would take down the very call that only meant
+# to describe an operation.
+#
+# DERIVED from a probe record rather than hardcoded, because it is exactly the
+# check `makeRecord` performs and the attribute set grows between Python
+# releases (`taskName` arrived in 3.12). A hardcoded copy would drift and start
+# letting through keys that raise again.
+_RESERVED_RECORD_ATTRS = frozenset(
+    logging.LogRecord('n', logging.INFO, 'p', 1, 'm', None, None).__dict__
+) | {'message', 'asctime'}
+
+# `makeRecord` is not the only thing that owns names on these records. Two
+# things in THIS module stamp or read attributes after the record is built, and
+# neither is visible to the probe above:
+#
+#   * `AuditLogFilter` sets `url`/`method`/`remote_addr`/`user_agent`/`user_id`
+#     on every record it filters, and `JSONFormatter` treats `url` as the
+#     sentinel meaning the other four are present. A flat-merged
+#     `details={'url': …}` therefore makes `JSONFormatter.format` raise
+#     `AttributeError` on `record.method` wherever the filter has not run (the
+#     root `console_handler` has no filter) -- and `logging` responds by
+#     DROPPING THE WHOLE RECORD. Silently losing the log line is a worse
+#     outcome than the `KeyError` the probe set exists to prevent.
+#   * `JSONFormatter`'s error and audit blocks are `hasattr` gated, so a
+#     `log_operation(details={'audit_data': …})` emits a forged audit entry
+#     from a helper that writes no audit trail at all.
+#
+# `operation` / `duration` / `item_id` are deliberately NOT here: those are the
+# helpers' own fields, and the pre-existing shadowing of them by caller keys is
+# out of scope for this change (see the choke-point comment in
+# `log_audit_operation`). `test_the_module_record_attrs_match_what_the_module_uses`
+# pins this set against what the filter and the formatter actually touch, so it
+# cannot drift away from them unnoticed.
+_MODULE_RECORD_ATTRS = frozenset({
+    'url', 'method', 'remote_addr', 'user_agent', 'user_id',
+    'error_id', 'error_code', 'error_details',
+    'audit_operation', 'audit_phase', 'audit_timestamp', 'audit_data',
+})
+
+# Every key a flat merge must not put on a record directly.
+_UNMERGEABLE_KEYS = _RESERVED_RECORD_ATTRS | _MODULE_RECORD_ATTRS
+
+def _redact_merge(payload, fallback_key: str):
+    """Redact a caller dict that is about to be `update()`d into a log record.
+
+    `log_operation`/`log_performance` merge the caller's dict FLAT into the
+    record's extra data rather than nesting it, so they cannot use
+    `_redact_payload`'s return value as-is: its fail-closed path returns a
+    `str`, and `dict.update('[REDACTED]')` raises `ValueError` -- straight out
+    of a logging call, from the very path that exists so a bad payload never
+    breaks its caller. The same applies to a caller who hands over a list or an
+    object instead of a mapping.
+
+    So anything that is not a `Mapping` on the way OUT (the check is on the
+    result, not the input: a mapping whose walk blew up becomes the marker) is
+    nested under the parameter name instead. Nesting is what keeps the record
+    EMITTABLE; it is not a redaction guarantee. Only a walk that *failed*
+    collapses to the marker -- an arbitrary object is handed back untouched by
+    `_redact_sensitive`, which is its documented "pass a dict" boundary, so
+    `_redact_merge(SimpleNamespace(csrf_token='x'), 'context')` nests that
+    object with its attribute intact.
+
+    Keys the record cannot take are nested there too -- both the ones
+    `makeRecord` raises `KeyError` on and the ones this module's own filter and
+    formatter own (see `_UNMERGEABLE_KEYS`). A caller passing
+    `details={'name': …}` must not be how a logging helper breaks its caller,
+    and one passing `details={'url': …}` must not be how a record silently
+    vanishes -- so those keys move under `fallback_key` instead of being dropped
+    or merged. The safe keys still merge flat exactly as before, and a caller
+    key that already occupies `fallback_key` is folded into the nested dict
+    rather than clobbered by it, so the merge itself loses nothing.
+
+    The one place a value can still go missing is upstream of the merge, in
+    `_redact_sensitive`'s key coercion: two keys that coerce to the same string
+    (`{b'ja_id': …, 'ja_id': …}`) collapse into one dict entry before this
+    helper ever sees them. That is a property of the walk -- a dict comprehension
+    over coerced keys -- and not something the merge can restore.
+
+    One shape consequence worth knowing before reading `record.<fallback_key>`:
+    it is the caller's own value for that key when nothing needed nesting, and a
+    dict of the nested keys (including that value, folded in) when something
+    did. Nothing is lost either way, but the attribute is not one fixed type.
+    """
+    redacted = _redact_payload(payload)
+    if not isinstance(redacted, Mapping):
+        return {fallback_key: redacted}
+
+    reserved = {key: value for key, value in redacted.items()
+                if key in _UNMERGEABLE_KEYS}
+    if not reserved:
+        return redacted
+
+    merged = {key: value for key, value in redacted.items()
+              if key not in _UNMERGEABLE_KEYS}
+    if fallback_key in merged:
+        reserved[fallback_key] = merged.pop(fallback_key)
+    merged[fallback_key] = reserved
+    return merged
+
+def _has_payload(value) -> bool:
+    """Whether a caller payload is worth logging, without trusting its truth test.
+
+    `if details:` runs the caller's `__bool__`/`__len__`, which is the first
+    caller code any of these helpers executes and sits IN FRONT of every guard
+    below it -- so a mapping whose `__len__` raises failed the request before
+    `_redact_merge` was ever reached. That is the same hazard `_message_field`
+    closes for the message lookup and `_redact_payload` closes for the walk;
+    leaving it open on the gate would just move the asymmetry one line up.
+
+    An unanswerable truth test is read as "there is something here": the payload
+    then goes through the fail-closed walk, which is the safe direction to guess
+    in.
+
+    Scope, so the guarantee is not read wider than it is: this covers the
+    caller PAYLOAD parameters (`details`, `context`, `form_data`, `item_before`,
+    `item_after`, `changes`, `batch_data`, `results`, `error_details`) -- the
+    free-form dicts a caller hands over. The helpers' scalar parameters are
+    still gated and rendered directly (`if item_id:`, `f"…{duration_ms}ms"`,
+    `end_time - start_time`), so an object with an exploding `__bool__` or
+    `__format__` passed as one of THOSE still escapes. Closing that is tracked
+    separately; it is not what this bundle was scoped to.
+    """
+    if value is None:
+        return False
+    try:
+        return bool(value)
+    except Exception:
+        return True
+
+def _message_field(payload, key, template: str) -> str:
+    """`template` filled from one field of a caller payload, or `''`.
+
+    Read from the caller's ORIGINAL dict, not the redacted copy: these are
+    counts, not the audit trail, and reading the copy would only add a way for
+    the message and the record to disagree.
+
+    Only a SCALAR is ever interpolated, which matters more here than anywhere
+    else in this module: `message` is the one field `JSONFormatter` emits
+    unconditionally, while `details`/`context` are not in its allowlist at all.
+    A caller who puts a dict under `item_count` would therefore have printed its
+    contents verbatim into the emitted record beside the redacted copy of the
+    very same dict -- the message leaking what the payload just protected. A
+    non-scalar is dropped from the message instead; the payload still carries
+    it, redacted.
+
+    Everything else is guarded because none of it is enforced. The parameters
+    are annotated `dict` but nothing checks that -- `in` raises `TypeError` on a
+    plain object and the subscript raises it on a list -- a genuine `Mapping`
+    may have a `__contains__`/`__getitem__` that raises, and rendering the value
+    runs `__format__`/`__str__`, which is caller code too. The formatting is
+    done HERE rather than by an f-string at the call site so that last step is
+    inside the guard: a decoration read out of a caller PAYLOAD must not be the
+    one thing that escapes a logging call.
+
+    The message pieces built from the helpers' own scalar parameters
+    (`f"on item {item_id}"`, `f"item={item_id}"`) are still plain f-strings and
+    are NOT covered -- see `_has_payload` for the scope line and why it is
+    drawn there.
+    """
+    if not isinstance(payload, Mapping):
+        return ''
+    try:
+        if key not in payload:
+            return ''
+        value = payload[key]
+    except Exception:
+        return ''
+    if value is not None and not isinstance(value, (str, int, float, bool)):
+        return ''
+    try:
+        return template.format(value)
+    except Exception:
+        return ''
 
 def _redact_sensitive(value, _depth: int = 0):
     """
@@ -338,9 +521,12 @@ def log_operation(operation_name: str, duration_ms: int = None, item_id: str = N
         extra_data['duration'] = duration_ms
     if item_id:
         extra_data['item_id'] = item_id
-    if details:
-        extra_data.update(details)
-    
+    if _has_payload(details):
+        # Same choke point as the audit helpers: `details` is free-form caller
+        # data, and a route that happens to pass a form dict through here must
+        # not be the one path a csrf_token reaches a log record by.
+        extra_data.update(_redact_merge(details, 'details'))
+
     message = f"Operation '{operation_name}'"
     if item_id:
         message += f" on item {item_id}"
@@ -399,13 +585,14 @@ def log_performance(operation: str, start_time: float, end_time: float,
         'duration': duration_ms
     }
     
-    if context:
-        extra_data.update(context)
-    
-    message = f"Performance metric"
-    if context and 'item_count' in context:
-        message += f" (processed {context['item_count']} items)"
-    
+    if _has_payload(context):
+        extra_data.update(_redact_merge(context, 'context'))
+
+    # The caller's ORIGINAL `context`, guarded and scalar-only -- see
+    # `_message_field` for why every part of that lookup has to be.
+    message = "Performance metric"
+    message += _message_field(context, 'item_count', ' (processed {} items)')
+
     logger.info(message, extra=extra_data)
 
 def log_audit_operation(operation_name: str, phase: str, item_id: str = None, 
@@ -446,24 +633,30 @@ def log_audit_operation(operation_name: str, phase: str, item_id: str = None,
     # matches SENSITIVE_FIELD_SUBSTRINGS) into the audit trail, and no future
     # caller has to remember to strip one. See `_redact_sensitive` for what
     # that does and does not cover -- notably it is key-based, so a secret in a
-    # value is not caught. (Sibling helpers `log_operation` / `log_performance`
-    # take free-form dicts that are NOT redacted -- they are not audit trail.)
-    if form_data:
+    # value is not caught.
+    #
+    # All four helpers that accept a caller dict go through that one choke
+    # point: the siblings `log_operation` / `log_performance` route theirs
+    # through `_redact_merge`, which is the same walk. What still differs is
+    # only WHERE the result lands -- the siblings merge it FLAT into the record
+    # (so a caller key can shadow `operation`/`duration`/`item_id`), while the
+    # audit helpers nest it under `audit_data` below.
+    if _has_payload(form_data):
         data_section['form_data'] = _redact_payload(form_data)
 
-    if item_before:
+    if _has_payload(item_before):
         data_section['item_before'] = _redact_payload(item_before)
 
-    if item_after:
+    if _has_payload(item_after):
         data_section['item_after'] = _redact_payload(item_after)
 
-    if changes:
+    if _has_payload(changes):
         data_section['changes'] = _redact_payload(changes)
 
     # Annotated `str`, but Python does not enforce that; routing it through the
     # same helper is a no-op for strings and closes the hole if a caller ever
     # hands over a dict.
-    if error_details:
+    if _has_payload(error_details):
         data_section['error_details'] = _redact_payload(error_details)
 
     if data_section:
@@ -509,18 +702,22 @@ def log_audit_batch_operation(operation_name: str, phase: str, batch_data: dict 
     }
     
     data_section = {}
-    if batch_data:
+    if _has_payload(batch_data):
         data_section['batch_input'] = _redact_payload(batch_data)
-    if results:
+    if _has_payload(results):
         data_section['batch_results'] = _redact_payload(results)
-    if error_details:
+    if _has_payload(error_details):
         data_section['error_details'] = _redact_payload(error_details)
 
     if data_section:
         audit_data['audit_data'] = data_section
     
+    # Same guarded lookup as `log_performance`'s: `results` is annotated `dict`
+    # and nothing enforces it, so a plain object or a list here would raise
+    # `TypeError` out of an audit call. Sharing the helper is the point -- a
+    # sibling left with the unguarded version is the asymmetry this file keeps
+    # having to close.
     message = f"AUDIT: {operation_name} batch_phase={phase}"
-    if results and 'successful_count' in results:
-        message += f" processed={results['successful_count']}"
-    
+    message += _message_field(results, 'successful_count', ' processed={}')
+
     logger.info(message, extra=audit_data)
