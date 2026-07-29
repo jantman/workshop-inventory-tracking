@@ -870,7 +870,8 @@ location: `config.py:85`
 severity: low
 summary: `SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'` means a deployment that forgets the env var runs on a key published in this repository, and nothing fails to announce it.
 evidence: Entirely pre-existing; surfaced by this story only because it added the tests that prove CSRF enforcement works — enforcement whose whole value rests on the signing key being secret. The same key signs Flask sessions. No test, startup check, or log line distinguishes the fallback from a real key, so the failure is silent in exactly the deployment where it matters. Closing it means refusing to start (or at minimum logging at ERROR) when a non-debug config resolves to the fallback value, which is a config/startup change outside this story's redaction-and-tests scope.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-secret-key-startup-guard
 
 ### DW-99: Redaction is key-based, so a secret embedded in a value — notably `error_details` strings built from `traceback.format_exc()` — passes through untouched
 origin: spec-csrf-token-handling-followup-review
@@ -2070,6 +2071,76 @@ status: open
 ### DW-229: Follow-up review still recommended for dw-logging-redaction-completeness after the damping cap was spent
 origin: review-budget-followup
 source_spec: `spec-logging-redaction-completeness.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260728-175554-2d63; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-230: the repository commits `.flaskenv` with `FLASK_DEBUG=1`, so `flask run` from a checkout is a debug app — which disarms the SECRET_KEY refusal and arms the Werkzeug debugger
+origin: spec-secret-key-startup-guard-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `.flaskenv:2`, `config.py:135` (`DEBUG` from `FLASK_DEBUG`), `app/secret_key_guard.py` (`_is_on` branch)
+severity: medium
+summary: `.flaskenv` is tracked and sets `FLASK_DEBUG=1`; the Flask CLI loads it into the environment before `config.py` runs, so any deployment started with `flask run` from a clone evaluates as `DEBUG=True` and takes the guard's log-only branch instead of the refusal.
+evidence: Verified on this checkout: `git ls-files --error-unmatch .flaskenv` succeeds, the file contains `FLASK_DEBUG=1`, and `config.py:135` computes `DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ['true','1','yes']`. `README.md:44` teaches `flask run --debug`, and `docs/deployment-guide.md` prescribes no start command at all, so nothing tells an operator that this entry point is the one where the guard does not fire. Entirely pre-existing — the guard added by this story neither created `.flaskenv` nor changed how `DEBUG` resolves — and the exposure it represents is strictly larger than the signing key: `FLASK_DEBUG=1` also enables the Werkzeug debugger, i.e. remote code execution for anyone who can reach the app. That is why it is deferred rather than patched here: the fix is a decision about the repository's development ergonomics (drop `FLASK_DEBUG` from `.flaskenv` and make developers opt in, or keep it and make the deployment path explicitly not `flask run`), not a change to this guard. This pass added a warning to `docs/deployment-guide.md` and to the guard's module docstring recording the hole; neither closes it. Related to [DW-98].
+status: open
+
+### DW-231: `setup_logging` adds handlers to the module loggers without clearing them, so repeated app construction in one process multiplies every log record
+origin: spec-secret-key-startup-guard-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `app/logging_config.py:466-488` (`perf_logger`, `api_logger`, `sheets_logger`, `inventory_logger`, `catalog_logger`)
+severity: low
+summary: `setup_logging` calls `handlers.clear()` for the root logger and `app.logger` but plain `addHandler` for the five module-level loggers, so every additional `create_app()` in the same interpreter leaves them one handler heavier and every subsequent record is emitted one more time.
+evidence: Reproduced on this checkout: three consecutive `create_app()` calls (aborted by the new SECRET_KEY refusal, but any repeat construction does it) leave `performance`, `api_access` and `inventory` with 3 handlers each. Pre-existing and independent of this story — `setup_logging` has always been re-entrant this way, and a test session that builds many apps already pays it. This story only made a new class of caller reach it, because the refusal raises *after* `setup_logging` has run, so a supervisor or preload that retries app construction now accumulates handlers on the failure path too. Closing it means mirroring the root-logger treatment (clear before adding, or install once and guard with a sentinel) and deciding whether the module loggers should be reconfigured per app at all.
+status: open
+
+### DW-232: `python manage.py config-check` is dead code that raises `AttributeError`, and would report a published `SECRET_KEY` as valid if it ran
+origin: spec-secret-key-startup-guard-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `manage.py:22` (`import config.Config as AppConfig`), `manage.py:506` (`AppConfig.validate_config()`), `config.py:209` (`TestConfig.validate_config`)
+severity: low
+summary: `manage.py`'s `config-check` command calls `AppConfig.validate_config()`, but `validate_config` is a `@staticmethod` defined only on `config.TestConfig` — `hasattr(Config, 'validate_config')` is `False`, so the command cannot succeed; and the method it means to call validates `Config.*` attributes rather than `cls`, so it would be wrong even where it resolves.
+evidence: Pre-existing and unrelated to the guard; surfaced while looking for existing startup validation to mirror. First recorded by the previous review pass of this spec, which was instructed not to write to this ledger, so it is entered here for the first time. Now also worth closing for a second reason: with `app/secret_key_guard.py` in place there is a real configuration check the command could delegate to, so a deployment could ask "will this boot?" without booting. As written it would answer "Configuration is valid!" for a config the app refuses to start on. Closing it means deciding whether `config-check` validates the *active* config class and routing it through `validate_secret_key`/`validate_limits` rather than a `TestConfig` method.
+status: open
+
+### DW-233: the SECRET_KEY guard has no key-quality floor, so `SECRET_KEY=x` passes
+origin: spec-secret-key-startup-guard-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `app/secret_key_guard.py` (`_diagnose`), `config.py` (`PUBLISHED_SECRET_KEYS`)
+severity: low
+summary: The guard's entire test is membership in a three-element set of published placeholders (casefolded, whitespace-stripped). Any other value — a single character, a dictionary word, a placeholder with one character appended — is accepted silently as a private key.
+evidence: Verified: `FLASK_DEBUG=0 SECRET_KEY='x' venv/bin/python -c "import wsgi"` boots cleanly. This is by design and the guard's docstring now says so — the story's intent is specifically "is the app running on a key this repository handed out?", and the silent-forgetting case is the one it set out to catch — but the resulting protection is narrower than "the signing key is not guessable", which is what an operator seeing a clean boot may believe it means. Closing it is a separate policy with its own failure modes (a length or entropy floor refuses keys that are already deployed and working, so it needs a migration story), which is why it is deferred rather than widened here. Related to [DW-98], [DW-230].
+status: open
+
+### DW-234: nothing tests the SECRET_KEY guard against the shipped `config.Config`, and the intent contract that forbids the only test that could is based on a false premise
+origin: spec-secret-key-startup-guard-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `tests/unit/test_secret_key_guard.py` (module docstring), `spec-secret-key-startup-guard.md` intent contract **Never** list
+severity: medium
+summary: Every scenario in the guard's test module is built from a hand-written config subclass with `SECRET_KEY`/`DEBUG`/`TESTING` set directly, so the suite proves the guard's logic and nothing about whether a real deployment boot reaches it; a regression in `config.py`'s resolution or in `wsgi.py` would leave it green. The one test shape that closes this — a cold-import subprocess — is forbidden by the story's frozen intent contract on a reason that does not hold.
+evidence: The contract's **Never** reads "Do not use `importlib.reload(config)` or a cold-import subprocess in tests: the repo `.env` may itself define `SECRET_KEY`, which makes such a test environment-dependent." That is true of `importlib.reload` and false of a subprocess: `inspect.signature(dotenv.load_dotenv)` shows `override: bool = False`, so a variable passed in the child's environment wins over `.env` unconditionally, and `tests/unit/test_request_limits.py::TestColdInterpreterImports._run` already runs subprocesses with an injected env for exactly this purpose. The follow-up review pass wrote the missing tests (6 boots of `wsgi.py`: every published key, unset, a private key, the debug path), verified them green, and then REVERTED them on noticing the contract forbids them — an automated pass may not amend an intent contract. Manual equivalents were run and are recorded in the spec's Verification section, so the behaviour is confirmed; what is missing is the regression guard. Closing it is a one-line human decision: strike the subprocess half of that **Never** (keeping the `importlib.reload` half, which is correct), then re-add the class. Related to [DW-98], [DW-230].
+status: open
+
+### DW-235: `wsgi.py`'s `__main__` block runs `app.run(debug=True)` against an app already built from a non-debug config
+origin: spec-secret-key-startup-guard-followup-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `wsgi.py:10-13`
+severity: low
+summary: `wsgi.py` calls `create_app()` at module scope and then, under `if __name__ == "__main__":`, runs `app.run(debug=True)` — the same incoherence `app.py` was fixed for, but one that cannot be fixed the same way, because the factory has already run by the time the `__main__` guard is reached. `python wsgi.py` on a checkout without a `SECRET_KEY` now dies in the import rather than serving.
+evidence: Verified: `FLASK_DEBUG=0 SECRET_KEY='' venv/bin/python -c "import wsgi"` exits 1 from `create_app()`, before line 12 is ever evaluated. The refusal itself is correct and is the whole point of the story — `wsgi.py` is the PRODUCTION entry point and a non-debug boot on a published key is exactly what must not happen — so nothing here is being waved through. What is deferred is the vestigial `__main__` block: it promises a debug server from a module whose app was configured non-debug, it is not the documented way to run anything (the deployment guide says gunicorn), and it is now the one remaining place in the tree where "run this file" and "the config this file built" disagree. Closing it means deciding whether to delete the block outright or give `wsgi.py` the same declare-intent-then-import shape as `app.py`, which would mean moving `app = create_app()` and would change what gunicorn imports. Related to [DW-98].
+status: open
+
+### DW-236: `config.py` and Flask disagree about which `FLASK_DEBUG` spellings mean debug, so `flask run` can start the debugger on a config that says non-debug
+origin: spec-secret-key-startup-guard-followup-review-2
+source_spec: `_bmad-output/implementation-artifacts/spec-secret-key-startup-guard.md`
+location: `config.py:142` and `config.py:245` (`DEBUG = os.environ.get('FLASK_DEBUG', ...).lower() in ['true', '1', 'yes']`), against `flask.helpers.get_debug_flag`
+severity: low
+summary: Flask treats any value except `0`/`false`/`no` (and empty) as debug on; `config.py` treats only `true`/`1`/`yes` as on. `FLASK_DEBUG=on`, `y`, `t` or `enabled` therefore give a debugger-enabled `flask run` whose `app.config['DEBUG']` is `False` — and `app.config` is what the SECRET_KEY guard reads.
+evidence: Verified against the installed Flask 3.1.3: `get_debug_flag()` is `bool(val and val.lower() not in {"0","false","no"})`, and the four spellings above are `True` there and `False` in `config.py`. The direction is fail-CLOSED for this story — such a boot on a published key REFUSES rather than being downgraded to a log line — so it is not a hole in the guard, and mirroring Flask's parser would widen the disarm surface, which is why this pass did not "fix" it. It is deferred because the divergence is real, predates the guard, and now has a louder symptom: an operator who wrote `FLASK_DEBUG=on` gets a hard `ConfigurationError` about `SECRET_KEY` with nothing pointing at the spelling that caused it. Closing it means picking one parser for the whole repo — most likely by rejecting unrecognised spellings outright at config time, naming the variable, rather than by silently agreeing with Flask. Related to [DW-230].
+status: open
+
+### DW-237: Follow-up review still recommended for dw-secret-key-startup-guard after the damping cap was spent
+origin: review-budget-followup
+source_spec: `spec-secret-key-startup-guard.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260728-175554-2d63; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

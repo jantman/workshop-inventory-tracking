@@ -32,6 +32,42 @@ class ConfigurationError(Exception):
         self.config_key = config_key
 
 
+# The development stand-in for `SECRET_KEY`, used when the environment does not
+# supply one. It is committed to this repository, so it is public: anything
+# signed with it -- every Flask session cookie, every CSRF token -- is forgeable
+# by anyone who can read this file. It is NAMED here, once, so that
+# `app/secret_key_guard.py` can recognise it by identity instead of carrying a
+# second copy of the string that could drift from this one. `config.py` stays a
+# leaf module (see `ConfigurationError` above), so the guard imports this
+# constant rather than the other way round.
+DEV_SECRET_KEY_FALLBACK = 'dev-secret-key-change-in-production'
+
+# Every `SECRET_KEY` value this repository has published AS DEPLOYMENT
+# CONFIGURATION, not just the fallback: the placeholder `.env.example` ships,
+# and the one `docs/deployment-guide.md` used to offer as the content of a
+# PRODUCTION `.env`. All of them are readable by anyone who can read this
+# repository, so all of them sign forgeable cookies and CSRF tokens, and
+# `app/secret_key_guard.py` treats them identically. A guard that knew only the
+# fallback would wave through the value the deployment documentation itself
+# handed out -- the one an operator is most likely to actually be running.
+#
+# The qualifier is load-bearing, and this set is NOT "every string in the repo
+# that could be a key". `tests/test_config.py` commits one too, and it is
+# deliberately absent: it is reachable only from a `TESTING = True` config, i.e.
+# only from the branch that logs rather than refuses, and adding it would make
+# every unit-test app boot emit an ERROR about a key no deployment can resolve
+# to. The membership test is "could a deployment end up running this?".
+#
+# ENTRIES ARE NEVER REMOVED, only added: the deployment guide no longer prints
+# its placeholder, but every `.env` already created from the old text still
+# contains it, and those are exactly the deployments this exists to catch.
+PUBLISHED_SECRET_KEYS = frozenset({
+    DEV_SECRET_KEY_FALLBACK,
+    'your-secret-key-here',              # .env.example
+    'your-secret-key-here-change-this',  # docs/deployment-guide.md, pre-2026-07
+})
+
+
 def _bytes_from_env(name, default):
     """Read a byte-count setting from the environment, or return `default`.
 
@@ -82,7 +118,10 @@ def _bytes_from_env(name, default):
 
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
+    # Resolution semantics are deliberately unchanged: unset, or set to a blank
+    # value, falls back. What is new is that `app/secret_key_guard.py` refuses
+    # to boot a non-debug app that lands on the fallback.
+    SECRET_KEY = os.environ.get('SECRET_KEY') or DEV_SECRET_KEY_FALLBACK
     
     # Database connection string for SQLAlchemy - use directly from .env file
     SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI')

@@ -59,9 +59,18 @@ pip install -r requirements.txt
 Create `.env` file in project root:
 ```bash
 # Flask Configuration
-FLASK_APP=app.py
-FLASK_ENV=production
-SECRET_KEY=your-secret-key-here-change-this
+FLASK_APP=wsgi.py
+# FLASK_ENV was removed in Flask 2.3 and is ignored by the version this
+# application runs on -- setting it to `production` does NOT turn debug off.
+# FLASK_DEBUG is the only switch, and leaving it off is what arms the
+# SECRET_KEY refusal described below.
+FLASK_DEBUG=0
+# REQUIRED. Paste the value generated in "2. Secret Key Generation" below --
+# do NOT leave a placeholder here. The application refuses to start when a
+# non-debug config resolves SECRET_KEY to any value published in the repository
+# (this placeholder included), because such a key makes every session cookie
+# and CSRF token forgeable by anyone who can read the source.
+SECRET_KEY=
 
 # Storage Backend Configuration
 STORAGE_BACKEND=mariadb  # MariaDB is the primary storage backend
@@ -162,8 +171,22 @@ BATCH_SIZE=100
 
 ### 2. Secret Key Generation
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+The generator matters only in that the value must be private and random —
+nothing checks the format. `token_hex` is used here, in `.env.example`, and in
+the error message the application prints when it refuses to start, so that all
+three tell you the same thing; `token_urlsafe(32)` is equally good if you
+already have one.
+
+> **The refusal only fires for a non-debug app.** `DEBUG` comes from
+> `FLASK_DEBUG`, and this repository commits a `.flaskenv` setting
+> `FLASK_DEBUG=1` — a file the Flask CLI reads automatically. A deployment
+> started with `flask run` from a checkout therefore runs in debug mode, which
+> both downgrades this refusal to a logged ERROR and exposes the Werkzeug
+> debugger. Serve through `wsgi.py` under a real WSGI server, and do not set
+> `FLASK_DEBUG` in a production `.env`.
 
 ### 3. Configuration File (config.py)
 Verify configuration settings:

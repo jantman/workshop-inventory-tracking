@@ -9,6 +9,7 @@ from config import Config
 from app.logging_config import setup_logging
 from app.error_handlers import create_error_handlers
 from app.request_limits import init_request_limits
+from app.secret_key_guard import validate_secret_key
 
 csrf = CSRFProtect()
 
@@ -27,12 +28,22 @@ def create_app(config_class=Config, storage_backend=None):
     if storage_backend:
         app.config['STORAGE_BACKEND'] = storage_backend
 
-    # The next three calls are ORDERED, and the order is load-bearing:
+    # The next four calls are ORDERED, and the order is load-bearing:
     #
     #   setup_logging       calls app.logger.handlers.clear() (and empties the
     #                       root logger too), so any log record emitted before it
     #                       bypasses the structured JSON pipeline operators are
     #                       told to aggregate.
+    #   validate_secret_key refuses to boot a non-debug app whose SECRET_KEY is
+    #                       one this repository publishes (or is missing), and
+    #                       logs at ERROR when a debug/testing app lands on one.
+    #                       It must run AFTER setup_logging or that ERROR record
+    #                       never reaches the JSON pipeline. Its position ahead
+    #                       of the other two is preference, not requirement --
+    #                       a raise anywhere in this factory aborts the boot
+    #                       just as completely -- but it is the cheapest and
+    #                       most fundamental check, so nothing else is installed
+    #                       on a key already known to be forgeable.
     #   init_request_limits validates the body limits (and may emit exactly that
     #                       kind of startup warning), then installs the WSGI
     #                       body cap and its before_request hook.
@@ -41,8 +52,10 @@ def create_app(config_class=Config, storage_backend=None):
     #                       first keeps an oversize body rejected as a clean 413
     #                       rather than surfacing as a confusing CSRF failure.
     #
-    # See app/request_limits.py's module docstring.
+    # See app/request_limits.py's and app/secret_key_guard.py's module
+    # docstrings.
     setup_logging(app)
+    validate_secret_key(app.config, app.logger)
     init_request_limits(app)
     csrf.init_app(app)
 
