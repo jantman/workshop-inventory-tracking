@@ -40,15 +40,17 @@ def doctests(session):
     """Run the docstring examples in the pure utility modules (AD-4).
 
     The explicit ``app/utils`` path argument is load-bearing: it is the only
-    thing confining ``--doctest-modules`` to the pure-utils package. Without
-    it pytest collects from the rootdir and would import every module in the
-    tree looking for doctests. Do not remove it. New modules added under
+    thing confining ``--doctest-modules`` to the pure-utils package, and it is
+    what overrides the ini's ``testpaths = tests``. Remove it and pytest falls
+    back to ``testpaths``, running the whole unit/e2e suite under
+    ``--doctest-modules`` and collecting no doctests from ``app/`` at all --
+    a green session that tested nothing it exists for. New modules added under
     ``app/utils`` are picked up automatically.
 
-    Every flag is passed on the command line rather than left to pytest.ini,
-    because pytest.ini declares ``[tool:pytest]`` -- a setup.cfg section name
-    -- so pytest reports it as the configfile but reads nothing from it, and
-    its ``addopts``/``testpaths`` never apply. See deferred-work DW-102.
+    pytest.ini is live (it declares ``[pytest]``), so its ``addopts`` apply
+    here too; ``--doctest-modules`` is deliberately kept on the command line
+    rather than in ``addopts`` because it must not leak into the other
+    sessions.
 
     Note these modules are pure in the AD-4 sense (no Flask/DB logic), but the
     collector imports them package-qualified as ``app.utils.X``, which executes
@@ -133,10 +135,11 @@ def integration(session):
     # Integration tests only, scoped BOTH ways. The explicit path is what keeps
     # the run from importing every module in tests/e2e/ just to deselect it --
     # an import-time error anywhere in that tree would otherwise fail this
-    # session for a reason having nothing to do with MariaDB. The marker stays
-    # as the second net (pytest.ini's testpaths never applies -- see DW-102 and
-    # the doctests session), and tests/integration/conftest.py applies it
-    # structurally so no test can drop out of the selection.
+    # session for a reason having nothing to do with MariaDB. pytest.ini's
+    # ``testpaths = tests`` is live but far too broad for that, and the
+    # explicit path overrides it. The marker stays as the second net, and
+    # tests/integration/conftest.py applies it structurally so no test can drop
+    # out of the selection.
     session.run(
         "python", "-m", "pytest",
         "-v",

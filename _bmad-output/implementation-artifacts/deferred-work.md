@@ -907,7 +907,8 @@ location: `pytest.ini`, `_bmad-output/project-context.md` (Testing Rules), `noxf
 severity: medium
 summary: `pytest.ini` must use a `[pytest]` section; `[tool:pytest]` is only honored inside `setup.cfg`. pytest still reports `configfile: pytest.ini` in its header, so the file looks loaded while `testpaths`, `addopts`, `markers`, `norecursedirs` and `minversion` all do nothing.
 evidence: Verified by A/B test in a scratch directory with the project's own pytest 9.1.1: with `[tool:pytest]` the header shows no `testpaths:` line, `--verbose` from `addopts` is not applied, and an unregistered marker produces a `PytestUnknownMarkWarning` instead of the error `--strict-markers` promises; renaming the section to `[pytest]` makes all four take effect immediately. Corroborated in-repo — the new `doctests` session's output was compact dots despite `addopts` declaring `--verbose`. Consequences: `--strict-markers` is not enforced (a typo'd marker in `nox -s tests`'s `-m "not e2e and not integration"` would silently deselect rather than error), `norecursedirs` is not applied (only pytest's built-in defaults keep `venv/` and `migrations/` out), `--disable-warnings`/`--color=yes`/`minversion` are inert, and `testpaths` does not confine a bare `pytest` invocation. `_bmad-output/project-context.md` states `--strict-markers` is on, which is why this went unnoticed. Not caused by this story and deliberately out of its scope: renaming the section activates roughly five settings at once and needs its own verification pass (expect fallout from `--strict-markers` in particular), and every nox session already passes its flags explicitly, so nothing is currently broken by it. Closing it means the rename plus a full `nox -s tests` / `nox -s coverage` / `nox -s e2e` re-run and a `project-context.md` correction.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-pytest-ini-activation
 
 ### DW-103: Nothing prevents a `>>>` example added outside `app/utils/` from going unexecuted, which is the same class of gap DW-45/DW-66 closed
 origin: spec-pure-util-doctest-session
@@ -934,7 +935,8 @@ location: `pytest.ini` (`markers`), `tests/conftest.py` (`pytest_configure`), `n
 severity: low
 summary: Marker registration actually happens in `tests/conftest.py::pytest_configure`, which registers only `unit`, `e2e`, `slow` and `integration`. The `database` and `screenshot` markers listed in `pytest.ini` are registered nowhere, and `pytest.ini` is inert (DW-102), so `--strict-markers` does not currently catch it.
 evidence: `tests/conftest.py:203-216` calls `config.addinivalue_line("markers", ...)` exactly four times — `unit`, `e2e`, `slow`, `integration`. `pytest.ini`'s `markers` block lists six, adding `database` and `screenshot`. `noxfile.py:175` and `:213` both run `-m "screenshot"` against `tests/e2e/test_screenshot_generation.py`. Today this is harmless: `pytest.ini` is not read, so `--strict-markers` is not in force and an unregistered marker only warns. It becomes a live failure the moment DW-102 is closed — the section rename simultaneously activates `--strict-markers` and the six-marker list, at which point either the two extra markers must be added to `pytest_configure` or dropped from the ini. Deferred rather than patched because it is a pre-existing inconsistency whose only consequence is coupled to DW-102, and should be resolved in the same pass as that rename.
-status: open
+status: done 2026-07-28
+resolution: resolved by sweep bundle dw-pytest-ini-activation
 
 ### DW-106: README's headline test counts are stale by two orders of magnitude, under a "100% success rates" claim
 origin: spec-pure-util-doctest-session
@@ -2143,4 +2145,13 @@ origin: review-budget-followup
 source_spec: `spec-secret-key-startup-guard.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260728-175554-2d63; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-238: `--disable-warnings` went from inert to enforced repo-wide, so every session now hides its warning detail — including three live `utcnow()` deprecations in production code
+origin: spec-pytest-ini-activation-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-pytest-ini-activation.md`
+location: `pytest.ini` (`addopts`), `app/photo_service.py:119-120,134,390,604`
+severity: medium
+summary: Activating `pytest.ini` (DW-102) turned on a blanket warnings suppressor that had never taken effect in the file's entire life. Every nox session now prints a bare warning count with no detail, and nobody has ever assessed what is behind it — `nox -s tests` reports `3 warnings`, all of which are `DeprecationWarning: datetime.datetime.utcnow() is deprecated`, raised from `app/photo_service.py`, which is production code that breaks on a future Python.
+evidence: Verified: `nox -s tests` ends `3542 passed, 2 skipped, 466 deselected, 3 warnings` with no summary body; re-running with `--override-ini="addopts=--verbose --tb=short --strict-markers --strict-config"` reveals the three `utcnow()` deprecations at `app/photo_service.py:119`, `:120` and `:134` (`grep -n "utcnow()" app/photo_service.py` shows five call sites in total, so the count grows as more of the module is exercised — `nox -s coverage` reports 1681 warnings). This is not a defect introduced by the activation story, which correctly preserved the ini author's declared `addopts`; it is a pre-existing blind spot that the activation made real, and it is the exact defect class DW-102 belonged to — a setting nobody had validated because it had never run. Note that an *unsuppressed* `PytestUnknownMarkWarning` is what made DW-102 discoverable in the first place, so suppression is directly load-bearing against future discovery. Not fixed in the activation pass because triaging 1681 warnings is its own piece of work and un-suppressing blind would replace a bare count with a 1681-line summary on every run. Closing it means choosing among: dropping `--disable-warnings`, replacing it with a targeted `filterwarnings =` allowlist that keeps new warnings visible, and/or fixing the `utcnow()` call sites to `datetime.now(timezone.utc)`.
 status: open

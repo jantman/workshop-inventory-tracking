@@ -196,24 +196,11 @@ def browser_type_launch_args(browser_type_launch_args):
     }
 
 
-# Markers for test categorization
-pytest_plugins = []
-
-
-def pytest_configure(config):
-    """Configure pytest with custom markers"""
-    config.addinivalue_line(
-        "markers", "unit: marks tests as unit tests"
-    )
-    config.addinivalue_line(
-        "markers", "e2e: marks tests as end-to-end tests"
-    )
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow running"
-    )
-    config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests"
-    )
+# NOTE: markers are NOT registered here. pytest.ini's ``markers`` list is the
+# single source of truth (``--strict-markers`` is in force), and unlike this
+# conftest the ini also applies to the ``doctests`` session, which collects
+# app/utils and never loads tests/conftest.py at all.
+# tests/unit/test_pytest_config.py asserts that the ini is actually being read.
 
 
 # Global storage for debug capture (keyed by node id)
