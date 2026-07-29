@@ -692,11 +692,13 @@ the heading of the product's own page. Every other field is optional, and a
 product with nothing but a description is perfectly valid.
 
 Both forms also carry a **Stock & Location** card — **Quantity On Hand**,
-**Reorder Threshold**, **Location** and **Sub-Location**, all optional, all left
-alone unless you fill them in. Stock tracking is opt-in per product and a new
-product tracks nothing; see [Stock and Location](#stock-and-location). The
-product's own page shows these as a **Quantity on hand** row (`Not tracked`,
-`In stock: 0` or `In stock: N`, with the age of your last count beside it), a
+**Reorder Threshold**, **Stock Status**, **Location** and **Sub-Location**, all
+optional, all left alone unless you fill them in. Stock tracking is opt-in per
+product and a new product tracks nothing and says nothing about its stock; see
+[Stock and Location](#stock-and-location). The product's own page shows these as
+a **Quantity on hand** row (`Not tracked`, `In stock: 0` or `In stock: N`, with
+the age of your last count beside it), a **Stock status** row (`Not set`, `OK`,
+`Low` or `Out of stock`, with the age of that assertion beside it), a
 **Reorder threshold** row, a **Reorder signal** row (a `Low stock` badge, or `—`)
 and a **Location** row.
 
@@ -737,8 +739,10 @@ path, but there is no page that lists them.
    reads "Separate tags with commas. Tags are stored lowercase." See
    [Tags](#tags).
 5. **Stock & Location** (optional): **Quantity On Hand**, **Reorder Threshold**,
-   **Location** and **Sub-Location**. All four are optional and none of them is
-   filled in for you. See [Stock and Location](#stock-and-location) below.
+   **Stock Status**, **Location** and **Sub-Location**. All five are optional
+   and none of them is filled in for you — Stock Status starts at `Not set`, and
+   nothing a link or a scan puts in the address bar can change that. See
+   [Stock and Location](#stock-and-location) below.
 6. **First Receipt** (optional): fill this in if you are cataloguing something
    that just arrived. A **Quantity** or an **Order Number** is what actually
    records the purchase — the other three fields are saved alongside one of
@@ -772,7 +776,7 @@ length; it need not match what you count on screen.
 
 #### Stock and Location
 
-The **Stock & Location (optional)** card carries four fields, and it is on both
+The **Stock & Location (optional)** card carries five fields, and it is on both
 the add and the edit form with the same labels and the same rules. The edit form
 carries one control the add form does not — the recount checkbox, described
 below, which only makes sense once there is a saved count to re-confirm.
@@ -836,36 +840,83 @@ compare against until you do.
 
 | What you enter | What the product page's **Reorder threshold** row shows | What it means |
 |----------------|--------------------------------------------------------|---------------|
-| nothing (blank) | `—` | No threshold. The product never reads as low on its own, however few are left. |
+| nothing (blank) | `—` | No threshold. The count alone never makes the product read as low, however few are left — only flagging its **Stock Status** by hand does. |
 | `0` | `0` | A real threshold: flag it once you have **none**. |
 | `3` | `3` | Flag it once you are down to **three or fewer**. |
 
 Blank and `0` are as different here as they are for Quantity On Hand, and in the
 same direction: blank means you have not asked to be told anything, while `0` is
-the strictest threshold there is. Clearing the field removes the threshold and
-the product stops reading as low.
-
-The product page's **Reorder signal** row is what the threshold produces. It
-reads `Low stock` when you are tracking a quantity, you have set a threshold,
-and the count is at or below it — the threshold is the reorder *point*, so being
-exactly on it counts. Otherwise it reads `—`. In particular:
-
-- **A product with no threshold never reads low**, even at `In stock: 0`. Having
-  none of something is not the same as having said you wanted to be warned about
-  it.
-- **A product you are not counting never reads low**, even with a threshold set.
-  There is no number to compare, and guessing one would be worse than saying
-  nothing.
-
-That signal is **worked out fresh every time the page is drawn**, from the count
-and the threshold as they stand at that moment. It is not a saved flag, nothing
-switches it on or off, and nothing you do to see it changes the product. Fix the
-count or change the threshold and the next page you open already agrees with you.
+the strictest threshold there is. Clearing the field removes the threshold, and
+with it the *automatic* half of the low-stock signal — a product you have flagged
+by hand goes on reading as low, because you said so.
 
 Enter plain ASCII digits, zero or more, up to `2147483647`; anything else is
 refused beside the field with
 `Reorder Threshold must be a whole number of zero or more and no more than
 2147483647. Leave it blank for no threshold.`
+
+**Stock Status** is the other way a product can read as low, and it is the one
+that needs no counting at all. It is a dropdown with four choices and no blank:
+
+| What you choose | What the product page's **Stock status** row shows | What it means |
+|-----------------|---------------------------------------------------|---------------|
+| **Not set** | `Not set` | You have not said anything about this product's stock. Every new product starts here. |
+| **OK** | `OK` | You have looked, and there are enough. |
+| **Low** | `Low` | You have looked, and you are running short. The product reads as low. |
+| **Out of stock** | `Out of stock` | You have looked, and there are none. The product reads as low. |
+
+Three things about it are worth knowing before you use it:
+
+- **It is only ever what you said.** Nothing in the system sets it for you.
+  Recording a purchase does not, receiving one does not, and saving a count does
+  not — counting four onto a shelf you flagged **Out of stock** leaves the flag
+  exactly where you put it until you change it yourself.
+- **It works on a product you are not counting**, which is the whole point of
+  having it. Flagging something **Low** is never gated on committing to count
+  it: no Quantity On Hand, no Reorder Threshold, and the product page still says
+  `Low stock`.
+- **It does not cancel the threshold rule.** Choosing **OK** on a product whose
+  own count sits at or below its own threshold does not silence the signal —
+  the count you recorded against the rule you set still stands.
+
+**The date beside the status is the date you last *changed* it.** The product
+page shows it as `Low (set 3 months ago)`, and — exactly like the count's date —
+it is deliberately left to grow old rather than quietly refreshed. Saving the
+form re-submits the status you already chose, so editing anything else on the
+product leaves that date alone; only actually picking a different choice moves
+it. There is no "I checked again" box here, and that is on purpose: re-counting
+to the same number tells the system something it could not otherwise know, while
+choosing **Low** on a product that already says **Low** tells it nothing.
+
+Setting the status back to **Not set** withdraws the assertion and **clears that
+date with it** — `Not set` is the absence of an opinion, not a fourth one, so
+there is nothing left to date.
+
+The product page's **Reorder signal** row is what the threshold and the status
+together produce. It reads `Low stock` when **either**:
+
+- you chose **Low** or **Out of stock** for the Stock Status, **or**
+- you are tracking a quantity, you have set a threshold, and the count is at or
+  below it — the threshold is the reorder *point*, so being exactly on it counts.
+
+Otherwise it reads `—`. In particular:
+
+- **A product with no threshold never reads low on the count alone**, even at
+  `In stock: 0`. Having none of something is not the same as having said you
+  wanted to be warned about it — but flagging it **Out of stock** yourself says
+  exactly that, and does make it read low.
+- **A product you are not counting never reads low on the count alone**, even
+  with a threshold set. There is no number to compare, and guessing one would be
+  worse than saying nothing. Flagging it by hand is how you get the signal
+  without the counting.
+- **Choosing OK never takes the signal away.** The two halves are an *either*,
+  not an override.
+
+That signal is **worked out fresh every time the page is drawn**, from the
+status, the count and the threshold as they stand at that moment. It is not a
+saved flag, nothing switches it on or off, and nothing you do to see it changes
+the product. Change any of those three and the next page you open already agrees
+with you.
 
 **Location** and **Sub-Location** are free text, up to 100 characters each, and
 they draw on the **same vocabulary as the inventory items** — the dropdown under
@@ -1551,9 +1602,9 @@ timestamps.
 1. **Navigate**: open the product page and click **Edit**.
 2. **Change what you need**: the **Edit Product** form carries the same
    six-field **Product Information** card and the same **Stock & Location**
-   card, with the same labels, help text and limits as the add form — plus one
-   control the add form has no use for, the **"I recounted this"** checkbox
-   under Quantity On Hand.
+   card — the same five fields, with the same labels, help text, choices and
+   limits as the add form — plus one control the add form has no use for, the
+   **"I recounted this"** checkbox under Quantity On Hand.
 3. **Submit**: click **Update Product**, or **Cancel** to return to the product
    page unchanged.
 
@@ -1583,11 +1634,15 @@ leaves that age alone unless you actually change the number or tick
 **"I recounted this — refresh the verification date"**; see
 [Stock and Location](#stock-and-location).
 
-Editing is also the only way a product's **Reorder Threshold** changes — and
-clearing that field is how you stop a product reading as low. The **Reorder
-signal** row on the product page is not a field and cannot be edited: it is
-worked out from the count and the threshold each time the page is drawn, so the
-way to change it is to change one of those two. See
+Editing is also the only way a product's **Reorder Threshold** and its **Stock
+Status** change. The **Reorder signal** row on the product page is not a field
+and cannot be edited: it is worked out from the status, the count and the
+threshold each time the page is drawn, so the way to change it is to change one
+of those three. Clearing the threshold stops the *automatic* half of the signal;
+a product you flagged **Low** or **Out of stock** by hand goes on reading as low
+until you set its status back yourself. Editing the product leaves the
+`set N ago` date beside the status alone unless you actually pick a different
+choice — the form re-submits the one already selected on every save. See
 [Stock and Location](#stock-and-location).
 
 ### Troubleshooting Products
@@ -1600,8 +1655,11 @@ way to change it is to change one of those two. See
 | `Quantity must be a whole number greater than zero and no more than 2147483647.` | Enter plain ASCII digits — no signs, separators or decimals. This is the **First Receipt** block's Quantity, on the add form only. |
 | `Quantity On Hand must be a whole number of zero or more and no more than 2147483647. Leave it blank to stop tracking the quantity.` | Enter plain ASCII digits — no signs, separators or decimals. `0` is allowed here and means "none on hand"; blank means "not tracking this at all". See [Stock and Location](#stock-and-location). |
 | `Reorder Threshold must be a whole number of zero or more and no more than 2147483647. Leave it blank for no threshold.` | Enter plain ASCII digits — no signs, separators or decimals. `0` is allowed here and means "flag it once I have none"; blank means no threshold at all. See [Stock and Location](#stock-and-location). |
-| A product shows `In stock: 0` but the **Reorder signal** row reads `—` | It has no **Reorder Threshold**, so there is nothing saying that zero is too few. Set one on the edit form. |
-| A product has a **Reorder threshold** but the **Reorder signal** row never changes | Its **Quantity On Hand** is `Not tracked`, so there is no count to compare against the threshold. Save a count and the signal starts working. |
+| `Stock Status must be one of unknown, ok, low, out.` | Choose one of the four entries in the **Stock Status** dropdown. The dropdown itself cannot produce anything else, so you will only meet this if something other than the form sent the value — re-open the edit page and save again. |
+| A product shows `In stock: 0` but the **Reorder signal** row reads `—` | It has no **Reorder Threshold**, so there is nothing saying that zero is too few — and its **Stock Status** is not `Low` or `Out of stock` either. Set a threshold on the edit form, or flag the status by hand. |
+| A product has a **Reorder threshold** but the **Reorder signal** row never changes | Its **Quantity On Hand** is `Not tracked`, so there is no count to compare against the threshold. Save a count and the signal starts working — or flag the **Stock Status** instead, which needs no count at all. |
+| A product reads `Low stock` and you cannot see why | Check the **Stock status** row. `Low` or `Out of stock` there makes the product read as low on its own, with no count and no threshold involved, and choosing `OK` does not cancel a threshold you have already crossed. |
+| The `set N ago` date beside the **Stock status** did not change after you saved | That is intended: re-saving the status you already chose is not a new assertion. Only picking a different choice moves the date. |
 | `Location must be 100 characters or fewer.` (or the same message for **Sub-Location**) | Shorten the value. Both share their 100-character limit with the inventory items' own location fields, because they share one vocabulary. |
 | The "counted N ago" age did not change after you saved | That is intended: saving the same number is not a new count. Tick **"I recounted this — refresh the verification date"** on the edit form if you did count it again. |
 | `Unit Price must be a decimal number.` | Type the price as plain digits and at most one point — no currency symbol, no thousands separator. You will see this on the First Receipt block and on the purchase form alike. |

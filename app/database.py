@@ -6,7 +6,7 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Date, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON, and_
+from sqlalchemy import Column, Integer, String, DateTime, Date, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON, and_, or_
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -18,7 +18,8 @@ import enum
 import re
 
 # Import enums and helper classes from models module
-from .models import ItemType, ItemShape, ThreadSeries, ThreadHandedness, Dimensions, Thread
+from .models import (ItemType, ItemShape, ThreadSeries, ThreadHandedness,
+                     Dimensions, Thread, StockStatus, LOW_STOCK_STATUS_VALUES)
 
 Base = declarative_base()
 
@@ -869,9 +870,9 @@ class Product(Base):
 
     Story 1.1 shipped the FR2 columns and Story 2.4 added internal_id. Story 5.1
     added the tri-state quantity, its verification stamp and the optional
-    location pair; Story 5.2 added reorder_threshold. Later stories/epics extend
-    this table via their own migrations: stock_status/stock_status_at (Story
-    5.3), equivalent_group_id (Epic 10).
+    location pair; Story 5.2 added reorder_threshold; Story 5.3 added
+    stock_status and stock_status_at. Later stories/epics extend this table via
+    their own migrations: equivalent_group_id (Epic 10).
     """
     __tablename__ = 'products'
 
@@ -953,6 +954,82 @@ class Product(Base):
     # every reader of this column has to test `is None` rather than truthiness.
     reorder_threshold = Column(Integer, nullable=True)
 
+    # The operator's MANUAL stock assertion (Story 5.3, FR28/FR29/FR31), one of
+    # the four `app.models.StockStatus` values stored as its string. Manual is
+    # the whole content of this column: nothing derived writes it (AD-6), and
+    # `is_effective_low` READS it — so `unknown` means "nobody has said
+    # anything", not "in stock". Flagging works on a product with no count at
+    # all, which is the point: saying "I am out of these" must never be gated on
+    # committing to count them.
+    #
+    # NOT NULL with a default, and that is load-bearing rather than tidy. The
+    # SQL half of `is_effective_low` tests `stock_status IN ('low','out')`, and
+    # against a NULL column that test is NULL rather than FALSE — `or_(NULL,
+    # FALSE)` is NULL, so `filter(~Product.is_effective_low)` would silently
+    # drop every un-asserted product, which is EXACTLY the three-valued-logic
+    # trap the `IS NOT NULL` guards below exist to avoid. Making the column
+    # non-nullable removes the failure mode instead of guarding it, and it also
+    # gives "no assertion" one unambiguous spelling: there is no NULL-vs-
+    # `unknown` distinction for any reader to get wrong.
+    #
+    # BOTH defaults are declared, for three separate reasons: the Python-side
+    # `default` puts the value in the INSERT, so it is readable off the instance
+    # `create_product` snapshots straight after `flush()`; the `server_default`
+    # is what backfills every existing row in the one `op.add_column` the
+    # migration issues; and having the server default here as well as there is
+    # what keeps `Base.metadata` structurally equal to the migrated schema
+    # (`tests/integration/test_migrations.py` diffs the two).
+    #
+    # A plain String, not sa.Enum and with no CHECK constraint, matching
+    # IdentifierType's stated rationale: the set can grow without a migration.
+    #
+    # utf8mb4_bin, the SECOND exception to the table default, and pinned for
+    # exactly `internal_id`'s reason (DW-73). `products` inherits
+    # utf8mb4_unicode_ci, which folds case AND accents, so under the table
+    # default the SQL half of `is_effective_low` — `stock_status IN
+    # ('low','out')` — is TRUE for a row storing `'LOW'`, `'Low'` or `'lòw'`,
+    # while the Python getter's frozenset membership is FALSE for all three.
+    # That is a row-for-row disagreement between the two encodings AD-6
+    # requires to agree, and it is invisible on SQLite (binary anyway) and to
+    # any test that seeds only the four canonical spellings. The rows that
+    # produce it are the ones this class's docstrings already anticipate
+    # everywhere else: a hand-run UPDATE, or a restored backup. This is a
+    # CLOSED MACHINE VOCABULARY, never operator-typed prose, so folding buys
+    # nothing and costs agreement.
+    #
+    # What the pin does NOT close, stated so it is a known boundary rather than
+    # a discovery: utf8mb4_bin is a PAD SPACE collation on MariaDB, so a stored
+    # `'low '` still compares equal to `'low'` on the server while Python's
+    # frozenset says otherwise (verified on MariaDB 11.8; see
+    # tests/integration/test_effective_low_predicate.py, which pins both the
+    # closed cases and this remaining one). `utf8mb4_nopad_bin` would close it
+    # and is deliberately not used: it would make this the schema's only NO PAD
+    # column and split the one `utf8mb4_bin` pin the schema guards share, for a
+    # spelling no writer produces and no restore realistically invents.
+    #
+    # `.with_variant()` rather than a bare `collation=` for the reason
+    # `internal_id` gives above: a bare one renders `COLLATE utf8mb4_bin` into
+    # the SQLite DDL too, which that backend rejects on `create_all`, taking the
+    # whole unit suite with it. Both dialect names, because a
+    # `mariadb+pymysql://` URL reports `dialect.name == 'mariadb'` and a variant
+    # keyed only on 'mysql' would leave the column folding there.
+    stock_status = Column(
+        String(32).with_variant(
+            String(32, collation='utf8mb4_bin'), 'mysql', 'mariadb'),
+        nullable=False,
+        default=StockStatus.UNKNOWN.value,
+        server_default='unknown')
+
+    # When that assertion was last CHANGED (FR31) — the age FR31 surfaces
+    # rather than corrects, exactly as `quantity_verified_at` does for the
+    # count. Nullable, because `unknown` is the absence of an assertion and
+    # therefore carries no date; CatalogService's
+    # `_apply_stock_status_assertion` is its only writer and moves it only when
+    # the submitted status DIFFERS from the stored one. Re-posting the edit
+    # form's pre-selected value while changing something else is not a new
+    # assertion and leaves this column exactly where it was.
+    stock_status_at = Column(DateTime, nullable=True)
+
     # Optional physical storage (Story 5.1, FR27). Deliberately the same names
     # and the same width as InventoryItem.location/sub_location above, because
     # the two tables feed ONE autocomplete vocabulary through the one existing
@@ -981,7 +1058,7 @@ class Product(Base):
 
     @hybrid_property
     def is_effective_low(self) -> bool:
-        """Whether this product reads as LOW right now (Story 5.2, FR30).
+        """Whether this product reads as LOW right now (Stories 5.2/5.3, FR30).
 
         The single home of the Effective-Low predicate (AD-6). It is DERIVED at
         read and never stored: there is no column, no cache and no trigger
@@ -998,8 +1075,9 @@ class Product(Base):
         facet filter in the DATABASE instead of loading the catalog and sieving
         it in Python. A service method could have been one or the other, not
         both. The two bodies must agree row for row; a hand-written
-        `quantity_on_hand <= reorder_threshold` anywhere else in the codebase —
-        route, template, query or test — is a defect, not a shortcut.
+        `quantity_on_hand <= reorder_threshold`, or a second literal
+        `('low', 'out')`, anywhere else in the codebase — route, template, query
+        or test — is a defect, not a shortcut.
 
         Only LOADED SCALAR COLUMNS may be read here. `get_product` closes its
         session before returning, so anything this getter has to fetch on
@@ -1009,41 +1087,63 @@ class Product(Base):
         this predicate — but a column left unloaded is the same failure: a
         caller that narrows its projection with `load_only()` or `defer()`, the
         natural instinct for Story 5.6's catalog-wide reorder list, must keep
-        both columns below in the load or filter in SQL instead.
+        all THREE columns below in the load (`stock_status` is a plain scalar
+        and is as deferrable as the other two) or filter in SQL instead.
 
-        Story 5.3's seam is INSIDE this property. Stored stock status is a
-        manual assertion, and FR30 makes Effective Low the OR of it with the
-        threshold comparison — so when `stock_status` exists, Story 5.3 ORs
-        `stock_status IN ('low', 'out')` into THESE TWO BODIES and nowhere else.
-        Until then the property expresses the threshold branch alone. The name
-        is the domain signal (`is_effective_low`), deliberately not
-        `is_below_threshold`, so that widening is an edit to two bodies rather
-        than a rename with call sites to chase. One thing outside the code has
-        to widen with it: `docs/user-manual.md`'s "Stock and Location" section
-        states today's rule EXHAUSTIVELY to the operator ("a product with no
-        threshold never reads low"), which Story 5.3 makes false. Prose has no
-        compiler, so it is named here.
+        TWO BRANCHES, OR'd, and they are independent (Story 5.3, FR28/FR30).
+        The first is the operator's MANUAL assertion: a stored status in
+        `LOW_STOCK_STATUS_VALUES` reads low on its own, with no quantity and no
+        threshold anywhere in sight — flagging something low is never gated on
+        counting it. The second is the threshold comparison, unchanged from
+        Story 5.2 and still standing on its own: asserting `ok` does NOT
+        suppress it, because the operator's opinion cannot outrank a count they
+        themselves recorded against a threshold they themselves set. The set
+        that means low lives in `app.models.LOW_STOCK_STATUS_VALUES`, imported
+        above, so these two bodies cannot come to disagree about it either.
+
+        The name is the domain signal (`is_effective_low`), deliberately not
+        `is_below_threshold`, which is what made Story 5.3 an edit to two bodies
+        rather than a rename with call sites to chase. One thing outside the
+        code moves with this property and has no compiler:
+        `docs/user-manual.md`'s "Stock and Location" section states the rule to
+        the operator in sentences ("The **Reorder signal** row … reads
+        `Low stock` when …", and the two bullets under it), and its
+        "Editing a Product" section names the ways the signal can change. Both
+        were rewritten for the manual branch; a Story 5.4/5.5 widening has to
+        rewrite them again.
         """
-        return (self.quantity_on_hand is not None
-                and self.reorder_threshold is not None
-                and self.quantity_on_hand <= self.reorder_threshold)
+        return (self.stock_status in LOW_STOCK_STATUS_VALUES
+                or (self.quantity_on_hand is not None
+                    and self.reorder_threshold is not None
+                    and self.quantity_on_hand <= self.reorder_threshold))
 
     @is_effective_low.expression
     def is_effective_low(cls):
         """The same predicate as a SQL boolean — see the getter above.
 
-        The two `IS NOT NULL` guards LEAD, and that ordering is load-bearing
-        rather than merely parallel to the Python. A comparison against a NULL
-        column is NULL, not FALSE, so without the guards `filter(...)` would
-        still look right (`WHERE NULL` drops the row) while `filter(~...)` would
-        be `WHERE NOT NULL` — also NULL — and every untracked product would
-        silently vanish from "everything that is not low" rather than appearing
-        in it. With the guards first, `AND` short-circuits to FALSE for a row
-        that does not qualify and `~` is a true complement.
+        The two `IS NOT NULL` guards LEAD their branch, and that ordering is
+        load-bearing rather than merely parallel to the Python. A comparison
+        against a NULL column is NULL, not FALSE, so without the guards
+        `filter(...)` would still look right (`WHERE NULL` drops the row) while
+        `filter(~...)` would be `WHERE NOT NULL` — also NULL — and every
+        untracked product would silently vanish from "everything that is not
+        low" rather than appearing in it. With the guards first, `AND`
+        short-circuits to FALSE for a row that does not qualify and `~` is a
+        true complement.
+
+        The status branch needs no such guard, and the reason is the column's
+        `NOT NULL DEFAULT 'unknown'` rather than anything written here. `IN` is
+        the same three-valued operator every comparison is: over a NULLABLE
+        status column `stock_status IN ('low','out')` would be NULL for an
+        un-asserted row, `OR(NULL, FALSE)` is NULL, and the negation would go
+        right back to dropping rows from both halves of the partition. Two
+        valued because the column can never be NULL — so if that ever changes,
+        this branch needs a `coalesce` and this docstring is wrong.
         """
-        return and_(cls.quantity_on_hand.isnot(None),
-                    cls.reorder_threshold.isnot(None),
-                    cls.quantity_on_hand <= cls.reorder_threshold)
+        return or_(cls.stock_status.in_(sorted(LOW_STOCK_STATUS_VALUES)),
+                   and_(cls.quantity_on_hand.isnot(None),
+                        cls.reorder_threshold.isnot(None),
+                        cls.quantity_on_hand <= cls.reorder_threshold))
 
     def __repr__(self):
         return (f"<Product(id={self.id}, mpn='{self.mpn}', "
@@ -1075,6 +1175,15 @@ class Product(Base):
             # derived value in the audit snapshot would read as a stored one
             # changing (AD-6).
             'reorder_threshold': self.reorder_threshold,
+            # Story 5.3, here for the same audit reason: this pair IS the
+            # manual assertion, so an operator reading the log to answer "who
+            # said this was low, and when" has nowhere else to look.
+            # `stock_status_at` is serialized like the other timestamps; the
+            # status itself is the plain stored string, and it is the one
+            # column here that is never None.
+            'stock_status': self.stock_status,
+            'stock_status_at': (self.stock_status_at.isoformat()
+                                if self.stock_status_at else None),
             'location': self.location,
             'sub_location': self.sub_location,
             'created_at': self.created_at.isoformat() if self.created_at else None,

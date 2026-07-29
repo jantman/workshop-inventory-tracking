@@ -60,6 +60,49 @@ def _input_value(body, control_id):
     return html.unescape(match.group(1))
 
 
+def _select_options(body, control_id):
+    """The named `<select>`'s options, as `[(value, label, is_selected)]`.
+
+    A `<select>` carries neither its choices nor its state the way an `<input>`
+    does — the value lives on each `<option>` and the state is a bare `selected`
+    attribute on one of them — so `_input_value` cannot read one at all. It
+    would find no `value="…"` on the `<select>` tag and fail its own assertion,
+    which is why Story 5.3's control needed this pair of helpers rather than a
+    line in the tuple below.
+    """
+    match = re.search(
+        r'<select\b[^>]*\bid="%s"[^>]*>(.*?)</select>' % re.escape(control_id),
+        body, re.S)
+    assert match is not None, f'no select with id="{control_id}"'
+    options = []
+    for tag, label in re.findall(r'(<option\b[^>]*>)(.*?)</option>',
+                                 match.group(1), re.S):
+        value = re.search(r'\svalue="([^"]*)"', tag)
+        assert value is not None, f'an option of id="{control_id}" has no value'
+        options.append((html.unescape(value.group(1)),
+                        html.unescape(label.strip()),
+                        re.search(r'\sselected\b', tag) is not None))
+    return options
+
+
+def _select_value(body, control_id):
+    """The value the named `<select>` would SUBMIT.
+
+    The selected option's value — or, when nothing is marked selected, the
+    FIRST option's, because that is what a browser submits. Faithfulness there
+    is the point: a template bug that marks nothing selected does not render an
+    empty control, it silently submits the first choice, and a helper that
+    returned None for that case would let `_rendered_edit_form` below report a
+    re-post that never happened.
+    """
+    options = _select_options(body, control_id)
+    assert options, f'the select id="{control_id}" renders no options'
+    for value, _label, selected in options:
+        if selected:
+            return value
+    return options[0][0]
+
+
 def _textarea_value(body, control_id):
     """Same, for `notes` — a `<textarea>` carries its value as content, so
     `_input_value` would find no value attribute at all."""
@@ -121,6 +164,13 @@ def _rendered_edit_form(body):
                          'quantity_on_hand', 'reorder_threshold',
                          'location', 'sub_location')}
     data['notes'] = _textarea_value(body, 'notes')
+    # Story 5.3, read through `_select_value` because `_input_value` cannot see
+    # a `<select>`'s state. Unconditional, and that is faithful rather than
+    # convenient: this control has no unticked/empty form, so a browser posts it
+    # on EVERY save. Its presence in this dict is precisely what makes the
+    # re-post regression below a real test — the service must decide from the
+    # VALUE, not from the key, whether an assertion was made.
+    data['stock_status'] = _select_value(body, 'stock_status')
     # Story 5.1's recount checkbox, submitted the way a browser submits one:
     # present only when ticked. Faithfulness matters more here than anywhere
     # else in this helper — a key sent unconditionally would make every
@@ -5718,6 +5768,13 @@ class TestTheSharedGateIsVisibleOnBothForms:
         ('reorder_threshold', {'reorder_threshold': '-1'},
          'Reorder Threshold must be a whole number of zero or more and no more '
          'than 2147483647. Leave it blank for no threshold.'),
+        # Story 5.3, keyed by the same shared validator. The rendered `<select>`
+        # cannot produce a value this rule refuses, which is exactly why the
+        # slot has to exist on both templates: the submissions that DO reach it
+        # are hand-built or truncated ones, and a refusal with nowhere to render
+        # would be a silent 200 over a field the operator can see.
+        ('stock_status', {'stock_status': 'bogus'},
+         'Stock Status must be one of unknown, ok, low, out.'),
         ('location', {'location': 'x' * 101},
          'Location must be 100 characters or fewer.'),
         ('sub_location', {'sub_location': 'x' * 101},
@@ -5913,11 +5970,24 @@ class TestTheEditRerenderCarriesStoredValues:
         And it SAYS so. The degraded page shows every omitted field blank, and
         blank is this form's own spelling of "clear this", so a re-post of the
         page as handed would wipe them. Degrading quietly would have turned a
-        transient read failure into data loss on the operator's next save."""
+        transient read failure into data loss on the operator's next save.
+
+        Story 5.3's Stock Status `<select>` is the one control on the page the
+        degradation does NOT reach, and this test pins that rather than taking
+        the route's word for it. The select has no empty state to fall back to,
+        so a degraded `Not set` would look filled rather than blank — the worst
+        failure shape on the form. It does not happen: the selected option is
+        decided from `product.stock_status`, read off the row this route loaded
+        BEFORE the failing call, so the degraded page still shows the STORED
+        status and re-posting the page as handed re-posts what is already
+        stored. Assert the rendered selection, because a fallback quietly
+        re-pointed at the failed baseline would still pass a text-only check
+        while silently reintroducing the wipe."""
         def _boom(*args, **kwargs):
             raise RuntimeError('backend down')
 
         pid = self._seed(test_storage)
+        CatalogService(test_storage).update_product(pid, stock_status='low')
         monkeypatch.setattr(CatalogService, 'get_tags_for_product', _boom)
 
         resp = client.post(f'/products/edit/{pid}', data={'description': ''})
@@ -5925,8 +5995,11 @@ class TestTheEditRerenderCarriesStoredValues:
         assert resp.status_code == 200
         assert b'Label Description is required.' in resp.data
         # Degraded, not merged — and emphatically not a 500.
-        assert _input_value(resp.data.decode(), 'manufacturer') == ''
-        assert b'may not actually be empty' in resp.data
+        body = resp.data.decode()
+        assert _input_value(body, 'manufacturer') == ''
+        assert b'a field shown empty below may not actually be empty' in resp.data
+        # ...and the select is not among the degraded controls.
+        assert _select_value(body, 'stock_status') == 'low'
 
     def test_a_successful_save_never_reads_the_baseline(
             self, client, test_storage, monkeypatch):
@@ -5945,7 +6018,8 @@ class TestTheEditRerenderCarriesStoredValues:
 
         monkeypatch.undo()
         detail = client.get(resp.headers['Location'])
-        assert b'may not actually be empty' not in detail.data
+        assert b'nothing shown below is necessarily what is stored' not in \
+            detail.data
         assert b'Product updated successfully!' in detail.data
 
     def test_the_merge_does_not_leak_into_the_write(self, client, test_storage):
@@ -6925,9 +6999,587 @@ class TestProductDetailReorderSignal:
         body = self._detail(client, pid)
         for label, element_id in (('Reorder threshold',
                                    'product-reorder-threshold'),
-                                  ('Reorder signal', 'product-effective-low')):
+                                  ('Reorder signal', 'product-effective-low'),
+                                  # Story 5.3's row, pinned for the same
+                                  # reason: `Stock status` is the name the
+                                  # manual and the operator share, and it sits
+                                  # one row away from `Reorder signal`, which
+                                  # it now feeds — swapped labels would leave
+                                  # the page claiming the derived signal was
+                                  # the stored assertion.
+                                  ('Stock status', 'product-stock-status')):
             pattern = (r'<dt\b[^>]*>\s*%s\s*</dt>\s*<dd\b[^>]*\bid="%s"'
                        % (re.escape(label), re.escape(element_id)))
             assert re.search(pattern, body), (
                 f'no <dt>{label}</dt> immediately before '
                 f'<dd id="{element_id}">')
+
+
+# --- Story 5.3: the manual stock status through the forms and the page ------
+
+
+def _backdate_status_stamp(test_storage, product_id, when):
+    """Force `stock_status_at` to `when`, bypassing the service.
+
+    The sibling of `_backdate_stamp` above, written directly for the same
+    reason: the service only ever stamps NOW, so there is no supported way to
+    assert a status in the past — and every assertion about a displayed age, or
+    about a date that must NOT move, needs a stored value old enough to be
+    unmistakable in the rendered words.
+    """
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Product
+
+    Session = sessionmaker(bind=test_storage.engine)
+    session = Session()
+    try:
+        session.query(Product).filter(Product.id == product_id).update(
+            {'stock_status_at': when})
+        session.commit()
+    finally:
+        session.close()
+    return when
+
+
+# The four options both forms must offer, in order, as `(value, label)`. Spelled
+# out here rather than imported from the route for the reason every list in this
+# file is: importing the mapping under test would make the assertion true by
+# construction, and the LABELS are half the contract — they are the only names
+# the operator and `docs/user-manual.md` share.
+_STOCK_STATUS_OPTIONS = [
+    ('unknown', 'Not set'),
+    ('ok', 'OK'),
+    ('low', 'Low'),
+    ('out', 'Out of stock'),
+]
+
+
+@pytest.mark.unit
+class TestProductStockStatusForms:
+    """FR28/FR29's control on BOTH forms, and the write it produces.
+
+    Parity is not decoration: the rule that judges this field lives in the
+    SHARED validator, so a control missing from one template would be a rule
+    that template's operator could never satisfy. The option LIST is part of the
+    parity — a form offering three choices where the other offers four would let
+    a value be set on one page and be unreachable on the other.
+    """
+
+    @pytest.mark.parametrize('url_factory', [
+        lambda pid: '/products/add',
+        lambda pid: f'/products/edit/{pid}',
+    ], ids=['add', 'edit'])
+    def test_both_forms_render_the_same_control_and_option_list(
+            self, client, test_storage, url_factory):
+        pid = CatalogService(test_storage).create_product(description='Seed')
+        body = client.get(url_factory(pid)).data.decode()
+
+        tag = _form_controls(body, ['stock_status'])[0]
+        assert '<select' in tag
+        assert 'name="stock_status"' in tag
+
+        options = _select_options(body, 'stock_status')
+        assert [(value, label) for value, label, _ in options] == \
+            _STOCK_STATUS_OPTIONS
+        # No empty first option, unlike the scanned-identifier type select: this
+        # field has a real default and `Not set` IS it, so a blank option would
+        # be a second spelling of the same state — and the server refuses a
+        # blank rather than accepting one.
+        assert all(value for value, _label, _selected in options)
+
+        # The card is still the Story 5.1 one, at the same anchor, with its
+        # suggestion divs intact — the fifth control must not have moved
+        # anything.
+        assert 'id="stock-and-location"' in body
+        assert 'id="location-suggestions"' in body
+        assert 'id="sub_location-suggestions"' in body
+
+        # What the field means has to be ON the form: that it is only ever what
+        # the operator said, and what the date beside it is the date OF.
+        assert 'only ever what you said' in body
+        assert '<em>changed</em>' in body
+
+    @pytest.mark.parametrize('url_factory', [
+        lambda pid: '/products/add',
+        lambda pid: f'/products/edit/{pid}',
+    ], ids=['add', 'edit'])
+    def test_both_forms_default_to_not_set(self, client, test_storage,
+                                           url_factory):
+        """A fresh product has no assertion, and the control has to SAY so
+        rather than leaving the browser to pick. Nothing selected renders
+        identically to `Not set` selected and submits the same value — until an
+        option is inserted above it, at which point a form that never marked its
+        default starts silently asserting whatever now sits first."""
+        pid = CatalogService(test_storage).create_product(description='Seed')
+        body = client.get(url_factory(pid)).data.decode()
+
+        selected = [value for value, _label, is_selected
+                    in _select_options(body, 'stock_status') if is_selected]
+        assert selected == ['unknown']
+
+    def test_create_with_only_a_description_has_no_assertion(self, client,
+                                                             test_storage):
+        resp = client.post('/products/add', data={'description': 'Bare'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.stock_status == 'unknown'
+        assert product.stock_status_at is None
+
+    @pytest.mark.parametrize('status', ['ok', 'low', 'out'])
+    def test_create_carries_a_chosen_status(self, client, test_storage, status):
+        resp = client.post('/products/add', data={'description': 'Flagged',
+                                                  'stock_status': status})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        product = CatalogService(test_storage).get_product(pid)
+        assert product.stock_status == status
+        assert product.stock_status_at is not None
+
+    @pytest.mark.parametrize('status, label', _STOCK_STATUS_OPTIONS)
+    def test_each_value_round_trips_through_the_edit_form_and_the_page(
+            self, client, test_storage, status, label):
+        """Chosen on create, offered back on edit, shown on the detail page —
+        the whole loop, because a value that stores but does not render back is
+        a value the operator cannot revise."""
+        resp = client.post('/products/add', data={'description': 'Walked',
+                                                  'stock_status': status})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        assert _select_value(body, 'stock_status') == status
+
+        detail = _detail_field(client.get(f'/products/{pid}').data.decode(),
+                               'product-stock-status')
+        # The label, with or without the age parenthetical that only a real
+        # assertion carries.
+        assert detail.startswith(label)
+
+    def test_edit_flags_then_withdraws_the_assertion(self, client,
+                                                     test_storage):
+        """Set, then back to `Not set`. Withdrawing must clear the date with the
+        flag, and must leave the quantity columns exactly where they were —
+        captured first, so the assertion can fail."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Walked', quantity_on_hand='4')
+        stamp = svc.get_product(pid).quantity_verified_at
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'stock_status': 'low'})
+        product = svc.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at is not None
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'stock_status': 'unknown'})
+        product = svc.get_product(pid)
+        assert product.stock_status == 'unknown'
+        assert product.stock_status_at is None
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+
+    def test_a_post_without_the_key_leaves_both_columns_alone(self, client,
+                                                              test_storage):
+        """The partial-update rule: absent is not `unknown`. A non-browser
+        client that PATCHes one field must not withdraw an assertion it never
+        mentioned."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Untouched', stock_status='low')
+        stamp = svc.get_product(pid).stock_status_at
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Renamed'})
+        assert resp.status_code == 302
+        product = svc.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == stamp
+
+    def test_reposting_the_rendered_edit_form_does_not_re_date_the_assertion(
+            self, client, test_storage):
+        """THE regression this story's re-stamp rule exists for, taken verbatim
+        from what the page rendered and with only the description changed — the
+        shape of every real browser save.
+
+        The `<select>` is worse than any text input here: it always posts, and
+        it always posts a VALID value, so there is no submission a browser can
+        make that means "untouched". Only the value comparison can tell this
+        save from a real assertion, and the date is aged first so a re-stamp
+        would be unmistakable rather than sub-millisecond.
+        """
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Flagged', stock_status='low',
+                                 quantity_on_hand='4', reorder_threshold='3')
+        old = _backdate_status_stamp(test_storage, pid,
+                                     datetime.now() - timedelta(days=95))
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        data = _rendered_edit_form(body)
+        # The rendered form really does carry the key — if it did not, this test
+        # would prove nothing at all.
+        assert data['stock_status'] == 'low'
+        data['description'] = 'Flagged (typo fixed)'
+
+        resp = client.post(f'/products/edit/{pid}', data=data)
+        assert resp.status_code == 302
+
+        product = svc.get_product(pid)
+        assert product.description == 'Flagged (typo fixed)'
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == old
+
+    def test_reposting_the_rendered_form_keeps_an_unset_status_unset(
+            self, client, test_storage):
+        """The other half of the round trip, and the one a mis-rendered default
+        would break: re-saving an untouched page must not turn "nothing
+        asserted" into an assertion of anything."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Bare')
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        client.post(f'/products/edit/{pid}', data=_rendered_edit_form(body))
+
+        product = svc.get_product(pid)
+        assert product.stock_status == 'unknown'
+        assert product.stock_status_at is None
+
+    @pytest.mark.parametrize('bad', ['', '   ', 'LOW', 'Low', ' low ', 'bogus',
+                                     'x' * 5000],
+                             ids=['blank', 'whitespace', 'upper', 'title',
+                                  'padded', 'not-a-member', 'oversized'])
+    def test_a_bad_status_rerenders_with_a_keyed_error_and_writes_nothing(
+            self, client, test_storage, bad):
+        """A blank is refused here where it is accepted for the two number
+        fields, and the difference is the column: those are nullable and blank
+        clears them, while this one cannot be NULL and `unknown` is how "no
+        assertion" is spelled. A blank could only come from a truncated or
+        hand-built POST, and reading it as `unknown` would quietly erase a flag.
+
+        Whitespace-only and a padded member are refused rather than stripped, on
+        both tiers, for the reason `_apply_stock_status_assertion` states: these
+        four strings are a closed machine vocabulary that only this app's own
+        `<select>` produces, so `' low '` is a caller bug and not an operator's
+        typing slip. Parametrised alongside the rest so the route and the
+        service are seen to answer the same way rather than assumed to.
+        """
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Guarded', stock_status='low')
+        stamp = svc.get_product(pid).stock_status_at
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Guarded',
+                                 'stock_status': bad})
+        assert resp.status_code == 200
+        assert 'Stock Status must be one of unknown, ok, low, out.' in \
+            _shown_keyed_errors(resp.data.decode())
+
+        product = svc.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == stamp
+
+    def test_the_bad_status_also_refuses_a_create(self, client, product_ids):
+        """The rule is in the SHARED validator, so the create form refuses the
+        same value — and nothing is written."""
+        resp = client.post('/products/add', data={'description': 'Guarded',
+                                                  'stock_status': 'bogus'})
+        assert resp.status_code == 200
+        assert 'Stock Status must be one of unknown, ok, low, out.' in \
+            _shown_keyed_errors(resp.data.decode())
+        assert product_ids() == set()
+
+    def test_a_refused_submit_still_renders_the_control(self, client,
+                                                        test_storage):
+        """A `<select>` cannot round-trip a value that is not one of its
+        options, so what matters after a refusal is that the control is still
+        there, still complete and still marked invalid — an operator handed a
+        page with the field missing has no way to comply."""
+        resp = client.post('/products/add', data={'description': '',
+                                                  'stock_status': 'bogus'})
+        body = resp.data.decode()
+        assert [(value, label) for value, label, _
+                in _select_options(body, 'stock_status')] == \
+            _STOCK_STATUS_OPTIONS
+        assert 'is-invalid' in _form_controls(body, ['stock_status'])[0]
+
+    @pytest.mark.parametrize('bad', ['', 'bogus'],
+                             ids=['blank', 'not-a-member'])
+    def test_a_refused_edit_still_marks_the_stored_status_selected(
+            self, client, test_storage, bad):
+        """The refusal must not turn the page it hands back into a trap.
+
+        This is the one control on the form where "submitted wins" is wrong.
+        The two number fields render a rejected value straight back into their
+        box, so the operator sees what they typed and fixes it. A `<select>`
+        cannot: neither `''` nor `bogus` is one of its four options, so marking
+        the submitted value selected marks NOTHING selected — and a browser
+        then displays AND SUBMITS the first option, `Not set`. The operator
+        corrects the field that was actually complained about, saves the page
+        they were handed, and a stored `Low` is withdrawn with its assertion
+        date nulled, with nothing on the page at any point saying the flag was
+        there.
+
+        Both a blank and a truthy non-member are parametrised because a
+        template-side fallback distinguishes them where `_selected_stock_status`
+        does not: a `{% set … or default %}` spelling would rescue any FALSY
+        submitted value and still render nothing selected for `bogus`. The page
+        must read `low` for both, and re-posting it VERBATIM — the shape of a
+        real browser save — must leave both stored columns where they were.
+
+        The over-long `location` is what makes this a realistic refusal rather
+        than a self-inflicted one: the operator's attention is on the field the
+        message names, and the status is collateral.
+        """
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Flagged', stock_status='low')
+        stamp = svc.get_product(pid).stock_status_at
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Flagged',
+                                 'location': 'x' * 500,
+                                 'stock_status': bad})
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert _select_value(body, 'stock_status') == 'low'
+
+        # The re-save, taken from what the page rendered, with only the field
+        # the operator was told about corrected.
+        data = _rendered_edit_form(body)
+        data['location'] = 'Bin 4'
+        assert client.post(f'/products/edit/{pid}',
+                           data=data).status_code == 302
+
+        product = svc.get_product(pid)
+        assert product.location == 'Bin 4'
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == stamp
+
+    def test_the_status_is_not_prefillable_from_a_query_string(self, client):
+        """`_PRODUCT_PREFILL_ARGS` deliberately omits it: that whitelist is read
+        from `request.args` and forwarded by the search page's "create" link, so
+        membership would let a URL put a stock ASSERTION in front of the
+        operator — a claim about a product nobody made."""
+        body = client.get('/products/add?stock_status=low').data.decode()
+        selected = [value for value, _label, is_selected
+                    in _select_options(body, 'stock_status') if is_selected]
+        assert selected == ['unknown']
+
+    def test_every_stored_status_has_an_operator_facing_label(self):
+        """The route's label mapping and the enum are two lists, and only one of
+        them is the column's vocabulary.
+
+        A member added to `StockStatus` without a label here would be a value
+        the service accepts and stores, the form cannot offer, and the detail
+        page falls back to showing raw — a state visible only to whoever
+        happened to look at that product. Checked against the enum rather than
+        against a copy, because the enum is what the service validates by.
+        """
+        from app.main.routes import _STOCK_STATUS_LABELS
+        from app.models import StockStatus
+
+        assert set(_STOCK_STATUS_LABELS) == {m.value for m in StockStatus}
+        # And the labels are the ones the manual promises, in the order the
+        # select renders them.
+        assert list(_STOCK_STATUS_LABELS.items()) == _STOCK_STATUS_OPTIONS
+
+    def test_the_route_and_the_service_enumerate_the_same_values(self):
+        """Two modules hold an accepted-value tuple, and BOTH are read out
+        verbatim into text the operator sees on a refusal — the route's into
+        `Stock Status must be one of …`, the service's into the `ValueError`
+        that becomes `error_details` in the audit log.
+
+        Both are built from `StockStatus`, so this asserts a property the code
+        already has rather than creating one. It is still worth asserting: the
+        alternative spelling — the route deriving its tuple from its own label
+        mapping — agrees today and would stop agreeing the moment that mapping's
+        order changed, which it is free to do, being a DISPLAY decision that
+        drives the select. Compared element for element rather than as sets,
+        because the two messages enumerate in order and an operator comparing
+        them would notice.
+        """
+        from app.main.routes import _STOCK_STATUS_VALUES as route_values
+        from app.mariadb_catalog_service import (
+            _STOCK_STATUS_VALUES as service_values)
+        from app.models import StockStatus
+
+        assert route_values == service_values
+        assert route_values == tuple(m.value for m in StockStatus)
+
+    def test_the_status_never_records_a_purchase(self, client, test_storage):
+        """The create form's Purchase is triggered by the First Receipt block
+        alone; a stock assertion is a fact about the SHELF, not a shipment."""
+        resp = client.post('/products/add', data={'description': 'Flagged',
+                                                  'stock_status': 'out'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+
+@pytest.mark.unit
+class TestProductDetailStockStatus:
+    """FR28/FR31 on the page: the stored assertion, its age, and what the
+    derived Reorder signal now answers to.
+
+    Both strings arrive finished from the route (AD-5) and the age is gated on
+    the STATUS rather than on the date, which is what keeps `Not set` from ever
+    growing a parenthesis.
+    """
+
+    def _detail(self, client, pid):
+        return client.get(f'/products/{pid}').data.decode()
+
+    def test_an_unasserted_product_reads_not_set_with_no_age(self, client,
+                                                             test_storage):
+        pid = CatalogService(test_storage).create_product(description='Bare')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-stock-status') == 'Not set'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_an_unflushed_product_reads_not_set_rather_than_the_word_None(self):
+        """The one instance whose `stock_status` is `None`.
+
+        The column is NOT NULL, so no row reads None — but a `Product()` that
+        has not been flushed does, because the Python-side default is applied
+        on INSERT. `test_the_getter_answers_for_an_unset_status_attribute` pins
+        that state on the model side, and it reaches the display helpers by the
+        same route.
+
+        Both helpers are exercised, because the uncoerced spelling of each fails
+        differently and neither failure is loud: `_STOCK_STATUS_LABELS.get(None,
+        None)` renders the literal word `None` into the page, while `None !=
+        StockStatus.UNKNOWN.value` is TRUE, so the age gate would open on a row
+        the line above it calls `Not set`. All three sites — these two and
+        `_product_form_data` — coerce the case identically, which is what makes
+        the form and the page agree about one instance.
+        """
+        from app.database import Product
+        from app.main.routes import (_product_form_data,
+                                     _product_stock_status_display)
+        from app.models import StockStatus
+
+        bare = Product(description='Unflushed')
+        assert bare.stock_status is None
+
+        assert _product_stock_status_display(bare) == 'Not set'
+        # The age gate the detail route applies, spelled the same way.
+        assert ((bare.stock_status or StockStatus.UNKNOWN.value)
+                != StockStatus.UNKNOWN.value) is False
+        assert _product_form_data(bare, [])['stock_status'] == 'unknown'
+
+    @pytest.mark.parametrize('status, label', [('ok', 'OK'), ('low', 'Low'),
+                                               ('out', 'Out of stock')])
+    def test_an_asserted_status_reads_its_label_with_an_age(
+            self, client, test_storage, status, label):
+        pid = CatalogService(test_storage).create_product(
+            description='Asserted', stock_status=status)
+        assert _detail_field(self._detail(client, pid),
+                             'product-stock-status') == \
+            f'{label} (set just now)'
+
+    def test_the_age_reflects_the_stored_date(self, client, test_storage):
+        """The age is the age of the ASSERTION, so it has to come off the stored
+        column rather than off anything about the render."""
+        from datetime import datetime, timedelta
+
+        pid = CatalogService(test_storage).create_product(
+            description='Stale flag', stock_status='low')
+        _backdate_status_stamp(test_storage, pid,
+                               datetime.now() - timedelta(days=95))
+        assert _detail_field(self._detail(client, pid),
+                             'product-stock-status') == \
+            'Low (set 3 months ago)'
+
+    def test_a_date_without_an_assertion_shows_no_age(self, client,
+                                                      test_storage):
+        """The gate is on the STATUS, not on the date. The write contract moves
+        the two together, so this state cannot arise through the app — but a
+        restored backup or a hand-run UPDATE can produce it, and the ungated
+        version renders `Not set (set 3 months ago)`: a date for an assertion
+        the same line says was never made."""
+        from datetime import datetime, timedelta
+
+        pid = CatalogService(test_storage).create_product(description='Odd')
+        _backdate_status_stamp(test_storage, pid,
+                               datetime.now() - timedelta(days=95))
+        assert _detail_field(self._detail(client, pid),
+                             'product-stock-status') == 'Not set'
+
+    @pytest.mark.parametrize('status', ['low', 'out'])
+    def test_a_manual_flag_reads_low_with_no_count_and_no_threshold(
+            self, client, test_storage, status):
+        """FR29 on the page, and the state the whole story exists for: neither
+        count nor threshold is set, so the threshold branch cannot fire and the
+        signal is the manual assertion alone."""
+        pid = CatalogService(test_storage).create_product(
+            description='Flagged only', stock_status=status)
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-quantity') == 'Not tracked'
+        assert _detail_field(body, 'product-reorder-threshold') == '—'
+        assert _detail_field(body, 'product-effective-low') == 'Low stock'
+
+    def test_flagging_ok_does_not_suppress_a_crossed_threshold(self, client,
+                                                               test_storage):
+        """FR30's OR is an OR, not an override: the operator's opinion cannot
+        outrank a count they recorded against a threshold they set. An
+        `elif`-shaped implementation gets exactly this row wrong."""
+        pid = CatalogService(test_storage).create_product(
+            description='Says ok', quantity_on_hand='2', reorder_threshold='3',
+            stock_status='ok')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-stock-status').startswith('OK')
+        assert _detail_field(body, 'product-effective-low') == 'Low stock'
+
+    def test_withdrawing_the_flag_clears_the_signal_and_the_date(
+            self, client, test_storage):
+        """The full walk through the form, re-read off the page each time — the
+        signal is derived, so every step is a re-derivation rather than a stored
+        flag being toggled."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Walked')
+        assert _detail_field(self._detail(client, pid),
+                             'product-effective-low') == '—'
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'stock_status': 'low'})
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-stock-status') == \
+            'Low (set just now)'
+        assert _detail_field(body, 'product-effective-low') == 'Low stock'
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'stock_status': 'unknown'})
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-stock-status') == 'Not set'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_the_new_row_does_not_intrude_on_the_quantity_row(self, client,
+                                                              test_storage):
+        """`#product-quantity`'s rendered text is pinned character for character
+        by the Story 5.1 tests, so the status row must sit BESIDE it rather than
+        inside it — and its age must not leak into the count's parenthesis."""
+        pid = CatalogService(test_storage).create_product(
+            description='Both', quantity_on_hand='2', stock_status='low')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-quantity') == \
+            'In stock: 2 (counted just now)'
+        assert _detail_field(body, 'product-stock-status') == \
+            'Low (set just now)'
+
+    def test_reading_the_page_writes_neither_column(self, client,
+                                                    test_storage):
+        """AD-6: the signal is derived at read, and the status it now reads is
+        STORED — so drawing the page must leave both columns and `updated_at`
+        exactly where they were. A derived value that quietly writes would make
+        the row's history a record of who LOOKED at it."""
+        from datetime import datetime, timedelta
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Untouched', stock_status='low')
+        old = _backdate_status_stamp(test_storage, pid,
+                                     datetime.now() - timedelta(days=95))
+        before = svc.get_product(pid).updated_at
+
+        assert _detail_field(self._detail(client, pid),
+                             'product-effective-low') == 'Low stock'
+
+        product = svc.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == old
+        assert product.updated_at == before

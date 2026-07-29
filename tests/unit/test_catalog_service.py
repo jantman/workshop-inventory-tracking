@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 
 from app.mariadb_catalog_service import CatalogService
+from app.models import StockStatus
 from config import Config
 
 
@@ -3866,6 +3867,30 @@ def _backdate_stamp(catalog_service, product_id, when):
     return when
 
 
+def _backdate_status_stamp(catalog_service, product_id, when):
+    """Force `stock_status_at` to `when`, bypassing the service.
+
+    The sibling of `_backdate_stamp` above and written directly for the same
+    reason: the service only ever stamps NOW, so there is no supported way to
+    assert a status in the past — and every "the stamp did NOT move" test needs
+    a stored value old enough that a re-stamp is unmistakable rather than a
+    sub-millisecond difference. `when=None` is also used deliberately, to
+    manufacture the missing-stamp state the repair clause exists for.
+    """
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Product
+
+    Session = sessionmaker(bind=catalog_service.engine)
+    session = Session()
+    try:
+        session.query(Product).filter(Product.id == product_id).update(
+            {'stock_status_at': when})
+        session.commit()
+    finally:
+        session.close()
+    return when
+
+
 @pytest.mark.unit
 class TestProductQuantityWriteContract:
     """The FR23/FR25 write contract, one test per row of the story's I/O matrix.
@@ -4496,6 +4521,368 @@ class TestProductReorderThresholdWriteContract:
         from app.mariadb_catalog_service import _parse_stored_count
 
         assert _parse_stored_count('reorder_threshold', '0' * 5000) == 0
+
+
+# --- Story 5.3: the manual stock status's write contract --------------------
+
+
+@pytest.mark.unit
+class TestProductStockStatusWriteContract:
+    """FR28/FR29/FR31's stored half: one NOT NULL string and its date.
+
+    Shaped like the quantity's contract rather than the threshold's, because
+    like the quantity it is TWO columns moving as one — and the interesting
+    rule is the same one: the date moves only on a real ASSERTION. What differs,
+    and what every re-stamp test below is really about, is that the control is a
+    `<select>` with a non-empty default. It posts its key, carrying a VALID
+    value, on literally every save, so there is not even the blank-means-
+    untouched escape hatch a text input has: only a CHANGED value can mean
+    "the operator asserted something".
+
+    Every "unchanged" assertion compares for equality against the exact datetime
+    captured first; a `>=` would pass whether or not the stamp moved.
+    """
+
+    def _stored_status_stamp(self, catalog_service, product_id):
+        return catalog_service.get_product(product_id).stock_status_at
+
+    def test_a_new_product_has_no_assertion(self, catalog_service):
+        """The default, and the reason the column is NOT NULL with one:
+        `unknown` is a stored value meaning "nobody has said anything", so there
+        is no NULL-vs-`unknown` distinction for a reader to get wrong — and no
+        date, because no assertion has been made."""
+        pid = catalog_service.create_product(description='Fresh')
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'unknown'
+        assert product.stock_status_at is None
+
+    def test_a_new_product_is_not_effective_low(self, catalog_service):
+        """The default has to be inert. A default of `ok` would be an opinion
+        nobody expressed; a default that read as LOW would put the whole catalog
+        on the reorder list Story 5.6 builds."""
+        pid = catalog_service.create_product(description='Fresh')
+        assert catalog_service.get_product(pid).is_effective_low is False
+
+    @pytest.mark.parametrize('status', ['ok', 'low', 'out'])
+    def test_create_may_carry_an_assertion_and_is_stamped(self, catalog_service,
+                                                          status):
+        pid = catalog_service.create_product(description='Asserted at birth',
+                                             stock_status=status)
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == status
+        assert product.stock_status_at is not None
+
+    def test_create_with_unknown_stores_unknown_and_no_date(self,
+                                                            catalog_service):
+        """Explicitly choosing `Not set` on the create form is the same state as
+        not choosing anything — including the absence of a date, since choosing
+        "no opinion" is not an assertion to date."""
+        pid = catalog_service.create_product(description='Explicitly unset',
+                                             stock_status='unknown')
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'unknown'
+        assert product.stock_status_at is None
+
+    def test_the_first_assertion_stamps(self, catalog_service):
+        """`unknown` -> `low`: the flag is set and dated, on a product that
+        tracks no quantity and has no threshold. That combination is the whole
+        point of FR29 — flagging something low is never gated on counting it."""
+        pid = catalog_service.create_product(description='Flag me')
+        assert catalog_service.update_product(pid, stock_status='low') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at is not None
+        assert product.quantity_on_hand is None
+        assert product.reorder_threshold is None
+        assert product.is_effective_low is True
+
+    def test_reposting_the_same_status_leaves_the_date(self, catalog_service):
+        """THE defect this rule exists to prevent, at the service boundary.
+
+        The edit form renders the status pre-selected, so every browser save
+        re-posts it — and unlike the quantity there is no value a browser can
+        send that means "untouched". If key presence were the trigger, fixing a
+        typo in the description would re-date an assertion made three months
+        ago, destroying exactly the staleness signal FR31 asks to be surfaced.
+        """
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Flagged',
+                                             stock_status='low')
+        old = _backdate_status_stamp(catalog_service, pid,
+                                     datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(pid, stock_status='low') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == old
+
+    def test_an_unrelated_field_edit_leaves_the_date(self, catalog_service):
+        """The same rule from the other direction, and the shape of every real
+        browser save: a description change that carries the pre-selected status
+        along with it is not a new assertion."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Typo',
+                                             stock_status='out')
+        old = _backdate_status_stamp(catalog_service, pid,
+                                     datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, description='Typo fixed', stock_status='out') is True
+        product = catalog_service.get_product(pid)
+        assert product.description == 'Typo fixed'
+        assert product.stock_status_at == old
+
+    @pytest.mark.parametrize('changed_to', ['out', 'ok'])
+    def test_a_changed_status_moves_the_date(self, catalog_service, changed_to):
+        """A different status is an assertion on its own terms, in EITHER
+        direction: deciding the shelf has refilled is as much an act as
+        deciding it has emptied."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Changed',
+                                             stock_status='low')
+        old = _backdate_status_stamp(catalog_service, pid,
+                                     datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, stock_status=changed_to) is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == changed_to
+        assert product.stock_status_at > old
+
+    def test_returning_to_unknown_clears_the_date(self, catalog_service):
+        """Withdrawing the assertion. The date must go with it: `unknown` is the
+        ABSENCE of an opinion, and `Not set (set 3 months ago)` would put a date
+        on a field asserting nothing — exactly as an age beside an untracked
+        quantity would."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Withdrawn',
+                                             stock_status='low')
+        _backdate_status_stamp(catalog_service, pid,
+                               datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(
+            pid, stock_status='unknown') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'unknown'
+        assert product.stock_status_at is None
+        assert product.is_effective_low is False
+
+    def test_a_missing_date_on_an_asserted_status_is_repaired(self,
+                                                              catalog_service):
+        """A state this write contract otherwise makes impossible — a flag with
+        no record of when it was raised. Re-posting the same status repairs it
+        rather than leaving the assertion permanently ageless, which would
+        render as a claim with no staleness at all."""
+        pid = catalog_service.create_product(description='Ageless',
+                                             stock_status='low')
+        _backdate_status_stamp(catalog_service, pid, None)
+        assert self._stored_status_stamp(catalog_service, pid) is None
+
+        assert catalog_service.update_product(pid, stock_status='low') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at is not None
+
+    def test_an_absent_key_leaves_both_columns_alone(self, catalog_service):
+        """The partial-update rule, unchanged: an update that never mentions the
+        status must not withdraw the assertion, and must not re-date it
+        either — nobody asserted anything."""
+        pid = catalog_service.create_product(description='Untouched',
+                                             stock_status='low')
+        stamp = self._stored_status_stamp(catalog_service, pid)
+
+        assert catalog_service.update_product(pid, description='Renamed') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == stamp
+
+    @pytest.mark.parametrize('bad', ['', '   ', 'LOW', 'Low', 'bogus',
+                                     ' low ', 'x' * 5000],
+                             ids=['blank', 'whitespace', 'upper', 'title',
+                                  'not-a-member', 'padded', 'oversized'])
+    def test_a_value_outside_the_four_is_refused_and_writes_nothing(
+            self, catalog_service, bad):
+        """The service's own contract, and the reason a blank is a REFUSAL here
+        where `_parse_stored_count` maps one to a clear.
+
+        That function's columns are nullable and None is a real stored state.
+        This column cannot be NULL, so a blank has no destination — and mapping
+        it silently onto `unknown` would let a truncated or malformed POST
+        quietly erase a `low` flag, which is the one outcome this field must
+        never produce by accident. Case and padding are refused for the same
+        reason: the four values are a closed machine vocabulary, so `' low '` is
+        a caller bug, not a typing slip to be forgiven.
+        """
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Guarded',
+                                             stock_status='low')
+        old = _backdate_status_stamp(catalog_service, pid,
+                                     datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(pid, stock_status=bad) is False
+
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'low'
+        assert product.stock_status_at == old
+
+    @pytest.mark.parametrize('bad', [7, 0, None, True, ['low'],
+                                     StockStatus.LOW],
+                             ids=['int', 'zero', 'none', 'bool', 'list',
+                                  'enum-member'])
+    def test_a_non_string_is_refused_and_writes_nothing(self, catalog_service,
+                                                        bad):
+        """The column stores the STRING, so the enum MEMBER is refused too — it
+        is the likeliest of these to be passed by accident and the one whose
+        `str()` (`StockStatus.LOW`) would store something the predicate could
+        never match. `None` is refused rather than treated as "not provided":
+        not providing the field is spelled by omitting the argument, and giving
+        `None` a meaning here would be giving this field the "clear" state it
+        deliberately does not have."""
+        pid = catalog_service.create_product(description='Guarded',
+                                             stock_status='low')
+
+        assert catalog_service.update_product(pid, stock_status=bad) is False
+        assert catalog_service.get_product(pid).stock_status == 'low'
+
+    def test_a_bad_status_on_create_writes_no_product(self, catalog_service,
+                                                      product_ids):
+        """Refused before the insert rather than after it: a create that raises
+        must not leave a half-configured product behind for the operator to
+        find."""
+        assert catalog_service.create_product(description='Guarded',
+                                              stock_status='bogus') is None
+        assert product_ids() == set()
+
+    def test_a_refusal_names_the_field_and_bounds_the_value(self):
+        """The refusal is what the caller's handler writes into the audit
+        record as `error_details`, so it is operator-supplied text going into a
+        log line: it must name the field (nothing else in the record says WHICH
+        argument was wrong) and must not quote the whole submission back."""
+        from app.mariadb_catalog_service import _apply_stock_status_assertion
+        from app.database import Product
+
+        product = Product(internal_id='PR0DSTAT01')
+
+        with pytest.raises(ValueError) as refusal:
+            _apply_stock_status_assertion(product, 'x' * 5000)
+        message = str(refusal.value)
+        assert message.startswith('stock_status must be one of ')
+        assert len(message) < 160
+
+        with pytest.raises(TypeError) as type_error:
+            _apply_stock_status_assertion(product, 7)
+        assert str(type_error.value).startswith('stock_status must be one of ')
+        assert 'int' in str(type_error.value)
+
+    def test_stock_status_at_is_not_accepted_from_a_caller(self,
+                                                           catalog_service):
+        """It is DERIVED from the act of asserting a status, never supplied.
+
+        A caller able to set it could claim an assertion was made at a time
+        nobody made one — precisely the lie the age display exists to prevent —
+        so the name is absent from `_PRODUCT_FIELDS` and is dropped in silence,
+        exactly as `quantity_verified_at` and `internal_id` are.
+        """
+        from datetime import datetime
+
+        from app.mariadb_catalog_service import _PRODUCT_FIELDS
+
+        assert 'stock_status_at' not in _PRODUCT_FIELDS
+
+        pid = catalog_service.create_product(description='No backdating',
+                                             stock_status='low')
+        stamp = self._stored_status_stamp(catalog_service, pid)
+        assert catalog_service.update_product(
+            pid, stock_status_at=datetime(1999, 1, 1)) is True
+        assert self._stored_status_stamp(catalog_service, pid) == stamp
+
+    def test_the_status_pair_is_recorded_in_the_audit_snapshot(
+            self, catalog_service, monkeypatch):
+        """`to_dict()` is what the audit log stores, so a column missing from it
+        is a column whose history cannot be read back — and this pair IS the
+        assertion, so without it no record answers "who said this was low, and
+        when"."""
+        records = []
+
+        def _capture(operation, status, **kwargs):
+            records.append((operation, status, kwargs.get('item_after')))
+
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _capture)
+
+        pid = catalog_service.create_product(description='Audited')
+        assert records[-1][0] == 'create_product'
+        # Even the default is in the snapshot: `unknown` is a stored value.
+        assert records[-1][2]['stock_status'] == 'unknown'
+        assert records[-1][2]['stock_status_at'] is None
+
+        assert catalog_service.update_product(pid, stock_status='low') is True
+        assert records[-1][0] == 'update_product'
+        assert records[-1][2]['stock_status'] == 'low'
+        # ISO string, like every other timestamp in the snapshot.
+        assert isinstance(records[-1][2]['stock_status_at'], str)
+
+    def test_asserting_a_status_touches_no_count_column(self, catalog_service):
+        """FR29: the status is an assertion about the SHELF, not a count. It is
+        not evidence that anybody counted anything, so neither quantity column
+        nor the threshold may move — compared for equality against the values
+        captured first, since a `>=` would pass whether or not the stamp
+        moved."""
+        pid = catalog_service.create_product(description='Counted and flagged',
+                                             quantity_on_hand='4',
+                                             reorder_threshold='3')
+        stamp = _stored_stamp(catalog_service, pid)
+        assert stamp is not None
+
+        assert catalog_service.update_product(pid, stock_status='out') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'out'
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+        assert product.reorder_threshold == 3
+
+    def test_a_count_write_touches_no_status_column(self, catalog_service):
+        """The other direction, and the one an over-eager "sync the stock
+        fields" implementation would get wrong: counting four onto a shelf you
+        flagged `out` does not withdraw the flag. Only the operator does
+        (Story 5.5 gives a RECEIPT that power, and only for a manual low)."""
+        from datetime import datetime, timedelta
+
+        pid = catalog_service.create_product(description='Flagged then counted',
+                                             stock_status='out')
+        old = _backdate_status_stamp(catalog_service, pid,
+                                     datetime.now() - timedelta(days=95))
+
+        assert catalog_service.update_product(pid, quantity_on_hand='4',
+                                              reorder_threshold='3') is True
+        product = catalog_service.get_product(pid)
+        assert product.stock_status == 'out'
+        assert product.stock_status_at == old
+
+    def test_a_manual_flag_and_the_threshold_branch_are_independent(
+            self, catalog_service):
+        """FR30's OR, read back through the service the way the detail page
+        does. `ok` does not suppress a crossed threshold — the operator's
+        opinion cannot outrank a count they recorded against a threshold they
+        set — and `low` does not need one."""
+        flagged = catalog_service.create_product(description='Flag only',
+                                                 stock_status='low')
+        crossed = catalog_service.create_product(description='Threshold only',
+                                                 quantity_on_hand='2',
+                                                 reorder_threshold='3',
+                                                 stock_status='ok')
+        quiet = catalog_service.create_product(description='Neither',
+                                               quantity_on_hand='9',
+                                               reorder_threshold='3',
+                                               stock_status='ok')
+
+        assert catalog_service.get_product(flagged).is_effective_low is True
+        assert catalog_service.get_product(crossed).is_effective_low is True
+        assert catalog_service.get_product(quiet).is_effective_low is False
 
 
 @pytest.mark.unit

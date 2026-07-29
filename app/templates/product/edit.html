@@ -22,7 +22,7 @@
                shared validator gains later surfaces here by default rather than
                vanishing. Above the card because the operator must see it
                without knowing which field to look at. #}
-            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags', 'quantity_on_hand', 'reorder_threshold', 'location', 'sub_location'] %}
+            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags', 'quantity_on_hand', 'reorder_threshold', 'stock_status', 'location', 'sub_location'] %}
             {% for field, message in (validation_errors or {}).items() if field not in keyed_error_fields %}
             <div class="alert alert-danger" role="alert" id="form-error-{{ field }}">
                 <i class="bi bi-exclamation-triangle"></i> {{ message }}
@@ -100,22 +100,32 @@
                 </div>
             </div>
 
-            {# Story 5.1 (FR23/FR24/FR25/FR27) and Story 5.2 (FR26): the opt-in
-               stock block, matching add.html's — same names, same ids, same
-               validation — because `_validate_product_form` judges these four
-               for BOTH forms and a control on only one of them would be a rule
-               the other could not satisfy. The prose differs where the forms
-               genuinely differ: only this one can move an EXISTING verification
-               date, so what records that date is explained on the recount box
-               below rather than in the card's shared help text. This form has no
-               First Receipt block, so `quantity_on_hand` has no near-neighbour
-               to be confused with here.
+            {# Story 5.1 (FR23/FR24/FR25/FR27), Story 5.2 (FR26) and Story 5.3
+               (FR28/FR29/FR31): the opt-in stock block, matching add.html's —
+               same names, same ids, same option list, same validation —
+               because `_validate_product_form` judges these five for BOTH forms
+               and a control on only one of them would be a rule the other could
+               not satisfy. The prose differs where the forms genuinely differ:
+               only this one can move an EXISTING verification date, so what
+               records that date is explained on the recount box below rather
+               than in the card's shared help text. This form has no First
+               Receipt block, so `quantity_on_hand` has no near-neighbour to be
+               confused with here.
 
                Blank is a MEANINGFUL value on this form in particular: clearing
                Quantity On Hand stops tracking and clears the recorded count time
                with it, and clearing Reorder Threshold removes the threshold, so
                the product stops reading as low however few are left — exactly as
-               clearing Category removes the category. #}
+               clearing Category removes the category. Stock Status has no blank
+               at all; `Not set` is its "nothing asserted" value, and choosing it
+               is what withdraws an assertion and clears the date beside it.
+
+               Stock Status gets no counterpart to the recount checkbox, and the
+               asymmetry is the point: a recount that finds the SAME number is
+               new information the system cannot otherwise see, while re-choosing
+               the status you already chose is not. Its date answers "when did
+               you last change this", so this form re-posting the pre-selected
+               value on every save leaves the date exactly where it was. #}
             <div class="card mb-3" id="stock-and-location">
                 <div class="card-header">Stock &amp; Location <span class="text-muted small">(optional)</span></div>
                 <div class="card-body">
@@ -175,7 +185,17 @@
                            half width where `col-md-4` gave them the full row.
                            Both were judged better than a fourth column at
                            `md`, which inside this page's `col-lg-8` would leave
-                           each field too narrow to read a location in. #}
+                           each field too narrow to read a location in.
+
+                           Story 5.3's fifth control sits between the threshold
+                           and the locations, followed by a `w-100` row break.
+                           The break is what keeps those two pairings: without
+                           it the status would pair with Location and push
+                           Sub-Location onto a line by itself. It is also what
+                           leaves the 576–767 px band above exactly as it was —
+                           the locations are still half width and still beside
+                           each other, so the fifth field changed nothing that
+                           was already described here. #}
                         <div class="col-sm-6 mb-3">
                             <label for="reorder_threshold" class="form-label">Reorder Threshold</label>
                             <input type="text" class="form-control{% if validation_errors and validation_errors.reorder_threshold %} is-invalid{% endif %}"
@@ -183,6 +203,39 @@
                                    value="{{ form_data.get('reorder_threshold', '') }}" autocomplete="off">
                             {% if validation_errors and validation_errors.reorder_threshold %}<div class="invalid-feedback d-block">{{ validation_errors.reorder_threshold }}</div>{% endif %}
                         </div>
+                        <div class="col-sm-6 mb-3">
+                            <label for="stock_status" class="form-label">Stock Status</label>
+                            {# Story 5.3 (FR28/FR29). The option list comes from
+                               the route (`stock_status_choices`, value + label)
+                               so this template never imports the enum and never
+                               spells the operator-facing labels itself (AD-5).
+                               No empty first option: `Not set` IS this field's
+                               "nothing asserted" value, so a blank option would
+                               be a second spelling of it — and the server
+                               refuses a blank rather than accepting one.
+
+                               WHICH option is selected is the route's decision
+                               too (`stock_status_selected`), and this is the
+                               ONE control on this form that must not simply
+                               render back what was submitted. A select can only
+                               render a value that is one of its options, so a
+                               submitted `''` or `bogus` surviving a refusal
+                               would mark NOTHING selected — and a browser then
+                               shows and submits the FIRST option, `Not set`.
+                               The operator, re-saving the page they were
+                               handed, would silently withdraw a stored `Low`
+                               and null the date it was asserted on. The route
+                               falls back to the STORED status instead; see
+                               `_selected_stock_status`. #}
+                            <select class="form-select{% if validation_errors and validation_errors.stock_status %} is-invalid{% endif %}"
+                                    id="stock_status" name="stock_status">
+                                {% for value, label in stock_status_choices %}
+                                <option value="{{ value }}"{% if stock_status_selected == value %} selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if validation_errors and validation_errors.stock_status %}<div class="invalid-feedback d-block">{{ validation_errors.stock_status }}</div>{% endif %}
+                        </div>
+                        <div class="w-100"></div>
                         <div class="col-sm-6 mb-3">
                             <label for="location" class="form-label">Location</label>
                             <div class="position-relative">
@@ -213,8 +266,17 @@
                         <strong>blank</strong> for no threshold, and note that
                         <strong>0</strong> is a real threshold meaning "flag it once I have
                         none". A threshold only signals for a product whose quantity you
-                        are actually tracking. Location and Sub-Location share their
-                        suggestions with the inventory items.
+                        are actually tracking. Stock Status is
+                        <strong>only ever what you said</strong> — nothing in the system
+                        sets it for you. <strong>Low</strong> and
+                        <strong>Out of stock</strong> make the product read as low on its
+                        own page whatever the count and threshold say, or even with neither
+                        filled in; <strong>OK</strong> does not cancel a threshold you have
+                        already crossed. The date shown beside it is when you last
+                        <em>changed</em> it, not when you last saved the product, so
+                        editing anything else here leaves it alone; setting the status back
+                        to <strong>Not set</strong> clears that date. Location and
+                        Sub-Location share their suggestions with the inventory items.
                     </div>
                 </div>
             </div>

@@ -318,8 +318,9 @@ class TestPinnedCollations:
     def test_migrated_schema_pins_the_charset_and_collation(
             self, alembic_env, blank_database):
         """Every table defaults to utf8mb4/utf8mb4_unicode_ci and every string
-        column reports that collation -- except ``products.internal_id``, which
-        reports utf8mb4_bin."""
+        column reports that collation -- except the ``BINARY_COLUMNS``
+        (``products.internal_id`` and ``products.stock_status``), which report
+        utf8mb4_bin."""
         command.upgrade(alembic_env, 'head')
 
         assert_schema_is_pinned(blank_database)

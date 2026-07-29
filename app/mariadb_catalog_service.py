@@ -21,7 +21,7 @@ from sqlalchemy import case, exists, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from .database import Product, Purchase, Attachment, ProductIdentifier, ProductTag
-from .models import (IdentifierType, ScanKind, ScanResolution,
+from .models import (IdentifierType, ScanKind, ScanResolution, StockStatus,
                      VENDOR_SCOPED_IDENTIFIER_TYPES)
 from .mariadb_storage import MariaDBStorage
 from .db import binary_order_key, resolve_engine
@@ -56,9 +56,18 @@ logger = logging.getLogger('mariadb_catalog_service')
 # changes how a submitted `quantity_on_hand` is interpreted, so it arrives as
 # its own keyword-only argument rather than through `**fields`, and nothing
 # persists it.
+#
+# `stock_status_at` is ABSENT for exactly `quantity_verified_at`'s reason
+# (Story 5.3): it is not a field a caller may set. It is DERIVED from the act of
+# ASSERTING a status — `_apply_stock_status_assertion` below is its only
+# writer — so a caller naming it here could claim an assertion was made at a
+# time nobody made one, which is the lie FR31's age display exists to prevent.
+# Being absent from this tuple means `update_product` drops it silently, the
+# same way it drops `internal_id`.
 _PRODUCT_FIELDS = (
     'manufacturer', 'mpn', 'description', 'notes', 'category_path', 'attributes',
-    'quantity_on_hand', 'reorder_threshold', 'location', 'sub_location',
+    'quantity_on_hand', 'reorder_threshold', 'stock_status', 'location',
+    'sub_location',
 )
 
 # How many internal-id candidates create_product will try before giving up
@@ -373,6 +382,99 @@ def _apply_quantity_assertion(product, value, recounted: bool = False) -> None:
     product.quantity_on_hand = new_quantity
 
 
+# The four stored spellings, as a set, so the refusal below and the membership
+# test above it are one fact. Built from the enum rather than typed out, for the
+# reason the enum's own docstring gives: the values are what the column holds,
+# and a hand-copied list here is how the two would come to disagree.
+_STOCK_STATUS_VALUES = tuple(member.value for member in StockStatus)
+
+
+def _apply_stock_status_assertion(product, value) -> None:
+    """Write a MANUAL stock-status assertion onto `product` (Story 5.3, FR28/31).
+
+    The ONE home for the status write contract, called by both `create_product`
+    and `update_product` so the two cannot disagree about what asserting a
+    status means — the same arrangement, for the same reason, as
+    `_apply_quantity_assertion` above. Reaching this function at all means the
+    caller PROVIDED the field (`product_edit` builds its update dict from
+    present POST keys only), so all that is left to decide is what the value
+    says.
+
+    - `unknown` sets the status to `unknown` and clears `stock_status_at` to
+      NULL. `unknown` is not a fourth opinion about the stock, it is the ABSENCE
+      of one — exactly as `quantity_on_hand IS NULL` is the absence of a count —
+      and a date left behind on a status of "Not set" would show the operator
+      `set 3 months ago` beside a field asserting nothing.
+    - `ok` / `low` / `out` set the status, and move `stock_status_at` to
+      `datetime.now()` when — and only when — the submission is really a NEW
+      assertion:
+        1. the submitted status DIFFERS from the stored one (which covers the
+           first assertion, `unknown` -> `low`);
+        2. the stored status is already non-`unknown` but its stamp is NULL — a
+           repair of a state this contract otherwise makes impossible.
+      In every other case the stamp is left EXACTLY as stored.
+
+    Why key presence cannot be the trigger, and why it matters MORE here than it
+    did for the quantity. This field renders as a `<select>` with a non-empty
+    default, so a browser posts its key — carrying a valid value — on literally
+    every save. There is not even the blank-means-untouched escape hatch a text
+    input has. A presence trigger would therefore re-date the assertion every
+    time the operator fixed a typo in the description, destroying the staleness
+    signal FR31 exists to surface rather than correct. Hence the changed-value
+    test, with the same NULL-stamp repair clause — and hence the deliberate
+    ABSENCE of a re-assert control analogous to the recount checkbox: re-counting
+    to the same number is a workshop act that produces information the system
+    has no other record of, while "still low" is not.
+
+    Order matters below: the comparison and the NULL-stamp check both read the
+    STORED value, so the assignment to `stock_status` comes last.
+
+    Why blank is REFUSED here where `_parse_stored_count` maps it to a clear.
+    That function's columns are nullable and None is a real stored state;
+    `stock_status` cannot be NULL, so a blank has no destination. Mapping it
+    silently to `unknown` would let a truncated or malformed POST quietly erase
+    a `low` flag. "Not provided" is spelled by NOT CALLING this function:
+    `create_product` skips the call when its keyword argument is absent, and
+    `update_product` never enters the branch for a key the caller omitted. A
+    `None` that does reach here is therefore a caller who named the field and
+    then supplied nothing for it, and it is refused as the non-string it is
+    rather than guessed at — the alternative would be to give `None` the "clear"
+    meaning the paragraph above explains this field does not have.
+
+    Every refusal names the field and quotes the value back through
+    `_truncated_for_refusal`, for the reason `_parse_stored_count` states: the
+    caller's handler logs the exception as the audit record's `error_details`,
+    so that message is operator-supplied text going into a log line and is also
+    the only thing in the record that says which argument was wrong.
+
+    Naive local `datetime.now()`, matching the quantity stamp above, so both
+    ages on the product page are measured against one clock by
+    `app/utils/age_display.py`.
+    """
+    if not isinstance(value, str):
+        raise TypeError(
+            f'stock_status must be one of {", ".join(_STOCK_STATUS_VALUES)}, '
+            f'not {type(value).__name__}')
+    if value not in _STOCK_STATUS_VALUES:
+        # Not stripped and not case-folded on purpose: the four values are a
+        # closed machine vocabulary that only this app's own `<select>` and its
+        # own service callers produce, so `' Low '` is a caller bug rather than
+        # an operator typing slip. The FORM is where an operator's input is
+        # judged, and it judges the same four strings.
+        raise ValueError(
+            f'stock_status must be one of {", ".join(_STOCK_STATUS_VALUES)}, '
+            f'not {_truncated_for_refusal(value)!r}')
+
+    if value == StockStatus.UNKNOWN.value:
+        product.stock_status = StockStatus.UNKNOWN.value
+        product.stock_status_at = None
+        return
+
+    if value != product.stock_status or product.stock_status_at is None:
+        product.stock_status_at = datetime.now()
+    product.stock_status = value
+
+
 # How many rows the suggestion read turns into ORM row objects at a time, and
 # that is ALL it bounds. Not transfer — the query itself is unbounded for the
 # reason `get_field_value_suggestions` states, and no client-side batching
@@ -579,7 +681,7 @@ class CatalogService:
     def create_product(self, *, manufacturer=None, mpn=None, description=None,
                         notes=None, category_path=None, attributes=None,
                         quantity_on_hand=None, reorder_threshold=None,
-                        location=None, sub_location=None,
+                        stock_status=None, location=None, sub_location=None,
                         quantity_recounted: bool = False) -> Optional[int]:
         """
         Create a Product and return its new integer id, or None on failure.
@@ -603,6 +705,16 @@ class CatalogService:
         the shared count parse rather than through `_clean`, which would hand
         SQLAlchemy the raw string. Nothing derived is written with it: Effective
         Low is computed at read by `Product.is_effective_low` (AD-6).
+
+        Story 5.3: `stock_status` defaults to None, which here means NOT
+        PROVIDED and is not the same thing as `'unknown'` — omitting it leaves
+        the column at its own `'unknown'` default with a NULL
+        `stock_status_at`, which is the state a brand-new product is in
+        (nobody has asserted anything about it yet). A caller that DOES pass a
+        value gets the same contract `update_product` applies; see
+        `_apply_stock_status_assertion`, which refuses a blank rather than
+        treating it as a clear. There is no `stock_status_at` argument,
+        deliberately.
 
         `quantity_recounted` is accepted and is a deliberate NO-OP here, kept
         only so the two write surfaces have one shape. On a create there is no
@@ -659,6 +771,14 @@ class CatalogService:
                 # and update cannot drift.
                 _apply_quantity_assertion(product, quantity_on_hand,
                                           quantity_recounted)
+                # Story 5.3, after the constructor for the same reason and
+                # skipped entirely when the argument is absent: None means NOT
+                # PROVIDED here, and the column's own default supplies
+                # `'unknown'` at flush. Calling the helper with None would have
+                # to invent a meaning for it, and the meaning it would invent
+                # ("clear") is the one this field deliberately does not have.
+                if stock_status is not None:
+                    _apply_stock_status_assertion(product, stock_status)
                 session.add(product)
                 # The derived read index (FR7): same transactional step, same
                 # value, global scope (INTERNAL is not vendor-scoped, AD-9).
@@ -748,6 +868,16 @@ class CatalogService:
         INTEGER column, and the `_clean` fallthrough below passes strings
         through unparsed. Nothing derived is written with it either.
 
+        Story 5.3 adds `stock_status`, which needs a branch for the QUANTITY's
+        reason rather than the threshold's: passing it may also write
+        `stock_status_at`, and whether that second column moves depends on what
+        was already stored (see `_apply_stock_status_assertion`). An absent key
+        leaves both columns alone; a present one outside the four stored values
+        — blank included, since this column cannot be NULL — is REFUSED and
+        nothing at all is written. `stock_status_at` is not accepted as a field
+        of its own and a caller naming it is ignored, exactly as
+        `quantity_verified_at` and `internal_id` are.
+
         `quantity_recounted` is KEYWORD-ONLY and is not a field: it never enters
         `**fields`, is never matched against `_PRODUCT_FIELDS` and is never
         persisted. It is the edit form's recount checkbox, and all it does is
@@ -793,6 +923,17 @@ class CatalogService:
                     # says; `0` survives as `0`, which is the state a truthiness
                     # test would lose.
                     product.reorder_threshold = _parse_stored_count(key, value)
+                    continue
+                if key == 'stock_status':
+                    # Story 5.3: the second field whose write can touch a
+                    # SECOND column, so it cannot go through the
+                    # `cleaned`/`setattr` tail below either — and `_clean`
+                    # would be actively wrong for it, mapping the blank this
+                    # column has no room for onto None and handing SQLAlchemy a
+                    # NULL for a NOT NULL column. Reaching this branch means the
+                    # key was PRESENT; whether the stamp then moves is the
+                    # assertion rule's decision, not this loop's.
+                    _apply_stock_status_assertion(product, value)
                     continue
                 if key == 'attributes':
                     cleaned = value

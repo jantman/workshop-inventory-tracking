@@ -123,14 +123,17 @@
                 </div>
             </div>
 
-            {# Story 5.1 (FR23/FR24/FR25/FR27) and Story 5.2 (FR26): the opt-in
-               stock block. The same four controls as edit.html — same names,
-               same ids, same validation — because the rule that validates them
+            {# Story 5.1 (FR23/FR24/FR25/FR27), Story 5.2 (FR26) and Story 5.3
+               (FR28/FR29/FR31): the opt-in stock block. The same five controls
+               as edit.html — same names, same ids, same option list, same
+               validation — because the rule that validates them
                (`_validate_product_form`) is shared and a control on only one of
                the two forms would be a rule the other form could not satisfy.
                The one deliberate difference is edit.html's recount checkbox,
                which has nothing to re-confirm here: see the comment beside it
-               there.
+               there. Stock Status gets no such counterpart control, and that is
+               also deliberate — its date answers "when did you last CHANGE
+               this", so re-asserting the same status is not an event.
 
                Quantity On Hand is TRI-STATE and blank is one of the three
                states, which is why the help text says so out loud: blank means
@@ -144,8 +147,18 @@
                their full-row width between 576 and 767 px; a fourth column at
                `md` was the alternative and inside this page's `col-lg-8` it
                leaves each field too narrow to read a location in. This form's
-               two rows are even, unlike edit.html's, which carries the recount
+               rows are even, unlike edit.html's, which carries the recount
                checkbox inside its quantity column.
+
+               Story 5.3's fifth control is what the `<div class="w-100">` after
+               it is for. Without the break the status would pair up with
+               Location and push Sub-Location onto a line of its own, which is
+               the one pairing this grid exists to keep: the break forces a new
+               row after it, so line 1 stays quantity+threshold, line 2 is the
+               status alone and line 3 stays location+sub-location. That is also
+               what leaves the 576–767 px band behaving exactly as it did before
+               this story — the two locations are still half-width there, still
+               beside each other, and the fifth field changed nothing about it.
 
                Location/Sub-Location carry the ids `field-autocomplete.js`
                already auto-initializes (`location`, and `sub_location` scoped by
@@ -169,6 +182,46 @@
                                    value="{{ form_data.get('reorder_threshold', '') }}" autocomplete="off">
                             {% if validation_errors and validation_errors.reorder_threshold %}<div class="invalid-feedback d-block">{{ validation_errors.reorder_threshold }}</div>{% endif %}
                         </div>
+                        <div class="col-sm-6 mb-3">
+                            <label for="stock_status" class="form-label">Stock Status</label>
+                            {# Story 5.3 (FR28/FR29). The option list comes from
+                               the route (`stock_status_choices`, value + label)
+                               so this template never imports the enum and never
+                               spells the operator-facing labels itself (AD-5).
+
+                               There is deliberately NO empty first option,
+                               unlike the Scanned Identifier card's type select
+                               below. That one has no default and a blank
+                               selection is a real state the server refuses;
+                               this field has a real default — `Not set` IS the
+                               "nothing asserted" choice — so an empty option
+                               would be a second spelling of it, and the server
+                               refuses a blank rather than accepting it.
+
+                               WHICH option is selected is the route's decision
+                               too (`stock_status_selected`), not
+                               `form_data.get('stock_status')`. A select can
+                               only render a value that is one of its options,
+                               so a submitted `''` or `bogus` surviving a
+                               refusal would mark NOTHING selected — and a
+                               browser then shows and submits the FIRST option,
+                               invisibly and uncorrectably. The route decides
+                               between the submitted value, the stored one and
+                               `unknown`; see `_selected_stock_status`. #}
+                            <select class="form-select{% if validation_errors and validation_errors.stock_status %} is-invalid{% endif %}"
+                                    id="stock_status" name="stock_status">
+                                {% for value, label in stock_status_choices %}
+                                <option value="{{ value }}"{% if stock_status_selected == value %} selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if validation_errors and validation_errors.stock_status %}<div class="invalid-feedback d-block">{{ validation_errors.stock_status }}</div>{% endif %}
+                        </div>
+                        {# The row break Story 5.3 needed: see the card comment
+                           above. It keeps quantity+threshold on one line and
+                           location+sub-location on another, which is what makes
+                           the 576–767 px band behave exactly as it did before
+                           the fifth control existed. #}
+                        <div class="w-100"></div>
                         <div class="col-sm-6 mb-3">
                             <label for="location" class="form-label">Location</label>
                             <div class="position-relative">
@@ -200,8 +253,18 @@
                         flags it as low; leave it <strong>blank</strong> for no threshold,
                         and note that <strong>0</strong> is a real threshold meaning "flag
                         it once I have none". A threshold only signals for a product whose
-                        quantity you are actually tracking. Location and Sub-Location share
-                        their suggestions with the inventory items.
+                        quantity you are actually tracking. Stock Status is
+                        <strong>only ever what you said</strong> — nothing in the system
+                        sets it for you. <strong>Low</strong> and
+                        <strong>Out of stock</strong> make the product read as low on its
+                        own page whatever the count and threshold say, or even with neither
+                        filled in; <strong>OK</strong> does not cancel a threshold you have
+                        already crossed. Once this product is saved, its page will show
+                        when you last <em>changed</em> the status — not when you last
+                        saved the product — so editing anything else later leaves that
+                        date alone, and setting the status back to
+                        <strong>Not set</strong> clears it. Location and Sub-Location
+                        share their suggestions with the inventory items.
                     </div>
                 </div>
             </div>

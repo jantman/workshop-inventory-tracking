@@ -178,6 +178,57 @@ VENDOR_SCOPED_IDENTIFIER_TYPES = frozenset({
 })
 
 
+class StockStatus(Enum):
+    """
+    The operator's MANUAL opinion of a product's stock level (Story 5.3,
+    FR28/FR29/FR31). Stored as the string value in a plain `String(32)` column,
+    NOT a DB ENUM and with no CHECK constraint, for the reason `IdentifierType`
+    gives: later stories can extend the set without a migration.
+
+    Manual only. Nothing derived ever writes this column (AD-6) — it records
+    what the operator SAID, and `Product.is_effective_low` ORs it with the
+    threshold comparison at read time. `UNKNOWN` is therefore not a fourth
+    opinion about the stock but the ABSENCE of one, which is why it is the
+    column's default and why asserting it clears the assertion's timestamp.
+
+    Lowercase, and — unlike `ScanKind` above, the repo's only other lowercase
+    enum — these values ARE persisted. Both halves of that are deliberate, and
+    the spelling is now fixed by things outside this file rather than by taste:
+    the shipped migration writes `server_default='unknown'` into the table, so
+    every row that existed when the column landed reads that exact string, and
+    every row written since carries one of these four. Upper-casing the
+    members' values would leave those rows spelling the vocabulary one way and
+    this enum spelling it another, with `Product.is_effective_low` — which
+    imports `LOW_STOCK_STATUS_VALUES` below rather than quoting anything —
+    silently answering False for products that are flagged low. There is no
+    migration in this repo that rewrites stored enum values, and adding one to
+    change a letter case would be the whole cost of the mistake.
+    """
+    UNKNOWN = "unknown"
+    OK = "ok"
+    LOW = "low"
+    OUT = "out"
+
+
+# The single home of "which stored statuses read as low" (Story 5.3, FR30).
+#
+# `Product.is_effective_low` imports this — both its Python getter and its SQL
+# `@expression` — so the two encodings cannot come to disagree about the set,
+# exactly as they cannot come to disagree about the threshold comparison. A
+# second literal `('low', 'out')` anywhere in the codebase is a defect on the
+# same footing as a second `quantity_on_hand <= reorder_threshold`, and
+# `tests/unit/test_product_model.py::TestTheComparisonHasExactlyOneHome` fails
+# if one appears.
+#
+# Values rather than members, because the column stores the string and the SQL
+# half compares against the column: `cls.stock_status.in_(...)` needs the
+# stored spellings, not `Enum` objects.
+LOW_STOCK_STATUS_VALUES = frozenset({
+    StockStatus.LOW.value,
+    StockStatus.OUT.value,
+})
+
+
 # Thread size to series mapping for auto-population
 THREAD_SIZE_SERIES_MAPPING = {
     "UNC": ["#0-80", "#1-64", "#2-56", "#3-48", "#4-40", "#5-40", "#6-32", "#8-32", "#10-24", "#12-24",

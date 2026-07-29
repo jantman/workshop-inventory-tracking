@@ -46,12 +46,27 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_COLLATION = 'utf8mb4_unicode_ci'
 REQUIRED_CHARSET = 'utf8mb4'
 
-# The one column deliberately NOT folded: products.internal_id is a case-stable
-# generated identifier whose validator (`is_valid_internal_id`) is
-# case-sensitive by design, so a folding collation there would make MariaDB
-# disagree with both that validator and SQLite (DW-73).
+# The columns deliberately NOT folded. Both are closed machine vocabularies
+# that code compares for equality or membership, never operator-typed prose,
+# and folding either one makes MariaDB disagree with Python:
+#
+# * products.internal_id is a case-stable generated identifier whose validator
+#   (`is_valid_internal_id`) is case-sensitive by design, so a folding
+#   collation there would make MariaDB disagree with both that validator and
+#   SQLite (DW-73).
+# * products.stock_status is compared by `Product.is_effective_low`'s SQL half
+#   as `stock_status IN ('low','out')`, which under utf8mb4_unicode_ci (case-
+#   and accent-folding) is TRUE for a row storing 'LOW', 'Low' or 'lòw' while
+#   the Python getter's frozenset membership is FALSE for all three -- a
+#   row-for-row disagreement between the two encodings AD-6 requires to agree
+#   (Story 5.3). utf8mb4_bin is still PAD SPACE, so trailing-space equality
+#   survives the pin; tests/integration/test_effective_low_predicate.py records
+#   that remainder explicitly.
 BINARY_COLLATION = 'utf8mb4_bin'
-BINARY_COLUMNS = {('products', 'internal_id')}
+BINARY_COLUMNS = {
+    ('products', 'internal_id'),
+    ('products', 'stock_status'),
+}
 
 # A database default collation deliberately DIFFERENT from EVERY pinned value,
 # for the tests that build a schema inside `database_default(...)` and then

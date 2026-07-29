@@ -89,8 +89,9 @@ def test_create_all_schema_pins_the_charset_and_collation(integration_schema):
     of the one the models build -- the two are maintained by hand and
     independently, and every other test in this tier runs against this one.
     Since DW-34 both declare it rather than inherit it: ``mysql_charset`` /
-    ``mysql_collate`` on every table, plus the single ``utf8mb4_bin`` override
-    on ``products.internal_id``. A model change that dropped either would leave
+    ``mysql_collate`` on every table, plus the ``utf8mb4_bin`` overrides on
+    ``products.internal_id`` (DW-73) and ``products.stock_status`` (Story 5.3),
+    enumerated by ``BINARY_COLUMNS``. A model change that dropped either would leave
     ``create_all`` emitting a bare ``CREATE TABLE``, and every column would
     quietly go back to whatever the server's default happened to be.
     """
@@ -120,7 +121,7 @@ def test_create_all_pins_even_inside_a_contrary_database(blank_database):
 
 @pytest.mark.integration
 def test_internal_id_does_not_fold_under_the_create_all_schema(integration_schema):
-    """``products.internal_id`` is the one column that compares byte-wise.
+    """``products.internal_id`` compares byte-wise (as does ``stock_status``).
 
     Stated as BEHAVIOR beside the name check above, because what depends on it
     is behavioral: ``is_valid_internal_id`` is deliberately case-sensitive, so

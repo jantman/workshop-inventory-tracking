@@ -15,7 +15,7 @@ from app.mariadb_catalog_service import (
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
 from app.models import (ItemType, ItemShape, Dimensions, Thread, ThreadSeries,
-                        ThreadHandedness, IdentifierType, ScanKind,
+                        ThreadHandedness, IdentifierType, ScanKind, StockStatus,
                         VENDOR_SCOPED_IDENTIFIER_TYPES)
 from app.database import InventoryItem
 # Story 3.2: routes call the pure category util for segment-boundary logic —
@@ -914,6 +914,96 @@ def _valid_duplicate_of(value):
     return text if _positive_int_string(text) is not None else ''
 
 
+# Story 5.3 (FR28/FR29/FR31): the ONE stored-value -> operator-facing-label
+# mapping, and the only place either spelling of the four statuses is written
+# out. Both consumers read it, which is the point (AD-5): the `<select>`'s
+# option labels on the two product forms and the detail page's `Stock status`
+# row. Two mappings would let the operator pick `Out of stock` on the form and
+# read something else back on the page, over the same stored value.
+#
+# `unknown` renders as `Not set` rather than as the em dash every other absent
+# field uses, for the reason the quantity's `Not tracked` does: it is a state
+# the operator can deliberately choose (returning here is how an assertion is
+# withdrawn), so it needs words rather than a blank-looking marker.
+#
+# Ordered as the select renders them — the default first, then increasing
+# concern — and a plain dict, so the order is the literal one below.
+_STOCK_STATUS_LABELS = {
+    StockStatus.UNKNOWN.value: 'Not set',
+    StockStatus.OK.value: 'OK',
+    StockStatus.LOW.value: 'Low',
+    StockStatus.OUT.value: 'Out of stock',
+}
+
+# What the shared validator will accept, and the order its refusal message
+# enumerates. Built from `StockStatus` rather than from the label mapping above,
+# so that "ordered as the enum declares them" is true by CONSTRUCTION: the
+# service builds its own `_STOCK_STATUS_VALUES` from the enum too, and both
+# tuples are read out verbatim into operator-visible refusal text, so an order
+# that agreed only by two hand-written lists matching would be one edit away
+# from two refusals enumerating differently. The label mapping's order is a
+# DISPLAY decision (it drives the select) and is free to change; this one is
+# the vocabulary's own order and must not drift from the service's.
+#
+# That the two agree about MEMBERSHIP — that nothing is renderable but
+# unsubmittable, or the reverse — is asserted rather than assumed:
+# `test_every_stored_status_has_an_operator_facing_label` compares this
+# mapping's keys against the enum, and
+# `test_the_route_and_the_service_enumerate_the_same_values` compares this
+# tuple against the service's element for element.
+_STOCK_STATUS_VALUES = tuple(member.value for member in StockStatus)
+
+
+def _stock_status_choices():
+    """The `(value, label)` pairs the two product forms render as options.
+
+    Built here rather than in Jinja for the reason `identifier_type_choices` is:
+    a template that imported the enum would be a second place the vocabulary
+    lives, and this one additionally carries the operator-facing labels, which
+    are a display decision and therefore the route's (AD-5).
+    """
+    return list(_STOCK_STATUS_LABELS.items())
+
+
+def _selected_stock_status(form_data, stored=None):
+    """Which option the two forms' `<select>` renders `selected` (AD-5).
+
+    The submitted value when it is one this control can actually render;
+    otherwise the STORED value when THAT is renderable; otherwise `unknown`.
+
+    The fallback being the stored value rather than the submitted one is the
+    whole reason this function exists, and it is deliberately the OPPOSITE of
+    the `{**stored, **form_data}` "submitted wins" rule every other control on
+    the edit form follows. Those are `<input>`s: an in-flight value that failed
+    validation is rendered back into the box, the operator sees exactly what
+    they typed, and they can correct it. A `<select>` cannot do that. An option
+    list holds four values and nothing else, so a submitted `''` or `'bogus'`
+    matches no option, NOTHING renders `selected`, and a browser then displays
+    AND SUBMITS the first option — `Not set`. The bad value is invisible to the
+    operator, uncorrectable by them, and silently replaced.
+
+    That is not a cosmetic difference on this field. The page the operator is
+    handed after a refusal is the page they fix and re-save, so a control that
+    fell back to the submitted value would make an unrelated refusal (an
+    over-long `location`, say, posted alongside a truncated `stock_status`)
+    withdraw a stored `low` and NULL its assertion date on the very next save —
+    with nothing on the page at any point saying the flag was there. Falling
+    back to what is STORED means the worst a refused submit can do is show the
+    operator the status they already had.
+
+    `unknown` is the last resort, for the un-flushed/hand-built `Product` some
+    tests construct (whose `stock_status` is `None`) and for a stored value
+    outside the enum — a hand-run UPDATE or a restored backup. Rendering
+    nothing selected is not an option there for the reason above.
+    """
+    submitted = form_data.get('stock_status')
+    if submitted in _STOCK_STATUS_VALUES:
+        return submitted
+    if stored in _STOCK_STATUS_VALUES:
+        return stored
+    return StockStatus.UNKNOWN.value
+
+
 def _validate_product_form(form_data):
     """Validate what BOTH product forms carry. Returns field -> error message.
 
@@ -1023,6 +1113,34 @@ def _validate_product_form(form_data):
         errors['reorder_threshold'] = (
             f'Reorder Threshold must be a whole number of zero or more and no '
             f'more than {_MAX_INT32}. Leave it blank for no threshold.')
+
+    # Story 5.3 (FR28/FR29). SHARED for the reason the two rules above are: the
+    # `<select>` renders on BOTH product templates and both routes read it, so a
+    # rule living in `_validate_product_create_form` would let an edit POST
+    # reach the service with a value the create form refused.
+    #
+    # Keyed on PRESENCE, and the shape differs from the two rules above in a way
+    # worth stating: for them a blank is a legal value (it clears a nullable
+    # column), so their check begins `if <stripped value>`. `stock_status`
+    # cannot be NULL and has no blank state at all, so a present-but-empty key
+    # is an ERROR here rather than a no-op — the browser's own control can never
+    # send one, so a blank means a truncated or hand-built POST, and letting it
+    # through would need the service to invent a destination for it. An ABSENT
+    # key remains the untouched case (a non-browser client PATCHing one field),
+    # which is why the rule is guarded on `in form_data` rather than on
+    # truthiness.
+    #
+    # The message enumerates the four stored values, built from `StockStatus`
+    # so it cannot drift from what the service will accept. It names the STORED
+    # spellings rather than the operator-facing labels because those are what a
+    # caller hand-building a POST has to send; an operator never sees this
+    # message from the rendered form, whose select cannot produce a bad value.
+    if 'stock_status' in form_data:
+        submitted = form_data.get('stock_status')
+        if submitted not in _STOCK_STATUS_VALUES:
+            errors['stock_status'] = (
+                f'Stock Status must be one of '
+                f'{", ".join(_STOCK_STATUS_VALUES)}.')
     return errors
 
 
@@ -1284,6 +1402,15 @@ def _product_form_data(product, tags=None):
         # that says "tell me the moment this runs out".
         'reorder_threshold': ('' if product.reorder_threshold is None
                               else str(product.reorder_threshold)),
+        # Story 5.3. The stored value, not a label: the template compares it
+        # against each option's VALUE to decide which one is `selected`. The
+        # `or` fallback is not the falsy-zero hazard the two fields above guard
+        # against — this column is NOT NULL and its only falsy possibility is a
+        # None that cannot come from the database — it is a guard for the
+        # unsaved/hand-built Product some tests construct, where an empty string
+        # would leave the select with nothing selected and the browser would
+        # silently pick the first option.
+        'stock_status': product.stock_status or StockStatus.UNKNOWN.value,
         'location': product.location or '',
         'sub_location': product.sub_location or '',
     }
@@ -1296,6 +1423,17 @@ def _product_form_data(product, tags=None):
 # whitelist rather than `request.args` wholesale: the form round-trips whatever
 # it is handed into `form_data`, so an unbounded read would let any query string
 # put arbitrary keys in front of the operator.
+#
+# Story 5.3's `stock_status` is deliberately NOT here, and the omission is a
+# decision rather than an oversight. This whitelist is read from `request.args`
+# and `product_search` forwards it into its "Create a new product" link, so
+# membership would let a query string put a stock ASSERTION in front of the
+# operator — a claim about a product's stock that nobody made, pre-selected on a
+# control that posts on every save. The duplicate-a-product flow gives the same
+# answer from the other direction: a duplicated product has had no assertion
+# made about it, so `unknown` is the only honest starting value. (DW-249 asks
+# whether `reorder_threshold` — a per-product POLICY rather than an
+# observation — should join this list; that question is untouched here.)
 _PRODUCT_PREFILL_ARGS = (
     'description', 'manufacturer', 'mpn', 'category_path', 'tags', 'notes',
     'identifier_type', 'identifier_value', 'identifier_vendor',
@@ -1614,6 +1752,16 @@ def _render_product_add(form_data, validation_errors):
     return render_template('product/add.html', title='Add Product',
                            validation_errors=validation_errors,
                            form_data=form_data,
+                           # Story 5.3: the option list comes from here so the
+                           # template never imports the enum and never spells
+                           # the operator-facing labels itself (AD-5), and so
+                           # does the CHOICE of which one is selected — no
+                           # stored value exists on the create form, so an
+                           # unrenderable submitted value falls all the way
+                           # back to `unknown`.
+                           stock_status_choices=_stock_status_choices(),
+                           stock_status_selected=_selected_stock_status(
+                               form_data),
                            identifier_type_choices=_identifier_type_choices(),
                            vendor_scoped_identifier_types=_vendor_scoped_identifier_type_choices())
 
@@ -1674,6 +1822,16 @@ def product_add():
             # threshold is the default (none), so there is no stored value for
             # an absent key to preserve on a create.
             reorder_threshold=form_data.get('reorder_threshold'),
+            # Story 5.3. NOT the same `.get()` shape as the two above: for them
+            # an absent key and a blank one both mean the default, so None is
+            # exactly right. This column has no blank state, so an absent key
+            # must arrive as None (not provided — the service leaves the column
+            # at its `unknown` default) while a PRESENT key is passed through
+            # verbatim, blank included, for the service to refuse. The
+            # validator above has already rejected anything outside the four
+            # values, so what reaches here from the form is always one of them.
+            stock_status=(form_data['stock_status']
+                          if 'stock_status' in form_data else None),
             location=form_data.get('location'),
             sub_location=form_data.get('sub_location'),
         )
@@ -1826,6 +1984,33 @@ def _product_reorder_threshold_display(product):
     return str(product.reorder_threshold)
 
 
+def _product_stock_status_display(product):
+    """The finished stock-status string the product detail page renders (AD-5).
+
+    Read out of `_STOCK_STATUS_LABELS`, the same mapping the two forms' option
+    labels come from, so the operator can never pick one name on the form and
+    read a different one back on the page.
+
+    The fallback is the raw stored value rather than a dash or a guess. This
+    column is NOT NULL and the write path admits only the four known values, so
+    an unmapped string can only come from a hand-run UPDATE, a restored backup
+    or a later story that added a member to `StockStatus` and forgot the label
+    — and in all three cases showing what is actually stored is more useful
+    than hiding it, and is what makes the omission visible.
+
+    `None` is the one unmapped value NOT shown raw, because showing it raw
+    means rendering the literal word `None` into the page. The column cannot be
+    NULL, so this is never a persisted row: it is an un-flushed or hand-built
+    `Product`, whose `stock_status` is None until the Python-side default is
+    applied — the state `test_the_getter_answers_for_an_unset_status_attribute`
+    pins on the model side. `unknown` is the honest reading of it (no assertion
+    has been made) and it is what `_product_form_data` already coerces the same
+    case to, so the form and the page agree about one instance.
+    """
+    stored = product.stock_status or StockStatus.UNKNOWN.value
+    return _STOCK_STATUS_LABELS.get(stored, stored)
+
+
 @bp.route('/products/<int:product_id>')
 def product_detail(product_id):
     """View a Product by its direct URL (FR6), with purchase history (FR20/FR21).
@@ -1845,11 +2030,21 @@ def product_detail(product_id):
     signal is READ off the Product, not computed here: `Product.is_effective_low`
     is its single home (AD-6), so this route writes no comparison of its own and
     stores nothing — the read leaves the row exactly as it found it (FR30).
+
+    Story 5.3 adds the stored stock status and the age of its assertion, built
+    the same way. The Reorder signal row is unchanged HERE and changed in
+    meaning: `is_effective_low` now answers to a manual flag as well, so a
+    product with no count and no threshold can read `Low stock`. This page
+    renders two ages from this story on, so `now` is computed ONCE and passed
+    to both `describe_age` calls — which is the case that function's own
+    docstring asks for an explicit `now` in, so the two phrases are measured
+    from one instant rather than from two.
     """
     service = _get_catalog_service()
     product = service.get_product(product_id)
     if product is None:
         abort(404)
+    now = datetime.now()
     # Load purchases with a dedicated query (never product.purchases — that
     # would lazy-load on the detached Product).
     purchases = service.get_purchases_for_product(product_id)
@@ -1869,11 +2064,37 @@ def product_detail(product_id):
                            # `Not tracked (counted 3 months ago)`: an age for a
                            # count the same line says does not exist.
                            quantity_verified_age=(
-                               describe_age(product.quantity_verified_at)
+                               describe_age(product.quantity_verified_at, now)
                                if product.quantity_on_hand is not None
                                else None),
                            reorder_threshold_display=(
                                _product_reorder_threshold_display(product)),
+                           stock_status_display=(
+                               _product_stock_status_display(product)),
+                           # Story 5.3, gated on the STATUS rather than on the
+                           # stamp, for the reason the quantity age above is
+                           # gated on the count: the write contract moves the
+                           # two columns together, so a stamp on an `unknown`
+                           # status is a state this app cannot produce — but a
+                           # restored backup or a hand-run UPDATE can, and the
+                           # ungated version would render `Not set (set 3
+                           # months ago)`, a date for an assertion the same line
+                           # says was never made.
+                           #
+                           # `or StockStatus.UNKNOWN.value` for the reason
+                           # `_product_stock_status_display` and
+                           # `_product_form_data` both carry it: an un-flushed
+                           # or hand-built Product reads None here, and a bare
+                           # `!=` is TRUE for None — so the gate would open on
+                           # the one instance whose row above says `Not set`.
+                           # All three coerce identically so no two of them can
+                           # describe the same instance differently.
+                           stock_status_age=(
+                               describe_age(product.stock_status_at, now)
+                               if (product.stock_status
+                                   or StockStatus.UNKNOWN.value)
+                               != StockStatus.UNKNOWN.value
+                               else None),
                            effective_low=product.is_effective_low,
                            scan_banner=_scan_arrival_banner(product_id))
 
@@ -3237,10 +3458,17 @@ def product_edit(product_id):
     title = f'Edit {product.description or product_id}'
 
     if request.method == 'GET':
+        # Named rather than inlined because the select's selected option is
+        # decided from the same mapping (AD-5) and `_selected_stock_status`
+        # needs it; building it twice would be two reads of the tag table.
+        stored_data = _product_form_data(
+            product, service.get_tags_for_product(product_id))
         return render_template(
             'product/edit.html', title=title, product=product,
-            form_data=_product_form_data(
-                product, service.get_tags_for_product(product_id)),
+            form_data=stored_data,
+            stock_status_choices=_stock_status_choices(),
+            stock_status_selected=_selected_stock_status(
+                stored_data, product.stock_status),
             validation_errors={})
 
     form_data = request.form.to_dict()
@@ -3291,6 +3519,21 @@ def product_edit(product_id):
         # stops arriving. This list is the durable record of which fields carry
         # that hazard — a field added to the loop below belongs in it.
         # The operator is told so in the one place they are already looking.
+        #
+        # Story 5.3's `stock_status` is in the loop below and is the one field
+        # there this hazard does NOT reach, which is worth stating because the
+        # select's failure shape would otherwise be the worst on the form: it
+        # has no empty state to degrade into, so a `Not set` it fell back to
+        # would look filled rather than blank. It does not fall back. The
+        # rendered selection comes from `_selected_stock_status(render_data,
+        # product.stock_status)`, and that second argument is read off the
+        # `product` this route loaded BEFORE the read that fails here — so the
+        # degraded page still marks the STORED status selected, and re-posting
+        # the page as handed re-posts the value already stored. That immunity is
+        # structural rather than incidental, and it is the reason the fallback
+        # must keep coming from `product` rather than from `stored`:
+        # `test_an_unreadable_baseline_degrades_instead_of_500ing` asserts the
+        # rendered selection, not merely the warning text.
         try:
             stored = _product_form_data(
                 product, service.get_tags_for_product(product_id))
@@ -3298,6 +3541,13 @@ def product_edit(product_id):
             current_app.logger.warning(
                 f'Could not read the stored values for product {product_id} to '
                 f'seed a re-render: {e}\n{traceback.format_exc()}')
+            # Worded for what is actually true of this page: the controls that
+            # degrade are the ones seeded from the failed read, and they all
+            # degrade to EMPTY. The Stock Status select is deliberately not
+            # described here, because it does not degrade at all (see the
+            # comment above) — warning about a menu that is in fact correct
+            # would spend the operator's attention on the one control that
+            # needs none.
             flash('Could not load this product\'s saved values, so a field '
                   'shown empty below may not actually be empty. Check every '
                   'field before saving.', 'warning')
@@ -3306,8 +3556,18 @@ def product_edit(product_id):
 
     validation_errors = _validate_product_form(form_data)
     if validation_errors:
+        # `_render_data()` is called ONCE and named, because the select's
+        # selected option is decided from the same merged mapping and a second
+        # call would be a second read of the stored row and the tag table.
+        # `product.stock_status` is the STORED fallback: this is exactly the
+        # re-render where a refused submit could otherwise hand the operator a
+        # page whose select silently reads `Not set` over a stored `low`.
+        render_data = _render_data()
         return render_template('product/edit.html', title=title, product=product,
-                               form_data=_render_data(),
+                               form_data=render_data,
+                               stock_status_choices=_stock_status_choices(),
+                               stock_status_selected=_selected_stock_status(
+                                   render_data, product.stock_status),
                                validation_errors=validation_errors)
 
     # Parsed before the write, for the reason product_add gives.
@@ -3327,9 +3587,18 @@ def product_edit(product_id):
         # Story 5.2's `reorder_threshold` joins them on the same terms: an
         # absent key leaves the stored threshold alone, a key sent EMPTY clears
         # it to NULL, and a key sent `0` sets a real threshold of zero.
+        # Story 5.3's `stock_status` joins on the same terms with one meaning
+        # of its own: an absent key leaves the assertion and its date alone,
+        # and a PRESENT key is passed through as sent — including a blank,
+        # which the service refuses rather than reading as a clear, because
+        # this column has no blank state (`unknown` is how "no assertion" is
+        # spelled and is a value the select can actually send). Whether the
+        # date then moves is the service's assertion rule, not this loop's: the
+        # select posts on every save, so presence is a property of the markup
+        # rather than of intent.
         for field in ('manufacturer', 'mpn', 'category_path', 'notes',
-                      'quantity_on_hand', 'reorder_threshold', 'location',
-                      'sub_location'):
+                      'quantity_on_hand', 'reorder_threshold', 'stock_status',
+                      'location', 'sub_location'):
             if field in form_data:
                 update_fields[field] = form_data[field]
 
@@ -3354,8 +3623,13 @@ def product_edit(product_id):
                                     **update_fields)
         if not ok:
             flash('Failed to update product. Please try again.', 'error')
+            render_data = _render_data()
             return render_template('product/edit.html', title=title, product=product,
-                                   form_data=_render_data(), validation_errors={})
+                                   form_data=render_data,
+                                   stock_status_choices=_stock_status_choices(),
+                                   stock_status_selected=_selected_stock_status(
+                                       render_data, product.stock_status),
+                                   validation_errors={})
 
         # Post-commit and therefore non-fatal, collected rather than returned
         # early — the same shape and the same reasoning as `product_add`. The
@@ -3379,8 +3653,13 @@ def product_edit(product_id):
     except Exception as e:
         current_app.logger.error(f'Error updating product {product_id}: {e}\n{traceback.format_exc()}')
         flash('An error occurred while updating the product. Please try again.', 'error')
+        render_data = _render_data()
         return render_template('product/edit.html', title=title, product=product,
-                               form_data=_render_data(), validation_errors={})
+                               form_data=render_data,
+                               stock_status_choices=_stock_status_choices(),
+                               stock_status_selected=_selected_stock_status(
+                                   render_data, product.stock_status),
+                               validation_errors={})
 
 
 # ---------------------------------------------------------------------------

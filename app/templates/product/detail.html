@@ -77,17 +77,40 @@
                         {% endif %}
                     </dd>
 
-                    {# Story 5.2 (FR26/FR30). Both values arrive finished: the
-                       threshold string is built by the route (`—` when unset,
-                       the number otherwise, INCLUDING a deliberate 0), and the
-                       signal is read off `Product.is_effective_low`, the one
-                       place the predicate is expressed (AD-6). This template
-                       computes nothing and compares nothing: comparing the two
-                       columns here would be a second, silently divergent copy
-                       of the rule, and it would raise on the untracked products
-                       where the answer is simply "no". The signal is derived at
-                       read and never stored, so nothing about drawing this page
-                       writes to the row. #}
+                    {# Story 5.3 (FR28/FR29/FR31), built exactly like the row
+                       above and for the same reasons. The label is finished by
+                       the route from the ONE mapping the edit form's options
+                       also come from (AD-5), so the operator cannot pick one
+                       name on the form and read another back here; and the age
+                       is None exactly when there is no assertion to date, so
+                       `Not set` never acquires a parenthesis. The age is the age
+                       of the last CHANGE to the status — editing anything else
+                       does not move it — which is why it is shown rather than
+                       quietly refreshed. #}
+                    <dt class="col-sm-3">Stock status</dt>
+                    <dd class="col-sm-9" id="product-stock-status">
+                        {{ stock_status_display }}{% if stock_status_age %}
+                        <span class="text-muted small">(set {{ stock_status_age }})</span>
+                        {% endif %}
+                    </dd>
+
+                    {# Story 5.2 (FR26/FR30), widened by Story 5.3. All three
+                       values arrive finished: the threshold string is built by
+                       the route (`—` when unset, the number otherwise,
+                       INCLUDING a deliberate 0), and the signal is read off
+                       `Product.is_effective_low`, the one place the predicate is
+                       expressed (AD-6). This template computes nothing and
+                       compares nothing: comparing the two count columns here
+                       would be a second, silently divergent copy of the rule,
+                       and it would raise on the untracked products where the
+                       answer is simply "no". Since Story 5.3 that predicate is
+                       an OR — `Reorder signal` now answers to the MANUAL Stock
+                       status above as well, so this row can read `Low stock` on
+                       a product with no count and no threshold at all — which
+                       makes a hand-written copy here wrong in a second way
+                       rather than merely duplicated. The signal is still derived
+                       at read and never stored, so nothing about drawing this
+                       page writes to the row. #}
                     <dt class="col-sm-3">Reorder threshold</dt>
                     <dd class="col-sm-9" id="product-reorder-threshold">{{ reorder_threshold_display }}</dd>
 

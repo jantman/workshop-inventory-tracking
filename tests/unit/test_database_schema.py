@@ -23,13 +23,16 @@ Three claims are pinned, and each has a plausible way of silently regressing:
   `utf8mb4_uca1400_ai_ci`, not the collation this codebase's folding
   assumptions are written against. Nothing else in the unit suite would notice,
   because SQLite has no per-table charset.
-* `products.internal_id` carries its `utf8mb4_bin` collation through a
-  `.with_variant()`, so it reaches MySQL DDL and NOT SQLite DDL. A bare
-  `String(32, collation='utf8mb4_bin')` renders `COLLATE utf8mb4_bin` into the
-  SQLite DDL too, which that backend rejects on `create_all` -- that failure is
-  loud, but the reverse (dropping the collation entirely and quietly restoring
-  the DW-73 case-folding divergence) is not, and this file's job is the reverse
-  case.
+* `products.internal_id` and `products.stock_status` carry their `utf8mb4_bin`
+  collation through a `.with_variant()`, so it reaches MySQL DDL and NOT SQLite
+  DDL. A bare `String(32, collation='utf8mb4_bin')` renders `COLLATE
+  utf8mb4_bin` into the SQLite DDL too, which that backend rejects on
+  `create_all` -- that failure is loud, but the reverse (dropping the collation
+  entirely and quietly restoring the DW-73 case-folding divergence, or Story
+  5.3's `stock_status IN ('low','out')` matching `'LOW'` on the server and not
+  in Python) is not, and this file's job is the reverse case. Neither pin
+  closes trailing-space equality -- `utf8mb4_bin` is PAD SPACE -- which the
+  integration tier records explicitly.
 * Migration a977ca7315df no-ops on any non-MySQL dialect. Its DDL is
   MariaDB-only (`CONVERT TO CHARACTER SET`, `MODIFY`), and the guard is one
   `if` at the top of each direction -- easy to drop while refactoring, and
@@ -74,17 +77,20 @@ SERVER_DIALECTS = (mysql.dialect(), MariaDBDialect())
 # in two places instead of silently agreeing with itself.
 EXPECTED_CHARSET = 'utf8mb4'
 EXPECTED_COLLATION = 'utf8mb4_unicode_ci'
-INTERNAL_ID_COLLATION = 'utf8mb4_bin'
+BINARY_COLLATION = 'utf8mb4_bin'
 
-# The one column allowed to override the table default, as (table, column).
+# Every column allowed to override the table default, as (table, column).
 # Restated rather than imported from tests/integration/conftest.py for the same
 # reason as the collation literals above, and with the same consequence worth
-# being explicit about: adding a second binary column fails BOTH this module's
-# `test_internal_id_is_the_only_column_that_overrides_the_table_collation` and
-# the integration tier's `assert_schema_is_pinned`. Two loud failures naming the
-# same new column, not one silent divergence -- which is the property that makes
-# the duplication safe.
-BINARY_COLUMNS = {('products', 'internal_id')}
+# being explicit about: adding a binary column fails BOTH this module's
+# `test_the_binary_columns_are_the_only_collation_overrides` and the integration
+# tier's `assert_schema_is_pinned` until it is declared in both places. Two loud
+# failures naming the same new column, not one silent divergence -- which is the
+# property that makes the duplication safe.
+BINARY_COLUMNS = {
+    ('products', 'internal_id'),
+    ('products', 'stock_status'),
+}
 
 
 @pytest.mark.unit
@@ -127,33 +133,46 @@ def test_the_shared_options_dict_is_not_mutated_by_declarative():
 
 
 @pytest.mark.unit
-def test_internal_id_is_binary_on_every_server_dialect_and_bare_on_sqlite():
+@pytest.mark.parametrize('column_name', ['internal_id', 'stock_status'])
+def test_the_binary_columns_are_binary_on_the_server_and_bare_on_sqlite(
+        column_name):
     """The `.with_variant()` really is dialect-scoped, on BOTH server dialects.
 
-    `utf8mb4_bin` is what makes MariaDB's `Product.internal_id == value` agree
-    with `is_valid_internal_id`'s deliberate case-sensitivity and with SQLite's
-    binary comparison (DW-73). The SQLite half of the assertion is the one that
-    keeps the whole unit suite runnable; the 'mariadb' half is the one that
-    keeps the pin from evaporating under a `mariadb+pymysql://` URL.
+    `utf8mb4_bin` is what makes MariaDB agree with Python about each of these
+    columns: `Product.internal_id == value` with `is_valid_internal_id`'s
+    deliberate case-sensitivity (DW-73), and `stock_status IN ('low','out')`
+    with `Product.is_effective_low`'s frozenset membership (Story 5.3, AD-6).
+    Both would agree with SQLite's binary comparison and disagree with a
+    folding MariaDB.
+
+    The SQLite half of the assertion is the one that keeps the whole unit suite
+    runnable -- a bare `collation=` renders COLLATE into SQLite DDL and
+    `create_all` fails on it; the 'mariadb' half is the one that keeps the pin
+    from evaporating under a `mariadb+pymysql://` URL.
     """
-    column_type = Product.__table__.c.internal_id.type
+    column_type = Product.__table__.c[column_name].type
 
     for dialect in SERVER_DIALECTS:
         assert column_type.compile(dialect) == \
-            f'VARCHAR(32) COLLATE {INTERNAL_ID_COLLATION}', (
-                f'internal_id is not binary under dialect {dialect.name!r}')
+            f'VARCHAR(32) COLLATE {BINARY_COLLATION}', (
+                f'{column_name} is not binary under dialect {dialect.name!r}')
 
     assert column_type.compile(sqlite.dialect()) == 'VARCHAR(32)'
 
 
 @pytest.mark.unit
-def test_server_create_table_carries_the_table_default_and_the_one_override():
-    """The rendered `CREATE TABLE` states both decisions, in one statement.
+def test_server_create_table_carries_the_table_default_and_the_overrides():
+    """The rendered `CREATE TABLE` states every decision, in one statement.
 
     Compiling the DDL rather than reading the metadata is deliberate: the
     metadata can hold options a dialect never renders -- `mysql_charset` under
     the 'mariadb' dialect is exactly that case -- and it is the rendered
     statement that a deployment gets.
+
+    Both binary columns are named literally rather than looped over
+    `BINARY_COLUMNS`, because what is being asserted here is the rendered TEXT
+    of the clause (type, width and collation together) and not merely that a
+    COLLATE appeared -- which is what the enumeration test below covers.
     """
     for dialect in SERVER_DIALECTS:
         ddl = str(CreateTable(Product.__table__).compile(dialect=dialect))
@@ -162,8 +181,10 @@ def test_server_create_table_carries_the_table_default_and_the_one_override():
             f'no charset rendered under dialect {dialect.name!r}: {ddl}')
         assert f'COLLATE {EXPECTED_COLLATION}' in ddl, (
             f'no table collation rendered under dialect {dialect.name!r}: {ddl}')
-        assert f'internal_id VARCHAR(32) COLLATE {INTERNAL_ID_COLLATION}' in ddl, (
+        assert f'internal_id VARCHAR(32) COLLATE {BINARY_COLLATION}' in ddl, (
             f'internal_id not binary under dialect {dialect.name!r}: {ddl}')
+        assert f'stock_status VARCHAR(32) COLLATE {BINARY_COLLATION}' in ddl, (
+            f'stock_status not binary under dialect {dialect.name!r}: {ddl}')
 
 
 @pytest.mark.unit
@@ -184,14 +205,37 @@ def test_sqlite_ddl_declares_no_collation_at_all():
 
 
 @pytest.mark.unit
-def test_internal_id_is_the_only_column_that_overrides_the_table_collation():
-    """The binary exception stays an exception.
+def test_the_binary_columns_are_the_only_collation_overrides():
+    """The binary exceptions stay exceptions, and stay these TWO.
 
-    A second binary column would be a semantics change in whichever service
-    reads it -- `product_identifiers.value` in particular must keep folding,
-    because `add_identifier`'s duplicate rejection and the tag/category paths
-    are written against that. Enumerated by rendering the server DDL, so it sees
-    exactly what the server would.
+    Both are closed machine vocabularies that code compares for equality or
+    membership, never operator-typed prose, and in both cases the folding table
+    default made MariaDB disagree with Python:
+
+    * `products.internal_id` (DW-73) -- `is_valid_internal_id` is deliberately
+      case-SENSITIVE ("silently upper-casing input would let two different
+      scanned strings map to one identifier"), so under a folding collation
+      `resolve_scan`'s `Product.internal_id == value` lands a lower-cased scan
+      on a product in production and falls through to a free-text search under
+      SQLite.
+    * `products.stock_status` (Story 5.3) -- `Product.is_effective_low`'s SQL
+      half is `stock_status IN ('low','out')`, which a case- and
+      accent-folding collation makes TRUE for `'LOW'`, `'Low'` and `'lòw'`
+      while the Python getter's frozenset membership is FALSE for all three.
+      AD-6 requires the two encodings to agree row for row, and they would not
+      on any row a hand-run UPDATE or a restored backup left behind.
+
+    Every OTHER string column must keep folding, and adding a third entry here
+    is a semantics change in whichever service reads it rather than a schema
+    detail. `product_identifiers.value` is the sharpest case:
+    `add_identifier`'s duplicate rejection is written against the folding
+    collation, so pinning it binary would let two identifiers differing only in
+    case both be stored. The tag and category paths are the same -- their
+    collision and non-canonical-overlap refusals fold by design, and Epic 3's
+    canonical-path rules assume it.
+
+    Enumerated by rendering the server DDL, so it sees exactly what the server
+    would.
     """
     for dialect in SERVER_DIALECTS:
         overriding = set()
