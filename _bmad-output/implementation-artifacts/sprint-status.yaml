@@ -46,7 +46,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-07-23 18:51:02
-last_updated: 2026-07-25 (story 4-5 done)
+last_updated: 2026-07-29 (story 5-2 done)
 project: workshop-inventory-tracking
 project_key: NOKEY
 tracking_system: file-system
@@ -90,7 +90,7 @@ development_status:
   # Epic 5 — Stock Tracking & Reorder Signals
   epic-5: backlog
   5-1-tri-state-quantity-and-location: done
-  5-2-reorder-threshold-and-derived-effective-low: backlog
+  5-2-reorder-threshold-and-derived-effective-low: done
   5-3-manual-stock-status: backlog
   5-4-derived-on-order-and-recently-received: backlog
   5-5-receipt-clears-manual-low: backlog

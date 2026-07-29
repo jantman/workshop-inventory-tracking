@@ -114,8 +114,12 @@ def _rendered_edit_form(body):
                          # must round-trip these too, and `quantity_on_hand` is
                          # the one field where a rendering bug (`or ''` over a
                          # tracked 0) silently untracks the product on that
-                         # re-post.
-                         'quantity_on_hand', 'location', 'sub_location')}
+                         # re-post. Story 5.2's `reorder_threshold` has the same
+                         # falsy-zero hazard and the same consequence on a
+                         # re-post: a threshold of 0 rendered blank comes back
+                         # as "no threshold".
+                         'quantity_on_hand', 'reorder_threshold',
+                         'location', 'sub_location')}
     data['notes'] = _textarea_value(body, 'notes')
     # Story 5.1's recount checkbox, submitted the way a browser submits one:
     # present only when ticked. Faithfulness matters more here than anywhere
@@ -5709,6 +5713,11 @@ class TestTheSharedGateIsVisibleOnBothForms:
         ('quantity_on_hand', {'quantity_on_hand': '-1'},
          'Quantity On Hand must be a whole number of zero or more and no more '
          'than 2147483647. Leave it blank to stop tracking the quantity.'),
+        # Story 5.2, keyed by the same shared validator and so subject to the
+        # same requirement: a slot on both forms, not just on the create one.
+        ('reorder_threshold', {'reorder_threshold': '-1'},
+         'Reorder Threshold must be a whole number of zero or more and no more '
+         'than 2147483647. Leave it blank for no threshold.'),
         ('location', {'location': 'x' * 101},
          'Location must be 100 characters or fewer.'),
         ('sub_location', {'sub_location': 'x' * 101},
@@ -6537,3 +6546,388 @@ class TestProductDetailQuantityDisplay:
         text = _detail_field(client.get(f'/products/{pid}').data.decode(),
                              'product-quantity')
         assert text.startswith('In stock: 4')
+
+
+# --- Story 5.2: the reorder threshold and the derived signal ----------------
+
+
+@pytest.mark.unit
+class TestProductReorderThresholdForms:
+    """FR26's control on BOTH forms, and the write it produces.
+
+    Parity is not decoration: the rule that judges this field lives in the
+    SHARED validator, so a control missing from one template would be a rule
+    that template's operator could never satisfy.
+    """
+
+    @pytest.mark.parametrize('url_factory', [
+        lambda pid: '/products/add',
+        lambda pid: f'/products/edit/{pid}',
+    ], ids=['add', 'edit'])
+    def test_both_forms_render_the_control_identically(
+            self, client, test_storage, url_factory):
+        pid = CatalogService(test_storage).create_product(description='Seed')
+        body = client.get(url_factory(pid)).data.decode()
+        tag = _form_controls(body, ['reorder_threshold'])[0]
+        assert 'name="reorder_threshold"' in tag
+        # Same cap as Quantity On Hand: both columns are the same 32-bit
+        # integer, so a limit either side did not share would let one form
+        # accept what the other refused.
+        assert 'maxlength="10"' in tag
+        # The card is still the Story 5.1 one, at the same anchor, with its
+        # suggestion divs intact — the regrid must not have moved anything.
+        assert 'id="stock-and-location"' in body
+        assert 'id="location-suggestions"' in body
+        assert 'id="sub_location-suggestions"' in body
+        # What blank means has to be ON the form: it is the one thing about this
+        # field a reader cannot guess from its label.
+        assert 'blank</strong> for no threshold' in body
+
+    def test_create_with_only_a_description_has_no_threshold(
+            self, client, test_storage):
+        resp = client.post('/products/add', data={'description': 'Bare'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert CatalogService(test_storage).get_product(pid).reorder_threshold \
+            is None
+
+    def test_create_carries_a_typed_threshold(self, client, test_storage):
+        resp = client.post('/products/add', data={
+            'description': 'Watched', 'reorder_threshold': '3'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert CatalogService(test_storage).get_product(pid).reorder_threshold \
+            == 3
+
+    def test_a_threshold_round_trips_through_the_edit_form(
+            self, client, test_storage):
+        """Typed on create, offered back on edit, shown on the detail page —
+        the whole loop, because a value that stores but does not render back is
+        a value the operator cannot revise."""
+        resp = client.post('/products/add', data={
+            'description': 'Watched', 'reorder_threshold': '3'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        assert _input_value(body, 'reorder_threshold') == '3'
+        assert _detail_field(client.get(f'/products/{pid}').data.decode(),
+                             'product-reorder-threshold') == '3'
+
+    def test_a_zero_threshold_round_trips_rather_than_rendering_blank(
+            self, client, test_storage):
+        """The falsy-zero hazard on the form side: `{{ x or '' }}` would render
+        a deliberate `0` as an empty box, which this form reads as "no
+        threshold" — so an operator who merely re-saved the page would lose the
+        strictest threshold there is."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Zero rule', reorder_threshold='0')
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        assert _input_value(body, 'reorder_threshold') == '0'
+
+        client.post(f'/products/edit/{pid}', data=_rendered_edit_form(body))
+        assert svc.get_product(pid).reorder_threshold == 0
+
+    def test_edit_sets_then_clears_the_threshold(self, client, test_storage):
+        """Set, then blank. Clearing must leave the quantity columns exactly
+        where they were — captured first, so the assertion can fail."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Walked', quantity_on_hand='4')
+        stamp = svc.get_product(pid).quantity_verified_at
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'reorder_threshold': '3'})
+        assert svc.get_product(pid).reorder_threshold == 3
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Walked',
+                                                   'reorder_threshold': ''})
+        product = svc.get_product(pid)
+        assert product.reorder_threshold is None
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+
+    def test_a_post_without_the_key_leaves_the_threshold_alone(
+            self, client, test_storage):
+        """The partial-update rule: absent is not blank. A non-browser client
+        that PATCHes one field must not drop the threshold."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Untouched',
+                                 reorder_threshold='3')
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Renamed'})
+        assert resp.status_code == 302
+        assert svc.get_product(pid).reorder_threshold == 3
+
+    def test_reposting_the_rendered_edit_form_keeps_the_threshold(
+            self, client, test_storage):
+        """The re-post regression, taken verbatim from what the page rendered
+        and with only the description changed — the shape of every real browser
+        save. Anything the form fails to round-trip is lost here rather than at
+        the moment the operator notices."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Watched', quantity_on_hand='4',
+                                 reorder_threshold='3')
+
+        body = client.get(f'/products/edit/{pid}').data.decode()
+        data = _rendered_edit_form(body)
+        assert data['reorder_threshold'] == '3'
+        data['description'] = 'Watched (renamed)'
+
+        assert client.post(f'/products/edit/{pid}',
+                           data=data).status_code == 302
+        product = svc.get_product(pid)
+        assert product.description == 'Watched (renamed)'
+        assert product.reorder_threshold == 3
+        assert product.quantity_on_hand == 4
+
+    def test_leading_zeros_store_the_magnitude(self, client, test_storage):
+        """`007` is seven. The bound is on what the number IS, not on how it was
+        typed."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Padded')
+        client.post(f'/products/edit/{pid}', data={'description': 'Padded',
+                                                   'reorder_threshold': '007'})
+        assert svc.get_product(pid).reorder_threshold == 7
+
+    def test_a_very_long_zero_string_is_the_zero_it_names(
+            self, client, test_storage):
+        """`int()` is not total over digit strings — CPython refuses one longer
+        than 4300 — so a pathological pad must not reach it unstripped and turn
+        a valid `0` into an HTML 500. The shared validator strips first, which
+        is the whole reason its bound is on the magnitude."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Padded to death')
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Padded to death',
+                                 'reorder_threshold': '0' * 5000})
+        assert resp.status_code == 302
+        assert svc.get_product(pid).reorder_threshold == 0
+
+    @pytest.mark.parametrize('bad', ['-1', '2.5', '1_0', '٥', 'abc',
+                                     '2147483648'],
+                             ids=['negative', 'decimal', 'underscore',
+                                  'non_ascii_numeral', 'letters', 'over_int32'])
+    def test_a_bad_threshold_rerenders_with_a_keyed_error_and_writes_nothing(
+            self, client, test_storage, bad):
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Guarded', reorder_threshold='3')
+
+        resp = client.post(f'/products/edit/{pid}',
+                           data={'description': 'Guarded',
+                                 'reorder_threshold': bad})
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert any(m.startswith('Reorder Threshold must be')
+                   for m in _shown_keyed_errors(body)), body
+        # The message must hang off the FIELD, not off edit.html's unkeyed
+        # fallback block — which is what `keyed_error_fields` decides.
+        assert 'id="form-error-reorder_threshold"' not in body
+        assert svc.get_product(pid).reorder_threshold == 3  # nothing written
+
+    def test_the_bad_threshold_also_refuses_a_create(self, client,
+                                                     product_ids):
+        resp = client.post('/products/add', data={'description': 'Guarded',
+                                                  'reorder_threshold': '-1'})
+        assert resp.status_code == 200
+        assert any(m.startswith('Reorder Threshold must be')
+                   for m in _shown_keyed_errors(resp.data.decode()))
+        assert product_ids() == set()
+
+    def test_a_refused_submit_round_trips_the_typed_threshold(
+            self, client, test_storage):
+        """One bad field must not cost the operator the value they typed into
+        another — including this one when it is not the bad field."""
+        pid = CatalogService(test_storage).create_product(description='Guarded')
+        resp = client.post(f'/products/edit/{pid}', data={
+            'description': 'Guarded', 'quantity_on_hand': 'abc',
+            'reorder_threshold': '3'})
+        assert _input_value(resp.data.decode(), 'reorder_threshold') == '3'
+
+    def test_the_threshold_never_records_a_purchase(self, client,
+                                                    test_storage):
+        """It is a PRODUCT column and shares a page with the first-receipt
+        block. Nothing on the purchase path may write it, so it may not reach
+        either receipt tuple."""
+        from app.main.routes import _RECEIPT_FIELDS, _RECEIPT_TRIGGER_FIELDS
+
+        assert 'reorder_threshold' not in _RECEIPT_TRIGGER_FIELDS
+        assert 'reorder_threshold' not in _RECEIPT_FIELDS
+
+        resp = client.post('/products/add', data={
+            'description': 'No receipt here', 'reorder_threshold': '3'})
+        pid = int(resp.headers['Location'].rstrip('/').split('/')[-1])
+        assert CatalogService(test_storage).get_purchases_for_product(pid) == []
+
+    def test_receiving_a_purchase_changes_neither_the_threshold_nor_the_count(
+            self, client, test_storage):
+        """The I/O matrix's receipt row, through the real purchase form."""
+        from datetime import date
+
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Received', quantity_on_hand='4',
+                                 reorder_threshold='3')
+        before = svc.get_product(pid)
+
+        resp = client.post(f'/products/{pid}/purchases/add', data={
+            'vendor': 'Mouser', 'quantity': '10',
+            'order_date': date(2026, 7, 1).isoformat(),
+            'received_date': date(2026, 7, 9).isoformat()})
+        assert resp.status_code == 302
+
+        after = svc.get_product(pid)
+        assert after.reorder_threshold == before.reorder_threshold == 3
+        assert after.quantity_on_hand == before.quantity_on_hand == 4
+        assert after.quantity_verified_at == before.quantity_verified_at
+
+
+@pytest.mark.unit
+class TestProductDetailReorderSignal:
+    """FR26/FR30 on the page: the stored threshold, and the derived signal.
+
+    The signal is read off `Product.is_effective_low` — the route writes no
+    comparison and neither does the template (AD-6) — so what these tests pin is
+    that the page reports what that one predicate says, in the states where a
+    hand-written copy of the rule would have gone wrong.
+    """
+
+    def _detail(self, client, pid):
+        return client.get(f'/products/{pid}').data.decode()
+
+    def test_a_product_below_its_threshold_reads_low(self, client,
+                                                     test_storage):
+        pid = CatalogService(test_storage).create_product(
+            description='Running out', quantity_on_hand='2',
+            reorder_threshold='3')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-reorder-threshold') == '3'
+        assert _detail_field(body, 'product-effective-low') == 'Low stock'
+
+    def test_a_product_exactly_at_its_threshold_reads_low(self, client,
+                                                          test_storage):
+        """The comparison is `<=`: the threshold is the point at which to
+        reorder, not the point below it."""
+        pid = CatalogService(test_storage).create_product(
+            description='At the line', quantity_on_hand='3',
+            reorder_threshold='3')
+        assert _detail_field(self._detail(client, pid),
+                             'product-effective-low') == 'Low stock'
+
+    def test_a_product_above_its_threshold_reads_no_signal(self, client,
+                                                           test_storage):
+        pid = CatalogService(test_storage).create_product(
+            description='Well stocked', quantity_on_hand='4',
+            reorder_threshold='3')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-reorder-threshold') == '3'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_a_zero_threshold_renders_as_zero_not_as_a_dash(self, client,
+                                                            test_storage):
+        """The reading a `or '—'` in the template would lose: a deliberate `0`
+        is the strictest threshold there is, and rendering it as the same dash
+        an unset one uses reverses what it says."""
+        pid = CatalogService(test_storage).create_product(
+            description='Zero rule', reorder_threshold='0')
+        assert _detail_field(self._detail(client, pid),
+                             'product-reorder-threshold') == '0'
+
+    def test_a_zero_threshold_signals_only_once_the_count_reaches_zero(
+            self, client, test_storage):
+        svc = CatalogService(test_storage)
+        empty = svc.create_product(description='Empty', quantity_on_hand='0',
+                                   reorder_threshold='0')
+        stocked = svc.create_product(description='One left',
+                                     quantity_on_hand='1',
+                                     reorder_threshold='0')
+        assert _detail_field(self._detail(client, empty),
+                             'product-effective-low') == 'Low stock'
+        assert _detail_field(self._detail(client, stocked),
+                             'product-effective-low') == '—'
+
+    def test_no_threshold_never_signals_however_empty(self, client,
+                                                      test_storage):
+        """FR30: with no threshold set the branch is false however the quantity
+        reads. "None on hand" is not the same claim as "below the point I said I
+        wanted to reorder at" — the operator never named one."""
+        pid = CatalogService(test_storage).create_product(
+            description='No rule', quantity_on_hand='0')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-reorder-threshold') == '—'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_an_untracked_product_with_a_threshold_never_signals(
+            self, client, test_storage):
+        """A threshold with nothing to compare against says nothing. It is still
+        SHOWN, because the operator set it and will want it back the day they
+        start counting."""
+        pid = CatalogService(test_storage).create_product(
+            description='Rule, no count', reorder_threshold='3')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-quantity') == 'Not tracked'
+        assert _detail_field(body, 'product-reorder-threshold') == '3'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_a_bare_product_shows_both_rows_empty(self, client, test_storage):
+        pid = CatalogService(test_storage).create_product(description='Bare')
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-reorder-threshold') == '—'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_the_signal_follows_its_inputs_across_edits_writing_nothing(
+            self, client, test_storage):
+        """Derived at read, so it changes the moment the inputs do and with no
+        write of its own — the `updated_at` check is what makes "no write" an
+        assertion rather than an assumption."""
+        svc = CatalogService(test_storage)
+        pid = svc.create_product(description='Crossing', quantity_on_hand='2',
+                                 reorder_threshold='3')
+        assert _detail_field(self._detail(client, pid),
+                             'product-effective-low') == 'Low stock'
+
+        touched_at = svc.get_product(pid).updated_at
+        # Drawing the page again is not an edit.
+        self._detail(client, pid)
+        assert svc.get_product(pid).updated_at == touched_at
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Crossing',
+                                                   'quantity_on_hand': '4'})
+        assert _detail_field(self._detail(client, pid),
+                             'product-effective-low') == '—'
+
+        client.post(f'/products/edit/{pid}', data={'description': 'Crossing',
+                                                   'reorder_threshold': ''})
+        body = self._detail(client, pid)
+        assert _detail_field(body, 'product-reorder-threshold') == '—'
+        assert _detail_field(body, 'product-effective-low') == '—'
+
+    def test_the_new_rows_do_not_intrude_on_the_quantity_row(
+            self, client, test_storage):
+        """`#product-quantity`'s rendered text is pinned character for character
+        by the Story 5.1 tests, so the new rows must sit BESIDE it rather than
+        inside it."""
+        pid = CatalogService(test_storage).create_product(
+            description='Running out', quantity_on_hand='2',
+            reorder_threshold='3')
+        text = _detail_field(self._detail(client, pid), 'product-quantity')
+        assert text == 'In stock: 2 (counted just now)'
+
+    def test_each_row_carries_the_label_the_manual_promises(self, client,
+                                                            test_storage):
+        """One concept wears four names here — the property `is_effective_low`,
+        the id `product-effective-low`, the label "Reorder signal" and the badge
+        "Low stock" — and every other assertion in this file locates by id. So
+        the two `<dt>` texts, the only names the operator and
+        `docs/user-manual.md` actually share, are pinned to the values beside
+        them: swapped labels would leave the whole suite green while the page
+        told the operator its threshold was its signal."""
+        pid = CatalogService(test_storage).create_product(
+            description='Running out', quantity_on_hand='2',
+            reorder_threshold='3')
+        body = self._detail(client, pid)
+        for label, element_id in (('Reorder threshold',
+                                   'product-reorder-threshold'),
+                                  ('Reorder signal', 'product-effective-low')):
+            pattern = (r'<dt\b[^>]*>\s*%s\s*</dt>\s*<dd\b[^>]*\bid="%s"'
+                       % (re.escape(label), re.escape(element_id)))
+            assert re.search(pattern, body), (
+                f'no <dt>{label}</dt> immediately before '
+                f'<dd id="{element_id}">')

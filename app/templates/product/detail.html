@@ -77,6 +77,27 @@
                         {% endif %}
                     </dd>
 
+                    {# Story 5.2 (FR26/FR30). Both values arrive finished: the
+                       threshold string is built by the route (`—` when unset,
+                       the number otherwise, INCLUDING a deliberate 0), and the
+                       signal is read off `Product.is_effective_low`, the one
+                       place the predicate is expressed (AD-6). This template
+                       computes nothing and compares nothing: comparing the two
+                       columns here would be a second, silently divergent copy
+                       of the rule, and it would raise on the untracked products
+                       where the answer is simply "no". The signal is derived at
+                       read and never stored, so nothing about drawing this page
+                       writes to the row. #}
+                    <dt class="col-sm-3">Reorder threshold</dt>
+                    <dd class="col-sm-9" id="product-reorder-threshold">{{ reorder_threshold_display }}</dd>
+
+                    <dt class="col-sm-3">Reorder signal</dt>
+                    <dd class="col-sm-9" id="product-effective-low">
+                        {% if effective_low %}
+                        <span class="badge text-bg-warning">Low stock</span>
+                        {% else %}—{% endif %}
+                    </dd>
+
                     {# Both parts joined, and `select` drops whichever is unset —
                        so a sub-location recorded without a location still shows
                        rather than being swallowed by the dash. Only when the

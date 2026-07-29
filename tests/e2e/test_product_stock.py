@@ -1,8 +1,8 @@
 """
-E2E tests for the product form's tri-state quantity and its location pair
-(Story 5.1, FR23/FR24/FR25/FR27).
+E2E tests for the product form's tri-state quantity, its location pair and its
+reorder threshold (Stories 5.1/5.2, FR23/FR24/FR25/FR26/FR27/FR30).
 
-Three claims here need a real browser and a real round trip to be worth anything.
+Four claims here need a real browser and a real round trip to be worth anything.
 
 The first is the RENDERING contract. FR23/FR24 do not merely ask that the column
 distinguish three states; they ask that a reader can tell them apart at a
@@ -24,6 +24,14 @@ is a dropdown appearing on a LATER form containing a value the operator typed on
 an EARLIER one, and the wiring in between (the ids the auto-init list matches,
 the endpoint the component calls, the merged response body) has no other place
 it is exercised end to end.
+
+The fourth is that the Effective-Low signal really is DERIVED (Story 5.2, FR30,
+AD-6). Nothing stores it, so the only way to see whether it is right is to
+change one of its inputs through the form and re-read the page: raise the count
+past the threshold and the badge must be gone, clear the threshold and it must
+be gone, never set a count and it must never appear. A stored flag would have
+passed the first of those and failed the rest — which is exactly why the epic
+forbids one.
 
 Isolation note: ``tests/e2e/test_server.py``'s ``clear_test_data()`` truncates
 ``products`` and the inventory items, and ``live_server`` is function-scoped, so
@@ -84,9 +92,19 @@ def _add_product(page, live_server, description, **fields):
 
 def _set_quantity(page, live_server, product_id, value):
     """Open the edit form, set Quantity On Hand to `value`, save."""
+    _edit_stock_field(page, live_server, product_id, 'quantity_on_hand', value)
+
+
+def _edit_stock_field(page, live_server, product_id, field, value):
+    """Open the edit form, set one Stock & Location field, save.
+
+    Everything else on the form is left exactly as it was rendered and re-posted
+    by the browser, which is the point: these tests are about what a save does
+    to the OTHER fields as much as to the one that was typed in.
+    """
     page.goto(f'{live_server.url}/products/edit/{product_id}')
-    expect(page.locator('#quantity_on_hand')).to_be_visible()
-    page.locator('#quantity_on_hand').fill(value)
+    expect(page.locator(f'#{field}')).to_be_visible()
+    page.locator(f'#{field}').fill(value)
     page.locator('button[type="submit"]').click()
     expect(page).to_have_url(re.compile(rf'/products/{product_id}$'),
                              timeout=10000)
@@ -193,6 +211,96 @@ def test_the_recount_checkbox_is_not_on_the_add_form(page, live_server):
     page.goto(f'{live_server.url}/products/add')
     expect(page.locator('#quantity_on_hand')).to_be_visible()
     expect(page.locator('#quantity_recounted')).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_the_reorder_signal_appears_and_clears_as_its_inputs_move(
+        page, live_server):
+    """The Effective-Low signal walked across the threshold in both directions.
+
+    Nothing stores it, so every step here is a re-derivation: set a threshold
+    above the count and the badge appears, raise the count above the threshold
+    and it goes, clear the threshold and it stays gone. A cached or stored flag
+    would survive one of those and be caught by the next.
+    """
+    product_id = _add_product(page, live_server, 'E2E reorder walk',
+                              quantity_on_hand='2')
+    signal = page.locator('#product-effective-low')
+    threshold = page.locator('#product-reorder-threshold')
+
+    # No threshold yet: two on hand is not low, because nothing says what low is.
+    expect(threshold).to_have_text(re.compile(r'^\s*—\s*$'))
+    expect(signal).to_have_text(re.compile(r'^\s*—\s*$'))
+
+    _edit_stock_field(page, live_server, product_id, 'reorder_threshold', '3')
+    expect(threshold).to_have_text(re.compile(r'^\s*3\s*$'))
+    expect(signal).to_contain_text('Low stock')
+
+    # Restocked past the threshold. The count is the only thing that changed.
+    _set_quantity(page, live_server, product_id, '4')
+    expect(threshold).to_have_text(re.compile(r'^\s*3\s*$'))
+    expect(signal).to_have_text(re.compile(r'^\s*—\s*$'))
+
+    # Back below it, then the threshold itself is removed — which must clear the
+    # signal even though the count did not move.
+    _set_quantity(page, live_server, product_id, '2')
+    expect(signal).to_contain_text('Low stock')
+    _edit_stock_field(page, live_server, product_id, 'reorder_threshold', '')
+    expect(threshold).to_have_text(re.compile(r'^\s*—\s*$'))
+    expect(signal).to_have_text(re.compile(r'^\s*—\s*$'))
+
+
+@pytest.mark.e2e
+def test_an_untracked_product_with_a_threshold_never_signals(page,
+                                                             live_server):
+    """A threshold with no count to compare against says nothing (FR30).
+
+    Worth a browser of its own because it is the state a naive implementation
+    reads as "zero, therefore low": the quantity column is NULL, and a comparison
+    that treats absent as empty would flag every product an operator has ever
+    written a threshold on without committing to counting it.
+    """
+    product_id = _add_product(page, live_server, 'E2E rule without a count',
+                              reorder_threshold='3')
+
+    expect(page.locator('#product-quantity')).to_have_text(
+        re.compile(r'^\s*Not tracked\s*$'))
+    expect(page.locator('#product-reorder-threshold')).to_have_text(
+        re.compile(r'^\s*3\s*$'))
+    expect(page.locator('#product-effective-low')).to_have_text(
+        re.compile(r'^\s*—\s*$'))
+
+    # And it stays silent once a count that is comfortably above it arrives.
+    _set_quantity(page, live_server, product_id, '9')
+    expect(page.locator('#product-effective-low')).to_have_text(
+        re.compile(r'^\s*—\s*$'))
+
+
+@pytest.mark.e2e
+def test_a_zero_threshold_survives_a_round_trip_through_the_edit_form(
+        page, live_server):
+    """`0` is a real threshold — "tell me the moment this runs out" — and the
+    one value a falsy-zero bug anywhere on the path would silently discard.
+    Saved, re-opened, and re-saved untouched, because the re-save is where a
+    blank-rendered box would turn into "no threshold"."""
+    product_id = _add_product(page, live_server, 'E2E zero threshold',
+                              quantity_on_hand='1', reorder_threshold='0')
+    expect(page.locator('#product-reorder-threshold')).to_have_text(
+        re.compile(r'^\s*0\s*$'))
+    expect(page.locator('#product-effective-low')).to_have_text(
+        re.compile(r'^\s*—\s*$'))
+
+    page.goto(f'{live_server.url}/products/edit/{product_id}')
+    expect(page.locator('#reorder_threshold')).to_have_value('0')
+    page.locator('button[type="submit"]').click()
+    expect(page).to_have_url(re.compile(rf'/products/{product_id}$'),
+                             timeout=10000)
+    expect(page.locator('#product-reorder-threshold')).to_have_text(
+        re.compile(r'^\s*0\s*$'))
+
+    # And it signals exactly when the shelf is empty, not before.
+    _set_quantity(page, live_server, product_id, '0')
+    expect(page.locator('#product-effective-low')).to_contain_text('Low stock')
 
 
 @pytest.mark.e2e

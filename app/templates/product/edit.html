@@ -22,7 +22,7 @@
                shared validator gains later surfaces here by default rather than
                vanishing. Above the card because the operator must see it
                without knowing which field to look at. #}
-            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags', 'quantity_on_hand', 'location', 'sub_location'] %}
+            {% set keyed_error_fields = ['description', 'manufacturer', 'mpn', 'category_path', 'tags', 'quantity_on_hand', 'reorder_threshold', 'location', 'sub_location'] %}
             {% for field, message in (validation_errors or {}).items() if field not in keyed_error_fields %}
             <div class="alert alert-danger" role="alert" id="form-error-{{ field }}">
                 <i class="bi bi-exclamation-triangle"></i> {{ message }}
@@ -100,25 +100,27 @@
                 </div>
             </div>
 
-            {# Story 5.1 (FR23/FR24/FR25/FR27): the opt-in stock block, matching
-               add.html's — same names, same ids, same validation — because
-               `_validate_product_form` judges these three for BOTH forms and a
-               control on only one of them would be a rule the other could not
-               satisfy. The prose differs where the forms genuinely differ: only
-               this one can move an EXISTING verification date, so what records
-               that date is explained on the recount box below rather than in
-               the card's shared help text. This form has no First Receipt
-               block, so `quantity_on_hand` has no near-neighbour to be confused
-               with here.
+            {# Story 5.1 (FR23/FR24/FR25/FR27) and Story 5.2 (FR26): the opt-in
+               stock block, matching add.html's — same names, same ids, same
+               validation — because `_validate_product_form` judges these four
+               for BOTH forms and a control on only one of them would be a rule
+               the other could not satisfy. The prose differs where the forms
+               genuinely differ: only this one can move an EXISTING verification
+               date, so what records that date is explained on the recount box
+               below rather than in the card's shared help text. This form has no
+               First Receipt block, so `quantity_on_hand` has no near-neighbour
+               to be confused with here.
 
                Blank is a MEANINGFUL value on this form in particular: clearing
                Quantity On Hand stops tracking and clears the recorded count time
-               with it, exactly as clearing Category removes the category. #}
+               with it, and clearing Reorder Threshold removes the threshold, so
+               the product stops reading as low however few are left — exactly as
+               clearing Category removes the category. #}
             <div class="card mb-3" id="stock-and-location">
                 <div class="card-header">Stock &amp; Location <span class="text-muted small">(optional)</span></div>
                 <div class="card-body">
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-sm-6 mb-3">
                             <label for="quantity_on_hand" class="form-label">Quantity On Hand</label>
                             <input type="text" class="form-control{% if validation_errors and validation_errors.quantity_on_hand %} is-invalid{% endif %}"
                                    id="quantity_on_hand" name="quantity_on_hand" maxlength="10"
@@ -161,7 +163,27 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        {# Two per line from `sm` up rather than three across
+                           (Story 5.2's fourth control): it pairs the two numbers
+                           and the two locations, and at 360 px they simply
+                           stack. Two knock-on effects worth stating rather than
+                           discovering: on THIS form the first pair is lopsided,
+                           because the recount checkbox and its help text sit
+                           inside the quantity column, so the threshold beside it
+                           is followed by whitespace down to the locations; and
+                           between 576 and 767 px the two location inputs are now
+                           half width where `col-md-4` gave them the full row.
+                           Both were judged better than a fourth column at
+                           `md`, which inside this page's `col-lg-8` would leave
+                           each field too narrow to read a location in. #}
+                        <div class="col-sm-6 mb-3">
+                            <label for="reorder_threshold" class="form-label">Reorder Threshold</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.reorder_threshold %} is-invalid{% endif %}"
+                                   id="reorder_threshold" name="reorder_threshold" maxlength="10"
+                                   value="{{ form_data.get('reorder_threshold', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.reorder_threshold %}<div class="invalid-feedback d-block">{{ validation_errors.reorder_threshold }}</div>{% endif %}
+                        </div>
+                        <div class="col-sm-6 mb-3">
                             <label for="location" class="form-label">Location</label>
                             <div class="position-relative">
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.location %} is-invalid{% endif %}"
@@ -171,7 +193,7 @@
                             </div>
                             {% if validation_errors and validation_errors.location %}<div class="invalid-feedback d-block">{{ validation_errors.location }}</div>{% endif %}
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-sm-6 mb-3">
                             <label for="sub_location" class="form-label">Sub-Location</label>
                             <div class="position-relative">
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.sub_location %} is-invalid{% endif %}"
@@ -186,8 +208,13 @@
                         Quantity On Hand is your own count. Leave it <strong>blank</strong>
                         and this product is <strong>not tracked</strong> at all; enter
                         <strong>0</strong> to record that you have none. Receiving a
-                        purchase never changes the count. Location and Sub-Location share
-                        their suggestions with the inventory items.
+                        purchase never changes the count. Reorder Threshold is the count at
+                        or below which the product page flags it as low; leave it
+                        <strong>blank</strong> for no threshold, and note that
+                        <strong>0</strong> is a real threshold meaning "flag it once I have
+                        none". A threshold only signals for a product whose quantity you
+                        are actually tracking. Location and Sub-Location share their
+                        suggestions with the inventory items.
                     </div>
                 </div>
             </div>

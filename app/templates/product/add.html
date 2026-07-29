@@ -123,9 +123,9 @@
                 </div>
             </div>
 
-            {# Story 5.1 (FR23/FR24/FR25/FR27): the opt-in stock block. The same
-               three controls as edit.html — same names, same ids, same
-               validation — because the rule that validates them
+            {# Story 5.1 (FR23/FR24/FR25/FR27) and Story 5.2 (FR26): the opt-in
+               stock block. The same four controls as edit.html — same names,
+               same ids, same validation — because the rule that validates them
                (`_validate_product_form`) is shared and a control on only one of
                the two forms would be a rule the other form could not satisfy.
                The one deliberate difference is edit.html's recount checkbox,
@@ -137,6 +137,16 @@
                "not tracked", 0 means "tracked, none on hand". It is NOT the
                First Receipt block's Quantity below — that one writes a Purchase.
 
+               Two per line from `sm` up rather than three across (Story 5.2's
+               fourth control), which pairs the two numbers and the two
+               locations and keeps every field wide enough to read at 360 px,
+               where they simply stack. It does cost the two location inputs
+               their full-row width between 576 and 767 px; a fourth column at
+               `md` was the alternative and inside this page's `col-lg-8` it
+               leaves each field too narrow to read a location in. This form's
+               two rows are even, unlike edit.html's, which carries the recount
+               checkbox inside its quantity column.
+
                Location/Sub-Location carry the ids `field-autocomplete.js`
                already auto-initializes (`location`, and `sub_location` scoped by
                `locationFieldId: 'location'`), so the markup alone wires the
@@ -145,14 +155,21 @@
                 <div class="card-header">Stock &amp; Location <span class="text-muted small">(optional)</span></div>
                 <div class="card-body">
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-sm-6 mb-3">
                             <label for="quantity_on_hand" class="form-label">Quantity On Hand</label>
                             <input type="text" class="form-control{% if validation_errors and validation_errors.quantity_on_hand %} is-invalid{% endif %}"
                                    id="quantity_on_hand" name="quantity_on_hand" maxlength="10"
                                    value="{{ form_data.get('quantity_on_hand', '') }}" autocomplete="off">
                             {% if validation_errors and validation_errors.quantity_on_hand %}<div class="invalid-feedback d-block">{{ validation_errors.quantity_on_hand }}</div>{% endif %}
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-sm-6 mb-3">
+                            <label for="reorder_threshold" class="form-label">Reorder Threshold</label>
+                            <input type="text" class="form-control{% if validation_errors and validation_errors.reorder_threshold %} is-invalid{% endif %}"
+                                   id="reorder_threshold" name="reorder_threshold" maxlength="10"
+                                   value="{{ form_data.get('reorder_threshold', '') }}" autocomplete="off">
+                            {% if validation_errors and validation_errors.reorder_threshold %}<div class="invalid-feedback d-block">{{ validation_errors.reorder_threshold }}</div>{% endif %}
+                        </div>
+                        <div class="col-sm-6 mb-3">
                             <label for="location" class="form-label">Location</label>
                             <div class="position-relative">
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.location %} is-invalid{% endif %}"
@@ -162,7 +179,7 @@
                             </div>
                             {% if validation_errors and validation_errors.location %}<div class="invalid-feedback d-block">{{ validation_errors.location }}</div>{% endif %}
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-sm-6 mb-3">
                             <label for="sub_location" class="form-label">Sub-Location</label>
                             <div class="position-relative">
                                 <input type="text" class="form-control{% if validation_errors and validation_errors.sub_location %} is-invalid{% endif %}"
@@ -179,8 +196,12 @@
                         <strong>0</strong> to record that you have none. Saving a number
                         here records when you counted it, and the product page shows how
                         long ago that was. Receiving a purchase never changes the count.
-                        Location and Sub-Location share their suggestions with the
-                        inventory items.
+                        Reorder Threshold is the count at or below which the product page
+                        flags it as low; leave it <strong>blank</strong> for no threshold,
+                        and note that <strong>0</strong> is a real threshold meaning "flag
+                        it once I have none". A threshold only signals for a product whose
+                        quantity you are actually tracking. Location and Sub-Location share
+                        their suggestions with the inventory items.
                     </div>
                 </div>
             </div>

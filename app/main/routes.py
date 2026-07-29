@@ -1010,6 +1010,19 @@ def _validate_product_form(form_data):
             f'Quantity On Hand must be a whole number of zero or more and no '
             f'more than {_MAX_INT32}. Leave it blank to stop tracking the '
             f'quantity.')
+
+    # Story 5.2 (FR26). SHARED for the same reason the rule above is, and judged
+    # by the same `_non_negative_int_string`: `0` is a legal threshold ("low
+    # only once the count reaches zero"), distinct from a blank, which means no
+    # threshold at all and is therefore not an error. The message says what
+    # blank means because that is the one thing about this field a reader cannot
+    # guess — an unset threshold does not make a product low, it makes the
+    # threshold branch of the signal simply not apply.
+    reorder_threshold = (form_data.get('reorder_threshold') or '').strip()
+    if reorder_threshold and _non_negative_int_string(reorder_threshold) is None:
+        errors['reorder_threshold'] = (
+            f'Reorder Threshold must be a whole number of zero or more and no '
+            f'more than {_MAX_INT32}. Leave it blank for no threshold.')
     return errors
 
 
@@ -1264,6 +1277,13 @@ def _product_form_data(product, tags=None):
         # edit page would silently untrack every product sitting at zero.
         'quantity_on_hand': ('' if product.quantity_on_hand is None
                              else str(product.quantity_on_hand)),
+        # Story 5.2, `is None` for the same reason and with the same
+        # consequence: a threshold of 0 is falsy, and `or ''` would render it as
+        # an empty field — which this form reads as "no threshold", so re-saving
+        # an untouched edit page would silently drop the one threshold shape
+        # that says "tell me the moment this runs out".
+        'reorder_threshold': ('' if product.reorder_threshold is None
+                              else str(product.reorder_threshold)),
         'location': product.location or '',
         'sub_location': product.sub_location or '',
     }
@@ -1650,6 +1670,10 @@ def product_add():
             # such control. A POST that carries the key anyway is simply
             # ignored.
             quantity_on_hand=form_data.get('quantity_on_hand'),
+            # Story 5.2. Same shape and same reasoning: an omitted or blank
+            # threshold is the default (none), so there is no stored value for
+            # an absent key to preserve on a create.
+            reorder_threshold=form_data.get('reorder_threshold'),
             location=form_data.get('location'),
             sub_location=form_data.get('sub_location'),
         )
@@ -1788,6 +1812,20 @@ def _product_quantity_display(product):
     return f'In stock: {product.quantity_on_hand}'
 
 
+def _product_reorder_threshold_display(product):
+    """The finished threshold string the product detail page renders (AD-5).
+
+    The em dash is the page's ordinary "nothing here" marker — unlike the
+    quantity above, an unset threshold really is an absence rather than a third
+    named state. What it is NOT is `product.reorder_threshold or '—'`: a stored
+    `0` is a threshold the operator deliberately set, and that spelling would
+    render it as no threshold at all, which is the opposite claim.
+    """
+    if product.reorder_threshold is None:
+        return '—'
+    return str(product.reorder_threshold)
+
+
 @bp.route('/products/<int:product_id>')
 def product_detail(product_id):
     """View a Product by its direct URL (FR6), with purchase history (FR20/FR21).
@@ -1802,6 +1840,11 @@ def product_detail(product_id):
     the template renders nothing rather than an empty parenthesis. The age shown
     is the age of the last COUNT, not of the last edit: the write contract only
     re-stamps on a real assertion.
+
+    Story 5.2 adds the threshold and the Effective-Low signal beside them. The
+    signal is READ off the Product, not computed here: `Product.is_effective_low`
+    is its single home (AD-6), so this route writes no comparison of its own and
+    stores nothing — the read leaves the row exactly as it found it (FR30).
     """
     service = _get_catalog_service()
     product = service.get_product(product_id)
@@ -1829,6 +1872,9 @@ def product_detail(product_id):
                                describe_age(product.quantity_verified_at)
                                if product.quantity_on_hand is not None
                                else None),
+                           reorder_threshold_display=(
+                               _product_reorder_threshold_display(product)),
+                           effective_low=product.is_effective_low,
                            scan_banner=_scan_arrival_banner(product_id))
 
 
@@ -3237,8 +3283,14 @@ def product_edit(product_id):
         # than the rest: a blank `quantity_on_hand` does not merely clear a
         # string, it UNTRACKS the product, nulling `quantity_verified_at` with
         # it — and unlike a retypeable category, the date somebody counted is
-        # not recoverable by retyping. The operator is told so in the one place
-        # they are already looking.
+        # not recoverable by retyping. Story 5.2's `reorder_threshold` joined
+        # the same list (it is in the present-key loop below on the same
+        # terms), and it fails QUIETLY where the others fail visibly: the value
+        # is retypeable, but nothing on the page afterwards says a threshold
+        # used to be there, and the only symptom is a low-stock signal that
+        # stops arriving. This list is the durable record of which fields carry
+        # that hazard — a field added to the loop below belongs in it.
+        # The operator is told so in the one place they are already looking.
         try:
             stored = _product_form_data(
                 product, service.get_tags_for_product(product_id))
@@ -3272,8 +3324,12 @@ def product_edit(product_id):
         # EMPTY clears both (the service's `_apply_quantity_assertion`). A key
         # sent with a NUMBER re-stamps only if it is a real assertion — a
         # changed value, or an unchanged one the operator explicitly recounted.
+        # Story 5.2's `reorder_threshold` joins them on the same terms: an
+        # absent key leaves the stored threshold alone, a key sent EMPTY clears
+        # it to NULL, and a key sent `0` sets a real threshold of zero.
         for field in ('manufacturer', 'mpn', 'category_path', 'notes',
-                      'quantity_on_hand', 'location', 'sub_location'):
+                      'quantity_on_hand', 'reorder_threshold', 'location',
+                      'sub_location'):
             if field in form_data:
                 update_fields[field] = form_data[field]
 

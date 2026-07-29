@@ -6,7 +6,7 @@ The schema supports multiple rows per JA ID for maintaining shortening history,
 with proper constraints to ensure data integrity.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Date, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Date, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index, JSON, and_
 from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -869,9 +869,9 @@ class Product(Base):
 
     Story 1.1 shipped the FR2 columns and Story 2.4 added internal_id. Story 5.1
     added the tri-state quantity, its verification stamp and the optional
-    location pair. Later stories/epics extend this table via their own
-    migrations: reorder_threshold and stock_status/stock_status_at (Stories
-    5.2/5.3), equivalent_group_id (Epic 10).
+    location pair; Story 5.2 added reorder_threshold. Later stories/epics extend
+    this table via their own migrations: stock_status/stock_status_at (Story
+    5.3), equivalent_group_id (Epic 10).
     """
     __tablename__ = 'products'
 
@@ -941,6 +941,18 @@ class Product(Base):
     quantity_on_hand = Column(Integer, nullable=True)
     quantity_verified_at = Column(DateTime, nullable=True)
 
+    # The reorder point (Story 5.2, FR26): the count at or below which this
+    # product is low. Optional and independent of the quantity — a threshold may
+    # be recorded on a product nobody counts, it simply cannot signal anything
+    # until a count exists.
+    #
+    # NULL and 0 are TWO states here, exactly as they are for the quantity
+    # above. NULL means "no threshold set", which makes `is_effective_low`'s
+    # threshold branch false however the count reads (FR30); 0 is a REAL
+    # threshold, meaning "low only once the count reaches zero", and is why
+    # every reader of this column has to test `is None` rather than truthiness.
+    reorder_threshold = Column(Integer, nullable=True)
+
     # Optional physical storage (Story 5.1, FR27). Deliberately the same names
     # and the same width as InventoryItem.location/sub_location above, because
     # the two tables feed ONE autocomplete vocabulary through the one existing
@@ -967,6 +979,72 @@ class Product(Base):
         MYSQL_TABLE_OPTIONS,
     )
 
+    @hybrid_property
+    def is_effective_low(self) -> bool:
+        """Whether this product reads as LOW right now (Story 5.2, FR30).
+
+        The single home of the Effective-Low predicate (AD-6). It is DERIVED at
+        read and never stored: there is no column, no cache and no trigger
+        behind it, and evaluating it writes nothing — reading it must leave the
+        session clean and `updated_at` where it was. That is the whole point of
+        the stored-vs-derived split this epic rests on; a persisted copy is a
+        second answer that can disagree with the columns it was computed from.
+
+        TWO encodings exist and they are the only two permitted. This getter
+        answers for a Product in hand — `product_detail` reads it off the
+        DETACHED instance `CatalogService.get_product` returns, which is an
+        attribute read rather than a query. The `@expression` below answers in
+        SQL, which is what lets Story 5.6's reorder view and Epic 8's stock
+        facet filter in the DATABASE instead of loading the catalog and sieving
+        it in Python. A service method could have been one or the other, not
+        both. The two bodies must agree row for row; a hand-written
+        `quantity_on_hand <= reorder_threshold` anywhere else in the codebase —
+        route, template, query or test — is a defect, not a shortcut.
+
+        Only LOADED SCALAR COLUMNS may be read here. `get_product` closes its
+        session before returning, so anything this getter has to fetch on
+        access raises DetachedInstanceError on the very page the property
+        exists to render. A relationship is the obvious case — which is why On
+        Order (Story 5.4), an existence test over `purchases`, can never join
+        this predicate — but a column left unloaded is the same failure: a
+        caller that narrows its projection with `load_only()` or `defer()`, the
+        natural instinct for Story 5.6's catalog-wide reorder list, must keep
+        both columns below in the load or filter in SQL instead.
+
+        Story 5.3's seam is INSIDE this property. Stored stock status is a
+        manual assertion, and FR30 makes Effective Low the OR of it with the
+        threshold comparison — so when `stock_status` exists, Story 5.3 ORs
+        `stock_status IN ('low', 'out')` into THESE TWO BODIES and nowhere else.
+        Until then the property expresses the threshold branch alone. The name
+        is the domain signal (`is_effective_low`), deliberately not
+        `is_below_threshold`, so that widening is an edit to two bodies rather
+        than a rename with call sites to chase. One thing outside the code has
+        to widen with it: `docs/user-manual.md`'s "Stock and Location" section
+        states today's rule EXHAUSTIVELY to the operator ("a product with no
+        threshold never reads low"), which Story 5.3 makes false. Prose has no
+        compiler, so it is named here.
+        """
+        return (self.quantity_on_hand is not None
+                and self.reorder_threshold is not None
+                and self.quantity_on_hand <= self.reorder_threshold)
+
+    @is_effective_low.expression
+    def is_effective_low(cls):
+        """The same predicate as a SQL boolean — see the getter above.
+
+        The two `IS NOT NULL` guards LEAD, and that ordering is load-bearing
+        rather than merely parallel to the Python. A comparison against a NULL
+        column is NULL, not FALSE, so without the guards `filter(...)` would
+        still look right (`WHERE NULL` drops the row) while `filter(~...)` would
+        be `WHERE NOT NULL` — also NULL — and every untracked product would
+        silently vanish from "everything that is not low" rather than appearing
+        in it. With the guards first, `AND` short-circuits to FALSE for a row
+        that does not qualify and `~` is a true complement.
+        """
+        return and_(cls.quantity_on_hand.isnot(None),
+                    cls.reorder_threshold.isnot(None),
+                    cls.quantity_on_hand <= cls.reorder_threshold)
+
     def __repr__(self):
         return (f"<Product(id={self.id}, mpn='{self.mpn}', "
                 f"description='{self.description}')>")
@@ -991,6 +1069,12 @@ class Product(Base):
             'quantity_on_hand': self.quantity_on_hand,
             'quantity_verified_at': (self.quantity_verified_at.isoformat()
                                      if self.quantity_verified_at else None),
+            # Story 5.2, here for the same audit reason and emitted raw for the
+            # same tri-state reason: a stored 0 is a threshold, not an absence.
+            # `is_effective_low` is deliberately NOT here — it is derived, and a
+            # derived value in the audit snapshot would read as a stored one
+            # changing (AD-6).
+            'reorder_threshold': self.reorder_threshold,
             'location': self.location,
             'sub_location': self.sub_location,
             'created_at': self.created_at.isoformat() if self.created_at else None,

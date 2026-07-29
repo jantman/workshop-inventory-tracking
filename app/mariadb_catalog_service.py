@@ -58,7 +58,7 @@ logger = logging.getLogger('mariadb_catalog_service')
 # persists it.
 _PRODUCT_FIELDS = (
     'manufacturer', 'mpn', 'description', 'notes', 'category_path', 'attributes',
-    'quantity_on_hand', 'location', 'sub_location',
+    'quantity_on_hand', 'reorder_threshold', 'location', 'sub_location',
 )
 
 # How many internal-id candidates create_product will try before giving up
@@ -189,12 +189,122 @@ def _clean(value):
     return value
 
 
-# The widest count `products.quantity_on_hand` can hold: it is a plain
-# `Integer`, which is a signed 32-bit column on MariaDB. Stated here as well as
-# in `routes._MAX_INT32` on purpose — the route's copy bounds what an OPERATOR
-# may type and belongs with the message that explains the refusal, this one
-# bounds what any CALLER may store and belongs with the only writer.
-_MAX_QUANTITY_ON_HAND = 2147483647
+# The widest count `products.quantity_on_hand` or `products.reorder_threshold`
+# can hold: both are plain `Integer`, which is a signed 32-bit column on
+# MariaDB. Stated here as well as in `routes._MAX_INT32` on purpose — the
+# route's copy bounds what an OPERATOR may type and belongs with the message
+# that explains the refusal, this one bounds what any CALLER may store and
+# belongs with the only writer.
+_MAX_STORED_COUNT = 2147483647
+
+# How much of a rejected value a refusal message may quote back. Every refusal
+# `_parse_stored_count` raises is caught by the caller's except-log handler and
+# written to the audit record as `error_details`, so the value in it is
+# operator-supplied text going straight into a log line: enough to identify
+# what was sent, never the whole submission.
+_REFUSAL_VALUE_CHARS = 32
+
+
+def _truncated_for_refusal(text: str) -> str:
+    """`text` cut to something a refusal message can carry.
+
+    Shared by both of `_parse_stored_count`'s value-quoting refusals so they
+    cannot come to disagree about the cut, which is the same reason the parse
+    itself is shared. The ellipsis is inside whatever quoting the caller adds,
+    marking the cut as the message's doing rather than the operator's.
+    """
+    return (text if len(text) <= _REFUSAL_VALUE_CHARS
+            else f'{text[:_REFUSAL_VALUE_CHARS]}…')
+
+
+def _parse_stored_count(field: str, value):
+    """`value` as an int one of the product count columns can hold, or None.
+
+    The ONE type/bounds parse behind both `quantity_on_hand` and
+    `reorder_threshold` (Stories 5.1/5.2). The two columns have exactly the same
+    stored shape — a non-negative 32-bit integer or NULL — and copying the rule
+    is precisely how they would come to disagree about a padded string or an
+    over-32-bit value. `field` is a parameter for one reason only: so a refusal
+    names the field the CALLER actually passed.
+
+    None (and a blank/whitespace string, which is what an untouched form field
+    submits) means CLEARED and is returned as None. What each caller then does
+    with that differs — clearing the quantity also clears its verification stamp
+    — which is why the decision stays with them and only the parse lives here.
+
+    Every refusal names `field`, including the three that would otherwise
+    escape as CPython's own message: the two ways `int()` gives up on a string
+    (see the call below), and the bounds check's own attempt to render an int
+    too large to convert. That matters because the caller's handler logs the
+    exception and returns a generic failure: the field name is the only thing
+    in the record that says WHICH argument was wrong. Every refusal that quotes
+    the value back does so through `_truncated_for_refusal`, because that log
+    line is no place for an unbounded submission.
+
+    Not a second copy of the FORM rule: the route validator
+    (`_non_negative_int_string`) owns what an operator may type, and a
+    differently-shaped parse here is how the two would come to disagree. What
+    this owns is the TYPE and the BOUNDS of what reaches the column, because
+    those are the service's own contract and `int()` alone honours neither:
+    `int(2.9)` is 2 and `int(True)` is 1, so a caller passing a float or a
+    boolean by accident would get a silently truncated value, and a negative or
+    over-32-bit one would reach a column that cannot hold it. Each of those
+    raises, and the caller's own except-log-return-False handler reports it —
+    the same treatment any other bad service argument gets.
+
+    Leading zeros are stripped before `int()` for the reason
+    `_non_negative_int_string` states: `int()` is not total over digit strings
+    (CPython refuses one longer than 4300 digits). `'0' * 5000` passes the form
+    rule, whose bound is on the MAGNITUDE, and would otherwise turn a valid
+    submission into a generic "failed to update" here.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+
+    # `bool` first: it is a subclass of `int`, so an unguarded isinstance check
+    # would wave `True` through as the count 1.
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise TypeError(
+            f'{field} must be an int or a digit string, not '
+            f'{type(value).__name__}')
+    if isinstance(value, str):
+        try:
+            parsed = int(value.strip().lstrip('0') or '0')
+        except ValueError:
+            # `int()` is not total over strings, and BOTH of the ways it gives
+            # up land here: a non-numeric string, and an all-digit one still
+            # longer than CPython's 4300-digit ceiling after the zero strip.
+            # Left alone, each surfaces as CPython's own message, which names
+            # neither the field nor the fact that this was an argument problem
+            # — so an operator reading the log for a failed save learns only
+            # that something, somewhere, was not an integer.
+            raise ValueError(
+                f'{field} must be an int or a digit string, not '
+                f'{_truncated_for_refusal(value)!r}') from None
+    else:
+        parsed = value
+    if not 0 <= parsed <= _MAX_STORED_COUNT:
+        # The bounds refusal needs the same bounded rendering as the branch
+        # above, and one guard that branch does not, because BOTH of its inlets
+        # can carry a value too big to put in a log line:
+        #   - a digit string SHORTER than CPython's 4300-digit ceiling parses
+        #     cleanly and fails only here, so `'9' * 4000` produced a
+        #     4056-character exception that `create_product`/`update_product`
+        #     hand to `log_audit_operation` as `error_details` verbatim;
+        #   - an int argument has no ceiling at all, and rendering one PAST
+        #     4300 digits raises CPython's own `Exceeds the limit` ValueError
+        #     from inside the f-string. That refusal never gets built: what
+        #     reaches the handler names neither the field nor the fact that an
+        #     argument was wrong, which is the failure this function's
+        #     docstring exists to promise against.
+        try:
+            shown = _truncated_for_refusal(str(parsed))
+        except ValueError:
+            shown = 'an integer past the digit-conversion limit'
+        raise ValueError(
+            f'{field} must be between 0 and '
+            f'{_MAX_STORED_COUNT}, not {shown}')
+    return parsed
 
 
 def _apply_quantity_assertion(product, value, recounted: bool = False) -> None:
@@ -238,23 +348,11 @@ def _apply_quantity_assertion(product, value, recounted: bool = False) -> None:
     through, but it has no way to distinguish "cleared" from "absent", and it
     knows nothing of the second column.
 
-    Not a second copy of the FORM rule: the route validator
-    (`_non_negative_int_string`) owns what an operator may type, and a
-    differently-shaped parse here is how the two would come to disagree. What
-    this does own is the TYPE and the BOUNDS of what reaches the column, because
-    those are the service's own contract and `int()` alone honours neither:
-    `int(2.9)` is 2 and `int(True)` is 1, so a caller passing a float or a
-    boolean by accident would get a silently truncated count stamped as
-    freshly verified, and a negative or over-32-bit value would reach a column
-    that cannot hold it. Each of those raises here instead, and the caller's own
-    except-log-return-False handler reports it — the same treatment any other
-    bad service argument gets.
-
-    Leading zeros are stripped before `int()` for the reason
-    `_non_negative_int_string` states: `int()` is not total over digit strings
-    (CPython refuses one longer than 4300 digits). `'0' * 5000` passes the form
-    rule, whose bound is on the MAGNITUDE, and would otherwise turn a valid
-    submission into a generic "failed to update" here.
+    The TYPE and BOUNDS of the number itself are not decided here but in
+    `_parse_stored_count`, shared with `reorder_threshold` (Story 5.2) because
+    the two columns have identical stored shapes. Everything that IS decided
+    here — what a cleared value does to the stamp, and when the stamp moves at
+    all — is specific to this pair of columns and stays.
 
     Naive local `datetime.now()`, matching
     `mariadb_materials_admin_service.py` and `logging_config.py`, so the stamp
@@ -262,25 +360,11 @@ def _apply_quantity_assertion(product, value, recounted: bool = False) -> None:
     `func.now()` would be the database's, which need not agree with the process
     rendering the page.
     """
-    if value is None or (isinstance(value, str) and not value.strip()):
+    new_quantity = _parse_stored_count('quantity_on_hand', value)
+    if new_quantity is None:
         product.quantity_on_hand = None
         product.quantity_verified_at = None
         return
-
-    # `bool` first: it is a subclass of `int`, so an unguarded isinstance check
-    # would wave `True` through as the count 1.
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise TypeError(
-            f'quantity_on_hand must be an int or a digit string, not '
-            f'{type(value).__name__}')
-    if isinstance(value, str):
-        new_quantity = int(value.strip().lstrip('0') or '0')
-    else:
-        new_quantity = value
-    if not 0 <= new_quantity <= _MAX_QUANTITY_ON_HAND:
-        raise ValueError(
-            f'quantity_on_hand must be between 0 and '
-            f'{_MAX_QUANTITY_ON_HAND}, not {new_quantity}')
 
     if (new_quantity != product.quantity_on_hand
             or recounted
@@ -494,8 +578,8 @@ class CatalogService:
 
     def create_product(self, *, manufacturer=None, mpn=None, description=None,
                         notes=None, category_path=None, attributes=None,
-                        quantity_on_hand=None, location=None,
-                        sub_location=None,
+                        quantity_on_hand=None, reorder_threshold=None,
+                        location=None, sub_location=None,
                         quantity_recounted: bool = False) -> Optional[int]:
         """
         Create a Product and return its new integer id, or None on failure.
@@ -512,6 +596,13 @@ class CatalogService:
         value gets the same tri-state contract `update_product` applies; see
         `_apply_quantity_assertion`. There is no `quantity_verified_at`
         argument, deliberately.
+
+        Story 5.2: `reorder_threshold` is an ordinary optional field with one
+        subtlety — a blank or omitted value stores NULL ("no threshold"), while
+        `0` stores `0` ("low once the count reaches zero"), so it goes through
+        the shared count parse rather than through `_clean`, which would hand
+        SQLAlchemy the raw string. Nothing derived is written with it: Effective
+        Low is computed at read by `Product.is_effective_low` (AD-6).
 
         `quantity_recounted` is accepted and is a deliberate NO-OP here, kept
         only so the two write surfaces have one shape. On a create there is no
@@ -549,6 +640,14 @@ class CatalogService:
                     # this field — blank normalizes to None.
                     category_path=category_util.normalize_category_path(category_path),
                     attributes=attributes,
+                    # Story 5.2 (FR26): parsed rather than cleaned, because the
+                    # column is an Integer and `_clean` would pass the string
+                    # `'3'` straight into it. It parses on every pass of the
+                    # internal-id retry loop, which is harmless only because a
+                    # bad value raises on the FIRST pass — before any flush, so
+                    # nothing is written and no retry budget is spent.
+                    reorder_threshold=_parse_stored_count(
+                        'reorder_threshold', reorder_threshold),
                     # Story 5.1 (FR27): ordinary optional strings, cleaned like
                     # every other one. Only the quantity pair needs a rule.
                     location=_clean(location),
@@ -644,6 +743,11 @@ class CatalogService:
         `quantity_verified_at` is not accepted as a field of its own and a
         caller naming it is ignored, exactly as `internal_id` is.
 
+        Story 5.2 adds `reorder_threshold`, which needs a branch of its own for
+        a smaller reason than the quantity's: it writes one column, but it is an
+        INTEGER column, and the `_clean` fallthrough below passes strings
+        through unparsed. Nothing derived is written with it either.
+
         `quantity_recounted` is KEYWORD-ONLY and is not a field: it never enters
         `**fields`, is never matched against `_PRODUCT_FIELDS` and is never
         persisted. It is the edit form's recount checkbox, and all it does is
@@ -678,6 +782,17 @@ class CatalogService:
                     # loop's.
                     _apply_quantity_assertion(product, value,
                                               quantity_recounted)
+                    continue
+                if key == 'reorder_threshold':
+                    # Story 5.2. Its own branch because the `_clean` tail below
+                    # would assign the raw string `'3'` to an Integer column —
+                    # SQLite stores it as text, so a later `quantity_on_hand <=
+                    # reorder_threshold` would compare a number against a string
+                    # and answer wrongly rather than loudly. Blank clears to
+                    # NULL ("no threshold"), which the shared parse already
+                    # says; `0` survives as `0`, which is the state a truthiness
+                    # test would lose.
+                    product.reorder_threshold = _parse_stored_count(key, value)
                     continue
                 if key == 'attributes':
                     cleaned = value

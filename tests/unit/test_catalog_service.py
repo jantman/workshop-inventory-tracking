@@ -4184,6 +4184,320 @@ class TestProductQuantityWriteContract:
         assert catalog_service.get_product(pid).quantity_on_hand == 0
 
 
+# --- Story 5.2: the reorder threshold's write contract ----------------------
+
+
+@pytest.mark.unit
+class TestProductReorderThresholdWriteContract:
+    """FR26's stored half: one nullable integer, written like any other field
+    except that it must not go through `_clean`.
+
+    The threshold has no second column and no stamp, so what is interesting here
+    is narrower than the quantity's contract — but it is interesting in the same
+    two places. `0` and NULL are different thresholds, and the value must reach
+    the column as an INT: `_clean` would hand SQLAlchemy the string `'3'`, which
+    SQLite stores as text, and the Effective-Low comparison would then be
+    comparing a number against a string.
+    """
+
+    def test_a_new_product_has_no_threshold(self, catalog_service):
+        """Opt-in like the quantity: creating a product commits to nothing."""
+        pid = catalog_service.create_product(description='Fresh')
+        assert catalog_service.get_product(pid).reorder_threshold is None
+
+    def test_create_may_carry_a_threshold(self, catalog_service):
+        pid = catalog_service.create_product(description='Watched',
+                                             reorder_threshold='3')
+        assert catalog_service.get_product(pid).reorder_threshold == 3
+
+    def test_create_with_a_blank_threshold_stores_null(self, catalog_service):
+        """A blank string is what an untouched form field submits, so it has to
+        mean the same thing as an omitted argument — not `0`, which is a real
+        threshold."""
+        pid = catalog_service.create_product(description='Blank field',
+                                             reorder_threshold='')
+        assert catalog_service.get_product(pid).reorder_threshold is None
+
+    def test_the_value_is_stored_as_an_int_not_as_a_string(
+            self, catalog_service):
+        """The reason this field needs a branch of its own at all.
+
+        `update_product`'s `else: _clean(value)` tail passes strings through
+        unparsed, and SQLite keeps `'3'` in an INTEGER column as TEXT — so the
+        predicate's `quantity_on_hand <= reorder_threshold` would compare a
+        number against a string and answer wrongly rather than loudly. Asserted
+        on the TYPE, because `'3' == 3` is False in Python but the column would
+        still read back as something.
+        """
+        pid = catalog_service.create_product(description='Typed',
+                                             reorder_threshold='3')
+        stored = catalog_service.get_product(pid).reorder_threshold
+        assert stored == 3
+        assert isinstance(stored, int)
+
+        assert catalog_service.update_product(pid,
+                                              reorder_threshold='5') is True
+        stored = catalog_service.get_product(pid).reorder_threshold
+        assert stored == 5
+        assert isinstance(stored, int)
+
+    def test_zero_is_a_threshold_not_a_clear(self, catalog_service):
+        """The distinction a truthiness test would lose: `0` means "tell me the
+        moment this runs out", which is the strictest threshold there is, not
+        the absence of one."""
+        pid = catalog_service.create_product(description='Zero rule')
+        assert catalog_service.update_product(pid,
+                                              reorder_threshold='0') is True
+        product = catalog_service.get_product(pid)
+        assert product.reorder_threshold == 0
+        assert product.reorder_threshold is not None
+
+    def test_an_integer_argument_is_accepted_too(self, catalog_service):
+        """The route hands strings; a caller that already has an int must not
+        have to stringify it to be understood."""
+        pid = catalog_service.create_product(description='Typed caller')
+        assert catalog_service.update_product(pid, reorder_threshold=7) is True
+        assert catalog_service.get_product(pid).reorder_threshold == 7
+
+    @pytest.mark.parametrize('cleared', ['', '   ', None],
+                             ids=['blank', 'whitespace', 'none'])
+    def test_a_cleared_value_stores_null(self, catalog_service, cleared):
+        pid = catalog_service.create_product(description='Unwatched',
+                                             reorder_threshold='3')
+        assert catalog_service.update_product(
+            pid, reorder_threshold=cleared) is True
+        assert catalog_service.get_product(pid).reorder_threshold is None
+
+    def test_an_absent_key_leaves_the_threshold_alone(self, catalog_service):
+        """The partial-update rule, unchanged: an update that never mentions the
+        threshold must not remove it."""
+        pid = catalog_service.create_product(description='Untouched',
+                                             reorder_threshold='3')
+        assert catalog_service.update_product(pid,
+                                              description='Renamed') is True
+        assert catalog_service.get_product(pid).reorder_threshold == 3
+
+    def test_a_zero_padded_string_is_the_magnitude_it_names(
+            self, catalog_service):
+        """The same rule the quantity gets, from the same shared parse: the form
+        bounds the MAGNITUDE, and `int()` refuses a digit string longer than
+        4300, so a padded value must not die here."""
+        pid = catalog_service.create_product(description='Padded',
+                                             reorder_threshold='007')
+        assert catalog_service.get_product(pid).reorder_threshold == 7
+
+        assert catalog_service.update_product(
+            pid, reorder_threshold='0' * 5000) is True
+        assert catalog_service.get_product(pid).reorder_threshold == 0
+
+    @pytest.mark.parametrize('bad', [2.9, Decimal('2.9'), True, -5,
+                                     2147483648, '-5', 'abc'],
+                             ids=['float', 'decimal', 'bool', 'negative-int',
+                                  'over-int32', 'negative-string',
+                                  'not-a-number'])
+    def test_a_value_the_column_cannot_hold_is_refused_not_truncated(
+            self, catalog_service, bad):
+        """The service's own type/bounds contract, shared with the quantity.
+
+        `int()` honours neither: `int(2.9)` is 2 and `int(True)` is 1, so an
+        accidental float or boolean from a non-form caller would set a silently
+        WRONG threshold — and a wrong threshold is a wrong reorder signal on
+        every page that reads it afterwards. Refused instead, which
+        `update_product` reports as False, leaving the stored value exactly as
+        it was.
+        """
+        pid = catalog_service.create_product(description='Guarded',
+                                             reorder_threshold='3')
+        before = catalog_service.get_product(pid).reorder_threshold
+
+        assert catalog_service.update_product(pid, reorder_threshold=bad) \
+            is False
+
+        assert catalog_service.get_product(pid).reorder_threshold == before == 3
+
+    def test_a_bad_threshold_on_create_writes_no_product(self, catalog_service,
+                                                         product_ids):
+        """Refused before the insert rather than after it: a create that raises
+        must not leave a half-configured product behind for the operator to
+        find."""
+        assert catalog_service.create_product(description='Guarded',
+                                              reorder_threshold=2.9) is None
+        assert product_ids() == set()
+
+    def test_the_threshold_is_recorded_in_the_audit_snapshot(
+            self, catalog_service, monkeypatch):
+        """`to_dict()` is what the audit log stores, so a column missing from it
+        is a column whose history cannot be read back. `0` in particular has to
+        arrive as `0` rather than as something empty-looking."""
+        records = []
+
+        def _capture(operation, status, **kwargs):
+            records.append((operation, status, kwargs.get('item_after')))
+
+        monkeypatch.setattr('app.logging_config.log_audit_operation', _capture)
+
+        pid = catalog_service.create_product(description='Audited',
+                                             reorder_threshold='0')
+        assert records[-1][0] == 'create_product'
+        assert records[-1][2]['reorder_threshold'] == 0
+
+        assert catalog_service.update_product(pid,
+                                              reorder_threshold='3') is True
+        assert records[-1][0] == 'update_product'
+        assert records[-1][2]['reorder_threshold'] == 3
+
+    def test_writing_a_threshold_touches_neither_quantity_column(
+            self, catalog_service):
+        """The threshold is a rule ABOUT the count, not a count. Setting one is
+        not an assertion that anybody looked in the bin, so the stamp must not
+        move — compared for equality against the value captured first, since a
+        `>=` would pass whether or not it moved."""
+        pid = catalog_service.create_product(description='Ruled',
+                                             quantity_on_hand='4')
+        stamp = _stored_stamp(catalog_service, pid)
+        assert stamp is not None
+
+        assert catalog_service.update_product(pid,
+                                              reorder_threshold='3') is True
+        product = catalog_service.get_product(pid)
+        assert product.reorder_threshold == 3
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+
+    def test_clearing_the_threshold_leaves_the_quantity_alone(
+            self, catalog_service):
+        """The other direction, and the one an over-eager "clear the stock
+        fields" implementation would get wrong."""
+        pid = catalog_service.create_product(description='Ruled then not',
+                                             quantity_on_hand='4',
+                                             reorder_threshold='3')
+        stamp = _stored_stamp(catalog_service, pid)
+
+        assert catalog_service.update_product(pid,
+                                              reorder_threshold='') is True
+        product = catalog_service.get_product(pid)
+        assert product.reorder_threshold is None
+        assert product.quantity_on_hand == 4
+        assert product.quantity_verified_at == stamp
+
+    def test_the_shared_parse_still_refuses_in_the_quantitys_own_name(
+            self, catalog_service):
+        """A tripwire on the Story 5.2 extraction, not a new rule.
+
+        The type/bounds parse now lives in one helper shared by both columns,
+        and the field name is a parameter for exactly one reason: so a refusal
+        names the field the CALLER passed. If that parameter is ever dropped or
+        crossed over, every quantity refusal starts blaming `reorder_threshold`
+        — a message that sends the operator to the wrong field — while every
+        behavioural test above goes on passing.
+        """
+        from app.mariadb_catalog_service import _parse_stored_count
+
+        with pytest.raises(TypeError) as type_error:
+            _parse_stored_count('quantity_on_hand', 2.9)
+        assert str(type_error.value) == (
+            'quantity_on_hand must be an int or a digit string, not float')
+
+        with pytest.raises(ValueError) as value_error:
+            _parse_stored_count('quantity_on_hand', -5)
+        assert str(value_error.value) == (
+            'quantity_on_hand must be between 0 and 2147483647, not -5')
+
+        # The third refusal is the one the extraction ADDED (the branch around
+        # `int()`), and it is the only one of the three whose wording is not
+        # inherited — so it is where a crossed-over field name would be both
+        # likeliest and least visible. Pinned here for `quantity_on_hand`
+        # because every other test of this branch passes `reorder_threshold`:
+        # without this line a swap confined to it would leave the whole suite
+        # green while quantity refusals blamed the wrong column.
+        with pytest.raises(ValueError) as parse_error:
+            _parse_stored_count('quantity_on_hand', 'abc')
+        assert str(parse_error.value) == (
+            "quantity_on_hand must be an int or a digit string, not 'abc'")
+
+        with pytest.raises(TypeError) as threshold_error:
+            _parse_stored_count('reorder_threshold', 2.9)
+        assert str(threshold_error.value).startswith('reorder_threshold ')
+
+    @pytest.mark.parametrize('value, expected_in_message', [
+        ('abc', "'abc'"),
+        # Still 5000 significant digits after the zero strip, so `int()` refuses
+        # it outright rather than the bounds check catching an over-large
+        # number. Truncated in the message: an audit record is no place for a
+        # 5000-character submission.
+        ('9' * 5000, "'99999999999999999999999999999999…'"),
+    ], ids=['not-a-number', 'past-the-int-conversion-limit'])
+    def test_a_string_int_itself_gives_up_on_is_refused_by_field_name(
+            self, value, expected_in_message):
+        """The two refusals that would otherwise escape as CPython's own text.
+
+        `int()` is not total over strings, and neither way it fails names the
+        field or even says an ARGUMENT was wrong — `invalid literal for int()`
+        and `Exceeds the limit (4300 digits)` are both about a conversion the
+        caller never asked for by name. Since the service's handler logs the
+        exception and returns a generic failure, that message is all the record
+        has to say which argument to look at.
+        """
+        from app.mariadb_catalog_service import _parse_stored_count
+
+        with pytest.raises(ValueError) as refusal:
+            _parse_stored_count('reorder_threshold', value)
+        message = str(refusal.value)
+        assert message.startswith(
+            'reorder_threshold must be an int or a digit string, not ')
+        assert expected_in_message in message
+        # Not CPython's own wording, which is what this test exists to displace.
+        assert 'invalid literal' not in message
+        assert 'Exceeds the limit' not in message
+
+    def test_a_refusal_does_not_quote_the_whole_submission_back(self):
+        """The truncation is the point: unbounded input goes into a log line."""
+        from app.mariadb_catalog_service import _parse_stored_count
+
+        with pytest.raises(ValueError) as refusal:
+            _parse_stored_count('reorder_threshold', 'x' * 5000)
+        assert len(str(refusal.value)) < 120
+
+    @pytest.mark.parametrize('value, expected_fragment', [
+        # Only 4000 significant digits, so it is UNDER CPython's 4300-digit
+        # conversion ceiling: `int()` accepts it happily and the bounds check
+        # is what refuses it. That path quoted the value back whole.
+        ('9' * 4000, '99999999999999999999999999999999…'),
+        # An int argument has no ceiling of its own, and rendering one past
+        # 4300 digits raises CPython's `Exceeds the limit` ValueError from
+        # inside the f-string building the refusal — so the field-named
+        # message was never constructed and CPython's escaped in its place.
+        (10 ** 5000, 'an integer past the digit-conversion limit'),
+    ], ids=['parses-then-overflows', 'too-large-to-render'])
+    def test_the_bounds_refusal_is_bounded_too(self, value, expected_fragment):
+        """The sibling of the truncation above, on the other refusal.
+
+        `_parse_stored_count` has two refusals that quote the value back, and
+        for a while only one of them was bounded — so the guarded path was the
+        one an operator could not reach (the form caps significant digits at
+        ten) while the unguarded one took whatever any service caller passed
+        and handed it to `log_audit_operation` as `error_details`.
+        """
+        from app.mariadb_catalog_service import _parse_stored_count
+
+        with pytest.raises(ValueError) as refusal:
+            _parse_stored_count('reorder_threshold', value)
+        message = str(refusal.value)
+        assert message.startswith('reorder_threshold must be between 0 and ')
+        assert expected_fragment in message
+        assert len(message) < 120
+        # Not CPython's own wording: the whole point is that the record says
+        # which argument was wrong.
+        assert 'Exceeds the limit' not in message
+
+    def test_zero_padding_is_still_the_magnitude_it_names(self):
+        """The escape hatch above must not have swallowed the case the strip
+        exists for: `'0' * 5000` is the number zero, not an over-long string."""
+        from app.mariadb_catalog_service import _parse_stored_count
+
+        assert _parse_stored_count('reorder_threshold', '0' * 5000) == 0
+
+
 @pytest.mark.unit
 class TestProductLocationWrite:
     """FR27's stored half — plain optional strings, cleaned like every other."""
