@@ -233,6 +233,41 @@ class TestMigrationRunner:
                         f'schema has {observed.get(name)!r}')
 
     @pytest.mark.integration
+    def test_migrated_stock_status_is_not_null_with_its_backfill_default(
+            self, alembic_env, blank_database):
+        """Story 5.3's ``products.stock_status`` is NOT NULL and defaults to
+        ``'unknown'`` in the schema a deployment actually gets.
+
+        Hand-maintained for the same reason the unique constraints above are:
+        the metadata comparison filters to add/remove of tables and columns, so
+        a migration that shipped this column nullable -- or without the server
+        default that backfills existing rows -- would add the column, satisfy
+        that diff, and pass the whole suite green. It would also reintroduce the
+        three-valued-logic trap the column comment in ``app/database.py`` calls
+        load-bearing: ``stock_status IN ('low','out')`` is NULL rather than
+        FALSE for a NULL row, and ``or_(NULL, FALSE)`` is NULL, so
+        ``filter(~Product.is_effective_low)`` would silently drop every
+        un-asserted product. Every other test in this tier seeds the status
+        explicitly, so none of them would notice.
+        """
+        command.upgrade(alembic_env, 'head')
+
+        with blank_database.connect() as conn:
+            column = {
+                col['name']: col
+                for col in sa.inspect(conn).get_columns('products')
+            }['stock_status']
+
+        assert column['nullable'] is False, (
+            'migrated products.stock_status is nullable; the SQL half of '
+            'Product.is_effective_low is only two-valued because it is not')
+        assert column['default'] is not None and 'unknown' in str(
+            column['default']), (
+                'migrated products.stock_status has no unknown server default '
+                f'(got {column["default"]!r}); existing rows would be left '
+                'without one and non-ORM inserts would have to name it')
+
+    @pytest.mark.integration
     def test_migrated_columns_fold_case_and_accents(
             self, alembic_env, blank_database):
         """The migrated schema's folding columns are case/accent-insensitive.

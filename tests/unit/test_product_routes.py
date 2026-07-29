@@ -6018,8 +6018,7 @@ class TestTheEditRerenderCarriesStoredValues:
 
         monkeypatch.undo()
         detail = client.get(resp.headers['Location'])
-        assert b'nothing shown below is necessarily what is stored' not in \
-            detail.data
+        assert b'may not actually be empty' not in detail.data
         assert b'Product updated successfully!' in detail.data
 
     def test_the_merge_does_not_leak_into_the_write(self, client, test_storage):
@@ -7093,6 +7092,19 @@ class TestProductStockStatusForms:
         assert 'id="stock-and-location"' in body
         assert 'id="location-suggestions"' in body
         assert 'id="sub_location-suggestions"' in body
+
+        # The row break, which both templates' grid comments call the thing that
+        # leaves the 576–767 px band behaving as it did before a FIFTH control
+        # joined four that paired evenly. Without it the status cell pairs with
+        # `location` and every later cell shifts, which no other assertion here
+        # would notice — the ids above all survive a reflow. Asserted by
+        # POSITION, between the status control and the location one, because a
+        # `w-100` anywhere else in the card is not the break this needs.
+        after_status = body.index('name="stock_status"')
+        assert 0 < body.index('<div class="w-100"></div>', after_status) \
+            < body.index('id="location"', after_status), (
+                'the w-100 row break is not between the stock status control '
+                'and the location one; the 576-767px pairings have moved')
 
         # What the field means has to be ON the form: that it is only ever what
         # the operator said, and what the date beside it is the date OF.

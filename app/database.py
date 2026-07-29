@@ -972,13 +972,19 @@ class Product(Base):
     # gives "no assertion" one unambiguous spelling: there is no NULL-vs-
     # `unknown` distinction for any reader to get wrong.
     #
-    # BOTH defaults are declared, for three separate reasons: the Python-side
+    # BOTH defaults are declared, for two separate reasons: the Python-side
     # `default` puts the value in the INSERT, so it is readable off the instance
-    # `create_product` snapshots straight after `flush()`; the `server_default`
-    # is what backfills every existing row in the one `op.add_column` the
-    # migration issues; and having the server default here as well as there is
-    # what keeps `Base.metadata` structurally equal to the migrated schema
-    # (`tests/integration/test_migrations.py` diffs the two).
+    # `create_product` snapshots straight after `flush()`, while the
+    # `server_default` is what backfills every existing row in the one
+    # `op.add_column` the migration issues and what any writer bypassing the ORM
+    # gets. Declaring it here as well as there keeps the two statements of the
+    # same decision together, but nothing DIFFS them automatically: the metadata
+    # comparison in `tests/integration/test_migrations.py` filters to
+    # add/remove of tables and columns (`STRUCTURAL_DIFF_KINDS`) and is blind to
+    # nullability and defaults by design. What holds the migrated column to the
+    # NOT NULL the paragraph above calls load-bearing is the hand-maintained
+    # `test_migrated_stock_status_is_not_null_with_its_backfill_default` in that
+    # same module — the same way the unique constraints are held.
     #
     # A plain String, not sa.Enum and with no CHECK constraint, matching
     # IdentifierType's stated rationale: the set can grow without a migration.
@@ -1018,7 +1024,12 @@ class Product(Base):
             String(32, collation='utf8mb4_bin'), 'mysql', 'mariadb'),
         nullable=False,
         default=StockStatus.UNKNOWN.value,
-        server_default='unknown')
+        # Both defaults read the enum rather than repeating the string: the
+        # tripwires below police a duplicated `('low','out')` but nothing
+        # polices a duplicated `'unknown'`, so a hand-typed one here would
+        # survive a rename of `StockStatus.UNKNOWN`'s value silently — with the
+        # Python default and the server default then disagreeing.
+        server_default=StockStatus.UNKNOWN.value)
 
     # When that assertion was last CHANGED (FR31) — the age FR31 surfaces
     # rather than corrects, exactly as `quantity_verified_at` does for the
@@ -1076,8 +1087,11 @@ class Product(Base):
         it in Python. A service method could have been one or the other, not
         both. The two bodies must agree row for row; a hand-written
         `quantity_on_hand <= reorder_threshold`, or a second literal
-        `('low', 'out')`, anywhere else in the codebase — route, template, query
-        or test — is a defect, not a shortcut.
+        `('low', 'out')`, anywhere else in the SHIPPED code — route, template or
+        query — is a defect, not a shortcut. Tests are the deliberate exception:
+        a tripwire that imported the constant it polices could only assert that
+        the constant equals itself, so the test tier restates the set by hand on
+        purpose, and the tripwires below scan `app/` alone for that reason.
 
         Only LOADED SCALAR COLUMNS may be read here. `get_product` closes its
         session before returning, so anything this getter has to fetch on

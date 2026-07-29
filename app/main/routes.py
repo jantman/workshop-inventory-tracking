@@ -996,10 +996,19 @@ def _selected_stock_status(form_data, stored=None):
     outside the enum — a hand-run UPDATE or a restored backup. Rendering
     nothing selected is not an option there for the reason above.
     """
+    # Membership is tested against the LABEL mapping, not against
+    # `_STOCK_STATUS_VALUES`, because the mapping is what
+    # `_stock_status_choices` renders and this function's whole claim is "a
+    # value this control can actually render". The two agree today and a test
+    # says so, but a later story adding a `StockStatus` member and forgetting
+    # its label would make the accepted set the wider one — and returning a
+    # value no `<option>` carries marks NOTHING selected, which is precisely the
+    # silent first-option substitution described above. Reading the mapping
+    # makes the docstring true by construction rather than by companion test.
     submitted = form_data.get('stock_status')
-    if submitted in _STOCK_STATUS_VALUES:
+    if submitted in _STOCK_STATUS_LABELS:
         return submitted
-    if stored in _STOCK_STATUS_VALUES:
+    if stored in _STOCK_STATUS_LABELS:
         return stored
     return StockStatus.UNKNOWN.value
 
@@ -1402,8 +1411,11 @@ def _product_form_data(product, tags=None):
         # that says "tell me the moment this runs out".
         'reorder_threshold': ('' if product.reorder_threshold is None
                               else str(product.reorder_threshold)),
-        # Story 5.3. The stored value, not a label: the template compares it
-        # against each option's VALUE to decide which one is `selected`. The
+        # Story 5.3. The stored value, not a label: it is what a re-post has to
+        # carry, and it is what `_selected_stock_status` reads as the SUBMITTED
+        # half of its decision on the failure re-render. WHICH option carries
+        # `selected` is not decided from this entry — the templates compare
+        # `stock_status_selected`, which the route passes separately. The
         # `or` fallback is not the falsy-zero hazard the two fields above guard
         # against — this column is NOT NULL and its only falsy possibility is a
         # None that cannot come from the database — it is a guard for the
