@@ -957,7 +957,8 @@ location: `tests/e2e/test_server.py` (`clear_test_data`)
 severity: medium
 summary: The clear now names nine ORM classes in hand-maintained FK order. `for table in reversed(Base.metadata.sorted_tables): session.execute(table.delete())` derives the same order from the metadata that already knows it, is self-maintaining, and subsumes the hand-written list plus its ordering comment.
 evidence: `app/database.py`'s `Product` docstring announces further catalog tables/columns for Epic 5 (stock/quantity/location) and Epic 10 (`equivalent_group_id`). Any new table with a non-nullable FK into one deleted below it makes the `Product` delete raise. This sweep patched the failure mode to be loud (the handler now re-raises rather than swallowing) and added `tests/e2e/test_clear_test_data.py` to pin the current order, so the consequence today is a clear red failure rather than silent staleness — which is why this is deferred rather than patched. Closing it means replacing the nine explicit `session.query(X).delete()` calls with the metadata-driven loop, keeping the `setup_materials_taxonomy()` re-seed afterwards, and confirming `alembic_version` (not in `Base.metadata`) is unaffected.
-status: open
+status: done 2026-07-29
+resolution: resolved by sweep bundle dw-clear-test-data-hardening
 
 ### DW-108: Unit tests named "writes nothing" assert only over `products`, so an orphan child row satisfies them
 origin: spec-e2e-test-infrastructure-hygiene
@@ -1003,7 +1004,8 @@ location: `tests/e2e/test_server.py:313` (`clear_test_data`)
 severity: low
 summary: The whole body sits under `if self.storage and hasattr(self, 'engine'):`. When that guard is false the method deletes nothing, skips the `setup_materials_taxonomy()` re-seed, prints nothing and returns normally — the exact silent-staleness outcome the newly added `raise` was written to rule out, reachable on a path the `raise` never sees.
 evidence: The guard predates this sweep, which is why it was deferred rather than patched: the sweep hardened the failure path it touched (`except: rollback; print; raise`) and did not restructure the method. It is real rather than theoretical because `E2ETestServer.stop()` sets `self.storage = None` and `self.engine = None`, and `hasattr(self, 'engine')` stays `True` after an attribute is set to `None` — so the guard admits a half-stopped server straight through to `sessionmaker(bind=None)` while rejecting one whose `storage` was cleared. In practice `live_server` depends on `e2e_server`, which has started the server, so no test reaches it today. Closing it means replacing the guard with `if not (self.storage and getattr(self, 'engine', None)): raise RuntimeError('clear_test_data: server not started, catalog NOT cleared')`, so the no-op is as loud as the failure.
-status: open
+status: done 2026-07-29
+resolution: resolved by sweep bundle dw-clear-test-data-hardening
 
 ### DW-113: `setup_materials_data()` swallows a failed taxonomy re-seed, leaving every material-facing e2e test green on an empty vocabulary
 origin: spec-e2e-test-infrastructure-hygiene-review-2
@@ -1012,7 +1014,8 @@ location: `tests/e2e/test_server.py:302-309` (`setup_materials_data`, reached vi
 severity: medium
 summary: The method ends in `except Exception as e: session.rollback(); print(...); traceback.print_exc()` with no re-raise — the identical defect this sweep classified as medium and patched in its sibling `clear_test_data()`, five lines away and untouched.
 evidence: `clear_test_data()` calls `setup_materials_taxonomy()` on every invocation, i.e. before every e2e test, so this is the second half of the same isolation guarantee. The consequence matches the patched case exactly: a failed re-seed rolls back, prints to captured stdout and returns, leaving the taxonomy empty for every subsequent test; the material and category modules assert positively (containment), so nothing goes red and the suite passes green on a missing vocabulary. Deferred rather than patched because the swallow predates this sweep and this diff does not touch the method — the sweep's Always clause scoped it to `clear_test_data()`'s error-handling shape. `tests/e2e/test_clear_test_data.py::test_clear_test_data_still_clears_the_inventory_side_and_reseeds_materials` now asserts `MaterialTaxonomy.count() > 0` after a clear, so one test would notice; the other ~370 would not. Closing it means adding `raise` after the rollback/print, matching `clear_test_data()`.
-status: open
+status: done 2026-07-29
+resolution: resolved by sweep bundle dw-clear-test-data-hardening
 
 ### DW-114: Four more implementation artifacts carry the same falsified "the catalog accumulates" instruction that DW-111 tracks in one
 origin: spec-e2e-test-infrastructure-hygiene-review-2
@@ -2199,4 +2202,31 @@ origin: review-budget-followup
 source_spec: `spec-doctest-coverage-round-2.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260728-175554-2d63; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-244: `E2ETestServer.engine` is never initialized in `__init__`, so the class carries three different defenses against its own absence — two of which raise the wrong exception
+origin: spec-clear-test-data-hardening-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-clear-test-data-hardening.md`
+location: `tests/e2e/test_server.py:25-31` (`__init__`), `:106` (`stop`), `:196` (`add_material_taxonomy`), `:239` (`setup_materials_taxonomy`), `:312` (`clear_test_data`)
+severity: low
+summary: `__init__` sets `self.storage = None` but never `self.engine` — the attribute only comes into existence in `start()`. Every method that has to survive a not-started server therefore invents its own defense, and they disagree: `stop()` uses `hasattr(self, 'engine') and self.engine`, `clear_test_data()` now uses `getattr(self, 'engine', None)`, and `add_material_taxonomy()` / `setup_materials_taxonomy()` guard `if not self.storage: raise RuntimeError("Server not started")` and then bind `sessionmaker(bind=self.engine)` unguarded.
+evidence: Verified in the file. The consequence is not merely stylistic: on a server with truthy `storage` and no `engine` — the exact half-initialized state this story just made `clear_test_data()` reject with a `RuntimeError` — `setup_materials_taxonomy()` and `add_material_taxonomy()` raise `AttributeError: 'E2ETestServer' object has no attribute 'engine'`, contradicting the `RuntimeError("Server not started")` their own guard promises three lines above. `add_test_data()` (:132) has the same shape. This story's spec scoped the work to `clear_test_data()` and its `Never` list forbids restructuring `start()`/`stop()`, which is why this was deferred rather than patched — the change added a third spelling rather than creating the pattern. Closing it means adding `self.engine = None` to `__init__`, collapsing all three checks to plain truthiness, and extending the guard to the sibling methods. It also means updating `tests/e2e/test_clear_test_data.py::test_clear_test_data_raises_when_the_server_is_not_running[never_started]`, whose `_detached_server()` helper currently pins "no `engine` attribute at all" as an asserted reachable state.
+status: open
+
+### DW-245: `start()` calls the now-raising `setup_materials_taxonomy()` outside any `try`, so a failed seed leaks the engine and storage connection and leaves the module-global server half-initialized
+origin: spec-clear-test-data-hardening-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-clear-test-data-hardening.md`
+location: `tests/e2e/test_server.py:69` (`start`), `:307` (`setup_materials_taxonomy`)
+severity: low
+summary: This story added the missing `raise` to `setup_materials_taxonomy()`'s exception handler. `start()` calls that method at :69 — after `create_engine`, `Base.metadata.create_all` and `MariaDBStorage.connect()`, but before `make_server` and the serving thread exist — with no `try` around it, so the new exception propagates out of a half-built server that nothing then tears down.
+evidence: Verified against the file: the call sits between `self.app = create_app(...)` and `self.server = make_server(...)`. A raise there escapes the session-scoped `e2e_server` fixture before its `yield`, so `server.stop()` never runs, the SQLAlchemy engine is never `dispose()`d and the `MariaDBStorage` connection is never closed, while `get_test_server()`'s module-global `_test_server` keeps the half-initialized instance for any later caller. The consequence is bounded — the pytest session is aborting anyway and the process exits — which is why this was deferred rather than patched; the spec's `Never` list also forbids restructuring `start()`. Closing it means wrapping the call as `try: self.setup_materials_taxonomy()` / `except Exception: self.stop(); raise`, and deciding whether `get_test_server()` should clear `_test_server` on a failed start.
+status: open
+
+### DW-246: The metadata-coverage tripwire needs no e2e infrastructure but is gated behind the ~20-minute e2e session and deselected from `nox -s tests`
+origin: spec-clear-test-data-hardening-followup-review
+source_spec: `_bmad-output/implementation-artifacts/spec-clear-test-data-hardening.md`
+location: `tests/e2e/test_clear_test_data.py` (`test_every_metadata_table_is_covered_by_this_module`)
+severity: low
+summary: The tripwire that makes the genericized clear safe — "add a model to `Base.metadata` and this fails, naming the table you must seed" — is a pure set comparison over `Base.metadata.sorted_tables` with no database, server or network in it, yet it carries `@pytest.mark.e2e`, so it only ever runs under `nox -s e2e`.
+evidence: `noxfile.py:32` runs the unit session with `-m "not e2e and not integration"`, so the marker excludes it there; `noxfile.py:96-110` makes the e2e session install a Chromium build before running with `--reruns=3`, and a full pass takes ~20 minutes. Measured in this review: the test's own call time is 0.00s. The marker is not gratuitous — an unmarked test in `tests/e2e/` would be deselected by every session — so this is a placement question, not a one-word fix, which is why it was deferred: the spec's task list put the new tests in `tests/e2e/test_clear_test_data.py`. The same blind spot affects nothing else in the module; the other three infrastructure-free tests drive `E2ETestServer` directly and are more defensibly e2e-adjacent. Closing it means moving (or mirroring) the set comparison into the unit suite — `tests/unit/test_database_schema.py:99` already iterates `Base.metadata.tables` and would host it for free — so a new model trips it in 37 seconds rather than 20 minutes.
 status: open

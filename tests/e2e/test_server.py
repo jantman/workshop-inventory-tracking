@@ -8,15 +8,13 @@ import threading
 import time
 import requests
 import socket
-import tempfile
 import os
 from contextlib import closing
 from werkzeug.serving import make_server
 from app import create_app
 from app.mariadb_storage import MariaDBStorage
 from config import TestConfig
-from app.database import (Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation,
-                          Product, Purchase, Attachment, ProductIdentifier, ProductTag)
+from app.database import Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -146,7 +144,7 @@ class E2ETestServer:
             else:
                 # Convert dict to Item object if needed
                 from app.database import InventoryItem
-                from app.models import ItemType, ItemShape, Dimensions
+                from app.models import Dimensions
                 from decimal import Decimal
                 
                 # Create dimensions from available data
@@ -306,47 +304,46 @@ class E2ETestServer:
             print(f"Error initializing materials taxonomy: {e}")
             import traceback
             traceback.print_exc()
+            raise
         finally:
             session.close()
 
     def clear_test_data(self):
         """Clear all test data from database"""
-        if self.storage and hasattr(self, 'engine'):
-            # Clear all data from database tables
-            Session = sessionmaker(bind=self.engine)
-            session = Session()
-            try:
-                # Delete all data (order matters due to foreign keys)
-                session.query(ItemPhotoAssociation).delete()
-                session.query(Photo).delete()
-                session.query(InventoryItem).delete()
-                # Catalog tables, children before parents: attachments reference
-                # both products and purchases; product_tags, product_identifiers
-                # and purchases reference products.
-                session.query(Attachment).delete()
-                session.query(ProductTag).delete()
-                session.query(ProductIdentifier).delete()
-                session.query(Purchase).delete()
-                session.query(Product).delete()
-                session.query(MaterialTaxonomy).delete()
-                session.commit()
-                print("🧹 Cleared all test data from database")
-            except Exception as e:
-                # Re-raised, not swallowed: a failed clear rolls back EVERY
-                # delete above (photos and items included), so every test after
-                # it would run against a dirty database. The tests that would
-                # notice assert only positively, so a swallowed failure here is
-                # a whole suite passing green on stale data. The most likely
-                # cause is a new table with an FK into one deleted below it.
-                session.rollback()
-                print(f"⚠️ Error clearing test data: {e}")
-                raise
-            finally:
-                session.close()
-            
-            # Re-setup materials taxonomy for tests
-            self.setup_materials_taxonomy()
-    
+        # stop() sets both attributes to None, so a falsy engine means a
+        # stopped (or never-started) server. Raising beats the old guard,
+        # which returned normally having cleared nothing.
+        if not (self.storage and getattr(self, 'engine', None)):
+            raise RuntimeError('clear_test_data: server not started, '
+                               'catalog NOT cleared')
+
+        # Clear all data from database tables
+        Session = sessionmaker(bind=self.engine)
+        session = Session()
+        try:
+            # sorted_tables is topologically sorted parents-first, so
+            # reversed() is children-first — the FK-safe delete order,
+            # derived from the metadata rather than hand-maintained as
+            # tables are added.
+            for table in reversed(Base.metadata.sorted_tables):
+                session.execute(table.delete())
+            session.commit()
+            print("🧹 Cleared all test data from database")
+        except Exception as e:
+            # Re-raised, not swallowed: a failed clear rolls back EVERY
+            # delete above (photos and items included), so every test after
+            # it would run against a dirty database. The tests that would
+            # notice assert only positively, so a swallowed failure here is
+            # a whole suite passing green on stale data.
+            session.rollback()
+            print(f"⚠️ Error clearing test data: {e}")
+            raise
+        finally:
+            session.close()
+
+        # Re-setup materials taxonomy for tests
+        self.setup_materials_taxonomy()
+
     def __enter__(self):
         """Context manager entry"""
         self.start()
