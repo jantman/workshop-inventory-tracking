@@ -941,9 +941,12 @@ _STOCK_STATUS_LABELS = {
 # service builds its own `_STOCK_STATUS_VALUES` from the enum too, and both
 # tuples are read out verbatim into operator-visible refusal text, so an order
 # that agreed only by two hand-written lists matching would be one edit away
-# from two refusals enumerating differently. The label mapping's order is a
-# DISPLAY decision (it drives the select) and is free to change; this one is
-# the vocabulary's own order and must not drift from the service's.
+# from two refusals enumerating differently. Deriving this tuple from the label
+# mapping instead would make one ordering serve two unrelated contracts: this
+# one must not drift from the SERVICE's, while the mapping's is the order the
+# select renders and `docs/user-manual.md` lists — pinned in its own right by
+# `test_every_stored_status_has_an_operator_facing_label` and by the e2e option
+# parity test, so neither order is free, and they are free of EACH OTHER.
 #
 # That the two agree about MEMBERSHIP — that nothing is renderable but
 # unsubmittable, or the reverse — is asserted rather than assumed:
@@ -2023,6 +2026,37 @@ def _product_stock_status_display(product):
     return _STOCK_STATUS_LABELS.get(stored, stored)
 
 
+def _product_stock_status_age(product, now):
+    """How long ago the stock status was asserted, or `None` (Story 5.3, FR31).
+
+    Gated on the STATUS rather than on the stamp, for the reason
+    `product_detail` gates the quantity's age on the count: the write contract
+    moves the two columns together, so a stamp on an `unknown` status is a state
+    this app cannot produce — but a restored backup or a hand-run UPDATE can,
+    and the ungated version would render `Not set (set 3 months ago)`, a date
+    for an assertion the same line says was never made.
+
+    `or StockStatus.UNKNOWN.value` for the reason
+    `_product_stock_status_display` and `_product_form_data` both carry it: an
+    un-flushed or hand-built Product reads `None` here, and a bare `!=` is TRUE
+    for `None` — so the gate would open on the one instance whose status row
+    says `Not set`. All three sites coerce identically so no two of them can
+    describe the same instance differently, and this one is a named function
+    rather than an expression inside `render_template`'s argument list so that
+    the coercion is a THIRD reader of one rule rather than a third copy of it —
+    an inline gate can only be asserted by a test that re-spells it, which
+    proves nothing about the route.
+
+    `now` is passed in rather than read here because this page renders two ages
+    and `describe_age`'s docstring asks for an explicit `now` in exactly that
+    case, so both phrases are measured from one instant.
+    """
+    stored = product.stock_status or StockStatus.UNKNOWN.value
+    if stored == StockStatus.UNKNOWN.value:
+        return None
+    return describe_age(product.stock_status_at, now)
+
+
 @bp.route('/products/<int:product_id>')
 def product_detail(product_id):
     """View a Product by its direct URL (FR6), with purchase history (FR20/FR21).
@@ -2083,30 +2117,13 @@ def product_detail(product_id):
                                _product_reorder_threshold_display(product)),
                            stock_status_display=(
                                _product_stock_status_display(product)),
-                           # Story 5.3, gated on the STATUS rather than on the
-                           # stamp, for the reason the quantity age above is
-                           # gated on the count: the write contract moves the
-                           # two columns together, so a stamp on an `unknown`
-                           # status is a state this app cannot produce — but a
-                           # restored backup or a hand-run UPDATE can, and the
-                           # ungated version would render `Not set (set 3
-                           # months ago)`, a date for an assertion the same line
-                           # says was never made.
-                           #
-                           # `or StockStatus.UNKNOWN.value` for the reason
-                           # `_product_stock_status_display` and
-                           # `_product_form_data` both carry it: an un-flushed
-                           # or hand-built Product reads None here, and a bare
-                           # `!=` is TRUE for None — so the gate would open on
-                           # the one instance whose row above says `Not set`.
-                           # All three coerce identically so no two of them can
-                           # describe the same instance differently.
-                           stock_status_age=(
-                               describe_age(product.stock_status_at, now)
-                               if (product.stock_status
-                                   or StockStatus.UNKNOWN.value)
-                               != StockStatus.UNKNOWN.value
-                               else None),
+                           # Story 5.3. The status gate and the `None` coercion
+                           # it rests on live in the helper, beside the two
+                           # display helpers, for the reason its docstring
+                           # gives: a gate spelled inline here can only be
+                           # asserted by a test that re-spells it.
+                           stock_status_age=_product_stock_status_age(product,
+                                                                     now),
                            effective_low=product.is_effective_low,
                            scan_banner=_scan_arrival_banner(product_id))
 

@@ -5846,12 +5846,13 @@ class TestTheEditRerenderCarriesStoredValues:
     # is ordinary typing in a manufacturer or a note.
     _MANUFACTURER = 'Fluke & Co "Test" <div>'
 
-    def _seed(self, test_storage):
+    def _seed(self, test_storage, stock_status=None):
         svc = CatalogService(test_storage)
         pid = svc.create_product(description='Heat sink',
                                  manufacturer=self._MANUFACTURER,
                                  mpn='LM317', category_path='electronics',
-                                 notes='bench stock')
+                                 notes='bench stock',
+                                 stock_status=stock_status)
         svc.set_product_tags(pid, ['ssr', 'rectifier'])
         return pid
 
@@ -5930,7 +5931,7 @@ class TestTheEditRerenderCarriesStoredValues:
         """`update_product` returning false re-renders the same form, so it
         needs the same merge — otherwise a transient backend failure is how the
         operator's next save wipes the fields it blanked."""
-        pid = self._seed(test_storage)
+        pid = self._seed(test_storage, stock_status='low')
         monkeypatch.setattr(CatalogService, 'update_product',
                             lambda *args, **kwargs: False)
 
@@ -5941,6 +5942,21 @@ class TestTheEditRerenderCarriesStoredValues:
         body = resp.data.decode()
         assert _input_value(body, 'manufacturer') == self._MANUFACTURER
         assert _input_value(body, 'description') == 'Renamed'
+        # The `<select>` half of the same merge, which no `_input_value` reaches
+        # — it reads `value="…"` off an `<input>` tag and a select carries its
+        # state on an `<option>`. So every assertion above passes with the
+        # status pair missing from this render call entirely, which would mark
+        # nothing selected and make resubmitting this page — the likeliest
+        # response to a transient failure — submit the first option, `Not set`,
+        # withdrawing the flag and NULLing its date.
+        #
+        # This pins the pair's PRESENCE here, not its stored fallback: when the
+        # baseline read succeeds, `render_data` already carries the stored
+        # status, so `_selected_stock_status`'s `product.stock_status` argument
+        # is what answers only on the narrower path where the baseline ALSO
+        # could not be read — which is asserted at the one site where a test can
+        # arrange both, `test_an_unreadable_baseline_degrades_instead_of_500ing`.
+        assert _select_value(body, 'stock_status') == 'low'
 
     def test_the_outer_exception_rerender_gets_the_merge_too(
             self, client, test_storage, monkeypatch):
@@ -5950,13 +5966,15 @@ class TestTheEditRerenderCarriesStoredValues:
         def _boom(*args, **kwargs):
             raise RuntimeError('backend down')
 
-        pid = self._seed(test_storage)
+        pid = self._seed(test_storage, stock_status='low')
         monkeypatch.setattr(CatalogService, 'update_product', _boom)
 
         resp = client.post(f'/products/edit/{pid}', data={'description': 'Renamed'})
         assert resp.status_code == 200
         assert b'An error occurred while updating the product' in resp.data
-        assert _input_value(resp.data.decode(), 'manufacturer') == self._MANUFACTURER
+        body = resp.data.decode()
+        assert _input_value(body, 'manufacturer') == self._MANUFACTURER
+        assert _select_value(body, 'stock_status') == 'low'
 
     def test_an_unreadable_baseline_degrades_instead_of_500ing(
             self, client, test_storage, monkeypatch):
@@ -7401,9 +7419,11 @@ class TestProductStockStatusForms:
         Both are built from `StockStatus`, so this asserts a property the code
         already has rather than creating one. It is still worth asserting: the
         alternative spelling — the route deriving its tuple from its own label
-        mapping — agrees today and would stop agreeing the moment that mapping's
-        order changed, which it is free to do, being a DISPLAY decision that
-        drives the select. Compared element for element rather than as sets,
+        mapping — would tie this ordering to the SELECT's, and the two answer to
+        different contracts (this one to the service's refusal text, the
+        mapping's to the page and the manual), so a display reordering would
+        silently re-order an audit-log message. Compared element for element
+        rather than as sets,
         because the two messages enumerate in order and an operator comparing
         them would notice.
         """
@@ -7460,20 +7480,38 @@ class TestProductDetailStockStatus:
         the line above it calls `Not set`. All three sites — these two and
         `_product_form_data` — coerce the case identically, which is what makes
         the form and the page agree about one instance.
+
+        The age is checked by CALLING the route's gate, not by re-spelling it:
+        an assertion that recomputes `(x or 'unknown') != 'unknown'` inside the
+        test evaluates entirely in the test and holds `product_detail` to
+        nothing, so the regression it names — the gate losing its coercion —
+        would leave it green.
+
+        And it is checked WITH a stamp on the instance, which is what makes the
+        coercion observable at all. `describe_age(None, now)` is `None`, so a
+        gate that had lost its `or` still answers `None` for an instance whose
+        `stock_status_at` is also unset — the assertion would pass for the wrong
+        reason. A `None` status carrying a stamp is the pathological pairing the
+        coercion exists for: uncoerced, `None != 'unknown'` opens the gate and
+        the page grows `Not set (set 3 months ago)`.
         """
+        from datetime import datetime, timedelta
+
         from app.database import Product
         from app.main.routes import (_product_form_data,
+                                     _product_stock_status_age,
                                      _product_stock_status_display)
-        from app.models import StockStatus
 
         bare = Product(description='Unflushed')
         assert bare.stock_status is None
 
         assert _product_stock_status_display(bare) == 'Not set'
-        # The age gate the detail route applies, spelled the same way.
-        assert ((bare.stock_status or StockStatus.UNKNOWN.value)
-                != StockStatus.UNKNOWN.value) is False
         assert _product_form_data(bare, [])['stock_status'] == 'unknown'
+
+        now = datetime.now()
+        assert _product_stock_status_age(bare, now) is None
+        bare.stock_status_at = now - timedelta(days=95)
+        assert _product_stock_status_age(bare, now) is None
 
     @pytest.mark.parametrize('status, label', [('ok', 'OK'), ('low', 'Low'),
                                                ('out', 'Out of stock')])
