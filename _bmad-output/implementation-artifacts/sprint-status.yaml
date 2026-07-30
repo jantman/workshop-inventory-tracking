@@ -91,7 +91,7 @@ development_status:
   epic-5: backlog
   5-1-tri-state-quantity-and-location: done
   5-2-reorder-threshold-and-derived-effective-low: done
-  5-3-manual-stock-status: backlog
+  5-3-manual-stock-status: done
   5-4-derived-on-order-and-recently-received: backlog
   5-5-receipt-clears-manual-low: backlog
   5-6-unified-reorder-view: backlog
