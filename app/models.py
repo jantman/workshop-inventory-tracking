@@ -385,3 +385,96 @@ class Dimensions:
         )
 
 
+
+
+# ---------------------------------------------------------------------------
+# Product catalogue
+#
+# Enums and frozen value types for the product catalogue feature. The ORM models
+# they describe live in app/database.py; the logic that uses them lives in
+# app/catalog_service.py.
+# ---------------------------------------------------------------------------
+
+class IdentifierType(Enum):
+    """Every coded name a product can carry, by kind.
+
+    Values are stored in product_identifiers.id_type.
+    """
+    MPN = "MPN"                  # Manufacturer part number
+    GTIN = "GTIN"                # Retail barcode, stored as the 14-digit key
+    VENDOR = "VENDOR"            # A vendor's own item id (e.g. an ASIN); scoped by vendor
+    DISTRIBUTOR = "DISTRIBUTOR"  # A distributor's part number; scoped by vendor
+    INTERNAL = "INTERNAL"        # This system's own code; generated, never typed
+
+
+class ScanKind(Enum):
+    """What kind of thing a scan turned out to be.
+
+    INTERNAL, ECIA, GTIN and FREE_TEXT are produced by the pure classifier in
+    app/utils/scan_router.py. VENDOR is produced by resolution, not by
+    classification -- a vendor item id has no distinguishing shape, so it can
+    only be recognized by looking it up.
+    """
+    INTERNAL = "INTERNAL"
+    ECIA = "ECIA"
+    GTIN = "GTIN"
+    VENDOR = "VENDOR"
+    FREE_TEXT = "FREE_TEXT"
+
+
+class StockStatus(Enum):
+    """The operator's manual stock flag.
+
+    Independent of the counted quantity. NULL is the third, absent state and has
+    no member here.
+    """
+    LOW = "low"
+    OUT = "out"
+
+
+@dataclass(frozen=True)
+class ScanClassification:
+    """The structural answer to 'what kind of thing was scanned?'
+
+    Produced by app.utils.scan_router.classify(), which performs no database
+    lookup and never raises on a str.
+    """
+    kind: 'ScanKind'
+    value: str                       # Normalized payload; the raw scan when FREE_TEXT
+    raw: str                         # Always the scan exactly as captured
+    ecia_fields: Dict[str, str] = field(default_factory=dict)  # Empty unless kind is ECIA
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'kind': self.kind.value,
+            'value': self.value,
+            'raw': self.raw,
+            'ecia_fields': dict(self.ecia_fields),
+        }
+
+
+@dataclass(frozen=True)
+class ScanResolution:
+    """The answer to 'which product is it, and what should happen next?'
+
+    Produced by CatalogService.resolve_scan(). ``outcome`` is one of 'product',
+    'create' or 'search'; every well-formed scan gets one of the three, so no
+    scan dead-ends (FR-018, SC-008).
+
+    ``product`` is typed loosely because app/models.py must not import
+    app/database.py -- the ORM depends on this module, not the other way round.
+    """
+    outcome: str
+    classification: 'ScanClassification'
+    product: Optional[Any] = None            # Set iff outcome == 'product'
+    prefill: Dict[str, str] = field(default_factory=dict)  # For outcome == 'create'
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'outcome': self.outcome,
+            'classification': self.classification.to_dict(),
+            'product': self.product.to_dict() if self.product is not None else None,
+            'prefill': dict(self.prefill),
+        }

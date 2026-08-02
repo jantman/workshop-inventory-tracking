@@ -12,7 +12,7 @@ from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import enum
 import re
@@ -804,6 +804,439 @@ class ItemPhotoAssociation(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
         # Include photo data if available
+        if self.photo:
+            result['photo'] = self.photo.to_dict()
+        return result
+
+# ===========================================================================
+# Product catalogue
+#
+# Five new tables plus an attachment association. No existing table is modified;
+# inventory_items and its JA ID history invariants are untouched. The one
+# existing table reused is photos, via ProductAttachment.
+# ===========================================================================
+
+
+class Product(Base):
+    """
+    A distinct kind of thing the workshop holds.
+
+    Identity is this row's surrogate id and never a vendor's item identifier
+    (FR-008): a vendor may reuse an item id for a different product, and the
+    catalogue must survive that without merging two products.
+    """
+    __tablename__ = 'products'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # The operator's authoritative human-readable identity (FR-003), printed on
+    # the label.
+    description = Column(String(255), nullable=False)
+
+    manufacturer = Column(String(200), nullable=True)
+    # Convenience copy; the authoritative form is a ProductIdentifier of type MPN.
+    manufacturer_part_number = Column(String(100), nullable=True)
+
+    # Free-form and operator-authored. Never machine-generated.
+    specifications = Column(Text, nullable=True)
+
+    # Materialized path, canonical form per app/utils/category.py. NULL means
+    # uncategorized, which is an ordinary state and not an error.
+    category_path = Column(String(512), nullable=True, index=True)
+
+    location = Column(String(100), nullable=True)
+
+    # Tri-state (FR-022/FR-023): NULL = not tracked, 0 = tracked and none on
+    # hand, >0 = a count. New products default to NULL.
+    quantity = Column(Integer, nullable=True, default=None)
+    # When quantity was last set; drives the relative age display (FR-024).
+    quantity_updated_at = Column(DateTime, nullable=True)
+    # Only meaningful when quantity is not NULL (FR-026).
+    reorder_threshold = Column(Integer, nullable=True)
+
+    # The operator's manual flag (FR-025): NULL, 'low' or 'out'. Independent of
+    # quantity.
+    stock_status = Column(String(20), nullable=True)
+
+    notes = Column(Text, nullable=True)
+
+    date_added = Column(DateTime, nullable=False, default=func.now())
+    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+    identifiers = relationship(
+        'ProductIdentifier',
+        back_populates='product',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+    )
+    purchases = relationship(
+        'Purchase',
+        back_populates='product',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        order_by='Purchase.order_date',
+    )
+    tags = relationship(
+        'Tag',
+        secondary='product_tags',
+        back_populates='products',
+    )
+    attachments = relationship(
+        'ProductAttachment',
+        back_populates='product',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        order_by='ProductAttachment.display_order',
+    )
+
+    __table_args__ = (
+        CheckConstraint('quantity IS NULL OR quantity >= 0', name='ck_product_quantity_non_negative'),
+        CheckConstraint(
+            'reorder_threshold IS NULL OR reorder_threshold >= 0',
+            name='ck_product_reorder_threshold_non_negative'
+        ),
+        CheckConstraint(
+            "stock_status IS NULL OR stock_status IN ('low','out')",
+            name='ck_product_valid_stock_status'
+        ),
+        # Search over the description (FR-032).
+        Index('ix_products_description', 'description'),
+    )
+
+    def __repr__(self):
+        return f"<Product(id={self.id}, description='{self.description}')>"
+
+    @property
+    def is_tracked(self) -> bool:
+        """Whether a quantity is being counted at all (FR-022)"""
+        return self.quantity is not None
+
+    @property
+    def is_threshold_low(self) -> bool:
+        """Tracked, with a threshold, and at or below it (FR-026)"""
+        return (
+            self.quantity is not None
+            and self.reorder_threshold is not None
+            and self.quantity <= self.reorder_threshold
+        )
+
+    @property
+    def is_manually_low(self) -> bool:
+        """The operator said so, regardless of any count (FR-025)"""
+        return self.stock_status in ('low', 'out')
+
+    @property
+    def is_effectively_low(self) -> bool:
+        """The reorder view's membership test (FR-027)"""
+        return self.is_threshold_low or self.is_manually_low
+
+    @property
+    def quantity_age(self) -> Optional[timedelta]:
+        """How long ago the quantity was counted (FR-024).
+
+        None when the quantity is not tracked, and also when it is tracked but
+        no timestamp was recorded -- an unknown age is not an error, and the
+        display renders it as unknown rather than raising.
+        """
+        if self.quantity is None or self.quantity_updated_at is None:
+            return None
+        return datetime.now() - self.quantity_updated_at
+
+    @property
+    def internal_code(self) -> Optional[str]:
+        """This product's own scannable code, assigned at creation (FR-015)"""
+        for identifier in self.identifiers:
+            if identifier.id_type == 'INTERNAL':
+                return identifier.value
+        return None
+
+    def to_dict(self, include_related: bool = False) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        result = {
+            'id': self.id,
+            'description': self.description,
+            'manufacturer': self.manufacturer,
+            'manufacturer_part_number': self.manufacturer_part_number,
+            'specifications': self.specifications,
+            'category_path': self.category_path,
+            'location': self.location,
+            'quantity': self.quantity,
+            'quantity_updated_at': self.quantity_updated_at.isoformat() if self.quantity_updated_at else None,
+            'reorder_threshold': self.reorder_threshold,
+            'stock_status': self.stock_status,
+            'notes': self.notes,
+            'internal_code': self.internal_code,
+            'is_tracked': self.is_tracked,
+            'is_effectively_low': self.is_effectively_low,
+            'date_added': self.date_added.isoformat() if self.date_added else None,
+            'last_modified': self.last_modified.isoformat() if self.last_modified else None,
+        }
+
+        if include_related:
+            result['identifiers'] = [i.to_dict() for i in self.identifiers]
+            result['purchases'] = [p.to_dict() for p in self.purchases]
+            result['tags'] = [t.name for t in self.tags]
+
+        return result
+
+
+class Purchase(Base):
+    """
+    One acquisition of one product.
+
+    There is no status column: received_date IS NULL *is* the outstanding state
+    (FR-005), so the two can never disagree.
+    """
+    __tablename__ = 'purchases'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    product_id = Column(
+        Integer,
+        ForeignKey('products.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+
+    vendor = Column(String(200), nullable=False)
+    # The vendor's own identifier (ASIN, part number). Not identity -- FR-008.
+    vendor_item_id = Column(String(100), nullable=True, index=True)
+    # The raw vendor title captured at order time (FR-020), deliberately
+    # distinct from the operator's own products.description.
+    listing_title = Column(String(500), nullable=True)
+
+    order_date = Column(DateTime, nullable=True)
+    # NULL means outstanding (FR-005). Indexed: the reorder view filters on it.
+    received_date = Column(DateTime, nullable=True, index=True)
+
+    quantity = Column(Integer, nullable=True)
+    # Decimal, never float (Constitution III).
+    unit_price = Column(Numeric(10, 2), nullable=True)
+
+    # Order number; also filled from ECIA K / 1K.
+    order_reference = Column(String(200), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    date_added = Column(DateTime, nullable=False, default=func.now())
+    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+    product = relationship('Product', back_populates='purchases')
+    attachments = relationship(
+        'ProductAttachment',
+        back_populates='purchase',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        order_by='ProductAttachment.display_order',
+    )
+
+    __table_args__ = (
+        CheckConstraint('quantity IS NULL OR quantity > 0', name='ck_purchase_quantity_positive'),
+        CheckConstraint('unit_price IS NULL OR unit_price >= 0', name='ck_purchase_price_non_negative'),
+        # The purchase-history read (FR-006).
+        Index('ix_purchases_product_order_date', 'product_id', 'order_date'),
+    )
+
+    def __repr__(self):
+        return f"<Purchase(id={self.id}, product_id={self.product_id}, vendor='{self.vendor}')>"
+
+    @property
+    def is_outstanding(self) -> bool:
+        """Ordered but not yet received (FR-028)"""
+        return self.received_date is None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'vendor': self.vendor,
+            'vendor_item_id': self.vendor_item_id,
+            'listing_title': self.listing_title,
+            'order_date': self.order_date.isoformat() if self.order_date else None,
+            'received_date': self.received_date.isoformat() if self.received_date else None,
+            'is_outstanding': self.is_outstanding,
+            'quantity': self.quantity,
+            # str() rather than float() -- a price must not round-trip through
+            # binary floating point.
+            'unit_price': str(self.unit_price) if self.unit_price is not None else None,
+            'order_reference': self.order_reference,
+            'notes': self.notes,
+            'date_added': self.date_added.isoformat() if self.date_added else None,
+            'last_modified': self.last_modified.isoformat() if self.last_modified else None,
+        }
+
+
+class ProductIdentifier(Base):
+    """
+    Every coded name for a product, of a stated kind.
+
+    This is the table FR-007, FR-009, FR-014 and FR-018 all turn on.
+
+    ``vendor`` is part of the unique key because a vendor item id is only
+    meaningful within its vendor (FR-008). It is NOT NULL with an empty-string
+    default rather than nullable: SQL treats NULLs as distinct in a unique index,
+    so a nullable column would let two rows carry the same GTIN and FR-009 would
+    be a convention rather than a database property -- which is the entire reason
+    the constraint exists.
+    """
+    __tablename__ = 'product_identifiers'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    product_id = Column(
+        Integer,
+        ForeignKey('products.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+
+    # IdentifierType: MPN, GTIN, VENDOR, DISTRIBUTOR, INTERNAL.
+    id_type = Column(String(20), nullable=False)
+    # Stored normalized -- for GTIN this is the 14-digit key.
+    value = Column(String(128), nullable=False, index=True)
+    # Scope for VENDOR/DISTRIBUTOR. Empty string means "not vendor-scoped".
+    vendor = Column(String(200), nullable=False, default='', server_default='')
+
+    # True when the operator deliberately stored a value that failed check-digit
+    # validation (FR-010), so the override is visible rather than silent.
+    validation_overridden = Column(Boolean, nullable=False, default=False, server_default='0')
+
+    date_added = Column(DateTime, nullable=False, default=func.now())
+
+    product = relationship('Product', back_populates='identifiers')
+
+    __table_args__ = (
+        UniqueConstraint('id_type', 'value', 'vendor', name='uq_identifier_type_value_vendor'),
+    )
+
+    def __repr__(self):
+        return f"<ProductIdentifier(id={self.id}, type='{self.id_type}', value='{self.value}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'id_type': self.id_type,
+            'value': self.value,
+            'vendor': self.vendor or None,
+            'validation_overridden': self.validation_overridden,
+            'date_added': self.date_added.isoformat() if self.date_added else None,
+        }
+
+
+class Tag(Base):
+    """
+    A free-form label cutting across categories (FR-031).
+
+    Tags are created inline the same way categories are. A tag with no products
+    left is harmless and is not garbage-collected on a schedule; if unused tags
+    ever clutter the filter UI, that clutter is the measurement that justifies
+    adding a cleanup.
+    """
+    __tablename__ = 'tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Stored lowercase-normalized.
+    name = Column(String(64), nullable=False, unique=True)
+
+    products = relationship(
+        'Product',
+        secondary='product_tags',
+        back_populates='tags',
+    )
+
+    def __repr__(self):
+        return f"<Tag(id={self.id}, name='{self.name}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {'id': self.id, 'name': self.name}
+
+
+class ProductTag(Base):
+    """Association between a product and a tag"""
+    __tablename__ = 'product_tags'
+
+    product_id = Column(
+        Integer,
+        ForeignKey('products.id', ondelete='CASCADE'),
+        primary_key=True
+    )
+    tag_id = Column(
+        Integer,
+        ForeignKey('tags.id', ondelete='CASCADE'),
+        primary_key=True
+    )
+
+    def __repr__(self):
+        return f"<ProductTag(product_id={self.product_id}, tag_id={self.tag_id})>"
+
+
+class ProductAttachment(Base):
+    """
+    A supporting file on a product or a purchase (FR-034).
+
+    The bytes live in the existing photos table, which already stores three
+    sizes, enforces a MIME allow-list, and renders PDF thumbnails with PyMuPDF --
+    so datasheets work with no second blob store.
+
+    A datasheet belongs to the product; a saved listing belongs to the purchase
+    that captured it. Exactly one owner, never both and never neither.
+    """
+    __tablename__ = 'product_attachments'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    photo_id = Column(
+        Integer,
+        ForeignKey('photos.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    product_id = Column(
+        Integer,
+        ForeignKey('products.id', ondelete='CASCADE'),
+        nullable=True,
+        index=True
+    )
+    purchase_id = Column(
+        Integer,
+        ForeignKey('purchases.id', ondelete='CASCADE'),
+        nullable=True,
+        index=True
+    )
+
+    display_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+
+    photo = relationship('Photo')
+    product = relationship('Product', back_populates='attachments')
+    purchase = relationship('Purchase', back_populates='attachments')
+
+    __table_args__ = (
+        CheckConstraint(
+            '(product_id IS NOT NULL) <> (purchase_id IS NOT NULL)',
+            name='ck_attachment_exactly_one_owner'
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ProductAttachment(id={self.id}, photo_id={self.photo_id}, "
+            f"product_id={self.product_id}, purchase_id={self.purchase_id})>"
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        result = {
+            'id': self.id,
+            'photo_id': self.photo_id,
+            'product_id': self.product_id,
+            'purchase_id': self.purchase_id,
+            'display_order': self.display_order,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
         if self.photo:
             result['photo'] = self.photo.to_dict()
         return result
