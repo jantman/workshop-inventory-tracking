@@ -299,9 +299,9 @@ description, specification, and identifier.
 
 ### Merge gates
 
-- [ ] T090 Regenerate documentation screenshots with `nox -s screenshots_headless` and commit them. This feature changes `app/templates/**`, `app/static/css/**`, and `app/static/js/**`, so **CI blocks the merge on stale screenshots**
-- [ ] T091 Verify screenshots with `nox -s screenshots_verify` — valid PNG, RGB/RGBA, under 500 KB each
-- [ ] T092 [P] Update `docs/user-manual.md` with the product catalogue workflows, matching how the original label-printing feature documented itself
+- [X] T090 Regenerate documentation screenshots with `nox -s screenshots_headless` and commit them. This feature changes `app/templates/**`, `app/static/css/**`, and `app/static/js/**`, so **CI blocks the merge on stale screenshots**
+- [X] T091 Verify screenshots with `nox -s screenshots_verify` — valid PNG, RGB/RGBA, under 500 KB each
+- [X] T092 [P] Update `docs/user-manual.md` with the product catalogue workflows, matching how the original label-printing feature documented itself
 - [ ] T093 Run the full `quickstart.md` validation — all nine scenarios and the pre-merge checklist
 - [ ] T094 Confirm `nox -s tests` and `nox -s e2e` are green, and open the pull request
 

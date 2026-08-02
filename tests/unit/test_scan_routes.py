@@ -27,7 +27,10 @@ class TestSuccessfulAnswers:
         body = response.get_json()
         assert body['outcome'] == 'product'
         assert body['product']['id'] == product.id
-        assert body['url'] == f'/products/{product.id}'
+        # from_scan is what makes the destination offer "add a purchase to this
+        # one" rather than just displaying it (FR-019).
+        assert body['url'].startswith(f'/products/{product.id}')
+        assert 'from_scan=1' in body['url']
 
     def test_an_unknown_barcode_is_200_with_an_offer_to_create(self, client):
         """Not a 404 -- FR-018"""
