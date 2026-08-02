@@ -1,0 +1,46 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-pencil{% endblock %}
+{% block page_heading %}Edit Product{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_detail', product_id=product.id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back to Product
+</a>
+{% endblock %}
+
+{% block product_content %}
+{% set values = {
+    'description': product.description,
+    'manufacturer': product.manufacturer,
+    'manufacturer_part_number': product.manufacturer_part_number,
+    'specifications': product.specifications,
+    'category_path': product.category_path,
+    'location': product.location,
+    'notes': product.notes,
+} %}
+
+<form id="product-form" method="POST" data-draft-key="product-edit-{{ product.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="row">
+        <div class="col-lg-8">
+            {% with values = values, show_tags = False %}
+                {% include "product/_form_fields.html" %}
+            {% endwith %}
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-5">
+        <button type="submit" class="btn btn-primary btn-lg" id="save-product-btn">
+            <i class="bi bi-check-circle"></i> Save Changes
+        </button>
+        <a href="{{ url_for('product.product_detail', product_id=product.id) }}"
+           class="btn btn-outline-secondary btn-lg">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/product-form.js') }}"></script>
+{% endblock %}

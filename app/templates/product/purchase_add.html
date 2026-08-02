@@ -1,0 +1,112 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-bag-plus{% endblock %}
+{% block page_heading %}Record a Purchase{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_detail', product_id=product.id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back to Product
+</a>
+{% endblock %}
+
+{% block product_content %}
+<p class="text-muted">
+    Adding a purchase to <strong>{{ product.description }}</strong>. Buying the same thing
+    again builds one price history rather than a second product.
+</p>
+
+<form id="purchase-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-shop"></i> Provenance</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor" class="form-label">Vendor *</label>
+                            <input type="text" class="form-control" id="vendor" name="vendor"
+                                   maxlength="200" required
+                                   value="{{ form_data.get('vendor') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor_item_id" class="form-label">Vendor Item ID</label>
+                            <input type="text" class="form-control" id="vendor_item_id"
+                                   name="vendor_item_id" maxlength="100"
+                                   value="{{ form_data.get('vendor_item_id') or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="listing_title" class="form-label">Listing Title</label>
+                        <input type="text" class="form-control" id="listing_title"
+                               name="listing_title" maxlength="500"
+                               value="{{ form_data.get('listing_title') or '' }}">
+                        <div class="form-text">The vendor's own wording, kept as they wrote it.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="order_reference" class="form-label">Order Reference</label>
+                        <input type="text" class="form-control" id="order_reference"
+                               name="order_reference" maxlength="200"
+                               value="{{ form_data.get('order_reference') or '' }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-calendar-check"></i> Order &amp; Receipt</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="order_date" class="form-label">Order Date</label>
+                            <input type="date" class="form-control" id="order_date" name="order_date"
+                                   value="{{ form_data.get('order_date') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="received_date" class="form-label">Received Date</label>
+                            <input type="date" class="form-control" id="received_date"
+                                   name="received_date"
+                                   value="{{ form_data.get('received_date') or '' }}">
+                            <div class="form-text">Leave blank while the order is still outstanding.</div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity"
+                                   min="1" step="1" value="{{ form_data.get('quantity') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="unit_price" class="form-label">Unit Price</label>
+                            <input type="text" class="form-control" id="unit_price" name="unit_price"
+                                   inputmode="decimal"
+                                   value="{{ form_data.get('unit_price') or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes"
+                                  rows="3">{{ form_data.get('notes') or '' }}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-5">
+        <button type="submit" class="btn btn-primary btn-lg" id="save-purchase-btn">
+            <i class="bi bi-check-circle"></i> Record Purchase
+        </button>
+        <a href="{{ url_for('product.product_detail', product_id=product.id) }}"
+           class="btn btn-outline-secondary btn-lg">Cancel</a>
+    </div>
+</form>
+{% endblock %}

@@ -54,6 +54,17 @@
                             <li><a class="dropdown-item" href="{{ url_for('main.inventory_shorten') }}"><i class="bi bi-scissors"></i> Shorten Items</a></li>
                         </ul>
                     </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" id="products-nav">
+                            <i class="bi bi-box-seam"></i> Products
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('product.product_new') }}"><i class="bi bi-plus-circle"></i> Add Product</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('product.product_search') }}"><i class="bi bi-list"></i> All Products</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('product.product_capture') }}"><i class="bi bi-link-45deg"></i> Capture an Order</a></li>
+                        </ul>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('admin.materials_overview') }}">
                             <i class="bi bi-gear-fill"></i> Admin
@@ -61,6 +72,22 @@
                     </li>
                 </ul>
                 
+                <!-- Scan anything: a scan is available wherever the operator already is -->
+                <div class="d-flex me-3">
+                    <div class="input-group" style="width: 200px;">
+                        <span class="input-group-text bg-light border-0" title="Scan a product code">
+                            <i class="bi bi-upc-scan"></i>
+                        </span>
+                        <input type="text"
+                               class="form-control border-0"
+                               id="global-scan-input"
+                               data-scan-capture
+                               placeholder="Scan a code"
+                               title="Scan or type a code and press Enter"
+                               autocomplete="off">
+                    </div>
+                </div>
+
                 <!-- JA ID Quick Lookup -->
                 <div class="d-flex me-3">
                     <div class="input-group" style="width: 200px;">
@@ -138,6 +165,7 @@
     <!-- Custom JavaScript -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/photo-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scan-capture.js') }}"></script>
     
     <!-- Page-specific scripts -->
     {% block scripts %}{% endblock %}

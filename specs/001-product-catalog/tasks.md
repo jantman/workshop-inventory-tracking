@@ -46,9 +46,9 @@ These come from the constitution and apply throughout; they are not repeated per
 
 **Purpose**: Wire the new blueprint into the app so later phases have somewhere to land.
 
-- [ ] T001 Establish the baseline **first, before any edit**: run `nox -s tests` and `nox -s e2e` on the untouched tree and record that both are green, so any later failure is attributable to this feature. Not `[P]` — a baseline taken after T002 or T003 measures nothing
-- [ ] T002 Create `app/product/__init__.py` defining `Blueprint('product', __name__)` and register it in `create_app()` in `app/__init__.py` alongside `main_bp` and `admin_bp`
-- [ ] T003 [P] Create `app/templates/product/` with a shared layout extending `app/templates/base.html`, and add a "Products" entry to the nav in `app/templates/base.html`
+- [X] T001 Establish the baseline **first, before any edit**: run `nox -s tests` and `nox -s e2e` on the untouched tree and record that both are green, so any later failure is attributable to this feature. Not `[P]` — a baseline taken after T002 or T003 measures nothing
+- [X] T002 Create `app/product/__init__.py` defining `Blueprint('product', __name__)` and register it in `create_app()` in `app/__init__.py` alongside `main_bp` and `admin_bp`
+- [X] T003 [P] Create `app/templates/product/` with a shared layout extending `app/templates/base.html`, and add a "Products" entry to the nav in `app/templates/base.html`
 
 ---
 
@@ -63,43 +63,43 @@ exist before it can scan one, label one, or file a purchase against one.
 
 ### Domain types
 
-- [ ] T004 [P] Add `IdentifierType`, `ScanKind`, and `StockStatus` enums to `app/models.py` per [data-model.md](./data-model.md) §8
-- [ ] T005 [P] Add frozen `ScanClassification` and `ScanResolution` dataclasses to `app/models.py` per [contracts/scan-contract.md](./contracts/scan-contract.md)
+- [X] T004 [P] Add `IdentifierType`, `ScanKind`, and `StockStatus` enums to `app/models.py` per [data-model.md](./data-model.md) §8
+- [X] T005 [P] Add frozen `ScanClassification` and `ScanResolution` dataclasses to `app/models.py` per [contracts/scan-contract.md](./contracts/scan-contract.md)
 
 ### ORM models
 
-- [ ] T006 Add `Product` ORM model to `app/database.py` per [data-model.md](./data-model.md) §1 — nullable `quantity` (tri-state), `quantity_updated_at`, `reorder_threshold`, `stock_status`, check constraints, indexes on `category_path` and `description`
-- [ ] T007 Add `Purchase` ORM model to `app/database.py` per [data-model.md](./data-model.md) §2 — `unit_price` as `Numeric(10, 2)`, `received_date` nullable as the outstanding/complete state, indexes on `(product_id, order_date)` and `received_date`
-- [ ] T008 Add `ProductIdentifier` ORM model to `app/database.py` per [data-model.md](./data-model.md) §3, including the `uq_identifier_type_value_vendor` unique constraint that makes FR-009 a database property rather than a convention. The `vendor` column is part of that key **because of FR-008** — a vendor item id is only meaningful within its vendor, and `products.id` never derives from this table, so the worst case of a reused vendor identifier is a duplicate identifier row to resolve, not two products silently merged
-- [ ] T009 [P] Add `Tag` and `ProductTag` ORM models to `app/database.py` per [data-model.md](./data-model.md) §4
-- [ ] T010 [P] Add `ProductAttachment` ORM model to `app/database.py` per [data-model.md](./data-model.md) §6, with the exactly-one-owner check constraint `(product_id IS NOT NULL) <> (purchase_id IS NOT NULL)`
+- [X] T006 Add `Product` ORM model to `app/database.py` per [data-model.md](./data-model.md) §1 — nullable `quantity` (tri-state), `quantity_updated_at`, `reorder_threshold`, `stock_status`, check constraints, indexes on `category_path` and `description`
+- [X] T007 Add `Purchase` ORM model to `app/database.py` per [data-model.md](./data-model.md) §2 — `unit_price` as `Numeric(10, 2)`, `received_date` nullable as the outstanding/complete state, indexes on `(product_id, order_date)` and `received_date`
+- [X] T008 Add `ProductIdentifier` ORM model to `app/database.py` per [data-model.md](./data-model.md) §3, including the `uq_identifier_type_value_vendor` unique constraint that makes FR-009 a database property rather than a convention. The `vendor` column is part of that key **because of FR-008** — a vendor item id is only meaningful within its vendor, and `products.id` never derives from this table, so the worst case of a reused vendor identifier is a duplicate identifier row to resolve, not two products silently merged
+- [X] T009 [P] Add `Tag` and `ProductTag` ORM models to `app/database.py` per [data-model.md](./data-model.md) §4
+- [X] T010 [P] Add `ProductAttachment` ORM model to `app/database.py` per [data-model.md](./data-model.md) §6, with the exactly-one-owner check constraint `(product_id IS NOT NULL) <> (purchase_id IS NOT NULL)`
 
 ### Migrations
 
-- [ ] T011 Create Alembic revision for `products` in `migrations/versions/`
-- [ ] T012 Create Alembic revision for `purchases` (FK → products) in `migrations/versions/`
-- [ ] T013 Create Alembic revision for `product_identifiers` (FK → products, unique index) in `migrations/versions/`
-- [ ] T014 [P] Create Alembic revision for `tags` and `product_tags` in `migrations/versions/`
-- [ ] T015 [P] Create Alembic revision for `product_attachments` (FKs → photos, products, purchases) in `migrations/versions/`
-- [ ] T016 Exercise **every** new revision's `downgrade` against a real MariaDB via `venv/bin/python manage.py db downgrade` — indexes and foreign keys must drop before the tables they depend on. SQLite will not catch this ordering fault and this repository has hit it before (Constitution V)
+- [X] T011 Create Alembic revision for `products` in `migrations/versions/`
+- [X] T012 Create Alembic revision for `purchases` (FK → products) in `migrations/versions/`
+- [X] T013 Create Alembic revision for `product_identifiers` (FK → products, unique index) in `migrations/versions/`
+- [X] T014 [P] Create Alembic revision for `tags` and `product_tags` in `migrations/versions/`
+- [X] T015 [P] Create Alembic revision for `product_attachments` (FKs → photos, products, purchases) in `migrations/versions/`
+- [X] T016 Exercise **every** new revision's `downgrade` against a real MariaDB via `venv/bin/python manage.py db downgrade` — indexes and foreign keys must drop before the tables they depend on. SQLite will not catch this ordering fault and this repository has hit it before (Constitution V)
 
 ### Internal identifier
 
-- [ ] T017 [P] Implement `app/utils/internal_id.py` — a pure module generating and validating `WIT` + 10 Crockford-base32 characters per [research.md](./research.md) §2. No Flask, no DB, no config imports
-- [ ] T018 [P] Unit tests for `app/utils/internal_id.py` in `tests/unit/test_internal_id.py` — alphabet excludes I/L/O/U, generated values validate, malformed values reject
+- [X] T017 [P] Implement `app/utils/internal_id.py` — a pure module generating and validating `WIT` + 10 Crockford-base32 characters per [research.md](./research.md) §2. No Flask, no DB, no config imports
+- [X] T018 [P] Unit tests for `app/utils/internal_id.py` in `tests/unit/test_internal_id.py` — alphabet excludes I/L/O/U, generated values validate, malformed values reject
 
 ### Service and routes
 
-- [ ] T019 Create `app/catalog_service.py` with a `CatalogService` class following the `InventoryService` session pattern (`storage.engine` → `sessionmaker`), as recorded in [plan.md](./plan.md) § Note on the Storage ABC
-- [ ] T020 Implement product create / get / update in `app/catalog_service.py`, assigning an `INTERNAL` identifier at creation time so every product is scannable before any label exists
-- [ ] T021 Implement product create, edit, and detail routes in `app/product/routes.py`, delegating all logic to `CatalogService`
-- [ ] T022 [P] Create `app/templates/product/add.html`, `edit.html`, and `detail.html`
+- [X] T019 Create `app/catalog_service.py` with a `CatalogService` class following the `InventoryService` session pattern (`storage.engine` → `sessionmaker`), as recorded in [plan.md](./plan.md) § Note on the Storage ABC
+- [X] T020 Implement product create / get / update in `app/catalog_service.py`, assigning an `INTERNAL` identifier at creation time so every product is scannable before any label exists
+- [X] T021 Implement product create, edit, and detail routes in `app/product/routes.py`, delegating all logic to `CatalogService`
+- [X] T022 [P] Create `app/templates/product/add.html`, `edit.html`, and `detail.html`
 
 ### Tests
 
-- [ ] T023 [P] Unit tests for the new ORM models and their validation in `tests/unit/test_product_model.py` — including that `quantity` defaults to `NULL` (FR-023) and that price round-trips as `Decimal`
-- [ ] T024 [P] Unit tests for `CatalogService` product CRUD in `tests/unit/test_catalog_service.py`, built through the `test_storage` → `app` → `client` fixtures in `tests/conftest.py`. **Include FR-008 directly**: the same `vendor_item_id` recorded under two different vendors yields two distinct products; re-using one vendor's item identifier for a second product creates a second product rather than mutating or merging the first; and deleting a product's every identifier leaves the product itself intact. This is the edge case at [spec.md](./spec.md) L141 and nothing else in the suite covers it
-- [ ] T025 [P] E2E test for product create / edit / detail in `tests/e2e/test_product_crud.py`
+- [X] T023 [P] Unit tests for the new ORM models and their validation in `tests/unit/test_product_model.py` — including that `quantity` defaults to `NULL` (FR-023) and that price round-trips as `Decimal`
+- [X] T024 [P] Unit tests for `CatalogService` product CRUD in `tests/unit/test_catalog_service.py`, built through the `test_storage` → `app` → `client` fixtures in `tests/conftest.py`. **Include FR-008 directly**: the same `vendor_item_id` recorded under two different vendors yields two distinct products; re-using one vendor's item identifier for a second product creates a second product rather than mutating or merging the first; and deleting a product's every identifier leaves the product itself intact. This is the edge case at [spec.md](./spec.md) L141 and nothing else in the suite covers it
+- [X] T025 [P] E2E test for product create / edit / detail in `tests/e2e/test_product_crud.py`
 
 **Checkpoint**: A product can be created, edited, and viewed, and carries an internal code. User
 stories can now begin.
@@ -120,28 +120,28 @@ Phase 2, so this story stands alone; printing it onto a label is US2.
 
 ### Pure modules and their tests
 
-- [ ] T026 [P] [US1] Implement `app/utils/gtin.py` — normalize lengths 8/12/13/14 to a 14-digit key by left-zero-padding, GS1 mod-10 check digit, outright refusal of the all-zero key (the wedge no-read), per [research.md](./research.md) §3
-- [ ] T027 [P] [US1] Unit tests for `app/utils/gtin.py` in `tests/unit/test_gtin.py` — UPC-A and its EAN-13 form normalize to the same key, bad check digits reject, all-zero refuses with no override
-- [ ] T028 [US1] Implement `app/utils/scan_router.py` `classify()` with rules 1, 3, and 5 from [contracts/scan-contract.md](./contracts/scan-contract.md) (rule 2, ECIA, is added in US4). Pure module — stdlib, `app.models`, `app.utils.gtin`, `app.utils.internal_id` only
-- [ ] T029 [P] [US1] Unit tests for `classify()` in `tests/unit/test_scan_router.py` — **never raises on any `str`** (empty, 4 KB of control characters, lone surrogate), internal code outranks a check-digit-valid all-digit string, everything unmatched lands on `FREE_TEXT`
+- [X] T026 [P] [US1] Implement `app/utils/gtin.py` — normalize lengths 8/12/13/14 to a 14-digit key by left-zero-padding, GS1 mod-10 check digit, outright refusal of the all-zero key (the wedge no-read), per [research.md](./research.md) §3
+- [X] T027 [P] [US1] Unit tests for `app/utils/gtin.py` in `tests/unit/test_gtin.py` — UPC-A and its EAN-13 form normalize to the same key, bad check digits reject, all-zero refuses with no override
+- [X] T028 [US1] Implement `app/utils/scan_router.py` `classify()` with rules 1, 3, and 5 from [contracts/scan-contract.md](./contracts/scan-contract.md) (rule 2, ECIA, is added in US4). Pure module — stdlib, `app.models`, `app.utils.gtin`, `app.utils.internal_id` only
+- [X] T029 [P] [US1] Unit tests for `classify()` in `tests/unit/test_scan_router.py` — **never raises on any `str`** (empty, 4 KB of control characters, lone surrogate), internal code outranks a check-digit-valid all-digit string, everything unmatched lands on `FREE_TEXT`
 
 ### Service and endpoint
 
-- [ ] T030 [US1] Implement `CatalogService.resolve_scan()` in `app/catalog_service.py` returning `outcome` of `product` / `create` / `search` per [contracts/scan-contract.md](./contracts/scan-contract.md) §2, including the vendor-identifier lookup that runs after a `FREE_TEXT` classification
-- [ ] T031 [P] [US1] Unit tests for `resolve_scan()` in `tests/unit/test_scan_resolution.py` — a miss yields `create` with the identifier pre-attached, never a `404`
-- [ ] T032 [US1] Add `POST /api/scan` to `app/product/routes.py` — returns `200` for every well-formed request; `4xx` only for a malformed request body, never for an unrecognized scan
-- [ ] T033 [US1] Implement identifier add and remove in `app/catalog_service.py` and `app/product/routes.py`, including the FR-010 operator override path recorded via `validation_overridden`
+- [X] T030 [US1] Implement `CatalogService.resolve_scan()` in `app/catalog_service.py` returning `outcome` of `product` / `create` / `search` per [contracts/scan-contract.md](./contracts/scan-contract.md) §2, including the vendor-identifier lookup that runs after a `FREE_TEXT` classification
+- [X] T031 [P] [US1] Unit tests for `resolve_scan()` in `tests/unit/test_scan_resolution.py` — a miss yields `create` with the identifier pre-attached, never a `404`
+- [X] T032 [US1] Add `POST /api/scan` to `app/product/routes.py` — returns `200` for every well-formed request; `4xx` only for a malformed request body, never for an unrecognized scan
+- [X] T033 [US1] Implement identifier add and remove in `app/catalog_service.py` and `app/product/routes.py`, including the FR-010 operator override path recorded via `validation_overridden`
 
 ### UI
 
-- [ ] T034 [US1] Create `app/static/js/scan-capture.js` — buffer rapid wedge keystrokes and flush on Enter or inter-key timeout, following the pattern in `app/static/js/inventory-add.js`. **Must preserve control characters** (`GS` 0x1d, `RS` 0x1e, `EOT` 0x04); stripping them silently breaks US4 and nothing else will catch it
-- [ ] T035 [US1] Render the scan outcome: resolve to the product detail view, to a create form, or to search results, from `app/product/routes.py` and `app/templates/product/`
-- [ ] T036 [US1] Implement the create-with-prefilled-identifier path so an unknown scan lands on a create form carrying the scanned identifier (FR-018)
+- [X] T034 [US1] Create `app/static/js/scan-capture.js` — buffer rapid wedge keystrokes and flush on Enter or inter-key timeout, following the pattern in `app/static/js/inventory-add.js`. **Must preserve control characters** (`GS` 0x1d, `RS` 0x1e, `EOT` 0x04); stripping them silently breaks US4 and nothing else will catch it
+- [X] T035 [US1] Render the scan outcome: resolve to the product detail view, to a create form, or to search results, from `app/product/routes.py` and `app/templates/product/`
+- [X] T036 [US1] Implement the create-with-prefilled-identifier path so an unknown scan lands on a create form carrying the scanned identifier (FR-018)
 
 ### Tests
 
-- [ ] T037 [P] [US1] Route tests for `POST /api/scan` in `tests/unit/test_scan_routes.py`
-- [ ] T038 [P] [US1] E2E test in `tests/e2e/test_wedge_scan.py` — scan an internal code and land on the product; scan an unknown GTIN and land on a create form with it attached; scan junk and land on search
+- [X] T037 [P] [US1] Route tests for `POST /api/scan` in `tests/unit/test_scan_routes.py`
+- [X] T038 [P] [US1] E2E test in `tests/e2e/test_wedge_scan.py` — scan an internal code and land on the product; scan an unknown GTIN and land on a create form with it attached; scan junk and land on search
 
 **Checkpoint**: US1 is independently functional. This is the MVP.
 
@@ -157,13 +157,13 @@ composed image carries all three elements. Reprint and confirm no data re-entry 
 
 **Covers**: FR-004, FR-005, FR-011, FR-012, FR-013, FR-037, SC-003
 
-- [ ] T039 [US2] Implement purchase recording in `app/catalog_service.py` — vendor, item identifier, order date, received state, quantity, price as `Decimal`; reject a `received_date` earlier than its `order_date`
-- [ ] T040 [US2] Add the purchase-record route to `app/product/routes.py` and create `app/templates/product/purchase_add.html`
-- [ ] T041 [US2] Implement `app/services/product_label.py` `compose_product_label()` — Pillow canvas with a wrapped description band, a provenance line, and the Code128 symbol **plus** the code as text, sized to the chosen `LABEL_TYPES` entry, returning a PNG `BytesIO`. Per [contracts/label-contract.md](./contracts/label-contract.md); the human-readable code is never dropped to gain space, the description truncates first
-- [ ] T042 [US2] Add `POST /api/products/<id>/label` to `app/product/routes.py`, passing the composed PNG to the existing `LpPrinter.print_images()` with unchanged `lp_options` from `app/services/label_printer.py`. Reject an unknown label type with `400` listing the valid keys
-- [ ] T043 [US2] Add a label-print control to `app/templates/product/detail.html` reusing the existing `GET /api/labels/types` endpoint and `app/static/js/label-printing-modal.js` patterns, offering all six stocks (FR-037)
-- [ ] T044 [P] [US2] Unit tests for label composition in `tests/unit/test_product_label.py` — output dimensions match the stock, description and code both present, a long description truncates rather than overflowing, a product with no purchases composes with no provenance band. **No test may reach `LpPrinter.print_images()`**
-- [ ] T045 [P] [US2] E2E test in `tests/e2e/test_label_print.py` — the print request reaches the `TESTING` / `DISABLE_LABEL_PRINTING` short-circuit with the expected product and label type, and reprint requires no re-entry
+- [X] T039 [US2] Implement purchase recording in `app/catalog_service.py` — vendor, item identifier, order date, received state, quantity, price as `Decimal`; reject a `received_date` earlier than its `order_date`
+- [X] T040 [US2] Add the purchase-record route to `app/product/routes.py` and create `app/templates/product/purchase_add.html`
+- [X] T041 [US2] Implement `app/services/product_label.py` `compose_product_label()` — Pillow canvas with a wrapped description band, a provenance line, and the Code128 symbol **plus** the code as text, sized to the chosen `LABEL_TYPES` entry, returning a PNG `BytesIO`. Per [contracts/label-contract.md](./contracts/label-contract.md); the human-readable code is never dropped to gain space, the description truncates first
+- [X] T042 [US2] Add `POST /api/products/<id>/label` to `app/product/routes.py`, passing the composed PNG to the existing `LpPrinter.print_images()` with unchanged `lp_options` from `app/services/label_printer.py`. Reject an unknown label type with `400` listing the valid keys
+- [X] T043 [US2] Add a label-print control to `app/templates/product/detail.html` reusing the existing `GET /api/labels/types` endpoint and `app/static/js/label-printing-modal.js` patterns, offering all six stocks (FR-037)
+- [X] T044 [P] [US2] Unit tests for label composition in `tests/unit/test_product_label.py` — output dimensions match the stock, description and code both present, a long description truncates rather than overflowing, a product with no purchases composes with no provenance band. **No test may reach `LpPrinter.print_images()`**
+- [X] T045 [P] [US2] E2E test in `tests/e2e/test_label_print.py` — the print request reaches the `TESTING` / `DISABLE_LABEL_PRINTING` short-circuit with the expected product and label type, and reprint requires no re-entry
 
 **Checkpoint**: The full core loop works — create, print, scan back.
 
@@ -203,12 +203,12 @@ scan is surfaced rather than failing silently.
 
 **Covers**: FR-016, FR-017, SC-004
 
-- [ ] T053 [P] [US4] Implement `app/utils/ecia.py` — ISO/IEC 15434 format-06 grammar extracting `P`, `1P`, `Q`, `K`, `1K`, `9D`, `10D` as **uncoerced strings**, ignoring every other legal MH10.8.2 identifier silently. Pure module; never raises on a `str`. Per [research.md](./research.md) §4
-- [ ] T054 [P] [US4] Unit tests for `app/utils/ecia.py` in `tests/unit/test_ecia.py` — including the two edge cases from research: a character glued onto the format indicator is not an envelope, and a half-delivered trailer (`<data> EOT` with no `RS`) must not read `EOT` as data
-- [ ] T055 [US4] Add rule 2 to `classify()` in `app/utils/scan_router.py` — a format-06 envelope carrying **at least one recognized identifier** classifies `ECIA`; a well-formed envelope carrying nothing readable falls through to `FREE_TEXT`
-- [ ] T056 [US4] Extend `CatalogService.resolve_scan()` with the ECIA branch — look up by `1P`, and on a miss return `create` with every extracted field in `prefill`
-- [ ] T057 [US4] Render the pre-filled draft in `app/templates/product/add.html` with every extracted value editable before saving (FR-017)
-- [ ] T058 [P] [US4] E2E test in `tests/e2e/test_ecia_scan.py` — a real-shaped envelope produces a populated editable draft; a corrupted one surfaces the raw scan
+- [X] T053 [P] [US4] Implement `app/utils/ecia.py` — ISO/IEC 15434 format-06 grammar extracting `P`, `1P`, `Q`, `K`, `1K`, `9D`, `10D` as **uncoerced strings**, ignoring every other legal MH10.8.2 identifier silently. Pure module; never raises on a `str`. Per [research.md](./research.md) §4
+- [X] T054 [P] [US4] Unit tests for `app/utils/ecia.py` in `tests/unit/test_ecia.py` — including the two edge cases from research: a character glued onto the format indicator is not an envelope, and a half-delivered trailer (`<data> EOT` with no `RS`) must not read `EOT` as data
+- [X] T055 [US4] Add rule 2 to `classify()` in `app/utils/scan_router.py` — a format-06 envelope carrying **at least one recognized identifier** classifies `ECIA`; a well-formed envelope carrying nothing readable falls through to `FREE_TEXT`
+- [X] T056 [US4] Extend `CatalogService.resolve_scan()` with the ECIA branch — look up by `1P`, and on a miss return `create` with every extracted field in `prefill`
+- [X] T057 [US4] Render the pre-filled draft in `app/templates/product/add.html` with every extracted value editable before saving (FR-017)
+- [X] T058 [P] [US4] E2E test in `tests/e2e/test_ecia_scan.py` — a real-shaped envelope produces a populated editable draft; a corrupted one surfaces the raw scan
 
 **Checkpoint**: Distributor parts enter the catalogue cheaply.
 
@@ -269,8 +269,8 @@ description, specification, and identifier.
 
 **Covers**: FR-030, FR-031, FR-032, SC-009
 
-- [ ] T074 [P] [US7] Implement `app/utils/category.py` — canonical materialized path (lowercase, `/`-separated, no empty segments, stripped), the `path = X OR path LIKE 'X/%'` segment-boundary predicate, and blank/`None` yielding "no category" rather than an error. Normalization only shortens or lowercases; **never slugs** (research §6)
-- [ ] T075 [P] [US7] Unit tests for `app/utils/category.py` in `tests/unit/test_category.py` — canonicalization, boundary predicate does not match `foo-bar` when filtering `foo`, blank inputs are not errors
+- [X] T074 [P] [US7] Implement `app/utils/category.py` — canonical materialized path (lowercase, `/`-separated, no empty segments, stripped), the `path = X OR path LIKE 'X/%'` segment-boundary predicate, and blank/`None` yielding "no category" rather than an error. Normalization only shortens or lowercases; **never slugs** (research §6)
+- [X] T075 [P] [US7] Unit tests for `app/utils/category.py` in `tests/unit/test_category.py` — canonicalization, boundary predicate does not match `foo-bar` when filtering `foo`, blank inputs are not errors
 - [ ] T076 [US7] Implement inline category creation during product entry in `app/catalog_service.py` and `app/templates/product/add.html` — typing a new category creates it with no separate setup step (FR-030)
 - [ ] T077 [US7] Implement tag create / attach / detach in `app/catalog_service.py` with lowercase normalization, plus `GET /api/tags` in `app/product/routes.py` (FR-031). **No standalone tag browse page** — the API plus the tag filter on the catalogue list (T079) satisfies FR-031; a browse page for a flat list is a surface Principle I does not pay for. Categories keep theirs (T080) because a hierarchy is worth browsing
 - [ ] T078 [US7] Implement search in `app/catalog_service.py` across description, specifications, identifiers, and part numbers (FR-032)

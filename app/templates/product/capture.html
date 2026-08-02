@@ -1,0 +1,107 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-link-45deg{% endblock %}
+{% block page_heading %}Capture an Order{% endblock %}
+
+{% block product_content %}
+<div class="row">
+    <div class="col-lg-7">
+        <form id="capture-form" method="POST" action="{{ url_for('product.product_capture') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-clipboard"></i> Paste the listing URL</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="url" class="form-label">Listing URL</label>
+                        <input type="url" class="form-control" id="url" name="url"
+                               placeholder="https://www.amazon.com/dp/B0ABCDEFGH"
+                               value="{{ form_data.get('url') or '' }}">
+                        <div class="form-text">
+                            The vendor and, for Amazon, the item identifier are read from the
+                            URL. Fill in anything it cannot yield.
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor" class="form-label">Vendor</label>
+                            <input type="text" class="form-control" id="vendor" name="vendor"
+                                   maxlength="200" value="{{ form_data.get('vendor') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor_item_id" class="form-label">Vendor Item ID</label>
+                            <input type="text" class="form-control" id="vendor_item_id"
+                                   name="vendor_item_id" maxlength="100"
+                                   value="{{ form_data.get('vendor_item_id') or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="listing_title" class="form-label">Listing Title</label>
+                        <input type="text" class="form-control" id="listing_title"
+                               name="listing_title" maxlength="500"
+                               value="{{ form_data.get('listing_title') or '' }}">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="order_date" class="form-label">Order Date</label>
+                            <input type="date" class="form-control" id="order_date"
+                                   name="order_date" value="{{ form_data.get('order_date') or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity"
+                                   min="1" step="1" value="{{ form_data.get('quantity') or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="unit_price" class="form-label">Unit Price</label>
+                            <input type="text" class="form-control" id="unit_price"
+                                   name="unit_price" inputmode="decimal"
+                                   value="{{ form_data.get('unit_price') or '' }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg mb-5" id="capture-btn">
+                <i class="bi bi-download"></i> Capture
+            </button>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bookmark-star"></i> The faster way</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted">
+                    Drag this to your bookmarks bar. On a vendor's listing, click it: a new tab
+                    opens on the confirmation page below, already filled in.
+                </p>
+
+                <p>
+                    <a class="btn btn-outline-primary" id="capture-bookmarklet"
+                       href="{{ bookmarklet }}"
+                       onclick="alert('Drag this to your bookmarks bar rather than clicking it here.'); return false;">
+                        Capture to Workshop
+                    </a>
+                </p>
+
+                <p class="small text-muted mb-0">
+                    It reads the page's URL and title and nothing else -- no page markup, which
+                    is not a contract and changes without warning. It submits a form rather than
+                    making a background request, because a background request from an HTTPS
+                    vendor page to this plain-HTTP LAN host is blocked as mixed content before
+                    anything else gets a say. If a vendor blocks even the form, use the paste
+                    box on the left; that path cannot break.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

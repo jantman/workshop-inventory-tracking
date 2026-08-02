@@ -1,0 +1,108 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-arrow-in-down{% endblock %}
+{% block page_heading %}Receive a Purchase{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_detail', product_id=product.id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back to Product
+</a>
+{% endblock %}
+
+{% block product_content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-receipt"></i> What was ordered</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Product</dt>
+                    <dd class="col-sm-8" id="receive-product">{{ product.description }}</dd>
+
+                    <dt class="col-sm-4">Vendor</dt>
+                    <dd class="col-sm-8" id="receive-vendor">{{ purchase.vendor }}</dd>
+
+                    {% if purchase.listing_title %}
+                    <dt class="col-sm-4">Listing</dt>
+                    <dd class="col-sm-8" id="receive-listing">{{ purchase.listing_title }}</dd>
+                    {% endif %}
+
+                    {% if purchase.vendor_item_id %}
+                    <dt class="col-sm-4">Vendor Item ID</dt>
+                    <dd class="col-sm-8" id="receive-vendor-item">{{ purchase.vendor_item_id }}</dd>
+                    {% endif %}
+
+                    <dt class="col-sm-4">Ordered</dt>
+                    <dd class="col-sm-8" id="receive-order-date">
+                        {{ purchase.order_date.strftime('%Y-%m-%d') if purchase.order_date else '—' }}
+                    </dd>
+
+                    {% if purchase.order_reference %}
+                    <dt class="col-sm-4">Order Reference</dt>
+                    <dd class="col-sm-8">{{ purchase.order_reference }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        {% if not purchase.is_outstanding %}
+        <div class="alert alert-success" id="already-received">
+            This purchase was already received on
+            {{ purchase.received_date.strftime('%Y-%m-%d') }}. Submitting again changes nothing.
+        </div>
+        {% endif %}
+
+        <form id="receive-form" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-pencil-square"></i> What actually arrived</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        Amend anything that came out differently from what was ordered.
+                    </p>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="received_date" class="form-label">Received Date</label>
+                            <input type="date" class="form-control" id="received_date"
+                                   name="received_date">
+                            <div class="form-text">Blank means today.</div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity"
+                                   min="1" step="1"
+                                   value="{{ purchase.quantity if purchase.quantity is not none else '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="unit_price" class="form-label">Unit Price</label>
+                            <input type="text" class="form-control" id="unit_price" name="unit_price"
+                                   inputmode="decimal"
+                                   value="{{ purchase.unit_price if purchase.unit_price is not none else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes"
+                                  rows="3">{{ purchase.notes or '' }}</textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2 mb-5">
+                <button type="submit" class="btn btn-success btn-lg" id="confirm-receive-btn">
+                    <i class="bi bi-check-circle"></i> Mark Received
+                </button>
+                <a href="{{ url_for('product.product_detail', product_id=product.id) }}"
+                   class="btn btn-outline-secondary btn-lg">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -37,6 +37,9 @@ def create_app(config_class=Config, storage_backend=None):
     from app.admin import bp as admin_bp
     app.register_blueprint(admin_bp)
 
+    from app.product import bp as product_bp
+    app.register_blueprint(product_bp)
+
     # Make the version available to all templates
     @app.context_processor
     def inject_version():
