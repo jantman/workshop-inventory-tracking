@@ -50,6 +50,7 @@ def _form_product_fields(form) -> dict:
         'category_path': form.get('category_path'),
         'location': form.get('location'),
         'notes': form.get('notes'),
+        'reorder_threshold': form.get('reorder_threshold'),
     }
 
 
@@ -454,6 +455,55 @@ def purchase_receive(purchase_id):
 # JSON API
 # ---------------------------------------------------------------------------
 
+@bp.app_template_filter('relative_age')
+def relative_age(age) -> str:
+    """Render a timedelta the way a person would say it (FR-024).
+
+    "counted 8 months ago" is a judgement the operator can make. A bare number
+    presents a count as currently authoritative when it may be a year stale, and
+    a staleness *flag* would need a policy -- how old is stale? -- that nobody has
+    measured and the spec does not state.
+    """
+    if age is None:
+        return 'never counted'
+
+    days = age.days
+    if days < 0:
+        return 'just now'
+    if days == 0:
+        hours = age.seconds // 3600
+        if hours < 1:
+            return 'just now'
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    if days == 1:
+        return 'yesterday'
+    if days < 31:
+        return f"{days} days ago"
+    if days < 365:
+        months = days // 30
+        return f"{months} month{'s' if months != 1 else ''} ago"
+
+    years = days // 365
+    return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+@bp.route('/products/reorder')
+def product_reorder():
+    """One view of everything low, with what is already coming marked.
+
+    Both halves are derived at query time (FR-027, FR-028): a manually flagged
+    product and one at or below its threshold appear side by side, and the
+    on-order marker comes from purchase data rather than from anything the
+    operator recorded separately.
+    """
+    service = _get_catalog_service()
+    return render_template(
+        'product/reorder.html',
+        title='Reorder List',
+        entries=service.get_reorder_products(),
+    )
+
+
 @bp.route('/products/categories')
 def product_categories():
     """Browse the category tree.
@@ -602,6 +652,51 @@ def api_get_product(product_id):
     service = _get_catalog_service()
     product = _product_or_404(service, product_id)
     return jsonify({'success': True, 'product': product.to_dict(include_related=True)})
+
+
+@bp.route('/api/products/<int:product_id>/quantity', methods=['PATCH'])
+def api_set_quantity(product_id):
+    """Set, change or stop tracking a quantity (FR-022, FR-023).
+
+    An explicit ``null`` stops tracking, which is a different thing from omitting
+    the field -- that distinction is the API-level expression of the tri-state,
+    and it is what SC-007 is measured on.
+    """
+    service = _get_catalog_service()
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict) or 'quantity' not in data:
+        return jsonify({
+            'success': False,
+            'error': 'Request body must include "quantity" (a number, or null to stop tracking)'
+        }), 400
+
+    try:
+        product = service.set_quantity(product_id, data['quantity'])
+    except ValidationError as e:
+        return jsonify({'success': False, 'error': e.message}), 400
+
+    return jsonify({'success': True, 'product': product.to_dict()})
+
+
+@bp.route('/api/products/<int:product_id>/stock-status', methods=['PATCH'])
+def api_set_stock_status(product_id):
+    """Set or clear the manual low/out flag (FR-025)."""
+    service = _get_catalog_service()
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict) or 'stock_status' not in data:
+        return jsonify({
+            'success': False,
+            'error': 'Request body must include "stock_status" ("low", "out", or null)'
+        }), 400
+
+    try:
+        product = service.set_stock_status(product_id, data['stock_status'])
+    except ValidationError as e:
+        return jsonify({'success': False, 'error': e.message}), 400
+
+    return jsonify({'success': True, 'product': product.to_dict()})
 
 
 @bp.route('/api/products/<int:product_id>/label', methods=['POST'])

@@ -283,6 +283,127 @@ class CatalogService:
 
             return statement.order_by(Product.description).limit(limit).all()
 
+    def set_quantity(self, product_id: int, quantity: Optional[int]) -> Product:
+        """Set, change or stop tracking a product's quantity (FR-022, FR-023).
+
+        Three states, and the caller must be able to reach all three: a number
+        counts, ``0`` means tracked with none on hand, and ``None`` means stop
+        tracking. Setting a count stamps ``quantity_updated_at``; switching
+        tracking off clears it, because an age for a count that no longer exists
+        is worse than no age at all.
+
+        Args:
+            product_id: The product.
+            quantity: The count, or None to stop tracking.
+
+        Returns:
+            The updated Product.
+
+        Raises:
+            ItemNotFoundError: If the product does not exist.
+            ValidationError: If the quantity is not a non-negative whole number.
+        """
+        value = self._validate_quantity(quantity)
+
+        with self._session() as session:
+            product = session.query(Product).filter(Product.id == product_id).first()
+            if product is None:
+                raise ItemNotFoundError(
+                    f"Product {product_id} not found", item_id=str(product_id)
+                )
+
+            if value is None:
+                product.quantity = None
+                product.quantity_updated_at = None
+                # A threshold with nothing to compare against means nothing.
+                product.reorder_threshold = None
+            else:
+                product.quantity = value
+                product.quantity_updated_at = datetime.now()
+
+        return self.get_product(product_id)
+
+    def set_stock_status(self, product_id: int, stock_status: Optional[str]) -> Product:
+        """Set or clear the operator's manual low/out flag (FR-025).
+
+        Independent of any count: an untracked product can be flagged low, which
+        is the whole point -- the operator knows things the count does not.
+
+        Args:
+            product_id: The product.
+            stock_status: 'low', 'out', or None to clear the flag.
+
+        Returns:
+            The updated Product.
+
+        Raises:
+            ItemNotFoundError: If the product does not exist.
+            ValidationError: If the status is not a valid value.
+        """
+        if stock_status is None or stock_status == '':
+            value = None
+        else:
+            try:
+                value = StockStatus(str(stock_status).lower()).value
+            except ValueError:
+                valid = ', '.join(s.value for s in StockStatus)
+                raise ValidationError(
+                    f"Unknown stock status {stock_status!r}. Valid values: {valid}, or null",
+                    field='stock_status', value=str(stock_status)
+                )
+
+        with self._session() as session:
+            product = session.query(Product).filter(Product.id == product_id).first()
+            if product is None:
+                raise ItemNotFoundError(
+                    f"Product {product_id} not found", item_id=str(product_id)
+                )
+            product.stock_status = value
+
+        return self.get_product(product_id)
+
+    # -- Reorder -----------------------------------------------------------
+
+    def get_reorder_products(self) -> List[Dict[str, Any]]:
+        """Everything that needs buying, with what is already coming marked.
+
+        All of it is computed here, at query time. There is no stored status
+        column and no background job, so there is nothing that can drift out of
+        step with the purchase data it would have been derived from.
+
+        Args:
+            None.
+
+        Returns:
+            One entry per low product: the Product, why it is low, and whether an
+            order for it is already outstanding.
+        """
+        with self._session() as session:
+            products = (
+                session.query(Product)
+                .options(selectinload(Product.tags), selectinload(Product.purchases))
+                .filter(self._effectively_low_clause())
+                .order_by(Product.description)
+                .all()
+            )
+
+            on_order_ids = {
+                row[0] for row in session.query(Product.id).filter(
+                    self._on_order_clause()
+                ).all()
+            }
+
+        return [
+            {
+                'product': product,
+                'is_threshold_low': product.is_threshold_low,
+                'is_manually_low': product.is_manually_low,
+                'is_on_order': product.id in on_order_ids,
+                'outstanding': [p for p in product.purchases if p.received_date is None],
+            }
+            for product in products
+        ]
+
     def _apply_stock_filter(self, session, statement, stock: Optional[str]):
         """Narrow a product query by stock state, all of it derived at query time"""
         if not stock:

@@ -244,16 +244,16 @@ flagged one.
 
 **Covers**: FR-022 – FR-029, SC-006, SC-007
 
-- [ ] T064 [US6] Implement tri-state quantity in `app/catalog_service.py` — `NULL` not tracked, `0` none on hand, and set `quantity_updated_at` on every change; clear it when tracking is switched off (FR-022, FR-023)
-- [ ] T065 [US6] Add `PATCH /api/products/<id>/quantity` to `app/product/routes.py` accepting an explicit `null` to stop tracking, distinct from omitting the field
-- [ ] T066 [US6] Implement the quantity age display in `app/templates/product/detail.html` — render relative age ("counted 8 months ago"), never the bare number (FR-024)
-- [ ] T067 [US6] Implement the manual stock flag and `PATCH /api/products/<id>/stock-status` in `app/catalog_service.py` and `app/product/routes.py` (FR-025)
-- [ ] T068 [US6] Implement the derived reorder queries in `app/catalog_service.py` — `is_threshold_low`, `is_manually_low`, `is_effectively_low`, `is_on_order` per [data-model.md](./data-model.md) §7. **Computed at query time; no stored status column and no background job**
-- [ ] T069 [US6] Add the reorder view route and `app/templates/product/reorder.html`, combining manual and threshold-derived low products with on-order ones marked (FR-027, FR-028)
-- [ ] T070 [US6] **Clear the manual low flag explicitly in the receive path** in `app/catalog_service.py`. A threshold-derived low clears itself once the receipt updates the quantity, but a manually flagged product stays flagged until something clears it — this asymmetry is the subtle point of FR-029 ([research.md](./research.md) §10)
-- [ ] T071 [US6] Make quantity adjust and stock-status set **touch targets** on `app/templates/product/detail.html`, not keyboard-only affordances (FR-036, SC-010)
-- [ ] T072 [P] [US6] Unit tests in `tests/unit/test_stock_status.py` — the three quantity states are distinguishable, threshold derivation, `quantity_age` derivation per [data-model.md](./data-model.md) §7 (including that a tracked quantity with no `quantity_updated_at` yields no age rather than an error, and that switching tracking off clears it), and **both halves** of FR-029
-- [ ] T073 [P] [US6] E2E test in `tests/e2e/test_reorder_view.py` — including that `quantity = 0` and `quantity = NULL` are visibly different everywhere quantity is shown (SC-007), and that the product detail view renders a tracked quantity's **relative age** rather than a bare number (FR-024)
+- [X] T064 [US6] Implement tri-state quantity in `app/catalog_service.py` — `NULL` not tracked, `0` none on hand, and set `quantity_updated_at` on every change; clear it when tracking is switched off (FR-022, FR-023)
+- [X] T065 [US6] Add `PATCH /api/products/<id>/quantity` to `app/product/routes.py` accepting an explicit `null` to stop tracking, distinct from omitting the field
+- [X] T066 [US6] Implement the quantity age display in `app/templates/product/detail.html` — render relative age ("counted 8 months ago"), never the bare number (FR-024)
+- [X] T067 [US6] Implement the manual stock flag and `PATCH /api/products/<id>/stock-status` in `app/catalog_service.py` and `app/product/routes.py` (FR-025)
+- [X] T068 [US6] Implement the derived reorder queries in `app/catalog_service.py` — `is_threshold_low`, `is_manually_low`, `is_effectively_low`, `is_on_order` per [data-model.md](./data-model.md) §7. **Computed at query time; no stored status column and no background job**
+- [X] T069 [US6] Add the reorder view route and `app/templates/product/reorder.html`, combining manual and threshold-derived low products with on-order ones marked (FR-027, FR-028)
+- [X] T070 [US6] **Clear the manual low flag explicitly in the receive path** in `app/catalog_service.py`. A threshold-derived low clears itself once the receipt updates the quantity, but a manually flagged product stays flagged until something clears it — this asymmetry is the subtle point of FR-029 ([research.md](./research.md) §10)
+- [X] T071 [US6] Make quantity adjust and stock-status set **touch targets** on `app/templates/product/detail.html`, not keyboard-only affordances (FR-036, SC-010)
+- [X] T072 [P] [US6] Unit tests in `tests/unit/test_stock_status.py` — the three quantity states are distinguishable, threshold derivation, `quantity_age` derivation per [data-model.md](./data-model.md) §7 (including that a tracked quantity with no `quantity_updated_at` yields no age rather than an error, and that switching tracking off clears it), and **both halves** of FR-029
+- [X] T073 [P] [US6] E2E test in `tests/e2e/test_reorder_view.py` — including that `quantity = 0` and `quantity = NULL` are visibly different everywhere quantity is shown (SC-007), and that the product detail view renders a tracked quantity's **relative age** rather than a bare number (FR-024)
 
 **Checkpoint**: The handful of parts where a stockout costs something are covered.
 

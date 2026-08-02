@@ -19,6 +19,7 @@
     'location': product.location,
     'notes': product.notes,
     'tags': product.tags | map(attribute='name') | join(', '),
+    'reorder_threshold': product.reorder_threshold,
 } %}
 
 <form id="product-form" method="POST" data-draft-key="product-edit-{{ product.id }}">
@@ -26,7 +27,7 @@
 
     <div class="row">
         <div class="col-lg-8">
-            {% with values = values, show_tags = True %}
+            {% with values = values, show_tags = True, show_threshold = True %}
                 {% include "product/_form_fields.html" %}
             {% endwith %}
         </div>

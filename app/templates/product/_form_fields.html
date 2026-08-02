@@ -63,6 +63,18 @@
             </div>
         </div>
 
+        {% if show_threshold %}
+        <div class="mb-3">
+            <label for="reorder_threshold" class="form-label">Reorder Threshold</label>
+            <input type="number" class="form-control" id="reorder_threshold"
+                   name="reorder_threshold" min="0" step="1"
+                   value="{{ values.get('reorder_threshold') if values.get('reorder_threshold') is not none else '' }}">
+            <div class="form-text">
+                Only means something once you are counting this. Leave it blank otherwise.
+            </div>
+        </div>
+        {% endif %}
+
         {% if show_tags %}
         <div class="mb-3">
             <label for="tags" class="form-label">Tags</label>
