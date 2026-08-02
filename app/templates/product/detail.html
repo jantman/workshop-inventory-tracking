@@ -20,6 +20,28 @@
 {% endblock %}
 
 {% block product_content %}
+{% if from_scan %}
+{# FR-019: a scan that finds a known product offers to add a purchase to it,
+   never to create a second product for the same thing. #}
+<div class="alert alert-info d-flex flex-wrap align-items-center gap-2" id="scan-match-banner">
+    <span class="me-auto">
+        <i class="bi bi-check-circle"></i>
+        This scan matched a product already in the catalogue.
+    </span>
+    {% for purchase in outstanding %}
+    <a href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}"
+       class="btn btn-success" id="receive-outstanding-btn">
+        <i class="bi bi-box-arrow-in-down"></i>
+        Receive the order from {{ purchase.vendor }}
+    </a>
+    {% endfor %}
+    <a href="{{ url_for('product.purchase_new', product_id=product.id) }}"
+       class="btn btn-primary" id="add-purchase-to-this-btn">
+        <i class="bi bi-bag-plus"></i> Add a purchase to this product
+    </a>
+</div>
+{% endif %}
+
 <div class="row">
     <div class="col-lg-8">
         <div class="card mb-4">

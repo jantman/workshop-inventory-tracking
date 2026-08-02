@@ -169,12 +169,15 @@ def product_detail(product_id):
     service = _get_catalog_service()
     product = _product_or_404(service, product_id)
 
+    purchases = service.get_purchase_history(product_id)
     return render_template(
         'product/detail.html',
         title=product.description,
         product=product,
-        purchases=service.get_purchase_history(product_id),
+        purchases=purchases,
         latest_price=service.get_latest_price(product_id),
+        from_scan=bool(request.args.get('from_scan')),
+        outstanding=[p for p in purchases if p.is_outstanding],
     )
 
 
@@ -473,7 +476,12 @@ def api_scan():
     payload = resolution.to_dict()
     payload['success'] = True
     if resolution.outcome == 'product':
-        payload['url'] = url_for('product.product_detail', product_id=resolution.product.id)
+        # from_scan is what makes FR-019 work: arriving at a known product from a
+        # scan offers "add a purchase to this one", because during receiving that
+        # is what the operator is holding the thing to do.
+        payload['url'] = url_for(
+            'product.product_detail', product_id=resolution.product.id, from_scan=1
+        )
     elif resolution.outcome == 'create':
         payload['url'] = _create_url(resolution)
     else:

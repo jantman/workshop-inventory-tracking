@@ -223,11 +223,11 @@ one chronological history with the most recent price visible and no duplicate pr
 
 **Covers**: FR-006, FR-019, SC-005
 
-- [ ] T059 [US5] Implement purchase history retrieval in `app/catalog_service.py` — chronological by `order_date`, with the most recent `unit_price` exposed as the latest price (FR-006)
-- [ ] T060 [US5] Render the purchase history and latest price in `app/templates/product/detail.html`
-- [ ] T061 [US5] Wire the receiving path so a scan resolving to an existing product offers *add a purchase to this product* rather than *create a new product* (FR-019)
-- [ ] T062 [P] [US5] Unit tests in `tests/unit/test_purchase_history.py` — ordering, latest price, and that two variants deliberately kept distinct stay distinct
-- [ ] T063 [P] [US5] E2E test in `tests/e2e/test_repeat_purchase.py`
+- [X] T059 [US5] Implement purchase history retrieval in `app/catalog_service.py` — chronological by `order_date`, with the most recent `unit_price` exposed as the latest price (FR-006)
+- [X] T060 [US5] Render the purchase history and latest price in `app/templates/product/detail.html`
+- [X] T061 [US5] Wire the receiving path so a scan resolving to an existing product offers *add a purchase to this product* rather than *create a new product* (FR-019)
+- [X] T062 [P] [US5] Unit tests in `tests/unit/test_purchase_history.py` — ordering, latest price, and that two variants deliberately kept distinct stay distinct
+- [X] T063 [P] [US5] E2E test in `tests/e2e/test_repeat_purchase.py`
 
 **Checkpoint**: Repeat buying builds price history instead of duplicates.
 
