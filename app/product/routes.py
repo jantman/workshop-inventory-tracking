@@ -170,7 +170,17 @@ def product_detail(product_id):
     service = _get_catalog_service()
     product = _product_or_404(service, product_id)
 
+    from app.photo_service import PhotoService
+
     purchases = service.get_purchase_history(product_id)
+
+    with PhotoService(_get_storage_backend()) as photos:
+        attachments = [a.to_dict() for a in photos.get_product_attachments(product_id)]
+        purchase_attachments = {
+            purchase.id: [a.to_dict() for a in photos.get_purchase_attachments(purchase.id)]
+            for purchase in purchases
+        }
+
     return render_template(
         'product/detail.html',
         title=product.description,
@@ -179,6 +189,8 @@ def product_detail(product_id):
         latest_price=service.get_latest_price(product_id),
         from_scan=bool(request.args.get('from_scan')),
         outstanding=[p for p in purchases if p.is_outstanding],
+        attachments=attachments,
+        purchase_attachments=purchase_attachments,
     )
 
 
@@ -746,6 +758,67 @@ def api_print_product_label(product_id):
         'code': product.internal_code,
         'label_type': label_type,
     })
+
+
+@bp.route('/api/products/<int:product_id>/attachments', methods=['POST'])
+def api_add_product_attachment(product_id):
+    """Attach a file to a product -- a datasheet, a diagram (FR-034)."""
+    return _upload_attachment('product', product_id)
+
+
+@bp.route('/api/purchases/<int:purchase_id>/attachments', methods=['POST'])
+def api_add_purchase_attachment(purchase_id):
+    """Attach a file to a purchase -- a saved listing, a receipt (FR-034)."""
+    return _upload_attachment('purchase', purchase_id)
+
+
+@bp.route('/api/attachments/<int:attachment_id>', methods=['DELETE'])
+def api_delete_attachment(attachment_id):
+    """Remove an attachment, and its bytes if nothing else references them."""
+    from app.photo_service import PhotoService
+
+    with PhotoService(_get_storage_backend()) as photos:
+        if not photos.delete_attachment(attachment_id):
+            raise ItemNotFoundError(
+                f"Attachment {attachment_id} not found", item_id=str(attachment_id)
+            )
+
+    return '', 204
+
+
+def _upload_attachment(owner: str, owner_id: int):
+    """Shared upload handling for both owners.
+
+    An attachment belongs to a product **or** a purchase, never both -- which the
+    database enforces, and which this keeps honest by never offering a way to say
+    both at once.
+    """
+    from app.photo_service import PhotoService
+
+    uploaded = request.files.get('file')
+    if uploaded is None or not uploaded.filename:
+        return jsonify({'success': False, 'error': 'A file is required'}), 400
+
+    data = uploaded.read()
+
+    try:
+        with PhotoService(_get_storage_backend()) as photos:
+            if owner == 'product':
+                attachment = photos.upload_product_attachment(
+                    owner_id, data, uploaded.filename, uploaded.mimetype
+                )
+            else:
+                attachment = photos.upload_purchase_attachment(
+                    owner_id, data, uploaded.filename, uploaded.mimetype
+                )
+            payload = attachment.to_dict()
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except RuntimeError as e:
+        current_app.logger.error(f'Attachment upload failed: {e}')
+        return jsonify({'success': False, 'error': 'Attachment upload failed'}), 500
+
+    return jsonify({'success': True, 'attachment': payload}), 201
 
 
 @bp.route('/api/products/<int:product_id>/identifiers', methods=['POST'])

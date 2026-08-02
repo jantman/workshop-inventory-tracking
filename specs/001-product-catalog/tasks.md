@@ -289,13 +289,13 @@ description, specification, and identifier.
 
 **Covers**: FR-033, FR-034, FR-035, FR-036
 
-- [ ] T083 [P] Implement optional storage location on the product form and detail view in `app/catalog_service.py` and `app/templates/product/` (FR-033)
-- [ ] T084 Implement attachments on a product or a purchase by extending `app/photo_service.py` and reusing the existing `photos` BLOB table — PDF datasheets already work via PyMuPDF. Use a **separate** per-product cap constant rather than reusing `MAX_PHOTOS_PER_ITEM` (FR-034, research §7)
-- [ ] T085 [P] Add attachment upload and listing routes to `app/product/routes.py` for **both owners** — `POST /api/products/<id>/attachments` and `POST /api/purchases/<id>/attachments` — plus the attachment section on `app/templates/product/detail.html` and on the purchase rows in the history. A datasheet belongs to the product; a saved listing belongs to the purchase that captured it (FR-034)
-- [ ] T086 Create `app/static/js/product-form.js` persisting in-progress form state to `localStorage` on input, offering restore on load, and clearing on successful submit (FR-035). Follow the existing label-type persistence precedent; **not** a service worker and not offline sync
-- [ ] T087 [P] Unit tests for attachments in `tests/unit/test_product_attachments.py` — both owner paths round-trip, and the exactly-one-owner constraint holds. Per [data-model.md](./data-model.md) § Migrations, the assertion that the constraint *rejects* a two-owner or no-owner row must run where the constraint is real — SQLite will not enforce it
-- [ ] T088 [P] E2E test in `tests/e2e/test_draft_persistence.py` — compose text, simulate the interruption, reload, confirm restore is offered
-- [ ] T089 [P] E2E test in `tests/e2e/test_touch_readiness.py` — drive scan-and-act and the reorder view on a touch viewport with no keyboard (SC-010)
+- [X] T083 [P] Implement optional storage location on the product form and detail view in `app/catalog_service.py` and `app/templates/product/` (FR-033)
+- [X] T084 Implement attachments on a product or a purchase by extending `app/photo_service.py` and reusing the existing `photos` BLOB table — PDF datasheets already work via PyMuPDF. Use a **separate** per-product cap constant rather than reusing `MAX_PHOTOS_PER_ITEM` (FR-034, research §7)
+- [X] T085 [P] Add attachment upload and listing routes to `app/product/routes.py` for **both owners** — `POST /api/products/<id>/attachments` and `POST /api/purchases/<id>/attachments` — plus the attachment section on `app/templates/product/detail.html` and on the purchase rows in the history. A datasheet belongs to the product; a saved listing belongs to the purchase that captured it (FR-034)
+- [X] T086 Create `app/static/js/product-form.js` persisting in-progress form state to `localStorage` on input, offering restore on load, and clearing on successful submit (FR-035). Follow the existing label-type persistence precedent; **not** a service worker and not offline sync
+- [X] T087 [P] Unit tests for attachments in `tests/unit/test_product_attachments.py` — both owner paths round-trip, and the exactly-one-owner constraint holds. Per [data-model.md](./data-model.md) § Migrations, the assertion that the constraint *rejects* a two-owner or no-owner row must run where the constraint is real — SQLite will not enforce it
+- [X] T088 [P] E2E test in `tests/e2e/test_draft_persistence.py` — compose text, simulate the interruption, reload, confirm restore is offered
+- [X] T089 [P] E2E test in `tests/e2e/test_touch_readiness.py` — drive scan-and-act and the reorder view on a touch viewport with no keyboard (SC-010)
 
 ### Merge gates
 

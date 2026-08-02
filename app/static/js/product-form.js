@@ -24,6 +24,13 @@
             this.fields = Array.from(
                 form.querySelectorAll('input[type="text"], input[type="number"], textarea, select')
             ).filter((field) => field.name && field.name !== 'csrf_token');
+
+            // A <select> always reports a value -- its first option. Judging
+            // "has the operator already typed something here?" by that would
+            // mean the answer is always yes and the draft is never offered.
+            this.typedFields = this.fields.filter(
+                (field) => field.tagName !== 'SELECT'
+            );
         }
 
         init() {
@@ -46,10 +53,15 @@
             return data;
         }
 
+        /** Has the operator actually typed anything, ignoring select defaults? */
+        hasTypedContent(fields) {
+            return this.typedFields.some((field) => fields[field.name]);
+        }
+
         save() {
             const data = this.collect();
             try {
-                if (Object.keys(data).length === 0) {
+                if (!this.hasTypedContent(data)) {
                     localStorage.removeItem(this.key);
                 } else {
                     localStorage.setItem(this.key, JSON.stringify({
@@ -94,12 +106,12 @@
          */
         offerRestore() {
             const draft = this.read();
-            if (!draft || !draft.fields || Object.keys(draft.fields).length === 0) {
+            if (!draft || !draft.fields || !this.hasTypedContent(draft.fields)) {
                 return;
             }
-            if (this.fields.some((field) => field.value)) {
-                // The form already carries values (an edit form, or a rejected
-                // submit); overwriting them would be the surprise.
+            if (this.typedFields.some((field) => field.value)) {
+                // The form already carries typed values (an edit form, or a
+                // rejected submit); overwriting them would be the surprise.
                 return;
             }
 

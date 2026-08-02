@@ -113,6 +113,7 @@
                             <th>Qty</th>
                             <th>Unit Price</th>
                             <th>Status</th>
+                            <th>Files</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -138,16 +139,71 @@
                                 </span>
                                 {% endif %}
                             </td>
+                            <td class="purchase-attachments" data-purchase-id="{{ purchase.id }}">
+                                {% for attachment in purchase_attachments.get(purchase.id, []) %}
+                                <a href="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}"
+                                   target="_blank" class="d-block small purchase-attachment-link">
+                                    <i class="bi bi-file-earmark"></i> {{ attachment.photo.filename }}
+                                </a>
+                                {% endfor %}
+                                <input type="file" class="d-none purchase-attachment-input"
+                                       accept="image/jpeg,image/png,image/webp,application/pdf">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary attach-to-purchase-btn"
+                                        title="Attach the saved listing or receipt">
+                                    <i class="bi bi-paperclip"></i>
+                                </button>
+                            </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="5" class="text-muted text-center py-3" id="no-purchases">
+                            <td colspan="6" class="text-muted text-center py-3" id="no-purchases">
                                 Nothing bought yet. A hand-entered product is still a product.
                             </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        {# FR-034: a datasheet belongs to the product; a saved listing belongs to
+           the purchase that captured it. Both owners, one upload widget each. #}
+        <div class="card mb-4" id="attachments-card" data-product-id="{{ product.id }}">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-paperclip"></i> Attachments</h5>
+            </div>
+            <div class="card-body">
+                <div id="attachment-alerts"></div>
+
+                <ul class="list-group list-group-flush mb-3" id="attachment-list">
+                    {% for attachment in attachments %}
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center attachment-row">
+                        <a href="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}"
+                           target="_blank">
+                            <i class="bi bi-file-earmark"></i>
+                            {{ attachment.photo.filename }}
+                        </a>
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-attachment-btn"
+                                data-attachment-id="{{ attachment.id }}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item px-0 text-muted" id="no-attachments">
+                        Nothing attached. Datasheets, diagrams and photographs all belong here.
+                    </li>
+                    {% endfor %}
+                </ul>
+
+                <div class="input-group">
+                    <input type="file" class="form-control" id="product-attachment-input"
+                           accept="image/jpeg,image/png,image/webp,application/pdf">
+                    <button type="button" class="btn btn-outline-primary"
+                            id="upload-product-attachment-btn">
+                        <i class="bi bi-upload"></i> Attach
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -311,4 +367,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/product-label-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-stock.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-attachments.js') }}"></script>
 {% endblock %}

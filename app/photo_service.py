@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_
 from datetime import datetime
 
-from .database import Photo, ItemPhotoAssociation, InventoryItem
+from .database import Photo, ItemPhotoAssociation, InventoryItem, Product, ProductAttachment, Purchase
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,11 @@ class PhotoService:
     MEDIUM_SIZE = (800, 800)
     MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
     MAX_PHOTOS_PER_ITEM = 10
+    # A separate cap from MAX_PHOTOS_PER_ITEM rather than a reuse of it: a
+    # product accumulates datasheets and wiring diagrams over years, an
+    # inventory item accumulates photographs of one physical thing, and the
+    # two limits should be able to move without surprising each other.
+    MAX_ATTACHMENTS_PER_PRODUCT = 25
     
     def __init__(self, storage_backend=None):
         """Initialize photo service with database connection"""
@@ -543,6 +548,190 @@ class PhotoService:
         img.save(buffer, format=format, **kwargs)
         return buffer.getvalue()
     
+    # -----------------------------------------------------------------
+    # Product catalogue attachments (FR-034)
+    #
+    # Datasheets, wiring diagrams, saved listings and photographs, stored the
+    # same way item photos already are. Datasheets are PDFs, and PDFs already
+    # work here -- building a second blob store beside a working one would be
+    # the opposite of simple.
+    # -----------------------------------------------------------------
+
+    def upload_product_attachment(
+        self, product_id: int, file_data: bytes, filename: str, content_type: str
+    ) -> ProductAttachment:
+        """Attach a file to a product.
+
+        Args:
+            product_id: The product it belongs to.
+            file_data: Raw file bytes.
+            filename: Original filename.
+            content_type: MIME type; must be in SUPPORTED_TYPES.
+
+        Returns:
+            The created ProductAttachment.
+
+        Raises:
+            ValueError: If validation fails or the product does not exist.
+            RuntimeError: If processing fails.
+        """
+        return self._upload_attachment(
+            file_data, filename, content_type,
+            owner_column='product_id', owner_id=product_id,
+            owner_model=Product, owner_name='Product',
+        )
+
+    def upload_purchase_attachment(
+        self, purchase_id: int, file_data: bytes, filename: str, content_type: str
+    ) -> ProductAttachment:
+        """Attach a file to a purchase.
+
+        A datasheet belongs to the product; a saved listing belongs to the
+        purchase that captured it, which is why both owners exist.
+
+        Args:
+            purchase_id: The purchase it belongs to.
+            file_data: Raw file bytes.
+            filename: Original filename.
+            content_type: MIME type; must be in SUPPORTED_TYPES.
+
+        Returns:
+            The created ProductAttachment.
+
+        Raises:
+            ValueError: If validation fails or the purchase does not exist.
+            RuntimeError: If processing fails.
+        """
+        return self._upload_attachment(
+            file_data, filename, content_type,
+            owner_column='purchase_id', owner_id=purchase_id,
+            owner_model=Purchase, owner_name='Purchase',
+        )
+
+    def _upload_attachment(
+        self, file_data, filename, content_type, owner_column, owner_id,
+        owner_model, owner_name,
+    ) -> ProductAttachment:
+        """Store the bytes once and link them to exactly one owner."""
+        self._validate_attachment_upload(file_data, filename, content_type)
+
+        if self.session.query(owner_model).filter(owner_model.id == owner_id).first() is None:
+            raise ValueError(f"{owner_name} {owner_id} not found")
+
+        existing = self.session.query(ProductAttachment).filter(
+            getattr(ProductAttachment, owner_column) == owner_id
+        ).count()
+        if existing >= self.MAX_ATTACHMENTS_PER_PRODUCT:
+            raise ValueError(
+                f"Maximum {self.MAX_ATTACHMENTS_PER_PRODUCT} attachments allowed"
+            )
+
+        try:
+            thumbnail_data, medium_data, original_data = self._process_photo(
+                file_data, content_type
+            )
+
+            photo = Photo(
+                filename=filename,
+                content_type=content_type,
+                file_size=len(file_data),
+                thumbnail_data=thumbnail_data,
+                medium_data=medium_data,
+                original_data=original_data,
+            )
+            self.session.add(photo)
+            self.session.flush()
+
+            attachment = ProductAttachment(
+                photo_id=photo.id,
+                display_order=existing,
+                **{owner_column: owner_id}
+            )
+            self.session.add(attachment)
+            self.session.commit()
+            self.session.refresh(attachment)
+
+            logger.info(
+                f"Attachment uploaded for {owner_name.lower()} {owner_id}: "
+                f"{filename} ({len(file_data)} bytes)"
+            )
+            return attachment
+
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Failed to attach {filename} to {owner_name.lower()} {owner_id}: {e}")
+            raise RuntimeError(f"Attachment upload failed: {str(e)}")
+
+    def get_product_attachments(self, product_id: int) -> List[ProductAttachment]:
+        """Every attachment on a product, in display order."""
+        return self.session.query(ProductAttachment).filter(
+            ProductAttachment.product_id == product_id
+        ).order_by(ProductAttachment.display_order).all()
+
+    def get_purchase_attachments(self, purchase_id: int) -> List[ProductAttachment]:
+        """Every attachment on a purchase, in display order."""
+        return self.session.query(ProductAttachment).filter(
+            ProductAttachment.purchase_id == purchase_id
+        ).order_by(ProductAttachment.display_order).all()
+
+    def delete_attachment(self, attachment_id: int) -> bool:
+        """Remove an attachment and the bytes it referenced.
+
+        Args:
+            attachment_id: The attachment row.
+
+        Returns:
+            True when a row was removed, False when there was nothing to remove.
+        """
+        attachment = self.session.query(ProductAttachment).filter(
+            ProductAttachment.id == attachment_id
+        ).first()
+        if attachment is None:
+            return False
+
+        photo_id = attachment.photo_id
+        try:
+            self.session.delete(attachment)
+            self.session.flush()
+
+            still_referenced = self.session.query(ProductAttachment).filter(
+                ProductAttachment.photo_id == photo_id
+            ).count() or self.session.query(ItemPhotoAssociation).filter(
+                ItemPhotoAssociation.photo_id == photo_id
+            ).count()
+
+            if not still_referenced:
+                photo = self.session.query(Photo).filter(Photo.id == photo_id).first()
+                if photo is not None:
+                    self.session.delete(photo)
+
+            self.session.commit()
+            return True
+
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Failed to delete attachment {attachment_id}: {e}")
+            raise RuntimeError(f"Attachment deletion failed: {str(e)}")
+
+    def _validate_attachment_upload(self, file_data, filename, content_type):
+        """Validate an attachment upload -- same rules as a photo, no JA ID."""
+        if not file_data:
+            raise ValueError("File data is required")
+
+        if len(file_data) > self.MAX_FILE_SIZE:
+            raise ValueError(
+                f"File size {len(file_data)} exceeds maximum {self.MAX_FILE_SIZE} bytes"
+            )
+
+        if not filename or not filename.strip():
+            raise ValueError("Filename is required")
+
+        if content_type not in self.SUPPORTED_TYPES:
+            supported_list = ', '.join(sorted(self.SUPPORTED_TYPES))
+            raise ValueError(
+                f"Unsupported content type: {content_type}. Supported: {supported_list}"
+            )
+
     def close(self):
         """Explicitly close database session and dispose engine"""
         if hasattr(self, 'session') and self.session:
