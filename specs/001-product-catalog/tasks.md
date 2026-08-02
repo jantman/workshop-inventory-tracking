@@ -302,8 +302,8 @@ description, specification, and identifier.
 - [X] T090 Regenerate documentation screenshots with `nox -s screenshots_headless` and commit them. This feature changes `app/templates/**`, `app/static/css/**`, and `app/static/js/**`, so **CI blocks the merge on stale screenshots**
 - [X] T091 Verify screenshots with `nox -s screenshots_verify` — valid PNG, RGB/RGBA, under 500 KB each
 - [X] T092 [P] Update `docs/user-manual.md` with the product catalogue workflows, matching how the original label-printing feature documented itself
-- [ ] T093 Run the full `quickstart.md` validation — all nine scenarios and the pre-merge checklist
-- [ ] T094 Confirm `nox -s tests` and `nox -s e2e` are green, and open the pull request
+- [X] T093 Run the full `quickstart.md` validation — all nine scenarios and the pre-merge checklist
+- [X] T094 Confirm `nox -s tests` and `nox -s e2e` are green, and open the pull request
 
 ---
 
@@ -379,3 +379,20 @@ a whole acquisition channel for one pure module plus a classifier rule.
 - `nox -s e2e` needs a 20-minute timeout and rewrites screenshots as a side effect — revert those
   unless T090 is the task in hand.
 - Stop at any checkpoint; every phase boundary leaves the application working.
+
+---
+
+## Validation record
+
+`nox -s tests`: 765 passed. `nox -s e2e`: 375 passed, 1 skipped, 0 failed
+(baseline before this branch: 350 and 304). `nox -s coverage`: 54%, gate is 1%.
+
+Quickstart scenarios 1-9 are covered by the e2e suite. Every new Alembic
+revision's `downgrade` was run against a real MariaDB one step at a time and then
+re-applied. Screenshots regenerated; `screenshots_verify` passes. No new pytest
+markers. No `float` near a price -- `_validate_price` rejects one outright.
+
+**Not verified, and not verifiable from CI**: the bookmarklet has never been run
+against a live vendor listing, which T048 anticipated. The paste-a-URL path is
+covered end to end and is the one that cannot break. One manual check against a
+real Amazon listing is still owed before the bookmarklet is relied on.
