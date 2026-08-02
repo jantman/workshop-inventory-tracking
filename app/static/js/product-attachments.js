@@ -14,7 +14,7 @@
         const body = new FormData();
         body.append('file', file);
 
-        fetch(url, { method: 'POST', body: body })
+        csrfFetch(url, { method: 'POST', body: body })
             .then((response) => response.json())
             .then((data) => {
                 if (data.success) {
@@ -63,7 +63,7 @@
 
         card.querySelectorAll('.delete-attachment-btn').forEach((deleteButton) => {
             deleteButton.addEventListener('click', () => {
-                fetch(`/api/attachments/${deleteButton.dataset.attachmentId}`, {
+                csrfFetch(`/api/attachments/${deleteButton.dataset.attachmentId}`, {
                     method: 'DELETE'
                 })
                     .then((response) => {

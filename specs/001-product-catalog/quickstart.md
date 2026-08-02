@@ -156,4 +156,7 @@ touch targets (SC-010).
 - [ ] Any new pytest marker registered in `pytest.ini` (`--strict-markers` is on)
 - [ ] No `float` anywhere near a price — `Decimal` only
 - [ ] `inventory_items` and JA-ID history untouched
-- [ ] `POST /api/capture` is the only CSRF exemption, and it carries a comment saying why
+- [ ] `POST /api/capture` is the only CSRF exemption **this feature adds**, and it
+      carries a comment saying why. (`app/main/routes.py` already contains several,
+      predating this work.) Every other new endpoint keeps CSRF on and the client
+      sends the token via the `X-CSRFToken` header -- see `app/static/js/csrf.js`.

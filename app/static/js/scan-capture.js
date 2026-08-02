@@ -16,8 +16,18 @@
 (function () {
     'use strict';
 
-    // Milliseconds of silence that ends a scan when no Enter arrives.
+    // Milliseconds of silence that ends a *scanner* burst when no Enter arrives.
     const INTER_KEY_TIMEOUT_MS = 120;
+
+    // A wedge emits keystrokes far faster than fingers can. Above this gap the
+    // input is a person typing, and auto-flushing on a pause would cut them off
+    // mid-word and send half a word to the server -- so typed input waits for
+    // Enter instead. 50ms is comfortably slower than any scanner and far faster
+    // than any typist.
+    const MACHINE_SPEED_GAP_MS = 50;
+
+    // Below this, one fast keypress could look like a burst by accident.
+    const MIN_BURST_KEYS = 4;
 
     /**
      * Map a Ctrl+<key> event onto the control character a wedge means by it.
@@ -59,6 +69,27 @@
             this.input = input;
             this.buffer = '';
             this.timer = null;
+            this.lastKeyAt = null;
+            this.slowKeys = 0;
+        }
+
+        /**
+         * Did this arrive at machine speed?
+         *
+         * Only a burst gets auto-flushed on a pause. Anything a person typed
+         * waits for Enter, because a pause in the middle of typing is a pause,
+         * not the end of the input.
+         */
+        looksLikeAScanner() {
+            return this.buffer.length >= MIN_BURST_KEYS && this.slowKeys === 0;
+        }
+
+        recordKeyTiming() {
+            const now = Date.now();
+            if (this.lastKeyAt !== null && (now - this.lastKeyAt) > MACHINE_SPEED_GAP_MS) {
+                this.slowKeys += 1;
+            }
+            this.lastKeyAt = now;
         }
 
         init() {
@@ -82,14 +113,29 @@
 
             if (event.key === 'Enter') {
                 event.preventDefault();
+                if (!this.buffer && this.input.value) {
+                    // Text arrived without keydown events -- a paste handled by
+                    // the browser, autofill, or a mobile keyboard.
+                    this.buffer = this.input.value;
+                }
                 this.flush();
                 return;
             }
 
+            if (event.key === 'Backspace') {
+                // Keep the buffer in step with what the operator can see.
+                this.buffer = this.buffer.slice(0, -1);
+                return;
+            }
+
+            this.recordKeyTiming();
+
             const control = controlCharacterFor(event);
             if (control !== null) {
-                // Without this the field structure of a distributor label is
-                // gone before anything downstream can see it.
+                // Swallowed deliberately: a bare Ctrl-key would either do
+                // nothing or trigger a browser shortcut, and without capturing
+                // it here the field structure of a distributor label is gone
+                // before anything downstream can see it.
                 event.preventDefault();
                 this.buffer += control;
                 this.scheduleFlush();
@@ -97,7 +143,10 @@
             }
 
             if (event.key.length === 1) {
-                event.preventDefault();
+                // Not prevented: the browser puts the character in the box, so
+                // the operator can see what they are typing. The buffer shadows
+                // it because the input element cannot hold the control
+                // characters a distributor label carries.
                 this.buffer += event.key;
                 this.scheduleFlush();
             }
@@ -106,13 +155,19 @@
         scheduleFlush() {
             this.timer = setTimeout(() => {
                 this.timer = null;
-                this.flush();
+                if (this.looksLikeAScanner()) {
+                    this.flush();
+                }
+                // Typed input stays in the box until Enter. The operator can see
+                // it sitting there, which is the point.
             }, INTER_KEY_TIMEOUT_MS);
         }
 
         flush() {
             const scan = this.buffer;
             this.buffer = '';
+            this.lastKeyAt = null;
+            this.slowKeys = 0;
             if (!scan) {
                 return;
             }
@@ -127,7 +182,7 @@
         resolve(scan) {
             this.setBusy(true);
 
-            fetch('/api/scan', {
+            csrfFetch('/api/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ scan: scan })

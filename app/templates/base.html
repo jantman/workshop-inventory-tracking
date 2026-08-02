@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Read by js/csrf.js so fetch() calls can carry the token -->
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% if title %}{{ title }} - {% endif %}Workshop Inventory Tracking</title>
     
     <!-- Bootstrap CSS -->
@@ -165,6 +167,7 @@
             onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';"></script>
     
     <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/photo-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scan-capture.js') }}"></script>

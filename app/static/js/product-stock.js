@@ -66,7 +66,7 @@
         }
 
         patch(url, body) {
-            fetch(url, {
+            csrfFetch(url, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)

@@ -78,7 +78,7 @@
             }
 
             this.confirm.disabled = true;
-            fetch(`/api/products/${this.productId}/label`, {
+            csrfFetch(`/api/products/${this.productId}/label`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ label_type: labelType })
