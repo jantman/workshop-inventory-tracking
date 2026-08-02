@@ -271,13 +271,13 @@ description, specification, and identifier.
 
 - [X] T074 [P] [US7] Implement `app/utils/category.py` — canonical materialized path (lowercase, `/`-separated, no empty segments, stripped), the `path = X OR path LIKE 'X/%'` segment-boundary predicate, and blank/`None` yielding "no category" rather than an error. Normalization only shortens or lowercases; **never slugs** (research §6)
 - [X] T075 [P] [US7] Unit tests for `app/utils/category.py` in `tests/unit/test_category.py` — canonicalization, boundary predicate does not match `foo-bar` when filtering `foo`, blank inputs are not errors
-- [ ] T076 [US7] Implement inline category creation during product entry in `app/catalog_service.py` and `app/templates/product/add.html` — typing a new category creates it with no separate setup step (FR-030)
-- [ ] T077 [US7] Implement tag create / attach / detach in `app/catalog_service.py` with lowercase normalization, plus `GET /api/tags` in `app/product/routes.py` (FR-031). **No standalone tag browse page** — the API plus the tag filter on the catalogue list (T079) satisfies FR-031; a browse page for a flat list is a surface Principle I does not pay for. Categories keep theirs (T080) because a hierarchy is worth browsing
-- [ ] T078 [US7] Implement search in `app/catalog_service.py` across description, specifications, identifiers, and part numbers (FR-032)
-- [ ] T079 [US7] Add `GET /api/products/search` and the catalogue list page with category, tag, and stock filters — including the `tracked` / `untracked` / `none-on-hand` values that keep SC-007 unambiguous — in `app/product/routes.py` and `app/templates/product/search.html`
-- [ ] T080 [US7] Add `GET /api/categories` and the category browse page `app/templates/product/categories.html`
-- [ ] T081 [P] [US7] Unit tests in `tests/unit/test_product_search.py` — subtree filtering, tag filtering across categories, search across all four fields
-- [ ] T082 [P] [US7] E2E test in `tests/e2e/test_product_search.py`
+- [X] T076 [US7] Implement inline category creation during product entry in `app/catalog_service.py` and `app/templates/product/add.html` — typing a new category creates it with no separate setup step (FR-030)
+- [X] T077 [US7] Implement tag create / attach / detach in `app/catalog_service.py` with lowercase normalization, plus `GET /api/tags` in `app/product/routes.py` (FR-031). **No standalone tag browse page** — the API plus the tag filter on the catalogue list (T079) satisfies FR-031; a browse page for a flat list is a surface Principle I does not pay for. Categories keep theirs (T080) because a hierarchy is worth browsing
+- [X] T078 [US7] Implement search in `app/catalog_service.py` across description, specifications, identifiers, and part numbers (FR-032)
+- [X] T079 [US7] Add `GET /api/products/search` and the catalogue list page with category, tag, and stock filters — including the `tracked` / `untracked` / `none-on-hand` values that keep SC-007 unambiguous — in `app/product/routes.py` and `app/templates/product/search.html`
+- [X] T080 [US7] Add `GET /api/categories` and the category browse page `app/templates/product/categories.html`
+- [X] T081 [P] [US7] Unit tests in `tests/unit/test_product_search.py` — subtree filtering, tag filtering across categories, search across all four fields
+- [X] T082 [P] [US7] E2E test in `tests/e2e/test_product_search.py`
 
 **Checkpoint**: All seven user stories are functional.
 

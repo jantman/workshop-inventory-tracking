@@ -18,6 +18,7 @@
     'category_path': product.category_path,
     'location': product.location,
     'notes': product.notes,
+    'tags': product.tags | map(attribute='name') | join(', '),
 } %}
 
 <form id="product-form" method="POST" data-draft-key="product-edit-{{ product.id }}">
@@ -25,7 +26,7 @@
 
     <div class="row">
         <div class="col-lg-8">
-            {% with values = values, show_tags = False %}
+            {% with values = values, show_tags = True %}
                 {% include "product/_form_fields.html" %}
             {% endwith %}
         </div>
@@ -43,4 +44,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/product-form.js') }}"></script>
+<script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
 {% endblock %}

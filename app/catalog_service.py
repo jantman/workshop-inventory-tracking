@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, create_engine, or_
+from sqlalchemy import and_, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
 
 from .database import Product, ProductIdentifier, Purchase, Tag
@@ -212,7 +212,7 @@ class CatalogService:
         with self._session() as session:
             return (
                 session.query(Product)
-                .options(selectinload(Product.tags))
+                .options(selectinload(Product.tags), selectinload(Product.identifiers))
                 .order_by(Product.date_added.desc())
                 .limit(limit)
                 .all()
@@ -243,7 +243,12 @@ class CatalogService:
             The matching products, ordered by description.
         """
         with self._session() as session:
-            statement = session.query(Product).options(selectinload(Product.tags))
+            statement = session.query(Product).options(
+                selectinload(Product.tags),
+                # Loaded up front: a caller reading product.internal_code off a
+                # result would otherwise hit a detached instance.
+                selectinload(Product.identifiers),
+            )
 
             text = (query or '').strip()
             if text:
@@ -1035,6 +1040,117 @@ class CatalogService:
         raise ValidationError("Could not generate an unused internal product code")
 
     # -- Tags --------------------------------------------------------------
+
+    def set_tags(self, product_id: int, names: List[str]) -> Product:
+        """Replace a product's tags, creating any that are new (FR-031).
+
+        Args:
+            product_id: The product.
+            names: The tag names it should end up with. Created inline the same
+                way categories are -- there is no setup step.
+
+        Returns:
+            The updated Product.
+
+        Raises:
+            ItemNotFoundError: If the product does not exist.
+        """
+        with self._session() as session:
+            product = session.query(Product).options(
+                selectinload(Product.tags)
+            ).filter(Product.id == product_id).first()
+            if product is None:
+                raise ItemNotFoundError(
+                    f"Product {product_id} not found", item_id=str(product_id)
+                )
+
+            wanted = {
+                _clean(name).lower() for name in (names or []) if _clean(name)
+            }
+
+            for tag in list(product.tags):
+                if tag.name not in wanted:
+                    product.tags.remove(tag)
+
+            for name in wanted:
+                self._attach_tag(session, product, name)
+
+        return self.get_product(product_id)
+
+    def list_tags(self, prefix: Optional[str] = None) -> List[str]:
+        """Every tag name in use, for the filter and the inline-create datalist.
+
+        Args:
+            prefix: Optionally narrow to tags starting with this.
+
+        Returns:
+            Tag names, alphabetically.
+        """
+        with self._session() as session:
+            query = session.query(Tag.name)
+            cleaned = _clean(prefix)
+            if cleaned:
+                query = query.filter(Tag.name.like(f"{cleaned.lower()}%"))
+            return [row[0] for row in query.order_by(Tag.name).all()]
+
+    # -- Categories --------------------------------------------------------
+
+    def list_categories(self, prefix: Optional[str] = None) -> List[str]:
+        """Every category path in use.
+
+        There is no categories table: a category is a string on a product, so
+        this is the distinct set of those strings. The consequence, stated
+        plainly, is that an empty category cannot exist -- which for this
+        workshop is the correct behaviour.
+
+        Args:
+            prefix: Optionally narrow to a subtree.
+
+        Returns:
+            Distinct category paths, alphabetically.
+        """
+        with self._session() as session:
+            query = session.query(Product.category_path).filter(
+                Product.category_path.isnot(None)
+            ).distinct()
+
+            ancestor = category_utils.canonical(prefix)
+            if ancestor is not None:
+                query = query.filter(or_(
+                    Product.category_path == ancestor,
+                    Product.category_path.like(
+                        category_utils.descendant_like_pattern(ancestor), escape='\\'
+                    ),
+                ))
+
+            return sorted(row[0] for row in query.all())
+
+    def category_tree(self) -> List[Dict[str, Any]]:
+        """The categories in use, with how many products sit directly in each.
+
+        Args:
+            None.
+
+        Returns:
+            One entry per category path: its path, its depth, and its direct
+            product count.
+        """
+        with self._session() as session:
+            rows = session.query(
+                Product.category_path, func.count(Product.id)
+            ).filter(
+                Product.category_path.isnot(None)
+            ).group_by(Product.category_path).all()
+
+        return [
+            {
+                'path': path,
+                'depth': len(category_utils.segments(path)),
+                'name': category_utils.segments(path)[-1],
+                'count': count,
+            }
+            for path, count in sorted(rows)
+        ]
 
     def _attach_tag(self, session, product: Product, name: str) -> Optional[Tag]:
         """Attach a tag to a product, creating the tag if it is new."""

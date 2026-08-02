@@ -190,6 +190,7 @@ def product_edit(product_id):
     if request.method == 'POST':
         try:
             product = service.update_product(product_id, **_form_product_fields(request.form))
+            product = service.set_tags(product_id, _split_tags(request.form.get('tags')))
         except ValidationError as e:
             flash(str(e.message), 'error')
             return render_template(
@@ -452,6 +453,64 @@ def purchase_receive(purchase_id):
 # ---------------------------------------------------------------------------
 # JSON API
 # ---------------------------------------------------------------------------
+
+@bp.route('/products/categories')
+def product_categories():
+    """Browse the category tree.
+
+    A hierarchy is worth browsing, which is why this page exists and a tag browse
+    page does not: the tag filter on the catalogue list plus GET /api/tags is all
+    a flat list needs.
+    """
+    service = _get_catalog_service()
+    return render_template(
+        'product/categories.html',
+        title='Categories',
+        categories=service.category_tree(),
+    )
+
+
+@bp.route('/api/categories')
+def api_categories():
+    """Distinct category paths, for the filter and the inline-create datalist."""
+    service = _get_catalog_service()
+    return jsonify({
+        'success': True,
+        'categories': service.list_categories(request.args.get('prefix')),
+    })
+
+
+@bp.route('/api/tags')
+def api_tags():
+    """Tag names in use (FR-031)."""
+    service = _get_catalog_service()
+    return jsonify({
+        'success': True,
+        'tags': service.list_tags(request.args.get('prefix')),
+    })
+
+
+@bp.route('/api/products/search')
+def api_search_products():
+    """Search and filter the catalogue (FR-032)."""
+    service = _get_catalog_service()
+
+    try:
+        products = service.search_products(
+            query=request.args.get('q'),
+            category=request.args.get('category'),
+            tag=request.args.get('tag'),
+            stock=request.args.get('stock'),
+        )
+    except ValidationError as e:
+        return jsonify({'success': False, 'error': e.message}), 400
+
+    return jsonify({
+        'success': True,
+        'count': len(products),
+        'products': [p.to_dict() for p in products],
+    })
+
 
 @bp.route('/api/scan', methods=['POST'])
 def api_scan():
