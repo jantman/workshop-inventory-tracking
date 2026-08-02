@@ -15,7 +15,10 @@
 {% if filters.get('q') %}
 <div class="alert alert-secondary" id="raw-scan-notice">
     Showing matches for <code class="text-break">{{ filters.get('q') }}</code>.
-    Nothing in the catalogue answered to it directly, so here is what it looks like.
+    {% if not products %}
+    Nothing matched it. If that came off a scanner, the text above is exactly what
+    it read -- which is usually enough to work out what you are holding.
+    {% endif %}
 </div>
 {% endif %}
 

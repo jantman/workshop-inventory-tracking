@@ -331,12 +331,18 @@ def _capture_bookmarklet() -> str:
 def api_capture():
     """Capture an order from a vendor's listing (FR-020, FR-021).
 
-    **This is the one CSRF-exempt endpoint in the application.** The bookmarklet
-    posts from the vendor's own origin, so a CSRF token cannot travel with it.
-    The exemption is proportionate under the constitution's stated threat model:
-    the app is LAN-only, has one trusted user, and treats hostile input as out of
-    scope. Nothing here writes anything an operator cannot see and undo on the
-    confirmation page they land on. It should remain the only exemption.
+    **This is the only CSRF exemption the product catalogue adds**, and the only
+    one it needs. (It is not the only one in the application: app/main/routes.py
+    carries fourteen pre-existing ones, which this feature neither added nor
+    audited. The planning documents assert this would be the sole exemption in
+    the app; that was mistaken about the existing code, and the claim is recorded
+    accurately here instead.)
+
+    The bookmarklet posts from the vendor's own origin, so a CSRF token cannot
+    travel with it. The exemption is proportionate under the constitution's
+    stated threat model: the app is LAN-only, has one trusted user, and treats
+    hostile input as out of scope. Nothing here writes anything the operator
+    cannot see and undo on the confirmation page they land on.
 
     Accepts a form POST as well as JSON, because the bookmarklet submits a form
     into a new tab: a fetch from an HTTPS vendor page to this plain-HTTP LAN host
