@@ -76,7 +76,8 @@ measured problem (Constitution I).
 **Constraints**: `Decimal` for every price — never `float` (Constitution III). Product identity
 must not depend on a vendor's reusable item identifier (FR-008). The existing JA-ID inventory
 tables and their history invariants must be left untouched (Constitution VI). CSRF stays
-enabled. In-progress entry must survive a momentary connection drop (FR-035), which is a
+enabled everywhere except the single documented `POST /api/capture` exemption (see Complexity
+Tracking). In-progress entry must survive a momentary connection drop (FR-035), which is a
 client-side draft, not an offline-sync layer.
 
 **Scale/Scope**: Catalogue grows by tens of products per month; low thousands over the
@@ -167,7 +168,7 @@ app/
 ├── services/
 │   └── product_label.py          # NEW: Pillow label composition → existing LpPrinter
 ├── photo_service.py              # EXTEND: attachments on product/purchase (FR-034)
-├── templates/product/            # NEW: add, edit, detail, search, categories, tags,
+├── templates/product/            # NEW: add, edit, detail, search, categories,
 │                                 #      purchase_add, receive, reorder
 └── static/js/                    # NEW: scan-capture.js, product-form.js (draft persistence)
 
@@ -205,6 +206,7 @@ added complexity are recorded here for the reviewer rather than left implicit:
 |---|---|
 | New `app/services/product_label.py` composing label images with Pillow | The spec's constraint fences off new *printer control languages and driver paths* (SBPL explicitly). This composes a PNG and hands it to the same `LpPrinter.print_images()` with the same `lp` options. FR-011 is unsatisfiable without it: `BarcodeLabelGenerator` can only render a barcode plus its own value. |
 | New `app/product/` blueprint package | Uses the existing blueprint-package pattern named in the constitution's module-placement rule. The alternative — a 6500-line `main/routes.py` — is the less simple outcome. |
+| `POST /api/capture` exempted from CSRF | The constitution says CSRF protection stays enabled, and it does everywhere else. This one endpoint is exempt because the bookmarklet posts from the vendor's origin (FR-020), and the exemption is proportionate under the constitution's own stated threat model: LAN-only, one trusted user, hostile input explicitly out of scope. **Bounds**: it is the only exemption, it carries an inline comment saying why, and `quickstart.md`'s pre-merge checklist verifies both. Recorded here rather than left in `contracts/http-api.md` so the PR reviewer sees it without going looking. |
 
 ## Phase Status
 

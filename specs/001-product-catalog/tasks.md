@@ -46,9 +46,9 @@ These come from the constitution and apply throughout; they are not repeated per
 
 **Purpose**: Wire the new blueprint into the app so later phases have somewhere to land.
 
-- [ ] T001 Create `app/product/__init__.py` defining `Blueprint('product', __name__)` and register it in `create_app()` in `app/__init__.py` alongside `main_bp` and `admin_bp`
-- [ ] T002 [P] Create `app/templates/product/` with a shared layout extending `app/templates/base.html`, and add a "Products" entry to the nav in `app/templates/base.html`
-- [ ] T003 [P] Establish the baseline: run `nox -s tests` and `nox -s e2e` on the untouched tree and record that both are green, so any later failure is attributable to this feature
+- [ ] T001 Establish the baseline **first, before any edit**: run `nox -s tests` and `nox -s e2e` on the untouched tree and record that both are green, so any later failure is attributable to this feature. Not `[P]` — a baseline taken after T002 or T003 measures nothing
+- [ ] T002 Create `app/product/__init__.py` defining `Blueprint('product', __name__)` and register it in `create_app()` in `app/__init__.py` alongside `main_bp` and `admin_bp`
+- [ ] T003 [P] Create `app/templates/product/` with a shared layout extending `app/templates/base.html`, and add a "Products" entry to the nav in `app/templates/base.html`
 
 ---
 
@@ -59,7 +59,7 @@ exist before it can scan one, label one, or file a purchase against one.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-**Covers**: FR-001, FR-002, FR-003, FR-007 (storage side), FR-015 (code generation side)
+**Covers**: FR-001, FR-002, FR-003, FR-007 (storage side), FR-008, FR-015 (code generation side)
 
 ### Domain types
 
@@ -70,7 +70,7 @@ exist before it can scan one, label one, or file a purchase against one.
 
 - [ ] T006 Add `Product` ORM model to `app/database.py` per [data-model.md](./data-model.md) §1 — nullable `quantity` (tri-state), `quantity_updated_at`, `reorder_threshold`, `stock_status`, check constraints, indexes on `category_path` and `description`
 - [ ] T007 Add `Purchase` ORM model to `app/database.py` per [data-model.md](./data-model.md) §2 — `unit_price` as `Numeric(10, 2)`, `received_date` nullable as the outstanding/complete state, indexes on `(product_id, order_date)` and `received_date`
-- [ ] T008 Add `ProductIdentifier` ORM model to `app/database.py` per [data-model.md](./data-model.md) §3, including the `uq_identifier_type_value_vendor` unique constraint that makes FR-009 a database property rather than a convention
+- [ ] T008 Add `ProductIdentifier` ORM model to `app/database.py` per [data-model.md](./data-model.md) §3, including the `uq_identifier_type_value_vendor` unique constraint that makes FR-009 a database property rather than a convention. The `vendor` column is part of that key **because of FR-008** — a vendor item id is only meaningful within its vendor, and `products.id` never derives from this table, so the worst case of a reused vendor identifier is a duplicate identifier row to resolve, not two products silently merged
 - [ ] T009 [P] Add `Tag` and `ProductTag` ORM models to `app/database.py` per [data-model.md](./data-model.md) §4
 - [ ] T010 [P] Add `ProductAttachment` ORM model to `app/database.py` per [data-model.md](./data-model.md) §6, with the exactly-one-owner check constraint `(product_id IS NOT NULL) <> (purchase_id IS NOT NULL)`
 
@@ -98,7 +98,7 @@ exist before it can scan one, label one, or file a purchase against one.
 ### Tests
 
 - [ ] T023 [P] Unit tests for the new ORM models and their validation in `tests/unit/test_product_model.py` — including that `quantity` defaults to `NULL` (FR-023) and that price round-trips as `Decimal`
-- [ ] T024 [P] Unit tests for `CatalogService` product CRUD in `tests/unit/test_catalog_service.py`, built through the `test_storage` → `app` → `client` fixtures in `tests/conftest.py`
+- [ ] T024 [P] Unit tests for `CatalogService` product CRUD in `tests/unit/test_catalog_service.py`, built through the `test_storage` → `app` → `client` fixtures in `tests/conftest.py`. **Include FR-008 directly**: the same `vendor_item_id` recorded under two different vendors yields two distinct products; re-using one vendor's item identifier for a second product creates a second product rather than mutating or merging the first; and deleting a product's every identifier leaves the product itself intact. This is the edge case at [spec.md](./spec.md) L141 and nothing else in the suite covers it
 - [ ] T025 [P] E2E test for product create / edit / detail in `tests/e2e/test_product_crud.py`
 
 **Checkpoint**: A product can be created, edited, and viewed, and carries an internal code. User
@@ -182,9 +182,10 @@ complete it on arrival.
 
 - [ ] T046 [US3] Implement capture in `app/catalog_service.py` — attach to an existing product when the captured identifier matches one, otherwise create a product (FR-021); idempotent on `(vendor, vendor_item_id, order_date)`
 - [ ] T047 [US3] Add `POST /api/capture` to `app/product/routes.py` and exempt **only this endpoint** from CSRF, with an inline comment explaining that the bookmarklet posts from the vendor's origin and why that is proportionate under the constitution's stated threat model
-- [ ] T048 [US3] Create the bookmarklet — reads `location.href`, `document.title`, and the ASIN from an Amazon `/dp/<ASIN>/` URL path, and POSTs to `/api/capture`. Reads the URL, never DOM selectors; anything it cannot find is left blank for the operator
+- [ ] T048 [US3] Create the bookmarklet — reads `location.href`, `document.title`, and the ASIN from an Amazon `/dp/<ASIN>/` URL path, then submits them to `/api/capture` by **building a form and submitting it into a new tab**, not by `fetch`. A `fetch` from an HTTPS vendor page to this plain-HTTP LAN host is blocked as mixed content before CSRF, CORS, or the page's CSP are ever consulted; a form submission is a navigation and is not. The new tab lands on the app's own confirmation page, which is also where the operator amends anything the URL did not yield. Reads the URL, never DOM selectors; anything it cannot find is left blank
+  - **Acceptance is manual, and that is expected**: the bookmarklet cannot be driven by Playwright against a real vendor page, so T052 covers the paste-a-URL path instead. Verify by hand once against a live Amazon listing and record the result in the PR. If the vendor's CSP `form-action` blocks even this, T049 is the path that always works and the bookmarklet is dropped — that is the trade already accepted in [research.md](./research.md) §8
 - [ ] T049 [US3] Add the paste-a-URL fallback page at `/products/capture` with `app/templates/product/capture.html` — the path that cannot break when a vendor changes their site
-- [ ] T050 [US3] Implement the receive flow in `app/catalog_service.py` and `app/product/routes.py` — present the captured details for confirmation or amendment, allow quantity and price to differ from what was ordered, and set `received_date`
+- [ ] T050 [US3] Implement the receive flow in `app/catalog_service.py`, `app/product/routes.py`, and `app/templates/product/receive.html` — `GET`/`POST /purchases/<id>/receive` presents the captured details for confirmation or amendment, allows quantity and price to differ from what was ordered, and sets `received_date`. Marking an already-received purchase received is a no-op, not an error ([data-model.md](./data-model.md) §2)
 - [ ] T051 [P] [US3] Unit tests in `tests/unit/test_capture.py` — idempotency, attach-vs-create, amendment at receipt
 - [ ] T052 [P] [US3] E2E test in `tests/e2e/test_order_capture.py` covering the paste-a-URL path end to end
 
@@ -251,8 +252,8 @@ flagged one.
 - [ ] T069 [US6] Add the reorder view route and `app/templates/product/reorder.html`, combining manual and threshold-derived low products with on-order ones marked (FR-027, FR-028)
 - [ ] T070 [US6] **Clear the manual low flag explicitly in the receive path** in `app/catalog_service.py`. A threshold-derived low clears itself once the receipt updates the quantity, but a manually flagged product stays flagged until something clears it — this asymmetry is the subtle point of FR-029 ([research.md](./research.md) §10)
 - [ ] T071 [US6] Make quantity adjust and stock-status set **touch targets** on `app/templates/product/detail.html`, not keyboard-only affordances (FR-036, SC-010)
-- [ ] T072 [P] [US6] Unit tests in `tests/unit/test_stock_status.py` — the three quantity states are distinguishable, threshold derivation, and **both halves** of FR-029
-- [ ] T073 [P] [US6] E2E test in `tests/e2e/test_reorder_view.py` — including that `quantity = 0` and `quantity = NULL` are visibly different everywhere quantity is shown (SC-007)
+- [ ] T072 [P] [US6] Unit tests in `tests/unit/test_stock_status.py` — the three quantity states are distinguishable, threshold derivation, `quantity_age` derivation per [data-model.md](./data-model.md) §7 (including that a tracked quantity with no `quantity_updated_at` yields no age rather than an error, and that switching tracking off clears it), and **both halves** of FR-029
+- [ ] T073 [P] [US6] E2E test in `tests/e2e/test_reorder_view.py` — including that `quantity = 0` and `quantity = NULL` are visibly different everywhere quantity is shown (SC-007), and that the product detail view renders a tracked quantity's **relative age** rather than a bare number (FR-024)
 
 **Checkpoint**: The handful of parts where a stockout costs something are covered.
 
@@ -271,7 +272,7 @@ description, specification, and identifier.
 - [ ] T074 [P] [US7] Implement `app/utils/category.py` — canonical materialized path (lowercase, `/`-separated, no empty segments, stripped), the `path = X OR path LIKE 'X/%'` segment-boundary predicate, and blank/`None` yielding "no category" rather than an error. Normalization only shortens or lowercases; **never slugs** (research §6)
 - [ ] T075 [P] [US7] Unit tests for `app/utils/category.py` in `tests/unit/test_category.py` — canonicalization, boundary predicate does not match `foo-bar` when filtering `foo`, blank inputs are not errors
 - [ ] T076 [US7] Implement inline category creation during product entry in `app/catalog_service.py` and `app/templates/product/add.html` — typing a new category creates it with no separate setup step (FR-030)
-- [ ] T077 [US7] Implement tag create / attach / detach in `app/catalog_service.py` with lowercase normalization, plus `GET /api/tags` in `app/product/routes.py` (FR-031)
+- [ ] T077 [US7] Implement tag create / attach / detach in `app/catalog_service.py` with lowercase normalization, plus `GET /api/tags` in `app/product/routes.py` (FR-031). **No standalone tag browse page** — the API plus the tag filter on the catalogue list (T079) satisfies FR-031; a browse page for a flat list is a surface Principle I does not pay for. Categories keep theirs (T080) because a hierarchy is worth browsing
 - [ ] T078 [US7] Implement search in `app/catalog_service.py` across description, specifications, identifiers, and part numbers (FR-032)
 - [ ] T079 [US7] Add `GET /api/products/search` and the catalogue list page with category, tag, and stock filters — including the `tracked` / `untracked` / `none-on-hand` values that keep SC-007 unambiguous — in `app/product/routes.py` and `app/templates/product/search.html`
 - [ ] T080 [US7] Add `GET /api/categories` and the category browse page `app/templates/product/categories.html`
@@ -290,9 +291,9 @@ description, specification, and identifier.
 
 - [ ] T083 [P] Implement optional storage location on the product form and detail view in `app/catalog_service.py` and `app/templates/product/` (FR-033)
 - [ ] T084 Implement attachments on a product or a purchase by extending `app/photo_service.py` and reusing the existing `photos` BLOB table — PDF datasheets already work via PyMuPDF. Use a **separate** per-product cap constant rather than reusing `MAX_PHOTOS_PER_ITEM` (FR-034, research §7)
-- [ ] T085 [P] Add attachment upload and listing routes to `app/product/routes.py` and the attachment section to `app/templates/product/detail.html`
+- [ ] T085 [P] Add attachment upload and listing routes to `app/product/routes.py` for **both owners** — `POST /api/products/<id>/attachments` and `POST /api/purchases/<id>/attachments` — plus the attachment section on `app/templates/product/detail.html` and on the purchase rows in the history. A datasheet belongs to the product; a saved listing belongs to the purchase that captured it (FR-034)
 - [ ] T086 Create `app/static/js/product-form.js` persisting in-progress form state to `localStorage` on input, offering restore on load, and clearing on successful submit (FR-035). Follow the existing label-type persistence precedent; **not** a service worker and not offline sync
-- [ ] T087 [P] Unit tests for attachments in `tests/unit/test_product_attachments.py` — including that the exactly-one-owner constraint holds
+- [ ] T087 [P] Unit tests for attachments in `tests/unit/test_product_attachments.py` — both owner paths round-trip, and the exactly-one-owner constraint holds. Per [data-model.md](./data-model.md) § Migrations, the assertion that the constraint *rejects* a two-owner or no-owner row must run where the constraint is real — SQLite will not enforce it
 - [ ] T088 [P] E2E test in `tests/e2e/test_draft_persistence.py` — compose text, simulate the interruption, reload, confirm restore is offered
 - [ ] T089 [P] E2E test in `tests/e2e/test_touch_readiness.py` — drive scan-and-act and the reorder view on a touch viewport with no keyboard (SC-010)
 
@@ -317,13 +318,19 @@ description, specification, and identifier.
 - **US3 (Phase 5)**: depends on Phase 2; T050 (receive) shares ground with US6's T070
 - **US4 (Phase 6)**: depends on Phase 2 **and on US1's T028** — it adds a rule to the classifier US1 creates
 - **US5 (Phase 7)**: depends on Phase 2 and on US2's T039 (a purchase must be recordable before there is a history)
-- **US6 (Phase 8)**: depends on Phase 2; T070 depends on US3's T050 if order capture is built first
+- **US6 (Phase 8)**: depends on Phase 2 **and on US3's T050** — its Independent Test requires marking a purchase received, which is the receive flow T050 builds
 - **US7 (Phase 9)**: depends on Phase 2 only
 - **Cross-cutting (Phase 10)**: depends on the stories whose surfaces it touches
 
-**US4 is the one story that is not independent of another.** It extends `scan_router.classify()`
-rather than standing beside it, because a second classifier would be exactly the drift the pure
-module exists to prevent. Everything else can be built in any order after Phase 2.
+**Three stories are not independent of another, each for a different and unavoidable reason.**
+US4 extends `scan_router.classify()` rather than standing beside it, because a second classifier
+would be exactly the drift the pure module exists to prevent. US5 needs US2's T039, because a
+purchase must be recordable before there is a history to show. US6 needs US3's T050, because
+"mark it received and confirm the low status clears" is half of FR-029 and the receive path is
+where that happens. US1, US2, US3, and US7 can be built in any order after Phase 2.
+
+This is why the recommended increment order below builds US2 before US5 and US3 before US6 —
+the order is not arbitrary, and reordering those two pairs breaks a checkpoint.
 
 ### Within each story
 

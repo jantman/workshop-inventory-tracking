@@ -24,7 +24,6 @@ CSRF is enabled on state-changing form posts, and errors go through the centrali
 | `GET`/`POST` | `/purchases/<id>/receive` | Mark received; amend quantity/price; **clear a manual low flag** | FR-005, FR-029 |
 | `GET` | `/products/reorder` | Unified reorder view, on-order marked | FR-027, FR-028 |
 | `GET` | `/products/categories` | Browse the category tree | FR-030 |
-| `GET` | `/products/tags` | Browse tags | FR-031 |
 | `GET` | `/products/capture` | Paste-a-URL fallback for order-time capture | FR-020 |
 
 ---
@@ -44,6 +43,7 @@ CSRF is enabled on state-changing form posts, and errors go through the centrali
 | `GET` | `/api/labels/types` | — | label type names | FR-037 |
 | `POST` | `/api/capture` | `{vendor, vendor_item_id, listing_title, url, price?, order_date?}` | created/attached purchase | FR-020, FR-021 |
 | `POST` | `/api/products/<id>/attachments` | multipart file | created attachment | FR-034 |
+| `POST` | `/api/purchases/<id>/attachments` | multipart file | created attachment | FR-034 |
 | `GET` | `/api/categories` | `prefix?` | distinct category paths | FR-030 |
 | `GET` | `/api/tags` | `prefix?` | tag names | FR-031 |
 

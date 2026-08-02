@@ -272,10 +272,17 @@ the operator saves once.
 
 **Constraints this imposes, stated so planning does not discover them late**:
 
-- The endpoint must accept a cross-origin POST from the vendor page. This is a LAN-only,
-  no-auth app whose threat model explicitly excludes hostile input, so the simple approach —
-  a form POST or a CORS-permitted endpoint exempted from CSRF — is proportionate. It should be
-  the **only** such exemption, and it should be commented as to why.
+- The endpoint must accept a cross-origin POST from the vendor page, and the transport is
+  **a form submission into a new tab, not `fetch`**. The vendor page is HTTPS and this app is
+  plain HTTP on the LAN, so a `fetch` is refused as mixed content before any policy question
+  arises; a form POST is a navigation and is exempt from that rule. The endpoint is exempted
+  from CSRF, which is proportionate for a LAN-only, no-auth app whose threat model explicitly
+  excludes hostile input. It should be the **only** such exemption, and it should be commented
+  as to why.
+- The bookmarklet is therefore not end-to-end testable in CI. That is acceptable because the
+  paste-a-URL form below is the path that always works and *is* tested; the bookmarklet is a
+  convenience layered on top, and if a vendor's `form-action` policy blocks it, nothing is lost
+  but the tab switch.
 - Amazon's DOM is not a contract. The bookmarklet reads `location.href` and `document.title`, and
   extracts the ASIN from the URL path (`/dp/<ASIN>/`), which is far more stable than any selector.
   Anything it cannot find is simply left blank for the operator to fill.
