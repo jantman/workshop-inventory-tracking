@@ -13,3 +13,4 @@ click==8.4.2
 pt-p710bt-label-maker @ git+https://github.com/jantman/pt-p710bt-label-maker.git@jantman
 Pillow>=12.3.0
 PyMuPDF==1.28.0
+gunicorn==26.0.0

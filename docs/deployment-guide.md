@@ -2,6 +2,13 @@
 
 ## Table of Contents
 
+- [Docker Deployment](#docker-deployment)
+  - [1. Pull the Image](#1-pull-the-image)
+  - [2. Configure](#2-configure)
+  - [3. Run Migrations](#3-run-migrations)
+  - [4. Start the Application](#4-start-the-application)
+  - [Image Details](#image-details)
+  - [Upgrading](#upgrading)
 - [Installation Process](#installation-process)
   - [1. Download Application](#1-download-application)
   - [2. Create Virtual Environment](#2-create-virtual-environment)
@@ -31,7 +38,116 @@
   - [1. Log Monitoring](#1-log-monitoring)
   - [2. Health Checks](#2-health-checks)
 
+## Docker Deployment
+
+Prebuilt `linux/amd64` images are published to GHCR by the release workflow.
+
+### 1. Pull the Image
+
+```bash
+# A specific release (recommended -- pin the version you deployed)
+docker pull ghcr.io/jantman/workshop-inventory-tracking:0.1.0
+
+# Or the most recent release
+docker pull ghcr.io/jantman/workshop-inventory-tracking:latest
+```
+
+Every CI build is also pushed, tagged `ci-<commit-sha>`, if you need to run an
+unreleased commit.
+
+### 2. Configure
+
+The container is configured entirely through environment variables -- it does
+not read a `.env` file from inside the image. Put them in a file and pass it
+with `--env-file`:
+
+```bash
+# inventory.env
+SECRET_KEY=your-secret-key-here-change-this
+SQLALCHEMY_DATABASE_URI=mysql+pymysql://user:password@dbhost/workshop_inventory
+LOG_LEVEL=INFO
+
+# Optional: label printing via a CUPS server on the network
+CUPS_SERVER=cups-host.lan
+
+# Optional: Google Sheets export
+GOOGLE_SHEET_ID=your-sheet-id-here
+GOOGLE_CREDENTIALS_FILE=/credentials/credentials.json
+GOOGLE_TOKEN_FILE=/credentials/token.json
+```
+
+### 3. Run Migrations
+
+**Migrations are not run automatically at startup.** Run them yourself before
+starting a new image version, using the same image:
+
+```bash
+docker run --rm --env-file inventory.env \
+  ghcr.io/jantman/workshop-inventory-tracking:0.1.0 \
+  python manage.py db upgrade
+```
+
+The image has no `ENTRYPOINT`, so every `manage.py` command works the same way
+(`db current`, `audit materials`, `photos regenerate-pdf-thumbnails`, ...).
+
+### 4. Start the Application
+
+```bash
+docker run -d --name workshop-inventory \
+  --restart unless-stopped \
+  --env-file inventory.env \
+  -p 5000:5000 \
+  ghcr.io/jantman/workshop-inventory-tracking:0.1.0
+```
+
+Or with Compose:
+
+```yaml
+services:
+  app:
+    image: ghcr.io/jantman/workshop-inventory-tracking:0.1.0
+    restart: unless-stopped
+    env_file: inventory.env
+    ports:
+      - "5000:5000"
+    # Only needed for Google Sheets export. Must be writable -- the token file
+    # is rewritten whenever the OAuth credentials are refreshed.
+    volumes:
+      - ./credentials:/credentials
+```
+
+If you use Google Sheets export, generate `token.json` on a host first. The
+first export triggers an interactive OAuth flow (`run_local_server`, which opens
+a browser) that cannot complete inside the container. Mount the directory
+containing `credentials.json` and `token.json` read-write, owned by uid 1000.
+
+### Image Details
+
+- Runs `gunicorn` with 2 workers on port 5000 as the non-root `inventory` user
+- Built-in `HEALTHCHECK` polls `/health`, so `docker ps` reports health directly
+- Logs go to STDOUT/STDERR in the same structured JSON format as a bare-metal
+  install, so `docker logs` is the equivalent of `journalctl -u workshop-inventory`
+- Label printing works through the `lp` binary from `cups-client`; set
+  `CUPS_SERVER` to the hostname of a CUPS server that has the Sato printers
+  configured. Without it, label printing fails but nothing else is affected.
+- No application data lives in the container -- photos and inventory are all in
+  MariaDB, so there is nothing to persist in a volume
+
+### Upgrading
+
+```bash
+docker pull ghcr.io/jantman/workshop-inventory-tracking:<new-version>
+docker run --rm --env-file inventory.env \
+  ghcr.io/jantman/workshop-inventory-tracking:<new-version> python manage.py db upgrade
+docker stop workshop-inventory && docker rm workshop-inventory
+# then re-run the `docker run` from step 4 with the new tag
+```
+
+Take a database backup before running migrations for a new release.
+
 ## Installation Process
+
+The steps below are for running directly on a host instead of in Docker.
 
 ### 1. Download Application
 
@@ -564,9 +680,33 @@ sudo journalctl -u workshop-inventory -f
 
 ### 2. Health Checks
 ```bash
-# Application health endpoint
+# Application health endpoint -- also reports the running version
 curl http://localhost:5000/health
+# {"service":"workshop-inventory-tracking","status":"healthy","version":"0.1.0"}
 ```
+
+## Versioning and Releases
+
+The project uses [Semantic Versioning](https://semver.org/). The version in the
+`[project]` table of `pyproject.toml` is the single source of truth: the
+application reads it at runtime (shown in the page footer and returned by
+`/health`), and the release workflow reads it to decide whether to cut a release.
+
+To cut a release:
+
+1. Bump `version` in `pyproject.toml` following SemVer:
+   - **MAJOR** -- a change that requires manual intervention to deploy, such as a
+     migration that is not backward compatible or a required new configuration
+     variable
+   - **MINOR** -- new features or new (automatic) database migrations
+   - **PATCH** -- bug fixes and documentation
+2. Merge to `main`.
+
+The `Release` workflow compares the new version against the latest GitHub
+release. If it is higher, the workflow builds and pushes
+`ghcr.io/jantman/workshop-inventory-tracking:<version>` and `:latest`, then
+creates a `v<version>` GitHub release with generated notes. If the version is
+unchanged, the workflow does nothing, so ordinary merges to `main` are safe.
 
 ## Security Posture for `/api/*` Endpoints
 

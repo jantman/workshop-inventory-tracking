@@ -12,7 +12,22 @@ This directory contains automated workflows for the Workshop Inventory Tracking 
 - **Unit Tests**: Python 3.13 testing
 - **Coverage**: Code coverage analysis with PR comments
 - **E2E Tests**: End-to-end browser testing with Playwright
+- **Docker Build**: Builds the image, pushes it to GHCR as `ci-<commit-sha>`, and smoke-tests `/health`
 - **Test Summary**: Consolidated results and artifact management
+
+### 🚀 `release.yml` - Release and Publish
+**Triggers:** Push to `main`, manual dispatch
+**Purpose:** Cut a SemVer release when the version is bumped
+
+**Jobs:**
+- **Check Version**: Compares `version` in `pyproject.toml` to the latest GitHub release
+- **Create Release**: If the version is higher, pushes `ghcr.io/jantman/workshop-inventory-tracking:<version>` and `:latest`, then creates a `v<version>` GitHub release
+
+Merges to `main` that do not bump the version are a no-op. See
+[Versioning and Releases](../../docs/deployment-guide.md#versioning-and-releases).
+
+> The Docker build configuration is duplicated between `test.yml` and
+> `release.yml`; keep the two in sync when changing build arguments or labels.
 
 **Artifacts on Failure:**
 - `test-debug-output/` - E2E test failure diagnostics (screenshots, HTML dumps, console logs)

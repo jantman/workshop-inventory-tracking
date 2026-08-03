@@ -1,0 +1,16 @@
+[project]
+name = "workshop-inventory-tracking"
+version = "0.1.0"
+description = "Flask web application for tracking materials and supplies in a hobby workshop"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Jason Antman", email = "jason@jasonantman.com" }]
+
+[project.urls]
+Homepage = "https://github.com/jantman/workshop-inventory-tracking"
+
+# This file is metadata only -- the application is not built or installed as a
+# package. The `version` field above is the single source of truth for the
+# project version: `app/version.py` reads it at runtime and the release
+# workflow reads it to decide whether to cut a release.

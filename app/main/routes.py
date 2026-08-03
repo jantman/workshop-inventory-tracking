@@ -2,7 +2,7 @@ from flask import render_template, current_app, jsonify, abort, request, flash, 
 from datetime import datetime
 from typing import Any
 from app.main import bp
-from app import csrf
+from app import csrf, __version__
 from app.mariadb_storage import MariaDBStorage
 # Using unified InventoryService (MariaDB-based implementation)
 from app.mariadb_inventory_service import InventoryService
@@ -101,7 +101,11 @@ def index():
 @bp.route('/health')
 def health():
     """Health check endpoint for monitoring"""
-    return {'status': 'healthy', 'service': 'workshop-inventory-tracking'}
+    return {
+        'status': 'healthy',
+        'service': 'workshop-inventory-tracking',
+        'version': __version__,
+    }
 
 @bp.route('/inventory')
 def inventory_list():
