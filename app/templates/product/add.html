@@ -78,7 +78,10 @@
                 </div>
                 <div class="card-body">
                     <p class="text-muted small">
-                        Read off the scanned label. Every value is editable before you save.
+                        Read off the scanned label. Every value is editable before you save,
+                        and what you leave here is kept in the product's notes -- these
+                        describe an order rather than a product, and the label does not say
+                        which vendor to file one against.
                     </p>
                     {% for key, value in prefill.get('ecia_fields').items() %}
                     <div class="mb-2">

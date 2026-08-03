@@ -312,9 +312,18 @@ class PhotoService:
                     session.delete(assoc)
                 session.flush()
 
-            # Step 2: Find and delete photos that have no associations
+            # Step 2: Find and delete photos that nothing references.
+            #
+            # Both tables have to be checked. Product and purchase attachments
+            # reference photos through product_attachments and never create an
+            # ItemPhotoAssociation, so a filter that only knows about the latter
+            # treats every attachment as orphaned the moment it is uploaded --
+            # and product_attachments.photo_id is ON DELETE CASCADE, so the sweep
+            # would take the attachment rows with it. delete_attachment() already
+            # checks both; so must this.
             orphaned_photos = session.query(Photo).filter(
-                ~exists().where(ItemPhotoAssociation.photo_id == Photo.id)
+                ~exists().where(ItemPhotoAssociation.photo_id == Photo.id),
+                ~exists().where(ProductAttachment.photo_id == Photo.id),
             ).all()
 
             photo_count = len(orphaned_photos)

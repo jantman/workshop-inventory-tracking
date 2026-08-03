@@ -204,3 +204,50 @@ class TestDeletion:
         photos.delete_attachment(attachment.id)
 
         assert photos.get_photo_data(photo_id, 'original') is None
+
+
+class TestTheOrphanSweepLeavesAttachmentsAlone:
+    """cleanup_orphaned_photos predates attachments and knew only about items.
+
+    Its definition of "orphaned" was "no ItemPhotoAssociation", which every
+    attachment satisfies from the moment it is uploaded -- and since
+    product_attachments.photo_id cascades, running the sweep took the attachment
+    rows with the bytes. That is silent data loss on an endpoint an operator can
+    hit from the admin UI.
+    """
+
+    def test_a_product_attachment_survives_the_sweep(self, photos, product):
+        attachment = photos.upload_product_attachment(
+            product.id, png_bytes(), 'datasheet.png', 'image/png'
+        )
+
+        photos.cleanup_orphaned_photos()
+
+        assert len(photos.get_product_attachments(product.id)) == 1
+        assert photos.get_photo_data(attachment.photo_id, 'original') is not None
+
+    def test_a_purchase_attachment_survives_the_sweep(self, photos, purchase):
+        attachment = photos.upload_purchase_attachment(
+            purchase.id, png_bytes(), 'listing.png', 'image/png'
+        )
+
+        photos.cleanup_orphaned_photos()
+
+        assert len(photos.get_purchase_attachments(purchase.id)) == 1
+        assert photos.get_photo_data(attachment.photo_id, 'original') is not None
+
+    def test_a_genuinely_unreferenced_photo_is_still_swept(self, photos, product):
+        """The sweep must still do its job"""
+        from app.database import Photo
+
+        orphan = Photo(
+            filename='nobody.png', content_type='image/png', file_size=4,
+            thumbnail_data=b'a', medium_data=b'b', original_data=b'c',
+        )
+        photos.session.add(orphan)
+        photos.session.commit()
+        orphan_id = orphan.id
+
+        photos.cleanup_orphaned_photos()
+
+        assert photos.get_photo_data(orphan_id, 'original') is None

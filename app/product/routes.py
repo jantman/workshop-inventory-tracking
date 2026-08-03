@@ -54,6 +54,43 @@ def _form_product_fields(form) -> dict:
     }
 
 
+# The distributor-label fields the create form offers for editing. The values
+# come off the scanned label uncoerced (FR-017) and the operator may amend any of
+# them before saving.
+ECIA_PREFILL_FIELDS = (
+    ('distributor_part_number', 'Distributor part number'),
+    ('quantity', 'Quantity'),
+    ('order_reference', 'Order reference'),
+    ('supplier_order_reference', 'Supplier order reference'),
+    ('date_code', 'Date code'),
+)
+
+
+def _ecia_note(form) -> str:
+    """Render the submitted distributor-label fields as a note block.
+
+    These have no column of their own: quantity and order references describe a
+    *purchase*, and a scanned label does not tell us which vendor to file one
+    against. Rather than offer them for editing and then drop them -- which is
+    what used to happen -- they are kept verbatim on the product, so the operator
+    can raise the purchase from them later.
+
+    Args:
+        form: The submitted form.
+
+    Returns:
+        A note block, or an empty string when the label carried none of them.
+    """
+    lines = [
+        f"{label}: {form.get('ecia_' + key).strip()}"
+        for key, label in ECIA_PREFILL_FIELDS
+        if (form.get('ecia_' + key) or '').strip()
+    ]
+    if not lines:
+        return ''
+    return "From the distributor label:\n" + "\n".join(lines)
+
+
 def _split_tags(raw) -> list:
     """Split a comma-separated tag field into names"""
     if not raw:
@@ -116,6 +153,12 @@ def product_new():
                 'override': request.form.get('identifier_override') == 'on',
             })
 
+        label_note = _ecia_note(request.form)
+        if label_note:
+            fields['notes'] = '\n\n'.join(
+                part for part in (fields.get('notes'), label_note) if part
+            )
+
         try:
             product = service.create_product(
                 identifiers=identifiers,
@@ -139,13 +182,7 @@ def product_new():
     # error (FR-018), and every extracted value stays editable (FR-017).
     ecia_fields = {
         key: request.args[key]
-        for key in (
-            'distributor_part_number',
-            'quantity',
-            'order_reference',
-            'supplier_order_reference',
-            'date_code',
-        )
+        for key, _label in ECIA_PREFILL_FIELDS
         if request.args.get(key)
     }
 
@@ -206,8 +243,13 @@ def product_edit(product_id):
             product = service.set_tags(product_id, _split_tags(request.form.get('tags')))
         except ValidationError as e:
             flash(str(e.message), 'error')
+            # form_data, not just the product: re-rendering the unchanged DB row
+            # would silently discard everything the operator had typed.
             return render_template(
-                'product/edit.html', title='Edit Product', product=product
+                'product/edit.html',
+                title='Edit Product',
+                product=product,
+                form_data=request.form,
             )
 
         flash('Saved.', 'success')
@@ -283,7 +325,10 @@ def product_capture():
         except ValidationError as e:
             flash(e.message, 'error')
             return render_template(
-                'product/capture.html', title='Capture an Order', form_data=request.form
+                'product/capture.html',
+                title='Capture an Order',
+                form_data=request.form,
+                bookmarklet=_capture_bookmarklet(),
             )
 
         flash('Captured. Confirm the details when it arrives.', 'success')
@@ -755,8 +800,8 @@ def api_print_product_label(product_id):
             'error': f'Invalid label type. Available types: {get_available_label_types()}'
         }), 400
 
-    history = service.get_purchase_history(product_id)
-    provenance = format_provenance(history[-1] if history else None)
+    # Not history[-1]: undated purchases sort last but are not the most recent.
+    provenance = format_provenance(service.get_latest_purchase(product_id))
 
     try:
         print_product_label(

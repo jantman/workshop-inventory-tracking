@@ -157,3 +157,60 @@ class TestVariantsStayDistinct:
 
         assert first.id != second.id
         assert first.internal_code != second.internal_code
+
+
+class TestUndatedPurchasesAreNotRecent:
+    """An unknown date is not an early one -- and it is not a late one either.
+
+    get_purchase_history sorts undated purchases last, which is right. Reading
+    "last in that list" as "most recent" is not: it turns an honest agnosticism
+    about when something was bought into a false claim that it was bought most
+    recently, and puts the wrong vendor and price on a printed label.
+    """
+
+    def test_a_dated_purchase_beats_an_undated_one_for_latest_price(self, service, product):
+        service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), unit_price='12.34'
+        )
+        service.record_purchase(product.id, vendor='Junk Shop', unit_price='5.00')
+
+        assert service.get_latest_price(product.id) == Decimal('12.34')
+
+    def test_the_same_for_the_purchase_the_label_quotes(self, service, product):
+        service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), unit_price='12.34'
+        )
+        service.record_purchase(product.id, vendor='Junk Shop', unit_price='5.00')
+
+        assert service.get_latest_purchase(product.id).vendor == 'Amazon'
+
+    def test_an_undated_purchase_is_used_when_nothing_carries_a_date(self, service, product):
+        """It is the best available answer, not a wrong one"""
+        service.record_purchase(product.id, vendor='Junk Shop', unit_price='5.00')
+
+        assert service.get_latest_price(product.id) == Decimal('5.00')
+        assert service.get_latest_purchase(product.id).vendor == 'Junk Shop'
+
+    def test_the_most_recent_dated_purchase_still_wins_among_dated_ones(self, service, product):
+        service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), unit_price='12.34'
+        )
+        service.record_purchase(
+            product.id, vendor='eBay', order_date=datetime(2026, 3, 2), unit_price='11.00'
+        )
+        service.record_purchase(product.id, vendor='Junk Shop', unit_price='5.00')
+
+        assert service.get_latest_price(product.id) == Decimal('11.00')
+        assert service.get_latest_purchase(product.id).vendor == 'eBay'
+
+    def test_an_unpriced_dated_purchase_falls_back_to_an_older_dated_price(self, service, product):
+        service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), unit_price='12.34'
+        )
+        service.record_purchase(product.id, vendor='eBay', order_date=datetime(2026, 3, 2))
+
+        assert service.get_latest_price(product.id) == Decimal('12.34')
+
+    def test_no_purchases_at_all(self, service, product):
+        assert service.get_latest_purchase(product.id) is None
+        assert service.get_latest_price(product.id) is None

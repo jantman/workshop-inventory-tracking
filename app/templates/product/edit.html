@@ -10,7 +10,9 @@
 {% endblock %}
 
 {% block product_content %}
-{% set values = {
+{# On a rejected save, form_data carries what the operator actually typed.
+   Falling back to the stored product here would quietly undo their edit. #}
+{% set values = form_data if form_data else {
     'description': product.description,
     'manufacturer': product.manufacturer,
     'manufacturer_part_number': product.manufacturer_part_number,

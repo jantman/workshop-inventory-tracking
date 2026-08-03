@@ -58,6 +58,13 @@
             return this.typedFields.some((field) => fields[field.name]);
         }
 
+        /** Does the stored draft say anything the form is not already showing? */
+        differsFromForm(fields) {
+            return this.typedFields.some(
+                (field) => (fields[field.name] || '') !== (field.value || '')
+            );
+        }
+
         save() {
             const data = this.collect();
             try {
@@ -109,9 +116,16 @@
             if (!draft || !draft.fields || !this.hasTypedContent(draft.fields)) {
                 return;
             }
-            if (this.typedFields.some((field) => field.value)) {
-                // The form already carries typed values (an edit form, or a
-                // rejected submit); overwriting them would be the surprise.
+            if (!this.differsFromForm(draft.fields)) {
+                // The draft says nothing the form is not already showing, so
+                // there is nothing to offer.
+                //
+                // This is a comparison rather than a "does the form have any
+                // values?" check, which is what it used to be: an edit form is
+                // always pre-populated -- `description` is required and can
+                // never be blank -- so that check was unconditionally true
+                // there and the restore banner could never appear on the one
+                // form where losing an edit costs the most.
                 return;
             }
 

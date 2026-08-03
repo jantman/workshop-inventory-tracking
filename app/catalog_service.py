@@ -702,6 +702,29 @@ class CatalogService:
             key=lambda p: (p.order_date is None, p.order_date or datetime.min, p.id),
         )
 
+    def get_latest_purchase(self, product_id: int) -> Optional[Purchase]:
+        """The most recent purchase by order date (FR-006).
+
+        Undated purchases are *not* candidates while any dated one exists. The
+        history sorts them last on the grounds that an unknown date is not an
+        early one -- but "last in that list" is not the same as "most recent",
+        and treating it that way turns an honest agnosticism about the date into
+        a false claim of recency.
+
+        Args:
+            product_id: The product.
+
+        Returns:
+            The most recent dated purchase; the last-added undated one if none of
+            them carry a date at all; None if there are no purchases.
+        """
+        history = self.get_purchase_history(product_id)
+        dated = [p for p in history if p.order_date is not None]
+
+        if dated:
+            return dated[-1]
+        return history[-1] if history else None
+
     def get_latest_price(self, product_id: int) -> Optional[Decimal]:
         """The unit price of the most recent purchase by order date (FR-006).
 
@@ -711,9 +734,15 @@ class CatalogService:
         Returns:
             The price as a Decimal, or None when nothing priced has been bought.
         """
-        for purchase in reversed(self.get_purchase_history(product_id)):
-            if purchase.unit_price is not None:
-                return purchase.unit_price
+        history = self.get_purchase_history(product_id)
+        dated = [p for p in history if p.order_date is not None]
+
+        # A dated purchase always beats an undated one, however recently the
+        # undated row happened to be entered.
+        for candidate in (dated, history):
+            for purchase in reversed(candidate):
+                if purchase.unit_price is not None:
+                    return purchase.unit_price
         return None
 
     def capture_order(
