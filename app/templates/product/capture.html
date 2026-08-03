@@ -79,6 +79,16 @@
                 <h5 class="mb-0"><i class="bi bi-bookmark-star"></i> The faster way</h5>
             </div>
             <div class="card-body">
+                {% if request.scheme != 'https' %}
+                <div class="alert alert-warning small" id="bookmarklet-http-warning">
+                    <strong>This will not work yet.</strong> Amazon and others tell the browser
+                    to upgrade every outgoing link to <code>https</code>, and this application
+                    is being served over <code>http</code> -- so the click fails with an SSL
+                    error instead of reaching here. Use the paste box on the left until the
+                    application is behind TLS.
+                </div>
+                {% endif %}
+
                 <p class="small text-muted">
                     Drag this to your bookmarks bar. On a vendor's listing, click it: a new tab
                     opens on the confirmation page below, already filled in.
@@ -95,10 +105,13 @@
                 <p class="small text-muted mb-0">
                     It reads the page's URL and title and nothing else -- no page markup, which
                     is not a contract and changes without warning. It submits a form rather than
-                    making a background request, because a background request from an HTTPS
-                    vendor page to this plain-HTTP LAN host is blocked as mixed content before
-                    anything else gets a say. If a vendor blocks even the form, use the paste
-                    box on the left; that path cannot break.
+                    making a background request, because a background request to this host is
+                    blocked as mixed content before anything else gets a say. A form is not a way
+                    around that, though: a vendor sending
+                    <code>upgrade-insecure-requests</code> rewrites the form's destination to
+                    <code>https</code> too. Serving this application over TLS is what fixes it.
+                    Until then, and for any vendor that blocks the form outright, the paste box
+                    on the left is the path that cannot break.
                 </p>
             </div>
         </div>

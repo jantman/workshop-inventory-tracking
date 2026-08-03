@@ -600,9 +600,22 @@ Two ways in:
 1. **Paste the URL** into the form. The vendor comes from the address, and for
    Amazon the item id comes out of the `/dp/` path. Fill in anything the URL did
    not yield. This path cannot break when a vendor changes their site.
-2. **The bookmarklet.** Drag *Capture to Workshop* to your bookmarks bar once. On
-   a listing, click it: a new tab opens on this application's confirmation page,
-   already filled in. It reads only the page address and title.
+2. **The bookmarklet** — *which does not work yet; see the note below.* Drag
+   *Capture to Workshop* to your bookmarks bar once. On a listing, click it: a
+   new tab opens on this application's confirmation page, already filled in. It
+   reads only the page address and title.
+
+> **The bookmarklet needs the application to be served over HTTPS.** Amazon, and
+> most large vendors, send a `upgrade-insecure-requests` policy that rewrites
+> every outgoing link from their page to `https://` — the bookmarklet's included.
+> This application currently answers on plain `http://`, so the click fails with
+> `ERR_SSL_PROTOCOL_ERROR` instead of reaching the capture page. Nothing can be
+> done about that from this end; it is fixed by putting the application behind
+> TLS. Until then, use the paste box. Progress is tracked in issue #54.
+>
+> When TLS does arrive, **re-drag the bookmarklet from the `https` page**. The
+> address it posts to is baked in when the page renders, so one saved from the
+> `http` page keeps pointing at `http` and keeps failing.
 
 Capturing the same listing twice does nothing the second time, so double-clicking
 the bookmark is harmless.

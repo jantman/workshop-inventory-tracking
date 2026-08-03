@@ -110,6 +110,23 @@ def test_a_capture_attaches_to_a_product_that_already_owns_the_identifier(page, 
 
 
 @pytest.mark.e2e
+def test_the_bookmarklet_says_so_when_it_cannot_work(page, live_server):
+    """Over plain http the bookmarklet is dead on arrival, and says so.
+
+    Amazon sends `upgrade-insecure-requests`, which rewrites the bookmarklet's
+    destination to https; against a plain-http server that is an SSL error rather
+    than a capture. Offering the button with no warning would send the operator
+    to debug a failure that is not theirs. See issue #54.
+    """
+    page.goto(f"{live_server.url}/products/capture")
+
+    expect(page.locator("#bookmarklet-http-warning")).to_be_visible()
+    expect(page.locator("#bookmarklet-http-warning")).to_contain_text("https")
+    # The paste box is right there and works.
+    expect(page.locator("#url")).to_be_visible()
+
+
+@pytest.mark.e2e
 def test_the_bookmarklet_is_offered_and_points_at_this_server(page, live_server):
     """It is a convenience layered on the paste path, not a replacement for it"""
     page.goto(f"{live_server.url}/products/capture")

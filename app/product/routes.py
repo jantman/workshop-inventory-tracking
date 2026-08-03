@@ -345,9 +345,22 @@ def api_capture():
     cannot see and undo on the confirmation page they land on.
 
     Accepts a form POST as well as JSON, because the bookmarklet submits a form
-    into a new tab: a fetch from an HTTPS vendor page to this plain-HTTP LAN host
-    is refused as mixed content before CSRF, CORS or the page's CSP are ever
-    consulted, while a form submission is a navigation and is not.
+    into a new tab rather than issuing a fetch: a fetch from an HTTPS vendor page
+    to this plain-HTTP LAN host is refused as mixed content before CSRF, CORS or
+    the page's CSP are ever consulted.
+
+    **A form submission is not a way around that, and an earlier version of this
+    docstring claimed it was.** Chrome's mixed-content *blocking* does treat a
+    form POST as a navigation and let it through, but a vendor sending
+    ``Content-Security-Policy: upgrade-insecure-requests`` -- which Amazon does --
+    rewrites every insecure URL its document initiates, form submissions
+    included, from http to https. The POST then reaches this plain-HTTP server as
+    a TLS handshake and dies with ERR_SSL_PROTOCOL_ERROR. There is no carve-out
+    to exploit; the only fix is serving this application over TLS.
+
+    So the bookmarklet does not currently work against Amazon. The paste-a-URL
+    page is the path that always works, and it is the one covered by tests. See
+    issue #54.
     """
     service = _get_catalog_service()
     data = request.get_json(silent=True) or request.form or {}
