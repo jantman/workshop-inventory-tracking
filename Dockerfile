@@ -28,10 +28,18 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # cups-client provides the `lp` binary used for label printing; set CUPS_SERVER
 # to point it at a CUPS server on the network. libbluetooth3 is the shared
 # library the pybluez extension built above links against.
+#
+# fonts-dejavu-core provides DejaVuSans.ttf. Label composition asks Pillow for it
+# by bare filename, which resolves against the system font path, and the slim
+# base image ships no fonts at all -- so without this every label print fails at
+# render time with "cannot open resource". It is needed by both the product
+# labels and the pre-existing JA-ID ones, since the barcode generator defaults to
+# the same font.
 FROM python:3.13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cups-client \
+        fonts-dejavu-core \
         libbluetooth3 \
     && rm -rf /var/lib/apt/lists/*
 
