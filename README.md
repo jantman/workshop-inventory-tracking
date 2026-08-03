@@ -2,6 +2,7 @@
 
 [![Tests](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/test.yml/badge.svg)](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/test.yml)
 [![Security](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/security.yml/badge.svg)](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/security.yml)
+[![Release](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/release.yml/badge.svg)](https://github.com/jantman/workshop-inventory-tracking/actions/workflows/release.yml)
 
 A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed ⚠️☠️🚨 Flask web application for comprehensive workshop materials inventory management with dual storage backend support (Google Sheets/MariaDB), advanced search capabilities, and professional user experience features.
 
@@ -23,7 +24,24 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 - **Production-Grade Error Handling**: Custom exceptions, circuit breakers, and comprehensive logging
 - **Automated Deployment**: Complete Docker containerization and monitoring tools
 
-## Quick Start
+## Quick Start (Docker)
+
+```bash
+docker pull ghcr.io/jantman/workshop-inventory-tracking:latest
+
+# Run migrations first -- they are not applied automatically
+docker run --rm --env-file inventory.env \
+  ghcr.io/jantman/workshop-inventory-tracking:latest python manage.py db upgrade
+
+docker run -d --name workshop-inventory --restart unless-stopped \
+  --env-file inventory.env -p 5000:5000 \
+  ghcr.io/jantman/workshop-inventory-tracking:latest
+```
+
+See [Docker Deployment](docs/deployment-guide.md#docker-deployment) for the
+environment variables, CUPS setup for label printing, and upgrade steps.
+
+## Quick Start (from source)
 
 1. **Clone and Setup**:
    ```bash
@@ -51,7 +69,7 @@ Once running, navigate to `http://127.0.0.1:5000` to access the inventory interf
 
 ## Documentation
 
-- **[Deployment Guide](docs/deployment-guide.md)** - Production deployment and configuration
+- **[Deployment Guide](docs/deployment-guide.md)** - Docker and bare-metal deployment, configuration, and releases
 - **[User Manual](docs/user-manual.md)** - Complete feature guide and workflows
 - **[Development Testing Guide](docs/development-testing-guide.md)** - Testing framework and development workflow
 - **[Troubleshooting Guide](docs/troubleshooting-guide.md)** - Problem-solving and diagnostics

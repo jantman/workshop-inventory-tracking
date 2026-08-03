@@ -3,6 +3,7 @@ from flask_wtf.csrf import CSRFProtect
 from config import Config
 from app.logging_config import setup_logging
 from app.error_handlers import create_error_handlers
+from app.version import __version__
 
 csrf = CSRFProtect()
 
@@ -35,5 +36,10 @@ def create_app(config_class=Config, storage_backend=None):
     
     from app.admin import bp as admin_bp
     app.register_blueprint(admin_bp)
-    
+
+    # Make the version available to all templates
+    @app.context_processor
+    def inject_version():
+        return {'app_version': __version__}
+
     return app

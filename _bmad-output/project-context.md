@@ -27,6 +27,8 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Testing:** nox + pytest 9.1.1, pytest-flask, pytest-playwright 0.8.0 + Playwright 1.61.0 (e2e), testcontainers[mysql] 4.14.2 (integration)
 - **Other:** PyMuPDF 1.28.0 (PDF), Pillow 12.3.0 (images), pt-p710bt-label-maker (Brother label printing via git dependency)
 - **Config:** python-dotenv 1.2.2 — settings loaded from `.env`; `SQLALCHEMY_DATABASE_URI` read directly
+- **Serving/packaging:** gunicorn 26.0.0 behind the `Dockerfile` (python:3.13-slim, `linux/amd64`, non-root, migrations NOT auto-run). Images publish to `ghcr.io/jantman/workshop-inventory-tracking`.
+- **Versioning:** SemVer. `version` in `pyproject.toml` is the single source of truth; `app/version.py` reads it at runtime. `pyproject.toml` is metadata only — the app is never pip-installed as a package.
 
 ## Critical Implementation Rules
 
@@ -70,7 +72,8 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Always source the venv** (`source venv/bin/activate`) before running any project command.
 - **Database schema changes go through Alembic** via `python manage.py db ...` (revision/upgrade). Never hand-edit the DB or use `create_all` outside tests. `manage.py` is a click CLI with additional admin/audit commands.
 - **Secrets stay in `.env`** (gitignored): `SECRET_KEY`, `SQLALCHEMY_DATABASE_URI`, `GOOGLE_*`. `.flaskenv` holds non-secret Flask run settings. Never hardcode credentials or commit `.env`, `credentials.json`, or `token.json`.
-- **CI (GitHub Actions):** `test.yml` (nox tests) and `security.yml` gate the repo; Claude Code review workflows also run. Keep `nox -s tests` green.
+- **CI (GitHub Actions):** `test.yml` (nox tests + Docker build/push of `ci-<sha>`) and `security.yml` gate the repo; Claude Code review workflows also run. Keep `nox -s tests` green.
+- **Releasing:** bump `version` in `pyproject.toml` and merge to `main`; `release.yml` then pushes the versioned + `latest` images and creates the `v<version>` GitHub release. Merges without a version bump are a no-op. The Docker build config is duplicated in `test.yml` and `release.yml` — change both together.
 
 ### Critical Don't-Miss Rules
 

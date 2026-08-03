@@ -1,0 +1,33 @@
+# Keep the build context small and never ship secrets or local state.
+
+.git/
+.github/
+.claude/
+.specify/
+.bmad-loop/
+_bmad/
+_bmad-output/
+
+venv/
+.nox/
+.pytest_cache/
+__pycache__/
+*.py[codz]
+
+tests/
+docs/
+test-debug-output/
+test-results/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+noxfile.py
+pytest.ini
+requirements-test.txt
+
+# Secrets and local configuration -- these must never end up in an image.
+.env
+.flaskenv
+credentials/
+*.log
