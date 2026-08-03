@@ -291,9 +291,15 @@ jobs:
 
     # GHCR image names must be lowercase, but ${{ github.repository }}
     # preserves the owner's case. Lowercase it for use in image tags.
-    - name: Compute lowercase image name
+    #
+    # On pull_request events github.sha is GitHub's ephemeral merge commit,
+    # which is not in the repository's history and so is useless for finding
+    # the code an image was built from. Use the PR head SHA there instead.
+    - name: Compute image name and tag
       id: image
-      run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        echo "sha=${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
@@ -307,7 +313,7 @@ jobs:
           org.opencontainers.image.description=Flask web application for tracking materials and supplies in a hobby workshop
           org.opencontainers.image.url=https://github.com/${{ github.repository }}
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.revision=${{ steps.image.outputs.sha }}
           org.opencontainers.image.licenses=MIT
           com.github.actions.workflow=${{ github.workflow }}
           com.github.actions.run-id=${{ github.run_id }}
@@ -315,15 +321,15 @@ jobs:
           com.github.actions.run-attempt=${{ github.run_attempt }}
           com.github.actions.run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         tags: |
-          ${{ steps.image.outputs.name }}:ci-${{ github.sha }}
+          ${{ steps.image.outputs.name }}:ci-${{ steps.image.outputs.sha }}
 
     - name: Smoke test the image
       run: |
-        docker pull "${{ steps.image.outputs.name }}:ci-${{ github.sha }}"
+        docker pull "${{ steps.image.outputs.name }}:ci-${{ steps.image.outputs.sha }}"
         docker run -d --name smoke -p 5000:5000 \
           -e SECRET_KEY=smoke-test \
           -e SQLALCHEMY_DATABASE_URI=mysql+pymysql://u:p@127.0.0.1/db \
-          "${{ steps.image.outputs.name }}:ci-${{ github.sha }}"
+          "${{ steps.image.outputs.name }}:ci-${{ steps.image.outputs.sha }}"
         for i in $(seq 1 30); do
           if curl -sf http://127.0.0.1:5000/health; then
             echo "Health check passed"

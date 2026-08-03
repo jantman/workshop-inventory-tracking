@@ -146,7 +146,7 @@ jobs:
             Database migrations are not run automatically. Before starting the
             new image, run:
             ```bash
-            docker run --rm --env-file .env ${{ steps.image.outputs.name }}:${{ needs.check-version.outputs.version }} python manage.py db upgrade
+            docker run --rm --env-file inventory.env ${{ steps.image.outputs.name }}:${{ needs.check-version.outputs.version }} python manage.py db upgrade
             ```
 
             See the [Docker image on GitHub Packages](https://github.com/${{ github.repository }}/pkgs/container/workshop-inventory-tracking).
