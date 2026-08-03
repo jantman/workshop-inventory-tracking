@@ -346,21 +346,23 @@ def api_capture():
 
     Accepts a form POST as well as JSON, because the bookmarklet submits a form
     into a new tab rather than issuing a fetch: a fetch from an HTTPS vendor page
-    to this plain-HTTP LAN host is refused as mixed content before CSRF, CORS or
-    the page's CSP are ever consulted.
+    to an HTTP host is refused as mixed content before CSRF, CORS or the page's
+    CSP are ever consulted.
 
     **A form submission is not a way around that, and an earlier version of this
     docstring claimed it was.** Chrome's mixed-content *blocking* does treat a
     form POST as a navigation and let it through, but a vendor sending
     ``Content-Security-Policy: upgrade-insecure-requests`` -- which Amazon does --
     rewrites every insecure URL its document initiates, form submissions
-    included, from http to https. The POST then reaches this plain-HTTP server as
+    included, from http to https. Against a plain-HTTP server the POST arrives as
     a TLS handshake and dies with ERR_SSL_PROTOCOL_ERROR. There is no carve-out
-    to exploit; the only fix is serving this application over TLS.
+    to exploit.
 
-    So the bookmarklet does not currently work against Amazon. The paste-a-URL
-    page is the path that always works, and it is the one covered by tests. See
-    issue #54.
+    **The bookmarklet therefore works only when this application is served over
+    TLS**, and only when it was dragged from the https page -- the address it
+    posts to is fixed when that page renders. Both confirmed working against a
+    real Amazon listing. The paste-a-URL page works either way and is the one
+    covered by tests.
     """
     service = _get_catalog_service()
     data = request.get_json(silent=True) or request.form or {}

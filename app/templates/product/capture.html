@@ -81,11 +81,12 @@
             <div class="card-body">
                 {% if request.scheme != 'https' %}
                 <div class="alert alert-warning small" id="bookmarklet-http-warning">
-                    <strong>This will not work yet.</strong> Amazon and others tell the browser
-                    to upgrade every outgoing link to <code>https</code>, and this application
-                    is being served over <code>http</code> -- so the click fails with an SSL
-                    error instead of reaching here. Use the paste box on the left until the
-                    application is behind TLS.
+                    <strong>Not from this page.</strong> Amazon and others tell the browser to
+                    upgrade every outgoing link to <code>https</code>, and you are viewing this
+                    page over <code>http</code> -- so a bookmarklet dragged from here fails with
+                    an SSL error instead of reaching the app. Open this page over
+                    <code>https</code> and drag it again. The paste box on the left works either
+                    way.
                 </div>
                 {% endif %}
 
