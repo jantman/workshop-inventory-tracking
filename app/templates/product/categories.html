@@ -1,0 +1,37 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-diagram-3{% endblock %}
+{% block page_heading %}Categories{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list"></i> All Products
+</a>
+{% endblock %}
+
+{% block product_content %}
+<p class="text-muted">
+    A category exists because a product is in it. Type a new one on a product and it is
+    created; move the last product out and it is gone. There is nothing here to set up.
+</p>
+
+<div class="card">
+    <ul class="list-group list-group-flush" id="category-tree">
+        {% for category in categories %}
+        <li class="list-group-item d-flex justify-content-between align-items-center category-row">
+            <a href="{{ url_for('product.product_search', category=category.path) }}"
+               style="padding-left: {{ (category.depth - 1) * 1.5 }}rem;">
+                {% if category.depth > 1 %}<span class="text-muted">└ </span>{% endif %}
+                {{ category.name }}
+                <span class="text-muted small ms-2">{{ category.path }}</span>
+            </a>
+            <span class="badge text-bg-secondary rounded-pill">{{ category.count }}</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-center text-muted py-4" id="no-categories">
+            Nothing is categorized yet.
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

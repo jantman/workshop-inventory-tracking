@@ -1,0 +1,120 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-plus-circle{% endblock %}
+{% block page_heading %}Add Product{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list"></i> All Products
+</a>
+{% endblock %}
+
+{% block product_content %}
+{% set values = form_data if form_data else prefill %}
+
+<form id="product-form" method="POST" data-draft-key="product-new">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="row">
+        <div class="col-lg-8">
+            {% with values = values, show_tags = True %}
+                {% include "product/_form_fields.html" %}
+            {% endwith %}
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-upc-scan"></i> Identifier</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        An internal code is generated for every product automatically. Add a
+                        manufacturer, barcode or vendor identifier here so a scan of the
+                        original packaging finds it too.
+                    </p>
+
+                    <div class="mb-3">
+                        <label for="identifier_type" class="form-label">Type</label>
+                        <select class="form-select" id="identifier_type" name="identifier_type">
+                            {% for option in ['MPN', 'GTIN', 'VENDOR', 'DISTRIBUTOR'] %}
+                            <option value="{{ option }}"
+                                    {% if values.get('identifier_type') == option %}selected{% endif %}>
+                                {{ option }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="identifier_value" class="form-label">Value</label>
+                        <input type="text" class="form-control" id="identifier_value"
+                               name="identifier_value" maxlength="128"
+                               value="{{ values.get('identifier_value') or '' }}">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="identifier_vendor" class="form-label">Vendor</label>
+                        <input type="text" class="form-control" id="identifier_vendor"
+                               name="identifier_vendor" maxlength="200"
+                               value="{{ values.get('identifier_vendor') or '' }}">
+                        <div class="form-text">Required for vendor and distributor identifiers.</div>
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="identifier_override"
+                               name="identifier_override">
+                        <label class="form-check-label" for="identifier_override">
+                            Store even if the barcode fails validation
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            {% if prefill and prefill.get('ecia_fields') %}
+            <div class="card mb-4" id="ecia-prefill">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-upc"></i> From the distributor label</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        Read off the scanned label. Every value is editable before you save,
+                        and what you leave here is kept in the product's notes -- these
+                        describe an order rather than a product, and the label does not say
+                        which vendor to file one against.
+                    </p>
+                    {% for key, value in prefill.get('ecia_fields').items() %}
+                    <div class="mb-2">
+                        <label for="ecia_{{ key }}" class="form-label small mb-1">
+                            {{ key|replace('_', ' ')|capitalize }}
+                        </label>
+                        <input type="text" class="form-control form-control-sm"
+                               id="ecia_{{ key }}" name="ecia_{{ key }}" value="{{ value }}">
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if prefill and prefill.get('raw_scan') %}
+            <div class="alert alert-secondary">
+                <div class="fw-semibold">Raw scan</div>
+                <code class="small text-break" id="raw-scan">{{ prefill.get('raw_scan') }}</code>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-5">
+        <button type="submit" class="btn btn-primary btn-lg" id="save-product-btn">
+            <i class="bi bi-check-circle"></i> Save Product
+        </button>
+        <a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/product-form.js') }}"></script>
+<script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
+{% endblock %}

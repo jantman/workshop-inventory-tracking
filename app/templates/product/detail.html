@@ -1,0 +1,371 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-seam{% endblock %}
+{% block page_heading %}{{ product.description }}{% endblock %}
+
+{% block page_actions %}
+<button type="button" class="btn btn-outline-info" id="print-product-label-btn"
+        data-product-id="{{ product.id }}">
+    <i class="bi bi-printer"></i> Print Label
+</button>
+<a href="{{ url_for('product.purchase_new', product_id=product.id) }}" class="btn btn-outline-primary">
+    <i class="bi bi-bag-plus"></i> Add Purchase
+</a>
+<a href="{{ url_for('product.product_edit', product_id=product.id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-pencil"></i> Edit
+</a>
+<a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list"></i> All Products
+</a>
+{% endblock %}
+
+{% block product_content %}
+{% if from_scan %}
+{# FR-019: a scan that finds a known product offers to add a purchase to it,
+   never to create a second product for the same thing. #}
+<div class="alert alert-info d-flex flex-wrap align-items-center gap-2" id="scan-match-banner">
+    <span class="me-auto">
+        <i class="bi bi-check-circle"></i>
+        This scan matched a product already in the catalogue.
+    </span>
+    {% for purchase in outstanding %}
+    <a href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}"
+       class="btn btn-success" id="receive-outstanding-btn">
+        <i class="bi bi-box-arrow-in-down"></i>
+        Receive the order from {{ purchase.vendor }}
+    </a>
+    {% endfor %}
+    <a href="{{ url_for('product.purchase_new', product_id=product.id) }}"
+       class="btn btn-primary" id="add-purchase-to-this-btn">
+        <i class="bi bi-bag-plus"></i> Add a purchase to this product
+    </a>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Description</dt>
+                    <dd class="col-sm-8" id="product-description">{{ product.description }}</dd>
+
+                    {% if product.manufacturer %}
+                    <dt class="col-sm-4">Manufacturer</dt>
+                    <dd class="col-sm-8" id="product-manufacturer">{{ product.manufacturer }}</dd>
+                    {% endif %}
+
+                    {% if product.manufacturer_part_number %}
+                    <dt class="col-sm-4">Manufacturer Part No.</dt>
+                    <dd class="col-sm-8" id="product-mpn">{{ product.manufacturer_part_number }}</dd>
+                    {% endif %}
+
+                    {% if product.category_path %}
+                    <dt class="col-sm-4">Category</dt>
+                    <dd class="col-sm-8" id="product-category">{{ product.category_path }}</dd>
+                    {% endif %}
+
+                    <dt class="col-sm-4">Location</dt>
+                    <dd class="col-sm-8" id="product-location">
+                        {% if product.location %}{{ product.location }}{% else %}
+                        <span class="text-muted">Not recorded</span>{% endif %}
+                    </dd>
+
+                    {% if product.tags %}
+                    <dt class="col-sm-4">Tags</dt>
+                    <dd class="col-sm-8" id="product-tags">
+                        {% for tag in product.tags %}
+                        <span class="badge text-bg-secondary">{{ tag.name }}</span>
+                        {% endfor %}
+                    </dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        {% if product.specifications %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-rulers"></i> Specifications</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0 text-break" id="product-specifications" style="white-space: pre-wrap;">{{ product.specifications }}</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-clock-history"></i> Purchase History</h5>
+                {% if latest_price is not none %}
+                <span class="badge text-bg-primary" id="latest-price">Latest: ${{ latest_price }}</span>
+                {% endif %}
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" id="purchase-history">
+                    <thead>
+                        <tr>
+                            <th>Ordered</th>
+                            <th>Vendor</th>
+                            <th>Qty</th>
+                            <th>Unit Price</th>
+                            <th>Status</th>
+                            <th>Files</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for purchase in purchases %}
+                        <tr class="purchase-row">
+                            <td>{{ purchase.order_date.strftime('%Y-%m-%d') if purchase.order_date else '—' }}</td>
+                            <td>
+                                {{ purchase.vendor }}
+                                {% if purchase.listing_title %}
+                                <div class="text-muted small">{{ purchase.listing_title }}</div>
+                                {% endif %}
+                            </td>
+                            <td>{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
+                            <td>{{ '$' ~ purchase.unit_price if purchase.unit_price is not none else '—' }}</td>
+                            <td>
+                                {% if purchase.is_outstanding %}
+                                <span class="badge text-bg-info purchase-outstanding">On order</span>
+                                <a href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}"
+                                   class="btn btn-sm btn-outline-success ms-1">Receive</a>
+                                {% else %}
+                                <span class="badge text-bg-success">
+                                    Received {{ purchase.received_date.strftime('%Y-%m-%d') }}
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="purchase-attachments" data-purchase-id="{{ purchase.id }}">
+                                {% for attachment in purchase_attachments.get(purchase.id, []) %}
+                                <a href="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}"
+                                   target="_blank" class="d-block small purchase-attachment-link">
+                                    <i class="bi bi-file-earmark"></i> {{ attachment.photo.filename }}
+                                </a>
+                                {% endfor %}
+                                <input type="file" class="d-none purchase-attachment-input"
+                                       accept="image/jpeg,image/png,image/webp,application/pdf">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary attach-to-purchase-btn"
+                                        title="Attach the saved listing or receipt">
+                                    <i class="bi bi-paperclip"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-muted text-center py-3" id="no-purchases">
+                                Nothing bought yet. A hand-entered product is still a product.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# FR-034: a datasheet belongs to the product; a saved listing belongs to
+           the purchase that captured it. Both owners, one upload widget each. #}
+        <div class="card mb-4" id="attachments-card" data-product-id="{{ product.id }}">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-paperclip"></i> Attachments</h5>
+            </div>
+            <div class="card-body">
+                <div id="attachment-alerts"></div>
+
+                <ul class="list-group list-group-flush mb-3" id="attachment-list">
+                    {% for attachment in attachments %}
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center attachment-row">
+                        <a href="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}"
+                           target="_blank">
+                            <i class="bi bi-file-earmark"></i>
+                            {{ attachment.photo.filename }}
+                        </a>
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-attachment-btn"
+                                data-attachment-id="{{ attachment.id }}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item px-0 text-muted" id="no-attachments">
+                        Nothing attached. Datasheets, diagrams and photographs all belong here.
+                    </li>
+                    {% endfor %}
+                </ul>
+
+                <div class="input-group">
+                    <input type="file" class="form-control" id="product-attachment-input"
+                           accept="image/jpeg,image/png,image/webp,application/pdf">
+                    <button type="button" class="btn btn-outline-primary"
+                            id="upload-product-attachment-btn">
+                        <i class="bi bi-upload"></i> Attach
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {% if product.notes %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notes</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0 text-break" id="product-notes" style="white-space: pre-wrap;">{{ product.notes }}</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+        {# FR-036 / SC-010: every one of these is a button big enough for a thumb.
+           Nothing here is keyboard-only or hover-only. #}
+        <div class="card mb-4" id="stock-card" data-product-id="{{ product.id }}">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-box2"></i> Stock</h5>
+            </div>
+            <div class="card-body">
+                <div id="stock-alerts"></div>
+
+                <div class="mb-3">
+                    <div class="text-muted small">On hand</div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="fs-4" id="quantity-value">
+                            {% if product.quantity is none %}
+                            <span class="text-muted fst-italic">Not tracked</span>
+                            {% elif product.quantity == 0 %}
+                            <span class="badge text-bg-warning">None on hand</span>
+                            {% else %}
+                            {{ product.quantity }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% if product.quantity is not none %}
+                    {# FR-024: the age, never the bare number -- a count nobody has
+                       revisited in eight months is not currently authoritative. #}
+                    <div class="text-muted small" id="quantity-age">
+                        counted {{ product.quantity_age | relative_age }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="btn-group w-100 mb-2" role="group">
+                    <button type="button" class="btn btn-outline-secondary btn-lg"
+                            id="quantity-decrement" data-step="-1"
+                            {% if product.quantity is none %}disabled{% endif %}>
+                        <i class="bi bi-dash-lg"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-lg"
+                            id="quantity-increment" data-step="1"
+                            {% if product.quantity is none %}disabled{% endif %}>
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
+
+                {% if product.quantity is none %}
+                <button type="button" class="btn btn-outline-primary btn-lg w-100 mb-2"
+                        id="start-tracking-btn">
+                    <i class="bi bi-clipboard-check"></i> Start counting this
+                </button>
+                {% else %}
+                <button type="button" class="btn btn-outline-secondary btn-lg w-100 mb-2"
+                        id="stop-tracking-btn">
+                    <i class="bi bi-clipboard-x"></i> Stop counting this
+                </button>
+                {% endif %}
+
+                <hr>
+
+                <div class="text-muted small mb-2">
+                    Flag it low by hand -- independent of any count.
+                </div>
+                <div class="btn-group w-100" role="group">
+                    <button type="button" class="btn btn-lg stock-status-btn
+                            {{ 'btn-warning' if product.stock_status == 'low' else 'btn-outline-warning' }}"
+                            data-status="low" id="flag-low-btn">Low</button>
+                    <button type="button" class="btn btn-lg stock-status-btn
+                            {{ 'btn-danger' if product.stock_status == 'out' else 'btn-outline-danger' }}"
+                            data-status="out" id="flag-out-btn">Out</button>
+                    <button type="button" class="btn btn-lg btn-outline-secondary stock-status-btn"
+                            data-status="" id="clear-flag-btn">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-upc-scan"></i> Identifiers</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="text-muted small">Internal code</div>
+                    <div class="fs-5 font-monospace" id="internal-code">{{ product.internal_code }}</div>
+                </div>
+
+                <ul class="list-group list-group-flush" id="identifier-list">
+                    {% for identifier in product.identifiers if identifier.id_type != 'INTERNAL' %}
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="badge text-bg-light">{{ identifier.id_type }}</span>
+                            <span class="font-monospace">{{ identifier.value }}</span>
+                            {% if identifier.vendor %}
+                            <div class="text-muted small">{{ identifier.vendor }}</div>
+                            {% endif %}
+                            {% if identifier.validation_overridden %}
+                            <div class="text-warning small">
+                                <i class="bi bi-exclamation-triangle"></i> Validation overridden
+                            </div>
+                            {% endif %}
+                        </div>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item px-0 text-muted">No other identifiers.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Label printing: all six stocks, from the existing LABEL_TYPES source of truth -->
+<div class="modal fade" id="product-label-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-printer"></i> Print Label for {{ product.description }}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="product-label-alerts"></div>
+                <div class="mb-3">
+                    <label for="product-label-type-select" class="form-label">Label stock</label>
+                    <select class="form-select" id="product-label-type-select">
+                        <option value="">Select label stock...</option>
+                    </select>
+                    <div class="form-text">
+                        The label carries the description, where it came from, and the code in
+                        both scannable and readable form. On the narrowest stock the description
+                        is what gets shortened.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="product-label-print-confirm">
+                    <i class="bi bi-printer"></i> Print
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/product-label-modal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-stock.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-attachments.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,94 @@
+{# The product fields shared by the add and edit forms.
+
+   `values` is a mapping of field name to current value; both callers pass one so
+   there is exactly one definition of what a product's editable fields are. #}
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="description" class="form-label">Description *</label>
+            <input type="text" class="form-control" id="description" name="description"
+                   maxlength="255" required
+                   value="{{ values.get('description') or '' }}">
+            <div class="form-text">What this thing is, in your own words. This is what prints on the label.</div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="manufacturer" class="form-label">Manufacturer</label>
+                <input type="text" class="form-control" id="manufacturer" name="manufacturer"
+                       maxlength="200" value="{{ values.get('manufacturer') or '' }}">
+            </div>
+            <div class="col-md-6 mb-3">
+                <label for="manufacturer_part_number" class="form-label">Manufacturer Part Number</label>
+                <input type="text" class="form-control" id="manufacturer_part_number"
+                       name="manufacturer_part_number" maxlength="100"
+                       value="{{ values.get('manufacturer_part_number') or '' }}">
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="specifications" class="form-label">Specifications</label>
+            <textarea class="form-control" id="specifications" name="specifications"
+                      rows="4">{{ values.get('specifications') or '' }}</textarea>
+            <div class="form-text">Voltage, thread pitch, tolerance -- whatever you will want to know later.</div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Classification &amp; Location</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="category_path" class="form-label">Category</label>
+                <input type="text" class="form-control" id="category_path" name="category_path"
+                       maxlength="512" list="category-suggestions"
+                       placeholder="electronics/passives/resistors"
+                       value="{{ values.get('category_path') or '' }}">
+                <datalist id="category-suggestions"></datalist>
+                <div class="form-text">
+                    Slash-separated, any depth. Typing a new one creates it -- there is no setup step.
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label for="location" class="form-label">Storage Location</label>
+                <input type="text" class="form-control" id="location" name="location"
+                       maxlength="100" value="{{ values.get('location') or '' }}">
+            </div>
+        </div>
+
+        {% if show_threshold %}
+        <div class="mb-3">
+            <label for="reorder_threshold" class="form-label">Reorder Threshold</label>
+            <input type="number" class="form-control" id="reorder_threshold"
+                   name="reorder_threshold" min="0" step="1"
+                   value="{{ values.get('reorder_threshold') if values.get('reorder_threshold') is not none else '' }}">
+            <div class="form-text">
+                Only means something once you are counting this. Leave it blank otherwise.
+            </div>
+        </div>
+        {% endif %}
+
+        {% if show_tags %}
+        <div class="mb-3">
+            <label for="tags" class="form-label">Tags</label>
+            <input type="text" class="form-control" id="tags" name="tags"
+                   list="tag-suggestions" placeholder="surplus, rohs"
+                   value="{{ values.get('tags') or '' }}">
+            <datalist id="tag-suggestions"></datalist>
+            <div class="form-text">Comma-separated. Tags cut across categories.</div>
+        </div>
+        {% endif %}
+
+        <div class="mb-3">
+            <label for="notes" class="form-label">Notes</label>
+            <textarea class="form-control" id="notes" name="notes" rows="3">{{ values.get('notes') or '' }}</textarea>
+        </div>
+    </div>
+</div>

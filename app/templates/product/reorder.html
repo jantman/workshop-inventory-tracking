@@ -1,0 +1,97 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-cart-plus{% endblock %}
+{% block page_heading %}Reorder List{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list"></i> All Products
+</a>
+{% endblock %}
+
+{% block product_content %}
+<p class="text-muted">
+    Everything flagged low by hand, and everything tracked that has reached its
+    threshold. Nothing here is stored -- it is worked out from what the catalogue
+    already knows, so it cannot fall out of step with the orders below.
+</p>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="reorder-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>On hand</th>
+                    <th>Threshold</th>
+                    <th>Why</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                {% set product = entry.product %}
+                <tr class="reorder-row" data-product-id="{{ product.id }}">
+                    <td>
+                        <a href="{{ url_for('product.product_detail', product_id=product.id) }}">
+                            {{ product.description }}
+                        </a>
+                        {% if product.location %}
+                        <div class="text-muted small">{{ product.location }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="product-quantity">
+                        {# SC-007, on every screen that shows a quantity #}
+                        {% if product.quantity is none %}
+                        <span class="text-muted fst-italic">Not tracked</span>
+                        {% elif product.quantity == 0 %}
+                        <span class="badge text-bg-warning">None on hand</span>
+                        {% else %}
+                        {{ product.quantity }}
+                        {% endif %}
+                        {% if product.quantity is not none %}
+                        <div class="text-muted small">
+                            counted {{ product.quantity_age | relative_age }}
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td>{{ product.reorder_threshold if product.reorder_threshold is not none else '—' }}</td>
+                    <td>
+                        {% if entry.is_manually_low %}
+                        <span class="badge text-bg-secondary reason-manual">
+                            Flagged {{ product.stock_status }}
+                        </span>
+                        {% endif %}
+                        {% if entry.is_threshold_low %}
+                        <span class="badge text-bg-secondary reason-threshold">At threshold</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if entry.is_on_order %}
+                        <span class="badge text-bg-info on-order-badge">
+                            <i class="bi bi-truck"></i> On the way
+                        </span>
+                        {% for purchase in entry.outstanding %}
+                        <a href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}"
+                           class="btn btn-sm btn-outline-success ms-1 receive-btn">
+                            Receive from {{ purchase.vendor }}
+                        </a>
+                        {% endfor %}
+                        {% else %}
+                        <a href="{{ url_for('product.purchase_new', product_id=product.id) }}"
+                           class="btn btn-sm btn-outline-primary">Record an order</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-4" id="nothing-to-reorder">
+                        Nothing needs buying.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

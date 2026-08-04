@@ -15,7 +15,10 @@ from werkzeug.serving import make_server
 from app import create_app
 from app.mariadb_storage import MariaDBStorage
 from config import TestConfig
-from app.database import Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation
+from app.database import (
+    Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation,
+    Product, Purchase, ProductIdentifier, ProductAttachment, Tag, ProductTag,
+)
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -316,6 +319,12 @@ class E2ETestServer:
             session = Session()
             try:
                 # Delete all data (order matters due to foreign keys)
+                session.query(ProductAttachment).delete()
+                session.query(ProductTag).delete()
+                session.query(Tag).delete()
+                session.query(ProductIdentifier).delete()
+                session.query(Purchase).delete()
+                session.query(Product).delete()
                 session.query(ItemPhotoAssociation).delete()
                 session.query(Photo).delete()
                 session.query(InventoryItem).delete()

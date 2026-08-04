@@ -1,0 +1,123 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-seam{% endblock %}
+{% block page_heading %}Products{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-circle"></i> Add Product
+</a>
+{% endblock %}
+
+{% block product_content %}
+{% set filters = filters if filters is defined else {} %}
+
+{% if filters.get('q') %}
+<div class="alert alert-secondary" id="raw-scan-notice">
+    Showing matches for <code class="text-break">{{ filters.get('q') }}</code>.
+    {% if not products %}
+    Nothing matched it. If that came off a scanner, the text above is exactly what
+    it read -- which is usually enough to work out what you are holding.
+    {% endif %}
+</div>
+{% endif %}
+
+<form method="GET" class="card card-body mb-4" id="product-filters">
+    <div class="row g-2">
+        <div class="col-md-4">
+            <label for="filter-q" class="form-label">Search</label>
+            <input type="text" class="form-control" id="filter-q" name="q"
+                   value="{{ filters.get('q') or '' }}"
+                   placeholder="description, spec, part number or identifier">
+        </div>
+        <div class="col-md-3">
+            <label for="filter-category" class="form-label">Category</label>
+            <input type="text" class="form-control" id="filter-category" name="category"
+                   list="category-suggestions" value="{{ filters.get('category') or '' }}">
+            <datalist id="category-suggestions"></datalist>
+            <div class="form-text">Includes sub-categories.</div>
+        </div>
+        <div class="col-md-2">
+            <label for="filter-tag" class="form-label">Tag</label>
+            <input type="text" class="form-control" id="filter-tag" name="tag"
+                   list="tag-suggestions" value="{{ filters.get('tag') or '' }}">
+            <datalist id="tag-suggestions"></datalist>
+        </div>
+        <div class="col-md-2">
+            <label for="filter-stock" class="form-label">Stock</label>
+            <select class="form-select" id="filter-stock" name="stock">
+                <option value="">Any</option>
+                {% for value, label in [
+                    ('low', 'Low'),
+                    ('on-order', 'On order'),
+                    ('tracked', 'Quantity tracked'),
+                    ('untracked', 'Quantity not tracked'),
+                    ('none-on-hand', 'None on hand'),
+                ] %}
+                <option value="{{ value }}" {% if filters.get('stock') == value %}selected{% endif %}>
+                    {{ label }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <button type="submit" class="btn btn-outline-primary w-100" id="apply-filters-btn">
+                <i class="bi bi-funnel"></i>
+            </button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="product-table">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Manufacturer</th>
+                    <th>Category</th>
+                    <th>Location</th>
+                    <th>Quantity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for product in products %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('product.product_detail', product_id=product.id) }}">
+                            {{ product.description }}
+                        </a>
+                        {% for tag in product.tags %}
+                        <span class="badge text-bg-light">{{ tag.name }}</span>
+                        {% endfor %}
+                    </td>
+                    <td>{{ product.manufacturer or '' }}</td>
+                    <td>{{ product.category_path or '' }}</td>
+                    <td>{{ product.location or '' }}</td>
+                    <td class="product-quantity">
+                        {# SC-007: "none on hand" and "not tracked" must never look alike #}
+                        {% if product.quantity is none %}
+                        <span class="text-muted fst-italic">Not tracked</span>
+                        {% elif product.quantity == 0 %}
+                        <span class="badge text-bg-warning">None on hand</span>
+                        {% else %}
+                        {{ product.quantity }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-4" id="no-products">
+                        Nothing here matches.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,19 @@
+{# Shared layout for every product catalogue page.
+
+   Adds a page heading and an actions slot on top of base.html so the catalogue
+   pages look like one another without each repeating the header markup. #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <h2 class="mb-0">
+        <i class="bi {% block page_icon %}bi-box-seam{% endblock %}"></i>
+        {% block page_heading %}Products{% endblock %}
+    </h2>
+    <div class="d-flex flex-wrap gap-2">
+        {% block page_actions %}{% endblock %}
+    </div>
+</div>
+
+{% block product_content %}{% endblock %}
+{% endblock %}
