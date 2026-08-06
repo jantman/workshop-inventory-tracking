@@ -18,7 +18,7 @@ class MoveItemsPage(BasePage):
     def navigate(self):
         """Navigate to move items page"""
         self.page.goto(f"{self.base_url}/inventory/move")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def simulate_barcode_scan(self, barcode_text):
         """Simulate barcode scanner input (keyboard wedge + Enter)"""
@@ -37,12 +37,12 @@ class MoveItemsPage(BasePage):
     def click_validate_moves(self):
         """Click the validate & preview button"""
         self.page.locator("#validate-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def click_execute_moves(self):
         """Click the execute moves button"""
         self.page.locator("#execute-moves-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def assert_success_message(self, message_text=None):
         """Assert success message is shown"""

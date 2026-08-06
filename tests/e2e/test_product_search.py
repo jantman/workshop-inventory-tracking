@@ -22,7 +22,7 @@ def create_product(page, base_url, description, category=None, tags=None,
     if mpn:
         page.fill("#manufacturer_part_number", mpn)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
 
 def seed(page, base_url):
@@ -96,7 +96,7 @@ def test_the_filter_form_drives_the_same_results(page, live_server):
     page.goto(f"{live_server.url}/products")
     page.fill("#filter-q", "capacitor")
     page.click("#apply-filters-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     assert listed(page) == ["Ceramic capacitor, 100nF"]
 
@@ -117,7 +117,7 @@ def test_the_category_page_links_into_a_filtered_list(page, live_server):
 
     page.goto(f"{live_server.url}/products/categories")
     page.click("text=fasteners")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     assert listed(page) == ["M4 hex bolt"]
 
@@ -133,10 +133,10 @@ def test_an_empty_category_cannot_exist(page, live_server):
     page.goto(f"{live_server.url}/products")
     page.click("#product-table tbody tr td:first-child a")
     page.click("text=Edit")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#category_path", "")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     page.goto(f"{live_server.url}/products/categories")
     expect(page.locator("#no-categories")).to_be_visible()

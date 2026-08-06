@@ -21,7 +21,7 @@ class InventoryListPhotoCopyPage(BasePage):
     def navigate_to_list(self):
         """Navigate to inventory list page"""
         self.page.goto(f"{self.base_url}/inventory")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def select_item(self, ja_id):
         """Select an item by checking its checkbox"""
@@ -543,7 +543,7 @@ def test_button_states_based_on_selection(live_server, page):
     list_page = InventoryListPhotoCopyPage(page, live_server.url)
     list_page.navigate_to_list()
     page.reload()  # Ensure fresh data is loaded
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     # Initially, with nothing selected, both buttons should be disabled
     # (Copy requires 1 selected, Paste requires selection + clipboard)

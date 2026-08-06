@@ -16,7 +16,7 @@ class DuplicateItemPage(BasePage):
     def navigate_to_edit_page(self, ja_id):
         """Navigate to edit page for a specific item"""
         self.page.goto(f"{self.base_url}/inventory/edit/{ja_id}")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def click_duplicate_button(self):
         """Click the duplicate item button"""

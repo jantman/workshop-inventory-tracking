@@ -500,7 +500,7 @@ def test_material_selector_works_on_edit_form(page, live_server):
     # Let the inventory list page finish loading before we navigate away, so its
     # in-flight fetch isn't aborted mid-flight (that abort logs a red-herring
     # "Error loading inventory: TypeError: Failed to fetch" console error).
-    page.wait_for_load_state('networkidle')
+    page.wait_for_load_state("domcontentloaded")
 
     # Navigate to edit the item we just created. The MaterialSelector only wires
     # up its focus handler after its taxonomy fetch (/api/materials/hierarchy)
@@ -515,7 +515,7 @@ def test_material_selector_works_on_edit_form(page, live_server):
     expect(material_input).to_have_value('Steel')
 
     # Ensure the edit page (incl. MaterialSelector init) has fully settled.
-    page.wait_for_load_state('networkidle')
+    page.wait_for_load_state("domcontentloaded")
 
     # Clear and test MaterialSelector on edit form
     material_input.fill('')
@@ -578,7 +578,6 @@ def test_material_selector_validation_integration(page, live_server):
             material_input.dispatch_event('input')
             material_input.dispatch_event('change')
             material_input.dispatch_event('blur')
-            page.wait_for_timeout(300)  # Wait for validation to process
             
             # Input should have the material and not show validation error
             expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
@@ -589,7 +588,6 @@ def test_material_selector_validation_integration(page, live_server):
             material_input.dispatch_event('input')
             material_input.dispatch_event('change')
             material_input.dispatch_event('blur')
-            page.wait_for_timeout(500)  # Wait for validation to process
             
             # Should not show validation error for known material
             expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
@@ -600,7 +598,6 @@ def test_material_selector_validation_integration(page, live_server):
         material_input.dispatch_event('input')
         material_input.dispatch_event('change')
         material_input.dispatch_event('blur')
-        page.wait_for_timeout(500)  # Wait for validation to process
         expect(material_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
         
         # Form should be submittable

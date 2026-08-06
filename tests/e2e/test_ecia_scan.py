@@ -42,7 +42,7 @@ def scan_via_api(page, base_url, scan):
         scan,
     )
     page.goto(f"{base_url}{result['url']}")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     return result
 
 
@@ -82,7 +82,7 @@ def test_the_draft_can_be_saved_as_a_product_carrying_the_part_number(page, live
 
     page.fill("#description", "LM358 dual op-amp, DIP-8")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#product-description")).to_have_text("LM358 dual op-amp, DIP-8")
     expect(page.locator("#identifier-list")).to_contain_text("LM358N")
@@ -94,7 +94,7 @@ def test_scanning_the_same_label_again_finds_the_product(page, live_server):
     scan_via_api(page, live_server.url, ENVELOPE)
     page.fill("#description", "LM358 dual op-amp")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     result = scan_via_api(page, live_server.url, ENVELOPE)
     assert result["outcome"] == "product"

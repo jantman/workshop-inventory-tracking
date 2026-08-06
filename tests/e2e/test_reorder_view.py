@@ -10,15 +10,42 @@ and impossible to notice from the UI afterwards:
   count, and clears a manual flag only because the receive path says so.
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
+
+
+def wait_for_stock_flag(page, status):
+    """Wait for a stock-status button click to have taken effect.
+
+    The buttons are type="button": they PATCH the API and then reload the page,
+    so nothing has happened yet at the moment the click returns. Waiting on the
+    reloaded button's own styling is the only observable proof the round trip
+    finished -- and without it the next goto() aborts the in-flight PATCH.
+    """
+    if status:
+        colour = 'btn-warning' if status == 'low' else 'btn-danger'
+        expect(page.locator(f"#flag-{status}-btn")).to_have_class(
+            re.compile(rf"\b{colour}\b")
+        )
+    else:
+        # Cleared: every status button is back to its outline variant.
+        expect(page.locator("#flag-low-btn")).to_have_class(
+            re.compile(r"\bbtn-outline-warning\b")
+        )
+        expect(page.locator("#flag-out-btn")).to_have_class(
+            re.compile(r"\bbtn-outline-danger\b")
+        )
 
 
 def create_product(page, base_url, description):
     page.goto(f"{base_url}/products/new")
     page.fill("#description", description)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    # The save redirects to the detail page; wait for it rather than for the
+    # form page we are leaving.
+    expect(page.locator("#stock-card")).to_be_visible()
     return page.url
 
 
@@ -39,27 +66,27 @@ def set_quantity(page, product_url, quantity, threshold=None):
 
     if threshold is not None:
         page.goto(f"{product_url}/edit")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
         page.fill("#reorder_threshold", str(threshold))
         page.click("#save-product-btn")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
 
 
 def flag_low(page, product_url, status='low'):
     page.goto(product_url)
     page.click(f"#flag-{status}-btn")
-    page.wait_for_load_state("networkidle")
+    wait_for_stock_flag(page, status)
 
 
 def add_outstanding_order(page, product_url, vendor='Amazon', quantity='10'):
     page.goto(product_url)
     page.click("text=Add Purchase")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#vendor", vendor)
     page.fill("#order_date", "2026-01-14")
     page.fill("#quantity", quantity)
     page.click("#save-purchase-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
 
 def reorder_rows(page, base_url):
@@ -105,9 +132,9 @@ def test_receiving_clears_a_threshold_derived_low(page, live_server):
 
     page.goto(f"{live_server.url}/products/reorder")
     page.click(".receive-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.click("#confirm-receive-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     assert reorder_rows(page, live_server.url) == []
 
@@ -123,9 +150,9 @@ def test_receiving_clears_a_manually_flagged_low(page, live_server):
 
     page.goto(f"{live_server.url}/products/reorder")
     page.click(".receive-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.click("#confirm-receive-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     assert reorder_rows(page, live_server.url) == []
 
@@ -183,15 +210,15 @@ def test_all_three_quantity_states_are_reachable_by_button(page, live_server):
     expect(page.locator("#quantity-value")).to_contain_text("Not tracked")
 
     page.click("#start-tracking-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     expect(page.locator("#quantity-value")).to_contain_text("None on hand")
 
     page.click("#quantity-increment")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     expect(page.locator("#quantity-value")).to_contain_text("1")
 
     page.click("#stop-tracking-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     expect(page.locator("#quantity-value")).to_contain_text("Not tracked")
 
 
@@ -201,10 +228,10 @@ def test_the_manual_flag_is_set_and_cleared_by_button(page, live_server):
 
     page.goto(product)
     page.click("#flag-low-btn")
-    page.wait_for_load_state("networkidle")
+    wait_for_stock_flag(page, 'low')
     assert reorder_rows(page, live_server.url) == ["Widget"]
 
     page.goto(product)
     page.click("#clear-flag-btn")
-    page.wait_for_load_state("networkidle")
+    wait_for_stock_flag(page, None)
     assert reorder_rows(page, live_server.url) == []

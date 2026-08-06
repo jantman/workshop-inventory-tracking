@@ -21,7 +21,7 @@ class TestMoveItemsSubLocation:
     def add_test_item(self, page, live_server, ja_id, location, sub_location=None):
         """Helper to add a test item via the UI"""
         page.goto(f'{live_server.url}/inventory/add')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Fill in basic required fields
         page.fill('#ja_id', ja_id)
@@ -36,7 +36,7 @@ class TestMoveItemsSubLocation:
 
         # Submit form
         page.click('button[type="submit"]')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
     def test_move_no_sub_to_no_sub(self, page, live_server):
         """Test moving item with no sub-location to location with no sub-location"""
@@ -45,7 +45,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Enter move: JA ID -> Location (no sub-location)
         barcode_input = page.locator('#barcode-input')
@@ -69,12 +69,12 @@ class TestMoveItemsSubLocation:
 
         # Validate and execute
         page.locator('#validate-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Handle confirmation dialog
         page.once('dialog', lambda dialog: dialog.accept())
         page.locator('#execute-moves-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Wait a bit for database transaction to fully commit
         page.wait_for_timeout(500)
@@ -92,7 +92,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Enter move: JA ID -> Location -> Sub-location
         barcode_input = page.locator('#barcode-input')
@@ -120,12 +120,12 @@ class TestMoveItemsSubLocation:
 
         # Validate and execute
         page.locator('#validate-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Handle confirmation dialog
         page.once('dialog', lambda dialog: dialog.accept())
         page.locator('#execute-moves-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Wait a bit for database transaction to fully commit
         page.wait_for_timeout(500)
@@ -144,7 +144,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Enter move: JA ID -> Location (no sub-location)
         barcode_input = page.locator('#barcode-input')
@@ -168,12 +168,12 @@ class TestMoveItemsSubLocation:
 
         # Validate and execute
         page.locator('#validate-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Handle confirmation dialog
         page.once('dialog', lambda dialog: dialog.accept())
         page.locator('#execute-moves-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Wait a bit for database transaction to fully commit
         page.wait_for_timeout(500)
@@ -192,7 +192,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Enter move: JA ID -> Location -> Different Sub-location
         barcode_input = page.locator('#barcode-input')
@@ -220,12 +220,12 @@ class TestMoveItemsSubLocation:
 
         # Validate and execute
         page.locator('#validate-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Handle confirmation dialog
         page.once('dialog', lambda dialog: dialog.accept())
         page.locator('#execute-moves-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Wait a bit for database transaction to fully commit
         page.wait_for_timeout(500)
@@ -244,7 +244,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Enter move: JA ID -> Location -> Same Sub-location
         barcode_input = page.locator('#barcode-input')
@@ -267,12 +267,12 @@ class TestMoveItemsSubLocation:
 
         # Validate and execute
         page.locator('#validate-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Handle confirmation dialog
         page.once('dialog', lambda dialog: dialog.accept())
         page.locator('#execute-moves-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Wait a bit for database transaction to fully commit
         page.wait_for_timeout(500)
@@ -293,7 +293,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         barcode_input = page.locator('#barcode-input')
 
@@ -337,12 +337,12 @@ class TestMoveItemsSubLocation:
 
         # Validate and execute
         page.locator('#validate-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Handle confirmation dialog
         page.once('dialog', lambda dialog: dialog.accept())
         page.locator('#execute-moves-btn').click()
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # Wait a bit for database transaction to fully commit
         page.wait_for_timeout(500)
@@ -370,7 +370,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         barcode_input = page.locator('#barcode-input')
 
@@ -401,7 +401,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         barcode_input = page.locator('#barcode-input')
 
@@ -429,7 +429,7 @@ class TestMoveItemsSubLocation:
 
         # Navigate to move page
         page.goto(f'{live_server.url}/inventory/move')
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         barcode_input = page.locator('#barcode-input')
 

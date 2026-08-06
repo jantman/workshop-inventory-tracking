@@ -218,7 +218,7 @@ class TestPhotoViewingInModal:
 
         # Since we may not have items, this is a basic structural test
         # that would require actual items with photos for full testing
-        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state("domcontentloaded")
 
         # The test passes if we can navigate to the list page successfully
         expect(page.locator("h2")).to_contain_text("Inventory")

@@ -14,7 +14,7 @@ def create_product(page, base_url, description):
     page.goto(f"{base_url}/products/new")
     page.fill("#description", description)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     return page.url
 
 
@@ -63,7 +63,7 @@ def test_a_reprint_requires_no_data_entry(page, live_server):
     expect(page.locator("#product-label-alert")).to_contain_text("Reprintable widget")
 
     page.reload()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     # Second print: click, confirm, done. No form to fill in.
     print_label(page)
@@ -76,10 +76,10 @@ def test_the_label_is_composed_from_the_record_so_an_edit_shows_up(page, live_se
     detail_url = create_product(page, live_server.url, "Original description")
 
     page.click("text=Edit")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#description", "Edited description")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     print_label(page)
     expect(page.locator("#product-label-alert")).to_contain_text("Edited description")
@@ -113,13 +113,13 @@ def test_the_label_carries_provenance_once_there_is_a_purchase(page, live_server
     detail_url = create_product(page, live_server.url, "Bought widget")
 
     page.click("text=Add Purchase")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#vendor", "Amazon")
     page.fill("#order_date", "2026-01-14")
     page.fill("#quantity", "5")
     page.fill("#unit_price", "12.34")
     page.click("#save-purchase-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#purchase-history")).to_contain_text("Amazon")
     expect(page.locator("#latest-price")).to_contain_text("12.34")

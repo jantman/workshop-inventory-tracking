@@ -16,7 +16,7 @@ class AdminMaterialsPage(BasePage):
     def navigate(self):
         """Navigate to admin materials overview page"""
         self.page.goto(f"{self.base_url}/admin/materials")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def navigate_add_material(self, level=3, parent=None):
         """Navigate to add material page"""
@@ -24,7 +24,7 @@ class AdminMaterialsPage(BasePage):
         if parent:
             url += f"&parent={parent}"
         self.page.goto(url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def assert_overview_visible(self):
         """Assert that overview page is displayed"""
@@ -47,17 +47,17 @@ class AdminMaterialsPage(BasePage):
     def click_add_category(self):
         """Click Add Category button"""
         self.page.locator('a:has-text("Add Category")').click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def click_add_family(self):
         """Click Add Family button"""
         self.page.locator('a:has-text("Add Family")').click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def click_add_material(self):
         """Click Add Material button"""
         self.page.locator('a:has-text("Add Material")').click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def fill_add_form(self, name, parent=None, aliases=None, notes=None, sort_order=None):
         """Fill the add material form"""
@@ -78,7 +78,7 @@ class AdminMaterialsPage(BasePage):
     def submit_form(self):
         """Submit the add form"""
         self.page.locator("#submit-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def assert_success_message(self, message_text=None):
         """Assert success message is shown"""
@@ -109,25 +109,36 @@ class AdminMaterialsPage(BasePage):
         # Find the material node and click its status toggle button
         material_node = self.page.locator(f'.taxonomy-node[data-name="{material_name}"]')
         status_btn = material_node.locator('button:has([class*="bi-eye"])').first
-        
+
         # Set up dialog handler before clicking
         self.page.on("dialog", lambda dialog: dialog.accept())
         status_btn.click()
-        
-        # Wait for page to reload/update
-        self.page.wait_for_load_state("networkidle")
+
+        # The handler POSTs and then calls location.reload(), so nothing has
+        # happened yet at the moment click() returns. Deactivating hides the node
+        # (the default view excludes inactive materials), so its disappearance is
+        # the observable proof the round trip and reload finished. Without this,
+        # a later interaction races the pending reload and gets undone by it.
+        expect(material_node).to_have_count(0)
     
     def click_add_child(self, parent_name):
         """Click add child button for a specific material"""
         parent_node = self.page.locator(f'.taxonomy-node[data-name="{parent_name}"]')
         add_child_btn = parent_node.locator('button:has([class*="bi-plus-circle"])').first
         add_child_btn.click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def toggle_show_inactive(self):
         """Toggle the show inactive materials checkbox"""
-        self.page.locator("#includeInactive").click()
-        self.page.wait_for_load_state("networkidle")
+        checkbox = self.page.locator("#includeInactive")
+        was_checked = checkbox.is_checked()
+        checkbox.click()
+        # The handler navigates by rewriting the query string. Wait for the
+        # reloaded page to come back with the checkbox in its new state.
+        if was_checked:
+            expect(self.page.locator("#includeInactive")).not_to_be_checked()
+        else:
+            expect(self.page.locator("#includeInactive")).to_be_checked()
 
 
 @pytest.mark.e2e
@@ -327,7 +338,7 @@ def test_material_status_toggle(page, live_server):
     # Enable "Show inactive materials" to see the inactive material
     admin_page.toggle_show_inactive()
 
-    # Wait for the material node to appear (more robust than networkidle alone)
+    # Wait for the material node to appear before asserting on it
     material_node = page.locator('.taxonomy-node[data-name="Test Toggle Category"]')
     expect(material_node).to_be_visible(timeout=10000)  # Wait up to 10 seconds
 
@@ -428,7 +439,6 @@ def test_real_time_validation(page, live_server):
     
     # Enter duplicate name
     name_input.fill("Carbon Steel")
-    page.wait_for_timeout(1000)  # Wait for validation
     
     # Should show as invalid
     expect(name_input).to_have_class(re.compile(r'.*is-invalid.*'))
@@ -439,7 +449,6 @@ def test_real_time_validation(page, live_server):
     
     # Clear and enter valid name
     name_input.fill("Valid New Category")
-    page.wait_for_timeout(1000)  # Wait for validation
     
     # Should show as valid
     expect(name_input).to_have_class(re.compile(r'.*is-valid.*'))

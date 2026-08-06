@@ -74,10 +74,33 @@ class AddItemPage(BasePage):
             self.fill_and_wait(self.NOTES_INPUT, notes)
     
     def submit_form(self):
-        """Submit the add item form"""
-        self.click_and_wait(self.SUBMIT_BUTTON)
-        # Wait a moment for form submission to process
-        self.page.wait_for_timeout(1000)
+        """Submit the add item form and wait for the server's response to render"""
+        self._submit_and_wait(self.SUBMIT_BUTTON)
+
+    def _submit_and_wait(self, button_selector):
+        """Click a submit button and wait for the submission to resolve.
+
+        Marks the current document first: a server round trip replaces it, so the
+        marker disappearing means the POST completed and the response rendered.
+        The alternative -- waiting for an alert to appear -- returns immediately
+        whenever the page is already showing one, which lets a test carry on
+        before its item exists.
+
+        Client-side validation can also reject the submit without navigating at
+        all: either the app marks fields with .is-invalid, or native constraint
+        validation blocks the POST and shows a browser bubble that leaves no
+        trace in the DOM at all. A form matching :invalid covers the latter --
+        and if it already matches before the click, the submit was never going
+        to go anywhere, so returning at once is the right answer.
+        """
+        self.page.evaluate("() => { window.__awaitingSubmit = true; }")
+        self.click_and_wait(button_selector)
+        self.page.wait_for_function(
+            """() => window.__awaitingSubmit === undefined
+                  || !!document.querySelector('form:invalid')
+                  || !!document.querySelector('.is-invalid')
+                  || !!document.querySelector('.invalid-feedback.d-block')"""
+        )
     
     def cancel_form(self):
         """Cancel the add item form"""
@@ -121,22 +144,30 @@ class AddItemPage(BasePage):
             self.assert_element_visible(self.VALIDATION_ERROR)
     
     def assert_form_submitted_successfully(self):
-        """Assert form was submitted successfully (usually redirects or shows success message)"""
-        # Check for success flash message or redirect to inventory list
-        try:
-            self.assert_flash_success()
-        except:
-            # If no flash message, check if we were redirected to inventory list (not add form)
-            current_url = self.page.url
-            if "/inventory/add" in current_url:
-                # Still on add form - submission likely failed
-                raise AssertionError(f"Form submission failed - still on add form at URL: {current_url}")
-            elif "/inventory" in current_url:
-                # Successfully redirected to inventory list page
-                pass
-            else:
-                # Unexpected redirect location
-                raise AssertionError(f"Form submission had unexpected redirect to: {current_url}")
+        """Assert the form was submitted successfully.
+
+        submit_form() has already waited for the POST to resolve and the response
+        to render, so the outcome is on the page *now* -- either a server-rendered
+        success flash or a redirect away from the add form. Reading it directly
+        keeps this deterministic. The previous version waited up to 10s for the
+        flash and swallowed the timeout, which turned a loaded machine into an
+        intermittent failure and hid the real reason when a submit was rejected.
+        """
+        success_alert = self.page.locator(".alert.alert-success")
+        if success_alert.count() > 0:
+            return success_alert.first.text_content() or ""
+
+        current_url = self.page.url
+        if "/inventory/add" in current_url:
+            error_alert = self.page.locator(".alert.alert-danger, .alert.alert-error")
+            detail = error_alert.first.text_content() if error_alert.count() else "no error shown"
+            raise AssertionError(
+                f"Form submission failed - still on add form at {current_url} ({detail.strip()})"
+            )
+        if "/inventory" in current_url:
+            # Redirected to the inventory list: submitted.
+            return ""
+        raise AssertionError(f"Form submission had unexpected redirect to: {current_url}")
     
     def get_field_value(self, selector: str) -> str:
         """Get the current value of a form field"""
@@ -149,16 +180,15 @@ class AddItemPage(BasePage):
     
     def submit_and_continue(self):
         """Submit form using the 'Add & Continue' button"""
-        self.click_and_wait(self.SUBMIT_AND_CONTINUE_BUTTON)
-        # Wait a moment for form submission to process
-        self.page.wait_for_timeout(1000)
-    
+        self._submit_and_wait(self.SUBMIT_AND_CONTINUE_BUTTON)
+
     def click_carry_forward(self):
         """Click the 'Carry Forward' button"""
         carry_forward_btn = "#carry-forward-btn"
         self.click_and_wait(carry_forward_btn)
-        # Wait a moment for data to be populated
-        self.page.wait_for_timeout(500)
+        # Carry-forward reports what it did via a toast; the toast arriving is
+        # what tells us the fields have finished being populated.
+        self.page.wait_for_selector(".toast-body")
     
     def assert_carry_forward_success_toast(self):
         """Assert that the carry forward success toast appears"""

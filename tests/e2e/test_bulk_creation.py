@@ -16,7 +16,7 @@ class BulkCreationPage(BasePage):
     def navigate_to_add_page(self):
         """Navigate to add inventory page"""
         self.page.goto(f"{self.base_url}/inventory/add")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def fill_item_details(self, item_data):
         """Fill in item details on the add form"""

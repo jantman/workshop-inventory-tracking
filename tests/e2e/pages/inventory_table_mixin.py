@@ -6,6 +6,7 @@ This mixin provides common methods for table interactions used by both the
 inventory list and search page objects.
 """
 
+import re
 from typing import List, Dict, Optional
 from playwright.sync_api import expect
 
@@ -18,6 +19,7 @@ class InventoryTableMixin:
     TABLE_ROWS_SELECTOR = "#inventory-table-body tr"
     TABLE_HEADERS_SELECTOR = "thead th"
     CHECKBOX_ALL_SELECTOR = "#select-all-checkbox"
+    LOADING_STATE_SELECTOR = "#loading-state"
 
     def get_table_items(self) -> List[Dict[str, str]]:
         """
@@ -80,7 +82,11 @@ class InventoryTableMixin:
                 # Check if sortable
                 if "sortable" in (header.get_attribute("class") or ""):
                     header.click()
-                    self.page.wait_for_timeout(500)  # Wait for sort to complete
+                    # The table swaps this header's icon to chevron-up/-down once
+                    # the sort has been applied and the body re-rendered.
+                    expect(header.locator(".sort-icon")).to_have_class(
+                        re.compile(r"\bbi-chevron-(up|down)\b")
+                    )
                     return
 
         raise ValueError(f"Sortable column '{column_name}' not found")
@@ -99,7 +105,9 @@ class InventoryTableMixin:
         checkbox = self.page.locator(f"input[type='checkbox'][data-ja-id='{ja_id}']")
         if checkbox.count() > 0:
             checkbox.first.check()
-            self.page.wait_for_timeout(100)
+            # check() already waits for the box to be checked; the selection
+            # counter updating is what the caller actually cares about.
+            expect(checkbox.first).to_be_checked()
         else:
             raise ValueError(f"Item {ja_id} not found or doesn't have a checkbox")
 
@@ -123,11 +131,12 @@ class InventoryTableMixin:
                     dropdown_button = self.page.locator(config["dropdown_selector"])
                     if dropdown_button.count() > 0:
                         dropdown_button.first.click()
-                        self.page.wait_for_timeout(300)
+                        # Bootstrap animates the menu open; wait for the item we
+                        # are about to click to actually be clickable.
+                        expect(element.first).to_be_visible()
 
                 # Now click the select all button
                 element.first.click()
-                self.page.wait_for_timeout(200)
                 return
 
         raise ValueError("Select all button/checkbox not found")
@@ -150,11 +159,10 @@ class InventoryTableMixin:
                 dropdown_button = self.page.locator(config["dropdown_selector"])
                 if dropdown_button.count() > 0:
                     dropdown_button.first.click()
-                    self.page.wait_for_timeout(300)
+                    expect(element.first).to_be_visible()
 
                 # Now click the select none button
                 element.first.click()
-                self.page.wait_for_timeout(200)
                 return
 
         raise ValueError("Select none button not found")
@@ -203,8 +211,18 @@ class InventoryTableMixin:
                 if action in action_selectors:
                     button = row.locator(action_selectors[action])
                     if button.count() > 0:
+                        # 'edit', 'move', 'duplicate' and 'shorten' are links and
+                        # navigate; 'view' and 'history' are buttons that open a
+                        # modal. Wait for whichever this one does.
+                        navigates = action in ("edit", "move", "duplicate", "shorten")
+                        before = self.page.url
                         button.first.click()
-                        self.page.wait_for_timeout(500)
+                        if navigates:
+                            self.page.wait_for_function(
+                                "url => window.location.href !== url", arg=before
+                            )
+                        else:
+                            expect(self.page.locator(".modal.show")).to_be_visible()
                         return
 
         raise ValueError(f"Action '{action}' not found for item {ja_id}")
@@ -235,6 +253,21 @@ class InventoryTableMixin:
         else:
             assert values == sorted(values, reverse=True), f"Table not sorted descending by {column}"
 
+    def wait_for_table_ready(self):
+        """Wait until the table region has finished populating.
+
+        The table is rendered by JavaScript, so it is empty for a moment after
+        navigation. This must be called before any *negative* assertion: an empty
+        table that has simply not loaded yet would otherwise look exactly like a
+        table that does not contain the item.
+        """
+        if not hasattr(self, 'page'):
+            raise AttributeError("Mixin requires 'page' attribute")
+
+        loading = self.page.locator(self.LOADING_STATE_SELECTOR)
+        if loading.count() > 0:
+            expect(loading).not_to_be_visible()
+
     def assert_item_visible(self, ja_id: str):
         """
         Assert that an item with the given JA ID is visible in the table
@@ -245,9 +278,16 @@ class InventoryTableMixin:
         if not hasattr(self, 'page'):
             raise AttributeError("Mixin requires 'page' attribute")
 
-        items = self.get_table_items()
-        ja_ids = [item["ja_id"] for item in items]
-        assert ja_id in ja_ids, f"Item {ja_id} not visible in table. Found: {ja_ids}"
+        # expect() polls, so this waits for the JavaScript-rendered row rather
+        # than snapshotting whatever happens to be in the DOM right now.
+        row = self.page.locator(f"{self.TABLE_ROWS_SELECTOR}:has-text('{ja_id}')")
+        try:
+            expect(row.first).to_be_visible()
+        except AssertionError:
+            ja_ids = [item["ja_id"] for item in self.get_table_items()]
+            raise AssertionError(
+                f"Item {ja_id} not visible in table. Found: {ja_ids}"
+            ) from None
 
     def assert_item_not_visible(self, ja_id: str):
         """
@@ -259,9 +299,11 @@ class InventoryTableMixin:
         if not hasattr(self, 'page'):
             raise AttributeError("Mixin requires 'page' attribute")
 
-        items = self.get_table_items()
-        ja_ids = [item["ja_id"] for item in items]
-        assert ja_id not in ja_ids, f"Item {ja_id} should not be visible in table"
+        # Establish that the table has finished loading first, or this passes
+        # spuriously against a table that is merely still empty.
+        self.wait_for_table_ready()
+        row = self.page.locator(f"{self.TABLE_ROWS_SELECTOR}:has-text('{ja_id}')")
+        expect(row).to_have_count(0)
 
     def assert_column_value(self, ja_id: str, column: str, expected_value: str):
         """

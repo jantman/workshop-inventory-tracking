@@ -118,5 +118,4 @@ def test_ja_id_lookup_invalid_format_validation(page, live_server):
     expect(page).to_have_url(f'{live_server.url}/inventory')
     
     # Wait for error to clear automatically
-    page.wait_for_timeout(2500)
     expect(lookup_input).not_to_have_class(re.compile(r'.*is-invalid.*'))

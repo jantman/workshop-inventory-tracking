@@ -9,6 +9,8 @@ The single responsive interface is the point. There is no separate mobile UI and
 none is being tested for.
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
@@ -36,7 +38,9 @@ def seed_product(page, base_url, description):
     page.goto(f"{base_url}/products/new")
     page.fill("#description", description)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    # Saving redirects to the detail page; wait for that page's own content
+    # rather than for the form page we are navigating away from.
+    expect(page.locator("#stock-card")).to_be_visible()
     return page.url
 
 
@@ -46,7 +50,7 @@ def test_a_scan_result_is_self_sufficient_on_a_touch_screen(page, touch_page, li
     detail_url = seed_product(page, live_server.url, "Blue widget, 10mm")
 
     touch_page.goto(f"{detail_url}?from_scan=1")
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
 
     # No hover-only affordances and no second window: the actions are visible.
     expect(touch_page.locator("#scan-match-banner")).to_be_visible()
@@ -61,18 +65,18 @@ def test_quantity_is_adjustable_by_tapping(touch_page, page, live_server):
     detail_url = seed_product(page, live_server.url, "Tappable widget")
 
     touch_page.goto(detail_url)
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
 
     touch_page.tap("#start-tracking-btn")
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
     expect(touch_page.locator("#quantity-value")).to_contain_text("None on hand")
 
     touch_page.tap("#quantity-increment")
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
     expect(touch_page.locator("#quantity-value")).to_contain_text("1")
 
     touch_page.tap("#quantity-decrement")
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
     expect(touch_page.locator("#quantity-value")).to_contain_text("None on hand")
 
 
@@ -82,14 +86,20 @@ def test_stock_status_is_settable_by_tapping(touch_page, page, live_server):
 
     touch_page.goto(detail_url)
     touch_page.tap("#flag-low-btn")
-    touch_page.wait_for_load_state("networkidle")
+    # The button PATCHes and then reloads; wait for the reloaded styling, or the
+    # goto below aborts the request that is still in flight.
+    expect(touch_page.locator("#flag-low-btn")).to_have_class(
+        re.compile(r"\bbtn-warning\b")
+    )
 
     touch_page.goto(f"{live_server.url}/products/reorder")
     expect(touch_page.locator("#reorder-table")).to_contain_text("Flaggable widget")
 
     touch_page.goto(detail_url)
     touch_page.tap("#clear-flag-btn")
-    touch_page.wait_for_load_state("networkidle")
+    expect(touch_page.locator("#flag-low-btn")).to_have_class(
+        re.compile(r"\bbtn-outline-warning\b")
+    )
 
     touch_page.goto(f"{live_server.url}/products/reorder")
     expect(touch_page.locator("#nothing-to-reorder")).to_be_visible()
@@ -102,14 +112,17 @@ def test_the_reorder_view_is_usable_on_a_touch_screen(touch_page, page, live_ser
 
     touch_page.goto(detail_url)
     touch_page.tap("#flag-low-btn")
-    touch_page.wait_for_load_state("networkidle")
+    # The flag PATCHes and reloads; wait for the reloaded styling so the goto
+    # below cannot abort the request.
+    expect(touch_page.locator("#flag-low-btn")).to_have_class(
+        re.compile(r"\bbtn-warning\b")
+    )
 
     touch_page.goto(f"{live_server.url}/products/reorder")
     expect(touch_page.locator(".reorder-row")).to_be_visible()
 
     # And the action on each row is reachable by tapping it.
     touch_page.tap(".reorder-row a")
-    touch_page.wait_for_load_state("networkidle")
     expect(touch_page.locator("#product-description")).to_have_text("Needs reordering")
 
 
@@ -119,7 +132,7 @@ def test_the_stock_controls_are_large_enough_to_hit(touch_page, page, live_serve
     detail_url = seed_product(page, live_server.url, "Widget")
 
     touch_page.goto(detail_url)
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
 
     for selector in ["#flag-low-btn", "#flag-out-btn", "#clear-flag-btn",
                      "#start-tracking-btn"]:
@@ -137,7 +150,7 @@ def test_the_page_does_not_scroll_sideways_on_a_phone(touch_page, page, live_ser
                 f"{live_server.url}/products/reorder",
                 detail_url]:
         touch_page.goto(url)
-        touch_page.wait_for_load_state("networkidle")
+        touch_page.wait_for_load_state("domcontentloaded")
         overflow = touch_page.evaluate(
             "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
         )
@@ -148,7 +161,7 @@ def test_the_page_does_not_scroll_sideways_on_a_phone(touch_page, page, live_ser
 def test_the_scan_entry_point_is_reachable_on_a_phone(touch_page, live_server):
     """Story 1 begins wherever the operator is, including on the handheld"""
     touch_page.goto(live_server.url)
-    touch_page.wait_for_load_state("networkidle")
+    touch_page.wait_for_load_state("domcontentloaded")
 
     # Collapsed behind the navbar toggle on a phone, but reachable by tapping.
     touch_page.tap(".navbar-toggler")

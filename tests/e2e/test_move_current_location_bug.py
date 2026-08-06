@@ -19,7 +19,7 @@ class MoveCurrentLocationPage(BasePage):
     def navigate_to_move(self):
         """Navigate to move items page"""
         self.page.goto(f"{self.base_url}/inventory/move")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def simulate_barcode_scan(self, barcode_text):
         """Simulate barcode scanner input (keyboard wedge + Enter)"""
@@ -32,15 +32,15 @@ class MoveCurrentLocationPage(BasePage):
         barcode_input.type(barcode_text)
         # Press Enter to trigger processing
         barcode_input.press("Enter")
-        # Wait for JavaScript processing and any AJAX calls
-        self.page.wait_for_timeout(500)
+        # The page clears the field once it has consumed the code.
+        expect(barcode_input).to_have_value("")
     
     def click_validate_moves(self):
         """Click the validate & preview button"""
         self.page.locator("#validate-btn").click()
-        self.page.wait_for_load_state("networkidle")
-        # Wait for validation to complete
-        self.page.wait_for_timeout(2000)
+        # Validation is a fetch, not a navigation; its results section
+        # appearing is what says it came back.
+        expect(self.page.locator("#validation-section")).to_be_visible()
     
     def get_current_location_from_queue(self, ja_id):
         """Get the current location displayed for a specific JA ID in the queue"""
@@ -85,9 +85,6 @@ def test_move_current_location_shows_unknown_bug(page, live_server):
     )
     add_page.submit_form()
     
-    # Wait for the item to be created
-    page.wait_for_timeout(1000)
-    
     # Verify the item was created successfully
     success_alert = page.locator(".alert-success").first
     expect(success_alert).to_be_visible()
@@ -98,15 +95,15 @@ def test_move_current_location_shows_unknown_bug(page, live_server):
     
     # Step 3: Scan the item JA ID and new location
     move_page.simulate_barcode_scan(test_ja_id)
-    page.wait_for_timeout(500)
 
     new_location = "M11-K"
     move_page.simulate_barcode_scan(new_location)
-    page.wait_for_timeout(500)
 
     # Finalize the move (required in new sub-location workflow)
     move_page.simulate_barcode_scan(">>DONE<<")
-    page.wait_for_timeout(500)
+    # finalizeCurrentMove() awaits an API lookup before pushing the entry, so an
+    # empty input does not mean the queue is built yet.
+    expect(page.locator("#queue-items")).to_contain_text(test_ja_id)
 
     # Step 4: Verify the item appears in the queue
     queue_table = page.locator("#queue-items")

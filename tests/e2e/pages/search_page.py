@@ -52,9 +52,24 @@ class SearchPage(InventoryTableMixin, BasePage):
         """Navigate to search page"""
         self.navigate_to("/inventory/search")
     
+    def fill_material(self, material: str):
+        """Type into the material field and dismiss its autocomplete.
+
+        The material input is a MaterialSelector: typing opens a suggestion
+        dropdown that overlays the search button. Escape closes it (the selector
+        handles the key explicitly), which is deterministic -- previously this
+        worked only because the fixed sleeps happened to outlast the 150ms blur
+        timer.
+        """
+        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        self.page.keyboard.press("Escape")
+        suggestions = self.page.locator(".material-suggestions")
+        if suggestions.count() > 0:
+            expect(suggestions.first).not_to_be_visible()
+
     def search_by_material(self, material: str):
         """Search for items by material"""
-        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        self.fill_material(material)
         self.click_search()
 
     def search_by_material_with_match_type(self, material: str, exact: bool = False):
@@ -64,7 +79,7 @@ class SearchPage(InventoryTableMixin, BasePage):
             material: The material name to search for
             exact: If True, use exact match; if False, use contains match (default)
         """
-        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        self.fill_material(material)
         if self.is_visible("#material_exact"):
             self.page.select_option("#material_exact", "true" if exact else "false")
         self.click_search()
@@ -219,23 +234,41 @@ class SearchPage(InventoryTableMixin, BasePage):
         self.click_search()
 
     def click_search(self):
-        """Click the search button"""
+        """Click the search button and wait for the results to render"""
         self.click_and_wait(self.SEARCH_BUTTON)
-        # Wait for search results to load
-        self.page.wait_for_timeout(1500)
-    
+        self.wait_for_search_complete()
+
+    def wait_for_search_complete(self):
+        """Wait until the search has finished and rendered its outcome.
+
+        performSearch() synchronously shows the spinner and hides both result
+        panes before it awaits the API, so this cannot pass on the previous
+        search's results: it requires the spinner gone *and* one of the two
+        outcome panes shown.
+        """
+        self.page.wait_for_function(
+            """() => {
+                const hidden = (id) => {
+                    const el = document.getElementById(id);
+                    return !el || el.classList.contains('d-none');
+                };
+                return hidden('search-loading')
+                    && (!hidden('results-table-container') || !hidden('no-results'));
+            }"""
+        )
+
     def clear_search(self):
         """Clear search form"""
         if self.is_visible(self.CLEAR_BUTTON):
             self.click_and_wait(self.CLEAR_BUTTON)
-    
+
     def show_advanced_search(self):
         """Show advanced search options if hidden"""
         if self.is_visible(self.ADVANCED_SEARCH_TOGGLE):
             toggle = self.page.locator(self.ADVANCED_SEARCH_TOGGLE)
             if not toggle.is_checked():
                 toggle.click()
-                self.page.wait_for_timeout(500)
+                expect(toggle).to_be_checked()
     
     def get_search_results(self) -> List[Dict[str, str]]:
         """Get search results as list of dictionaries (wrapper for get_table_items)"""

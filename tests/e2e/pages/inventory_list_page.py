@@ -29,47 +29,61 @@ class InventoryListPage(InventoryTableMixin, BasePage):
         self.navigate_to("/inventory")
     
     def wait_for_items_loaded(self):
-        """Wait for inventory items to finish loading"""
+        """Wait for inventory items to finish loading.
+
+        Settles on any of the three terminal states -- table, empty, or error --
+        and then fails loudly if it was the error one. Treating the error state
+        as "loaded" and carrying on turns a failed fetch into a 60s timeout on
+        whatever row the test looks for next, which says nothing about the cause.
+        """
         # Wait for loading spinner to disappear
         loading_state = self.page.locator('#loading-state')
         if loading_state.is_visible():
             expect(loading_state).not_to_be_visible()
-        
-        # Wait for table to be visible or empty state message
+
+        # Wait for table to be visible, or the empty/error state message
         self.page.wait_for_function('''
             () => {
                 const table = document.querySelector('#inventory-table-container');
                 const emptyState = document.querySelector('#empty-state');
                 const errorState = document.querySelector('#error-state');
-                return (table && !table.classList.contains('d-none')) || 
+                return (table && !table.classList.contains('d-none')) ||
                        (emptyState && !emptyState.classList.contains('d-none')) ||
                        (errorState && !errorState.classList.contains('d-none'));
             }
         ''')
+
+        error_state = self.page.locator('#error-state')
+        if error_state.count() and not error_state.is_hidden():
+            raise AssertionError(
+                "Inventory list failed to load: "
+                f"{(error_state.text_content() or '').strip()}"
+            )
     
     def get_inventory_items(self) -> List[Dict[str, str]]:
         """Get list of inventory items from the table (wrapper for get_table_items)"""
         self.wait_for_element(self.INVENTORY_TABLE)
         return self.get_table_items()
     
+    # The list-page filters are applied by onFilterChange(), which filters the
+    # already-loaded items in memory and re-renders synchronously -- no debounce
+    # and no request. The table is therefore up to date by the time the input
+    # event returns, and no wait is needed after any of these.
+
     def search_items(self, query: str):
         """Perform search in inventory list"""
         if self.is_visible(self.SEARCH_INPUT):
             self.fill_and_wait(self.SEARCH_INPUT, query)
-            # Wait for search results to update
-            self.page.wait_for_timeout(1000)
-    
+
     def filter_by_material(self, material: str):
         """Filter items by material"""
         if self.is_visible(self.FILTER_MATERIAL):
             self.fill_and_wait(self.FILTER_MATERIAL, material)
-            self.page.wait_for_timeout(1000)
-    
+
     def filter_by_location(self, location: str):
         """Filter items by location"""
         if self.is_visible(self.FILTER_LOCATION):
             self.page.select_option(self.FILTER_LOCATION, location)
-            self.page.wait_for_timeout(1000)
     
     def click_add_item(self):
         """Click the add item button"""

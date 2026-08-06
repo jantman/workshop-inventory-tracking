@@ -119,7 +119,6 @@ def test_pagination_navigation_for_inactive_items(page, live_server):
     next_button.click()
 
     # Wait for page to update
-    page.wait_for_timeout(500)
 
     # Verify we're now on page 2 showing items 26-30
     expect(items_start).to_contain_text('26')

@@ -20,7 +20,7 @@ class MoveItemsPage(BasePage):
     def navigate(self):
         """Navigate to move items page"""
         self.page.goto(f"{self.base_url}/inventory/move")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def simulate_barcode_scan(self, barcode_text):
         """Simulate barcode scanner input (keyboard wedge + Enter)"""
@@ -33,13 +33,24 @@ class MoveItemsPage(BasePage):
         barcode_input.type(barcode_text)
         # Press Enter to trigger processing
         barcode_input.press("Enter")
-        # Wait for JavaScript processing and any AJAX calls
-        self.page.wait_for_timeout(500)
+        # The page clears the field once it has consumed the code. Note this
+        # does NOT mean any queue entry exists yet: finalizeCurrentMove() awaits
+        # an API call first, so callers that care must use wait_for_queue_count.
+        expect(barcode_input).to_have_value("")
     
     def enable_manual_entry_mode(self):
         """Enable manual entry mode for testing"""
         self.page.locator("#manual-entry-mode").check()
     
+    def wait_for_queue_count(self, expected):
+        """Wait for the queue to hold `expected` items.
+
+        finalizeCurrentMove() awaits an API lookup before pushing an entry, so
+        the queue lags the scan that triggered it. get_queue_count() below is a
+        plain read with no retry, so it needs this in front of it.
+        """
+        expect(self.page.locator("#queue-count")).to_contain_text(f"{expected} item")
+
     def get_queue_count(self):
         """Get the number of items in the move queue"""
         count_text = self.page.locator("#queue-count").inner_text()
@@ -52,12 +63,12 @@ class MoveItemsPage(BasePage):
     def click_validate_moves(self):
         """Click the validate & preview button"""
         self.page.locator("#validate-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def click_execute_moves(self):
         """Click the execute moves button"""
         self.page.locator("#execute-moves-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def click_clear_queue(self):
         """Click the clear queue button"""
@@ -129,9 +140,6 @@ def test_single_item_move_workflow(page, live_server):
     )
     add_page.submit_form()
     
-    # Wait for success message or page redirect
-    page.wait_for_timeout(1000)
-    
     # Verify the item was actually added by checking for success message
     success_alert = page.locator(".alert-success").first
     if success_alert.is_visible():
@@ -144,8 +152,8 @@ def test_single_item_move_workflow(page, live_server):
     
     # Navigate to inventory list to ensure item is in the database
     page.goto(f"{live_server.url}/inventory")
-    page.wait_for_load_state("networkidle")
-    page.wait_for_timeout(500)  # Extra wait for data loading
+    page.wait_for_load_state("domcontentloaded")
+    expect(page.locator("#loading-state")).not_to_be_visible()
     
     # Verify the item appears in the inventory list
     if page.locator(f"text={ja_id_to_use}").count() > 0:
@@ -160,8 +168,7 @@ def test_single_item_move_workflow(page, live_server):
     move_page = MoveItemsPage(page, live_server.url)
     move_page.navigate()
     
-    # Extra wait to ensure the move interface is fully loaded
-    page.wait_for_timeout(1000)
+    expect(page.locator("#barcode-input")).to_be_visible()
     
     print(f"About to scan JA ID: {ja_id}")
     
@@ -198,6 +205,7 @@ def test_single_item_move_workflow(page, live_server):
     move_page.simulate_barcode_scan(">>DONE<<")
 
     # Should show item in queue (after finalization)
+    move_page.wait_for_queue_count(1)
     assert move_page.get_queue_count() == 1
     move_page.assert_queue_item_visible(ja_id, "M2-B")
     
@@ -262,9 +270,9 @@ def test_multiple_items_move_workflow(page, live_server):
 
     # Scan second item (this finalizes the first move)
     move_page.simulate_barcode_scan(ja_ids[1])
-    # Wait for finalization to complete (async operation with API call)
-    page.wait_for_timeout(500)
+    move_page.wait_for_queue_count(1)
     # First item should now be in queue
+    move_page.wait_for_queue_count(1)
     assert move_page.get_queue_count() == 1
     move_page.assert_queue_item_visible(ja_ids[0], locations[0])
 
@@ -273,10 +281,10 @@ def test_multiple_items_move_workflow(page, live_server):
 
     # Complete scanning to finalize second move
     move_page.simulate_barcode_scan(">>DONE<<")
-    # Wait for finalization to complete (async operation with API call)
-    page.wait_for_timeout(500)
+    move_page.wait_for_queue_count(2)
 
     # Should have 2 items in queue
+    move_page.wait_for_queue_count(2)
     assert move_page.get_queue_count() == 2
     move_page.assert_queue_item_visible(ja_ids[1], locations[1])
     move_page.click_validate_moves()
@@ -305,11 +313,13 @@ def test_move_nonexistent_item_error(page, live_server):
     move_page.simulate_barcode_scan(">>DONE<<")
 
     # Should now have 1 item in queue (after finalization)
+    move_page.wait_for_queue_count(1)
     assert move_page.get_queue_count() == 1
     move_page.click_validate_moves()
-    
-    # Wait for validation to complete
-    page.wait_for_timeout(2000)
+
+    # Validation is a fetch, not a navigation; the queue rows are rewritten with
+    # their validation status when it returns.
+    expect(page.locator("#validation-section")).to_be_visible()
     
     # Check that the item shows as not found in the queue
     queue_table = page.locator("#queue-items")
@@ -355,12 +365,14 @@ def test_clear_queue_functionality(page, live_server):
     move_page.simulate_barcode_scan(">>DONE<<")
 
     # Verify item in queue
+    move_page.wait_for_queue_count(1)
     assert move_page.get_queue_count() == 1
     
     # Clear the queue
     move_page.click_clear_queue()
     
     # Queue should be empty
+    move_page.wait_for_queue_count(0)
     assert move_page.get_queue_count() == 0
     expect(page.locator("#move-queue-empty")).to_be_visible()
     
@@ -430,6 +442,7 @@ def test_move_item_with_original_thread_regression_test(page, live_server):
     move_page.simulate_barcode_scan(">>DONE<<")
 
     # Should have successfully added item to queue
+    move_page.wait_for_queue_count(1)
     assert move_page.get_queue_count() == 1
     move_page.assert_queue_item_visible(ja_id, "M8-H")
 

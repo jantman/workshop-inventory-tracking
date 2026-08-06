@@ -52,12 +52,25 @@ _This file contains critical rules and patterns that AI agents must follow when 
 ### Testing Rules
 
 - **Run tests via `nox`, never bare `pytest`.** Sessions: `nox -s tests` (unit), `nox -s e2e`, `nox -s coverage`, `nox -s lint`.
-- **The `e2e` session needs a 20-minute timeout** on the tool/agent running it (it installs Playwright browsers and uses `--reruns=3`). This is a harness-level timeout, not a CLI flag.
+- **The `e2e` session needs a 15-minute timeout** on the tool/agent running it (it installs Playwright browsers and uses `--reruns=3`). This is a harness-level timeout, not a CLI flag. The suite itself runs in well under 10 minutes warm; the margin covers a cold start.
+- **The `e2e` session excludes screenshot tests** (`-m "e2e and not screenshot"`). Screenshot generation belongs to `nox -s screenshots`/`screenshots_headless`; those tests write into `docs/images/screenshots/`, so running them in the e2e gate made the test suite dirty the working tree. An e2e run must leave the tree clean.
 - **Markers gate scope** (`pytest.ini`): `unit`, `integration`, `e2e`, `slow`, `database`, `screenshot`. `--strict-markers` is on — register any new marker before using it. The `tests` session runs `-m "not e2e and not integration"`.
 - **Unit tests block the network** via `--blockage` (pytest-blockage). Don't write unit tests that make real HTTP/API calls — mock them.
 - **Unit tests use SQLite through `MariaDBStorage`.** The `test_storage` fixture points `MariaDBStorage(database_url=sqlite:///...)` at a temp SQLite file and creates schema via `Base.metadata.create_all`. Integration tests use a real MariaDB testcontainer (`mariadb_testcontainer`).
 - **Shared fixtures live in `tests/conftest.py`:** `test_storage` → `app` (built with `TestConfig` + injected storage) → `client`. Reuse them; build the app through them, not manually.
 - **Layout:** `tests/unit/` and `tests/e2e/`; files `test_*.py`, classes `Test*`, functions `test_*`. `migrations/` is excluded from collection.
+
+#### E2E waiting rules (non-negotiable)
+
+The e2e suite took 22m 27s until `specs/002-e2e-test-performance/`, over half of it spent blocking on a clock instead of on the application. These rules keep it fast; the full version with examples is `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`.
+
+- **No `page.wait_for_timeout(...)` and no `time.sleep(...)`.** Use `expect(locator)`, which polls until the condition holds. Where nothing observable exists, the wait may stay only with a comment at the call site explaining why.
+- **No `wait_for_load_state("networkidle")`.** It costs >=0.5s per call and says nothing about your content. `goto()` already waits for `load`.
+- **Never read a JS-rendered region without waiting first.** `count()`, `text_content()` and `is_visible()` do not wait and return "empty" against a table that is still loading. This is worst for negative assertions, which then pass for the wrong reason.
+- **A click that fires a `fetch` is not done when `click()` returns.** Wait for what the response changes; navigating away first aborts the request.
+- **Seed via `live_server.add_test_data([...])`** (milliseconds), not by driving the Add Item form (~3s per item). Use the form only when the form is under test.
+- **Waits live in page objects**; shared helpers are in `tests/e2e/waits.py`.
+- **Every test must pass in isolation.** It may assume an empty inventory and the standard 21-row taxonomy, nothing more.
 
 ### Code Quality & Style Rules
 

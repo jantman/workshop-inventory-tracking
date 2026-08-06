@@ -22,7 +22,7 @@ def create_product(page, base_url, description, **fields):
         else:
             page.fill(f"#{field}", value)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     return page.url
 
 
@@ -31,7 +31,7 @@ def scan(page, text):
     page.click("#global-scan-input")
     page.keyboard.type(text)
     page.keyboard.press("Enter")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
 
 @pytest.mark.e2e
@@ -67,7 +67,7 @@ def test_the_offered_product_can_be_created_from_there(page, live_server):
 
     page.fill("#description", "Newly catalogued thing")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#product-description")).to_have_text("Newly catalogued thing")
     expect(page.locator("#identifier-list")).to_contain_text("00012345678905")

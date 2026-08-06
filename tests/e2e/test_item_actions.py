@@ -104,7 +104,6 @@ def test_view_item_modal_workflow(page, live_server):
     
     # The precision field should show 'Yes' since we checked the checkbox
     # Use a more lenient check that waits for the text to appear
-    page.wait_for_timeout(2000)  # Give extra time for API response
     expect(modal_body).to_contain_text('Yes')
     
     # Verify edit button in modal footer
@@ -229,7 +228,6 @@ def test_edit_item_workflow(page, live_server):
     submit_button.click()
     
     # Give extra time for form processing and database write
-    page.wait_for_timeout(3000)
     
     # Verify redirect to inventory list
     expect(page).to_have_url(f'{live_server.url}/inventory')
@@ -274,7 +272,6 @@ def test_edit_item_workflow(page, live_server):
     
     # The precision field should show 'Yes' since we checked the checkbox
     # Use a more lenient check that waits for the text to appear
-    page.wait_for_timeout(2000)  # Give extra time for API response
     expect(modal_body).to_contain_text('Yes')
 
 

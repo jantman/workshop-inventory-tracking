@@ -18,7 +18,7 @@ def create_product(page, base_url, description, **fields):
         page.fill(f"#{field}", value)
 
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
 
 @pytest.mark.e2e
@@ -56,12 +56,12 @@ def test_edit_a_product(page, live_server):
     create_product(page, live_server.url, "Blue widget", location="Bin 4")
 
     page.click("text=Edit")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     page.fill("#description", "Blue widget, revised")
     page.fill("#location", "Bin 9")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#product-description")).to_have_text("Blue widget, revised")
     expect(page.locator("#product-location")).to_have_text("Bin 9")
@@ -82,7 +82,7 @@ def test_a_product_with_no_description_is_rejected(page, live_server):
     page.goto(f"{live_server.url}/products/new")
     page.fill("#description", "")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     # Still on the form, not on a detail page.
     expect(page.locator("#description")).to_be_visible()
@@ -96,7 +96,7 @@ def test_an_identifier_entered_at_creation_is_attached(page, live_server):
     page.select_option("#identifier_type", "GTIN")
     page.fill("#identifier_value", "012345678905")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     # Stored in its normalized 14-digit form (FR-009).
     expect(page.locator("#identifier-list")).to_contain_text("00012345678905")
