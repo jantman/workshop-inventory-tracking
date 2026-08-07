@@ -265,7 +265,7 @@ Removing waits exposed defects the delays were hiding. Each was fixed on its mer
 | SC-002 | CI −40% | not yet observed — CI has not run this branch | **unverified** |
 | SC-003 | all tests pass, assertions not reduced | 362 pass; 4 assertion lines removed, 3 replaced by equivalents (2 strengthened), 1 a whitespace artifact; 36 added | **met** |
 | SC-004 | zero skipped/deleted | zero | **met** |
-| SC-005 | 3 consecutive runs, zero retries | **2 clean out of 5** full `--reruns=0` runs | **not met** |
+| SC-005 | 3 consecutive runs, zero retries | 2 clean of 5 before review; **2 clean of 2 after** the `_submit_and_wait` fix | **improved, still short of 3** |
 | SC-006 | every test passes alone | spot-checked throughout; full one-at-a-time sweep not run | **partially verified** |
 | SC-007 | failures localize | not exercised with a deliberate defect | **unverified** |
 | SC-008 | `wait_for_timeout` under 60s | **121.6s** (from 423.9s) | **not met** |
@@ -284,11 +284,17 @@ made with `--reruns=0`:
 | 3 | 1 failed — `test_bulk_label_printing_select_all_functionality`, preceded by `TypeError: Failed to fetch` from the test server |
 | 4 | clean, 605.52s |
 | 5 | 1 failed — `test_move_items_sub_location::test_batch_move_mixed_sub_locations`, a 60s click timeout, with two `Failed to fetch` in the log |
+| 6 (post-review) | 1 failed — `test_add_multiple_items_workflow`, **the `_submit_and_wait` defect above**, no fetch errors |
+| 7 (after that fix) | clean, 616.88s |
+| 8 (after that fix) | clean, 584.74s |
 
 Only the first was a defect in this work. The other two were preceded by the browser's fetch
 to the Werkzeug test server failing outright; both failing tests pass repeatedly in isolation
 (the sub-location file passed 2/2 immediately afterwards), and the second of them is in a
 file whose waits were reverted, so it is not attributable to the wait changes.
+
+Runs 7 and 8 are the first consecutive clean pair, so the picture has improved — but three
+consecutive clean runs have still not been demonstrated, and runs 3 and 5 remain unexplained.
 
 Two things follow. First, `wait_for_items_loaded()` treated the list's *error* state as a
 terminal "loaded" state and carried on, turning a failed fetch into a 60s timeout on a row
@@ -297,6 +303,56 @@ mode is at least legible. Second, **the underlying transient is not diagnosed.**
 `--reruns=3` has been absorbing all along, which is precisely why SC-005 asks for runs without
 it. Whether the shared single-threaded test server can be made reliable under sustained load
 is a separate question this feature did not answer.
+
+### Review findings (PR #64, 2026-08-06)
+
+Four issues came out of review; all four were real and are fixed.
+
+- **`fill_material()` did not reliably dismiss the autocomplete.** MaterialSelector debounces
+  its input handler by 200ms *and* its keydown handler returns early while the dropdown is
+  hidden, so an Escape sent straight after `fill()` was swallowed as a no-op and did not
+  cancel the pending timer — the dropdown could then open ~200ms later, over the Search
+  button, after the dismissing code had returned. This is a plausible contributor to the
+  residual flakiness recorded under SC-005. The page object now lets the debounced handler
+  run first, then dismisses whatever it opened. This is the one place in the suite that waits
+  on a clock: a pending debounce has no observable start, so no state distinguishes "has not
+  run yet" from "ran and matched nothing". Bounded and justified at the call site, per FR-007.
+- **`wait_for_queue_count()` matched substrings.** `to_contain_text("0 item")` is satisfied by
+  `"10 items"`. Not reachable from today's call sites (all use 0–2), but a shared helper that
+  claims to confirm a count must actually confirm it. Now an anchored regex.
+- **`assert_item_not_visible()` had no callers**, so the readiness gate added to it was never
+  exercised — while `SearchPage.assert_result_not_contains_item()` (2 call sites) did its own
+  ungated snapshot read. The latter now routes through the former, which wires the fix up and
+  removes the dead code in one move.
+- **`SearchPage` inherited the wrong loading selector.** The mixin defaults
+  `LOADING_STATE_SELECTOR` to `#loading-state` (the list page); the search page's spinner is
+  `#search-loading`, so the readiness gate would have found nothing and silently no-opped
+  there. Now overridden. Latent until the previous item gave it a caller — which review is
+  what turned it up.
+
+Type annotations were also added to `tests/e2e/waits.py` for consistency with the page objects.
+
+A fifth issue surfaced from the full-suite run used to verify the four above, and it was a
+defect in this feature's own code rather than something review flagged:
+
+- **`_submit_and_wait()` could return without submitting anything.** It treated a form
+  matching `:invalid` as a terminal "the submit was rejected" state. But `MaterialValidator`
+  calls `setCustomValidity()` and marks the material field invalid *until its taxonomy list
+  has loaded*, so a form can match `:invalid` before the click for a reason that is about to
+  clear on its own. The helper then returned immediately, having submitted nothing, and the
+  caller carried on as though the item existed — which is exactly how
+  `test_add_multiple_items_workflow` failed with `Item JA000005 not visible in table. Found:
+  ['JA000003', 'JA000004']`.
+
+  Two changes. The rejection signal is now the native `invalid` **event**, which fires only
+  when the browser actually refuses a submission attempt and therefore cannot be true before
+  the click. And `fill_basic_item_data()` now waits for the validator to accept the material
+  before anything can submit, closing the window rather than just detecting it. Every caller
+  of that helper passes a real taxonomy entry; the tests that enter unknown materials fill
+  `#material` directly and do not come through it.
+
+  This is worth noting for what it says about the earlier SC-005 numbers: at least one of the
+  "undiagnosed transients" was this bug, not the test server.
 
 ### Deferred, with reasons
 

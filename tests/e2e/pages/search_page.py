@@ -47,25 +47,52 @@ class SearchPage(InventoryTableMixin, BasePage):
     # Override mixin selectors for search page
     TABLE_BODY_SELECTOR = "#results-table-body"
     TABLE_ROWS_SELECTOR = "#results-table-body tr"
+    # The search page's spinner has a different id from the list page's. Without
+    # this override the mixin's readiness gate would find nothing and silently
+    # no-op, which matters for the negative assertions that depend on it.
+    LOADING_STATE_SELECTOR = "#search-loading"
     
     def navigate(self):
         """Navigate to search page"""
         self.navigate_to("/inventory/search")
     
-    def fill_material(self, material: str):
+    def fill_material(self, material: str) -> None:
         """Type into the material field and dismiss its autocomplete.
 
         The material input is a MaterialSelector: typing opens a suggestion
-        dropdown that overlays the search button. Escape closes it (the selector
-        handles the key explicitly), which is deterministic -- previously this
-        worked only because the fixed sleeps happened to outlast the 150ms blur
-        timer.
+        dropdown that overlays the search button, so it has to be closed before
+        the search can be clicked.
+
+        Dismissing it is trickier than it looks. MaterialSelector debounces its
+        input handler by 200ms, and its keydown handler returns immediately while
+        the dropdown is hidden:
+
+            if (!this.suggestionsContainer ||
+                this.suggestionsContainer.style.display === 'none') return;
+
+        So pressing Escape straight after fill() lands inside the debounce window,
+        is swallowed as a no-op, and does not cancel the pending timer -- the
+        dropdown then opens ~200ms later, over the button, after the code meant to
+        close it has returned.
+
+        The debounced handler is therefore allowed to run first. It either opens
+        the dropdown (dismiss it, and confirm it closed) or leaves it closed
+        (nothing to do). The bounded wait below is the one place this file waits
+        on a clock: a pending debounce has no observable start, so there is no
+        state that distinguishes "has not run yet" from "ran and matched nothing".
         """
         self.fill_and_wait(self.MATERIAL_SEARCH, material)
-        self.page.keyboard.press("Escape")
+
         suggestions = self.page.locator(".material-suggestions")
-        if suggestions.count() > 0:
-            expect(suggestions.first).not_to_be_visible()
+        try:
+            expect(suggestions.first).to_be_visible(timeout=2000)
+        except AssertionError:
+            # The debounced handler ran and opened nothing: no matches for this
+            # query, so there is no overlay to dismiss.
+            return
+
+        self.page.keyboard.press("Escape")
+        expect(suggestions.first).not_to_be_visible()
 
     def search_by_material(self, material: str):
         """Search for items by material"""
@@ -310,11 +337,14 @@ class SearchPage(InventoryTableMixin, BasePage):
         """Assert search results contain specific item (wrapper for assert_item_visible)"""
         self.assert_item_visible(ja_id)
 
-    def assert_result_not_contains_item(self, ja_id: str):
-        """Assert search results do NOT contain a specific item"""
-        results = self.get_search_results()
-        ja_ids = [result["ja_id"] for result in results]
-        assert ja_id not in ja_ids, f"Item {ja_id} should not be in search results but was found"
+    def assert_result_not_contains_item(self, ja_id: str) -> None:
+        """Assert search results do NOT contain a specific item.
+
+        Routed through the mixin so the negative assertion gets its readiness
+        gate: a results table that has not rendered yet would otherwise satisfy
+        "the item is absent" for the wrong reason.
+        """
+        self.assert_item_not_visible(ja_id)
     
     def assert_all_results_match_criteria(self, material: str = None, location: str = None, shape: str = None):
         """Assert all search results match the given criteria"""

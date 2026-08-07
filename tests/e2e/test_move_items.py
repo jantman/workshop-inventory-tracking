@@ -9,6 +9,8 @@ Tests the complete workflow for batch moving inventory items including:
 - Error handling and edge cases
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
@@ -42,14 +44,20 @@ class MoveItemsPage(BasePage):
         """Enable manual entry mode for testing"""
         self.page.locator("#manual-entry-mode").check()
     
-    def wait_for_queue_count(self, expected):
-        """Wait for the queue to hold `expected` items.
+    def wait_for_queue_count(self, expected: int) -> None:
+        """Wait for the queue to hold exactly `expected` items.
 
         finalizeCurrentMove() awaits an API lookup before pushing an entry, so
         the queue lags the scan that triggered it. get_queue_count() below is a
         plain read with no retry, so it needs this in front of it.
+
+        The match is anchored: the badge reads "N item"/"N items", so a substring
+        match for "0 item" would also be satisfied by "10 items" -- the wait
+        would then claim to have confirmed a count it had not.
         """
-        expect(self.page.locator("#queue-count")).to_contain_text(f"{expected} item")
+        expect(self.page.locator("#queue-count")).to_have_text(
+            re.compile(rf"^{expected} items?$")
+        )
 
     def get_queue_count(self):
         """Get the number of items in the move queue"""

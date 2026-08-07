@@ -7,8 +7,10 @@ observable condition -- never for a duration. See
 these support.
 """
 
+from playwright.sync_api import Page
 
-def wait_for_modal_shown(page, modal_id):
+
+def wait_for_modal_shown(page: Page, modal_id: str) -> None:
     """Wait until a Bootstrap modal is fully open and holds focus.
 
     Two separate races hide behind the fixed delays this replaces:
@@ -29,7 +31,7 @@ def wait_for_modal_shown(page, modal_id):
     )
 
 
-def wait_for_modal_hidden(page, modal_id):
+def wait_for_modal_hidden(page: Page, modal_id: str) -> None:
     """Wait until a Bootstrap modal has finished fading out and been detached."""
     page.wait_for_function(
         "id => { const m = document.getElementById(id);"
@@ -38,7 +40,7 @@ def wait_for_modal_hidden(page, modal_id):
     )
 
 
-def wait_for_material_suggestions(page, query):
+def wait_for_material_suggestions(page: Page, query: str) -> None:
     """Wait for the material autocomplete to show results for `query`.
 
     MaterialSelector debounces its input handler by 200ms, so immediately after
@@ -60,7 +62,7 @@ def wait_for_material_suggestions(page, query):
     )
 
 
-def wait_for_select_populated(page, select_id):
+def wait_for_select_populated(page: Page, select_id: str) -> None:
     """Wait for a select that is filled from an API call after render.
 
     These selects ship with a single placeholder option, so "more than one

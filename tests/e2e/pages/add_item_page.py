@@ -4,6 +4,8 @@ Add Item Page Object
 Page object for the add inventory item functionality.
 """
 
+import re
+
 from .base_page import BasePage
 from playwright.sync_api import expect
 
@@ -37,11 +39,24 @@ class AddItemPage(BasePage):
         self.navigate_to("/inventory/add")
     
     def fill_basic_item_data(self, ja_id: str, item_type: str, shape: str, material: str):
-        """Fill basic required item fields"""
+        """Fill basic required item fields.
+
+        `material` is expected to be a real taxonomy entry -- every caller passes
+        one. Tests that deliberately enter an unknown material fill #material
+        directly rather than coming through here.
+        """
         self.fill_and_wait(self.JA_ID_INPUT, ja_id)
         self.page.select_option(self.ITEM_TYPE_SELECT, item_type)
         self.page.select_option(self.SHAPE_SELECT, shape)
         self.fill_and_wait(self.MATERIAL_INPUT, material)
+        # MaterialValidator marks the field invalid -- and calls
+        # setCustomValidity(), which makes the whole form fail native validation
+        # -- until its taxonomy list has arrived. Submitting inside that window is
+        # silently refused by the browser and the item is never created. Wait for
+        # the validator to accept the value before anything can submit.
+        expect(self.page.locator(self.MATERIAL_INPUT)).not_to_have_class(
+            re.compile(r"\bis-invalid\b")
+        )
     
     def fill_dimensions(self, length: str = None, width: str = None, diameter: str = None):
         """Fill dimension fields"""
@@ -87,18 +102,29 @@ class AddItemPage(BasePage):
         before its item exists.
 
         Client-side validation can also reject the submit without navigating at
-        all: either the app marks fields with .is-invalid, or native constraint
-        validation blocks the POST and shows a browser bubble that leaves no
-        trace in the DOM at all. A form matching :invalid covers the latter --
-        and if it already matches before the click, the submit was never going
-        to go anywhere, so returning at once is the right answer.
+        all, and native constraint validation leaves no trace in the DOM when it
+        does -- just a browser bubble. The signal for that is the `invalid` event,
+        which fires only when the browser actually refuses a submission attempt.
+
+        Testing `form:invalid` instead would be wrong: a form can be invalid
+        *before* the click for reasons that are about to clear on their own (the
+        material field is marked invalid until MaterialValidator's taxonomy list
+        has loaded), so the wait would return immediately having submitted
+        nothing, and the caller would carry on as though the item existed.
         """
-        self.page.evaluate("() => { window.__awaitingSubmit = true; }")
+        self.page.evaluate(
+            """() => {
+                window.__awaitingSubmit = true;
+                window.__submitRejected = false;
+                // `invalid` does not bubble, so listen in the capture phase.
+                document.addEventListener(
+                    'invalid', () => { window.__submitRejected = true; }, true);
+            }"""
+        )
         self.click_and_wait(button_selector)
         self.page.wait_for_function(
             """() => window.__awaitingSubmit === undefined
-                  || !!document.querySelector('form:invalid')
-                  || !!document.querySelector('.is-invalid')
+                  || window.__submitRejected
                   || !!document.querySelector('.invalid-feedback.d-block')"""
         )
     
