@@ -21,7 +21,7 @@ class ShortenItemsPage(BasePage):
     def navigate(self):
         """Navigate to shorten items page"""
         self.page.goto(f"{self.base_url}/inventory/shorten")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def enter_source_ja_id(self, ja_id):
         """Enter source JA ID"""
@@ -30,7 +30,7 @@ class ShortenItemsPage(BasePage):
     def click_load_item(self):
         """Click the load item button"""
         self.page.locator("#load-item-btn").click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def simulate_ja_id_scan(self, ja_id):
         """Simulate barcode scanner input for JA ID"""
@@ -40,7 +40,7 @@ class ShortenItemsPage(BasePage):
         ja_input.press("Enter")
         self.page.wait_for_timeout(200)
         # Auto-load should happen
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def enter_new_length(self, length):
         """Enter new length for shortened item"""
@@ -59,7 +59,7 @@ class ShortenItemsPage(BasePage):
     def click_execute_shortening(self):
         """Click execute shortening button"""
         self.page.locator('button:has-text("Execute Shortening")').click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
     
     def assert_item_details_visible(self):
         """Assert item details section is visible"""
@@ -303,7 +303,7 @@ def test_complete_shortening_workflow(page, live_server):
     
     # Submit the form (this will use the actual form submission)
     page.locator('button[type="submit"]').click()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should show success message with preserved JA ID (check for any alert first)
     # Wait a moment for any message to appear

@@ -11,6 +11,9 @@ from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 import json
 
+from tests.e2e.waits import wait_for_modal_shown, wait_for_select_populated
+
+MODAL = "label-printing-modal"
 
 @pytest.mark.e2e
 def test_label_printing_modal_add_item_form(page, live_server):
@@ -39,8 +42,7 @@ def test_label_printing_modal_add_item_form(page, live_server):
     modal = page.locator("#label-printing-modal")
     expect(modal).to_be_visible()
     
-    # Wait a bit for JavaScript to initialize the modal
-    page.wait_for_timeout(1000)
+    wait_for_select_populated(page, "label-type-select")
     
     # Verify modal title includes JA ID
     modal_title = page.locator("#label-printing-modal-label")
@@ -50,8 +52,7 @@ def test_label_printing_modal_add_item_form(page, live_server):
     label_select = page.locator("#label-type-select")
     expect(label_select).to_be_visible()
     
-    # Wait for options to load via API call
-    page.wait_for_timeout(2000)
+    wait_for_select_populated(page, "label-type-select")
     
     # Verify options are loaded (should have more than just placeholder)
     option_count = label_select.locator("option").count()
@@ -70,8 +71,6 @@ def test_label_printing_modal_add_item_form(page, live_server):
     modal_print_btn = page.locator("#modal-print-label-btn")
     modal_print_btn.click()
     
-    # Wait for print request to complete
-    page.wait_for_timeout(2000)
     
     # Verify success message appears (in test mode, should not actually print)
     success_alert = page.locator("#label-print-alerts .alert-success")
@@ -79,9 +78,7 @@ def test_label_printing_modal_add_item_form(page, live_server):
     expect(success_alert).to_contain_text("Label printed successfully")
     
     # Modal should auto-close after success
-    page.wait_for_timeout(2500)
     expect(modal).not_to_be_visible()
-
 
 @pytest.mark.e2e
 def test_label_type_persistence_add_item_form(page, live_server):
@@ -94,8 +91,7 @@ def test_label_type_persistence_add_item_form(page, live_server):
     page.locator("#ja_id").fill("JA123456")
     page.locator("#print-label-btn").click()
     
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_select_populated(page, "label-type-select")
     
     # Select a label type
     page.locator("#label-type-select").select_option("Sato 2x4")
@@ -112,7 +108,6 @@ def test_label_type_persistence_add_item_form(page, live_server):
     
     # Close modal
     page.locator("#label-printing-modal .btn-close").click()
-
 
 @pytest.mark.e2e
 def test_label_printing_edit_item_form(page, live_server):
@@ -150,18 +145,14 @@ def test_label_printing_edit_item_form(page, live_server):
     expect(modal).to_be_visible(timeout=15000)
     expect(page.locator("#label-ja-id-display")).to_contain_text("JA654321")
     
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_select_populated(page, "label-type-select")
     
     # Select label type and print
     page.locator("#label-type-select").select_option("Sato 4x6 Flag")
     page.locator("#modal-print-label-btn").click()
     
-    # Verify success
-    page.wait_for_timeout(2000)
     success_alert = page.locator("#label-print-alerts .alert-success")
     expect(success_alert).to_be_visible()
-
 
 @pytest.mark.e2e
 def test_label_printing_invalid_ja_id_validation(page, live_server):
@@ -181,7 +172,6 @@ def test_label_printing_invalid_ja_id_validation(page, live_server):
         print_btn = page.locator("#print-label-btn")
         expect(print_btn).to_be_disabled()
 
-
 @pytest.mark.e2e
 def test_label_printing_modal_validation(page, live_server):
     """Test modal validation for required fields"""
@@ -193,8 +183,7 @@ def test_label_printing_modal_validation(page, live_server):
     page.locator("#ja_id").fill("JA999999")
     page.locator("#print-label-btn").click()
     
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_select_populated(page, "label-type-select")
     
     # Try to print without selecting label type
     modal_print_btn = page.locator("#modal-print-label-btn")
@@ -208,7 +197,6 @@ def test_label_printing_modal_validation(page, live_server):
     # Modal should remain open
     modal = page.locator("#label-printing-modal")
     expect(modal).to_be_visible()
-
 
 @pytest.mark.e2e
 def test_label_printing_test_mode_verification(page, live_server):
@@ -230,14 +218,11 @@ def test_label_printing_test_mode_verification(page, live_server):
     page.locator("#ja_id").fill("JA888888")
     page.locator("#print-label-btn").click()
     
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_select_populated(page, "label-type-select")
     
     page.locator("#label-type-select").select_option("Sato 1x2")
     page.locator("#modal-print-label-btn").click()
     
-    # Wait for request to complete
-    page.wait_for_timeout(2000)
     
     # Verify API was called
     assert len(api_requests) > 0, "Print API should have been called"
@@ -246,7 +231,6 @@ def test_label_printing_test_mode_verification(page, live_server):
     success_alert = page.locator("#label-print-alerts .alert-success")
     expect(success_alert).to_be_visible()
     expect(success_alert).to_contain_text("Label printed successfully")
-
 
 @pytest.mark.e2e 
 def test_label_printing_modal_close_behaviors(page, live_server):
@@ -262,30 +246,32 @@ def test_label_printing_modal_close_behaviors(page, live_server):
     page.locator("#print-label-btn").click()
     modal = page.locator("#label-printing-modal")
     expect(modal).to_be_visible()
-    page.wait_for_timeout(1000)  # Wait for modal to fully load
+    wait_for_select_populated(page, "label-type-select")
+    wait_for_modal_shown(page, MODAL)
     
     page.locator("#label-printing-modal .btn-close").click()
-    page.wait_for_timeout(500)  # Wait for close animation
     expect(modal).not_to_be_visible()
     
     # Test cancel button
     page.locator("#print-label-btn").click()
     expect(modal).to_be_visible()
-    page.wait_for_timeout(1000)  # Wait for modal to fully load
+    wait_for_select_populated(page, "label-type-select")
+    wait_for_modal_shown(page, MODAL)
     
     page.locator("#label-printing-modal .btn-secondary").click()
-    page.wait_for_timeout(500)  # Wait for close animation
     expect(modal).not_to_be_visible()
     
     # Test ESC key
     page.locator("#print-label-btn").click()
     expect(modal).to_be_visible()
-    page.wait_for_timeout(1000)  # Wait for modal to fully load
+    wait_for_select_populated(page, "label-type-select")
+    wait_for_modal_shown(page, MODAL)
     
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(500)  # Wait for close animation
+    # Send the key to the modal itself: Bootstrap binds keydown on the modal
+    # element, so a bare page-level press only closes it when focus happens to
+    # be inside already.
+    modal.press("Escape")
     expect(modal).not_to_be_visible()
-
 
 @pytest.mark.e2e
 def test_label_printing_api_error_handling(page, live_server):
@@ -305,14 +291,11 @@ def test_label_printing_api_error_handling(page, live_server):
     page.locator("#ja_id").fill("JA555555")
     page.locator("#print-label-btn").click()
     
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_select_populated(page, "label-type-select")
     
     page.locator("#label-type-select").select_option("Sato 1x2")
     page.locator("#modal-print-label-btn").click()
     
-    # Wait for error handling
-    page.wait_for_timeout(2000)
     
     # Verify error message is displayed
     error_alert = page.locator("#label-print-alerts .alert-danger")
@@ -322,7 +305,6 @@ def test_label_printing_api_error_handling(page, live_server):
     # Modal should remain open for user to retry
     modal = page.locator("#label-printing-modal")
     expect(modal).to_be_visible()
-
 
 @pytest.mark.e2e
 def test_label_types_api_loading(page, live_server):
@@ -344,8 +326,8 @@ def test_label_types_api_loading(page, live_server):
     page.locator("#ja_id").fill("JA333333")
     page.locator("#print-label-btn").click()
     
-    # Wait for API call
-    page.wait_for_timeout(1000)
+    # The dropdown filling is what proves the request completed.
+    wait_for_select_populated(page, "label-type-select")
     
     # Verify API was called
     assert len(api_requests) > 0, "Label types API should have been called"
@@ -354,7 +336,6 @@ def test_label_types_api_loading(page, live_server):
     label_select = page.locator("#label-type-select")
     option_count = label_select.locator("option").count()
     assert option_count > 1, "Label type dropdown should be populated from API"
-
 
 @pytest.mark.e2e
 def test_label_printing_different_label_types(page, live_server):
@@ -371,19 +352,13 @@ def test_label_printing_different_label_types(page, live_server):
         # Open modal
         page.locator("#print-label-btn").click()
         
-        # Wait for modal to load
-        page.wait_for_timeout(2000)
+        wait_for_select_populated(page, "label-type-select")
         
         # Select label type and print
         page.locator("#label-type-select").select_option(label_type)
         page.locator("#modal-print-label-btn").click()
-        
-        # Wait for completion
-        page.wait_for_timeout(2000)
-        
-        # Verify success (modal should close)
+
+        # Verify success (modal should close). The modal closing is also what
+        # makes the next iteration's re-open safe, so no delay is needed here.
         modal = page.locator("#label-printing-modal")
         expect(modal).not_to_be_visible()
-        
-        # Small delay between tests
-        page.wait_for_timeout(500)

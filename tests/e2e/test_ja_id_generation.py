@@ -71,9 +71,8 @@ def test_ja_id_validation_errors_cleared_after_auto_population(page, live_server
     # Trigger validation by submitting the form (this should show validation errors)
     submit_btn = page.locator('#submit-btn')
     submit_btn.click()
-    
-    # Wait for validation to trigger
-    page.wait_for_timeout(500)
+    # Native constraint validation marks the form the moment submit is attempted.
+    page.wait_for_function("() => !!document.querySelector('form.was-validated, form:invalid')")
     
     # The field should be invalid due to pattern mismatch, but may show is-valid due to JS validation override
     # Since checkValidity() correctly returns false, let's check if the form validation works properly
@@ -102,8 +101,6 @@ def test_ja_id_validation_errors_cleared_after_auto_population(page, live_server
     
     # Validation message should be visible if form has was-validated AND field has is-invalid
     if "was-validated" in form_classes and "is-invalid" in actual_classes:
-        # Give it a moment for the validation display to update
-        page.wait_for_timeout(100)
         try:
             expect(ja_id_feedback).to_be_visible(timeout=1000)
         except AssertionError:
@@ -116,10 +113,9 @@ def test_ja_id_validation_errors_cleared_after_auto_population(page, live_server
     
     # Now refresh the page to trigger auto-population
     page.reload()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Wait for auto-population to complete
-    page.wait_for_timeout(2000)
     
     # After auto-population, validation errors should be cleared
     expect(ja_id_field).not_to_have_value('')  # Should have auto-populated value
@@ -181,16 +177,11 @@ def test_ja_id_auto_population_with_existing_items(page, live_server):
     add_page.submit_form()
     
     # Wait for success flash message or redirect
-    try:
-        # Look for success message
-        success_message = page.locator('.alert-success')
-        expect(success_message).to_be_visible(timeout=5000)
-    except:
-        # If no success message, wait for URL change
-        page.wait_for_timeout(2000)
-    
-    # Additional wait to ensure Google Sheets persistence
-    page.wait_for_timeout(3000)
+    # submit_form() has already waited for the POST to resolve, so the flash is
+    # either up or the submission was rejected. (The 3s that used to sit here
+    # "for Google Sheets persistence" was doing nothing: MariaDB is the source of
+    # truth and the Sheets integration is export-only.)
+    expect(page.locator('.alert-success')).to_be_visible()
     
     # Navigate back to add another item
     add_page.navigate()

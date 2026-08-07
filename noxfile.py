@@ -57,12 +57,16 @@ def e2e(session):
     else:
         session.run("python", "-m", "playwright", "install", "chromium")
     
-    # Run E2E tests only with retry logic
+    # Run E2E tests only with retry logic.
+    # Screenshot-generation tests are excluded: they carry both @e2e and @screenshot,
+    # they duplicate the dedicated `screenshots`/`screenshots_headless` sessions, and
+    # they write PNGs into docs/images/screenshots/ -- so running them here made the
+    # test suite modify tracked files.
     session.run(
         "python", "-m", "pytest",
-        "-v", 
+        "-v",
         "--durations=20",
-        "-m", "e2e",
+        "-m", "e2e and not screenshot",
         "--tb=short",
         "--reruns=3",          # Retry failed tests up to 3 times
         "--reruns-delay=2",    # Wait 2 seconds between retries

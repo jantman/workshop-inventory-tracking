@@ -7,6 +7,7 @@ Happy-path browser tests for adding inventory items.
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.add_item_page import AddItemPage
+from tests.e2e.waits import wait_for_material_suggestions
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 
 
@@ -286,8 +287,8 @@ def test_material_autocomplete_functionality(page, live_server):
     
     # Test 1: Typing "Ste" should show Steel and Stainless materials
     material_input.fill('Ste')
-    page.wait_for_timeout(300)  # Wait for debounce and API call
-    
+    wait_for_material_suggestions(page, 'Ste')
+
     expect(suggestions_div).to_be_visible()
     suggestion_items = page.locator('.material-suggestions .suggestion-item')
     expect(suggestion_items.first).to_be_visible()  # At least one suggestion visible
@@ -314,8 +315,8 @@ def test_material_autocomplete_functionality(page, live_server):
     
     # Test 3: Typing "Bra" should show Brass materials
     material_input.fill('Bra')
-    page.wait_for_timeout(300)
-    
+    wait_for_material_suggestions(page, 'Bra')
+
     expect(suggestions_div).to_be_visible() 
     suggestion_items = page.locator('.material-suggestions .suggestion-item')
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
@@ -327,8 +328,8 @@ def test_material_autocomplete_functionality(page, live_server):
     
     # Test 4: Typing specific material like "12L" should show 12L14
     material_input.fill('12L')
-    page.wait_for_timeout(300)
-    
+    wait_for_material_suggestions(page, '12L')
+
     expect(suggestions_div).to_be_visible()
     suggestion_items = page.locator('.material-suggestions .suggestion-item')
     suggestions_text = [item.text_content() for item in suggestion_items.all()]
@@ -563,16 +564,13 @@ def test_thread_series_auto_lookup(page, live_server):
     # Trigger blur event to activate the lookup
     thread_size_field.blur()
 
-    # Wait a bit for the API call and auto-population
-    page.wait_for_timeout(1000)
-
+    # The lookup POSTs and fills the series field; expect() below polls for it.
     # Verify the thread series was auto-populated
     expect(thread_series_field).to_have_value('UNC')
 
     # Test with a metric thread size
     thread_size_field.fill('M8x1.25')
     thread_size_field.blur()
-    page.wait_for_timeout(1000)
 
     # Verify the thread series was updated to Metric
     expect(thread_series_field).to_have_value('Metric')
@@ -581,7 +579,6 @@ def test_thread_series_auto_lookup(page, live_server):
     thread_size_field.fill('invalid-size')
     thread_series_field.select_option('UNC')  # Set a value first
     thread_size_field.blur()
-    page.wait_for_timeout(1000)
 
     # Thread series should remain unchanged for invalid input
     expect(thread_series_field).to_have_value('UNC')

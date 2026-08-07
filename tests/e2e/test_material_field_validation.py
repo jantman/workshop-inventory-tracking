@@ -119,14 +119,13 @@ def test_edit_form_rejects_invalid_material(page, live_server):
     list_page = InventoryListPage(page, live_server.url)
     list_page.navigate()
     
-    # Click edit on the item (assumes edit link/button is available)
-    edit_link = page.locator('a[href*="/edit"]').first
-    if edit_link.is_visible():
-        edit_link.click()
-    else:
-        # Alternative: construct edit URL directly
-        page.goto(f"{live_server.url}/inventory/JA999003/edit")
-    
+    # The list is rendered by JavaScript, so wait for the row's edit link to
+    # exist before clicking it rather than snapshotting an empty table.
+    list_page.wait_for_items_loaded()
+    edit_link = page.locator('a[href*="/inventory/edit/"]').first
+    expect(edit_link).to_be_visible()
+    edit_link.click()
+
     # Should be on edit form
     expect(page.locator('#add-item-form')).to_be_visible()
     expect(page.locator('h2')).to_contain_text('Edit Inventory Item')
@@ -170,12 +169,12 @@ def test_edit_form_accepts_valid_taxonomy_materials(page, live_server):
     list_page = InventoryListPage(page, live_server.url)
     list_page.navigate()
     
-    edit_link = page.locator('a[href*="/edit"]').first
-    if edit_link.is_visible():
-        edit_link.click()
-    else:
-        page.goto(f"{live_server.url}/inventory/JA999004/edit")
-    
+    # As above: wait for the JavaScript-rendered row before clicking its link.
+    list_page.wait_for_items_loaded()
+    edit_link = page.locator('a[href*="/inventory/edit/"]').first
+    expect(edit_link).to_be_visible()
+    edit_link.click()
+
     # Get valid materials from the page
     valid_materials = page.evaluate('''
         () => {

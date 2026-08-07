@@ -69,7 +69,9 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Technology**: Playwright with Chromium browser + MariaDB 11.8 testcontainer
 
-**Runtime**: ~10-15 seconds (plus initial Docker container startup)
+**Runtime**: under 10 minutes for the full suite on a warm environment (dependencies installed, Playwright browsers present, MariaDB image pulled). A cold start adds a few minutes for the image pull and browser download. Screenshot-generation tests are *not* part of this session — see below.
+
+**Runtime is a maintained property, not an accident.** The suite took 22m 27s until the work in `specs/002-e2e-test-performance/`, and over half of every test body was spent blocking on a clock. Keeping it fast is the job of the authoring rules in the next section, not of periodic cleanups.
 
 **Debug Features**:
 - Automatic failure capture with screenshots, HTML dumps, and console logs
@@ -346,9 +348,44 @@ git commit -m "Add screenshot for new feature"
 
 **MariaDB Testcontainer**: Automatically managed Docker container with MariaDB 11.8, same major version as production. No manual setup required.
 
-**Page Objects**: Organized test code that interacts with web elements using Playwright selectors.
+**Page Objects**: Organized test code that interacts with web elements using Playwright selectors. Waiting logic belongs here, so that a fix benefits every test that calls the method. Shared readiness helpers live in `tests/e2e/waits.py`.
 
-**Test Isolation**: Each E2E test runs with a fresh database state.
+**Test Isolation**: Each E2E test runs with a fresh database state — all tables emptied and the standard 21-row material taxonomy re-seeded. A test may assume an empty inventory and that taxonomy, and nothing else. Every test must pass when run on its own.
+
+**Screenshot tests are excluded**: `nox -s e2e` selects `-m "e2e and not screenshot"`. The 16 tests in `test_screenshot_generation.py` carry both markers, are already covered by the dedicated `screenshots`/`screenshots_headless` sessions, and write PNGs into `docs/images/screenshots/` — running them in the e2e gate duplicated the work and made the test suite modify tracked files. Running `nox -s e2e` must leave the working tree clean.
+
+### Writing E2E Tests
+
+These rules exist because ignoring them is what made the suite take 22 minutes. The complete version, with worked examples and a review checklist, is `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`.
+
+**1. Wait for state, never for a duration.** Do not use `page.wait_for_timeout(...)` or `time.sleep(...)`. A fixed delay is either unnecessary (the condition was already met) or unreliable (a slower machine misses it). Use the auto-waiting assertions:
+
+```python
+# Wrong -- costs a second every run, and still races
+page.click("#submit-btn")
+page.wait_for_timeout(1000)
+assert page.locator("#result").is_visible()
+
+# Right -- returns the moment the condition holds
+page.click("#submit-btn")
+expect(page.locator("#result")).to_be_visible()
+```
+
+If there is genuinely no observable condition — proving something does *not* happen within a debounce window, say — keep the wait and justify it in a comment at the call site. A bare `wait_for_timeout` will not pass review.
+
+**2. Never use `wait_for_load_state("networkidle")`.** It waits for a 500ms window of network silence, so it costs at least half a second every time even when the page was ready instantly; Playwright's own docs discourage it for testing. `page.goto()` already waits for the `load` event. Anything past that is content readiness — assert on the content.
+
+**3. Never snapshot a JavaScript-rendered region.** `locator.count()`, `text_content()` and `is_visible()` do not wait. Against a JS-rendered table they read "empty", which is how a passing assertion becomes a lie. Establish the region with `expect(...)` first, then read it if you need detail for a failure message. This matters most for **negative** assertions: "the item is not in the table" passes trivially against a table that has not loaded yet.
+
+**4. A click that fires a `fetch` has not finished when `click()` returns.** Several controls PATCH the API and then reload. Wait for whatever the response visibly changes; navigating away sooner aborts the request and the change is silently lost.
+
+**5. Seed data directly unless the UI is the thing under test.** `live_server.add_test_data([...])` inserts through the service layer in milliseconds; creating the same item by driving the Add Item form costs roughly three seconds. Use the form only in tests about the form. For non-standard taxonomies use `live_server.add_material_taxonomy([...])` rather than clicking through the admin UI.
+
+**6. Waiting goes in the page object, assertions go in the test.** A test should not need to know that clicking "Search" requires a wait.
+
+**7. One file per feature area, not per bug.** A regression test for a move bug belongs in the move test file, named for the behaviour it protects.
+
+**8. Verify a new test passes alone**: `nox -s e2e -- tests/e2e/test_your_file.py::test_your_test`.
 
 **Debug Capture**: Automated failure diagnostics with comprehensive debugging information:
 - **Screenshots**: Full-page screenshots at failure point (`failure_screenshot.png`)

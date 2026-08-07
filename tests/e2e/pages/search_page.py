@@ -47,14 +47,56 @@ class SearchPage(InventoryTableMixin, BasePage):
     # Override mixin selectors for search page
     TABLE_BODY_SELECTOR = "#results-table-body"
     TABLE_ROWS_SELECTOR = "#results-table-body tr"
+    # The search page's spinner has a different id from the list page's. Without
+    # this override the mixin's readiness gate would find nothing and silently
+    # no-op, which matters for the negative assertions that depend on it.
+    LOADING_STATE_SELECTOR = "#search-loading"
     
     def navigate(self):
         """Navigate to search page"""
         self.navigate_to("/inventory/search")
     
+    def fill_material(self, material: str) -> None:
+        """Type into the material field and dismiss its autocomplete.
+
+        The material input is a MaterialSelector: typing opens a suggestion
+        dropdown that overlays the search button, so it has to be closed before
+        the search can be clicked.
+
+        Dismissing it is trickier than it looks. MaterialSelector debounces its
+        input handler by 200ms, and its keydown handler returns immediately while
+        the dropdown is hidden:
+
+            if (!this.suggestionsContainer ||
+                this.suggestionsContainer.style.display === 'none') return;
+
+        So pressing Escape straight after fill() lands inside the debounce window,
+        is swallowed as a no-op, and does not cancel the pending timer -- the
+        dropdown then opens ~200ms later, over the button, after the code meant to
+        close it has returned.
+
+        The debounced handler is therefore allowed to run first. It either opens
+        the dropdown (dismiss it, and confirm it closed) or leaves it closed
+        (nothing to do). The bounded wait below is the one place this file waits
+        on a clock: a pending debounce has no observable start, so there is no
+        state that distinguishes "has not run yet" from "ran and matched nothing".
+        """
+        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+
+        suggestions = self.page.locator(".material-suggestions")
+        try:
+            expect(suggestions.first).to_be_visible(timeout=2000)
+        except AssertionError:
+            # The debounced handler ran and opened nothing: no matches for this
+            # query, so there is no overlay to dismiss.
+            return
+
+        self.page.keyboard.press("Escape")
+        expect(suggestions.first).not_to_be_visible()
+
     def search_by_material(self, material: str):
         """Search for items by material"""
-        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        self.fill_material(material)
         self.click_search()
 
     def search_by_material_with_match_type(self, material: str, exact: bool = False):
@@ -64,7 +106,7 @@ class SearchPage(InventoryTableMixin, BasePage):
             material: The material name to search for
             exact: If True, use exact match; if False, use contains match (default)
         """
-        self.fill_and_wait(self.MATERIAL_SEARCH, material)
+        self.fill_material(material)
         if self.is_visible("#material_exact"):
             self.page.select_option("#material_exact", "true" if exact else "false")
         self.click_search()
@@ -219,23 +261,41 @@ class SearchPage(InventoryTableMixin, BasePage):
         self.click_search()
 
     def click_search(self):
-        """Click the search button"""
+        """Click the search button and wait for the results to render"""
         self.click_and_wait(self.SEARCH_BUTTON)
-        # Wait for search results to load
-        self.page.wait_for_timeout(1500)
-    
+        self.wait_for_search_complete()
+
+    def wait_for_search_complete(self):
+        """Wait until the search has finished and rendered its outcome.
+
+        performSearch() synchronously shows the spinner and hides both result
+        panes before it awaits the API, so this cannot pass on the previous
+        search's results: it requires the spinner gone *and* one of the two
+        outcome panes shown.
+        """
+        self.page.wait_for_function(
+            """() => {
+                const hidden = (id) => {
+                    const el = document.getElementById(id);
+                    return !el || el.classList.contains('d-none');
+                };
+                return hidden('search-loading')
+                    && (!hidden('results-table-container') || !hidden('no-results'));
+            }"""
+        )
+
     def clear_search(self):
         """Clear search form"""
         if self.is_visible(self.CLEAR_BUTTON):
             self.click_and_wait(self.CLEAR_BUTTON)
-    
+
     def show_advanced_search(self):
         """Show advanced search options if hidden"""
         if self.is_visible(self.ADVANCED_SEARCH_TOGGLE):
             toggle = self.page.locator(self.ADVANCED_SEARCH_TOGGLE)
             if not toggle.is_checked():
                 toggle.click()
-                self.page.wait_for_timeout(500)
+                expect(toggle).to_be_checked()
     
     def get_search_results(self) -> List[Dict[str, str]]:
         """Get search results as list of dictionaries (wrapper for get_table_items)"""
@@ -277,11 +337,14 @@ class SearchPage(InventoryTableMixin, BasePage):
         """Assert search results contain specific item (wrapper for assert_item_visible)"""
         self.assert_item_visible(ja_id)
 
-    def assert_result_not_contains_item(self, ja_id: str):
-        """Assert search results do NOT contain a specific item"""
-        results = self.get_search_results()
-        ja_ids = [result["ja_id"] for result in results]
-        assert ja_id not in ja_ids, f"Item {ja_id} should not be in search results but was found"
+    def assert_result_not_contains_item(self, ja_id: str) -> None:
+        """Assert search results do NOT contain a specific item.
+
+        Routed through the mixin so the negative assertion gets its readiness
+        gate: a results table that has not rendered yet would otherwise satisfy
+        "the item is absent" for the wrong reason.
+        """
+        self.assert_item_not_visible(ja_id)
     
     def assert_all_results_match_criteria(self, material: str = None, location: str = None, shape: str = None):
         """Assert all search results match the given criteria"""

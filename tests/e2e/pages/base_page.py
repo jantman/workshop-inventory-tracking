@@ -6,7 +6,6 @@ Common functionality and patterns shared across all page objects.
 
 from playwright.sync_api import Page, expect
 from typing import Optional
-import time
 from tests.e2e.debug_utils import E2EDebugCapture
 
 
@@ -25,41 +24,33 @@ class BasePage:
         self.wait_for_page_load()
     
     def wait_for_page_load(self, timeout: int = 10000):
-        """Wait for page to be fully loaded"""
-        # Wait for the page to load completely
-        self.page.wait_for_load_state("networkidle", timeout=timeout)
-        
-        # Wait for any loading indicators to disappear
-        loading_selectors = [
-            ".spinner",
-            ".loading",
-            "[data-loading]"
-        ]
-        
-        for selector in loading_selectors:
-            try:
-                self.page.wait_for_selector(selector, state="detached", timeout=2000)
-            except:
-                pass  # Selector not found or already gone
-    
+        """Confirm the document has been parsed.
+
+        page.goto() already waits for the 'load' event, so this is close to free.
+        It deliberately does NOT wait for network idle: that costs at least half a
+        second on every navigation and tells you nothing about whether the content
+        you care about has rendered. Wait for that content with expect() instead.
+        """
+        self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+
     def wait_for_element(self, selector: str, timeout: int = 10000):
         """Wait for an element to be visible"""
         return self.page.wait_for_selector(selector, timeout=timeout)
-    
+
     def click_and_wait(self, selector: str, wait_for: Optional[str] = None):
-        """Click an element and optionally wait for another element"""
+        """Click an element, optionally waiting for another element to appear.
+
+        Playwright's click() already waits for the target to be actionable, so
+        there is no unconditional delay here. If the click triggers an async
+        update, pass wait_for (or assert on the result with expect()).
+        """
         self.page.click(selector)
         if wait_for:
             self.wait_for_element(wait_for)
-        else:
-            # Default wait for page stability
-            time.sleep(0.5)
-    
+
     def fill_and_wait(self, selector: str, value: str):
-        """Fill a form field and wait for changes to take effect"""
+        """Fill a form field. Playwright's fill() already waits for actionability."""
         self.page.fill(selector, value)
-        # Small delay to allow any dynamic updates
-        time.sleep(0.2)
     
     def get_text(self, selector: str) -> str:
         """Get text content of an element"""

@@ -17,4 +17,16 @@ Full governance: `.specify/memory/constitution.md`. Stack details and code patte
 # Testing
 
 * Run tests via the `nox` test runner, not by running `pytest` directly
-* The `e2e` test session must have a timeout of 20 minutes set on your bash tool. This timeout is set on your bash tool, not on the command line.
+* The `e2e` test session must have a timeout of 15 minutes set on your bash tool. This timeout is set on your bash tool, not on the command line. (The suite runs in well under 10 minutes; the margin is for a cold start that has to pull the MariaDB image and install Playwright browsers.)
+
+## Writing e2e tests
+
+The e2e suite used to take 22 minutes, over half of it spent blocking on a clock rather than on the application. Adding a `wait_for_timeout` puts that back. The rules, in full, are in `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`; the short version:
+
+* **Wait for state, never for a duration.** No `page.wait_for_timeout(...)`, no `time.sleep(...)`. Use `expect(locator)` — it polls until the condition holds. If there is genuinely nothing observable to wait for, the wait stays but MUST carry a comment at the call site saying why.
+* **Never `wait_for_load_state("networkidle")`.** It costs at least half a second every time and tells you nothing about whether your content rendered. `goto()` already waits for `load`; wait for the element you care about.
+* **Never snapshot a JavaScript-rendered region.** `locator.count()`, `text_content()` and `is_visible()` do not wait, so against a JS-rendered table they read "empty". Establish the region with `expect(...)` first. This matters most for *negative* assertions — "the item is absent" passes trivially against a table that has not loaded.
+* **A click that fires a `fetch` has not finished when `click()` returns.** Wait for whatever the response changes on the page. Navigating away sooner aborts the request.
+* **Seed data directly.** `live_server.add_test_data([...])` takes milliseconds; creating the same item through the Add Item form takes about three seconds. Drive the form only when the form is what is under test.
+* **Put the waiting in the page object, the assertions in the test.** Shared waits live in `tests/e2e/waits.py`.
+* **Screenshot tests are not e2e tests.** `nox -s e2e` selects `-m "e2e and not screenshot"`; screenshot generation belongs to `nox -s screenshots`/`screenshots_headless`. Running an e2e session must leave the working tree clean.

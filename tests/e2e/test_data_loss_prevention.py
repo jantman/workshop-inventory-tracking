@@ -14,7 +14,7 @@ from tests.e2e.pages.base_page import BasePage
 def test_move_interface_has_safety_measures(page, live_server):
     """Test that Move interface has essential safety measures"""
     page.goto(f"{live_server.url}/inventory/move")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should load the move interface
     expect(page.locator("h2")).to_contain_text("Move Items")
@@ -39,7 +39,7 @@ def test_move_interface_has_safety_measures(page, live_server):
 def test_shorten_interface_has_safety_measures(page, live_server):
     """Test that Shorten interface has essential safety measures"""
     page.goto(f"{live_server.url}/inventory/shorten")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should load the shorten interface
     expect(page.locator("h2")).to_contain_text("Shorten Items")
@@ -63,7 +63,7 @@ def test_shorten_interface_has_safety_measures(page, live_server):
 def test_move_interface_prevents_immediate_execution(page, live_server):
     """Test that Move interface doesn't allow immediate execution without validation"""
     page.goto(f"{live_server.url}/inventory/move")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Execute button should be disabled initially
     execute_btn = page.locator("button").filter(has_text="Execute")
@@ -79,7 +79,7 @@ def test_move_interface_prevents_immediate_execution(page, live_server):
 def test_shorten_interface_requires_confirmation(page, live_server):
     """Test that Shorten interface requires explicit confirmation"""
     page.goto(f"{live_server.url}/inventory/shorten")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should have confirmation checkbox (visible after loading an item)
     confirm_elements = page.locator("input[type='checkbox']").all()
@@ -95,7 +95,7 @@ def test_both_interfaces_have_navigation_escape(page, live_server):
     """Test that both dangerous interfaces provide navigation escape routes"""
     # Test move interface
     page.goto(f"{live_server.url}/inventory/move")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should be able to navigate away
     nav_links = page.locator("a").filter(has_text="inventory").or_(
@@ -107,7 +107,7 @@ def test_both_interfaces_have_navigation_escape(page, live_server):
     
     # Test shorten interface
     page.goto(f"{live_server.url}/inventory/shorten")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should be able to navigate away
     nav_links = page.locator("a").filter(has_text="inventory").or_(
@@ -123,14 +123,14 @@ def test_forms_have_csrf_protection(page, live_server):
     """Test that both forms have CSRF protection"""
     # Test move form
     page.goto(f"{live_server.url}/inventory/move")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     csrf_inputs = page.locator("input[name='csrf_token']").all()
     assert len(csrf_inputs) > 0, "Move form should have CSRF protection"
     
     # Test shorten form
     page.goto(f"{live_server.url}/inventory/shorten")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     csrf_inputs = page.locator("input[name='csrf_token']").all()
     assert len(csrf_inputs) > 0, "Shorten form should have CSRF protection"
@@ -140,7 +140,7 @@ def test_forms_have_csrf_protection(page, live_server):
 def test_interfaces_are_accessible_from_navigation(page, live_server):
     """Test that both interfaces are properly linked in navigation"""
     page.goto(f"{live_server.url}/inventory")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should be able to navigate to move interface (may be in dropdown)
     move_link = page.locator("a").filter(has_text="Move")
@@ -157,7 +157,7 @@ def test_interfaces_are_accessible_from_navigation(page, live_server):
 def test_move_interface_has_queue_management(page, live_server):
     """Test that Move interface has proper queue management (prevents lost operations)"""
     page.goto(f"{live_server.url}/inventory/move")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should have queue display
     expect(page.locator("text=Queue").or_(page.locator("text=queue")).first).to_be_visible()
@@ -175,7 +175,7 @@ def test_move_interface_has_queue_management(page, live_server):
 def test_shorten_interface_has_summary_section(page, live_server):
     """Test that Shorten interface has operation summary (prevents calculation errors)"""
     page.goto(f"{live_server.url}/inventory/shorten")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should have summary or calculation display
     summary_elements = page.locator("text=Summary").or_(
@@ -193,7 +193,7 @@ def test_both_interfaces_handle_invalid_input_gracefully(page, live_server):
     """Test that both interfaces handle invalid input without crashing"""
     # Test move interface with invalid input
     page.goto(f"{live_server.url}/inventory/move")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     barcode_input = page.locator("#barcode-input")
     if barcode_input.is_visible():
@@ -203,7 +203,7 @@ def test_both_interfaces_handle_invalid_input_gracefully(page, live_server):
     
     # Test shorten interface with invalid input
     page.goto(f"{live_server.url}/inventory/shorten")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     ja_id_input = page.locator("#source-ja-id")
     if ja_id_input.is_visible():

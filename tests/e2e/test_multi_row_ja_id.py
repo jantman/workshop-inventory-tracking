@@ -106,7 +106,7 @@ def test_edit_form_shows_correct_data(page, live_server):
     
     # Navigate directly to edit page
     page.goto(f"{live_server.url}/inventory/edit/{ja_id}")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Wait a bit for form to populate
     page.wait_for_timeout(1000)

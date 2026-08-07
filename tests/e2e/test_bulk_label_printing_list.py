@@ -12,6 +12,15 @@ from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 import json
 
+from tests.e2e.waits import (
+    wait_for_modal_hidden,
+    wait_for_modal_shown,
+    wait_for_select_populated,
+)
+
+MODAL = "listBulkLabelPrintingModal"
+SELECT = "list-bulk-label-type"
+
 
 @pytest.mark.e2e
 def test_bulk_label_printing_button_visibility(page, live_server):
@@ -95,15 +104,26 @@ def test_bulk_label_printing_no_items_selected(page, live_server):
     list_page.navigate()
     list_page.wait_for_items_loaded()
 
-    # Set up dialog handler
-    page.on("dialog", lambda dialog: dialog.accept())
+    # The handler calls window.alert(). Register the dialog handler before the
+    # click: click() cannot return until the dialog is dismissed, so by the time
+    # it does we know the alert fired -- which is what makes the negative
+    # assertion below meaningful instead of racing an unreacted page.
+    messages = []
+
+    def handle_dialog(dialog):
+        messages.append(dialog.message)
+        dialog.accept()
+
+    page.on("dialog", handle_dialog)
 
     # Try to open Print Labels without selecting items
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
 
-    # Modal should not open (alert should show instead)
-    page.wait_for_timeout(1000)
+    assert messages, "Expected an alert when printing labels with nothing selected"
+    assert "select at least one item" in messages[0].lower()
+
+    # Modal should not open (the alert showed instead)
     modal = page.locator('#listBulkLabelPrintingModal')
     expect(modal).not_to_be_visible()
 
@@ -136,8 +156,8 @@ def test_bulk_label_printing_label_types_loaded(page, live_server):
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
 
-    # Wait for modal and API call
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     # Verify API was called
     assert len(api_requests) > 0, "Label types API should have been called"
@@ -172,8 +192,8 @@ def test_bulk_label_printing_button_enabled_on_label_type_selection(page, live_s
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
 
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     # Verify Print All button is initially disabled
     print_all_btn = page.locator('#list-bulk-print-all-btn')
@@ -210,15 +230,12 @@ def test_bulk_label_printing_successful_batch_print(page, live_server):
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
 
-    # Wait for modal to load
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     # Select label type and print
     page.locator('#list-bulk-label-type').select_option('Sato 2x4')
     page.locator('#list-bulk-print-all-btn').click()
-
-    # Wait for printing to complete
-    page.wait_for_timeout(3000)
 
     # Verify progress section is visible
     progress_div = page.locator('#list-bulk-print-progress')
@@ -254,20 +271,15 @@ def test_bulk_label_printing_progress_tracking(page, live_server):
     # Open modal and start printing
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     page.locator('#list-bulk-label-type').select_option('Sato 1x2')
     page.locator('#list-bulk-print-all-btn').click()
 
-    # Wait a bit for printing to start
-    page.wait_for_timeout(500)
-
     # Verify progress bar is visible and updating
     progress_bar = page.locator('#list-bulk-print-progress-bar')
     expect(progress_bar).to_be_visible()
-
-    # Wait for completion
-    page.wait_for_timeout(3000)
 
     # Verify final progress
     expect(progress_bar).to_have_text('100%')
@@ -291,18 +303,20 @@ def test_bulk_label_printing_modal_close_and_reset(page, live_server):
     # Open modal and select label type
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     page.locator('#list-bulk-label-type').select_option('Sato 4x6')
 
     # Close modal
     page.locator('#list-bulk-print-cancel').click()
-    page.wait_for_timeout(500)
+    wait_for_modal_hidden(page, MODAL)
 
     # Reopen modal
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     # Verify label type is reset
     label_select = page.locator('#list-bulk-label-type')
@@ -332,15 +346,12 @@ def test_bulk_label_printing_select_all_functionality(page, live_server):
     page.locator('button:has-text("Options")').click()
     page.locator('#select-all-btn').click()
 
-    # Verify items are selected
-    page.wait_for_timeout(500)
-
     # Open Print Labels modal
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
 
-    # Wait for modal
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     # Verify all items are listed
     items_list = page.locator('#list-bulk-label-items-list')
@@ -371,7 +382,8 @@ def test_bulk_label_printing_api_error_handling(page, live_server):
     # Open modal
     page.locator('button:has-text("Options")').click()
     page.locator('#bulk-print-labels-btn').click()
-    page.wait_for_timeout(2000)
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
 
     # Mock API to return error
     page.route("**/api/labels/print", lambda route: route.fulfill(
@@ -383,9 +395,6 @@ def test_bulk_label_printing_api_error_handling(page, live_server):
     # Select label type and print
     page.locator('#list-bulk-label-type').select_option('Sato 1x2')
     page.locator('#list-bulk-print-all-btn').click()
-
-    # Wait for error handling
-    page.wait_for_timeout(2000)
 
     # Verify error is displayed
     errors_div = page.locator('#list-bulk-print-errors')
@@ -418,14 +427,12 @@ def test_bulk_label_printing_different_label_types(page, live_server):
         # Open modal
         page.locator('button:has-text("Options")').click()
         page.locator('#bulk-print-labels-btn').click()
-        page.wait_for_timeout(2000)
+        wait_for_modal_shown(page, MODAL)
+        wait_for_select_populated(page, SELECT)
 
         # Select label type and print
         page.locator('#list-bulk-label-type').select_option(label_type)
         page.locator('#list-bulk-print-all-btn').click()
-
-        # Wait for completion
-        page.wait_for_timeout(2000)
 
         # Verify completion
         status_span = page.locator('#list-bulk-print-status')
@@ -433,4 +440,4 @@ def test_bulk_label_printing_different_label_types(page, live_server):
 
         # Close modal via Done button
         page.locator('#list-bulk-print-done-btn').click()
-        page.wait_for_timeout(500)
+        wait_for_modal_hidden(page, MODAL)

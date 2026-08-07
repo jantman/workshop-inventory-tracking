@@ -19,7 +19,7 @@ def capture(page, base_url, url=AMAZON_URL, **fields):
     for field, value in fields.items():
         page.fill(f"#{field}", value)
     page.click("#capture-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
 
 @pytest.mark.e2e
@@ -64,7 +64,7 @@ def test_an_outstanding_capture_shows_as_on_order(page, live_server):
 
     page.goto(f"{live_server.url}/products")
     page.click("#product-table tbody tr a")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator(".purchase-outstanding")).to_be_visible()
 
@@ -79,7 +79,7 @@ def test_completing_it_on_arrival(page, live_server):
     page.fill("#quantity", "8")
     page.fill("#unit_price", "11.00")
     page.click("#confirm-receive-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     history = page.locator("#purchase-history")
     expect(history).to_contain_text("Amazon")
@@ -97,7 +97,7 @@ def test_a_capture_attaches_to_a_product_that_already_owns_the_identifier(page, 
     page.fill("#identifier_value", "B0ABCDEFGH")
     page.fill("#identifier_vendor", "Amazon")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     capture(page, live_server.url, listing_title="BLUE WIDGET 10 PACK")
 

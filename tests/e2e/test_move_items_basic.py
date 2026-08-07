@@ -15,7 +15,7 @@ class MoveItemsPage(BasePage):
     def navigate(self):
         """Navigate to move items page"""
         self.page.goto(f"{self.base_url}/inventory/move")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
 
 @pytest.mark.e2e

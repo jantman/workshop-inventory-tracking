@@ -27,7 +27,7 @@ def test_in_progress_text_is_offered_back_after_an_interruption(page, live_serve
 
     # The interruption: the page goes away with nothing submitted.
     page.goto(f"{live_server.url}/products/new")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#draft-restore-banner")).to_be_visible()
 
@@ -43,7 +43,7 @@ def test_the_draft_is_offered_not_applied_silently(page, live_server):
     page.fill("#description", LONG_DESCRIPTION)
 
     page.goto(f"{live_server.url}/products/new")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     # The form is blank until the offer is accepted.
     expect(page.locator("#description")).to_have_value("")
@@ -60,7 +60,7 @@ def test_the_draft_can_be_discarded(page, live_server):
     expect(page.locator("#draft-restore-banner")).to_have_count(0)
 
     page.goto(f"{live_server.url}/products/new")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     expect(page.locator("#draft-restore-banner")).to_have_count(0)
 
 
@@ -70,12 +70,12 @@ def test_a_successful_submit_clears_the_draft(page, live_server):
     page.goto(f"{live_server.url}/products/new")
     page.fill("#description", LONG_DESCRIPTION)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#product-description")).to_have_text(LONG_DESCRIPTION)
 
     page.goto(f"{live_server.url}/products/new")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     expect(page.locator("#draft-restore-banner")).to_have_count(0)
 
 
@@ -86,7 +86,7 @@ def test_a_reload_mid_compose_keeps_the_text(page, live_server):
     page.fill("#description", LONG_DESCRIPTION)
 
     page.reload()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     page.click("#draft-restore-btn")
     expect(page.locator("#description")).to_have_value(LONG_DESCRIPTION)
@@ -98,13 +98,13 @@ def test_the_edit_form_keeps_its_own_draft(page, live_server):
     page.goto(f"{live_server.url}/products/new")
     page.fill("#description", "Original")
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     detail_url = page.url
 
     page.goto(f"{detail_url}/edit")
     page.fill("#description", "Half-typed replacement")
     page.goto(f"{live_server.url}/products/new")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     # The create form is untouched by the edit form's draft.
     expect(page.locator("#draft-restore-banner")).to_have_count(0)

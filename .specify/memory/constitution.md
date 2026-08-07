@@ -1,6 +1,24 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 1.1.0 → 1.2.0
+Bump rationale: Principle IV gained three rules — a corrected E2E timeout allowance, the
+exclusion of screenshot generation from the E2E gate (a test run must leave the working
+tree clean), and a prohibition on time-based waits in E2E tests. Existing guidance was
+materially expanded and none was inverted. MINOR under the versioning policy.
+
+Modified principles:
+  - IV. Test Discipline Through Nox        → timeout 20min → 15min; screenshot exclusion;
+                                             time-based waits prohibited
+
+Migration path: `specs/002-e2e-test-performance/` did the work. `tests/e2e/` no longer uses
+`networkidle`; the remaining `wait_for_timeout` call sites are listed as deferred in that
+feature's plan and are grandfathered until removed — no *new* ones may be added.
+
+Follow-up TODOs: remove the grandfathered waits in `test_move_items_sub_location.py`,
+`test_photo_upload*.py`, `test_copy_item_photos.py` and `test_screenshot_generation.py`.
+
+--- previous entry ---
 Version change: 1.0.0 → 1.1.0
 Bump rationale: A new principle was added (Simplicity) and existing guidance was
 materially rescoped to the project's actual operating context (single user, LAN-only).
@@ -100,10 +118,20 @@ must round-trip exactly; binary floating point silently corrupts them.
 
 - Tests MUST be run through `nox` sessions (`tests`, `e2e`, `coverage`, `lint`), never
   by invoking `pytest` directly.
-- The `e2e` session MUST be given at least a 20-minute timeout by whatever tool or agent
-  runs it; it installs Playwright browsers and retries with `--reruns=3`.
+- The `e2e` session MUST be given at least a 15-minute timeout by whatever tool or agent
+  runs it; it installs Playwright browsers and retries with `--reruns=3`. The suite itself
+  runs in well under 10 minutes on a warm environment — the margin is for a cold start.
 - `--strict-markers` is enabled. Any new pytest marker MUST be registered in `pytest.ini`
   before use.
+- The `e2e` session MUST NOT run screenshot-generation tests (`-m "e2e and not
+  screenshot"`). Those tests write into `docs/images/screenshots/`, so including them made
+  the test suite modify tracked files. **Running a test session MUST leave the working tree
+  clean.**
+- E2E tests MUST wait on observable application state, never on elapsed time.
+  `page.wait_for_timeout(...)`, `time.sleep(...)` and `wait_for_load_state("networkidle")`
+  are prohibited in `tests/e2e/`; where no observable condition exists, a wait MAY remain
+  only with a written justification at the call site. The full rules are
+  `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`.
 - Unit tests run with the network blocked (`--blockage`). Unit tests MUST mock all HTTP
   and external API calls.
 - Unit tests MUST build fixtures through `tests/conftest.py` (`test_storage` → `app` →
@@ -116,7 +144,8 @@ test that would have caught the bug, and stop.
 
 Rationale: the nox sessions encode environment setup (Python 3.13, Playwright, container
 config) that bare `pytest` does not. Divergent invocation produces results that do not
-predict CI.
+predict CI. The waiting rule is not style: fixed delays were over half of every E2E test
+body and cost 12 minutes a run, and a delay that is long enough today is a flake tomorrow.
 
 ### V. MariaDB Is the Source of Truth
 
@@ -237,4 +266,4 @@ exception is warranted and what bounds it. Agent-driven work additionally follow
 operational rules in `CLAUDE.md` and `_bmad-output/project-context.md`; those files are
 subordinate to this constitution and MUST be updated when it changes.
 
-**Version**: 1.1.0 | **Ratified**: 2026-08-01 | **Last Amended**: 2026-08-01
+**Version**: 1.2.0 | **Ratified**: 2026-08-01 | **Last Amended**: 2026-08-06

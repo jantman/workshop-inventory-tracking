@@ -15,7 +15,7 @@ class ShortenItemsPage(BasePage):
     def navigate(self):
         """Navigate to shorten items page"""
         self.page.goto(f"{self.base_url}/inventory/shorten")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
 
 @pytest.mark.e2e
@@ -79,7 +79,7 @@ def test_shorten_item_loading_workflow(page, live_server):
     # Try to load non-existent item (should handle gracefully)
     page.locator("#source-ja-id").fill("JA999999")
     page.locator("#load-item-btn").click()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     
     # Should show not found message (safety feature)
     expect(page.locator("#item-not-found")).to_be_visible()

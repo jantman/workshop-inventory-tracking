@@ -16,7 +16,7 @@ def create_product(page, base_url, description, gtin=None):
         page.select_option("#identifier_type", "GTIN")
         page.fill("#identifier_value", gtin)
     page.click("#save-product-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     return page.url
 
 
@@ -24,13 +24,13 @@ def add_purchase(page, base_url, product_url, vendor, order_date, price, quantit
     page.goto(product_url)
     page.click("#add-purchase-btn" if page.locator("#add-purchase-btn").count()
               else "text=Add Purchase")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#vendor", vendor)
     page.fill("#order_date", order_date)
     page.fill("#unit_price", price)
     page.fill("#quantity", quantity)
     page.click("#save-purchase-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
 
 @pytest.mark.e2e
@@ -80,7 +80,7 @@ def test_a_scan_during_receiving_offers_to_add_a_purchase_to_this_product(page, 
     page.click("#global-scan-input")
     page.keyboard.type("012345678905")
     page.keyboard.press("Enter")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#scan-match-banner")).to_be_visible()
     expect(page.locator("#add-purchase-to-this-btn")).to_be_visible()
@@ -94,15 +94,15 @@ def test_that_offer_leads_to_a_purchase_on_the_same_product(page, live_server):
     page.click("#global-scan-input")
     page.keyboard.type("012345678905")
     page.keyboard.press("Enter")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     page.click("#add-purchase-to-this-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#vendor", "Amazon")
     page.fill("#order_date", "2026-03-02")
     page.fill("#unit_price", "11.00")
     page.click("#save-purchase-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#purchase-history")).to_contain_text("Amazon")
 
@@ -117,16 +117,16 @@ def test_a_scan_of_an_outstanding_order_offers_to_receive_it(page, live_server):
 
     page.goto(product_url)
     page.click("text=Add Purchase")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     page.fill("#vendor", "Amazon")
     page.fill("#order_date", "2026-01-14")
     page.click("#save-purchase-btn")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     page.goto(live_server.url)
     page.click("#global-scan-input")
     page.keyboard.type("012345678905")
     page.keyboard.press("Enter")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
 
     expect(page.locator("#receive-outstanding-btn")).to_be_visible()

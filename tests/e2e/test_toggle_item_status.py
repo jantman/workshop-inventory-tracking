@@ -198,11 +198,16 @@ def test_deactivate_active_item_via_dropdown(page, live_server):
     # Click the Deactivate link
     deactivate_link.click()
 
-    # Wait for page reload
-    page.wait_for_timeout(1000)
-
     # Verify we're back on inventory page
     expect(page).to_have_url(f'{live_server.url}/inventory')
+
+    # The URL is unchanged by the deactivation, so it cannot tell us the request
+    # finished. The list defaults to active items only, so the row disappearing
+    # is the observable proof -- and it has to happen before the database
+    # assertion below, or that reads the item's pre-deactivation state.
+    expect(
+        page.locator('#inventory-table-body tr:has-text("JA302003")')
+    ).to_have_count(0)
 
     # Verify item is now inactive in database
     Session = sessionmaker(bind=live_server.engine)

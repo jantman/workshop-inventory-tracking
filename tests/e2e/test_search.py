@@ -221,9 +221,13 @@ def test_search_no_results_workflow(page, live_server):
     search_page = SearchPage(page, live_server.url)
     search_page.navigate()
     
-    # Search for non-existent material
-    search_page.search_by_material("Titanium")
-    
+    # Search for a real material that no seeded item uses. It has to be a
+    # material the taxonomy knows: material-validation.js calls
+    # setCustomValidity() for anything else, which makes the form fail native
+    # constraint validation so no submit event fires and no search ever runs.
+    # This test previously searched "Titanium" and passed without searching.
+    search_page.search_by_material("Aluminum")
+
     # Verify no results
     search_page.assert_no_results_found()
 
