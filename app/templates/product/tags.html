@@ -1,0 +1,54 @@
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-tags{% endblock %}
+{% block page_heading %}Tags{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.product_categories') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-diagram-3"></i> Categories
+</a>
+<a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list"></i> All Products
+</a>
+{% endblock %}
+
+{% block product_content %}
+<p class="text-muted">
+    Every tag, with how many products carry it. Two spellings of the same idea cannot be
+    corrected until they can be seen next to each other -- renaming one onto the other
+    merges them. A tag carried by nothing is shown too; that is the debris this page exists
+    to reveal.
+</p>
+
+<div class="card">
+    <ul class="list-group list-group-flush" id="tag-list">
+        {% for tag in tags %}
+        <li class="list-group-item d-flex justify-content-between align-items-center taxonomy-row tag-row"
+            data-rename-value="{{ tag.name }}" data-rename-count="{{ tag.count }}">
+            <a href="{{ url_for('product.product_search', tag=tag.name) }}">{{ tag.name }}</a>
+            <span class="d-flex align-items-center gap-2">
+                <span class="badge text-bg-secondary rounded-pill">{{ tag.count }}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary rename-btn"
+                        data-rename-value="{{ tag.name }}" data-rename-count="{{ tag.count }}"
+                        aria-label="Rename {{ tag.name }}">
+                    <i class="bi bi-pencil"></i> Rename
+                </button>
+            </span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-center text-muted py-4" id="no-tags">
+            Nothing is tagged yet.
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
+{% with subject = 'tag', field_prefix = 'name',
+        action = url_for('product.tag_rename') %}
+    {% include "product/_rename_modal.html" %}
+{% endwith %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/taxonomy-rename.js') }}"></script>
+{% endblock %}

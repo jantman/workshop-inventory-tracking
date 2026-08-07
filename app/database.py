@@ -845,6 +845,9 @@ class Product(Base):
     category_path = Column(String(512), nullable=True, index=True)
 
     location = Column(String(100), nullable=True)
+    # Mirrors inventory_items.sub_location: the two feed one shared suggestion
+    # vocabulary, so a value storable on one side must be storable on the other.
+    sub_location = Column(String(100), nullable=True)
 
     # Tri-state (FR-022/FR-023): NULL = not tracked, 0 = tracked and none on
     # hand, >0 = a count. New products default to NULL.
@@ -960,6 +963,7 @@ class Product(Base):
             'specifications': self.specifications,
             'category_path': self.category_path,
             'location': self.location,
+            'sub_location': self.sub_location,
             'quantity': self.quantity,
             'quantity_updated_at': self.quantity_updated_at.isoformat() if self.quantity_updated_at else None,
             'reorder_threshold': self.reorder_threshold,

@@ -189,6 +189,30 @@ class E2ETestServer:
         # InventoryService writes directly to database - no batching or flushing needed
         print(f"Added {len(items_data)} test items directly to database")
 
+    def add_test_products(self, products_data):
+        """Add products directly through CatalogService.
+
+        The counterpart of add_test_data for the catalogue half. Driving the Add
+        Product form costs about three seconds per product and the rename tests
+        need several across a category subtree, so they seed here instead.
+
+        Args:
+            products_data: List of dicts of CatalogService.create_product kwargs,
+                e.g. [{'description': 'w', 'category_path': 'a/b', 'tags': ['x']}]
+
+        Returns:
+            The created Product objects, in the order given.
+        """
+        if not self.storage:
+            raise RuntimeError("Server not started")
+
+        from app.catalog_service import CatalogService
+        service = CatalogService(self.storage)
+
+        products = [service.create_product(**spec) for spec in products_data]
+        print(f"Added {len(products)} test products directly to database")
+        return products
+
     def add_material_taxonomy(self, taxonomy_data, clear_existing=True):
         """Add custom material taxonomy data for testing
 

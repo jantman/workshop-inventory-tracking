@@ -4,6 +4,9 @@
 {% block page_heading %}Categories{% endblock %}
 
 {% block page_actions %}
+<a href="{{ url_for('product.product_tags') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-tags"></i> Tags
+</a>
 <a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">
     <i class="bi bi-list"></i> All Products
 </a>
@@ -13,19 +16,29 @@
 <p class="text-muted">
     A category exists because a product is in it. Type a new one on a product and it is
     created; move the last product out and it is gone. There is nothing here to set up.
+    Renaming one carries its sub-categories and every product beneath them.
 </p>
 
 <div class="card">
     <ul class="list-group list-group-flush" id="category-tree">
         {% for category in categories %}
-        <li class="list-group-item d-flex justify-content-between align-items-center category-row">
+        <li class="list-group-item d-flex justify-content-between align-items-center category-row taxonomy-row"
+            data-rename-value="{{ category.path }}" data-rename-count="{{ category.count }}">
             <a href="{{ url_for('product.product_search', category=category.path) }}"
                style="padding-left: {{ (category.depth - 1) * 1.5 }}rem;">
                 {% if category.depth > 1 %}<span class="text-muted">└ </span>{% endif %}
                 {{ category.name }}
                 <span class="text-muted small ms-2">{{ category.path }}</span>
             </a>
-            <span class="badge text-bg-secondary rounded-pill">{{ category.count }}</span>
+            <span class="d-flex align-items-center gap-2">
+                <span class="badge text-bg-secondary rounded-pill">{{ category.count }}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary rename-btn"
+                        data-rename-value="{{ category.path }}"
+                        data-rename-count="{{ category.count }}"
+                        aria-label="Rename {{ category.path }}">
+                    <i class="bi bi-pencil"></i> Rename
+                </button>
+            </span>
         </li>
         {% else %}
         <li class="list-group-item text-center text-muted py-4" id="no-categories">
@@ -34,4 +47,13 @@
         {% endfor %}
     </ul>
 </div>
+
+{% with subject = 'category', field_prefix = 'path',
+        action = url_for('product.category_rename') %}
+    {% include "product/_rename_modal.html" %}
+{% endwith %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/taxonomy-rename.js') }}"></script>
 {% endblock %}

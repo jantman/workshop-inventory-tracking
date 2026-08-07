@@ -238,3 +238,83 @@ def test_unknown_field_returns_empty_dropdown(page, live_server):
     page.wait_for_function('window.__rejectStatus !== undefined', timeout=5000)
     status = page.evaluate('window.__rejectStatus')
     assert status == 400
+
+
+# ---------------------------------------------------------------------------
+# US3 -- one vocabulary across both halves of the application
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_a_metal_stock_vendor_is_offered_on_a_purchase_form(page, live_server):
+    """FR-016/FR-017: recorded on metal stock, offered on the catalogue, no step between"""
+    _seed_items(live_server)
+    product = live_server.add_test_products([{'description': 'Cross-half widget'}])[0]
+
+    page.goto(f'{live_server.url}/products/{product.id}/purchases/new')
+    vendor = page.locator('#vendor')
+    expect(vendor).to_be_visible()
+
+    vendor.click()
+    vendor.fill('McM')
+    dropdown = page.locator('#vendor-suggestions')
+    # render() appends items only after its fetch resolves, so a rendered item
+    # is a complete signal (CLAUDE.md pattern C).
+    expect(dropdown.locator('.dropdown-item', has_text='McMaster-Carr')).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_a_product_location_is_offered_on_the_add_item_form(page, live_server):
+    """The other direction: recorded on a product, offered on metal stock"""
+    live_server.add_test_products([
+        {'description': 'Located widget', 'location': 'Drawer 3', 'sub_location': 'Bin 7'},
+    ])
+    AddItemPage(page, live_server.url).navigate()
+
+    loc = page.locator('#location')
+    loc.click()
+    loc.fill('Draw')
+    dropdown = page.locator('#location-suggestions')
+    expect(dropdown.locator('.dropdown-item', has_text='Drawer 3')).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_a_product_sub_location_is_offered_scoped_by_location(page, live_server):
+    """The catalogue's sub-locations scope by the catalogue's own location column"""
+    live_server.add_test_products([
+        {'description': 'Located widget', 'location': 'Drawer 3', 'sub_location': 'Bin 7'},
+        {'description': 'Elsewhere widget', 'location': 'Drawer 9', 'sub_location': 'Bin 99'},
+    ])
+    AddItemPage(page, live_server.url).navigate()
+
+    page.locator('#location').fill('Drawer 3')
+    sub = page.locator('#sub_location')
+    sub.click()
+
+    dropdown = page.locator('#sub_location-suggestions')
+    expect(dropdown.locator('.dropdown-item', has_text='Bin 7')).to_have_count(1)
+    # Only meaningful now that the component has demonstrably rendered.
+    expect(dropdown).not_to_contain_text('Bin 99')
+
+
+@pytest.mark.e2e
+def test_a_value_matching_nothing_offers_no_dropdown_and_still_saves(page, live_server):
+    """FR-018: the list is advisory; the input is never restricted to it"""
+    _seed_items(live_server)
+    product = live_server.add_test_products([{'description': 'Free-text widget'}])[0]
+
+    page.goto(f'{live_server.url}/products/{product.id}/purchases/new')
+    vendor = page.locator('#vendor')
+    expect(vendor).to_be_visible()
+
+    # Establish the component is live before asserting an absence.
+    vendor.click()
+    vendor.fill('McM')
+    dropdown = page.locator('#vendor-suggestions')
+    expect(dropdown.locator('.dropdown-item', has_text='McMaster-Carr')).to_have_count(1)
+
+    vendor.fill('Nobody Sells This')
+    expect(dropdown).not_to_be_visible()
+
+    page.locator('#save-purchase-btn').click()
+    expect(page.locator('#product-description')).to_be_visible()
+    expect(page.locator('#purchase-history')).to_contain_text('Nobody Sells This')

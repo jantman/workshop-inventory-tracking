@@ -74,6 +74,12 @@
                         <span class="text-muted">Not recorded</span>{% endif %}
                     </dd>
 
+                    <dt class="col-sm-4">Sub-Location</dt>
+                    <dd class="col-sm-8" id="product-sub-location">
+                        {% if product.sub_location %}{{ product.sub_location }}{% else %}
+                        <span class="text-muted">Not recorded</span>{% endif %}
+                    </dd>
+
                     {% if product.tags %}
                     <dt class="col-sm-4">Tags</dt>
                     <dd class="col-sm-8" id="product-tags">

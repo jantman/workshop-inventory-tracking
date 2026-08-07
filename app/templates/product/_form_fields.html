@@ -58,8 +58,34 @@
             </div>
             <div class="col-md-6 mb-3">
                 <label for="location" class="form-label">Storage Location</label>
-                <input type="text" class="form-control" id="location" name="location"
-                       maxlength="100" value="{{ values.get('location') or '' }}">
+                {# position-relative + a sibling dropdown is the whole integration with
+                   field-autocomplete.js -- it binds #location on DOM ready and skips any
+                   target whose dropdown is absent. #}
+                <div class="position-relative">
+                    <input type="text" class="form-control" id="location" name="location"
+                           maxlength="100" autocomplete="off"
+                           value="{{ values.get('location') or '' }}">
+                    <div id="location-suggestions" class="dropdown-menu position-absolute w-100"
+                         style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                </div>
+                <div class="form-text">
+                    Suggested from everything already recorded, on metal stock as well as
+                    products. Anything else is still accepted.
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="sub_location" class="form-label">Sub-Location</label>
+                <div class="position-relative">
+                    <input type="text" class="form-control" id="sub_location" name="sub_location"
+                           maxlength="100" autocomplete="off"
+                           value="{{ values.get('sub_location') or '' }}">
+                    <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100"
+                         style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                </div>
+                <div class="form-text">The bin or drawer within the location. Optional.</div>
             </div>
         </div>
 

@@ -49,6 +49,7 @@ def _form_product_fields(form) -> dict:
         'specifications': form.get('specifications'),
         'category_path': form.get('category_path'),
         'location': form.get('location'),
+        'sub_location': form.get('sub_location'),
         'notes': form.get('notes'),
         'reorder_threshold': form.get('reorder_threshold'),
     }
@@ -586,9 +587,9 @@ def product_reorder():
 def product_categories():
     """Browse the category tree.
 
-    A hierarchy is worth browsing, which is why this page exists and a tag browse
-    page does not: the tag filter on the catalogue list plus GET /api/tags is all
-    a flat list needs.
+    A hierarchy is worth browsing, and a rename has to be aimed at a row you can
+    see -- which is the same reason the tags page exists now that near-duplicate
+    tags need spotting before they can be merged.
     """
     service = _get_catalog_service()
     return render_template(
@@ -596,6 +597,76 @@ def product_categories():
         title='Categories',
         categories=service.category_tree(),
     )
+
+
+@bp.route('/products/categories/rename', methods=['POST'])
+def category_rename():
+    """Rename a category, carrying its subtree (FR-001..FR-007)."""
+    service = _get_catalog_service()
+
+    try:
+        report = service.rename_category(
+            request.form.get('old_path', ''),
+            request.form.get('new_path', ''),
+        )
+    except ValidationError as e:
+        # Nothing was written -- the service validates inside the transaction and
+        # a raise rolls it back, so the operator sees the tree exactly as it was.
+        flash(str(e.message), 'error')
+        return redirect(url_for('product.product_categories'))
+
+    flash(
+        f'Renamed "{report["from"]}" to "{report["to"]}" -- '
+        f'{report["products"]} product{"" if report["products"] == 1 else "s"} '
+        f'moved.',
+        'success'
+    )
+    return redirect(url_for('product.product_categories'))
+
+
+@bp.route('/products/tags')
+def product_tags():
+    """Every tag with its product count (FR-013).
+
+    Near-duplicate spellings cannot be corrected until they can be seen next to
+    each other, which is what this page is for.
+    """
+    service = _get_catalog_service()
+    return render_template(
+        'product/tags.html',
+        title='Tags',
+        tags=service.tag_list_with_counts(),
+    )
+
+
+@bp.route('/products/tags/rename', methods=['POST'])
+def tag_rename():
+    """Rename a tag, merging into the target when it already exists (FR-008..FR-013)."""
+    service = _get_catalog_service()
+
+    try:
+        report = service.rename_tag(
+            request.form.get('old_name', ''),
+            request.form.get('new_name', ''),
+        )
+    except ValidationError as e:
+        flash(str(e.message), 'error')
+        return redirect(url_for('product.product_tags'))
+
+    count = report['products']
+    plural = '' if count == 1 else 's'
+    if report['merged']:
+        message = (
+            f'Merged "{report["from"]}" into "{report["to"]}" -- '
+            f'{count} product{plural} gained it.'
+        )
+    else:
+        message = (
+            f'Renamed "{report["from"]}" to "{report["to"]}" -- '
+            f'{count} product{plural} carry it.'
+        )
+    flash(message, 'success')
+    return redirect(url_for('product.product_tags'))
 
 
 @bp.route('/api/categories')

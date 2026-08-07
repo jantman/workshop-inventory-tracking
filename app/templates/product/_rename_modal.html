@@ -1,0 +1,65 @@
+{# The rename confirmation dialog, shared by the categories and tags pages.
+
+   `subject` is "category" or "tag" and decides the wording; `action` is the URL
+   the form posts to; `field_prefix` names the two form fields (old_path/new_path
+   for a category, old_name/new_name for a tag).
+
+   The impact region is filled by taxonomy-rename.js from data the page has
+   already rendered -- there is no preview endpoint, because the counts are on
+   the page already. The server re-validates on submit and its answer is the one
+   that counts, so a stale page produces an unexpected refusal rather than a
+   corrupted catalogue. #}
+
+<div class="modal fade" id="rename-modal" tabindex="-1" aria-labelledby="rename-modal-title"
+     aria-hidden="true"
+     data-subject="{{ subject }}"
+     data-old-field="old_{{ field_prefix }}"
+     data-new-field="new_{{ field_prefix }}">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ action }}" id="rename-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="old_{{ field_prefix }}" id="rename-old-value"/>
+
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="rename-modal-title">
+                        <i class="bi bi-pencil"></i> Rename {{ subject }}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body">
+                    <p class="mb-3">
+                        Renaming <strong id="rename-subject-name"></strong>.
+                    </p>
+
+                    <div class="mb-3">
+                        <label for="rename-new-value" class="form-label">New name</label>
+                        <input type="text" class="form-control" id="rename-new-value"
+                               name="new_{{ field_prefix }}" required
+                               maxlength="{{ 512 if subject == 'category' else 64 }}"
+                               autocomplete="off">
+                        {% if subject == 'category' %}
+                        <div class="form-text">
+                            Slash-separated, any depth. Sub-categories and every product
+                            beneath them come along.
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div id="rename-impact" class="alert alert-info mb-0"></div>
+                    <div id="rename-warning" class="alert alert-warning mt-3 d-none"></div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="rename-submit">
+                        <i class="bi bi-check-circle"></i> Rename
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

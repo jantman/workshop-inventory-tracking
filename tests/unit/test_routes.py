@@ -1777,14 +1777,12 @@ class TestFieldSuggestionsRoute:
         # The service must NOT swallow exceptions and return [], which
         # would silently turn a backend failure into a successful-looking
         # 200 with an empty suggestion list.
-        from app.mariadb_inventory_service import InventoryService
+        from app.services.vocabulary import VocabularyService
 
         def boom(self, *args, **kwargs):
             raise RuntimeError('simulated database failure')
 
-        monkeypatch.setattr(
-            InventoryService, 'get_field_value_suggestions', boom
-        )
+        monkeypatch.setattr(VocabularyService, 'suggest', boom)
 
         response = client.get('/api/inventory/field-suggestions/vendor')
         assert response.status_code == 500

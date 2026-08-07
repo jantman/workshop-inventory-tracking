@@ -28,9 +28,17 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="vendor" class="form-label">Vendor *</label>
-                            <input type="text" class="form-control" id="vendor" name="vendor"
-                                   maxlength="200" required
-                                   value="{{ form_data.get('vendor') or '' }}">
+                            <div class="position-relative">
+                                <input type="text" class="form-control" id="vendor" name="vendor"
+                                       maxlength="200" required autocomplete="off"
+                                       value="{{ form_data.get('vendor') or '' }}">
+                                <div id="vendor-suggestions" class="dropdown-menu position-absolute w-100"
+                                     style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                            </div>
+                            <div class="form-text">
+                                Suggested from vendors already recorded, on metal stock as well
+                                as purchases.
+                            </div>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="vendor_item_id" class="form-label">Vendor Item ID</label>
@@ -109,4 +117,8 @@
            class="btn btn-outline-secondary btn-lg">Cancel</a>
     </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
 {% endblock %}

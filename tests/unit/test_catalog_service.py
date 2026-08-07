@@ -313,3 +313,330 @@ class TestListProducts:
 
     def test_empty_catalogue_is_an_empty_list(self, service):
         assert service.list_products() == []
+
+
+def _paths(service):
+    """Every product's category path, keyed by description"""
+    return {p.description: p.category_path for p in service.list_products()}
+
+
+class TestRenameCategory:
+    """FR-001..FR-007: one action moves the subtree, or nothing moves at all"""
+
+    @pytest.fixture
+    def tree(self, service):
+        """A subtree plus a sibling that merely shares a prefix"""
+        service.create_product(description='top', category_path='elctronics')
+        service.create_product(description='child', category_path='elctronics/passives')
+        service.create_product(
+            description='grandchild', category_path='elctronics/passives/resistors'
+        )
+        service.create_product(description='prefix sibling', category_path='elctronics-surplus')
+        return service
+
+    def test_carries_the_whole_subtree(self, tree):
+        tree.rename_category('elctronics', 'electronics')
+        paths = _paths(tree)
+        assert paths['top'] == 'electronics'
+        assert paths['child'] == 'electronics/passives'
+        assert paths['grandchild'] == 'electronics/passives/resistors'
+
+    def test_a_sibling_sharing_a_prefix_is_untouched(self, tree):
+        """The boundary is the separator, not the character count"""
+        tree.rename_category('elctronics', 'electronics')
+        assert _paths(tree)['prefix sibling'] == 'elctronics-surplus'
+
+    def test_reports_what_moved(self, tree):
+        report = tree.rename_category('elctronics', 'electronics')
+        assert report == {
+            'from': 'elctronics',
+            'to': 'electronics',
+            'products': 3,
+            'categories': 3,
+        }
+
+    def test_counts_distinct_categories_not_rows(self, service):
+        service.create_product(description='a', category_path='old')
+        service.create_product(description='b', category_path='old')
+        report = service.rename_category('old', 'new')
+        assert report['products'] == 2
+        assert report['categories'] == 1
+
+    def test_renaming_a_deeper_path_leaves_its_parent_and_siblings_alone(self, service):
+        service.create_product(description='parent', category_path='power')
+        service.create_product(description='target', category_path='power/dc dc')
+        service.create_product(description='deep', category_path='power/dc dc/buck')
+        service.create_product(description='sibling', category_path='power/linear')
+
+        service.rename_category('power/dc dc', 'power/converters')
+        paths = _paths(service)
+        assert paths['parent'] == 'power'
+        assert paths['target'] == 'power/converters'
+        assert paths['deep'] == 'power/converters/buck'
+        assert paths['sibling'] == 'power/linear'
+
+    def test_operands_are_canonicalized(self, tree):
+        tree.rename_category(' ELCTRONICS ', ' Electronics ')
+        assert _paths(tree)['top'] == 'electronics'
+
+    def test_renaming_into_a_subtree_that_is_coming_along_is_allowed(self, service):
+        """"a" -> "b" with "a/b" present: "a/b" becomes "b/b", and "b" was free"""
+        service.create_product(description='root', category_path='a')
+        service.create_product(description='inner', category_path='a/b')
+
+        service.rename_category('a', 'b')
+        paths = _paths(service)
+        assert paths['root'] == 'b'
+        assert paths['inner'] == 'b/b'
+
+
+class TestRenameCategoryRefusals:
+    """Every refusal names the obstruction and leaves the data byte-identical"""
+
+    @pytest.fixture
+    def tree(self, service):
+        service.create_product(description='top', category_path='electronics')
+        service.create_product(description='child', category_path='electronics/passives')
+        service.create_product(description='other', category_path='hardware')
+        return service
+
+    def _unchanged(self, service):
+        return {
+            'top': 'electronics',
+            'child': 'electronics/passives',
+            'other': 'hardware',
+        }
+
+    def test_blank_source_is_refused(self, tree):
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category('  ', 'electronics')
+        assert 'blank' in str(excinfo.value.message).lower()
+        assert _paths(tree) == self._unchanged(tree)
+
+    def test_blank_target_is_refused(self, tree):
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category('electronics', '   ')
+        assert 'blank' in str(excinfo.value.message).lower()
+        assert _paths(tree) == self._unchanged(tree)
+
+    def test_a_case_only_rename_is_refused_as_a_no_op(self, tree):
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category('electronics', 'Electronics')
+        assert 'nothing to rename' in str(excinfo.value.message).lower()
+        assert _paths(tree) == self._unchanged(tree)
+
+    def test_self_nesting_is_refused(self, tree):
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category('electronics', 'electronics/passives')
+        message = str(excinfo.value.message)
+        assert 'electronics' in message and 'inside' in message
+        assert _paths(tree) == self._unchanged(tree)
+
+    def test_a_collision_is_refused_and_names_the_colliding_path(self, tree):
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category('electronics', 'hardware')
+        assert 'hardware' in str(excinfo.value.message)
+        assert _paths(tree) == self._unchanged(tree)
+
+    def test_a_collision_beneath_the_target_is_also_refused(self, service):
+        """Renaming into a target that only exists as an ancestor still merges"""
+        service.create_product(description='source', category_path='a')
+        service.create_product(description='occupant', category_path='b/c')
+
+        with pytest.raises(ValidationError) as excinfo:
+            service.rename_category('a', 'b')
+        assert 'b/c' in str(excinfo.value.message)
+        assert _paths(service) == {'source': 'a', 'occupant': 'b/c'}
+
+    def test_an_over_length_descendant_is_refused_not_truncated(self, service):
+        from app.catalog_service import MAX_CATEGORY_PATH_LENGTH
+
+        service.create_product(description='top', category_path='a')
+        service.create_product(description='deep', category_path='a/' + 'x' * 400)
+        long_name = 'y' * (MAX_CATEGORY_PATH_LENGTH - 200)
+
+        with pytest.raises(ValidationError) as excinfo:
+            service.rename_category('a', long_name)
+        assert str(MAX_CATEGORY_PATH_LENGTH) in str(excinfo.value.message)
+        assert _paths(service) == {'top': 'a', 'deep': 'a/' + 'x' * 400}
+
+    def test_renaming_a_category_nothing_is_in_is_refused(self, tree):
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category('nonexistent', 'something')
+        assert 'nonexistent' in str(excinfo.value.message)
+        assert _paths(tree) == self._unchanged(tree)
+
+
+def _tag_names(service, product_id):
+    return sorted(t.name for t in service.get_product(product_id).tags)
+
+
+class TestRenameTag:
+    """FR-008..FR-012: rename onto a free name, merge onto an occupied one"""
+
+    def test_plain_rename_keeps_the_products(self, service):
+        product = service.create_product(description='w', tags=['surpluss'])
+
+        report = service.rename_tag('surpluss', 'surplus')
+        assert report == {
+            'from': 'surpluss', 'to': 'surplus', 'merged': False, 'products': 1
+        }
+        assert _tag_names(service, product.id) == ['surplus']
+        assert [t['name'] for t in service.tag_list_with_counts()] == ['surplus']
+
+    def test_the_target_name_is_normalized(self, service):
+        product = service.create_product(description='w', tags=['surpluss'])
+        service.rename_tag('surpluss', '  SURPLUS  ')
+        assert _tag_names(service, product.id) == ['surplus']
+
+    def test_merge_moves_products_onto_the_survivor(self, service):
+        source = service.create_product(description='source', tags=['surpluss'])
+        target = service.create_product(description='target', tags=['surplus'])
+
+        report = service.rename_tag('surpluss', 'surplus')
+        assert report['merged'] is True
+        assert report['products'] == 1
+        assert _tag_names(service, source.id) == ['surplus']
+        assert _tag_names(service, target.id) == ['surplus']
+        assert [t['name'] for t in service.tag_list_with_counts()] == ['surplus']
+
+    def test_a_product_carrying_both_survives_the_merge_carrying_it_once(self, service):
+        """FR-010: already carrying both is a no-op, not an integrity error"""
+        both = service.create_product(description='both', tags=['surpluss', 'surplus'])
+
+        report = service.rename_tag('surpluss', 'surplus')
+        assert report['products'] == 0  # it already carried the survivor
+        assert _tag_names(service, both.id) == ['surplus']
+
+    def test_the_merge_carries_the_union(self, service):
+        a = service.create_product(description='a', tags=['surpluss'])
+        b = service.create_product(description='b', tags=['surplus'])
+        both = service.create_product(description='both', tags=['surpluss', 'surplus'])
+
+        service.rename_tag('surpluss', 'surplus')
+        counts = service.tag_list_with_counts()
+        assert counts == [{'id': counts[0]['id'], 'name': 'surplus', 'count': 3}]
+        for product in (a, b, both):
+            assert _tag_names(service, product.id) == ['surplus']
+
+    def test_a_merge_does_not_depend_on_direction(self, service):
+        """Merging a into b and b into a leave the same product set"""
+        forward = CatalogService(service.storage)
+        a1 = forward.create_product(description='a1', tags=['alpha'])
+        b1 = forward.create_product(description='b1', tags=['beta'])
+        both1 = forward.create_product(description='both1', tags=['alpha', 'beta'])
+        forward.rename_tag('alpha', 'beta')
+        forward_set = {
+            p.description for p in forward.search_products(tag='beta')
+        }
+
+        assert forward_set == {'a1', 'b1', 'both1'}
+        assert _tag_names(forward, a1.id) == ['beta']
+        assert _tag_names(forward, b1.id) == ['beta']
+        assert _tag_names(forward, both1.id) == ['beta']
+
+        a2 = forward.create_product(description='a2', tags=['gamma'])
+        b2 = forward.create_product(description='b2', tags=['delta'])
+        both2 = forward.create_product(description='both2', tags=['gamma', 'delta'])
+        forward.rename_tag('delta', 'gamma')
+        reverse_set = {
+            p.description for p in forward.search_products(tag='gamma')
+        }
+
+        assert reverse_set == {'a2', 'b2', 'both2'}
+        assert _tag_names(forward, a2.id) == ['gamma']
+        assert _tag_names(forward, b2.id) == ['gamma']
+        assert _tag_names(forward, both2.id) == ['gamma']
+
+
+class TestRenameTagRefusals:
+    def test_blank_source_is_refused(self, service):
+        with pytest.raises(ValidationError):
+            service.rename_tag('  ', 'surplus')
+
+    def test_blank_target_is_refused(self, service):
+        service.create_product(description='w', tags=['surplus'])
+        with pytest.raises(ValidationError):
+            service.rename_tag('surplus', '   ')
+
+    def test_a_case_only_rename_is_refused_as_a_no_op(self, service):
+        product = service.create_product(description='w', tags=['surplus'])
+        with pytest.raises(ValidationError) as excinfo:
+            service.rename_tag('surplus', 'Surplus')
+        assert 'nothing to rename' in str(excinfo.value.message).lower()
+        assert _tag_names(service, product.id) == ['surplus']
+
+    def test_an_over_length_target_is_refused(self, service):
+        from app.catalog_service import MAX_TAG_LENGTH
+
+        product = service.create_product(description='w', tags=['surplus'])
+        with pytest.raises(ValidationError):
+            service.rename_tag('surplus', 'x' * (MAX_TAG_LENGTH + 1))
+        assert _tag_names(service, product.id) == ['surplus']
+
+    def test_renaming_a_tag_that_does_not_exist_is_refused(self, service):
+        with pytest.raises(ValidationError) as excinfo:
+            service.rename_tag('nonexistent', 'something')
+        assert 'nonexistent' in str(excinfo.value.message)
+
+
+class TestTagListWithCounts:
+    def test_empty_catalogue_is_an_empty_list(self, service):
+        assert service.tag_list_with_counts() == []
+
+    def test_counts_the_products_carrying_each_tag(self, service):
+        service.create_product(description='a', tags=['surplus', 'rohs'])
+        service.create_product(description='b', tags=['surplus'])
+
+        assert [
+            (t['name'], t['count']) for t in service.tag_list_with_counts()
+        ] == [('rohs', 1), ('surplus', 2)]
+
+    def test_alphabetical_by_name(self, service):
+        service.create_product(description='a', tags=['zulu', 'alpha', 'mike'])
+        assert [
+            t['name'] for t in service.tag_list_with_counts()
+        ] == ['alpha', 'mike', 'zulu']
+
+    def test_an_orphan_tag_is_shown_with_a_count_of_zero(self, service):
+        """Debris is exactly what the page exists to reveal"""
+        product = service.create_product(description='a', tags=['surplus'])
+        service.set_tags(product.id, [])
+
+        assert service.tag_list_with_counts() == [
+            {'id': service.tag_list_with_counts()[0]['id'],
+             'name': 'surplus', 'count': 0}
+        ]
+
+
+class TestProductSubLocation:
+    """FR-020..FR-023: a product records a sub-location the same way an item does"""
+
+    def test_round_trips_through_create(self, service):
+        product = service.create_product(
+            description='w', location='Drawer 3', sub_location='Bin 7'
+        )
+        assert service.get_product(product.id).sub_location == 'Bin 7'
+
+    def test_round_trips_through_update(self, service):
+        product = service.create_product(description='w', location='Drawer 3')
+        service.update_product(product.id, sub_location='Bin 7')
+        assert service.get_product(product.id).sub_location == 'Bin 7'
+
+    def test_update_product_accepts_it_rather_than_refusing_it(self, service):
+        """A field absent from `editable` raises; this one must be in the set"""
+        product = service.create_product(description='w')
+        service.update_product(product.id, sub_location='Bin 7')  # must not raise
+
+    def test_a_product_created_without_one_has_none(self, service):
+        """FR-023: no sub-location recorded is an ordinary state, not an error"""
+        product = service.create_product(description='w', location='Drawer 3')
+        assert service.get_product(product.id).sub_location is None
+
+    def test_blank_is_stored_as_none(self, service):
+        product = service.create_product(description='w', sub_location='   ')
+        assert service.get_product(product.id).sub_location is None
+
+    def test_it_appears_in_to_dict(self, service):
+        product = service.create_product(description='w', sub_location='Bin 7')
+        assert service.get_product(product.id).to_dict()['sub_location'] == 'Bin 7'

@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
 
-from .database import Product, ProductIdentifier, Purchase, Tag
+from .database import Product, ProductIdentifier, ProductTag, Purchase, Tag
 from .exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
 from .mariadb_storage import MariaDBStorage
 from .models import (
@@ -95,6 +95,7 @@ class CatalogService:
         specifications: Optional[str] = None,
         category_path: Optional[str] = None,
         location: Optional[str] = None,
+        sub_location: Optional[str] = None,
         quantity: Optional[int] = None,
         reorder_threshold: Optional[int] = None,
         notes: Optional[str] = None,
@@ -114,6 +115,8 @@ class CatalogService:
             specifications: Optional free-form specifications.
             category_path: Optional category path; normalized before storage.
             location: Optional storage location (FR-033).
+            sub_location: Optional bin or drawer within the location. NULL is an
+                ordinary state, the same way location's is.
             quantity: Optional count. None means "not tracked" (FR-023).
             reorder_threshold: Optional threshold; only valid alongside a count.
             notes: Optional notes.
@@ -139,6 +142,7 @@ class CatalogService:
                 specifications=_clean(specifications),
                 category_path=category_path,
                 location=_clean(location),
+                sub_location=_clean(sub_location),
                 quantity=quantity,
                 quantity_updated_at=datetime.now() if quantity is not None else None,
                 reorder_threshold=reorder_threshold,
@@ -450,7 +454,8 @@ class CatalogService:
         Args:
             product_id: The product to update.
             **fields: Any of description, manufacturer, manufacturer_part_number,
-                specifications, category_path, location, notes, reorder_threshold.
+                specifications, category_path, location, sub_location, notes,
+                reorder_threshold.
 
         Returns:
             The updated Product.
@@ -461,8 +466,8 @@ class CatalogService:
         """
         editable = {
             'description', 'manufacturer', 'manufacturer_part_number',
-            'specifications', 'category_path', 'location', 'notes',
-            'reorder_threshold',
+            'specifications', 'category_path', 'location', 'sub_location',
+            'notes', 'reorder_threshold',
         }
         unknown = set(fields) - editable
         if unknown:
@@ -486,7 +491,7 @@ class CatalogService:
                 )
 
             for name in ('manufacturer', 'manufacturer_part_number', 'specifications',
-                         'location', 'notes'):
+                         'location', 'sub_location', 'notes'):
                 if name in fields:
                     setattr(product, name, _clean(fields[name]))
 
@@ -1300,6 +1305,236 @@ class CatalogService:
                 'count': count,
             }
             for path, count in sorted(rows)
+        ]
+
+    def _subtree_clause(self, path: str):
+        """The pair of conditions that select a category and everything under it.
+
+        Equality plus the escaped LIKE, which is what makes the boundary the
+        separator: ``elctronics-surplus`` is a different category from
+        ``elctronics`` and neither condition matches it.
+        """
+        return or_(
+            Product.category_path == path,
+            Product.category_path.like(
+                category_utils.descendant_like_pattern(path), escape='\\'
+            ),
+        )
+
+    def rename_category(self, old_path: str, new_path: str) -> Dict[str, Any]:
+        """Rename a category, carrying its sub-categories and their products.
+
+        A category has no row of its own -- it is a materialized path on the
+        product -- so a rename is a prefix rewrite across a set of products.
+        Every check runs before any write, and a refusal raises, which the
+        session context manager turns into a rollback: a refused rename leaves
+        every product exactly as it was (FR-007).
+
+        Args:
+            old_path: The category to rename, as displayed. Canonicalized.
+            new_path: What it becomes. Canonicalized.
+
+        Returns:
+            ``{'from', 'to', 'products', 'categories'}`` -- the canonical forms
+            actually applied, the number of rows rewritten, and the number of
+            distinct paths rewritten.
+
+        Raises:
+            ValidationError: On any refusal, naming the specific obstruction.
+        """
+        source = category_utils.canonical(old_path)
+        target = category_utils.canonical(new_path)
+
+        if source is None:
+            raise ValidationError(
+                "There is no category to rename -- the current name is blank.",
+                field='category_path', value=old_path
+            )
+        if target is None:
+            raise ValidationError(
+                "A rename needs a new name; blank is not a category.",
+                field='category_path', value=new_path
+            )
+        if source == target:
+            raise ValidationError(
+                f'Nothing to rename: "{old_path}" and "{new_path}" are already the '
+                f'same category ("{source}") -- capitalization and spacing do not '
+                f'distinguish two categories.',
+                field='category_path', value=target
+            )
+        # Checked after equality purely so the equal case gets the clearer
+        # message; self-nesting would otherwise subsume it.
+        if category_utils.would_nest_within(target, source):
+            raise ValidationError(
+                f'"{target}" sits inside "{source}", so the rename would put the '
+                f'category inside itself.',
+                field='category_path', value=target
+            )
+
+        with self._session() as session:
+            in_source = self._subtree_clause(source)
+
+            # A collision is a category at or under the target that is not part
+            # of the subtree being moved. The exclusion is load-bearing:
+            # renaming "a" to "b" when "a/b" exists must succeed, because "a/b"
+            # is coming along and becomes "b/b".
+            collision = session.query(Product.category_path).filter(
+                self._subtree_clause(target),
+                ~in_source,
+            ).first()
+            if collision is not None:
+                raise ValidationError(
+                    f'"{collision[0]}" already exists. Renaming does not merge '
+                    f'categories, so this rename is refused (FR-004).',
+                    field='category_path', value=target
+                )
+
+            products = session.query(Product).filter(in_source).all()
+
+            # The deepest descendant is the one at risk when a short parent gets
+            # a long new name, and it is not the row the operator is looking at
+            # -- so the limit is checked across the subtree, not at the renamed
+            # level. Over-length is a rejection, never a truncation.
+            rewritten = []
+            for product in products:
+                candidate = category_utils.rename_descendant(
+                    product.category_path, source, target
+                )
+                if len(candidate) > MAX_CATEGORY_PATH_LENGTH:
+                    raise ValidationError(
+                        f'"{candidate}" would be longer than '
+                        f'{MAX_CATEGORY_PATH_LENGTH} characters.',
+                        field='category_path', value=candidate
+                    )
+                rewritten.append((product, candidate))
+
+            if not products:
+                raise ValidationError(
+                    f'There is no category "{source}" to rename.',
+                    field='category_path', value=source
+                )
+
+            distinct_paths = {product.category_path for product, _ in rewritten}
+            for product, candidate in rewritten:
+                product.category_path = candidate
+
+            report = {
+                'from': source,
+                'to': target,
+                'products': len(rewritten),
+                'categories': len(distinct_paths),
+            }
+
+        logger.info(
+            f"Renamed category {source!r} to {target!r}: "
+            f"{report['products']} products across {report['categories']} categories"
+        )
+        return report
+
+    def rename_tag(self, old_name: str, new_name: str) -> Dict[str, Any]:
+        """Rename a tag, merging into the target when the target already exists.
+
+        Args:
+            old_name: The tag to rename. Trimmed and lowercased, as
+                ``_attach_tag`` already does.
+            new_name: What it becomes, or the tag to merge into.
+
+        Returns:
+            ``{'from', 'to', 'merged', 'products'}``. ``products`` counts the
+            products that gained the survivor because of this call, which for a
+            merge excludes those that already carried both.
+
+        Raises:
+            ValidationError: On any refusal.
+        """
+        source = (_clean(old_name) or '').lower()
+        target = (_clean(new_name) or '').lower()
+
+        if not source:
+            raise ValidationError(
+                "There is no tag to rename -- the current name is blank.",
+                field='tag', value=old_name
+            )
+        if not target:
+            raise ValidationError(
+                "A rename needs a new name; a tag cannot be blank.",
+                field='tag', value=new_name
+            )
+        if source == target:
+            raise ValidationError(
+                f'Nothing to rename: tags are stored lowercase, so "{old_name}" and '
+                f'"{new_name}" are already the same tag ("{source}").',
+                field='tag', value=target
+            )
+        if len(target) > MAX_TAG_LENGTH:
+            raise ValidationError(
+                f"Tag is longer than {MAX_TAG_LENGTH} characters",
+                field='tag', value=target
+            )
+
+        with self._session() as session:
+            tag = session.query(Tag).options(
+                selectinload(Tag.products)
+            ).filter(Tag.name == source).first()
+            if tag is None:
+                raise ValidationError(
+                    f'There is no tag "{source}" to rename.',
+                    field='tag', value=source
+                )
+
+            survivor = session.query(Tag).options(
+                selectinload(Tag.products)
+            ).filter(Tag.name == target).first()
+
+            if survivor is None:
+                # A free name: the associations are already right, only the
+                # label is wrong.
+                moved = len(tag.products)
+                tag.name = target
+                merged = False
+            else:
+                # product_tags' composite primary key makes a duplicate
+                # association impossible, but inserting one raises rather than
+                # succeeding -- so a product already carrying both has to be
+                # skipped, which is the no-op FR-010 requires. Deleting the
+                # source takes its remaining associations with it via cascade.
+                moved = 0
+                for product in list(tag.products):
+                    if survivor not in product.tags:
+                        product.tags.append(survivor)
+                        moved += 1
+                session.delete(tag)
+                merged = True
+
+        logger.info(
+            f"{'Merged' if merged else 'Renamed'} tag {source!r} "
+            f"{'into' if merged else 'to'} {target!r}: {moved} products"
+        )
+        return {'from': source, 'to': target, 'merged': merged, 'products': moved}
+
+    def tag_list_with_counts(self) -> List[Dict[str, Any]]:
+        """Every tag with how many products carry it, for the tags page.
+
+        Args:
+            None.
+
+        Returns:
+            ``[{'id', 'name', 'count'}]``, alphabetically by name. A tag carried
+            by nothing is included with a count of 0 -- an orphaned tag is
+            exactly the debris the page exists to reveal.
+        """
+        with self._session() as session:
+            rows = (
+                session.query(Tag.id, Tag.name, func.count(ProductTag.product_id))
+                .outerjoin(ProductTag, ProductTag.tag_id == Tag.id)
+                .group_by(Tag.id, Tag.name)
+                .order_by(Tag.name)
+                .all()
+            )
+
+        return [
+            {'id': tag_id, 'name': name, 'count': count}
+            for tag_id, name, count in rows
         ]
 
     def _attach_tag(self, session, product: Product, name: str) -> Optional[Tag]:
