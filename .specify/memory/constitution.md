@@ -286,4 +286,4 @@ exception is warranted and what bounds it. Agent-driven work additionally follow
 operational rules in `CLAUDE.md` and `_bmad-output/project-context.md`; those files are
 subordinate to this constitution and MUST be updated when it changes.
 
-**Version**: 1.3.0 | **Ratified**: 2026-08-01 | **Last Amended**: 2026-08-06
+**Version**: 1.3.0 | **Ratified**: 2026-08-01 | **Last Amended**: 2026-08-07

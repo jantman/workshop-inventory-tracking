@@ -260,9 +260,10 @@ def test_material_autocomplete_only_shows_taxonomy_materials(page, live_server):
             page.locator('#width').fill('1')
 
             # The value came from the taxonomy dropdown, so the validator will
-            # accept it -- but only once its list has loaded. Wait for that, then
-            # for the submission itself to resolve.
-            expect(material_field).not_to_have_class(re.compile(r'\bis-invalid\b'))
+            # accept it -- but only once its list has loaded. Wait for the accept
+            # itself: "not is-invalid" is also true of a field the validator has
+            # not looked at, since it holds neither class until then.
+            expect(material_field).to_have_class(re.compile(r'\bis-valid\b'))
             add_page.submit_and_wait('button[type="submit"] >> nth=0')
 
             # If still on form page, material should not be invalid

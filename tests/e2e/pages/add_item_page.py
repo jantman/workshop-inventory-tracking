@@ -77,7 +77,7 @@ class AddItemPage(BasePage):
             re.compile(r"\bis-valid\b")
         )
 
-    def _fill_if_on_this_form(self, selector: str, value: str):
+    def _fill_if_on_this_form(self, selector: str, value: str) -> None:
         """Fill a field that only some variants of the form carry.
 
         The obvious spelling of this -- `if self.is_visible(sel): fill(sel)` --
@@ -129,7 +129,7 @@ class AddItemPage(BasePage):
         if notes:
             self._fill_if_on_this_form(self.NOTES_INPUT, notes)
 
-    def submit_form(self):
+    def submit_form(self) -> bool:
         """Submit the add item form and wait for the server's response to render.
 
         Returns True if the submission was sent, False if the browser refused it.
@@ -138,7 +138,7 @@ class AddItemPage(BasePage):
         """
         return self.submit_and_wait(self.SUBMIT_BUTTON)
 
-    def submit_and_wait(self, button_selector):
+    def submit_and_wait(self, button_selector: str) -> bool:
         """Click a submit button and wait for the submission to resolve.
 
         Marks the current document first: a server round trip replaces it, so the
@@ -167,15 +167,29 @@ class AddItemPage(BasePage):
             """() => {
                 window.__awaitingSubmit = true;
                 window.__submitRejected = false;
-                // `invalid` does not bubble, so listen in the capture phase.
-                document.addEventListener('invalid', (e) => {
+                // A refused submit does not navigate, so a test that submits
+                // repeatedly against one document would stack a handler per
+                // attempt and log each refusal once per attempt so far. Drop the
+                // previous one rather than adding to it.
+                //
+                // `{once: true}` would not do: checkValidity() fires `invalid`
+                // once per invalid control, and the first one would then remove
+                // the handler and hide the rest.
+                if (window.__e2eInvalidListener) {
+                    document.removeEventListener(
+                        'invalid', window.__e2eInvalidListener, true);
+                }
+                window.__e2eInvalidListener = (e) => {
                     window.__submitRejected = true;
                     const f = e.target;
                     console.log('E2E: submission refused by #' +
                                 (f.id || f.name || '?') + ': ' +
                                 (f.validationMessage || 'no message') +
                                 ' [value=' + JSON.stringify(f.value) + ']');
-                }, true);
+                };
+                // `invalid` does not bubble, so listen in the capture phase.
+                document.addEventListener(
+                    'invalid', window.__e2eInvalidListener, true);
             }"""
         )
         self.click_and_wait(button_selector)
