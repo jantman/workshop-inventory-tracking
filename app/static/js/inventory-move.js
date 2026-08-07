@@ -357,7 +357,7 @@ class InventoryMoveManager {
         console.log('Added to move queue:', moveItem);
     }
     
-    handleDoneCode() {
+    async handleDoneCode() {
         this.clearInput();
 
         // If we were in the middle of entering a move, finalize or clear it
@@ -367,8 +367,11 @@ class InventoryMoveManager {
             this.currentExpectedInput = 'ja_id';
             this.showAlert('Partial entry cleared (JA ID without location).', 'info');
         } else if (this.currentExpectedInput === 'ja_id_or_sub_location') {
-            // We have JA ID and location but no sub-location - finalize without sub-location
-            this.finalizeCurrentMove(null);
+            // We have JA ID and location but no sub-location - finalize without sub-location.
+            // Await it: finalizeCurrentMove() pushes to moveQueue on the far side of a
+            // fetch, so without the await the length check below reads 0 and reports the
+            // queue empty for the move it is in the middle of queueing.
+            await this.finalizeCurrentMove(null);
             this.showAlert('Finalized last entry without sub-location.', 'info');
         }
 

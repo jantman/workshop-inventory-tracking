@@ -42,9 +42,11 @@ def scan_on_move_page(page: Page, value: str) -> None:
 
     The pre-scan state and queue length are read from the page before typing,
     because which transition this is depends on where the state machine already
-    was. `Done - Ready to Validate` is deliberately not used after >>DONE<<: on
-    the one-pending-move path handleDoneCode() tests moveQueue.length before its
-    own un-awaited finalise has landed, returns early, and never sets it.
+    was. `Done - Ready to Validate` is still not used as the signal after
+    >>DONE<<, even though #67 made it reachable on the one-pending-move path:
+    handleDoneCode() also returns early without setting it when the queue ends up
+    empty, and #queue-count is the one condition that holds for every path
+    through the handler.
     """
     before = page.evaluate(
         "() => ({ state: window.moveManager.currentExpectedInput,"
