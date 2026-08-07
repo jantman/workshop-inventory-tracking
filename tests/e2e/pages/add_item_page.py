@@ -45,54 +45,100 @@ class AddItemPage(BasePage):
         one. Tests that deliberately enter an unknown material fill #material
         directly rather than coming through here.
         """
+        # The add page fills #ja_id itself, from GET /api/inventory/next-ja-id.
+        # Its "only if the field is empty" guard is checked *before* that await
+        # and the write lands *after* it, so a fill() issued in the gap has its
+        # selection collapsed by the page's write and appends instead of
+        # replacing -- leaving "JA000123JA000123", which fails the field's
+        # pattern. The browser then refuses the submit, and native constraint
+        # validation leaves no trace in the DOM, so the test carries on as though
+        # the item exists and fails much later somewhere else.
+        #
+        # Let the page's own write land first. It is a one-shot on init, so once
+        # the field is non-empty nothing else will touch it.
+        ja_field = self.page.locator(self.JA_ID_INPUT)
+        expect(ja_field).not_to_have_value("")
         self.fill_and_wait(self.JA_ID_INPUT, ja_id)
+        expect(ja_field).to_have_value(ja_id)
         self.page.select_option(self.ITEM_TYPE_SELECT, item_type)
         self.page.select_option(self.SHAPE_SELECT, shape)
         self.fill_and_wait(self.MATERIAL_INPUT, material)
-        # MaterialValidator marks the field invalid -- and calls
-        # setCustomValidity(), which makes the whole form fail native validation
-        # -- until its taxonomy list has arrived. Submitting inside that window is
-        # silently refused by the browser and the item is never created. Wait for
-        # the validator to accept the value before anything can submit.
-        expect(self.page.locator(self.MATERIAL_INPUT)).not_to_have_class(
-            re.compile(r"\bis-invalid\b")
+        # MaterialValidator calls setCustomValidity(), which makes the whole form
+        # fail native validation, until its taxonomy list has arrived. Submitting
+        # inside that window is silently refused by the browser and the item is
+        # never created.
+        #
+        # The condition is `is-valid`, not "not is-invalid". validateMaterial()
+        # adds is-valid on accept and is-invalid on reject, and *removes both* on
+        # an empty field -- so "not is-invalid" is also true of a field the
+        # validator has never looked at, and of one something else has since
+        # cleared. Only the positive class proves this value was accepted.
+        expect(self.page.locator(self.MATERIAL_INPUT)).to_have_class(
+            re.compile(r"\bis-valid\b")
         )
-    
+
+    def _fill_if_on_this_form(self, selector: str, value: str) -> None:
+        """Fill a field that only some variants of the form carry.
+
+        The obvious spelling of this -- `if self.is_visible(sel): fill(sel)` --
+        is a snapshot read wrapped in a bare `except: return False`, so on a page
+        that has not settled it silently skips a field that is really there. A
+        required field left empty that way makes the browser refuse the submit,
+        and native constraint validation leaves no trace in the DOM when it does:
+        the test carries on as though the item was created and fails much later
+        somewhere unrelated. That is how a Print Labels test came to report two
+        items where three had been asked for.
+
+        So the question asked here is "is this field part of this form at all",
+        which is answered by the served HTML and cannot change under us, and the
+        waiting is left to expect().
+        """
+        field = self.page.locator(selector)
+        if field.count() == 0:
+            return
+        expect(field).to_be_visible()
+        field.fill(value)
+
     def fill_dimensions(self, length: str = None, width: str = None, diameter: str = None):
         """Fill dimension fields"""
-        if length and self.is_visible(self.LENGTH_INPUT):
-            self.fill_and_wait(self.LENGTH_INPUT, length)
-        
-        if width and self.is_visible(self.WIDTH_INPUT):
-            self.fill_and_wait(self.WIDTH_INPUT, width)
-        
-        if diameter and self.is_visible(self.DIAMETER_INPUT):
-            self.fill_and_wait(self.DIAMETER_INPUT, diameter)
-    
+        if length:
+            self._fill_if_on_this_form(self.LENGTH_INPUT, length)
+
+        if width:
+            self._fill_if_on_this_form(self.WIDTH_INPUT, width)
+
+        if diameter:
+            self._fill_if_on_this_form(self.DIAMETER_INPUT, diameter)
+
     def fill_thread_information(self, thread_series: str = None, thread_size: str = None, thread_handedness: str = None):
         """Fill thread information fields"""
         if thread_series and self.is_visible(self.THREAD_SERIES_SELECT):
             self.page.select_option(self.THREAD_SERIES_SELECT, thread_series)
-        
+
         if thread_size and self.is_visible(self.THREAD_SIZE_INPUT):
             self.fill_and_wait(self.THREAD_SIZE_INPUT, thread_size)
-        
+
         if thread_handedness and self.is_visible(self.THREAD_HANDEDNESS_SELECT):
             self.page.select_option(self.THREAD_HANDEDNESS_SELECT, thread_handedness)
-    
+
     def fill_location_and_notes(self, location: str = None, notes: str = None):
         """Fill location and notes fields"""
-        if location and self.is_visible(self.LOCATION_INPUT):
-            self.fill_and_wait(self.LOCATION_INPUT, location)
-        
-        if notes and self.is_visible(self.NOTES_INPUT):
-            self.fill_and_wait(self.NOTES_INPUT, notes)
-    
-    def submit_form(self):
-        """Submit the add item form and wait for the server's response to render"""
-        self._submit_and_wait(self.SUBMIT_BUTTON)
+        if location:
+            self._fill_if_on_this_form(self.LOCATION_INPUT, location)
 
-    def _submit_and_wait(self, button_selector):
+        if notes:
+            self._fill_if_on_this_form(self.NOTES_INPUT, notes)
+
+    def submit_form(self) -> bool:
+        """Submit the add item form and wait for the server's response to render.
+
+        Returns True if the submission was sent, False if the browser refused it.
+        Some callers deliberately submit an incomplete form and check that it was
+        refused, so this reports rather than raises.
+        """
+        return self.submit_and_wait(self.SUBMIT_BUTTON)
+
+    def submit_and_wait(self, button_selector: str) -> bool:
         """Click a submit button and wait for the submission to resolve.
 
         Marks the current document first: a server round trip replaces it, so the
@@ -111,14 +157,39 @@ class AddItemPage(BasePage):
         material field is marked invalid until MaterialValidator's taxonomy list
         has loaded), so the wait would return immediately having submitted
         nothing, and the caller would carry on as though the item existed.
+
+        Returns True if the submission was sent, False if it was refused. A
+        refusal also names the offending fields in the browser console, because
+        it is otherwise invisible: the test that carries on regardless fails
+        later, somewhere else, for a reason that looks unrelated.
         """
         self.page.evaluate(
             """() => {
                 window.__awaitingSubmit = true;
                 window.__submitRejected = false;
+                // A refused submit does not navigate, so a test that submits
+                // repeatedly against one document would stack a handler per
+                // attempt and log each refusal once per attempt so far. Drop the
+                // previous one rather than adding to it.
+                //
+                // `{once: true}` would not do: checkValidity() fires `invalid`
+                // once per invalid control, and the first one would then remove
+                // the handler and hide the rest.
+                if (window.__e2eInvalidListener) {
+                    document.removeEventListener(
+                        'invalid', window.__e2eInvalidListener, true);
+                }
+                window.__e2eInvalidListener = (e) => {
+                    window.__submitRejected = true;
+                    const f = e.target;
+                    console.log('E2E: submission refused by #' +
+                                (f.id || f.name || '?') + ': ' +
+                                (f.validationMessage || 'no message') +
+                                ' [value=' + JSON.stringify(f.value) + ']');
+                };
                 // `invalid` does not bubble, so listen in the capture phase.
                 document.addEventListener(
-                    'invalid', () => { window.__submitRejected = true; }, true);
+                    'invalid', window.__e2eInvalidListener, true);
             }"""
         )
         self.click_and_wait(button_selector)
@@ -127,7 +198,9 @@ class AddItemPage(BasePage):
                   || window.__submitRejected
                   || !!document.querySelector('.invalid-feedback.d-block')"""
         )
-    
+        return self.page.evaluate("() => window.__awaitingSubmit === undefined")
+
+
     def cancel_form(self):
         """Cancel the add item form"""
         if self.is_visible(self.CANCEL_BUTTON):
@@ -206,7 +279,7 @@ class AddItemPage(BasePage):
     
     def submit_and_continue(self):
         """Submit form using the 'Add & Continue' button"""
-        self._submit_and_wait(self.SUBMIT_AND_CONTINUE_BUTTON)
+        self.submit_and_wait(self.SUBMIT_AND_CONTINUE_BUTTON)
 
     def click_carry_forward(self):
         """Click the 'Carry Forward' button"""

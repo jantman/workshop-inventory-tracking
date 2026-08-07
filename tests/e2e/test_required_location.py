@@ -87,10 +87,12 @@ def test_edit_item_requires_location_field(page, live_server):
     location_input = page.locator("#location")
     location_input.fill("")
 
-    # Try to submit form without location
-    submit_button = page.locator("button[type='submit']")
-    submit_button.click()
-    page.wait_for_timeout(1000)
+    # Try to submit form without location. submit_and_wait() settles on either
+    # outcome: the document being replaced, or the browser's `invalid` event
+    # firing because it refused the submission. This case is the second, and the
+    # event fires only when a submission was actually attempted and refused --
+    # so page.url below is read after the browser has decided, not before.
+    add_page.submit_and_wait("button[type='submit']")
 
     # Form should NOT submit successfully - should show validation error
     current_url = page.url
@@ -126,10 +128,8 @@ def test_edit_item_succeeds_with_location_field(page, live_server):
     location_input = page.locator("#location")
     location_input.fill("Updated Storage Room D")
 
-    # Submit form
-    submit_button = page.locator("button[type='submit']")
-    submit_button.click()
-    page.wait_for_timeout(1000)
+    # Submit form and wait for the response document to render.
+    add_page.submit_and_wait("button[type='submit']")
 
     # Should submit successfully and redirect to inventory list
     current_url = page.url

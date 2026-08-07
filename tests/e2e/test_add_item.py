@@ -342,8 +342,10 @@ def test_material_autocomplete_functionality(page, live_server):
     
     # Test 6: Verify we can complete adding an item with autocomplete
     material_input.fill('Copp')
-    page.wait_for_timeout(300)
-    
+    # The dropdown still holds the previous query's matches for 200ms after
+    # typing, so waiting for it to be visible would settle on the wrong list.
+    wait_for_material_suggestions(page, 'Copp')
+
     copper_suggestion = page.locator('.material-suggestions .suggestion-item').filter(has_text='Copper').first
     copper_suggestion.click()
     
@@ -671,9 +673,9 @@ def test_channel_item_in_type_filter(page, live_server):
     filter_options = type_filter.locator('option').all_text_contents()
     assert "Channel" in filter_options, f"'Channel' not found in type filter options: {filter_options}"
 
-    # Filter by Channel type
+    # Filter by Channel type. onFilterChange() re-renders synchronously, and
+    # assert_item_in_list() uses expect(), which polls for the row.
     type_filter.select_option("Channel")
-    page.wait_for_timeout(1000)  # Wait for filter to apply
 
     # Verify the Channel item is visible
     list_page.assert_item_in_list("JA900003")

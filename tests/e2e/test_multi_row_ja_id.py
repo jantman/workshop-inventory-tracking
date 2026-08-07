@@ -48,11 +48,12 @@ def test_item_lookup_returns_correct_data(page, live_server):
     list_page.navigate()
     list_page.wait_for_items_loaded()
     
-    # Look for the item in the inventory table
-    # The key validation is that we can find the item and it shows correct data
-    page.wait_for_timeout(2000)  # Wait for items to load
-    
-    # Check if the item appears in the table
+    # Look for the item in the inventory table.
+    # The branch below turns on count(), which does not wait -- against a table
+    # that has not rendered yet it would read 0 and take the "item not found"
+    # path. wait_for_items_loaded() above is what rules that out: loadInventory()
+    # renders every row and only then un-hides #inventory-table-container, so the
+    # container being visible means the rows are in the DOM.
     item_row = page.locator(f'tr:has(td:text("{ja_id}"))')
     if item_row.count() > 0:
         # Item found - verify it shows correct data (validates the fix)
@@ -104,13 +105,12 @@ def test_edit_form_shows_correct_data(page, live_server):
     add_page.fill_location_and_notes(location=test_item["location"], notes="Test edit form")
     add_page.submit_form()
     
-    # Navigate directly to edit page
+    # Navigate directly to edit page. The edit form's values are rendered by the
+    # server, not filled in by JavaScript, so goto() -- which waits for `load` on
+    # the final document, after any redirect -- is all the readiness there is:
+    # both page.url and #length are settled when it returns.
     page.goto(f"{live_server.url}/inventory/edit/{ja_id}")
-    page.wait_for_load_state("domcontentloaded")
-    
-    # Wait a bit for form to populate
-    page.wait_for_timeout(1000)
-    
+
     # Check if we stayed on edit page or got redirected
     current_url = page.url
     if f"/inventory/edit/{ja_id}" in current_url:

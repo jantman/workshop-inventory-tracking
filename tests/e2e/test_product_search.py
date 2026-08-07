@@ -148,7 +148,15 @@ def test_category_and_tag_suggestions_are_offered(page, live_server):
     seed(page, live_server.url)
 
     page.goto(f"{live_server.url}/products/new")
-    page.wait_for_timeout(1000)
+
+    # Both datalists are empty in the served HTML and filled by
+    # catalog-suggestions.js once GET /api/categories and GET /api/tags resolve.
+    # count() does not wait, so without this both reads are 0 and the assertions
+    # below fail for a reason that has nothing to do with what they test.
+    page.wait_for_function(
+        "() => document.querySelectorAll('#category-suggestions option').length >= 4"
+        "   && document.querySelectorAll('#tag-suggestions option').length >= 2"
+    )
 
     categories = page.locator("#category-suggestions option")
     tags = page.locator("#tag-suggestions option")

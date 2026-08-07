@@ -16,20 +16,47 @@ from sqlalchemy import func
 
 
 class InventoryListPhotoCopyPage(BasePage):
-    """Page object for inventory list photo copy/paste workflow"""
+    """Page object for inventory list photo copy/paste workflow.
+
+    Nothing in this flow is slow -- copy and clear are entirely synchronous, and
+    only paste makes a request. What made it look slow is that every assertion
+    here used to be a snapshot read: `is_visible()`, `get_attribute()`,
+    `is_checked()`. Those return whatever the DOM holds at that instant, so each
+    needed a fixed delay in front of it to be reliable. The delays are gone and
+    the reads are expect()-based, which is the same fix applied twice.
+    """
+
+    TOAST = '.alert.position-fixed'
+    BANNER = '#photo-clipboard-banner'
 
     def navigate_to_list(self):
         """Navigate to inventory list page"""
         self.page.goto(f"{self.base_url}/inventory")
         self.page.wait_for_load_state("domcontentloaded")
 
+    def _clear_toasts(self):
+        """Remove any toast still on screen.
+
+        showToast() appends a fresh element and removes it three seconds later,
+        so a toast raised earlier in the same test is still up when the next
+        action starts. Waiting for "a toast" without clearing first settles on
+        the old one and proves nothing about the new action.
+        """
+        self.page.evaluate(
+            f"() => document.querySelectorAll('{self.TOAST}')"
+            "        .forEach(el => el.remove())"
+        )
+
     def select_item(self, ja_id):
         """Select an item by checking its checkbox"""
         checkbox = self.page.locator(f'input[type="checkbox"][data-ja-id="{ja_id}"]')
         checkbox.check(force=True)  # Force the check to ensure it works
-        # Verify the checkbox is actually checked
-        assert checkbox.is_checked(), f"Checkbox for {ja_id} was not checked"
-        self.page.wait_for_timeout(300)
+        # force=True skips the actionability checks, so the state has to be
+        # confirmed rather than assumed -- is_checked() does not wait, which is
+        # what the 300ms cushion here was really holding up. onSelectionChange()
+        # then updates the Copy/Paste buttons synchronously, so they are current
+        # once the box reads checked.
+        expect(checkbox).to_be_checked()
 
     def select_multiple_items(self, ja_ids):
         """Select multiple items by checking their checkboxes"""
@@ -39,29 +66,52 @@ class InventoryListPhotoCopyPage(BasePage):
     def click_options_dropdown(self):
         """Open the Options dropdown menu"""
         self.page.locator('button:has-text("Options")').click()
-        self.page.wait_for_timeout(200)
+        # Bootstrap animates the menu open; wait for the item about to be clicked
+        # to actually be there.
+        expect(self.page.locator('#copy-photos-btn')).to_be_visible()
 
     def click_copy_photos_button(self):
-        """Click 'Copy Photos From This Item' in Options menu"""
+        """Click 'Copy Photos From This Item' in Options menu.
+
+        copyPhotosFromSelected() is entirely synchronous and every path through
+        it ends in a toast -- "ready to paste", or an error saying why not -- so
+        the toast is the one signal that covers both outcomes.
+        """
         self.click_options_dropdown()
+        self._clear_toasts()
         self.page.locator('#copy-photos-btn').click()
-        self.page.wait_for_timeout(500)
+        expect(self.page.locator(self.TOAST).first).to_be_visible()
 
     def click_paste_photos_button(self):
-        """Click 'Paste Photos To Selected' in Options menu"""
+        """Click 'Paste Photos To Selected' in Options menu.
+
+        pastePhotosToSelected() awaits POST /api/photos/copy and reports the
+        outcome as a toast on every path, so the toast is proof the response
+        landed -- and the database write behind it has committed.
+        """
         self.click_options_dropdown()
+        self._clear_toasts()
         self.page.locator('#paste-photos-btn').click()
-        self.page.wait_for_timeout(500)
+        expect(self.page.locator(self.TOAST).first).to_be_visible()
 
     def click_clear_clipboard_button(self):
         """Click 'Clear' button in photo clipboard banner"""
+        self._clear_toasts()
         self.page.locator('#clear-photo-clipboard-btn').click()
-        self.page.wait_for_timeout(300)
+        expect(self.page.locator(self.TOAST).first).to_be_visible()
 
-    def is_clipboard_banner_visible(self):
-        """Check if photo clipboard banner is visible"""
-        banner = self.page.locator('#photo-clipboard-banner')
-        return banner.is_visible()
+    def assert_clipboard_banner_visible(self):
+        """Assert the photo clipboard banner is showing."""
+        expect(self.page.locator(self.BANNER)).to_be_visible()
+
+    def assert_clipboard_banner_hidden(self):
+        """Assert the photo clipboard banner is not showing.
+
+        This is the negative case, so it must poll: `assert not
+        banner.is_visible()` is satisfied by a page that has not got there yet
+        just as well as by one that has.
+        """
+        expect(self.page.locator(self.BANNER)).not_to_be_visible()
 
     def get_clipboard_banner_text(self):
         """Get the text from the clipboard banner"""
@@ -70,33 +120,41 @@ class InventoryListPhotoCopyPage(BasePage):
     def get_toast_message(self):
         """Get the toast notification message (latest if multiple exist)"""
         # Use .last to get the most recent toast when multiple exist
-        toast = self.page.locator('.alert.position-fixed').last
+        toast = self.page.locator(self.TOAST).last
         if toast.is_visible():
             return toast.inner_text()
         return None
 
     def wait_for_toast(self, timeout=3000):
         """Wait for a toast message to appear"""
-        self.page.wait_for_selector('.alert.position-fixed', timeout=timeout)
-        self.page.wait_for_timeout(300)
+        expect(self.page.locator(self.TOAST).first).to_be_visible(timeout=timeout)
 
-    def is_copy_photos_button_enabled(self):
-        """Check if Copy Photos button is enabled"""
-        self.click_options_dropdown()
-        button = self.page.locator('#copy-photos-btn')
-        is_disabled = button.get_attribute('disabled') is not None
-        # Close dropdown
-        self.page.keyboard.press('Escape')
-        return not is_disabled
+    def assert_copy_photos_button_enabled(self, enabled):
+        """Assert the enabled state of 'Copy Photos From This Item'."""
+        self._assert_menu_item_enabled('#copy-photos-btn', enabled)
 
-    def is_paste_photos_button_enabled(self):
-        """Check if Paste Photos button is enabled"""
-        self.click_options_dropdown()
-        button = self.page.locator('#paste-photos-btn')
-        is_disabled = button.get_attribute('disabled') is not None
-        # Close dropdown
-        self.page.keyboard.press('Escape')
-        return not is_disabled
+    def assert_paste_photos_button_enabled(self, enabled):
+        """Assert the enabled state of 'Paste Photos To Selected'."""
+        self._assert_menu_item_enabled('#paste-photos-btn', enabled)
+
+    def _assert_menu_item_enabled(self, selector, enabled):
+        """Assert whether a menu item is enabled, and wait for it to become so.
+
+        These are `<a class="dropdown-item">`, not form controls, so Playwright's
+        to_be_enabled() does not apply -- updatePhotoClipboardUI() toggles the
+        `disabled` *attribute* on them and that attribute is the whole state.
+        Asserting on it with expect() polls, where the get_attribute() read this
+        replaces did not, which is why it needed a delay in front of it.
+
+        Opening the Options menu first is not necessary and is not done: the
+        attribute is set whether or not the menu is on screen, and opening it was
+        the entire cost of the old version.
+        """
+        item = self.page.locator(selector)
+        if enabled:
+            expect(item).not_to_have_attribute('disabled', '')
+        else:
+            expect(item).to_have_attribute('disabled', '')
 
 
 @pytest.mark.e2e
@@ -151,7 +209,7 @@ def test_copy_paste_photos_single_target(live_server, page):
     list_page.click_copy_photos_button()
 
     # Verify clipboard banner appears
-    assert list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_visible()
     banner_text = list_page.get_clipboard_banner_text()
     assert source_ja_id in banner_text
     assert "2 photo" in banner_text.lower()
@@ -176,7 +234,7 @@ def test_copy_paste_photos_single_target(live_server, page):
         assert len(target_photos) == 2
 
     # Verify clipboard banner is gone
-    assert not list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_hidden()
 
 
 @pytest.mark.e2e
@@ -235,7 +293,7 @@ def test_copy_paste_photos_multiple_targets(live_server, page):
     list_page.click_copy_photos_button()
 
     # Verify clipboard banner
-    assert list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_visible()
 
     # Select all target items and paste photos
     list_page.select_multiple_items(target_ja_ids)
@@ -365,7 +423,7 @@ def test_copy_photos_from_item_with_no_photos(live_server, page):
     assert "no photos" in toast.lower()
 
     # Verify clipboard banner does NOT appear
-    assert not list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_hidden()
 
 
 @pytest.mark.e2e
@@ -405,14 +463,14 @@ def test_clear_photo_clipboard(live_server, page):
     list_page.click_copy_photos_button()
 
     # Verify banner appears
-    assert list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_visible()
 
     # Clear clipboard
     list_page.click_clear_clipboard_button()
     list_page.wait_for_toast()
 
     # Verify banner disappears
-    assert not list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_hidden()
 
     # Verify toast message
     toast = list_page.get_toast_message()
@@ -547,20 +605,20 @@ def test_button_states_based_on_selection(live_server, page):
 
     # Initially, with nothing selected, both buttons should be disabled
     # (Copy requires 1 selected, Paste requires selection + clipboard)
-    assert not list_page.is_copy_photos_button_enabled()
-    assert not list_page.is_paste_photos_button_enabled()
+    list_page.assert_copy_photos_button_enabled(False)
+    list_page.assert_paste_photos_button_enabled(False)
 
     # Select one item with photos - Copy should be enabled, Paste still disabled
+    # assert_*_button_enabled() polls the `disabled` attribute, so the state
+    # change is waited for rather than cushioned.
     list_page.select_item(item1.ja_id)
-    page.wait_for_timeout(500)  # Wait for button state to update
-    assert list_page.is_copy_photos_button_enabled()
-    assert not list_page.is_paste_photos_button_enabled()
+    list_page.assert_copy_photos_button_enabled(True)
+    list_page.assert_paste_photos_button_enabled(False)
 
     # Copy photos - clipboard now active
     list_page.click_copy_photos_button()
-    assert list_page.is_clipboard_banner_visible()
+    list_page.assert_clipboard_banner_visible()
 
     # Select target item - Paste should now be enabled
     list_page.select_item(item2.ja_id)
-    page.wait_for_timeout(500)  # Wait for button state to update
-    assert list_page.is_paste_photos_button_enabled()
+    list_page.assert_paste_photos_button_enabled(True)

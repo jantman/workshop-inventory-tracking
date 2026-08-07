@@ -41,8 +41,11 @@ def test_toggle_item_status_function_exists(page, live_server):
     status_filter = page.locator('#status-filter')
     status_filter.select_option('inactive')
 
-    # Wait for items to load
-    page.wait_for_timeout(1000)
+    # onFilterChange() re-filters the already-loaded items and re-renders
+    # synchronously, so the table is current by the time select_option returns.
+    # What the evaluate() below actually needs is inventory-list.js to have run at
+    # all, and the row it filtered to is proof of that.
+    expect(page.locator("#inventory-table-body tr")).to_have_count(1)
 
     # Verify toggleItemStatus function is defined as a global function
     # After fix, this should return true
@@ -128,11 +131,20 @@ def test_activate_inactive_item_via_dropdown(page, live_server):
     # Set up dialog handler for confirmation (click OK)
     page.on('dialog', lambda dialog: dialog.accept())
 
+    # Mark the document before clicking. toggleItemStatus() awaits
+    # PATCH /api/inventory/{ja_id}/status and only then calls location.reload(),
+    # so the marker disappearing is proof the request resolved and the reload
+    # started -- which is what the console-error check below needs to have
+    # happened before it reads its list.
+    page.evaluate("() => { window.__beforeToggle = true; }")
+
     # Click the Activate link
     activate_link.click()
+    page.wait_for_function("() => window.__beforeToggle === undefined")
 
-    # Wait a moment for any JavaScript to execute and page to reload
-    page.wait_for_timeout(1000)
+    # The reloaded list renders from a second fetch; let it settle so any error
+    # it would log has been logged.
+    list_page.wait_for_items_loaded()
 
     # After fix, there should be no JavaScript errors
     assert not console_errors, f"No JavaScript errors should occur, but got: {console_errors}"

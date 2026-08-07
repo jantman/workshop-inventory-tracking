@@ -62,7 +62,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 #### E2E waiting rules (non-negotiable)
 
-The e2e suite took 22m 27s until `specs/002-e2e-test-performance/`, over half of it spent blocking on a clock instead of on the application. These rules keep it fast; the full version with examples is `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`.
+The e2e suite took 22m 27s until `specs/002-e2e-test-performance/`, over half of it spent blocking on a clock instead of on the application. These rules keep it fast; the full version with examples is the "Writing e2e tests" section of `CLAUDE.md`.
 
 - **No `page.wait_for_timeout(...)` and no `time.sleep(...)`.** Use `expect(locator)`, which polls until the condition holds. Where nothing observable exists, the wait may stay only with a comment at the call site explaining why.
 - **No `wait_for_load_state("networkidle")`.** It costs >=0.5s per call and says nothing about your content. `goto()` already waits for `load`.

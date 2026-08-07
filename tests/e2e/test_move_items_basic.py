@@ -86,10 +86,11 @@ def test_move_manual_entry_mode_toggle(page, live_server):
     # Should be able to toggle manual entry mode
     manual_checkbox.check()
     expect(manual_checkbox).to_be_checked()
-    
-    # Scanner status should update
-    page.wait_for_timeout(500)  # Allow JavaScript to update
-    
+
+    # The change handler calls updateScannerStatus() synchronously, so the badge
+    # has already been rewritten by the time check() returns.
+    expect(page.locator("#scanner-status")).to_have_text("Ready")
+
     manual_checkbox.uncheck()
     expect(manual_checkbox).not_to_be_checked()
 

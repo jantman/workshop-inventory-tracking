@@ -8,6 +8,7 @@ items with sequential JA IDs in a single form submission.
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
+from tests.e2e.waits import wait_for_modal_hidden, wait_for_modal_shown
 
 
 class BulkCreationPage(BasePage):
@@ -38,9 +39,13 @@ class BulkCreationPage(BasePage):
             self.page.locator("#notes").fill(item_data['notes'])
 
     def set_quantity_to_create(self, quantity):
-        """Set the quantity to create field"""
+        """Set the quantity to create field.
+
+        updateBulkCreationInfo() is bound to `input` and rewrites the preview
+        synchronously, so it has already run by the time fill() returns and
+        get_bulk_creation_info_text() cannot read a stale message.
+        """
         self.page.locator("#quantity_to_create").fill(str(quantity))
-        self.page.wait_for_timeout(200)  # Allow preview update
 
     def get_bulk_creation_info_text(self):
         """Get the bulk creation info message"""
@@ -50,10 +55,29 @@ class BulkCreationPage(BasePage):
         return None
 
     def submit_form(self):
-        """Submit the add item form"""
+        """Submit the add item form and wait for the submission to resolve.
+
+        The form takes two different paths and this helper drives both. With
+        quantity 1 it is an ordinary POST that replaces the document, so marking
+        the document and waiting for the marker to vanish is the signal. With
+        quantity > 1 it is AJAX: the handler awaits the POST and only then raises
+        a toast and opens the bulk label modal, so either of those appearing
+        proves the response landed. Any earlier toast is cleared first so this
+        cannot settle on a stale one.
+        """
+        self.page.evaluate(
+            """() => {
+                window.__awaitingSubmit = true;
+                const c = document.getElementById('toast-container');
+                if (c) c.innerHTML = '';
+            }"""
+        )
         self.page.locator("#submit-btn").click()
-        # For bulk creation (AJAX), wait a moment for the request to complete
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_function(
+            """() => window.__awaitingSubmit === undefined
+                  || !!document.querySelector('#toast-container .toast')
+                  || !!document.querySelector('#bulkLabelPrintingModal.show')"""
+        )
 
     def get_success_message(self):
         """Get success message text"""
@@ -62,12 +86,24 @@ class BulkCreationPage(BasePage):
         return alert.inner_text()
 
     def is_bulk_label_modal_visible(self):
-        """Check if bulk label printing modal is shown"""
+        """Check if bulk label printing modal is shown.
+
+        is_visible() does not wait, so the modal has to be established first --
+        Bootstrap fades it in after the AJAX response, and every caller here is
+        asserting that it did appear.
+        """
+        wait_for_modal_shown(self.page, "bulkLabelPrintingModal")
         modal = self.page.locator("#bulkLabelPrintingModal")
         return modal.is_visible()
 
     def get_modal_ja_ids(self):
-        """Get the list of JA IDs shown in the modal"""
+        """Get the list of JA IDs shown in the modal.
+
+        count() does not wait either, and the list is rendered by the same
+        handler that opens the modal, so an unestablished modal reads as zero
+        JA IDs rather than as "not ready yet".
+        """
+        wait_for_modal_shown(self.page, "bulkLabelPrintingModal")
         ja_ids = []
         items = self.page.locator("#bulk-label-items-list .list-group-item")
         count = items.count()
@@ -79,9 +115,13 @@ class BulkCreationPage(BasePage):
         return ja_ids
 
     def close_modal(self):
-        """Close the bulk label printing modal"""
+        """Close the bulk label printing modal and wait for it to finish closing.
+
+        Bootstrap fades the modal out; until that finishes the backdrop still
+        intercepts clicks, so anything the caller does next lands on nothing.
+        """
         self.page.locator("#bulk-label-modal-close-btn").click()
-        self.page.wait_for_timeout(500)
+        wait_for_modal_hidden(self.page, "bulkLabelPrintingModal")
 
 
 @pytest.mark.e2e

@@ -8,6 +8,7 @@ LpPrinter.print_images()** -- that drives real hardware.
 
 import pytest
 from playwright.sync_api import expect
+from tests.e2e.waits import wait_for_select_populated
 
 
 def create_product(page, base_url, description):
@@ -22,10 +23,15 @@ def print_label(page, stock="Sato 2x4"):
     """Open the label modal, pick a stock and print"""
     page.click("#print-product-label-btn")
     expect(page.locator("#product-label-modal")).to_be_visible()
-    page.wait_for_timeout(500)
+    # The stock list is fetched from /api/labels/types; the select ships with a
+    # single placeholder option, so more than one option is proof it arrived.
+    wait_for_select_populated(page, "product-label-type-select")
     page.select_option("#product-label-type-select", stock)
     page.click("#product-label-print-confirm")
-    page.wait_for_timeout(1000)
+    # print() posts and reports the outcome into #product-label-alert -- on both
+    # the success and the failure path -- so the alert existing means the POST
+    # resolved.
+    expect(page.locator("#product-label-alert")).to_be_visible()
 
 
 @pytest.mark.e2e
@@ -35,7 +41,10 @@ def test_all_six_stocks_are_offered(page, live_server):
 
     page.click("#print-product-label-btn")
     expect(page.locator("#product-label-modal")).to_be_visible()
-    page.wait_for_timeout(1000)
+    # count() does not wait, so the list has to be established first: without
+    # this the loop below reads the lone placeholder option and every stock looks
+    # missing.
+    wait_for_select_populated(page, "product-label-type-select")
 
     options = page.locator("#product-label-type-select option")
     names = [options.nth(i).inner_text() for i in range(options.count())]

@@ -135,11 +135,11 @@ def test_history_functionality_in_search_results(page, live_server):
     add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
     page.fill("#thickness", test_item["thickness"])
     add_page.fill_location_and_notes(location=test_item["location"], notes=test_item["notes"])
+    # submit_form() already waits for the POST to resolve and the response
+    # document to render, which is the same thing as the row being committed --
+    # the server commits before it responds.
     add_page.submit_form()
-    
-    # Wait a moment for submission to complete
-    page.wait_for_timeout(2000)
-    
+
     # Navigate to search page
     page.goto(f'{live_server.url}/inventory/search')
     

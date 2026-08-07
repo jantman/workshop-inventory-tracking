@@ -19,6 +19,7 @@ from tests.e2e.pages.add_item_page import AddItemPage
 from app.photo_service import PhotoService
 from app.mariadb_inventory_service import InventoryService
 from app.database import InventoryItem
+from tests.e2e.waits import wait_for_photo_viewer_open
 
 
 @pytest.fixture
@@ -140,10 +141,9 @@ def test_photo_upload_with_existing_shared_photos(page, live_server, sample_imag
     file_input = page.locator(".photo-file-input")
     file_input.set_input_files(blue_image_path)
 
-    # Wait for photo to be processed and uploaded
-    page.wait_for_timeout(2000)
-
-    # Verify photo appears in gallery
+    # Verify photo appears in gallery. This is the edit page, so the item id is
+    # set and processSingleFile() awaits the upload POST before appending the
+    # card (photo-manager.js:303): the card existing means the upload finished.
     photo_gallery = page.locator(".photo-gallery-grid")
     expect(photo_gallery).to_be_visible()
     expect(photo_gallery.locator(".photo-card")).to_have_count(1)
@@ -158,9 +158,12 @@ def test_photo_upload_with_existing_shared_photos(page, live_server, sample_imag
     assert "undefined" not in photo_name_text.lower(), f"BUG: Photo name contains 'undefined': {photo_name_text}"
     assert ".jpg" in photo_name_text, f"Photo name should contain .jpg extension: {photo_name_text}"
 
-    # BUG CHECK 2: Try to view the photo - should not be broken
-    # Wait a bit for the gallery to update with the server URL (may start as data URL)
-    page.wait_for_timeout(1000)
+    # BUG CHECK 2: Try to view the photo - should not be broken.
+    # There is nothing further to wait for here. The card was established above,
+    # and its thumbnail src is only rewritten to a server URL for PDFs -- an
+    # image keeps the data URL its preview was generated from, which is why the
+    # read below accepts either form. The delay that used to sit here was waiting
+    # for something that never happens on this path.
 
     # Get the thumbnail src to check the photo ID (img is inside the thumbnail div)
     thumbnail_img = photo_card.locator(".photo-thumbnail img")
@@ -184,7 +187,9 @@ def test_photo_upload_with_existing_shared_photos(page, live_server, sample_imag
 
     # Click thumbnail to view full photo
     photo_card.locator(".photo-thumbnail").click()
-    page.wait_for_timeout(1000)
+    # Both reads below are snapshots feeding an `or`, so an unopened viewer
+    # reads False, False rather than "not ready yet".
+    wait_for_photo_viewer_open(page)
 
     # Verify photo viewer opens (either PhotoSwipe or fallback modal)
     photoswipe_visible = page.locator(".pswp").is_visible()
@@ -213,8 +218,10 @@ def test_photo_upload_with_existing_shared_photos(page, live_server, sample_imag
     page.goto(edit_url)
     expect(page.locator("#add-item-form")).to_be_visible()
 
-    # Wait for photos to load
-    page.wait_for_timeout(1000)
+    # Wait for photos to load. loadExistingPhotos() is async and appends cards as
+    # its response is parsed; .photo-count is written by updateGalleryDisplay()
+    # once the whole set is in, so it is the batch-complete signal.
+    expect(page.locator(".photo-count")).to_have_text("1")
 
     # BUG CHECK 3: After navigation, photo should still be correct
     photo_gallery = page.locator(".photo-gallery-grid")

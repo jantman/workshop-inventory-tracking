@@ -10,6 +10,7 @@ import re
 from playwright.sync_api import expect
 from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.inventory_list_page import InventoryListPage
+from tests.e2e.waits import wait_for_material_suggestions
 
 
 @pytest.mark.e2e
@@ -90,15 +91,25 @@ def test_add_form_accepts_valid_taxonomy_materials(page, live_server):
         page.locator('#item_type').select_option('Bar')
         page.locator('#shape').select_option('Round')
         page.locator('#material').fill(test_material)
+        # MaterialValidator marks the field invalid, and calls setCustomValidity(),
+        # until its taxonomy list has arrived. Submitting inside that window is
+        # refused by the browser and nothing is created. Wait for the validator to
+        # accept the value -- that is the condition the old delay stood in for.
+        #
+        # The condition is the positive class. validateMaterial() adds is-valid on
+        # accept and is-invalid on reject, and removes *both* on an empty field --
+        # and the constructor only binds listeners, so before the first input event
+        # the field carries neither. "not is-invalid" is therefore also true of a
+        # field the validator has never looked at.
+        expect(page.locator('#material')).to_have_class(re.compile(r'\bis-valid\b'))
         page.locator('#length').fill('12')
         page.locator('#width').fill('1')
-        
-        # Submit form
-        page.locator('button[type="submit"]').first.click()
-        
-        # Should successfully submit (redirected away from form)
-        page.wait_for_timeout(1000)  # Allow time for form processing
-        
+
+        # Submit form. submit_and_wait() marks the document first, so it returns
+        # once the POST has replaced it -- or once the browser has refused the
+        # submission outright. Either way the is_visible() read below is settled.
+        add_page.submit_and_wait('button[type="submit"] >> nth=0')
+
         # Should either be on success page or back to inventory list
         # The material field should not show as invalid
         material_field = page.locator('#material')
@@ -198,13 +209,12 @@ def test_edit_form_accepts_valid_taxonomy_materials(page, live_server):
         material_field = page.locator('#material')
         material_field.clear()
         material_field.fill(new_material)
-        
-        # Submit form
-        page.locator('button[type="submit"]').click()
-        
-        # Should successfully update
-        page.wait_for_timeout(1000)
-        
+        # As above: wait for the accept, not for the absence of a reject.
+        expect(material_field).to_have_class(re.compile(r'\bis-valid\b'))
+
+        # Submit form and wait for the response to render, not for a delay.
+        add_page.submit_and_wait('button[type="submit"] >> nth=0')
+
         # Material field should not show as invalid
         if material_field.is_visible():
             expect(material_field).not_to_have_class(re.compile(r'.*\bis-invalid\b.*'))
@@ -220,10 +230,13 @@ def test_material_autocomplete_only_shows_taxonomy_materials(page, live_server):
     # Start typing in material field to trigger autocomplete
     material_field = page.locator('#material')
     material_field.fill('Ste')
-    
-    # Wait for autocomplete suggestions
-    page.wait_for_timeout(500)
-    
+
+    # Wait for autocomplete suggestions. MaterialSelector debounces its input
+    # handler by 200ms, so the dropdown still holds the previous query's matches
+    # for a moment after typing; wait_for_material_suggestions settles on a list
+    # where every entry matches this query.
+    wait_for_material_suggestions(page, 'Ste')
+
     # Check if autocomplete suggestions appear
     suggestions_div = page.locator('#material-suggestions')
     if suggestions_div.is_visible():
@@ -245,12 +258,14 @@ def test_material_autocomplete_only_shows_taxonomy_materials(page, live_server):
             page.locator('#shape').select_option('Round')
             page.locator('#length').fill('10')
             page.locator('#width').fill('1')
-            
-            page.locator('button[type="submit"]').first.click()
-            
-            # Should submit successfully
-            page.wait_for_timeout(1000)
-            
+
+            # The value came from the taxonomy dropdown, so the validator will
+            # accept it -- but only once its list has loaded. Wait for the accept
+            # itself: "not is-invalid" is also true of a field the validator has
+            # not looked at, since it holds neither class until then.
+            expect(material_field).to_have_class(re.compile(r'\bis-valid\b'))
+            add_page.submit_and_wait('button[type="submit"] >> nth=0')
+
             # If still on form page, material should not be invalid
             if material_field.is_visible():
                 expect(material_field).not_to_have_class(re.compile(r'.*\bis-invalid\b.*'))

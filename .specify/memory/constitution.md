@@ -1,6 +1,26 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 1.2.0 → 1.3.0
+Bump rationale: Principle IV's waiting rule now binds every E2E test without exception for
+pre-existing call sites. The tolerance for already-committed fixed waits, recorded in the
+1.2.0 entry below, is retired because the set it covered has been cleared. The only
+surviving exception is a condition that genuinely cannot be observed, justified in writing
+at the call site. Existing guidance was materially expanded — a rule that bound new tests
+now binds all of them — and none was inverted. MINOR under the versioning policy.
+
+Modified principles:
+  - IV. Test Discipline Through Nox        → waiting rule applies to all tests, not only
+                                             new ones; sole exception is an unobservable
+                                             condition justified at the call site
+
+Migration path: `specs/003-e2e-remove-timed-waits/` did the work. Every fixed-duration wait
+in `tests/e2e/` is either gone or carries a written justification naming the condition that
+cannot be observed. No migration is outstanding.
+
+Follow-up TODOs: none.
+
+--- previous entry ---
 Version change: 1.1.0 → 1.2.0
 Bump rationale: Principle IV gained three rules — a corrected E2E timeout allowance, the
 exclusion of screenshot generation from the E2E gate (a test run must leave the working
@@ -12,11 +32,9 @@ Modified principles:
                                              time-based waits prohibited
 
 Migration path: `specs/002-e2e-test-performance/` did the work. `tests/e2e/` no longer uses
-`networkidle`; the remaining `wait_for_timeout` call sites are listed as deferred in that
-feature's plan and are grandfathered until removed — no *new* ones may be added.
-
-Follow-up TODOs: remove the grandfathered waits in `test_move_items_sub_location.py`,
-`test_photo_upload*.py`, `test_copy_item_photos.py` and `test_screenshot_generation.py`.
+`networkidle`; the remaining `wait_for_timeout` call sites were listed as deferred in that
+feature's plan, to be cleared by a follow-up — no *new* ones could be added meanwhile.
+`specs/003-e2e-remove-timed-waits/` cleared them; see the 1.3.0 entry above.
 
 --- previous entry ---
 Version change: 1.0.0 → 1.1.0
@@ -129,9 +147,11 @@ must round-trip exactly; binary floating point silently corrupts them.
   clean.**
 - E2E tests MUST wait on observable application state, never on elapsed time.
   `page.wait_for_timeout(...)`, `time.sleep(...)` and `wait_for_load_state("networkidle")`
-  are prohibited in `tests/e2e/`; where no observable condition exists, a wait MAY remain
-  only with a written justification at the call site. The full rules are
-  `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`.
+  are prohibited in `tests/e2e/`. This binds every test, not only new ones; no call site is
+  exempt for having been written first. The sole exception is a condition that genuinely
+  cannot be observed, and it MAY be taken only with a written justification at the call
+  site naming that condition. How to find the condition to wait on is practice, not
+  governance: it lives in `CLAUDE.md`.
 - Unit tests run with the network blocked (`--blockage`). Unit tests MUST mock all HTTP
   and external API calls.
 - Unit tests MUST build fixtures through `tests/conftest.py` (`test_storage` → `app` →
@@ -266,4 +286,4 @@ exception is warranted and what bounds it. Agent-driven work additionally follow
 operational rules in `CLAUDE.md` and `_bmad-output/project-context.md`; those files are
 subordinate to this constitution and MUST be updated when it changes.
 
-**Version**: 1.2.0 | **Ratified**: 2026-08-01 | **Last Amended**: 2026-08-06
+**Version**: 1.3.0 | **Ratified**: 2026-08-01 | **Last Amended**: 2026-08-07
