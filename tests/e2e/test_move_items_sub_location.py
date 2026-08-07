@@ -25,12 +25,13 @@ class TestMoveItemsSubLocation:
 
         Two things here are load-bearing and neither is obvious.
 
-        The add page fills #ja_id itself, from GET /api/inventory/next-ja-id. Its
-        "only if the field is empty" guard is checked *before* that await and the
-        write lands *after* it, so a fill() issued in the gap has its selection
-        collapsed by the page's write and appends instead of replacing --
-        leaving "JA000102JA000102", which fails the field's pattern. Let the
-        page's own write land first, and confirm ours stuck.
+        The add page fills #ja_id itself, from GET /api/inventory/next-ja-id.
+        autoPopulateJaId() re-checks "only if the field is empty" on the far side
+        of that fetch, so it will not clobber a value we have already typed -- but
+        fill() is select-then-insert, and a write landing between those two steps
+        still collapses the selection and appends, leaving "JA000102JA000102",
+        which fails the field's pattern. Let the page's own write land first, and
+        confirm ours stuck.
 
         And a submit the browser refuses leaves no trace in the DOM, so an item
         that was never created is invisible here. It resurfaces much later as a
@@ -84,6 +85,18 @@ class TestMoveItemsSubLocation:
 
         # Complete scanning
         scan_on_move_page(page, '>>DONE<<')
+
+        # #67: handleDoneCode() used to read moveQueue.length before its own
+        # un-awaited finalise had pushed to it, so on this path -- one move
+        # pending, nothing else queued -- it warned that the queue was empty and
+        # returned before setting either of these. The queue row and an enabled
+        # Validate button appeared a moment later regardless, which is why the
+        # rest of this test passed throughout. Assert the reporting, not just the
+        # outcome.
+        expect(page.locator('#scanner-status')).to_have_text('Done - Ready to Validate')
+        expect(page.locator('#status-text')).to_contain_text(
+            'Scan completed. 1 items queued for moving.'
+        )
 
         # Verify queue shows correct sub-location info
         queue_table = page.locator('#queue-items')
