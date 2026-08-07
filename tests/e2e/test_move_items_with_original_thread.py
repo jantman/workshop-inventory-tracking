@@ -8,6 +8,7 @@ items with non-null original_thread values and attempting to move them.
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
+from tests.e2e.waits import scan_on_move_page
 from sqlalchemy.orm import sessionmaker
 from app.database import InventoryItem
 
@@ -21,14 +22,13 @@ class MoveItemsPage(BasePage):
         self.page.wait_for_load_state("domcontentloaded")
     
     def simulate_barcode_scan(self, barcode_text):
-        """Simulate barcode scanner input (keyboard wedge + Enter)"""
-        barcode_input = self.page.locator("#barcode-input")
-        barcode_input.fill("")
-        barcode_input.focus()
-        barcode_input.type(barcode_text)
-        barcode_input.press("Enter")
-        self.page.wait_for_timeout(500)
-    
+        """Simulate barcode scanner input (keyboard wedge + Enter).
+
+        scan_on_move_page picks the readiness signal that matches the transition
+        this particular scan takes -- see its docstring.
+        """
+        scan_on_move_page(self.page, barcode_text)
+
     def get_queue_count(self):
         """Get the number of items in the move queue"""
         count_text = self.page.locator("#queue-count").inner_text()
@@ -171,18 +171,17 @@ def test_move_multiple_items_with_mixed_original_thread(page, live_server):
 
     # Move all items to the same location (new workflow: each JA ID finalizes previous move)
     for i, (ja_id, _) in enumerate(items):
+        # A JA ID scanned while a move is open finalises that move behind an API
+        # call; simulate_barcode_scan waits for the queue to take it before
+        # returning, so the count below is read from a settled table.
         move_page.simulate_barcode_scan(ja_id)
         if i > 0:
-            # Wait for finalization to complete (async operation with API call)
-            page.wait_for_timeout(500)
             # Verify previous item was added to queue
             assert move_page.get_queue_count() == i
         move_page.simulate_barcode_scan("M15-O")
 
     # Complete scanning to finalize the last move
     move_page.simulate_barcode_scan(">>DONE<<")
-    # Wait for finalization to complete (async operation with API call)
-    page.wait_for_timeout(500)
 
     # Should have all items in queue
     assert move_page.get_queue_count() == 3

@@ -148,8 +148,11 @@ def test_status_filter_inactive_only(page, live_server):
     status_filter = page.locator("#status-filter")
     status_filter.select_option("inactive")
 
-    # Wait for filter to apply
-    page.wait_for_timeout(1000)
+    # onFilterChange() filters in memory and re-renders synchronously -- but
+    # get_inventory_items() below reads the table with count(), which does not
+    # wait, so the region has to be established first or "2 inactive items" and
+    # "the table has not rendered" are indistinguishable.
+    expect(page.locator("#inventory-table-body tr")).to_have_count(2)
 
     # Get displayed items
     items = list_page.get_inventory_items()
@@ -226,8 +229,8 @@ def test_status_filter_all_items(page, live_server):
     status_filter = page.locator("#status-filter")
     status_filter.select_option("all")
 
-    # Wait for filter to apply
-    page.wait_for_timeout(1000)
+    # As above: establish the re-rendered table before the non-waiting read.
+    expect(page.locator("#inventory-table-body tr")).to_have_count(4)
 
     # Get displayed items
     items = list_page.get_inventory_items()

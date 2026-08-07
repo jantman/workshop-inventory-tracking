@@ -11,6 +11,7 @@ from PIL import Image
 from playwright.sync_api import expect
 from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.inventory_list_page import InventoryListPage
+from tests.e2e.waits import wait_for_photo_viewer_open
 
 
 @pytest.fixture
@@ -76,10 +77,10 @@ class TestPhotoUploadAddItem:
         file_input = page.locator(".photo-file-input")
         file_input.set_input_files(sample_image_file)
         
-        # Wait for photo to be processed and uploaded
-        page.wait_for_timeout(2000)  # Wait for upload to complete
-        
-        # Verify photo appears in gallery
+        # Verify photo appears in gallery. On the edit page the item id is set,
+        # so processSingleFile() awaits the upload POST *before* it appends the
+        # card (photo-manager.js:303) -- a rendered card cannot predate a
+        # completed upload, and to_have_count() polls for it.
         photo_gallery = page.locator(".photo-gallery-grid")
         expect(photo_gallery).to_be_visible()
         expect(photo_gallery.locator(".photo-card")).to_have_count(1)
@@ -91,8 +92,11 @@ class TestPhotoUploadAddItem:
         
         # Test photo viewing (click to open lightbox/modal)
         photo_card.locator(".photo-thumbnail").click()
-        page.wait_for_timeout(1000)  # Wait for modal/lightbox to open
-        
+        # Both is_visible() reads below are snapshots, and the assertion they
+        # feed is an `or` -- so against a viewer that has not opened yet they
+        # read False, False and fail for a reason that is only timing.
+        wait_for_photo_viewer_open(page)
+
         # Verify photo can be viewed (either PhotoSwipe or fallback modal)
         # Check for PhotoSwipe or fallback modal
         photoswipe_visible = page.locator(".pswp").is_visible()
@@ -264,10 +268,8 @@ class TestPhotoMetadataDisplay:
         file_input = page.locator(".photo-file-input")
         file_input.set_input_files(sample_image_file)
 
-        # Wait for photo to be processed and uploaded
-        page.wait_for_timeout(2000)
-
-        # Verify photo appears in gallery
+        # Verify photo appears in gallery. As above: the card is appended only
+        # after the upload POST resolves, so its existence is the whole signal.
         photo_gallery = page.locator(".photo-gallery-grid")
         expect(photo_gallery).to_be_visible()
         photo_card = photo_gallery.locator(".photo-card").first

@@ -73,11 +73,14 @@ Reference figures for the `wait_for_timeout` line, which is what SC-008 is measu
 | Point | `wait_for_timeout` | `networkidle` |
 |---|---|---|
 | Baseline | 423.9s (n=479) | ~302s |
-| Delivered | **121.6s (n=212)** | **0** |
+| Delivered by this feature | 121.6s (n=212) | **0** |
+| Delivered by feature 003 | **0s (n=0)** | 0 |
 | SC-008 target | under 60s | n/a |
 
-SC-008 is **not met**: 121.6s against a 60s target. The remainder sits in the files listed
-as deferred in [plan.md](./plan.md); read that before assuming the work is finished.
+SC-008 is **met**, but not by this feature alone. This feature left 121.6s against a 60s
+target, in the files listed as deferred in [plan.md](./plan.md).
+`specs/003-e2e-remove-timed-waits/` cleared all 127 of them on 2026-08-06: `wait_for_timeout`
+no longer appears in the probe output, and the suite runs in 8m 13s.
 
 ## Verifying coverage was not traded away (SC-003, SC-004)
 

@@ -4,9 +4,12 @@ E2E Tests for Item Actions - View and Edit
 Tests for the view (modal) and edit functionality of inventory items.
 """
 
+import re
+
 import pytest
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 from tests.e2e.pages.add_item_page import AddItemPage
+from tests.e2e.waits import dismiss_material_suggestions
 from playwright.sync_api import expect
 
 
@@ -50,12 +53,12 @@ def test_view_item_modal_workflow(page, live_server):
     precision_checkbox.check()
     expect(precision_checkbox).to_be_checked()  # Verify it got checked
     
-    # Submit form and wait for processing
+    # Submit form and wait for processing. submit_form() already waits for the
+    # POST to resolve and the response document to render, which is the same
+    # thing as the database write having happened -- the row is committed before
+    # the response is sent.
     add_page.submit_form()
-    
-    # Give extra time for form processing and database write
-    page.wait_for_timeout(3000)
-    
+
     # Navigate to inventory list
     list_page = InventoryListPage(page, live_server.url)
     list_page.navigate()
@@ -207,19 +210,20 @@ def test_edit_item_workflow(page, live_server):
     
     # Make some changes to the item
     material_field.fill('6000 Series')
-    # Wait for material selector dropdown to disappear after filling
-    page.wait_for_timeout(500)
-    # Click outside material field to close any dropdown
-    page.locator('body').click()
-    
+    # The MaterialSelector dropdown opens over the precision checkbox below, so
+    # it has to be dismissed -- and confirmed gone -- before anything else on the
+    # form can be clicked. See dismiss_material_suggestions for why an immediate
+    # Escape is not enough.
+    dismiss_material_suggestions(page)
+
     width_field.fill('6')
     location_field.fill('Workshop C')
     notes_field.fill('Updated aluminum plate - now 6000 series alloy')
     vendor_part_field.fill('ALU-6000-SERIES-002')  # Update vendor part number
 
-    # Check the precision checkbox as part of the edit
-    # Wait for any dropdowns to close before interacting with checkbox
-    page.wait_for_timeout(500)
+    # Check the precision checkbox as part of the edit. The only dropdown that
+    # could cover it was dismissed above, and check() waits for the box to be
+    # actionable -- unobscured included.
     precision_checkbox.check()
     expect(precision_checkbox).to_be_checked()
     
@@ -316,11 +320,18 @@ def test_edit_form_loads_without_validation_errors(page, live_server):
     
     # Navigate to edit the item
     page.goto(f'{live_server.url}/inventory/edit/JA102003')
-    
-    # Wait for page to fully load
-    page.wait_for_load_state('domcontentloaded')
-    page.wait_for_timeout(500)  # Small delay for JavaScript to initialize
-    
+
+    # The assertions below are negative -- "nothing is marked invalid" -- so they
+    # would pass trivially against a page whose scripts have not run yet. Two
+    # initialisation passes have to land first, and each leaves a marker:
+    #
+    #  - edit.html clears any .is-invalid classes and only then adds
+    #    `needs-validation` to the form, so that class means the clearing pass ran;
+    #  - MaterialValidator marks #material invalid until its taxonomy list has
+    #    arrived, so the field losing that class means the fetch resolved.
+    expect(page.locator('#add-item-form')).to_have_class(re.compile(r'\bneeds-validation\b'))
+    expect(page.locator('#material')).not_to_have_class(re.compile(r'\bis-invalid\b'))
+
     # Verify no validation error classes are present on page load
     invalid_fields = page.locator('.is-invalid')
     expect(invalid_fields).to_have_count(0)

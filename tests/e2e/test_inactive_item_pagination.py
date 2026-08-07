@@ -211,10 +211,9 @@ def test_pagination_updates_with_items_per_page_change(page, live_server):
     items_per_page_select = page.locator('#items-per-page')
     items_per_page_select.select_option('10')
 
-    # Wait for update
-    page.wait_for_timeout(500)
-
-    # Now should be showing items 1-10 of 30 (page 1 of 3)
+    # Now should be showing items 1-10 of 30 (page 1 of 3).
+    # onItemsPerPageChange() re-renders synchronously and the expect()s below poll,
+    # so nothing has to be waited on before them.
     items_start = page.locator('#items-start')
     items_end = page.locator('#items-end')
     expect(items_start).to_contain_text('1')
@@ -227,7 +226,11 @@ def test_pagination_updates_with_items_per_page_change(page, live_server):
 
     # Change to 50 items per page (all items should fit on one page now)
     items_per_page_select.select_option('50')
-    page.wait_for_timeout(500)
+
+    # Unlike the block above there is no expect() between the change and the
+    # read, and get_inventory_items() snapshots the table. Establish the
+    # re-rendered page size first.
+    expect(page.locator("#inventory-table-body tr")).to_have_count(30)
 
     # All 30 items should now be visible on one page
     items = list_page.get_inventory_items()

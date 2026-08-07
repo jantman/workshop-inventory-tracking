@@ -29,6 +29,37 @@ The gate's literal total is 61.2s but its measured cost is **121.6s across 212 e
 sites producing 212 executions, a 2.14× amplification that comes entirely from sites living inside
 helper methods, which run once per call rather than once per file.
 
+> **Baseline re-confirmed against the current tree (T003, 2026-08-06.)** The probe was rebuilt and
+> run over an unchanged tree with `--reruns=0`: `Page.wait_for_timeout` **121.1s across 212
+> executions**, suite wall clock **587.66s (9m 47s)**, 362 passed. That is within measurement noise
+> of the 121.6s figure above, so every target stated in this feature stands as written. The other
+> blocking categories, for context: `Page.goto` 95.7s (n=567), `wait_for_function` 11.0s (n=213),
+> `wait_for_load_state` 4.7s (n=567), `wait_for_selector` 0.3s (n=29).
+>
+> The per-site breakdown confirms the population split by *measured* time, not literal argument:
+> Population A ≈ **84.0s**, `test_move_items_sub_location.py` ≈ **10.2s**, the three photo files ≈
+> **26.5s**. Population A is 69% of the gate's wait time, and removing it alone lands near 37s —
+> under SC-001's 60s target.
+
+### Measured after each change set
+
+| Point | `wait_for_timeout` | Suite wall clock | Criterion |
+|---|---|---|---|
+| Baseline (T003) | 121.1s, n=212 | 587.66s (9m 47s) | — |
+| After C1 — Population A (T024) | **36.9s, n=100** | 575.87s (9m 35s) | SC-001 met |
+| After C2–C5 — everything (T057) | **0s, n=0** | **493.73s (8m 13s)** | SC-001 and SC-002 met |
+
+The projection in §A held for wait time — 36.9s measured against ~37s projected — but *not* for
+suite runtime at the C1 checkpoint, which barely moved (587.7s → 575.9s) even though 84s of
+blocking had been removed. `Page.goto` had absorbed most of it: 95.7s at baseline, 158.1s after C1,
+over an unchanged 567 navigations. Work that a fixed delay had been paying for out of its own
+budget simply moved into the next navigation. It came back out once the remaining waits went:
+`Page.goto` measured 103.9s on the final run, and total blocking time fell from 232.9s to 131.4s.
+
+The lesson for the next person measuring this: **removing a wait does not always show up in the
+clock immediately**, because the application still has the same work to do. It shows up when the
+test stops asking for the work at a moment the application is not ready for it.
+
 That amplification is not spread evenly, and where it lands matters:
 
 - **`test_move_items_sub_location.py` amplifies at exactly 1.0×.** All 42 of its sites are inline in

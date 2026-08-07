@@ -7,6 +7,8 @@ Use pytest marker @pytest.mark.screenshot to run only screenshot tests.
 Run with: pytest tests/e2e/test_screenshot_generation.py -m screenshot
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 from pathlib import Path
@@ -22,6 +24,7 @@ from tests.e2e.fixtures.screenshot_data import (
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.search_page import SearchPage
+from tests.e2e.waits import wait_for_modal_shown
 from app.database import InventoryItem
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 
@@ -125,7 +128,8 @@ class TestDocumentationScreenshots:
 
         # Wait for table to load
         list_page.wait_for_items_loaded()
-        page.wait_for_timeout(1000)  # Extra time for any animations
+        # wait_for_items_loaded() settles on the rendered table; the rows this
+        # screenshot is of are in the DOM by then.
 
         # Capture screenshot for README
         self.screenshot.capture_viewport(
@@ -152,7 +156,6 @@ class TestDocumentationScreenshots:
 
         # Wait for form to be visible
         page.wait_for_selector("#advanced-search-form", timeout=5000)
-        page.wait_for_timeout(500)
 
         # Fill in some example search criteria (but don't submit)
         # This makes the screenshot more informative
@@ -189,7 +192,8 @@ class TestDocumentationScreenshots:
 
         # Wait for results
         page.wait_for_selector("#results-table-container .table", state="visible", timeout=5000)
-        page.wait_for_timeout(1000)
+        # The table being visible means the results were rendered into it.
+        expect(page.locator("#results-table-container .table tbody tr").first).to_be_visible()
 
         # Capture screenshot
         self.screenshot.capture_viewport(
@@ -230,8 +234,8 @@ class TestDocumentationScreenshots:
         # Also fill sub_location which isn't in the helper
         page.fill("#sub_location", "Section 3, Shelf 2")
 
-        # Wait for form to be fully rendered
-        page.wait_for_timeout(500)
+        # The form is server-rendered and every field above was filled through
+        # Playwright, which waits for actionability, so it is already settled.
 
         # Capture screenshot
         self.screenshot.capture_viewport(
@@ -262,7 +266,9 @@ class TestDocumentationScreenshots:
 
         # Set quantity to create multiple items
         page.fill("#quantity_to_create", "5")
-        page.wait_for_timeout(1000)  # Wait for any JS updates
+        # updateBulkCreationInfo() runs synchronously on `input`; this is the
+        # banner it writes, and it is what makes the screenshot worth taking.
+        expect(page.locator("#bulk-creation-info")).to_be_visible()
 
         # Capture the quantity section of the form
         # The element might have a different ID/class, so let's just capture the form section
@@ -302,7 +308,10 @@ class TestDocumentationScreenshots:
 
         # Wait for form to load with data
         page.wait_for_selector("#add-item-form", timeout=5000)
-        page.wait_for_timeout(1000)
+        # The values are rendered by the server, but MaterialValidator restyles
+        # #material once its taxonomy arrives -- capture after that, or the shot
+        # catches a half-validated field.
+        expect(page.locator("#material")).not_to_have_class(re.compile(r"\bis-invalid\b"))
 
         # Capture screenshot
         self.screenshot.capture_viewport(
@@ -333,11 +342,11 @@ class TestDocumentationScreenshots:
 
         # Wait for photo manager to be visible
         page.wait_for_selector("#photo-manager-container", timeout=5000)
-        page.wait_for_timeout(500)
 
-        # Scroll to the photo section
+        # Scroll to the photo section. `behavior: 'instant'` means the scroll has
+        # already happened when evaluate() returns -- there is no animation to
+        # outlast.
         page.evaluate("document.querySelector('#photo-manager-container').scrollIntoView({behavior: 'instant', block: 'center'})")
-        page.wait_for_timeout(300)
 
         # Capture full page with photo upload section visible
         self.screenshot.capture_viewport(
@@ -372,20 +381,21 @@ class TestDocumentationScreenshots:
             "tests/e2e/fixtures/images/brass_rod_sample.jpg",
         ]
 
+        uploaded = 0
         for image_path in sample_images:
             if Path(image_path).exists():
                 # Find the file input and upload
                 file_input = page.locator(".photo-file-input")
                 if file_input.count() > 0:
                     file_input.first.set_input_files(image_path)
-                    page.wait_for_timeout(2000)  # Wait for upload
-
-        # Wait for gallery to update and check if photos were uploaded
-        page.wait_for_timeout(1000)
+                    # This is the edit page, so processSingleFile() awaits the
+                    # upload POST before appending the card: one more card means
+                    # one more completed upload.
+                    expect(page.locator(".photo-card")).to_have_count(uploaded + 1)
+                    uploaded += 1
 
         # Scroll to photo gallery section
         page.evaluate("document.querySelector('#photo-manager-container').scrollIntoView({behavior: 'instant', block: 'center'})")
-        page.wait_for_timeout(300)
 
         # Capture full page showing the photo gallery
         self.screenshot.capture_viewport(
@@ -419,7 +429,7 @@ class TestDocumentationScreenshots:
             file_input = page.locator(".photo-file-input")
             if file_input.count() > 0:
                 file_input.first.set_input_files(sample_image)
-                page.wait_for_timeout(2000)
+                expect(page.locator(".photo-card")).to_have_count(1)
 
         # Navigate to inventory list to use copy/paste
         page.goto(f"{live_server.url}/inventory")
@@ -432,19 +442,21 @@ class TestDocumentationScreenshots:
             checkbox = source_row.locator("input[type='checkbox']").first
             if checkbox.count() > 0:
                 checkbox.check()
-                page.wait_for_timeout(500)
+                expect(checkbox).to_be_checked()
 
                 # Click options menu and copy photos
                 options_btn = page.locator("#options-dropdown-btn").first
                 if options_btn.count() > 0:
                     options_btn.click()
-                    page.wait_for_timeout(300)
 
                     # Look for copy photos button
                     copy_btn = page.locator("button:has-text('Copy Photos')").first
                     if copy_btn.count() > 0:
+                        expect(copy_btn).to_be_visible()
                         copy_btn.click()
-                        page.wait_for_timeout(1000)
+                        # copyPhotosFromSelected() is synchronous and always ends
+                        # in a toast; the banner below is what is being captured.
+                        expect(page.locator(".alert.position-fixed").first).to_be_visible()
 
         # Check if the clipboard banner is visible (it should be after clicking Copy Photos)
         try:
@@ -481,13 +493,14 @@ class TestDocumentationScreenshots:
 
         # Wait for the page to load
         page.wait_for_selector("#batch-move-form", timeout=5000)
-        page.wait_for_timeout(500)
 
         # Add a JA ID to the form to show the interface in use
         ja_id = items[0]['ja_id']
         if page.locator("#barcode-input").count() > 0:
             page.fill("#barcode-input", ja_id)
-            page.wait_for_timeout(300)
+            # fill() alone does not submit -- this shot is of the field holding
+            # the value, which it does as soon as fill() returns.
+            expect(page.locator("#barcode-input")).to_have_value(ja_id)
 
         # Capture the move items interface
         self.screenshot.capture_viewport(
@@ -513,14 +526,13 @@ class TestDocumentationScreenshots:
 
         # Wait for the form to load
         page.wait_for_selector("#shorten-form", timeout=5000)
-        page.wait_for_timeout(500)
 
         # Fill in an example JA ID to show the interface with data
         # Get the first item's JA ID
         ja_id = items[0]['ja_id']
         if page.locator("#ja_id").count() > 0:
             page.fill("#ja_id", ja_id)
-            page.wait_for_timeout(500)
+            expect(page.locator("#ja_id")).to_have_value(ja_id)
 
         # Capture the shorten interface
         self.screenshot.capture_viewport(
@@ -544,30 +556,35 @@ class TestDocumentationScreenshots:
         # Navigate to inventory list
         page.goto(f"{live_server.url}/inventory")
         page.wait_for_selector("table.inventory-table", timeout=5000)
-        page.wait_for_timeout(500)
+        # count() below does not wait, so the rendered rows have to be
+        # established before the selection is made against them.
+        expect(page.locator("#inventory-table-body tr").first).to_be_visible()
 
         # Select some items (check a few checkboxes)
         checkboxes = page.locator("table.inventory-table input[type='checkbox']")
         if checkboxes.count() >= 2:
             checkboxes.nth(0).check()
             checkboxes.nth(1).check()
-            page.wait_for_timeout(500)
+            expect(checkboxes.nth(1)).to_be_checked()
 
         # Click the options dropdown button
         options_btn = page.locator("#options-dropdown-btn")
         if options_btn.count() > 0:
             options_btn.click()
-            page.wait_for_timeout(300)
 
             # Click "Print Labels" button
             print_labels_btn = page.locator("#bulk-print-labels-btn")
             if print_labels_btn.count() > 0:
+                expect(print_labels_btn).to_be_visible()
                 print_labels_btn.click()
-                page.wait_for_timeout(1000)
+                # The modal wait just below is the readiness signal for this
+                # click; capturing before it would catch a Bootstrap fade.
 
         # Wait for the label printing modal to appear
         try:
             page.wait_for_selector("#listBulkLabelPrintingModal.show", timeout=3000)
+            # As above: wait out the fade, not just the class that starts it.
+            wait_for_modal_shown(page, "listBulkLabelPrintingModal")
 
             # Capture the modal
             self.screenshot.capture_viewport(
@@ -600,17 +617,21 @@ class TestDocumentationScreenshots:
         # Navigate to edit page
         page.goto(f"{live_server.url}/inventory/edit/{ja_id}")
         page.wait_for_selector(".btn-outline-warning", timeout=5000)
-        page.wait_for_timeout(500)
 
         # Click "View History" button
         history_btn = page.locator("button:has-text('View History')")
         if history_btn.count() > 0:
             history_btn.click()
-            page.wait_for_timeout(1000)
+            # The modal wait just below is this click's readiness signal.
 
         # Wait for history modal to appear
         try:
             page.wait_for_selector("#item-history-modal.show", timeout=3000)
+            # `.show` goes on at the *start* of Bootstrap's fade, so capturing on
+            # it catches the modal half-transparent -- which is what made this
+            # screenshot differ from the committed one by a fifth of its pixels.
+            # wait_for_modal_shown settles on full opacity and focus.
+            wait_for_modal_shown(page, "item-history-modal")
 
             # Capture the history modal
             self.screenshot.capture_viewport(
@@ -638,7 +659,7 @@ class TestDocumentationScreenshots:
         # Navigate to inventory list
         page.goto(f"{live_server.url}/inventory")
         page.wait_for_selector("table.inventory-table", timeout=5000)
-        page.wait_for_timeout(500)
+        expect(page.locator("#inventory-table-body tr").first).to_be_visible()
 
         # Select some items (check a few checkboxes)
         checkboxes = page.locator("table.inventory-table input[type='checkbox']")
@@ -646,13 +667,15 @@ class TestDocumentationScreenshots:
             checkboxes.nth(0).check()
             checkboxes.nth(1).check()
             checkboxes.nth(2).check()
-            page.wait_for_timeout(500)
+            expect(checkboxes.nth(2)).to_be_checked()
 
         # Click the "Options" button to show the dropdown menu
         options_btn = page.locator("button:has-text('Options')")
         if options_btn.count() > 0:
             options_btn.click()
-            page.wait_for_timeout(500)
+            # This screenshot is of the open menu, so wait for it to be open --
+            # Bootstrap toggles .show on the menu when it is.
+            expect(page.locator(".dropdown-menu.show")).to_be_visible()
 
             # Capture the page with the options menu open
             self.screenshot.capture_viewport(

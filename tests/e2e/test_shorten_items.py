@@ -33,14 +33,18 @@ class ShortenItemsPage(BasePage):
         self.page.wait_for_load_state("domcontentloaded")
     
     def simulate_ja_id_scan(self, ja_id):
-        """Simulate barcode scanner input for JA ID"""
+        """Simulate barcode scanner input for JA ID.
+
+        Enter reaches handleJaIdKeyDown(), which calls loadItem() directly -- the
+        100ms scanner debounce is only the fallback for scanners that send no
+        newline. loadItem() then awaits a fetch, so nothing here can confirm the
+        load; the caller asserts on #item-details or #item-not-found, and
+        expect() polls until whichever one it is arrives.
+        """
         ja_input = self.page.locator("#source-ja-id")
         ja_input.fill("")
         ja_input.type(ja_id)
         ja_input.press("Enter")
-        self.page.wait_for_timeout(200)
-        # Auto-load should happen
-        self.page.wait_for_load_state("domcontentloaded")
     
     def enter_new_length(self, length):
         """Enter new length for shortened item"""
@@ -303,12 +307,13 @@ def test_complete_shortening_workflow(page, live_server):
     
     # Submit the form (this will use the actual form submission)
     page.locator('button[type="submit"]').click()
-    page.wait_for_load_state("domcontentloaded")
-    
-    # Should show success message with preserved JA ID (check for any alert first)
-    # Wait a moment for any message to appear
-    page.wait_for_timeout(2000)
-    
+
+    # The route flashes and redirects, and shorten.html renders the flash inside
+    # #flash-messages -- a container that only exists when there is a message. Its
+    # arrival is therefore proof the POST completed and the response rendered, and
+    # it settles the DOM before the is_visible() reads below.
+    expect(page.locator("#flash-messages .alert")).to_be_visible()
+
     # Check if there are any alerts (success or error)
     success_alert = page.locator(".alert-success").first
     error_alert = page.locator(".alert-danger,.alert-error").first
@@ -363,8 +368,8 @@ def test_invalid_length_validation(page, live_server):
     # Try to enter new length longer than original
     shorten_page.enter_new_length("180")  # 15 feet, longer than 10 feet original
     
-    # Should show validation error
-    page.wait_for_timeout(1000)  # Wait for validation
+    # Should show validation error. validateLength() runs synchronously on the
+    # input event, and assert_length_validation_error() uses expect(), which polls.
     shorten_page.assert_length_validation_error()
 
 
@@ -406,12 +411,10 @@ def test_zero_or_negative_length_validation(page, live_server):
     shorten_page.enter_new_length("0")
     
     # Should show validation error
-    page.wait_for_timeout(1000)
     shorten_page.assert_length_validation_error()
-    
+
     # Try negative length
     shorten_page.enter_new_length("-5")
-    page.wait_for_timeout(1000)
     shorten_page.assert_length_validation_error()
 
 

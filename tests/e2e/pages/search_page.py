@@ -6,6 +6,7 @@ Page object for the inventory search functionality.
 
 from .base_page import BasePage
 from .inventory_table_mixin import InventoryTableMixin
+from tests.e2e.waits import dismiss_material_suggestions
 from playwright.sync_api import expect
 from typing import List, Dict
 
@@ -61,38 +62,11 @@ class SearchPage(InventoryTableMixin, BasePage):
 
         The material input is a MaterialSelector: typing opens a suggestion
         dropdown that overlays the search button, so it has to be closed before
-        the search can be clicked.
-
-        Dismissing it is trickier than it looks. MaterialSelector debounces its
-        input handler by 200ms, and its keydown handler returns immediately while
-        the dropdown is hidden:
-
-            if (!this.suggestionsContainer ||
-                this.suggestionsContainer.style.display === 'none') return;
-
-        So pressing Escape straight after fill() lands inside the debounce window,
-        is swallowed as a no-op, and does not cancel the pending timer -- the
-        dropdown then opens ~200ms later, over the button, after the code meant to
-        close it has returned.
-
-        The debounced handler is therefore allowed to run first. It either opens
-        the dropdown (dismiss it, and confirm it closed) or leaves it closed
-        (nothing to do). The bounded wait below is the one place this file waits
-        on a clock: a pending debounce has no observable start, so there is no
-        state that distinguishes "has not run yet" from "ran and matched nothing".
+        the search can be clicked. `dismiss_material_suggestions` carries the
+        reasoning about the 200ms debounce that makes that harder than it looks.
         """
         self.fill_and_wait(self.MATERIAL_SEARCH, material)
-
-        suggestions = self.page.locator(".material-suggestions")
-        try:
-            expect(suggestions.first).to_be_visible(timeout=2000)
-        except AssertionError:
-            # The debounced handler ran and opened nothing: no matches for this
-            # query, so there is no overlay to dismiss.
-            return
-
-        self.page.keyboard.press("Escape")
-        expect(suggestions.first).not_to_be_visible()
+        dismiss_material_suggestions(self.page)
 
     def search_by_material(self, material: str):
         """Search for items by material"""

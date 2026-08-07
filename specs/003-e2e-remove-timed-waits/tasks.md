@@ -35,9 +35,9 @@ These apply to T006–T045 and are not repeated per task:
 
 **Purpose**: SC-001 cannot be measured until the probe exists. Nothing else can be evaluated first.
 
-- [ ] T001 Verify the environment: `export PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"`, `source venv/bin/activate`, `docker ps` — per [quickstart.md](./quickstart.md)
-- [ ] T002 Rebuild the blocking-call probe at `tests/e2e/_probe.py` as a pytest plugin wrapping `wait_for_timeout`, `wait_for_load_state`, `goto`, `wait_for_selector` and `wait_for_function`, accumulating wall clock per category and printing a `BLOCKING-CALL PROBE` summary at session end. Do **not** commit it; only a stale `.pyc` of the original survives under `tests/e2e/__pycache__/`
-- [ ] T003 Re-confirm the baseline against the current tree: `nox -s e2e -- -p tests.e2e._probe --reruns=0 --durations=0`, expecting the `wait_for_timeout` line near **121.6s across 212 executions**. Record the actual figure in [research.md](./research.md) §A; if it has moved, restate every target below against what you measured
+- [X] T001 Verify the environment: `export PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"`, `source venv/bin/activate`, `docker ps` — per [quickstart.md](./quickstart.md)
+- [X] T002 Rebuild the blocking-call probe at `tests/e2e/_probe.py` as a pytest plugin wrapping `wait_for_timeout`, `wait_for_load_state`, `goto`, `wait_for_selector` and `wait_for_function`, accumulating wall clock per category and printing a `BLOCKING-CALL PROBE` summary at session end. Do **not** commit it; only a stale `.pyc` of the original survives under `tests/e2e/__pycache__/`
+- [X] T003 Re-confirm the baseline against the current tree: `nox -s e2e -- -p tests.e2e._probe --reruns=0 --durations=0`, expecting the `wait_for_timeout` line near **121.6s across 212 executions**. Record the actual figure in [research.md](./research.md) §A; if it has moved, restate every target below against what you measured
 
 **Checkpoint**: the instrument works and the baseline is confirmed. `rm tests/e2e/_probe.py` after each use.
 
@@ -47,8 +47,8 @@ These apply to T006–T045 and are not repeated per task:
 
 **Purpose**: capture what must be preserved, before anything is changed.
 
-- [ ] T004 Capture the pre-change assertion inventory for SC-005: `git diff main -- tests/e2e/ | grep -E "^-.*(assert |expect\()"` must stay empty-or-accounted-for throughout. Record the current collected count (`nox -s e2e -- --collect-only -q --reruns=0 | tail -3`, expecting **362 passing, 0 skipped**) in the ledger
-- [ ] T005 Create the survivor ledger as a working file at `/tmp/claude-1000/-home-jantman-scratch-rm-me-workshop-inventory-tracking/7c7d24f0-0d38-49d2-a0e6-f2e29fb91908/scratchpad/survivors.md`, tracking every one of the 127 sites with disposition `converted` / `justified` / `open` per [data-model.md](./data-model.md). It supplies SC-004's list and the final commit message
+- [X] T004 Capture the pre-change assertion inventory for SC-005: `git diff main -- tests/e2e/ | grep -E "^-.*(assert |expect\()"` must stay empty-or-accounted-for throughout. Record the current collected count (`nox -s e2e -- --collect-only -q --reruns=0 | tail -3`, expecting **362 passing, 0 skipped**) in the ledger
+- [X] T005 Create the survivor ledger as a working file at `/tmp/claude-1000/-home-jantman-scratch-rm-me-workshop-inventory-tracking/7c7d24f0-0d38-49d2-a0e6-f2e29fb91908/scratchpad/survivors.md`, tracking every one of the 127 sites with disposition `converted` / `justified` / `open` per [data-model.md](./data-model.md). It supplies SC-004's list and the final commit message
 
 **Checkpoint**: what "no coverage lost" means is written down and measurable.
 
@@ -62,25 +62,25 @@ These apply to T006–T045 and are not repeated per task:
 
 **⚠️ Constitution §VI guard**: T006, T013 and T021 touch files protecting the item lifecycle and history invariants. Change *how* they wait; never *what* they assert (FR-010).
 
-- [ ] T006 [P] [US1] Convert 5 sites in `tests/e2e/test_shorten_items.py` (lines 41, 310, 367, 409, 414) — **§VI guarded**, 5.2s literal, the largest single file in this story
-- [ ] T007 [P] [US1] Convert 4 sites in `tests/e2e/test_material_field_validation.py` (lines 100, 206, 225, 252) — the material validator marks the field invalid until its taxonomy loads; wait on the validator accepting the material, not on a delay
-- [ ] T008 [P] [US1] Convert 4 sites in `tests/e2e/test_item_actions.py` (lines 57, 211, 222, 322) — 4.5s literal
-- [ ] T009 [P] [US1] Convert 4 sites in `tests/e2e/test_duplicate_item.py` (lines 24, 42, 68, 619)
-- [ ] T010 [P] [US1] Convert 3 sites in `tests/e2e/test_move_items_with_original_thread.py` (lines 30, 177, 185) — move page; use [contracts/readiness-signals.md](./contracts/readiness-signals.md) §1
-- [ ] T011 [P] [US1] Convert 3 sites in `tests/e2e/test_label_print.py` (lines 25, 28, 38)
-- [ ] T012 [P] [US1] Convert 3 sites in `tests/e2e/test_bulk_creation.py` (lines 43, 56, 84) — genuinely slow behavior; do not make the test shallower to save time
-- [ ] T013 [P] [US1] Convert 2 sites in `tests/e2e/test_toggle_item_status.py` (lines 45, 135) — **§VI guarded**
-- [ ] T014 [P] [US1] Convert 2 sites in `tests/e2e/test_required_location.py` (lines 93, 132)
-- [ ] T015 [P] [US1] Convert 2 sites in `tests/e2e/test_multi_row_ja_id.py` (lines 53, 112) — 3.0s literal
-- [ ] T016 [P] [US1] Convert 2 sites in `tests/e2e/test_list_view_status_filter.py` (lines 152, 230)
-- [ ] T017 [P] [US1] Convert 2 sites in `tests/e2e/test_inactive_item_pagination.py` (lines 215, 230)
-- [ ] T018 [P] [US1] Convert 2 sites in `tests/e2e/test_add_item.py` (lines 345, 676) — form is the subject here, so drive the form (Rule 4 exemption)
-- [ ] T019 [P] [US1] Convert 1 site in `tests/e2e/test_product_search.py` (line 151)
-- [ ] T020 [P] [US1] Convert 1 site in `tests/e2e/test_move_items_basic.py` (line 91) — move page; use §1 of the signals contract
-- [ ] T021 [P] [US1] Convert 1 site in `tests/e2e/test_history_functionality.py` (line 141) — **§VI guarded**, 2.0s literal
-- [ ] T022 [P] [US1] Convert 1 site in `tests/e2e/test_admin_materials.py` (line 421)
-- [ ] T023 [US1] Run the full gate and confirm 362 pass with `--reruns=0`; run it three times per SC-006
-- [ ] T024 [US1] **Measure and stop to look**: re-run the probe (`nox -s e2e -- -p tests.e2e._probe --reruns=0 --durations=0`). Expect wait time near **~34s (SC-001 met)** and runtime near **~8m 30s (SC-002 met)**. Record both in [research.md](./research.md). If the projection holds, every remaining story is compliance work rather than performance work
+- [X] T006 [P] [US1] Convert 5 sites in `tests/e2e/test_shorten_items.py` (lines 41, 310, 367, 409, 414) — **§VI guarded**, 5.2s literal, the largest single file in this story
+- [X] T007 [P] [US1] Convert 4 sites in `tests/e2e/test_material_field_validation.py` (lines 100, 206, 225, 252) — the material validator marks the field invalid until its taxonomy loads; wait on the validator accepting the material, not on a delay
+- [X] T008 [P] [US1] Convert 4 sites in `tests/e2e/test_item_actions.py` (lines 57, 211, 222, 322) — 4.5s literal
+- [X] T009 [P] [US1] Convert 4 sites in `tests/e2e/test_duplicate_item.py` (lines 24, 42, 68, 619)
+- [X] T010 [P] [US1] Convert 3 sites in `tests/e2e/test_move_items_with_original_thread.py` (lines 30, 177, 185) — move page; use [contracts/readiness-signals.md](./contracts/readiness-signals.md) §1
+- [X] T011 [P] [US1] Convert 3 sites in `tests/e2e/test_label_print.py` (lines 25, 28, 38)
+- [X] T012 [P] [US1] Convert 3 sites in `tests/e2e/test_bulk_creation.py` (lines 43, 56, 84) — genuinely slow behavior; do not make the test shallower to save time
+- [X] T013 [P] [US1] Convert 2 sites in `tests/e2e/test_toggle_item_status.py` (lines 45, 135) — **§VI guarded**
+- [X] T014 [P] [US1] Convert 2 sites in `tests/e2e/test_required_location.py` (lines 93, 132)
+- [X] T015 [P] [US1] Convert 2 sites in `tests/e2e/test_multi_row_ja_id.py` (lines 53, 112) — 3.0s literal
+- [X] T016 [P] [US1] Convert 2 sites in `tests/e2e/test_list_view_status_filter.py` (lines 152, 230)
+- [X] T017 [P] [US1] Convert 2 sites in `tests/e2e/test_inactive_item_pagination.py` (lines 215, 230)
+- [X] T018 [P] [US1] Convert 2 sites in `tests/e2e/test_add_item.py` (lines 345, 676) — form is the subject here, so drive the form (Rule 4 exemption)
+- [X] T019 [P] [US1] Convert 1 site in `tests/e2e/test_product_search.py` (line 151)
+- [X] T020 [P] [US1] Convert 1 site in `tests/e2e/test_move_items_basic.py` (line 91) — move page; use §1 of the signals contract
+- [X] T021 [P] [US1] Convert 1 site in `tests/e2e/test_history_functionality.py` (line 141) — **§VI guarded**, 2.0s literal
+- [X] T022 [P] [US1] Convert 1 site in `tests/e2e/test_admin_materials.py` (line 421)
+- [X] T023 [US1] Run the full gate and confirm 362 pass with `--reruns=0`; run it three times per SC-006
+- [X] T024 [US1] **Measure and stop to look**: re-run the probe (`nox -s e2e -- -p tests.e2e._probe --reruns=0 --durations=0`). Expect wait time near **~34s (SC-001 met)** and runtime near **~8m 30s (SC-002 met)**. Record both in [research.md](./research.md). If the projection holds, every remaining story is compliance work rather than performance work
 
 **Checkpoint**: SC-001 and SC-002 should both be met here, with the two risky file groups untouched. This is the MVP.
 
@@ -94,13 +94,13 @@ These apply to T006–T045 and are not repeated per task:
 
 **The mapping is already written** — [contracts/readiness-signals.md](./contracts/readiness-signals.md) §1 satisfies FR-005. Each wait must cite a row from it (FR-006).
 
-- [ ] T025 [US2] Convert **one** test only — `test_move_no_sub_to_no_sub` in `tests/e2e/test_move_items_sub_location.py` (lines 54, 58, 63, 80) — using `#scanner-status` for the two synchronous transitions and `#queue-count` after `>>DONE<<`. Do not proceed until T026 passes
-- [ ] T026 [US2] Run that one test ten times: `for i in $(seq 10); do nox -s e2e -- tests/e2e/test_move_items_sub_location.py::TestMoveItemsSubLocation::test_move_no_sub_to_no_sub --reruns=0 -q; done`. Any failure means the mapping is wrong — fix the map in the contract before writing more tests
-- [ ] T027 [US2] Convert the remaining single-move tests in `tests/e2e/test_move_items_sub_location.py`: `test_move_no_sub_to_with_sub`, `test_move_with_sub_to_no_sub_clears`, and the pattern tests at lines 366–453, using the sub-location row (`#queue-count`) and the two synchronous rows
-- [ ] T028 [US2] Convert the batch test at lines 290–364 in `tests/e2e/test_move_items_sub_location.py` — this is the **only** test exercising the finalise-previous branch (`JA000103` scanned while in `ja_id_or_sub_location`, line 320). It requires the **compound** wait: both `#queue-count` reaching N **and** `#scanner-status` returning to `Waiting for Location`. Assert queue rows by JA ID, never by index — the previous move can land after a later one
-- [ ] T029 [US2] Convert the 5 post-execution sites (`wait_for_timeout(500)` at lines 80, 131, 179, 231, 278, 348 commented "wait for database transaction to commit") — wait on the success alert or the cleared queue, not on the database
-- [ ] T030 [US2] Run `tests/e2e/test_move_items_sub_location.py` ten consecutive times with `--reruns=0` per SC-007
-- [ ] T031 [US2] Run the full gate three times (`for i in 1 2 3; do nox -s e2e -- --reruns=0 -q; done`); confirm no regression in the files T006–T022 touched
+- [X] T025 [US2] Convert **one** test only — `test_move_no_sub_to_no_sub` in `tests/e2e/test_move_items_sub_location.py` (lines 54, 58, 63, 80) — using `#scanner-status` for the two synchronous transitions and `#queue-count` after `>>DONE<<`. Do not proceed until T026 passes
+- [X] T026 [US2] Run that one test ten times: `for i in $(seq 10); do nox -s e2e -- tests/e2e/test_move_items_sub_location.py::TestMoveItemsSubLocation::test_move_no_sub_to_no_sub --reruns=0 -q; done`. Any failure means the mapping is wrong — fix the map in the contract before writing more tests
+- [X] T027 [US2] Convert the remaining single-move tests in `tests/e2e/test_move_items_sub_location.py`: `test_move_no_sub_to_with_sub`, `test_move_with_sub_to_no_sub_clears`, and the pattern tests at lines 366–453, using the sub-location row (`#queue-count`) and the two synchronous rows
+- [X] T028 [US2] Convert the batch test at lines 290–364 in `tests/e2e/test_move_items_sub_location.py` — this is the **only** test exercising the finalise-previous branch (`JA000103` scanned while in `ja_id_or_sub_location`, line 320). It requires the **compound** wait: both `#queue-count` reaching N **and** `#scanner-status` returning to `Waiting for Location`. Assert queue rows by JA ID, never by index — the previous move can land after a later one
+- [X] T029 [US2] Convert the 5 post-execution sites (`wait_for_timeout(500)` at lines 80, 131, 179, 231, 278, 348 commented "wait for database transaction to commit") — wait on the success alert or the cleared queue, not on the database
+- [X] T030 [US2] Run `tests/e2e/test_move_items_sub_location.py` ten consecutive times with `--reruns=0` per SC-007
+- [X] T031 [US2] Run the full gate three times (`for i in 1 2 3; do nox -s e2e -- --reruns=0 -q; done`); confirm no regression in the files T006–T022 touched
 
 **Checkpoint**: the file that was reverted once now holds across ten runs.
 
@@ -112,14 +112,14 @@ These apply to T006–T045 and are not repeated per task:
 
 **Independent test**: all three files pass ten consecutive runs. The six tests that broke last time are the regression to watch.
 
-- [ ] T032 [P] [US3] Convert the 6 helper-resident sites in the page-object class at the top of `tests/e2e/test_copy_item_photos.py` (lines 32, 42, 48, 54, 59, 81) per §3 of the signals contract — these amplify ~4.5×, so this single task is most of the story's saving
-- [ ] T033 [US3] **Pattern E pass** on `tests/e2e/test_copy_item_photos.py`: convert every snapshot read the removed cushions were holding up — `is_copy_photos_button_enabled()`, `is_paste_photos_button_enabled()`, `is_clipboard_banner_visible()`, and the `is_checked()` assert inside `select_item` — to `expect()`-based assertions. **This, not the waits, is what broke this file last time**; T032 without T033 reproduces the failure
-- [ ] T034 [US3] Convert the 2 remaining inline sites in `tests/e2e/test_copy_item_photos.py` (lines 555, 565, both commented "wait for button state to update") to `expect(btn).to_be_enabled()` / `to_be_disabled()`
-- [ ] T035 [P] [US3] Convert 3 sites in `tests/e2e/test_photo_upload.py` (lines 80, 94, 268) — on the edit page `.photo-card` appearing already proves the POST resolved (`photo-manager.js:303`), so the 2000ms waits are pure cost
-- [ ] T036 [P] [US3] Convert 4 sites in `tests/e2e/test_photo_upload_bug.py` (lines 144, 163, 187, 217) — same signal; line 217 waits for existing photos to load, so use `.photo-count` reaching the expected number
-- [ ] T037 [US3] Confirm no helper in either photo file is shared between the add page and the edit page under a single rule — `• Uploading...` is reachable only where `currentItemId` is null. Wait on `.photo-card`, which is correct on both
-- [ ] T038 [US3] Run all four photo/copy files ten consecutive times with `--reruns=0` per SC-007
-- [ ] T039 [US3] Run the full gate three times (`for i in 1 2 3; do nox -s e2e -- --reruns=0 -q; done`), then re-measure with `nox -s e2e -- -p tests.e2e._probe --reruns=0` and record the figure in [research.md](./research.md)
+- [X] T032 [P] [US3] Convert the 6 helper-resident sites in the page-object class at the top of `tests/e2e/test_copy_item_photos.py` (lines 32, 42, 48, 54, 59, 81) per §3 of the signals contract — these amplify ~4.5×, so this single task is most of the story's saving
+- [X] T033 [US3] **Pattern E pass** on `tests/e2e/test_copy_item_photos.py`: convert every snapshot read the removed cushions were holding up — `is_copy_photos_button_enabled()`, `is_paste_photos_button_enabled()`, `is_clipboard_banner_visible()`, and the `is_checked()` assert inside `select_item` — to `expect()`-based assertions. **This, not the waits, is what broke this file last time**; T032 without T033 reproduces the failure
+- [X] T034 [US3] Convert the 2 remaining inline sites in `tests/e2e/test_copy_item_photos.py` (lines 555, 565, both commented "wait for button state to update") to `expect(btn).to_be_enabled()` / `to_be_disabled()`
+- [X] T035 [P] [US3] Convert 3 sites in `tests/e2e/test_photo_upload.py` (lines 80, 94, 268) — on the edit page `.photo-card` appearing already proves the POST resolved (`photo-manager.js:303`), so the 2000ms waits are pure cost
+- [X] T036 [P] [US3] Convert 4 sites in `tests/e2e/test_photo_upload_bug.py` (lines 144, 163, 187, 217) — same signal; line 217 waits for existing photos to load, so use `.photo-count` reaching the expected number
+- [X] T037 [US3] Confirm no helper in either photo file is shared between the add page and the edit page under a single rule — `• Uploading...` is reachable only where `currentItemId` is null. Wait on `.photo-card`, which is correct on both
+- [X] T038 [US3] Run all four photo/copy files ten consecutive times with `--reruns=0` per SC-007
+- [X] T039 [US3] Run the full gate three times (`for i in 1 2 3; do nox -s e2e -- --reruns=0 -q; done`), then re-measure with `nox -s e2e -- -p tests.e2e._probe --reruns=0` and record the figure in [research.md](./research.md)
 
 **Checkpoint**: every in-gate site is now converted or justified.
 
@@ -131,10 +131,10 @@ These apply to T006–T045 and are not repeated per task:
 
 **Independent test**: `nox -s screenshots_headless` is faster and the images it produces are substantively equivalent to those committed.
 
-- [ ] T040 [US4] Convert all 28 sites in `tests/e2e/test_screenshot_generation.py` — ordinary Rule 1 work against the same page objects the gate tests use
-- [ ] T041 [US4] Run `nox -s screenshots_headless` then `nox -s screenshots_verify`; the risk is capturing a Bootstrap fade mid-transition, and `screenshots_verify` is the guard
-- [ ] T042 [US4] Confirm `git status --porcelain docs/images/screenshots/` is empty before and after `nox -s e2e` (SC-009); discard regenerated images with `git checkout -- docs/images/screenshots/` if unchanged in substance
-- [ ] T043 [US4] Confirm zero unjustified sites remain anywhere: `grep -rn -B3 "wait_for_timeout\|time\.sleep" tests/e2e/` — every hit either gone or preceded by a justification. `tests/e2e/test_server.py`'s polling loop is out of scope (FR-004)
+- [X] T040 [US4] Convert all 28 sites in `tests/e2e/test_screenshot_generation.py` — ordinary Rule 1 work against the same page objects the gate tests use
+- [X] T041 [US4] Run `nox -s screenshots_headless` then `nox -s screenshots_verify`; the risk is capturing a Bootstrap fade mid-transition, and `screenshots_verify` is the guard
+- [X] T042 [US4] Confirm `git status --porcelain docs/images/screenshots/` is empty before and after `nox -s e2e` (SC-009); discard regenerated images with `git checkout -- docs/images/screenshots/` if unchanged in substance
+- [X] T043 [US4] Confirm zero unjustified sites remain anywhere: `grep -rn -B3 "wait_for_timeout\|time\.sleep" tests/e2e/` — every hit either gone or preceded by a justification. `tests/e2e/test_server.py`'s polling loop is out of scope (FR-004)
 
 **Checkpoint**: SC-003 met — the count of unjustified sites is zero, down from 127.
 
@@ -146,10 +146,10 @@ These apply to T006–T045 and are not repeated per task:
 
 **Independent test**: nothing in the documentation set describes existing time-based waits as tolerated; feature 002's record no longer reports SC-008 as outstanding.
 
-- [ ] T044 [P] [US5] Remove the grandfathering caveat from `.specify/memory/constitution.md` §IV (lines 130–134), retaining only the exception for genuinely unobservable conditions. Bump the constitution version with a Sync Impact Report, as the 002 change did
-- [ ] T045 [P] [US5] Remove grandfathering language from `CLAUDE.md`'s "Writing e2e tests" section (line 24 onward)
-- [ ] T046 [P] [US5] Correct feature 002's record: `specs/002-e2e-test-performance/spec.md` SC-008 and `specs/002-e2e-test-performance/quickstart.md` lines 76–80, which currently report the criterion as unmet at 121.6s. State the achieved figure and reference this feature
-- [ ] T047 [US5] Verify: `grep -rni "grandfather" CLAUDE.md .specify/memory/constitution.md docs/ _bmad-output/` returns nothing (SC-011)
+- [X] T044 [P] [US5] Remove the grandfathering caveat from `.specify/memory/constitution.md` §IV (lines 130–134), retaining only the exception for genuinely unobservable conditions. Bump the constitution version with a Sync Impact Report, as the 002 change did
+- [X] T045 [P] [US5] Remove grandfathering language from `CLAUDE.md`'s "Writing e2e tests" section (line 24 onward)
+- [X] T046 [P] [US5] Correct feature 002's record: `specs/002-e2e-test-performance/spec.md` SC-008 and `specs/002-e2e-test-performance/quickstart.md` lines 76–80, which currently report the criterion as unmet at 121.6s. State the achieved figure and reference this feature
+- [X] T047 [US5] Verify: `grep -rni "grandfather" CLAUDE.md .specify/memory/constitution.md docs/ _bmad-output/` returns nothing (SC-011)
 
 ---
 
@@ -161,26 +161,26 @@ These apply to T006–T045 and are not repeated per task:
 
 **Independent test**: someone unfamiliar writes a new e2e test against a multi-step async flow using only `CLAUDE.md` and the constitution, with the old contract path unavailable.
 
-- [ ] T048 [US6] Move the practical guidance into `CLAUDE.md`, making it the normative source: the condition table, worked examples, the review checklist, and Patterns A–E from [contracts/readiness-signals.md](./contracts/readiness-signals.md) §4. Each pattern must name the situation it applies to and the observable condition it resolves to (FR-019)
-- [ ] T049 [US6] Confirm every pattern in `CLAUDE.md` traces to a real call site converted by T006–T040 (SC-012). A pattern with no call site behind it was invented rather than learned — delete it
-- [ ] T050 [US6] Reduce `.specify/memory/constitution.md` §IV to the governing rule only — the prohibition, its one exception, the justify-in-writing requirement — and point at `CLAUDE.md` for practice. No sentence may appear in both (FR-022, SC-015)
-- [ ] T051 [P] [US6] Repoint `docs/development-testing-guide.md:359` from the 002 contract to `CLAUDE.md`, keeping its summary
-- [ ] T052 [P] [US6] Repoint `_bmad-output/project-context.md:65` from the 002 contract to `CLAUDE.md`, keeping its summary
-- [ ] T053 [P] [US6] Repoint the docstring at `tests/e2e/waits.py:6` — **a source file, which a Markdown-only sweep misses**
-- [ ] T054 [US6] Supersede `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md` so no maintainable second copy of the rules survives (FR-024). Git history preserves the original text, so the smallest option that leaves no followable stale rules is the right one
-- [ ] T055 [US6] Verify SC-014: `grep -rn "e2e-test-authoring" CLAUDE.md docs/ _bmad-output/ tests/ .specify/memory/` returns no hits pointing at the 002 path — all five live references repointed
-- [ ] T056 [US6] Verify SC-016: `grep -rn "002-e2e-test-performance" docs/development-testing-guide.md .specify/memory/constitution.md` still shows the historical citations at `docs/development-testing-guide.md:74` and `.specify/memory/constitution.md:14`. The move removed pointers to a source of rules, not the record of why the rules exist
+- [X] T048 [US6] Move the practical guidance into `CLAUDE.md`, making it the normative source: the condition table, worked examples, the review checklist, and Patterns A–E from [contracts/readiness-signals.md](./contracts/readiness-signals.md) §4. Each pattern must name the situation it applies to and the observable condition it resolves to (FR-019)
+- [X] T049 [US6] Confirm every pattern in `CLAUDE.md` traces to a real call site converted by T006–T040 (SC-012). A pattern with no call site behind it was invented rather than learned — delete it
+- [X] T050 [US6] Reduce `.specify/memory/constitution.md` §IV to the governing rule only — the prohibition, its one exception, the justify-in-writing requirement — and point at `CLAUDE.md` for practice. No sentence may appear in both (FR-022, SC-015)
+- [X] T051 [P] [US6] Repoint `docs/development-testing-guide.md:359` from the 002 contract to `CLAUDE.md`, keeping its summary
+- [X] T052 [P] [US6] Repoint `_bmad-output/project-context.md:65` from the 002 contract to `CLAUDE.md`, keeping its summary
+- [X] T053 [P] [US6] Repoint the docstring at `tests/e2e/waits.py:6` — **a source file, which a Markdown-only sweep misses**
+- [X] T054 [US6] Supersede `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md` so no maintainable second copy of the rules survives (FR-024). Git history preserves the original text, so the smallest option that leaves no followable stale rules is the right one
+- [X] T055 [US6] Verify SC-014: `grep -rn "e2e-test-authoring" CLAUDE.md docs/ _bmad-output/ tests/ .specify/memory/` returns no hits pointing at the 002 path — all five live references repointed
+- [X] T056 [US6] Verify SC-016: `grep -rn "002-e2e-test-performance" docs/development-testing-guide.md .specify/memory/constitution.md` still shows the historical citations at `docs/development-testing-guide.md:74` and `.specify/memory/constitution.md:14`. The move removed pointers to a source of rules, not the record of why the rules exist
 
 ---
 
 ## Phase 9: Polish & Cross-Cutting
 
-- [ ] T057 Final probe measurement per [quickstart.md](./quickstart.md); record the figure and the count of surviving justified waits (SC-001, SC-004). `rm tests/e2e/_probe.py`
-- [ ] T058 Three consecutive clean full-gate runs with `--reruns=0` (SC-006)
-- [ ] T059 Isolation sweep — every test alone against a clean environment (SC-008), using the `while read -r t` loop in [quickstart.md](./quickstart.md). Slow, well over an hour; run once before merge
-- [ ] T060 Confirm `grep -rn "networkidle" tests/e2e/ | wc -l` is still 0 (SC-010)
-- [ ] T061 Review the assertion diff one last time — `git diff main -- tests/e2e/ | grep -E "^-.*(assert |expect\()"` — with specific attention to `tests/e2e/test_shorten_items.py`, `tests/e2e/test_toggle_item_status.py` and `tests/e2e/test_history_functionality.py` (SC-005)
-- [ ] T062 Write the survivor list from T005's `survivors.md` into the final commit message, each entry naming the file, line and the condition that cannot be observed (SC-004)
+- [X] T057 Final probe measurement per [quickstart.md](./quickstart.md); record the figure and the count of surviving justified waits (SC-001, SC-004). `rm tests/e2e/_probe.py`
+- [X] T058 Three consecutive clean full-gate runs with `--reruns=0` (SC-006)
+- [X] T059 Isolation sweep — every test alone against a clean environment (SC-008), using the `while read -r t` loop in [quickstart.md](./quickstart.md). Slow, well over an hour; run once before merge
+- [X] T060 Confirm `grep -rn "networkidle" tests/e2e/ | wc -l` is still 0 (SC-010)
+- [X] T061 Review the assertion diff one last time — `git diff main -- tests/e2e/ | grep -E "^-.*(assert |expect\()"` — with specific attention to `tests/e2e/test_shorten_items.py`, `tests/e2e/test_toggle_item_status.py` and `tests/e2e/test_history_functionality.py` (SC-005)
+- [X] T062 Write the survivor list from T005's `survivors.md` into the final commit message, each entry naming the file, line and the condition that cannot be observed (SC-004)
 
 ---
 

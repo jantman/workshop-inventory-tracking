@@ -8,6 +8,7 @@ import pytest
 import re
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
+from tests.e2e.waits import wait_for_material_suggestions
 
 
 class AdminMaterialsPage(BasePage):
@@ -418,8 +419,12 @@ def test_admin_integration_with_autocomplete(page, live_server):
     # Type in material field to trigger autocomplete
     material_input = page.locator('#material')
     material_input.fill('Test Integration')
-    page.wait_for_timeout(500)  # Wait for autocomplete
-    
+    # MaterialSelector debounces its input handler by 200ms, so the dropdown
+    # still holds the previous query's matches for a moment; this settles on a
+    # list where every entry matches, which is what the inner_text() reads below
+    # need.
+    wait_for_material_suggestions(page, 'Test Integration')
+
     # Should show the new material in suggestions
     suggestions = page.locator('.material-suggestions .suggestion-item')
     expect(suggestions.first).to_be_visible()

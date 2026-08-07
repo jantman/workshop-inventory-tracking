@@ -181,6 +181,7 @@ Before any test file is touched, the maintainer wants a written assessment of wh
 - **SC-006**: Every end-to-end test passes when run individually against a clean environment.
 - **SC-007**: With one application behavior deliberately broken, 100% of the resulting failures are attributable to that behavior, and each failing test reproduces its failure in isolation.
 - **SC-008**: Measured `wait_for_timeout` execution time falls from **423.9 seconds across 479 executions** to **under 60 seconds**, with every surviving instance carrying a written justification at its call site. Measured with the blocking-call probe described in [quickstart.md](./quickstart.md) — *not* by summing the literal arguments in the source, which understates the real cost by 2.2×.
+  **Met.** This feature took it to 121.6s across 212 executions, short of the target; `specs/003-e2e-remove-timed-waits/` finished the job on 2026-08-06 and took it to **0 seconds across 0 executions** — `wait_for_timeout` no longer appears in the probe output at all, and there are no surviving instances to justify.
 - **SC-011**: `wait_for_load_state("networkidle")` does not appear anywhere in `tests/e2e/`.
 - **SC-012**: Running the end-to-end session leaves the working tree clean — in particular, no file under `docs/images/screenshots/` is modified.
 - **SC-009**: `CLAUDE.md`, the `docs/` testing guidance, and `_bmad-output/` project context each describe the new conventions, and a review finds no remaining description of the superseded approach.

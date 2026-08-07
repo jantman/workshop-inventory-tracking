@@ -356,7 +356,7 @@ git commit -m "Add screenshot for new feature"
 
 ### Writing E2E Tests
 
-These rules exist because ignoring them is what made the suite take 22 minutes. The complete version, with worked examples and a review checklist, is `specs/002-e2e-test-performance/contracts/e2e-test-authoring.md`.
+These rules exist because ignoring them is what made the suite take 22 minutes. The complete version, with worked examples and a review checklist, is the "Writing e2e tests" section of [`CLAUDE.md`](../CLAUDE.md).
 
 **1. Wait for state, never for a duration.** Do not use `page.wait_for_timeout(...)` or `time.sleep(...)`. A fixed delay is either unnecessary (the condition was already met) or unreliable (a slower machine misses it). Use the auto-waiting assertions:
 

@@ -8,6 +8,7 @@ copies of existing items with new sequential JA IDs.
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
+from tests.e2e.waits import wait_for_modal_shown
 
 
 class DuplicateItemPage(BasePage):
@@ -19,9 +20,14 @@ class DuplicateItemPage(BasePage):
         self.page.wait_for_load_state("domcontentloaded")
 
     def click_duplicate_button(self):
-        """Click the duplicate item button"""
+        """Open the duplicate modal and wait for it to finish opening.
+
+        Bootstrap fades the modal in and only moves focus into it on
+        transitionend, so a click issued during the fade lands on whatever was
+        underneath. wait_for_modal_shown settles on full opacity plus focus.
+        """
         self.page.locator("#duplicate-item-btn").click()
-        self.page.wait_for_timeout(500)
+        wait_for_modal_shown(self.page, "duplicateItemModal")
 
     def is_duplicate_modal_visible(self):
         """Check if duplicate modal is shown"""
@@ -37,9 +43,13 @@ class DuplicateItemPage(BasePage):
         return self.page.locator("#duplicate-quantity").input_value()
 
     def set_duplicate_quantity(self, quantity):
-        """Set the quantity to duplicate"""
+        """Set the quantity to duplicate.
+
+        updateDuplicatePreview() is bound to `input` and rewrites the preview
+        synchronously, so it has already run by the time fill() returns and
+        get_preview_message() cannot read a stale value.
+        """
         self.page.locator("#duplicate-quantity").fill(str(quantity))
-        self.page.wait_for_timeout(200)
 
     def get_preview_message(self):
         """Get the preview message showing JA ID range"""
@@ -62,10 +72,20 @@ class DuplicateItemPage(BasePage):
         self.page.locator("input[name='unsaved-changes-action'][value='discard']").check()
 
     def click_create_duplicates_button(self):
-        """Click the create duplicates button in modal"""
+        """Click Create and wait for the AJAX request to resolve.
+
+        createDuplicates() awaits POST /api/items/{ja_id}/duplicate and only then
+        hides the modal and raises a toast -- on both the success and the failure
+        path. The toast is therefore proof the response landed, and it is what
+        get_toast_message() reads next. Any earlier toast is cleared first, so
+        this cannot settle on a stale one.
+        """
+        self.page.evaluate(
+            "() => { const c = document.getElementById('toast-container');"
+            "        if (c) c.innerHTML = ''; }"
+        )
         self.page.locator("#duplicate-create-btn").click()
-        # Wait for AJAX request to complete (this is not a page navigation)
-        self.page.wait_for_timeout(1000)
+        expect(self.page.locator("#toast-container .toast")).to_be_visible()
 
     def modify_item_field(self, field_id, value):
         """Modify a field to create unsaved changes"""
@@ -613,10 +633,10 @@ def test_duplicate_photos_no_blob_duplication(page, live_server):
     # Create 3 duplicates
     dup_page.click_duplicate_button()
     dup_page.set_duplicate_quantity(3)
+    # click_create_duplicates_button() already waits for the POST to resolve, and
+    # the server has committed by the time it responds, so the counts below are
+    # taken against a settled database.
     dup_page.click_create_duplicates_button()
-
-    # Wait for duplication to complete
-    page.wait_for_timeout(1000)
 
     # Count photos AFTER duplication
     with PhotoService(live_server.storage) as photo_service:
