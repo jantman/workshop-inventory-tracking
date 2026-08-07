@@ -95,7 +95,13 @@ def test_add_form_accepts_valid_taxonomy_materials(page, live_server):
         # until its taxonomy list has arrived. Submitting inside that window is
         # refused by the browser and nothing is created. Wait for the validator to
         # accept the value -- that is the condition the old delay stood in for.
-        expect(page.locator('#material')).not_to_have_class(re.compile(r'\bis-invalid\b'))
+        #
+        # The condition is the positive class. validateMaterial() adds is-valid on
+        # accept and is-invalid on reject, and removes *both* on an empty field --
+        # and the constructor only binds listeners, so before the first input event
+        # the field carries neither. "not is-invalid" is therefore also true of a
+        # field the validator has never looked at.
+        expect(page.locator('#material')).to_have_class(re.compile(r'\bis-valid\b'))
         page.locator('#length').fill('12')
         page.locator('#width').fill('1')
 
@@ -203,9 +209,8 @@ def test_edit_form_accepts_valid_taxonomy_materials(page, live_server):
         material_field = page.locator('#material')
         material_field.clear()
         material_field.fill(new_material)
-        # As above: the validator has to accept the value before the browser will
-        # let the form submit at all.
-        expect(material_field).not_to_have_class(re.compile(r'\bis-invalid\b'))
+        # As above: wait for the accept, not for the absence of a reject.
+        expect(material_field).to_have_class(re.compile(r'\bis-valid\b'))
 
         # Submit form and wait for the response to render, not for a delay.
         add_page.submit_and_wait('button[type="submit"] >> nth=0')

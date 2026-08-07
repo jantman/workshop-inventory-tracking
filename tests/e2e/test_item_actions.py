@@ -322,15 +322,18 @@ def test_edit_form_loads_without_validation_errors(page, live_server):
     page.goto(f'{live_server.url}/inventory/edit/JA102003')
 
     # The assertions below are negative -- "nothing is marked invalid" -- so they
-    # would pass trivially against a page whose scripts have not run yet. Two
-    # initialisation passes have to land first, and each leaves a marker:
+    # would pass trivially against a page whose scripts have not run yet.
     #
-    #  - edit.html clears any .is-invalid classes and only then adds
-    #    `needs-validation` to the form, so that class means the clearing pass ran;
-    #  - MaterialValidator marks #material invalid until its taxonomy list has
-    #    arrived, so the field losing that class means the fetch resolved.
+    # edit.html strips every .is-invalid/.is-valid class 100ms after load and only
+    # then adds `needs-validation` to the form, which the served HTML does not
+    # carry. That class appearing is therefore proof the clearing pass has run,
+    # and it is the pass these assertions are about.
+    #
+    # MaterialValidator is deliberately *not* waited on here. It only validates on
+    # input, blur and change, and this field was populated by the server and never
+    # typed into, so it carries neither class and never will -- "not is-invalid"
+    # would be vacuous and "is-valid" would hang.
     expect(page.locator('#add-item-form')).to_have_class(re.compile(r'\bneeds-validation\b'))
-    expect(page.locator('#material')).not_to_have_class(re.compile(r'\bis-invalid\b'))
 
     # Verify no validation error classes are present on page load
     invalid_fields = page.locator('.is-invalid')

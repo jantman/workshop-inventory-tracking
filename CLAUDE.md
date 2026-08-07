@@ -51,7 +51,9 @@ Read the handler that the action triggers, and ask where its `await` is. That on
 
 **F — a positive class, not the absence of a negative one.** `expect(field).not_to_have_class('is-invalid')` is satisfied by a field the validator has never looked at, and by one something has since cleared. `MaterialValidator` adds `is-valid` on accept, so that is the condition that actually means "accepted". Prefer the assertion that cannot be true before the work happened.
 
-**Submissions that never happen are silent.** A form refused by constraint validation leaves nothing in the DOM — just a browser bubble. `AddItemPage.submit_and_wait()` settles on the `invalid` event for that case and returns `False`; a caller that ignores the result carries on as though its item exists and fails much later, somewhere unrelated.
+**G — the page may be writing to the field you are filling.** Pattern A cuts both ways. `autoPopulateJaId()` checks "only if `#ja_id` is empty" *before* awaiting `GET /api/inventory/next-ja-id` and writes the result *after*, so a `fill()` issued in that gap has its selection collapsed by the page's write and appends instead of replacing — leaving `JA000123JA000123`, which fails the field's `pattern`. Where the page populates a field for you, let its write land first (`expect(field).not_to_have_value("")`) and confirm yours stuck (`expect(field).to_have_value(...)`).
+
+**Submissions that never happen are silent.** A form refused by constraint validation leaves nothing in the DOM — just a browser bubble. `AddItemPage.submit_and_wait()` settles on the `invalid` event for that case and returns `False`; a caller that ignores the result carries on as though its item exists and fails much later, somewhere unrelated. It also logs the offending field, its message and its value to the browser console — both races found in this suite were diagnosed from that one line, so leave it in.
 
 ### Reviewing a new e2e test
 

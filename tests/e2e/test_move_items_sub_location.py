@@ -21,12 +21,30 @@ class TestMoveItemsSubLocation:
     """E2E tests for move items with sub-location functionality"""
 
     def add_test_item(self, page, live_server, ja_id, location, sub_location=None):
-        """Helper to add a test item via the UI"""
+        """Helper to add a test item via the UI.
+
+        Two things here are load-bearing and neither is obvious.
+
+        The add page fills #ja_id itself, from GET /api/inventory/next-ja-id. Its
+        "only if the field is empty" guard is checked *before* that await and the
+        write lands *after* it, so a fill() issued in the gap has its selection
+        collapsed by the page's write and appends instead of replacing --
+        leaving "JA000102JA000102", which fails the field's pattern. Let the
+        page's own write land first, and confirm ours stuck.
+
+        And a submit the browser refuses leaves no trace in the DOM, so an item
+        that was never created is invisible here. It resurfaces much later as a
+        move that cannot be validated, with Execute greyed out and a 60s click
+        timeout naming a button rather than the cause. Confirm the row exists.
+        """
         page.goto(f'{live_server.url}/inventory/add')
         page.wait_for_load_state("domcontentloaded")
 
         # Fill in basic required fields
+        ja_field = page.locator('#ja_id')
+        expect(ja_field).not_to_have_value("")
         page.fill('#ja_id', ja_id)
+        expect(ja_field).to_have_value(ja_id)
         page.select_option('#item_type', 'Bar')
         page.select_option('#shape', 'Round')
         page.fill('#material', 'Steel')
@@ -39,6 +57,13 @@ class TestMoveItemsSubLocation:
         # Submit form
         page.click('button[type="submit"]')
         page.wait_for_load_state("domcontentloaded")
+
+        # See the docstring: confirm the item actually exists before any test
+        # builds a move on top of it.
+        response = page.request.get(f'{live_server.url}/api/items/{ja_id}')
+        assert response.ok and response.json().get('success'), (
+            f"{ja_id} was not created -- the add form refused the submit"
+        )
 
     def test_move_no_sub_to_no_sub(self, page, live_server):
         """Test moving item with no sub-location to location with no sub-location"""

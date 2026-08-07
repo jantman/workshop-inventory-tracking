@@ -45,7 +45,21 @@ class AddItemPage(BasePage):
         one. Tests that deliberately enter an unknown material fill #material
         directly rather than coming through here.
         """
+        # The add page fills #ja_id itself, from GET /api/inventory/next-ja-id.
+        # Its "only if the field is empty" guard is checked *before* that await
+        # and the write lands *after* it, so a fill() issued in the gap has its
+        # selection collapsed by the page's write and appends instead of
+        # replacing -- leaving "JA000123JA000123", which fails the field's
+        # pattern. The browser then refuses the submit, and native constraint
+        # validation leaves no trace in the DOM, so the test carries on as though
+        # the item exists and fails much later somewhere else.
+        #
+        # Let the page's own write land first. It is a one-shot on init, so once
+        # the field is non-empty nothing else will touch it.
+        ja_field = self.page.locator(self.JA_ID_INPUT)
+        expect(ja_field).not_to_have_value("")
         self.fill_and_wait(self.JA_ID_INPUT, ja_id)
+        expect(ja_field).to_have_value(ja_id)
         self.page.select_option(self.ITEM_TYPE_SELECT, item_type)
         self.page.select_option(self.SHAPE_SELECT, shape)
         self.fill_and_wait(self.MATERIAL_INPUT, material)
@@ -159,7 +173,8 @@ class AddItemPage(BasePage):
                     const f = e.target;
                     console.log('E2E: submission refused by #' +
                                 (f.id || f.name || '?') + ': ' +
-                                (f.validationMessage || 'no message'));
+                                (f.validationMessage || 'no message') +
+                                ' [value=' + JSON.stringify(f.value) + ']');
                 }, true);
             }"""
         )

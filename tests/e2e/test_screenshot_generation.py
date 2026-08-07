@@ -313,10 +313,11 @@ class TestDocumentationScreenshots:
 
         # Wait for form to load with data
         page.wait_for_selector("#add-item-form", timeout=5000)
-        # The values are rendered by the server, but MaterialValidator restyles
-        # #material once its taxonomy arrives -- capture after that, or the shot
-        # catches a half-validated field.
-        expect(page.locator("#material")).not_to_have_class(re.compile(r"\bis-invalid\b"))
+        # The values are rendered by the server, but edit.html strips every
+        # validation class 100ms after load and only then adds `needs-validation`
+        # to the form -- a class the served HTML does not carry. Capturing before
+        # that lands catches the form mid-restyle.
+        expect(page.locator("#add-item-form")).to_have_class(re.compile(r"\bneeds-validation\b"))
 
         # Capture screenshot
         self.screenshot.capture_viewport(

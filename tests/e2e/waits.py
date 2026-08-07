@@ -181,10 +181,18 @@ def wait_for_modal_shown(page: Page, modal_id: str) -> None:
 
 
 def wait_for_modal_hidden(page: Page, modal_id: str) -> None:
-    """Wait until a Bootstrap modal has finished fading out and been detached."""
+    """Wait until a Bootstrap modal has finished fading out and released the page.
+
+    The `show` class is not enough on its own. Bootstrap removes it at the *start*
+    of the fade-out and only tears the backdrop down on transitionend, so a wait
+    that settles on the class alone returns while a full-screen `.modal-backdrop`
+    is still over the page, intercepting the caller's next click. The backdrop
+    being gone is what "hidden" has to mean here.
+    """
     page.wait_for_function(
         "id => { const m = document.getElementById(id);"
-        "        return !m || !m.classList.contains('show'); }",
+        "        const closed = !m || !m.classList.contains('show');"
+        "        return closed && !document.querySelector('.modal-backdrop'); }",
         arg=modal_id,
     )
 
