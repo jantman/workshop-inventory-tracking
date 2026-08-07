@@ -24,7 +24,7 @@ from tests.e2e.fixtures.screenshot_data import (
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.search_page import SearchPage
-from tests.e2e.waits import wait_for_modal_shown
+from tests.e2e.waits import dismiss_material_suggestions, wait_for_modal_shown
 from app.database import InventoryItem
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 
@@ -223,8 +223,11 @@ class TestDocumentationScreenshots:
             ja_id="JA000201",
             item_type="Bar",  # Use actual enum values
             shape="Round",
-            material="Steel - 1018 Cold Rolled"
+            material="12L14"  # taxonomy entry; the form rejects anything else
         )
+        # A material the taxonomy recognises opens the autocomplete, which then
+        # overlays the Dimensions card. Close it before capturing.
+        dismiss_material_suggestions(page)
         add_page.fill_dimensions(length="72", width="1.5")
         add_page.fill_location_and_notes(
             location="Metal Storage Rack A",
@@ -260,8 +263,10 @@ class TestDocumentationScreenshots:
             ja_id="JA000300",
             item_type="Bar",
             shape="Square",
-            material="Aluminum - 6061-T651"
+            material="6061-T6"  # taxonomy entry; the form rejects anything else
         )
+        # As above: close the autocomplete so it does not cover the form.
+        dismiss_material_suggestions(page)
         add_page.fill_location_and_notes(location="Metal Storage Rack A")
 
         # Set quantity to create multiple items
