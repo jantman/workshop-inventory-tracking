@@ -46,16 +46,15 @@ class AddItemPage(BasePage):
         directly rather than coming through here.
         """
         # The add page fills #ja_id itself, from GET /api/inventory/next-ja-id.
-        # Its "only if the field is empty" guard is checked *before* that await
-        # and the write lands *after* it, so a fill() issued in the gap has its
-        # selection collapsed by the page's write and appends instead of
-        # replacing -- leaving "JA000123JA000123", which fails the field's
-        # pattern. The browser then refuses the submit, and native constraint
-        # validation leaves no trace in the DOM, so the test carries on as though
-        # the item exists and fails much later somewhere else.
+        # autoPopulateJaId() re-checks "only if the field is empty" on the far
+        # side of that fetch, so it will not clobber a value we have already
+        # typed -- but fill() is select-then-insert, and a write landing between
+        # those two steps still collapses the selection and appends, leaving
+        # "JA000123JA000123". That fails the field's pattern, the browser refuses
+        # the submit, and native constraint validation leaves no trace in the DOM.
         #
-        # Let the page's own write land first. It is a one-shot on init, so once
-        # the field is non-empty nothing else will touch it.
+        # Let the page's own write land first and confirm ours stuck. It is a
+        # one-shot on init, so once the field is non-empty nothing else touches it.
         ja_field = self.page.locator(self.JA_ID_INPUT)
         expect(ja_field).not_to_have_value("")
         self.fill_and_wait(self.JA_ID_INPUT, ja_id)

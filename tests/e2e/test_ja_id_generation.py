@@ -197,6 +197,44 @@ def test_ja_id_auto_population_with_existing_items(page, live_server):
 
 
 @pytest.mark.e2e
+def test_auto_population_does_not_overwrite_input_typed_during_its_fetch(page, live_server):
+    """#69: a value typed while GET /api/inventory/next-ja-id is in flight survives.
+
+    autoPopulateJaId() used to check "only if the field is empty" *before* its
+    await and write the result *after* it, so anything entered in between was
+    silently overwritten -- and, because a programmatic fill selects the field's
+    contents and then inserts, a write landing between those two steps collapsed
+    the selection and produced `JA000123JA000123`. That fails the field's
+    `pattern`, the browser refuses the submit, and native constraint validation
+    leaves nothing in the DOM to say so.
+
+    The race is reproduced exactly rather than approximated. autoPopulateJaId()
+    runs synchronously up to `await fetch(...)`, so the guard has already been
+    evaluated against an empty field by the time the call returns its promise;
+    typing at that point lands squarely inside the window. page.evaluate()
+    awaits the returned promise, so when it comes back the response has been
+    handled and the field holds whatever the handler decided to leave there.
+    """
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    ja_id_field = page.locator('#ja_id')
+    # The page's own one-shot population, so the re-population below is the only
+    # fetch in flight when we type.
+    expect(ja_id_field).not_to_have_value('')
+
+    page.evaluate("""() => {
+        const field = document.getElementById('ja_id');
+        field.value = '';                                  // empty when the guard reads it
+        const populated = window.addItemForm.autoPopulateJaId();
+        field.value = 'JA999999';                          // typed while the fetch is in flight
+        return populated;
+    }""")
+
+    expect(ja_id_field).to_have_value('JA999999')
+
+
+@pytest.mark.e2e
 def test_api_next_ja_id_endpoint(page, live_server):
     """Test the API endpoint directly"""
     # Navigate to any page to establish session

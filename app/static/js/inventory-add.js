@@ -225,6 +225,16 @@ class InventoryAddForm {
             const data = await response.json();
             
             if (response.ok && data.success) {
+                // Re-check the guard on this side of the await. The field was empty
+                // when we started the fetch, but the user (or a barcode scanner) may
+                // have typed into it since, and overwriting that both loses their
+                // input and can concatenate with it -- a programmatic fill selects
+                // the field's contents and then inserts, and a write landing between
+                // those two steps collapses the selection so the insert appends.
+                if (jaIdInput.value.trim() !== '') {
+                    return;
+                }
+
                 jaIdInput.value = data.next_ja_id;
                 console.log(`Auto-populated JA ID: ${data.next_ja_id}`);
                 
@@ -1071,5 +1081,7 @@ class InventoryAddForm {
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
-    new InventoryAddForm();
+    // Exposed like window.moveManager on the move page, so a test can drive
+    // autoPopulateJaId() across its own await boundary.
+    window.addItemForm = new InventoryAddForm();
 });
