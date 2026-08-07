@@ -304,6 +304,30 @@ mode is at least legible. Second, **the underlying transient is not diagnosed.**
 it. Whether the shared single-threaded test server can be made reliable under sustained load
 is a separate question this feature did not answer.
 
+> **Resolved by `specs/003-e2e-remove-timed-waits/` (2026-08-07).** Runs 3 and 5 were the same
+> bug, and it was not the test server. Both were **silent submit refusals** on the Add Item
+> form: the browser refused the submit, native constraint validation left nothing in the DOM to
+> see, and an item that was never created only surfaced steps later — as a missing row in a
+> label modal (run 3) and as a 60-second timeout clicking a disabled Execute button, because
+> the missing item's move could not be validated (run 5). Two causes, both fixed:
+> `fill_dimensions()`/`fill_location_and_notes()` silently skipping a present field via a
+> non-waiting `is_visible()` read, and `autoPopulateJaId()` overwriting `#ja_id` after its
+> "only if empty" guard had already passed — which collapses a concurrent `fill()`'s selection
+> and appends, producing `JA800003JA800003` and failing the field's pattern. The application
+> half of that is open as #69.
+>
+> The `TypeError: Failed to fetch` that preceded both was a red herring: it is the browser
+> aborting `loadInventory()` when a test navigates away from the list mid-request. In the
+> captured log its count tracked the number of *successful* adds, not the failure.
+>
+> **SC-005 is met**: three consecutive clean `--reruns=0` runs on `afafd0a` — 362 passed at
+> 8m 05s, 8m 05s and 8m 09s. #66 closed.
+>
+> Two other rows in the table above have also since been settled by that feature. **SC-006** is
+> met — every one of the 362 tests was run individually against a clean environment, 0 failures.
+> **SC-008** is met — `wait_for_timeout` execution time is now 0s across 0 executions, down from
+> the 121.6s recorded here.
+
 ### Review findings (PR #64, 2026-08-06)
 
 Four issues came out of review; all four were real and are fixed.
