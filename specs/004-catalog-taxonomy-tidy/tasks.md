@@ -259,10 +259,12 @@ of the repository:
   `tests/unit/test_routes.py` also patched the deleted method to simulate a
   backend failure; it now patches `VocabularyService.suggest`.
 - **T004** prescribes `manage.py db downgrade -1`. This Flask-Migrate CLI parses
-  `-1` as an option and refuses it, so the downgrade was run as
-  `db downgrade b1a0c0d10005`. Upgrade → downgrade → upgrade was exercised against
-  MariaDB 11 and the column's presence and absence confirmed with `DESCRIBE
-  products` at each step.
+  `-1` as an option and exits with `Error: No such option '-1'` before Alembic
+  sees it, so the downgrade was run as `db downgrade b1a0c0d10005`. Upgrade →
+  downgrade → upgrade was exercised against MariaDB 11 and the column's presence
+  and absence confirmed with `DESCRIBE products` at each step. `quickstart.md`
+  named the broken form too and has been corrected to the explicit revision id;
+  the task text above is left as written, as the record of what was planned.
 - **T039** predicted no image diff, and there is none of substance: no
   product-catalogue page is captured. `screenshots_headless` did rewrite
   `metadata.json` (its timestamp) and six inventory-side PNGs by a few bytes each

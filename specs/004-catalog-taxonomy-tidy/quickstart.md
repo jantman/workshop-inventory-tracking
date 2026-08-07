@@ -22,12 +22,16 @@ No label printer is needed. This feature prints nothing.
 ## Setup
 
 ```bash
-venv/bin/python manage.py db upgrade       # apply b1a0c0d10006 (products.sub_location)
-venv/bin/python manage.py db downgrade -1  # exercise the downgrade
-venv/bin/python manage.py db upgrade       # and come back
+venv/bin/python manage.py db upgrade                  # apply b1a0c0d10006 (products.sub_location)
+venv/bin/python manage.py db downgrade b1a0c0d10005   # exercise the downgrade
+venv/bin/python manage.py db upgrade                  # and come back
 ```
 
+Name the previous revision explicitly. `db downgrade -1` is the form you will reach for and it does not work here — this Flask-Migrate CLI parses `-1` as an option and exits with `Error: No such option '-1'` before Alembic sees it.
+
 Exercising the downgrade is not optional — Constitution V requires it, and against **MariaDB**, not SQLite. A plain nullable column add is the least likely revision to break on the way down, but "least likely" is not the standard.
+
+Confirm it actually moved rather than trusting the exit code — `DESCRIBE products` should show `sub_location` after each upgrade and not show it in between.
 
 ---
 
