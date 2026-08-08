@@ -19,6 +19,7 @@
     'specifications': product.specifications,
     'category_path': product.category_path,
     'location': product.location,
+    'sub_location': product.sub_location,
     'notes': product.notes,
     'tags': product.tags | map(attribute='name') | join(', '),
     'reorder_threshold': product.reorder_threshold,
@@ -48,4 +49,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/product-form.js') }}"></script>
 <script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
+<script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
 {% endblock %}

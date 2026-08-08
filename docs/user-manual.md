@@ -500,7 +500,14 @@ bin up. Write it the way you would say it out loud.
 - **Category** -- slash-separated and any depth: `electronics/passives/resistors`.
   Typing a new one creates it. There is no setup step and no admin screen.
 - **Tags** -- comma-separated, and they cut across categories.
-- **Storage Location** -- optional, and free text.
+- **Storage Location** -- optional, and free text. As you type, it suggests
+  locations already recorded *anywhere* in the application -- on metal stock as
+  well as on other products. The suggestions never restrict what you can type.
+- **Sub-Location** -- optional. The bin or drawer within the location, the same
+  way an inventory item records one. Its suggestions are scoped to whatever you
+  put in Storage Location, so filling in `Drawer 3` first offers you the bins
+  already used in `Drawer 3`. A product with no sub-location is perfectly
+  ordinary -- products that predate this field simply have none.
 - **Identifier** -- a manufacturer part number, a retail barcode, or a vendor's
   own item id. See below.
 
@@ -704,6 +711,65 @@ Filters, which combine:
 **Products → Categories** browses the tree with a count against each. A category
 exists because something is in it: type a new one on a product to create it, and
 move the last product out to remove it. There are no empty categories to tidy up.
+
+**Products → Tags** is the same view for tags: every tag in use, with how many
+products carry it. Unlike categories, a tag with nothing on it survives, and it
+is shown here with a count of zero -- that is the debris the page exists to
+reveal.
+
+### Fixing a Misspelled Category or Tag
+
+Both pages have a **Rename** button on every row.
+
+**Renaming a category carries everything beneath it.** Renaming `elctronics` to
+`electronics` moves `elctronics/passives` and
+`elctronics/passives/resistors` with it, along with every product in any of them
+-- one action, not one edit per product. The boundary is the slash, so
+`elctronics-surplus` is a *different* category and is left alone. The dialog
+tells you how many products and how many categories will move before you commit.
+
+Renaming is refused, with nothing changed, when:
+
+| You try | What happens |
+|---|---|
+| Renaming onto a category that already exists | Refused, naming the collision. Renaming never merges two categories. |
+| Renaming a category to somewhere inside itself (`power` → `power/supplies`) | Refused. |
+| Changing only capitalization or spacing | Refused as a no-op -- those never distinguished two categories in the first place. |
+| A name so long it would overflow a path beneath it | Refused. Nothing is silently truncated. |
+
+A refusal is all-or-nothing: not one product moves.
+
+**Renaming a tag onto a name already in use merges the two.** The dialog says so
+before you commit. Afterwards one tag remains carrying both sets of products, and
+a product that happened to carry both spellings carries the survivor exactly
+once. Renaming onto an unused name is a plain rename. Tags are stored lowercase,
+so renaming `Surplus` to `surplus` is a no-op and is refused as one.
+
+Neither rename leaves a forwarding address. An old bookmark to a renamed category
+or tag simply stops matching.
+
+### One Vocabulary for Locations and Vendors
+
+Storage locations, sub-locations and vendors are suggested from everything
+already recorded, on both halves of the application:
+
+| Field | Drawn from |
+|---|---|
+| Storage Location | inventory items and products |
+| Sub-Location | inventory items and products, scoped by the location you typed |
+| Vendor | inventory items and purchases |
+
+There is nothing to publish and nothing to keep in sync -- record `Drawer 3` on a
+product and the Add Item form offers it immediately, and vice versa. A vendor
+recorded only on a *deactivated* item is still offered; deactivating a piece of
+stock does not retire the vendor's name. Two spellings differing only in case
+count as one suggestion.
+
+The suggestions are advisory. Every one of these fields is plain text, and typing
+something that matches nothing saves exactly as typed.
+
+Thread Size and Purchase Location are inventory-only fields and are unchanged --
+nothing in the catalogue records either.
 
 ## Advanced Search
 

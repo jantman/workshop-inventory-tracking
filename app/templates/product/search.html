@@ -93,7 +93,12 @@
                     </td>
                     <td>{{ product.manufacturer or '' }}</td>
                     <td>{{ product.category_path or '' }}</td>
-                    <td>{{ product.location or '' }}</td>
+                    <td>
+                        {{ product.location or '' }}
+                        {%- if product.sub_location %}
+                        <span class="text-muted small">/ {{ product.sub_location }}</span>
+                        {%- endif %}
+                    </td>
                     <td class="product-quantity">
                         {# SC-007: "none on hand" and "not tracked" must never look alike #}
                         {% if product.quantity is none %}

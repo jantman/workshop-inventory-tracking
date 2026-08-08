@@ -96,6 +96,62 @@ def is_descendant(candidate: Optional[str], ancestor: Optional[str]) -> bool:
     )
 
 
+def rename_descendant(
+    path: Optional[str], old_ancestor: str, new_ancestor: str
+) -> Optional[str]:
+    """Rewrite one path under a rename of one of its ancestors.
+
+    The leading ``old_ancestor`` is replaced by ``new_ancestor`` and everything
+    from the separator onward is preserved, so a rename carries the whole
+    subtree's shape with it.  A path outside the subtree comes back unchanged --
+    ``elctronics-surplus`` is a different category from ``elctronics`` and a
+    rename of the latter must not touch it.
+
+    Args:
+        path: The category path being rewritten.
+        old_ancestor: The category being renamed.
+        new_ancestor: What it becomes.
+
+    Returns:
+        The rewritten canonical path, or the canonical original when the path
+        lies outside the renamed subtree.
+    """
+    candidate = canonical(path)
+    old_path = canonical(old_ancestor)
+    new_path = canonical(new_ancestor)
+
+    if candidate is None or old_path is None or new_path is None:
+        return candidate
+    if not is_descendant(candidate, old_path):
+        return candidate
+
+    return new_path + candidate[len(old_path):]
+
+
+def would_nest_within(new_path: Optional[str], old_path: Optional[str]) -> bool:
+    """Report whether renaming ``old_path`` to ``new_path`` nests it in itself.
+
+    ``power`` -> ``power/supplies`` would make every path beneath it infinitely
+    re-prefixable, so it has to be caught before anything is rewritten.  Equality
+    counts as nesting; callers that want a distinct "nothing to rename" message
+    compare the two paths first.
+
+    Args:
+        new_path: The proposed new category path.
+        old_path: The category path being renamed.
+
+    Returns:
+        True when the target sits at or inside the source.
+    """
+    target = canonical(new_path)
+    source = canonical(old_path)
+
+    if target is None or source is None:
+        return False
+
+    return is_descendant(target, source)
+
+
 def descendant_like_pattern(ancestor: str) -> str:
     """Build the LIKE pattern matching an ancestor's strict descendants.
 

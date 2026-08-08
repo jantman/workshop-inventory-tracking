@@ -1157,10 +1157,16 @@ def material_suggestions():
 
 @bp.route('/api/inventory/field-suggestions/<field>')
 def inventory_field_suggestions(field):
-    """Return distinct existing values for a whitelisted item field.
+    """Return distinct existing values for a whitelisted field.
 
-    Used by the Add/Edit Item forms to autocomplete free-form fields
-    (Thread Size, Purchase Location, Vendor, Location, Sub-Location).
+    Used by the metal stock Add/Edit Item forms and by the product
+    catalogue's forms to autocomplete free-form fields (Thread Size,
+    Purchase Location, Vendor, Location, Sub-Location).
+
+    The ``inventory`` segment in the path is historical rather than
+    descriptive -- location and vendor values come from both halves of
+    the application. Renaming it would touch a route, two templates, a
+    JS file and its e2e tests for no user-visible gain.
     """
     query = request.args.get('q', '').strip()
     limit_raw = request.args.get('limit', '10')
@@ -1173,8 +1179,10 @@ def inventory_field_suggestions(field):
     limit = min(max(limit, 1), 50)
 
     try:
-        service = _get_inventory_service()
-        suggestions = service.get_field_value_suggestions(
+        from app.services.vocabulary import VocabularyService
+
+        service = VocabularyService(_get_storage_backend())
+        suggestions = service.suggest(
             field,
             query=query or None,
             limit=limit,

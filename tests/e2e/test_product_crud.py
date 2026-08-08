@@ -100,3 +100,62 @@ def test_an_identifier_entered_at_creation_is_attached(page, live_server):
 
     # Stored in its normalized 14-digit form (FR-009).
     expect(page.locator("#identifier-list")).to_contain_text("00012345678905")
+
+
+@pytest.mark.e2e
+def test_a_product_records_a_location_and_a_sub_location(page, live_server):
+    """FR-020/FR-021: both save and both show, matching metal stock"""
+    create_product(
+        page, live_server.url,
+        "Binned widget",
+        location="Drawer 3",
+        sub_location="Bin 7",
+    )
+
+    expect(page.locator("#product-location")).to_have_text("Drawer 3")
+    expect(page.locator("#product-sub-location")).to_have_text("Bin 7")
+
+
+@pytest.mark.e2e
+def test_a_product_without_a_sub_location_is_not_an_error(page, live_server):
+    """FR-023: no sub-location recorded is an ordinary state"""
+    create_product(page, live_server.url, "Unbinned widget", location="Drawer 3")
+
+    expect(page.locator("#product-location")).to_have_text("Drawer 3")
+    expect(page.locator("#product-sub-location")).to_have_text("Not recorded")
+
+
+@pytest.mark.e2e
+def test_a_sub_location_survives_an_edit(page, live_server):
+    create_product(
+        page, live_server.url, "Binned widget",
+        location="Drawer 3", sub_location="Bin 7",
+    )
+
+    page.click("text=Edit")
+    expect(page.locator("#sub_location")).to_have_value("Bin 7")
+    page.fill("#sub_location", "Bin 9")
+    page.click("#save-product-btn")
+
+    expect(page.locator("#product-sub-location")).to_have_text("Bin 9")
+
+
+@pytest.mark.e2e
+def test_a_sub_location_is_suggested_scoped_by_the_location(page, live_server):
+    """FR-022: already recorded under that location, so offered under it"""
+    live_server.add_test_products([
+        {'description': 'first widget', 'location': 'Drawer 3', 'sub_location': 'Bin 7'},
+        {'description': 'other widget', 'location': 'Drawer 9', 'sub_location': 'Bin 99'},
+    ])
+
+    page.goto(f"{live_server.url}/products/new")
+    expect(page.locator("#sub_location")).to_be_visible()
+
+    page.fill("#location", "Drawer 3")
+    page.locator("#sub_location").click()
+
+    dropdown = page.locator("#sub_location-suggestions")
+    # render() appends only after the fetch resolves, so the rendered item is
+    # the whole wait (CLAUDE.md pattern C).
+    expect(dropdown.locator(".dropdown-item", has_text="Bin 7")).to_have_count(1)
+    expect(dropdown).not_to_contain_text("Bin 99")
