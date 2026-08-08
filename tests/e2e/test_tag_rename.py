@@ -123,3 +123,74 @@ def test_a_product_carrying_both_ends_up_with_the_survivor_once(page, live_serve
     row = page.locator("#product-table tr", has_text="both widget")
     expect(row).to_have_count(1)
     expect(row.locator(".badge", has_text="surplus")).to_have_count(1)
+
+
+# ---------------------------------------------------------------------------
+# Collation regression. These belong here rather than in tests/unit/ because the
+# bug they cover cannot exist on SQLite: it needs MariaDB's utf8mb4_unicode_ci,
+# which resolves to ...uca1400_ai_ci and folds accents, so 'würth' = 'wurth' is
+# true in SQL and false in Python. The unit suite runs on SQLite's BINARY
+# collation and passes either way; the e2e testcontainer is configured with the
+# deployed collation, so only a test here can fail when this regresses.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_removing_an_accent_renames_the_tag_and_keeps_its_products(page, live_server):
+    """Regression: this used to delete the tag and strip it from every product.
+
+    The rename/merge decision compared strings in Python but looked the survivor
+    up in SQL. Under a folding collation the lookup returned the source row
+    itself, so the merge branch moved nothing and then deleted the only tag.
+    """
+    live_server.add_test_products([
+        {'description': f'accented widget {i}', 'tags': ['würth']}
+        for i in range(5)
+    ])
+
+    tags = submit_rename(page, live_server.url, 'würth', 'wurth')
+
+    expect(tags.locator('.tag-row[data-rename-value="wurth"]')).to_have_count(1)
+    expect(tags.locator('.tag-row[data-rename-value="wurth"] .badge')).to_have_text("5")
+    expect(tags.locator('.tag-row[data-rename-value="würth"]')).to_have_count(0)
+
+    # The associations survived, which is the part that was being destroyed.
+    page.goto(f"{live_server.url}/products?tag=wurth")
+    table = page.locator("#product-table")
+    expect(table).to_contain_text("accented widget 0")
+    expect(table.locator("tbody tr")).to_have_count(5)
+
+
+@pytest.mark.e2e
+def test_a_stale_page_cannot_destroy_a_tag(page, live_server):
+    """The server decides from the stored name, not from what the page showed.
+
+    Submitting `old_name` as rendered is the documented design: the page is a
+    courtesy and the server re-validates. That only holds if the guard compares
+    the *stored* name -- a stale "würth" still finds the row a folding collation
+    considers equal, and the old code took that for a merge and deleted it.
+
+    Renaming through the UI always submits the current name, so this state is
+    only reachable when the tag changed after the page was drawn. That is
+    precisely the case the server is supposed to be authoritative for.
+    """
+    from app.catalog_service import CatalogService
+
+    live_server.add_test_products([{'description': 'plain widget', 'tags': ['würth']}])
+
+    tags = open_tags(page, live_server.url)
+    expect(tags.locator('.tag-row[data-rename-value="würth"]')).to_have_count(1)
+
+    # The tag changes behind the page's back; the rendered button is now stale.
+    CatalogService(live_server.storage).rename_tag('würth', 'wurth')
+
+    page.locator('.rename-btn[data-rename-value="würth"]').click()
+    target = page.locator("#rename-new-value")
+    expect(target).to_be_visible()
+    target.fill("wurth")
+    page.locator("#rename-submit").click()
+
+    tags = page.locator("#tag-list")
+    expect(tags).to_be_visible()
+    expect(page.locator(".alert-danger")).to_contain_text("Nothing to rename")
+    expect(tags.locator('.tag-row[data-rename-value="wurth"]')).to_have_count(1)
+    expect(tags.locator('.tag-row[data-rename-value="wurth"] .badge')).to_have_text("1")

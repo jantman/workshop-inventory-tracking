@@ -145,3 +145,82 @@ def test_the_renamed_products_are_findable_under_the_new_category(page, live_ser
     expect(table).to_contain_text("top widget")
     expect(table).to_contain_text("deep widget")
     expect(table).not_to_contain_text("prefix sibling")
+
+
+# ---------------------------------------------------------------------------
+# Collation regression -- see the note in test_tag_rename.py. MariaDB's
+# utf8mb4_unicode_ci folds accents, so `cafe` and `café` are one string to the
+# SQL subtree filter and two categories to us. SQLite cannot reproduce it.
+# ---------------------------------------------------------------------------
+
+def _stored_category(page, base_url, description):
+    """Read one product's stored category off its detail page.
+
+    Deliberately not read off the categories page: `category_tree()` groups by
+    `category_path` in SQL, so a folding collation collapses `cafe` and `café`
+    into a single row there. The detail page renders the column verbatim.
+    """
+    page.goto(f"{base_url}/products?q={description}")
+    expect(page.locator("#product-table")).to_contain_text(description)
+    page.locator("#product-table a", has_text=description).first.click()
+    category = page.locator("#product-category")
+    expect(category).to_be_visible()
+    return category
+
+
+@pytest.mark.e2e
+def test_renaming_onto_an_accent_variant_is_refused_not_silently_merged(page, live_server):
+    """Regression: this used to merge two distinct categories and miscount.
+
+    The collision query excludes the source subtree, and under a folding
+    collation the pre-existing `café` rows *were* the source subtree as far as
+    SQL was concerned -- so they were excluded from the collision check and
+    quietly swept into the rewrite.
+    """
+    live_server.add_test_products(
+        [{'description': f'plain cafe {i}', 'category_path': 'cafe'} for i in range(2)]
+        + [{'description': f'accent cafe {i}', 'category_path': 'café'} for i in range(3)]
+    )
+
+    submit_rename(page, live_server.url, 'cafe', 'café')
+
+    expect(page.locator(".alert-danger")).to_contain_text("already exists")
+    expect(_stored_category(page, live_server.url, "plain cafe 0")).to_have_text("cafe")
+    expect(_stored_category(page, live_server.url, "accent cafe 0")).to_have_text("café")
+
+
+@pytest.mark.e2e
+def test_removing_an_accent_from_a_category_carries_its_subtree(page, live_server):
+    """The same fold with nothing to collide with -- this one always worked.
+
+    Kept as a guard on the fix rather than on the bug: the Python-side subtree
+    filter added alongside it could easily have started excluding the very rows
+    it is meant to keep. Verified to pass both before and after.
+    """
+    live_server.add_test_products([
+        {'description': 'accented top', 'category_path': 'würth'},
+        {'description': 'accented child', 'category_path': 'würth/fasteners'},
+    ])
+
+    submit_rename(page, live_server.url, 'würth', 'wurth')
+
+    expect(_stored_category(page, live_server.url, "accented top")).to_have_text("wurth")
+    expect(
+        _stored_category(page, live_server.url, "accented child")
+    ).to_have_text("wurth/fasteners")
+
+
+@pytest.mark.e2e
+def test_a_folded_sibling_is_left_alone_and_not_counted(page, live_server):
+    """Renaming `cafe` away must not touch `café`, nor count it as moved"""
+    live_server.add_test_products(
+        [{'description': f'plain cafe {i}', 'category_path': 'cafe'} for i in range(2)]
+        + [{'description': f'accent cafe {i}', 'category_path': 'café'} for i in range(3)]
+    )
+
+    submit_rename(page, live_server.url, 'cafe', 'tea')
+
+    # Two products moved, not five -- the report used to count the folded rows.
+    expect(page.locator(".alert-success")).to_contain_text("2 products moved")
+    expect(_stored_category(page, live_server.url, "plain cafe 0")).to_have_text("tea")
+    expect(_stored_category(page, live_server.url, "accent cafe 0")).to_have_text("café")

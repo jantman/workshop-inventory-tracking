@@ -1374,6 +1374,21 @@ class CatalogService:
         with self._session() as session:
             in_source = self._subtree_clause(source)
 
+            # Rows the *database* puts in the source subtree. Its collation folds
+            # case and accents (utf8mb4_unicode_ci resolves to ...uca1400_ai_ci on
+            # MariaDB 11), so this can sweep in paths that are a different
+            # category to us: "café" is not "cafe", however the server compares
+            # them. Everything downstream works from the Python-side split.
+            candidates = session.query(Product).filter(in_source).all()
+            products = [
+                product for product in candidates
+                if category_utils.is_descendant(product.category_path, source)
+            ]
+            folded = [
+                product for product in candidates
+                if not category_utils.is_descendant(product.category_path, source)
+            ]
+
             # A collision is a category at or under the target that is not part
             # of the subtree being moved. The exclusion is load-bearing:
             # renaming "a" to "b" when "a/b" exists must succeed, because "a/b"
@@ -1382,14 +1397,23 @@ class CatalogService:
                 self._subtree_clause(target),
                 ~in_source,
             ).first()
-            if collision is not None:
+            collision_path = collision[0] if collision is not None else None
+
+            # The query above cannot see a folded row: `~in_source` excluded it,
+            # because the database thinks it *is* the source. Renaming onto one
+            # would merge two genuinely distinct categories, which FR-004 refuses.
+            if collision_path is None:
+                for product in folded:
+                    if category_utils.is_descendant(product.category_path, target):
+                        collision_path = product.category_path
+                        break
+
+            if collision_path is not None:
                 raise ValidationError(
-                    f'"{collision[0]}" already exists. Renaming does not merge '
+                    f'"{collision_path}" already exists. Renaming does not merge '
                     f'categories, so this rename is refused (FR-004).',
                     field='category_path', value=target
                 )
-
-            products = session.query(Product).filter(in_source).all()
 
             # The deepest descendant is the one at risk when a short parent gets
             # a long new name, and it is not the row the operator is looking at
@@ -1486,9 +1510,28 @@ class CatalogService:
                     field='tag', value=source
                 )
 
+            # The stored name can differ from what was typed: the lookup above
+            # matched under the database's collation, which folds case *and*
+            # accents (utf8mb4_unicode_ci resolves to ...uca1400_ai_ci on
+            # MariaDB 11). Compare the stored name to decide "nothing to do",
+            # because "würth" -> "wurth" is a real rename that Python sees and
+            # SQL does not.
+            if tag.name == target:
+                raise ValidationError(
+                    f'Nothing to rename: the tag is already "{target}".',
+                    field='tag', value=target
+                )
+
             survivor = session.query(Tag).options(
                 selectinload(Tag.products)
             ).filter(Tag.name == target).first()
+
+            # Same folding, one step further: a lookup for "wurth" comes back
+            # with the "würth" row itself. That is not a second tag to merge
+            # into -- treating it as one would move nothing and then delete the
+            # only row, taking every association with it.
+            if survivor is not None and survivor.id == tag.id:
+                survivor = None
 
             if survivor is None:
                 # A free name: the associations are already right, only the
