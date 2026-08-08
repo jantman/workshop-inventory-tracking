@@ -25,15 +25,21 @@ success criteria; details of shapes and payloads live in [data-model.md](./data-
 ## Setup
 
 ```bash
-venv/bin/python manage.py db upgrade                  # apply b1a0c0d10001..b1a0c0d10005
+venv/bin/python manage.py db upgrade b1a0c0d10005     # apply b1a0c0d10001..b1a0c0d10005
 venv/bin/python manage.py db downgrade 8213852b0b94   # exercise the downgrades
-venv/bin/python manage.py db upgrade                  # and come back
+venv/bin/python manage.py db upgrade                  # and come back, to whatever head is now
 ```
 
-Name the previous revision explicitly. `db downgrade -1` is the form you will reach for and it
-does not work here — this Flask-Migrate CLI parses `-1` as an option and exits with
+Name both revisions explicitly. `db downgrade -1` is the form you will reach for and it does not
+work here — this Flask-Migrate CLI parses `-1` as an option and exits with
 `Error: No such option '-1'` before Alembic sees it. This feature's five revisions sit on top of
 `8213852b0b94`, so naming it walks the whole chain down in one command.
+
+The upgrade is pinned for the same reason. A bare `db upgrade` goes to the current head, which is
+no longer `b1a0c0d10005` — later features have added revisions on top — so it would apply and
+then walk back more than this feature owns. Pinning keeps the round trip to the five revisions
+under test, provided you start from `8213852b0b94`; if the database is already ahead of that, the
+pinned upgrade is a no-op and the downgrade still walks the newer revisions down.
 
 Exercising the downgrade is not optional: Constitution V requires each revision's `downgrade` to
 have been run, and against **MariaDB** — SQLite will not catch an index/FK ordering fault, which
