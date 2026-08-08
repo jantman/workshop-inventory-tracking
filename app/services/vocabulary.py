@@ -17,7 +17,6 @@ Ranking, LIKE-escaping and case-insensitive deduplication were moved here from
 stock's.
 """
 
-import logging
 from typing import Any, List, Optional, Tuple
 
 from sqlalchemy import case, create_engine, func
@@ -26,8 +25,6 @@ from sqlalchemy.orm import sessionmaker
 from ..database import InventoryItem, Product, Purchase
 from ..mariadb_storage import MariaDBStorage
 from config import Config
-
-logger = logging.getLogger(__name__)
 
 
 # Whitelist of fields exposed for value-suggestion autocomplete.

@@ -27,7 +27,13 @@ jobs:
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
-          # Allowed tools: plugin's required tools + project-specific tools for running tests/lint.
-          # This project uses nox as its test runner and flake8/black/isort for lint.
+          # Without these the log shows only "init" and "result" — 2+ minutes of
+          # invisible work and a bare permission_denials_count when it goes wrong.
+          display_report: true
+          show_full_output: true
+          # An enumerated command allowlist starves the review: the plugin fans out
+          # ~10 subagents that inherit it, and each reach for sed/awk/jq/diff, none of
+          # which were listed. The job is contents:read on a single-user repo with no
+          # forks, so allow Bash outright rather than chase the list.
           claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh api:*),Bash(nox:*),Bash(venv/bin/nox:*),Bash(venv/bin/python -m pytest:*),Bash(flake8:*),Bash(black:*),Bash(isort:*),Bash(python:*),Bash(python3:*),Bash(pip:*),Bash(pip3:*),Bash(python3 -m venv:*),Bash(source:*),Bash(venv/bin/python:*),Bash(venv/bin/pip:*),Bash(grep:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(git:*),Bash(test:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Task,TodoWrite,Bash"

@@ -1473,8 +1473,12 @@ class CatalogService:
             )
 
         with self._session() as session:
+            # Load each product's own tags alongside the source's products: the
+            # merge branch asks every one of them whether it already carries the
+            # survivor, and Product.tags is lazy, so without this the membership
+            # check costs a SELECT per product.
             tag = session.query(Tag).options(
-                selectinload(Tag.products)
+                selectinload(Tag.products).selectinload(Product.tags)
             ).filter(Tag.name == source).first()
             if tag is None:
                 raise ValidationError(
