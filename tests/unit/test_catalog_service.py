@@ -47,13 +47,15 @@ class TestCreateProduct:
             description='Blue widget',
             manufacturer='Acme',
             manufacturer_part_number='ACME-1',
-            specifications='10mm, blue',
+            specifications=[{'name': 'Diameter', 'value': '10mm'}],
             location='Bin 4',
             notes='from the surplus bin',
         )
         assert product.manufacturer == 'Acme'
         assert product.manufacturer_part_number == 'ACME-1'
-        assert product.specifications == '10mm, blue'
+        assert [(s.name, s.value) for s in product.specifications] == [
+            ('Diameter', '10mm')
+        ]
         assert product.location == 'Bin 4'
         assert product.notes == 'from the surplus bin'
 
@@ -640,3 +642,237 @@ class TestProductSubLocation:
     def test_it_appears_in_to_dict(self, service):
         product = service.create_product(description='w', sub_location='Bin 7')
         assert service.get_product(product.id).to_dict()['sub_location'] == 'Bin 7'
+
+
+def spec_pairs(product):
+    """A product's specifications as (name, value) tuples, in display order"""
+    return [(s.name, s.value) for s in product.specifications]
+
+
+class TestSpecifications:
+    """FR-004..FR-009: named values, replaced wholesale, validated in one place.
+
+    Note what this file *cannot* prove: SQLite collates BINARY, so a
+    case-sensitive duplicate check passes every test here and always would. The
+    case that matters runs in tests/e2e/test_product_specifications.py against
+    the deployed collation.
+    """
+
+    def test_create_stores_a_list_in_order(self, service):
+        product = service.create_product(
+            description='Buck converter',
+            specifications=[
+                {'name': 'Voltage', 'value': '12 V'},
+                {'name': 'Output current', 'value': '3 A'},
+            ],
+        )
+        assert spec_pairs(service.get_product(product.id)) == [
+            ('Voltage', '12 V'), ('Output current', '3 A')
+        ]
+
+    def test_create_without_any_is_an_ordinary_state(self, service):
+        assert spec_pairs(service.create_product(description='w')) == []
+
+    def test_both_fields_are_trimmed(self, service):
+        """FR-005: stored as typed, minus the surrounding whitespace"""
+        product = service.create_product(
+            description='w', specifications=[{'name': '  Voltage  ', 'value': '  12 V  '}]
+        )
+        assert spec_pairs(product) == [('Voltage', '12 V')]
+
+    def test_interior_whitespace_is_left_alone(self, service):
+        """Only the surrounding whitespace goes -- a newline inside a value stays"""
+        product = service.create_product(
+            description='w',
+            specifications=[{'name': 'Notes', 'value': 'first line\nsecond line'}],
+        )
+        assert spec_pairs(product) == [('Notes', 'first line\nsecond line')]
+
+    def test_a_fully_blank_entry_is_dropped_not_refused(self, service):
+        """FR-009: an untouched row on the form is not an error"""
+        product = service.create_product(
+            description='w',
+            specifications=[
+                {'name': 'Voltage', 'value': '12 V'},
+                {'name': '   ', 'value': ''},
+                {'name': 'Current', 'value': '3 A'},
+            ],
+        )
+        assert spec_pairs(product) == [('Voltage', '12 V'), ('Current', '3 A')]
+
+    def test_display_order_has_no_gap_after_a_dropped_blank(self, service):
+        """FR-006: the order is the *surviving* list index"""
+        product = service.create_product(
+            description='w',
+            specifications=[
+                {'name': 'Voltage', 'value': '12 V'},
+                {'name': '', 'value': ''},
+                {'name': 'Current', 'value': '3 A'},
+            ],
+        )
+        assert [s.display_order for s in product.specifications] == [0, 1]
+
+    def test_a_name_with_no_value_is_refused(self, service):
+        """FR-008, and the message names the offender"""
+        with pytest.raises(ValidationError) as refusal:
+            service.create_product(
+                description='w', specifications=[{'name': 'Voltage', 'value': '  '}]
+            )
+        assert 'Voltage' in refusal.value.message
+
+    def test_a_value_with_no_name_is_refused(self, service):
+        with pytest.raises(ValidationError) as refusal:
+            service.create_product(
+                description='w', specifications=[{'name': '', 'value': '12 V'}]
+            )
+        assert '12 V' in refusal.value.message
+
+    def test_a_duplicate_name_is_refused(self, service):
+        with pytest.raises(ValidationError):
+            service.create_product(
+                description='w',
+                specifications=[
+                    {'name': 'Voltage', 'value': '12 V'},
+                    {'name': 'Voltage', 'value': '5 V'},
+                ],
+            )
+
+    def test_a_duplicate_name_is_refused_case_insensitively(self, service):
+        """FR-004. SQLite would pass this either way -- see the class docstring"""
+        with pytest.raises(ValidationError):
+            service.create_product(
+                description='w',
+                specifications=[
+                    {'name': 'Voltage', 'value': '12 V'},
+                    {'name': 'voltage', 'value': '5 V'},
+                ],
+            )
+
+    def test_names_differing_only_by_accent_are_two_names(self, service):
+        """FR-004 speaks of case and whitespace, not accents -- both must save.
+
+        This is the case a UniqueConstraint would have broken under the deployed
+        accent-folding collation, which is why there is not one.
+        """
+        product = service.create_product(
+            description='w',
+            specifications=[
+                {'name': 'Volt', 'value': '12'},
+                {'name': 'Vôlt', 'value': '5'},
+            ],
+        )
+        assert spec_pairs(product) == [('Volt', '12'), ('Vôlt', '5')]
+
+    @pytest.mark.parametrize("malformed", [
+        # The shape this endpoint had before feature 005: one block of text. A
+        # str is iterable, so without an explicit refusal it gets walked
+        # character by character and crashes on the first one.
+        'Voltage: 12 V',
+        # A list of the wrong thing, which is the other obvious mistake.
+        ['Voltage: 12 V'],
+        [None],
+        [42],
+        {'name': 'Voltage', 'value': '12 V'},
+    ])
+    def test_a_malformed_specifications_payload_is_a_validation_error(
+        self, service, malformed
+    ):
+        """Not an AttributeError.
+
+        POST /api/products passes whatever a client sends straight through, and
+        its `except ValidationError` is what turns a bad payload into a 400. An
+        AttributeError escapes that and surfaces as a 500, which is both the
+        wrong status and a contradiction of the route's own contract.
+        """
+        with pytest.raises(ValidationError):
+            service.create_product(description='w', specifications=malformed)
+
+    def test_an_over_long_name_is_refused(self, service):
+        with pytest.raises(ValidationError):
+            service.create_product(
+                description='w',
+                specifications=[{'name': 'V' * 101, 'value': '12 V'}],
+            )
+
+    def test_a_refusal_creates_no_product_at_all(self, service):
+        with pytest.raises(ValidationError):
+            service.create_product(
+                description='Never created',
+                specifications=[{'name': 'Voltage', 'value': ''}],
+            )
+        assert [p.description for p in service.list_products()] == []
+
+    def test_update_replaces_the_whole_set(self, service):
+        product = service.create_product(
+            description='w',
+            specifications=[
+                {'name': 'Voltage', 'value': '12 V'},
+                {'name': 'Current', 'value': '3 A'},
+            ],
+        )
+        updated = service.update_product(
+            product.id, specifications=[{'name': 'Connector', 'value': 'barrel'}]
+        )
+        assert spec_pairs(updated) == [('Connector', 'barrel')]
+
+    def test_update_without_the_key_leaves_the_rows_untouched(self, service):
+        """The method's existing contract: knowing three fields cannot blank ten"""
+        product = service.create_product(
+            description='w', specifications=[{'name': 'Voltage', 'value': '12 V'}]
+        )
+        updated = service.update_product(product.id, description='Renamed')
+        assert spec_pairs(updated) == [('Voltage', '12 V')]
+
+    def test_update_with_an_empty_list_clears_them(self, service):
+        product = service.create_product(
+            description='w', specifications=[{'name': 'Voltage', 'value': '12 V'}]
+        )
+        assert spec_pairs(service.update_product(product.id, specifications=[])) == []
+
+    def test_update_reorders_when_the_list_order_changes(self, service):
+        product = service.create_product(
+            description='w',
+            specifications=[
+                {'name': 'Voltage', 'value': '12 V'},
+                {'name': 'Current', 'value': '3 A'},
+            ],
+        )
+        updated = service.update_product(
+            product.id,
+            specifications=[
+                {'name': 'Current', 'value': '3 A'},
+                {'name': 'Voltage', 'value': '12 V'},
+            ],
+        )
+        assert spec_pairs(updated) == [('Current', '3 A'), ('Voltage', '12 V')]
+
+    def test_a_refused_update_leaves_the_other_fields_unchanged_too(self, service):
+        """The session context manager rolls the whole update back"""
+        product = service.create_product(
+            description='Original',
+            specifications=[{'name': 'Voltage', 'value': '12 V'}],
+        )
+        with pytest.raises(ValidationError):
+            service.update_product(
+                product.id,
+                description='Renamed',
+                specifications=[{'name': 'Current', 'value': ''}],
+            )
+
+        unchanged = service.get_product(product.id)
+        assert unchanged.description == 'Original'
+        assert spec_pairs(unchanged) == [('Voltage', '12 V')]
+
+    def test_they_appear_in_to_dict(self, service):
+        """FR-011: a machine-readable list, in display order"""
+        product = service.create_product(
+            description='w',
+            specifications=[
+                {'name': 'Voltage', 'value': '12 V'},
+                {'name': 'Current', 'value': '3 A'},
+            ],
+        )
+        assert service.get_product(product.id).to_dict()['specifications'] == [
+            {'name': 'Voltage', 'value': '12 V'},
+            {'name': 'Current', 'value': '3 A'},
+        ]

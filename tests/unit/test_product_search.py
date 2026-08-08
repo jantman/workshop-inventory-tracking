@@ -23,14 +23,20 @@ def catalogue(service):
     """A small catalogue with nested categories and cross-cutting tags"""
     service.create_product(
         description='Carbon film resistor, 10k',
-        specifications='1/4W, 5% tolerance',
+        specifications=[
+            {'name': 'Power rating', 'value': '1/4W'},
+            {'name': 'Tolerance', 'value': '5%'},
+        ],
         category_path='electronics/passives/resistors',
         tags=['surplus'],
         identifiers=[{'id_type': 'MPN', 'value': 'CF14JT10K0'}],
     )
     service.create_product(
         description='Ceramic capacitor, 100nF',
-        specifications='50V X7R',
+        specifications=[
+            {'name': 'Voltage', 'value': '50V'},
+            {'name': 'Dielectric', 'value': 'X7R'},
+        ],
         category_path='electronics/passives/capacitors',
         tags=['rohs'],
     )
@@ -266,3 +272,200 @@ class TestTags:
         product = service.create_product(description='x', tags=['orphan'])
         service.set_tags(product.id, [])
         assert 'orphan' in service.list_tags()
+
+
+@pytest.fixture
+def converters(service):
+    """The SC-001 catalogue: two recorded voltages and one that only says so"""
+    service.create_product(
+        description='12 V buck converter',
+        specifications=[
+            {'name': 'Voltage', 'value': '12 V'},
+            {'name': 'Output current', 'value': '3 A'},
+        ],
+        category_path='electronics/power',
+    )
+    service.create_product(
+        description='5 V buck converter',
+        specifications=[{'name': 'Voltage', 'value': '5 V'}],
+        category_path='electronics/power',
+    )
+    service.create_product(
+        # Mentions 12 V and records nothing. This is the product the feature
+        # exists to stop returning.
+        description='Bench supply, 12 V input, no recorded specs',
+        category_path='electronics/test-gear',
+    )
+    return service
+
+
+class TestSpecificationFilter:
+    """FR-012..FR-016.
+
+    FR-015's case-insensitivity *is* provable here, and only here. MariaDB's
+    deployed collation folds case inside the comparison operator, so the e2e
+    suite cannot tell ``func.lower(name) == ...`` from ``name == ...``; SQLite
+    collates BINARY, so this is the backend that disagrees when the
+    ``func.lower`` is dropped. See test_the_name_filter_is_case_insensitive.
+    """
+
+    def test_a_name_returns_every_value_under_it(self, converters):
+        assert descriptions(converters.search_products(spec_name='Voltage')) == [
+            '12 V buck converter', '5 V buck converter'
+        ]
+
+    def test_a_name_and_value_narrow_to_one(self, converters):
+        """SC-001: the question the feature exists to answer"""
+        assert descriptions(
+            converters.search_products(spec_name='Voltage', spec_value='12 V')
+        ) == ['12 V buck converter']
+
+    def test_the_product_that_only_mentions_it_is_excluded(self, converters):
+        found = descriptions(converters.search_products(spec_name='Voltage'))
+        assert 'Bench supply, 12 V input, no recorded specs' not in found
+
+    def test_a_value_matches_when_contained_not_only_when_equal(self, converters):
+        """FR-014"""
+        assert descriptions(
+            converters.search_products(spec_name='Voltage', spec_value='12')
+        ) == ['12 V buck converter']
+
+    def test_a_value_without_a_name_is_ignored_rather_than_raising(self, converters):
+        assert len(converters.search_products(spec_value='12 V')) == 3
+
+    def test_an_unrecorded_name_is_an_empty_list_not_an_error(self, converters):
+        assert converters.search_products(spec_name='Nobody records this') == []
+
+    def test_a_blank_name_adds_no_clause(self, converters):
+        assert len(converters.search_products(spec_name='   ')) == 3
+
+    def test_the_name_filter_is_case_insensitive(self, converters):
+        """FR-015, and this one *is* SQLite's to prove.
+
+        MariaDB's deployed collation makes a bare ``==`` case-insensitive on its
+        own, so the e2e suite cannot tell ``func.lower(name) == ...`` from
+        ``name == ...``. SQLite collates BINARY, so here -- and only here --
+        dropping the ``func.lower`` turns this red.
+        """
+        assert descriptions(converters.search_products(spec_name='voltage')) == [
+            '12 V buck converter', '5 V buck converter'
+        ]
+        assert descriptions(converters.search_products(spec_name='VOLTAGE')) == [
+            '12 V buck converter', '5 V buck converter'
+        ]
+
+    def test_the_name_is_matched_whole_not_as_a_prefix(self, converters):
+        """FR-015 is whole-name: "Volt" must not match "Voltage" """
+        assert converters.search_products(spec_name='Volt') == []
+
+    def test_the_value_filter_is_case_insensitive(self, service):
+        """FR-014. SQLite folds ASCII in LIKE only by default, so lowering both
+        sides is what makes the two backends agree rather than coincide."""
+        service.create_product(
+            description='Mixed case value',
+            specifications=[{'name': 'Finish', 'value': 'Blue Anodized'}],
+        )
+        assert descriptions(service.search_products(
+            spec_name='Finish', spec_value='blue anodized'
+        )) == ['Mixed case value']
+        assert descriptions(service.search_products(
+            spec_name='Finish', spec_value='ANODIZED'
+        )) == ['Mixed case value']
+
+    def test_wildcards_in_the_value_are_matched_literally(self, service):
+        """An unescaped % would return the wrong answers"""
+        service.create_product(
+            description='Tolerance-tagged',
+            specifications=[{'name': 'Tolerance', 'value': '5%'}],
+        )
+        service.create_product(
+            description='Other',
+            specifications=[{'name': 'Tolerance', 'value': 'tight'}],
+        )
+        assert descriptions(
+            service.search_products(spec_name='Tolerance', spec_value='%')
+        ) == ['Tolerance-tagged']
+
+    def test_it_narrows_together_with_a_category(self, converters):
+        """FR-016"""
+        assert descriptions(converters.search_products(
+            spec_name='Voltage', category='electronics/power'
+        )) == ['12 V buck converter', '5 V buck converter']
+        assert converters.search_products(
+            spec_name='Voltage', category='electronics/test-gear'
+        ) == []
+
+    def test_it_narrows_together_with_a_text_query(self, converters):
+        assert descriptions(converters.search_products(
+            spec_name='Voltage', query='buck'
+        )) == ['12 V buck converter', '5 V buck converter']
+
+    def test_it_narrows_together_with_a_tag_and_stock_filter(self, service):
+        service.create_product(
+            description='Tracked and tagged',
+            specifications=[{'name': 'Voltage', 'value': '12 V'}],
+            tags=['surplus'], quantity=3,
+        )
+        service.create_product(
+            description='Same spec, no tag',
+            specifications=[{'name': 'Voltage', 'value': '12 V'}],
+            quantity=3,
+        )
+        assert descriptions(service.search_products(
+            spec_name='Voltage', tag='surplus', stock='tracked'
+        )) == ['Tracked and tagged']
+
+
+class TestFreeTextReachesSpecifications:
+    """FR-017: nothing findable before this change may stop being findable"""
+
+    def test_free_text_matches_a_specification_value(self, converters):
+        assert descriptions(converters.search_products(query='3 A')) == [
+            '12 V buck converter'
+        ]
+
+    def test_free_text_matches_a_specification_name(self, converters):
+        assert descriptions(converters.search_products(query='Output current')) == [
+            '12 V buck converter'
+        ]
+
+
+class TestSpecificationVocabulary:
+    """FR-019, FR-020. The case-folding dedup is e2e's to prove, not SQLite's."""
+
+    def test_names_in_use_are_listed(self, converters):
+        assert converters.list_specification_names() == ['Output current', 'Voltage']
+
+    def test_names_are_empty_when_nothing_is_recorded(self, service):
+        assert service.list_specification_names() == []
+
+    def test_a_prefix_narrows_the_names(self, converters):
+        assert converters.list_specification_names(prefix='Vol') == ['Voltage']
+
+    def test_a_prefix_narrows_case_insensitively(self, converters):
+        assert converters.list_specification_names(prefix='vol') == ['Voltage']
+
+    def test_a_prefix_matching_nothing_is_an_empty_list(self, converters):
+        assert converters.list_specification_names(prefix='zzz') == []
+
+    def test_one_name_is_offered_once_however_many_products_record_it(self, converters):
+        assert converters.list_specification_names().count('Voltage') == 1
+
+    def test_values_are_scoped_to_one_name(self, converters):
+        # Alphabetical, like every other vocabulary reader here -- "12 V" sorts
+        # before "5 V" because these are labels, not numbers (Constitution III:
+        # a specification value is never parsed as one).
+        assert converters.list_specification_values('Voltage') == ['12 V', '5 V']
+        assert converters.list_specification_values('Output current') == ['3 A']
+
+    def test_the_name_is_matched_case_insensitively(self, converters):
+        assert converters.list_specification_values('voltage') == ['12 V', '5 V']
+
+    def test_a_blank_name_returns_nothing_rather_than_everything(self, converters):
+        assert converters.list_specification_values('   ') == []
+
+    def test_an_unrecorded_name_returns_nothing_rather_than_raising(self, converters):
+        assert converters.list_specification_values('Nobody records this') == []
+
+    def test_a_prefix_narrows_the_values(self, converters):
+        assert converters.list_specification_values('Voltage', prefix='12') == ['12 V']

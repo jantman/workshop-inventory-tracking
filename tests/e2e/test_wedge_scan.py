@@ -9,10 +9,12 @@ be silently mangled and nothing else in the suite would notice.
 import pytest
 from playwright.sync_api import expect
 
+from tests.e2e.specification_rows import set_specifications
+
 VALID_UPC_A = "012345678905"
 
 
-def create_product(page, base_url, description, **fields):
+def create_product(page, base_url, description, specifications=None, **fields):
     """Create a product through the form and return its detail URL"""
     page.goto(f"{base_url}/products/new")
     page.fill("#description", description)
@@ -21,6 +23,8 @@ def create_product(page, base_url, description, **fields):
             page.select_option("#identifier_type", value)
         else:
             page.fill(f"#{field}", value)
+    if specifications:
+        set_specifications(page, specifications)
     page.click("#save-product-btn")
     page.wait_for_load_state("domcontentloaded")
     return page.url
@@ -37,7 +41,8 @@ def scan(page, text):
 @pytest.mark.e2e
 def test_scanning_an_internal_code_lands_on_its_product(page, live_server):
     """SC-001: the scan answers 'what is this thing'"""
-    create_product(page, live_server.url, "Blue widget, 10mm", specifications="10mm, blue")
+    create_product(page, live_server.url, "Blue widget, 10mm",
+                   specifications=[("Shaft", "10mm"), ("Finish", "blue")])
     code = page.locator("#internal-code").inner_text().strip()
 
     page.goto(live_server.url)

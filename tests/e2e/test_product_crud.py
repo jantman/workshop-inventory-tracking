@@ -8,14 +8,19 @@ an internal code that a scan can later resolve.
 import pytest
 from playwright.sync_api import expect
 
+from tests.e2e.specification_rows import set_specifications
 
-def create_product(page, base_url, description, **fields):
+
+def create_product(page, base_url, description, specifications=None, **fields):
     """Fill in the add-product form and submit it"""
     page.goto(f"{base_url}/products/new")
     page.fill("#description", description)
 
     for field, value in fields.items():
         page.fill(f"#{field}", value)
+
+    if specifications:
+        set_specifications(page, specifications)
 
     page.click("#save-product-btn")
     page.wait_for_load_state("domcontentloaded")
@@ -28,7 +33,7 @@ def test_create_product_and_view_it(page, live_server):
         page, live_server.url,
         "Blue widget, 10mm",
         manufacturer="Acme",
-        specifications="10mm shaft, blue anodized",
+        specifications=[("Shaft", "10mm"), ("Finish", "blue anodized")],
         location="Bin 4",
         category_path="Hardware/Widgets",
     )

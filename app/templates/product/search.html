@@ -66,6 +66,23 @@
             </button>
         </div>
     </div>
+    <div class="row g-2 mt-1">
+        <div class="col-md-4">
+            <label for="filter-spec-name" class="form-label">Specification</label>
+            <input type="text" class="form-control" id="filter-spec-name" name="spec_name"
+                   list="specification-name-suggestions" placeholder="Voltage"
+                   value="{{ filters.get('spec_name') or '' }}">
+            <datalist id="specification-name-suggestions"></datalist>
+        </div>
+        <div class="col-md-4">
+            <label for="filter-spec-value" class="form-label">Specification value</label>
+            <input type="text" class="form-control" id="filter-spec-value" name="spec_value"
+                   list="specification-value-suggestions" placeholder="12 V"
+                   value="{{ filters.get('spec_value') or '' }}">
+            <datalist id="specification-value-suggestions"></datalist>
+            <div class="form-text">Needs a name. Matches values containing this text.</div>
+        </div>
+    </div>
 </form>
 
 <div class="card">
@@ -124,5 +141,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/datalist.js') }}"></script>
 <script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-specifications.js') }}"></script>
 {% endblock %}

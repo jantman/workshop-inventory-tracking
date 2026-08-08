@@ -115,7 +115,11 @@
 {% endblock %}
 
 {% block scripts %}
+{# datalist.js first: the two suggestion scripts read window.WorkshopDatalist as
+   they load, not on DOMContentLoaded. #}
+<script src="{{ url_for('static', filename='js/datalist.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-form.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-specifications.js') }}"></script>
 <script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
 <script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
 {% endblock %}

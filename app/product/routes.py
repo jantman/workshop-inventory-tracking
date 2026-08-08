@@ -40,19 +40,46 @@ def _product_or_404(service: CatalogService, product_id: int):
     return product
 
 
+def _form_specifications(form) -> list:
+    """Pair the repeating specification inputs into entries, in DOM order.
+
+    Every row posts under the same two names, so position is the only thing
+    linking a name to its value -- and ``zip`` rather than an index walk because
+    a walk would raise if the two lists ever came back different lengths.
+    Nothing is validated here; the service is what decides what a valid entry is.
+    """
+    return [
+        {'name': name, 'value': value}
+        for name, value in zip(form.getlist('spec_name'), form.getlist('spec_value'))
+    ]
+
+
 def _form_product_fields(form) -> dict:
     """Pull the product fields out of a submitted form"""
     return {
         'description': form.get('description', ''),
         'manufacturer': form.get('manufacturer'),
         'manufacturer_part_number': form.get('manufacturer_part_number'),
-        'specifications': form.get('specifications'),
+        'specifications': _form_specifications(form),
         'category_path': form.get('category_path'),
         'location': form.get('location'),
         'sub_location': form.get('sub_location'),
         'notes': form.get('notes'),
         'reorder_threshold': form.get('reorder_threshold'),
     }
+
+
+def _redisplay_values(form) -> dict:
+    """What the operator typed, shaped for the form partial after a refusal.
+
+    ``form.to_dict()`` keeps only the last value of a repeated field, which would
+    silently drop every specification row but one. The rows are therefore paired
+    back explicitly -- re-rendering the stored product instead would discard the
+    edit the operator is being asked to correct.
+    """
+    values = form.to_dict()
+    values['specifications'] = _form_specifications(form)
+    return values
 
 
 # The distributor-label fields the create form offers for editing. The values
@@ -112,6 +139,8 @@ def product_search():
         'category': request.args.get('category', ''),
         'tag': request.args.get('tag', ''),
         'stock': request.args.get('stock', ''),
+        'spec_name': request.args.get('spec_name', ''),
+        'spec_value': request.args.get('spec_value', ''),
     }
 
     try:
@@ -120,6 +149,8 @@ def product_search():
             category=filters['category'],
             tag=filters['tag'],
             stock=filters['stock'],
+            spec_name=filters['spec_name'],
+            spec_value=filters['spec_value'],
         )
     except ValidationError as e:
         flash(e.message, 'error')
@@ -171,7 +202,7 @@ def product_new():
             return render_template(
                 'product/add.html',
                 title='Add Product',
-                form_data=request.form,
+                form_data=_redisplay_values(request.form),
                 prefill={},
             )
 
@@ -250,7 +281,7 @@ def product_edit(product_id):
                 'product/edit.html',
                 title='Edit Product',
                 product=product,
-                form_data=request.form,
+                form_data=_redisplay_values(request.form),
             )
 
         flash('Saved.', 'success')
@@ -689,6 +720,35 @@ def api_tags():
     })
 
 
+@bp.route('/api/specification-names')
+def api_specification_names():
+    """Specification names in use, for the name datalists (FR-019)."""
+    service = _get_catalog_service()
+    return jsonify({
+        'success': True,
+        'specification_names': service.list_specification_names(
+            request.args.get('prefix')
+        ),
+    })
+
+
+@bp.route('/api/specification-values')
+def api_specification_values():
+    """Values recorded under one specification name (FR-020).
+
+    A missing, blank or unrecorded ``name`` is 200 with an empty list rather than
+    400: the operator is mid-word, and a suggestion endpoint that errors while
+    someone types is worse than one that offers nothing.
+    """
+    service = _get_catalog_service()
+    return jsonify({
+        'success': True,
+        'specification_values': service.list_specification_values(
+            request.args.get('name', ''), request.args.get('prefix')
+        ),
+    })
+
+
 @bp.route('/api/products/search')
 def api_search_products():
     """Search and filter the catalogue (FR-032)."""
@@ -700,6 +760,8 @@ def api_search_products():
             category=request.args.get('category'),
             tag=request.args.get('tag'),
             stock=request.args.get('stock'),
+            spec_name=request.args.get('spec_name'),
+            spec_value=request.args.get('spec_value'),
         )
     except ValidationError as e:
         return jsonify({'success': False, 'error': e.message}), 400

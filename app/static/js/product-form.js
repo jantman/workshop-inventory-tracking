@@ -17,19 +17,71 @@
 
     const STORAGE_PREFIX = 'workshop-product-draft:';
 
+    // A field inside one of these is one of a repeating set: it shares its name
+    // with the same field in every other row, and position is what tells them
+    // apart.
+    const REPEATING_ROW = '.specification-row';
+
+    /** Everything a stored entry holds, whether it is one value or a row list. */
+    function valuesOf(stored) {
+        return (Array.isArray(stored) ? stored : [stored]).map((v) => v || '');
+    }
+
+    /**
+     * Do a stored entry and a shown one say the same thing?
+     *
+     * Compared element by element rather than by joining with a separator:
+     * any separator that can also appear in the text makes two different row
+     * splits compare equal -- ['Foo Bar', 'Baz'] and ['Foo', 'Bar Baz'] join
+     * to the same string -- and specification text is free-form, so multi-word
+     * values are ordinary rather than exotic.
+     */
+    function sameValue(stored, shown) {
+        const a = valuesOf(stored);
+        const b = valuesOf(shown);
+        return a.length === b.length && a.every((value, i) => value === b[i]);
+    }
+
     class ProductFormDraft {
         constructor(form) {
             this.form = form;
             this.key = STORAGE_PREFIX + (form.dataset.draftKey || 'product');
-            this.fields = Array.from(
-                form.querySelectorAll('input[type="text"], input[type="number"], textarea, select')
-            ).filter((field) => field.name && field.name !== 'csrf_token');
+        }
 
-            // A <select> always reports a value -- its first option. Judging
-            // "has the operator already typed something here?" by that would
-            // mean the answer is always yes and the draft is never offered.
-            this.typedFields = this.fields.filter(
-                (field) => field.tagName !== 'SELECT'
+        /**
+         * Queried on every use rather than snapshotted in the constructor: the
+         * specification rows are added and removed after load, and a snapshot
+         * taken on DOMContentLoaded would neither save what is typed into a new
+         * row nor fill one when a draft is restored.
+         */
+        get fields() {
+            return Array.from(
+                this.form.querySelectorAll(
+                    'input[type="text"], input[type="number"], textarea, select'
+                )
+            ).filter((field) => field.name && field.name !== 'csrf_token');
+        }
+
+        /**
+         * The field names whose value is a default rather than something typed.
+         *
+         * A <select> always reports a value -- its first option. Judging "has
+         * the operator already typed something here?" by that would mean the
+         * answer is always yes and the draft is never offered.
+         *
+         * Returned as a name set rather than a list of elements because the
+         * questions below are asked of a *stored draft*, which can name fields
+         * the page has not rendered yet. Judging those questions by the elements
+         * currently in the DOM meant a draft holding nothing but specification
+         * rows looked empty: offerRestore() runs before product-specifications.js
+         * has added the blank row, so there was no `spec_name` input to match
+         * against and the draft was silently unrecoverable.
+         */
+        get untypedNames() {
+            return new Set(
+                this.fields
+                    .filter((field) => field.tagName === 'SELECT')
+                    .map((field) => field.name)
             );
         }
 
@@ -43,10 +95,24 @@
             this.form.addEventListener('submit', () => this.clear());
         }
 
+        /** One of a repeating set of rows, however many happen to exist now? */
+        isRepeating(field) {
+            return Boolean(field.closest(REPEATING_ROW));
+        }
+
         collect() {
             const data = {};
             this.fields.forEach((field) => {
-                if (field.value) {
+                if (this.isRepeating(field)) {
+                    // Always a list, even when only one row is present. Deciding
+                    // by how many rows exist *at save time* meant a one-row draft
+                    // came back as a scalar, which apply() then wrote into every
+                    // row on the page -- turning one edited row into two
+                    // identical ones. Blanks are kept so a value still lines up
+                    // with its own name.
+                    data[field.name] = data[field.name] || [];
+                    data[field.name].push(field.value);
+                } else if (field.value) {
                     data[field.name] = field.value;
                 }
             });
@@ -55,13 +121,26 @@
 
         /** Has the operator actually typed anything, ignoring select defaults? */
         hasTypedContent(fields) {
-            return this.typedFields.some((field) => fields[field.name]);
+            const untyped = this.untypedNames;
+            return Object.keys(fields).some(
+                (name) => !untyped.has(name)
+                    && valuesOf(fields[name]).some((value) => value)
+            );
         }
 
         /** Does the stored draft say anything the form is not already showing? */
         differsFromForm(fields) {
-            return this.typedFields.some(
-                (field) => (fields[field.name] || '') !== (field.value || '')
+            const current = this.collect();
+            const untyped = this.untypedNames;
+            // The union of both sides: a draft naming a field the page has not
+            // rendered is a difference, and so is one the page shows and the
+            // draft does not.
+            const names = new Set(
+                Object.keys(fields).concat(Object.keys(current))
+            );
+            return Array.from(names).some(
+                (name) => !untyped.has(name)
+                    && !sameValue(fields[name], current[name])
             );
         }
 
@@ -99,11 +178,51 @@
             }
         }
 
+        /**
+         * Add rows until the form can hold the draft.
+         *
+         * The row editor owns adding them, so this asks for clicks rather than
+         * cloning markup itself. The loop is bounded by the number wanted rather
+         * than by the count reaching it: a button that ever stopped adding a row
+         * would otherwise spin forever.
+         */
+        growRepeatingRows(fields) {
+            const addButton = document.getElementById('add-specification-btn');
+            if (!addButton) {
+                return;
+            }
+            const wanted = Math.max(
+                0,
+                ...Object.values(fields).filter(Array.isArray).map((list) => list.length)
+            );
+            const rows = () => this.form.querySelectorAll(REPEATING_ROW).length;
+            for (let attempt = 0; attempt < wanted && rows() < wanted; attempt += 1) {
+                addButton.click();
+            }
+        }
+
         apply(fields) {
+            this.growRepeatingRows(fields);
+
+            // Repeated names are assigned in DOM order, which is the order they
+            // were collected in -- restoring only the last row would silently
+            // lose every specification but one.
+            const nextIndex = {};
             this.fields.forEach((field) => {
-                if (Object.prototype.hasOwnProperty.call(fields, field.name)) {
-                    field.value = fields[field.name];
+                if (!Object.prototype.hasOwnProperty.call(fields, field.name)) {
+                    return;
                 }
+                if (!this.isRepeating(field)) {
+                    field.value = fields[field.name];
+                    return;
+                }
+                const stored = valuesOf(fields[field.name]);
+                const index = nextIndex[field.name] || 0;
+                nextIndex[field.name] = index + 1;
+                // A row past the end of the draft is blanked rather than left
+                // showing what the page rendered: the draft is the whole answer
+                // for these rows, and a blank row is dropped on save (FR-009).
+                field.value = index < stored.length ? stored[index] : '';
             });
         }
 

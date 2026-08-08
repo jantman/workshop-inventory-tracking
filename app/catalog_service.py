@@ -20,7 +20,14 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
 
-from .database import Product, ProductIdentifier, ProductTag, Purchase, Tag
+from .database import (
+    Product,
+    ProductIdentifier,
+    ProductSpecification,
+    ProductTag,
+    Purchase,
+    Tag,
+)
 from .exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
 from .mariadb_storage import MariaDBStorage
 from .models import (
@@ -34,6 +41,7 @@ from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
 from .utils.scan_router import classify
+from .utils.sql import escape_like as _escape_like
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -41,6 +49,7 @@ logger = logging.getLogger(__name__)
 MAX_DESCRIPTION_LENGTH = 255
 MAX_CATEGORY_PATH_LENGTH = 512
 MAX_TAG_LENGTH = 64
+MAX_SPECIFICATION_NAME_LENGTH = 100
 
 # The identifier types whose meaning depends on knowing whose identifier it is.
 VENDOR_SCOPED_TYPES = (IdentifierType.VENDOR, IdentifierType.DISTRIBUTOR)
@@ -92,7 +101,7 @@ class CatalogService:
         description: str,
         manufacturer: Optional[str] = None,
         manufacturer_part_number: Optional[str] = None,
-        specifications: Optional[str] = None,
+        specifications: Optional[List[Dict[str, str]]] = None,
         category_path: Optional[str] = None,
         location: Optional[str] = None,
         sub_location: Optional[str] = None,
@@ -112,7 +121,9 @@ class CatalogService:
             description: The operator's human-readable identity for the product.
             manufacturer: Optional manufacturer name.
             manufacturer_part_number: Optional convenience copy of the MPN.
-            specifications: Optional free-form specifications.
+            specifications: Optional list of ``{'name', 'value'}`` entries, in
+                the order they should display. ``None`` and ``[]`` both mean
+                "no specifications" and are not distinguished.
             category_path: Optional category path; normalized before storage.
             location: Optional storage location (FR-033).
             sub_location: Optional bin or drawer within the location. NULL is an
@@ -133,13 +144,15 @@ class CatalogService:
         category_path = self._validate_category_path(category_path)
         quantity = self._validate_quantity(quantity)
         reorder_threshold = self._validate_reorder_threshold(reorder_threshold, quantity)
+        # Validated before the session opens, so a refused specification means no
+        # product is created at all.
+        entries = self._validate_specifications(specifications)
 
         with self._session() as session:
             product = Product(
                 description=description,
                 manufacturer=_clean(manufacturer),
                 manufacturer_part_number=_clean(manufacturer_part_number),
-                specifications=_clean(specifications),
                 category_path=category_path,
                 location=_clean(location),
                 sub_location=_clean(sub_location),
@@ -150,6 +163,16 @@ class CatalogService:
             )
             session.add(product)
             session.flush()  # assign product.id
+
+            # display_order is the surviving list index, so dropping a blank row
+            # leaves no gap.
+            for order, entry in enumerate(entries):
+                session.add(ProductSpecification(
+                    product_id=product.id,
+                    name=entry['name'],
+                    value=entry['value'],
+                    display_order=order,
+                ))
 
             # Every product carries its own code from the start.
             session.add(ProductIdentifier(
@@ -199,6 +222,10 @@ class CatalogService:
                     selectinload(Product.identifiers),
                     selectinload(Product.purchases),
                     selectinload(Product.tags),
+                    # _session() closes before the caller sees this, so the
+                    # detail page's <dl> and to_dict would hit a detached
+                    # instance without it.
+                    selectinload(Product.specifications),
                 )
                 .filter(Product.id == product_id)
                 .first()
@@ -216,7 +243,11 @@ class CatalogService:
         with self._session() as session:
             return (
                 session.query(Product)
-                .options(selectinload(Product.tags), selectinload(Product.identifiers))
+                .options(
+                    selectinload(Product.tags),
+                    selectinload(Product.identifiers),
+                    selectinload(Product.specifications),
+                )
                 .order_by(Product.date_added.desc())
                 .limit(limit)
                 .all()
@@ -228,9 +259,11 @@ class CatalogService:
         category: Optional[str] = None,
         tag: Optional[str] = None,
         stock: Optional[str] = None,
+        spec_name: Optional[str] = None,
+        spec_value: Optional[str] = None,
         limit: int = 500,
     ) -> List[Product]:
-        """Find products by text, category subtree, tag and stock state.
+        """Find products by text, category subtree, tag, stock state and spec.
 
         Args:
             query: Matched against description, specifications, manufacturer part
@@ -241,6 +274,12 @@ class CatalogService:
             stock: One of 'low', 'on-order', 'tracked', 'untracked',
                 'none-on-hand'. The last two are the distinction SC-007 requires
                 stay unambiguous.
+            spec_name: A specification name, matched whole and case-insensitively
+                (FR-012, FR-015).
+            spec_value: With ``spec_name``, narrows to values *containing* this
+                text (FR-013, FR-014). On its own it adds no clause -- a value
+                filter without a name is not offered, and unusable input is
+                dropped rather than raised, matching the other filters.
             limit: Most products to return.
 
         Returns:
@@ -252,6 +291,7 @@ class CatalogService:
                 # Loaded up front: a caller reading product.internal_code off a
                 # result would otherwise hit a detached instance.
                 selectinload(Product.identifiers),
+                selectinload(Product.specifications),
             )
 
             text = (query or '').strip()
@@ -262,7 +302,12 @@ class CatalogService:
                 )
                 statement = statement.filter(or_(
                     Product.description.like(pattern),
-                    Product.specifications.like(pattern),
+                    # FR-017: free text still reaches everything it reached when
+                    # specifications were one column of text.
+                    Product.specifications.any(or_(
+                        ProductSpecification.name.like(pattern),
+                        ProductSpecification.value.like(pattern),
+                    )),
                     Product.manufacturer_part_number.like(pattern),
                     Product.manufacturer.like(pattern),
                     Product.id.in_(matching_ids),
@@ -282,6 +327,10 @@ class CatalogService:
                 statement = statement.filter(
                     Product.tags.any(Tag.name == tag_name.lower())
                 )
+
+            statement = self._apply_specification_filter(
+                statement, spec_name, spec_value
+            )
 
             statement = self._apply_stock_filter(session, statement, stock)
 
@@ -408,6 +457,42 @@ class CatalogService:
             for product in products
         ]
 
+    def _apply_specification_filter(
+        self, statement, spec_name: Optional[str], spec_value: Optional[str]
+    ):
+        """Narrow a product query to one recorded specification (FR-012..FR-015).
+
+        ``func.lower`` on the name rather than ``==``: SQLite compares BINARY, and
+        FR-015 is case-insensitive. This is a *read*, so the deployed collation
+        also folding accents is accepted -- it returns a near-spelling the
+        operator probably wanted, and nothing is written.
+        """
+        name = _clean(spec_name)
+        if not name:
+            # A value with no name adds no clause, matching how the other
+            # filters treat input they cannot use.
+            return statement
+
+        conditions = [func.lower(ProductSpecification.name) == name.lower()]
+
+        value = _clean(spec_value)
+        if value:
+            # Contained, not exact (FR-014). The operator's own wildcards are
+            # escaped because an unescaped % returns wrong answers.
+            #
+            # func.lower on both sides for the same reason the name uses it: a
+            # bare LIKE is case-insensitive on MariaDB because of the collation
+            # and only incidentally so on SQLite, which folds ASCII but obeys
+            # `PRAGMA case_sensitive_like`. Lowering both sides makes the two
+            # backends agree rather than leaving it to each one's defaults. No
+            # index is lost -- FR-014 matches with a leading wildcard, which no
+            # index serves, which is why `value` has none.
+            conditions.append(func.lower(ProductSpecification.value).like(
+                f"%{_escape_like(value.lower())}%", escape='\\'
+            ))
+
+        return statement.filter(Product.specifications.any(and_(*conditions)))
+
     def _apply_stock_filter(self, session, statement, stock: Optional[str]):
         """Narrow a product query by stock state, all of it derived at query time"""
         if not stock:
@@ -457,6 +542,10 @@ class CatalogService:
                 specifications, category_path, location, sub_location, notes,
                 reorder_threshold.
 
+                ``specifications`` is a list of ``{'name', 'value'}`` entries and
+                *replaces* the product's complete set. Omitting the key leaves
+                the existing rows alone; passing ``[]`` or ``None`` clears them.
+
         Returns:
             The updated Product.
 
@@ -476,10 +565,32 @@ class CatalogService:
                 field=sorted(unknown)[0]
             )
 
+        # Validated before the session opens for the same reason create does it:
+        # a refused specification must leave the product's other fields alone.
+        entries = (
+            self._validate_specifications(fields['specifications'])
+            if 'specifications' in fields else None
+        )
+
         with self._session() as session:
-            product = session.query(Product).filter(Product.id == product_id).first()
+            product = session.query(Product).options(
+                selectinload(Product.specifications)
+            ).filter(Product.id == product_id).first()
             if product is None:
                 raise ItemNotFoundError(f"Product {product_id} not found", item_id=str(product_id))
+
+            if entries is not None:
+                # Replacement, not merge: the form always posts the complete set
+                # and no row has an identity to diff against.
+                product.specifications.clear()
+                product.specifications.extend(
+                    ProductSpecification(
+                        name=entry['name'],
+                        value=entry['value'],
+                        display_order=order,
+                    )
+                    for order, entry in enumerate(entries)
+                )
 
             if 'description' in fields:
                 product.description = self._validate_description(fields['description'])
@@ -490,7 +601,9 @@ class CatalogService:
                     fields['reorder_threshold'], product.quantity
                 )
 
-            for name in ('manufacturer', 'manufacturer_part_number', 'specifications',
+            # specifications is not in this loop: it is a list of rows, not a
+            # scalar, and is replaced above.
+            for name in ('manufacturer', 'manufacturer_part_number',
                          'location', 'sub_location', 'notes'):
                 if name in fields:
                     setattr(product, name, _clean(fields[name]))
@@ -1248,6 +1361,75 @@ class CatalogService:
                 query = query.filter(Tag.name.like(f"{cleaned.lower()}%"))
             return [row[0] for row in query.order_by(Tag.name).all()]
 
+    # -- Specification vocabulary -------------------------------------------
+
+    def list_specification_names(self, prefix: Optional[str] = None) -> List[str]:
+        """Every specification name in use, for the name datalists (FR-019).
+
+        Args:
+            prefix: Optionally narrow to names starting with this,
+                case-insensitively.
+
+        Returns:
+            The distinct names, sorted case-insensitively.
+        """
+        return self._distinct_specification_column(ProductSpecification.name, prefix)
+
+    def list_specification_values(
+        self, name: str, prefix: Optional[str] = None
+    ) -> List[str]:
+        """Every value recorded under one specification name (FR-020).
+
+        Args:
+            name: The specification name, matched whole and case-insensitively --
+                the same way the filter matches it.
+            prefix: Optionally narrow the values.
+
+        Returns:
+            The distinct values, sorted case-insensitively. A blank or
+            unrecorded name returns ``[]``: an unknown name is an ordinary
+            state, because the operator is mid-word.
+        """
+        cleaned_name = _clean(name)
+        if not cleaned_name:
+            return []
+
+        return self._distinct_specification_column(
+            ProductSpecification.value,
+            prefix,
+            scope=func.lower(ProductSpecification.name) == cleaned_name.lower(),
+        )
+
+    def _distinct_specification_column(
+        self, column, prefix: Optional[str], scope=None
+    ) -> List[str]:
+        """The distinct values of one specification column, for a datalist.
+
+        Both vocabulary readers are this same shape -- open a session, narrow by
+        an optional case-insensitive prefix, fold-case dedupe -- and differ only
+        in the column and whether the rows are scoped to one name.
+
+        Args:
+            column: The ProductSpecification column to read.
+            prefix: Optionally narrow to values starting with this.
+            scope: An optional extra filter clause.
+
+        Returns:
+            The distinct values, sorted and deduplicated case-insensitively.
+        """
+        with self._session() as session:
+            query = session.query(column)
+            if scope is not None:
+                query = query.filter(scope)
+
+            cleaned = _clean(prefix)
+            if cleaned:
+                query = query.filter(func.lower(column).like(
+                    f"{_escape_like(cleaned.lower())}%", escape='\\'
+                ))
+
+            return _dedupe_fold_case(row[0] for row in query.all())
+
     # -- Categories --------------------------------------------------------
 
     def list_categories(self, prefix: Optional[str] = None) -> List[str]:
@@ -1623,6 +1805,91 @@ class CatalogService:
             )
         return cleaned
 
+    def _validate_specifications(
+        self, entries: Optional[List[Dict[str, str]]]
+    ) -> List[Dict[str, str]]:
+        """The one definition of a valid specification list (FR-004..FR-009).
+
+        Called by both ``create_product`` and ``update_product`` so the two
+        cannot drift.
+
+        Args:
+            entries: The submitted list of ``{'name', 'value'}`` dicts, or None.
+
+        Returns:
+            The surviving entries, trimmed, in the order given. The caller
+            assigns ``display_order`` from the index, so a dropped blank row
+            leaves no gap.
+
+        Raises:
+            ValidationError: For a half-filled entry, an over-long name, or a
+                duplicate name within the submitted list.
+        """
+        if entries is None:
+            entries = []
+        # A str is iterable, so without this the old contract -- specifications
+        # as one block of text -- would be walked character by character and
+        # crash on the first one. POST /api/products passes whatever a client
+        # sends straight through, and that client has no way to know the shape
+        # changed, so it has to be refused as a ValidationError (a 400) rather
+        # than an AttributeError (a 500).
+        if isinstance(entries, (str, bytes)) or not isinstance(entries, (list, tuple)):
+            raise ValidationError(
+                "Specifications must be a list of {name, value} entries",
+                field='specifications', value=str(entries)[:100]
+            )
+
+        surviving: List[Dict[str, str]] = []
+        seen: Dict[str, str] = {}
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValidationError(
+                    "Each specification must be an object with a name and a "
+                    f"value; got {type(entry).__name__}",
+                    field='specifications', value=str(entry)[:100]
+                )
+
+            name = _clean(entry.get('name')) or ''
+            value = _clean(entry.get('value')) or ''
+
+            if not name and not value:
+                # An untouched row on the form is not an error (FR-009).
+                continue
+
+            if not name:
+                raise ValidationError(
+                    f'Specification value "{value}" has no name.',
+                    field='specifications', value=value
+                )
+            if not value:
+                raise ValidationError(
+                    f'Specification "{name}" has no value.',
+                    field='specifications', value=name
+                )
+            if len(name) > MAX_SPECIFICATION_NAME_LENGTH:
+                raise ValidationError(
+                    f"Specification name is longer than "
+                    f"{MAX_SPECIFICATION_NAME_LENGTH} characters",
+                    field='specifications', value=name
+                )
+
+            # Compared in Python, never in SQL: the deployed collation also folds
+            # accents and would call "Volt" and "Vôlt" one name, where FR-004
+            # speaks only of case and whitespace.
+            key = name.lower()
+            if key in seen:
+                raise ValidationError(
+                    f'Specification "{name}" is recorded twice -- '
+                    f'"{seen[key]}" is already used on this product.',
+                    field='specifications', value=name
+                )
+            seen[key] = name
+
+            surviving.append({'name': name, 'value': value})
+
+        return surviving
+
     def _validate_category_path(self, category_path: Any) -> Optional[str]:
         """Normalize a category path; over-length is a rejection, not a truncation"""
         normalized = category_utils.canonical(category_path)
@@ -1714,3 +1981,20 @@ def _clean(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _dedupe_fold_case(values: Any) -> List[str]:
+    """Sort case-insensitively, keeping one spelling of each folded value.
+
+    Done here rather than with ``SELECT DISTINCT`` because DISTINCT folds under
+    the deployed collation and does not under SQLite, so the two backends would
+    disagree about whether ``Voltage`` and ``voltage`` are one suggestion or two.
+    ``VocabularyService._rank_and_dedupe`` deduplicates in Python for the same
+    reason. The first spelling in sort order wins.
+    """
+    kept: Dict[str, str] = {}
+    for value in sorted(values, key=lambda v: (v.lower(), v)):
+        kept.setdefault(value.lower(), value)
+    return list(kept.values())
+
+

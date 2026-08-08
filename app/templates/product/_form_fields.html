@@ -30,11 +30,78 @@
             </div>
         </div>
 
+        {# One definition of a specification row, used for the rows the server
+           renders and for the blank one the JS clones. They were hand-duplicated
+           and had already drifted -- the rendered rows grew a textarea branch and
+           the template did not -- so a macro now generates both and they cannot.
+
+           Every row posts under the same two names, so the server pairs them
+           positionally with request.form.getlist. That is why no row carries an
+           index: nothing has to be renumbered when one is removed. #}
+        {% macro specification_row(name='', value='') %}
+                <div class="row g-2 mb-2 specification-row">
+                    <div class="col-md-4">
+                        <input type="text" class="form-control specification-name"
+                               name="spec_name" maxlength="100" placeholder="Name"
+                               aria-label="Specification name"
+                               list="specification-name-suggestions"
+                               value="{{ name }}">
+                    </div>
+                    <div class="col-md-7">
+                        {# A multi-line value cannot go in an <input>: the HTML
+                           value sanitization algorithm strips CR and LF, so the
+                           field would post back one run-on line and an unrelated
+                           save would silently destroy a paragraph the migration
+                           carried across verbatim. Such rows get a textarea and,
+                           unavoidably, no value datalist -- `list=` does not
+                           apply to a textarea, and nobody reuses a paragraph as
+                           a suggestion anyway. #}
+                        {% if '\n' in value %}
+                        <textarea class="form-control specification-value"
+                                  name="spec_value" rows="3" placeholder="Value"
+                                  aria-label="Specification value">{{ value }}</textarea>
+                        {% else %}
+                        <input type="text" class="form-control specification-value"
+                               name="spec_value" placeholder="Value"
+                               aria-label="Specification value"
+                               value="{{ value }}">
+                        <datalist class="specification-value-suggestions"></datalist>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-1 d-grid">
+                        <button type="button"
+                                class="btn btn-outline-secondary remove-specification-btn"
+                                aria-label="Remove this specification">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>
+        {% endmacro %}
+
         <div class="mb-3">
-            <label for="specifications" class="form-label">Specifications</label>
-            <textarea class="form-control" id="specifications" name="specifications"
-                      rows="4">{{ values.get('specifications') or '' }}</textarea>
-            <div class="form-text">Voltage, thread pitch, tolerance -- whatever you will want to know later.</div>
+            <span class="form-label d-block">Specifications</span>
+            <div id="specification-rows">
+                {% for spec in values.get('specifications') or [] %}
+                {{ specification_row(spec.name, spec.value) }}
+                {% endfor %}
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    id="add-specification-btn">
+                <i class="bi bi-plus-lg"></i> Add specification
+            </button>
+            <div class="form-text">
+                Voltage, thread pitch, tolerance -- whatever you will want to know later.
+                A name and a value each, so you can filter on them afterwards.
+            </div>
+            <datalist id="specification-name-suggestions"></datalist>
+
+            {# The blank row product-specifications.js clones. Same macro as the
+               rows above, so a cloned row and a server-rendered one are the same
+               thing to every other piece of code. A blank value is single-line,
+               so this is always the <input> branch. #}
+            <template id="specification-row-template">
+                {{ specification_row() }}
+            </template>
         </div>
     </div>
 </div>

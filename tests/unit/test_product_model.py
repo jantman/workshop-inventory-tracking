@@ -17,6 +17,7 @@ from app.database import (
     Product,
     ProductAttachment,
     ProductIdentifier,
+    ProductSpecification,
     Purchase,
     Tag,
 )
@@ -282,6 +283,62 @@ class TestAttachmentOwnership:
         session.add(attachment)
         session.commit()
         assert attachment.id is not None
+
+
+class TestSpecifications:
+    """A named value per row, ordered, serialized as a list (FR-006, FR-011)"""
+
+    def test_to_dict_emits_a_list_in_display_order(self, session):
+        product = make_product(session)
+        # Added out of order deliberately: the relationship's order_by is what
+        # has to put them right, not the insertion sequence.
+        session.add_all([
+            ProductSpecification(
+                product_id=product.id, name='Output current', value='3 A',
+                display_order=1
+            ),
+            ProductSpecification(
+                product_id=product.id, name='Voltage', value='12 V',
+                display_order=0
+            ),
+        ])
+        session.commit()
+        session.refresh(product)
+
+        assert product.to_dict()['specifications'] == [
+            {'name': 'Voltage', 'value': '12 V'},
+            {'name': 'Output current', 'value': '3 A'},
+        ]
+
+    def test_to_dict_emits_an_empty_list_when_there_are_none(self, session):
+        """Always present, never null -- an absent specification set is ordinary"""
+        assert make_product(session).to_dict()['specifications'] == []
+
+    def test_a_value_may_hold_a_multi_line_paragraph(self, session):
+        """FR-003: this has to hold anything the old text column held"""
+        paragraph = 'Voltage: 12 V\nCurrent: 3 A'
+        product = make_product(session)
+        session.add(ProductSpecification(
+            product_id=product.id, name='Specifications', value=paragraph,
+            display_order=0
+        ))
+        session.commit()
+        session.refresh(product)
+
+        assert product.specifications[0].value == paragraph
+
+    def test_specifications_die_with_their_product(self, session):
+        """delete-orphan, so nothing is left pointing at a product that is gone"""
+        product = make_product(session)
+        product.specifications.append(
+            ProductSpecification(name='Voltage', value='12 V', display_order=0)
+        )
+        session.commit()
+
+        session.delete(product)
+        session.commit()
+
+        assert session.query(ProductSpecification).count() == 0
 
 
 @pytest.fixture

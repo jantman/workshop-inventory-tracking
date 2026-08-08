@@ -17,7 +17,8 @@ from app.mariadb_storage import MariaDBStorage
 from config import TestConfig
 from app.database import (
     Base, InventoryItem, MaterialTaxonomy, Photo, ItemPhotoAssociation,
-    Product, Purchase, ProductIdentifier, ProductAttachment, Tag, ProductTag,
+    Product, Purchase, ProductIdentifier, ProductSpecification, ProductAttachment,
+    Tag, ProductTag,
 )
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -347,6 +348,7 @@ class E2ETestServer:
                 session.query(ProductTag).delete()
                 session.query(Tag).delete()
                 session.query(ProductIdentifier).delete()
+                session.query(ProductSpecification).delete()
                 session.query(Purchase).delete()
                 session.query(Product).delete()
                 session.query(ItemPhotoAssociation).delete()
