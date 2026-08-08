@@ -11,7 +11,12 @@ gone.
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.specification_rows import ROWS, row_pairs, set_specifications
+from tests.e2e.specification_rows import (
+    ROWS,
+    VALUE_INPUT,
+    row_pairs,
+    set_specifications,
+)
 
 LONG_DESCRIPTION = (
     "Blue widget, 10mm anodized aluminium shaft, M4 thread, from the surplus "
@@ -48,6 +53,55 @@ def test_in_progress_text_is_offered_back_after_an_interruption(page, live_serve
     # to one and the restore silently kept the last.
     expect(page.locator(ROWS)).to_have_count(3)
     assert row_pairs(page) == THREE_SPECS
+
+
+@pytest.mark.e2e
+def test_restoring_a_one_row_draft_does_not_duplicate_it_across_the_form(
+    page, live_server
+):
+    """A draft with fewer rows than the page renders must shrink it, not smear.
+
+    `collect()` used to store a repeated field as a list only when two or more
+    rows existed *at save time*. Leaving exactly one row therefore saved
+    `spec_name`/`spec_value` as scalars, and `apply()` wrote a scalar into every
+    element sharing that name -- so restoring a one-row draft onto an edit form
+    showing the product's two stored rows produced two identical rows, which the
+    duplicate-name rule then refused on save.
+    """
+    product = live_server.add_test_products([{
+        'description': 'Buck converter',
+        'specifications': [
+            {'name': 'Voltage', 'value': '12 V'},
+            {'name': 'Output current', 'value': '3 A'},
+        ],
+    }])[0]
+
+    page.goto(f"{live_server.url}/products/{product.id}/edit")
+    rows = page.locator(ROWS)
+    expect(rows).to_have_count(2)
+
+    # Down to a single edited row, then interrupted before saving.
+    rows.nth(1).locator(".remove-specification-btn").click()
+    expect(rows).to_have_count(1)
+    rows.nth(0).locator(VALUE_INPUT).fill("24 V")
+
+    page.goto(f"{live_server.url}/products/{product.id}/edit")
+    # The form comes back showing the two rows still in the database.
+    expect(rows).to_have_count(2)
+    expect(page.locator("#draft-restore-banner")).to_be_visible()
+
+    page.click("#draft-restore-btn")
+
+    # The draft is the whole answer for these rows: the one it holds, and the
+    # other blanked rather than left showing a stale "Output current".
+    assert row_pairs(page) == [("Voltage", "24 V"), ("", "")]
+
+    # And it saves as the single row the operator actually left.
+    page.click("#save-product-btn")
+    page.wait_for_load_state("domcontentloaded")
+    names = page.locator("#product-specifications .specification-name")
+    expect(names).to_have_count(1)
+    expect(names.nth(0)).to_have_text("Voltage")
 
 
 @pytest.mark.e2e

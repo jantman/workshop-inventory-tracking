@@ -763,6 +763,30 @@ class TestSpecifications:
         )
         assert spec_pairs(product) == [('Volt', '12'), ('Vôlt', '5')]
 
+    @pytest.mark.parametrize("malformed", [
+        # The shape this endpoint had before feature 005: one block of text. A
+        # str is iterable, so without an explicit refusal it gets walked
+        # character by character and crashes on the first one.
+        'Voltage: 12 V',
+        # A list of the wrong thing, which is the other obvious mistake.
+        ['Voltage: 12 V'],
+        [None],
+        [42],
+        {'name': 'Voltage', 'value': '12 V'},
+    ])
+    def test_a_malformed_specifications_payload_is_a_validation_error(
+        self, service, malformed
+    ):
+        """Not an AttributeError.
+
+        POST /api/products passes whatever a client sends straight through, and
+        its `except ValidationError` is what turns a bad payload into a 400. An
+        AttributeError escapes that and surfaces as a 500, which is both the
+        wrong status and a contradiction of the route's own contract.
+        """
+        with pytest.raises(ValidationError):
+            service.create_product(description='w', specifications=malformed)
+
     def test_an_over_long_name_is_refused(self, service):
         with pytest.raises(ValidationError):
             service.create_product(

@@ -302,9 +302,11 @@ def converters(service):
 class TestSpecificationFilter:
     """FR-012..FR-016.
 
-    FR-015's case-insensitivity is *not* provable here: SQLite collates BINARY,
-    so a case-sensitive implementation passes every test in this class. That case
-    lives in tests/e2e/test_product_specifications.py.
+    FR-015's case-insensitivity *is* provable here, and only here. MariaDB's
+    deployed collation folds case inside the comparison operator, so the e2e
+    suite cannot tell ``func.lower(name) == ...`` from ``name == ...``; SQLite
+    collates BINARY, so this is the backend that disagrees when the
+    ``func.lower`` is dropped. See test_the_name_filter_is_case_insensitive.
     """
 
     def test_a_name_returns_every_value_under_it(self, converters):
@@ -355,6 +357,20 @@ class TestSpecificationFilter:
     def test_the_name_is_matched_whole_not_as_a_prefix(self, converters):
         """FR-015 is whole-name: "Volt" must not match "Voltage" """
         assert converters.search_products(spec_name='Volt') == []
+
+    def test_the_value_filter_is_case_insensitive(self, service):
+        """FR-014. SQLite folds ASCII in LIKE only by default, so lowering both
+        sides is what makes the two backends agree rather than coincide."""
+        service.create_product(
+            description='Mixed case value',
+            specifications=[{'name': 'Finish', 'value': 'Blue Anodized'}],
+        )
+        assert descriptions(service.search_products(
+            spec_name='Finish', spec_value='blue anodized'
+        )) == ['Mixed case value']
+        assert descriptions(service.search_products(
+            spec_name='Finish', spec_value='ANODIZED'
+        )) == ['Mixed case value']
 
     def test_wildcards_in_the_value_are_matched_literally(self, service):
         """An unescaped % would return the wrong answers"""

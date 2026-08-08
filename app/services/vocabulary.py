@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..database import InventoryItem, Product, Purchase
 from ..mariadb_storage import MariaDBStorage
+from ..utils.sql import escape_like
 from config import Config
 
 
@@ -59,18 +60,9 @@ FIELD_SUGGESTION_COLUMNS = {
 }
 
 
-def _escape_like(s: str) -> str:
-    """Escape user-supplied LIKE wildcards.
-
-    A query of ``10%`` must match the literal string rather than acting as a
-    wildcard. This is correctness, not defence -- an unescaped ``%`` returns the
-    wrong answers, and there is nobody attacking a home LAN.
-    """
-    return (
-        s.replace('\\', '\\\\')
-        .replace('%', '\\%')
-        .replace('_', '\\_')
-    )
+# Kept as a module-level name so this file's existing call sites read unchanged.
+# The rule itself lives in app/utils/sql.py because the catalogue needs it too.
+_escape_like = escape_like
 
 
 class VocabularyService:

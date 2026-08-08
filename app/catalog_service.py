@@ -41,6 +41,7 @@ from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
 from .utils.scan_router import classify
+from .utils.sql import escape_like as _escape_like
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -478,8 +479,16 @@ class CatalogService:
         if value:
             # Contained, not exact (FR-014). The operator's own wildcards are
             # escaped because an unescaped % returns wrong answers.
-            conditions.append(ProductSpecification.value.like(
-                f"%{_escape_like(value)}%", escape='\\'
+            #
+            # func.lower on both sides for the same reason the name uses it: a
+            # bare LIKE is case-insensitive on MariaDB because of the collation
+            # and only incidentally so on SQLite, which folds ASCII but obeys
+            # `PRAGMA case_sensitive_like`. Lowering both sides makes the two
+            # backends agree rather than leaving it to each one's defaults. No
+            # index is lost -- FR-014 matches with a leading wildcard, which no
+            # index serves, which is why `value` has none.
+            conditions.append(func.lower(ProductSpecification.value).like(
+                f"%{_escape_like(value.lower())}%", escape='\\'
             ))
 
         return statement.filter(Product.specifications.any(and_(*conditions)))
@@ -1798,12 +1807,33 @@ class CatalogService:
             ValidationError: For a half-filled entry, an over-long name, or a
                 duplicate name within the submitted list.
         """
+        if entries is None:
+            entries = []
+        # A str is iterable, so without this the old contract -- specifications
+        # as one block of text -- would be walked character by character and
+        # crash on the first one. POST /api/products passes whatever a client
+        # sends straight through, and that client has no way to know the shape
+        # changed, so it has to be refused as a ValidationError (a 400) rather
+        # than an AttributeError (a 500).
+        if isinstance(entries, (str, bytes)) or not isinstance(entries, (list, tuple)):
+            raise ValidationError(
+                "Specifications must be a list of {name, value} entries",
+                field='specifications', value=str(entries)[:100]
+            )
+
         surviving: List[Dict[str, str]] = []
         seen: Dict[str, str] = {}
 
-        for entry in (entries or []):
-            name = _clean((entry or {}).get('name')) or ''
-            value = _clean((entry or {}).get('value')) or ''
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValidationError(
+                    "Each specification must be an object with a name and a "
+                    f"value; got {type(entry).__name__}",
+                    field='specifications', value=str(entry)[:100]
+                )
+
+            name = _clean(entry.get('name')) or ''
+            value = _clean(entry.get('value')) or ''
 
             if not name and not value:
                 # An untouched row on the form is not an error (FR-009).
@@ -1950,16 +1980,3 @@ def _dedupe_fold_case(values: Any) -> List[str]:
     return list(kept.values())
 
 
-def _escape_like(value: str) -> str:
-    """Escape LIKE wildcards in operator-supplied filter text.
-
-    A specification value of ``10%`` must match that literal string rather than
-    acting as a wildcard. Correctness, not defence -- an unescaped ``%`` returns
-    the wrong answers, and nobody is attacking a home LAN. The same rule is
-    spelled out in ``app/services/vocabulary.py`` for its own queries.
-    """
-    return (
-        value.replace('\\', '\\\\')
-        .replace('%', '\\%')
-        .replace('_', '\\_')
-    )

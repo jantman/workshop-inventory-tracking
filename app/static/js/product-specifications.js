@@ -99,6 +99,8 @@
         wireRow(row) {
             const value = row.querySelector('.specification-value');
             const datalist = row.querySelector('.specification-value-suggestions');
+            // A row holding a multi-line value renders a textarea instead, which
+            // has no datalist to wire -- `list=` does not apply to one.
             if (!value || !datalist) {
                 return;
             }

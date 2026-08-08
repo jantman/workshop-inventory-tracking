@@ -46,11 +46,25 @@
                                value="{{ spec.name }}">
                     </div>
                     <div class="col-md-7">
+                        {# A multi-line value cannot go in an <input>: the HTML
+                           value sanitization algorithm strips CR and LF, so the
+                           field would post back one run-on line and an unrelated
+                           save would silently destroy a paragraph the migration
+                           carried across verbatim. Such rows get a textarea and,
+                           unavoidably, no value datalist -- `list=` does not
+                           apply to a textarea, and nobody reuses a paragraph as
+                           a suggestion anyway. #}
+                        {% if '\n' in spec.value %}
+                        <textarea class="form-control specification-value"
+                                  name="spec_value" rows="3" placeholder="Value"
+                                  aria-label="Specification value">{{ spec.value }}</textarea>
+                        {% else %}
                         <input type="text" class="form-control specification-value"
                                name="spec_value" placeholder="Value"
                                aria-label="Specification value"
                                value="{{ spec.value }}">
                         <datalist class="specification-value-suggestions"></datalist>
+                        {% endif %}
                     </div>
                     <div class="col-md-1 d-grid">
                         <button type="button"

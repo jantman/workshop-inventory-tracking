@@ -18,7 +18,9 @@ from playwright.sync_api import expect
 
 from tests.e2e.specification_rows import (
     ADD_BUTTON,
+    NAME_INPUT,
     ROWS,
+    VALUE_INPUT,
     row_pairs,
     set_specifications,
 )
@@ -92,13 +94,13 @@ def test_editing_changes_removes_and_adds_a_row(page, live_server):
     expect(rows).to_have_count(2)
 
     # Change the first, remove the second, add a third.
-    rows.nth(0).locator("input[name='spec_value']").fill("24 V")
+    rows.nth(0).locator(VALUE_INPUT).fill("24 V")
     rows.nth(1).locator(".remove-specification-btn").click()
     expect(rows).to_have_count(1)
     page.click(ADD_BUTTON)
     expect(rows).to_have_count(2)
-    rows.nth(1).locator("input[name='spec_name']").fill("Connector")
-    rows.nth(1).locator("input[name='spec_value']").fill("barrel 5.5 mm")
+    rows.nth(1).locator(NAME_INPUT).fill("Connector")
+    rows.nth(1).locator(VALUE_INPUT).fill("barrel 5.5 mm")
 
     page.click("#save-product-btn")
     page.wait_for_load_state("domcontentloaded")
@@ -127,6 +129,36 @@ def test_a_migrated_paragraph_is_shown_whole(page, live_server):
     page.goto(f"{live_server.url}/products/{product.id}")
     expect(page.locator("#product-specifications")).to_be_visible()
 
+    assert shown_specifications(page) == [("Specifications", paragraph)]
+
+
+@pytest.mark.e2e
+def test_editing_a_product_does_not_reflow_a_migrated_paragraph(page, live_server):
+    """A save that never touched the specifications must not rewrite them.
+
+    A multi-line value cannot survive an ``<input value=...>``: the HTML value
+    sanitization algorithm strips CR and LF, so the field posts back one run-on
+    line and the paragraph the migration promised to carry across verbatim is
+    silently destroyed by an unrelated edit. The value field is therefore a
+    textarea whenever the stored value has a newline in it.
+    """
+    paragraph = "Voltage: 12 V\nCurrent: 3 A, knurled collar"
+    product = live_server.add_test_products([{
+        'description': 'Created before the migration',
+        'specifications': [{'name': 'Specifications', 'value': paragraph}],
+    }])[0]
+
+    page.goto(f"{live_server.url}/products/{product.id}/edit")
+    expect(page.locator(ROWS)).to_have_count(1)
+
+    # Change something else entirely and save.
+    page.fill("#description", "Renamed, specifications untouched")
+    page.click("#save-product-btn")
+    page.wait_for_load_state("domcontentloaded")
+
+    expect(page.locator("#product-description")).to_have_text(
+        "Renamed, specifications untouched"
+    )
     assert shown_specifications(page) == [("Specifications", paragraph)]
 
 
@@ -383,14 +415,14 @@ def test_value_suggestions_are_scoped_to_the_entered_name(page, live_server):
     row = page.locator(ROWS).nth(0)
     values = row.locator(".specification-value-suggestions")
 
-    row.locator("input[name='spec_name']").fill("Voltage")
-    row.locator("input[name='spec_name']").blur()
+    row.locator(NAME_INPUT).fill("Voltage")
+    row.locator(NAME_INPUT).blur()
     expect(values.locator("option")).to_have_count(2)
 
     # Changing the row's name changes that row's value suggestions -- they are
     # per row, not one shared list offering a connector under a voltage.
-    row.locator("input[name='spec_name']").fill("Connector")
-    row.locator("input[name='spec_name']").blur()
+    row.locator(NAME_INPUT).fill("Connector")
+    row.locator(NAME_INPUT).blur()
     expect(values.locator("option")).to_have_count(1)
     expect(values.locator("option").nth(0)).to_have_attribute(
         "value", "barrel 5.5 mm"

@@ -10,8 +10,10 @@ from playwright.sync_api import expect
 
 ROWS = "#specification-rows .specification-row"
 ADD_BUTTON = "#add-specification-btn"
-NAME_INPUT = "input[name='spec_name']"
-VALUE_INPUT = "input[name='spec_value']"
+NAME_INPUT = "[name='spec_name']"
+# Not `input[...]`: a row holding a multi-line value renders a textarea, because
+# an <input> silently strips the newlines out of one.
+VALUE_INPUT = "[name='spec_value']"
 
 
 def rows(page):
