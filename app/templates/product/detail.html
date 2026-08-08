@@ -98,7 +98,16 @@
                 <h5 class="mb-0"><i class="bi bi-rulers"></i> Specifications</h5>
             </div>
             <div class="card-body">
-                <p class="mb-0 text-break" id="product-specifications" style="white-space: pre-wrap;">{{ product.specifications }}</p>
+                {# Each value links back into the catalogue filtered to that exact
+                   name and value, so "what else records this?" is one click. #}
+                <dl class="row mb-0" id="product-specifications">
+                    {% for spec in product.specifications %}
+                    <dt class="col-sm-4 specification-name">{{ spec.name }}</dt>
+                    <dd class="col-sm-8 text-break specification-value" style="white-space: pre-wrap;">
+                        <a href="{{ url_for('product.product_search', spec_name=spec.name, spec_value=spec.value) }}">{{ spec.value }}</a>
+                    </dd>
+                    {% endfor %}
+                </dl>
             </div>
         </div>
         {% endif %}

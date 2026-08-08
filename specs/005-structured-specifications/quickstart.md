@@ -154,7 +154,17 @@ This is an existing feature (FR-035), and the field it was tested against is the
 | Draft persistence | — | rewritten `test_draft_persistence.py` |
 | The migration | **none** | **none** — the manual round-trip above is the only coverage |
 
-**Three requirements are invisible to `nox -s tests`.** SQLite collates BINARY, so a case-sensitive implementation of FR-004 (duplicate names), FR-015 (name filter) and FR-019 (suggestion dedup) passes the unit suite and always would. Their e2e tests run against the testcontainer, which uses the deployed collation. Confirm each of those three fails against a deliberately case-sensitive implementation before trusting it — that is the discipline commit `091e918` established after the same gap deleted a tag and its associations.
+**Two requirements are invisible to `nox -s tests`; the third turned out to be the other way round.** Each was confirmed by making the implementation deliberately case-sensitive and watching which suite went red:
+
+| Requirement | Guarded by | Confirmed |
+|---|---|---|
+| FR-004, duplicate names | e2e — `test_a_refusal_re_renders_...[entries0]` | yes |
+| FR-019, suggestion dedup | e2e — `test_one_name_recorded_in_two_cases_yields_one_suggestion` | yes |
+| FR-015, name filter | **unit** — `TestSpecificationFilter.test_the_name_filter_is_case_insensitive` | yes; the e2e test stayed green |
+
+FR-015's guard belongs to the unit suite because `utf8mb4_uca1400_ai_ci` folds case inside the comparison operator, so on MariaDB `name == 'voltage'` already matches `Voltage` and dropping `func.lower` is unobservable there. SQLite is the backend that disagrees, so SQLite is where the test has to live. See [research.md](./research.md#what-the-tests-can-and-cannot-prove).
+
+The discipline itself is commit `091e918`'s, established after the same collation gap deleted a tag and every one of its associations: confirm the test fails without the fix rather than assuming it would.
 
 **A note for whoever writes the e2e tests.** The add and edit flows are form posts that navigate, so `expect()` on the resulting page is the whole wait. The datalists are the render-implies-completion case (CLAUDE.md pattern C): options are appended only after the fetch resolves, so `expect(datalist.locator('option')).to_have_count(n)` is a complete signal. Adding a row is synchronous DOM work — `expect(rows).to_have_count(n)` covers it. Do **not** assert "this product is absent from the filtered list" with `count()` against a table nothing has established first; establish it with a positive `expect()` on a product that *should* be there, then assert the absence.
 

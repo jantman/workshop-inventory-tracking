@@ -11,11 +11,19 @@ gone.
 import pytest
 from playwright.sync_api import expect
 
+from tests.e2e.specification_rows import ROWS, row_pairs, set_specifications
+
 LONG_DESCRIPTION = (
     "Blue widget, 10mm anodized aluminium shaft, M4 thread, from the surplus "
     "bin at the back -- the good ones with the knurled collar, not the smooth "
     "ones that slip under load"
 )
+
+THREE_SPECS = [
+    ("Power rating", "1/4W"),
+    ("Tolerance", "5%"),
+    ("Voltage", "50V"),
+]
 
 
 @pytest.mark.e2e
@@ -23,7 +31,7 @@ def test_in_progress_text_is_offered_back_after_an_interruption(page, live_serve
     """Compose, get interrupted before submitting, come back"""
     page.goto(f"{live_server.url}/products/new")
     page.fill("#description", LONG_DESCRIPTION)
-    page.fill("#specifications", "1/4W, 5% tolerance, 50V")
+    set_specifications(page, THREE_SPECS)
 
     # The interruption: the page goes away with nothing submitted.
     page.goto(f"{live_server.url}/products/new")
@@ -33,7 +41,13 @@ def test_in_progress_text_is_offered_back_after_an_interruption(page, live_serve
 
     page.click("#draft-restore-btn")
     expect(page.locator("#description")).to_have_value(LONG_DESCRIPTION)
-    expect(page.locator("#specifications")).to_have_value("1/4W, 5% tolerance, 50V")
+
+    # All three, with their names, values and order. Asserting only the first
+    # would pass against the bug this test exists to prevent: product-form.js
+    # keyed its draft by field name, so three rows sharing two names collapsed
+    # to one and the restore silently kept the last.
+    expect(page.locator(ROWS)).to_have_count(3)
+    assert row_pairs(page) == THREE_SPECS
 
 
 @pytest.mark.e2e

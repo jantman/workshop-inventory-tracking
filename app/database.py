@@ -837,9 +837,6 @@ class Product(Base):
     # Convenience copy; the authoritative form is a ProductIdentifier of type MPN.
     manufacturer_part_number = Column(String(100), nullable=True)
 
-    # Free-form and operator-authored. Never machine-generated.
-    specifications = Column(Text, nullable=True)
-
     # Materialized path, canonical form per app/utils/category.py. NULL means
     # uncategorized, which is an ordinary state and not an error.
     category_path = Column(String(512), nullable=True, index=True)
@@ -890,6 +887,16 @@ class Product(Base):
         cascade='all, delete-orphan',
         passive_deletes=True,
         order_by='ProductAttachment.display_order',
+    )
+    # Operator-authored named values, in the order they were entered. This was a
+    # Text column until feature 005; the name is unchanged because there is one
+    # concept here and it should have one name.
+    specifications = relationship(
+        'ProductSpecification',
+        back_populates='product',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        order_by='ProductSpecification.display_order',
     )
 
     __table_args__ = (
@@ -960,7 +967,8 @@ class Product(Base):
             'description': self.description,
             'manufacturer': self.manufacturer,
             'manufacturer_part_number': self.manufacturer_part_number,
-            'specifications': self.specifications,
+            # Always a list, empty when there are none, in display order.
+            'specifications': [s.to_dict() for s in self.specifications],
             'category_path': self.category_path,
             'location': self.location,
             'sub_location': self.sub_location,
@@ -1127,6 +1135,60 @@ class ProductIdentifier(Base):
             'validation_overridden': self.validation_overridden,
             'date_added': self.date_added.isoformat() if self.date_added else None,
         }
+
+
+class ProductSpecification(Base):
+    """
+    One named fact about a product -- a voltage, a thread pitch, a tolerance.
+
+    This replaced a single free-text ``products.specifications`` column, so that
+    "every 12 V converter I own" is a filter rather than a substring search that
+    also matches a description merely mentioning 12 V.
+
+    There is deliberately **no** ``UniqueConstraint('product_id', 'name')``. The
+    deployed collation folds accents as well as case, so the constraint would
+    reject ``Volt`` against ``Vôlt`` -- stricter than the requirement, which
+    speaks only of case and whitespace -- while under SQLite it would accept
+    ``Voltage`` against ``voltage``, which is looser. A constraint meaning two
+    different things on two backends is worse than none, and the invariant is
+    cosmetic rather than integrity: a product carrying two ``Voltage`` rows is
+    untidy, never corrupt. ``CatalogService._validate_specifications`` is the
+    authority, and it compares in Python.
+    """
+    __tablename__ = 'product_specifications'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    product_id = Column(
+        Integer,
+        ForeignKey('products.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+
+    # As the operator typed it, trimmed. Indexed: the filter looks up by name.
+    name = Column(String(100), nullable=False, index=True)
+    # Text rather than String because this has to hold anything the old
+    # products.specifications column held, including a multi-line paragraph.
+    value = Column(Text, nullable=False)
+    # The list index at save time, so entry order survives a round-trip.
+    display_order = Column(Integer, nullable=False, default=0)
+
+    product = relationship('Product', back_populates='specifications')
+
+    def __repr__(self):
+        return (
+            f"<ProductSpecification(id={self.id}, product_id={self.product_id}, "
+            f"name='{self.name}')>"
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses.
+
+        No ``id``: nothing addresses a specification individually, and exposing
+        one would invite a per-row edit endpoint this feature does not have.
+        """
+        return {'name': self.name, 'value': self.value}
 
 
 class Tag(Base):

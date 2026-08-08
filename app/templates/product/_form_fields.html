@@ -30,11 +30,74 @@
             </div>
         </div>
 
+        {# Every row posts under the same two names, so the server pairs them
+           positionally with request.form.getlist. That is why no row carries an
+           index: nothing has to be renumbered when one is removed. #}
         <div class="mb-3">
-            <label for="specifications" class="form-label">Specifications</label>
-            <textarea class="form-control" id="specifications" name="specifications"
-                      rows="4">{{ values.get('specifications') or '' }}</textarea>
-            <div class="form-text">Voltage, thread pitch, tolerance -- whatever you will want to know later.</div>
+            <span class="form-label d-block">Specifications</span>
+            <div id="specification-rows">
+                {% for spec in values.get('specifications') or [] %}
+                <div class="row g-2 mb-2 specification-row">
+                    <div class="col-md-4">
+                        <input type="text" class="form-control specification-name"
+                               name="spec_name" maxlength="100" placeholder="Name"
+                               aria-label="Specification name"
+                               list="specification-name-suggestions"
+                               value="{{ spec.name }}">
+                    </div>
+                    <div class="col-md-7">
+                        <input type="text" class="form-control specification-value"
+                               name="spec_value" placeholder="Value"
+                               aria-label="Specification value"
+                               value="{{ spec.value }}">
+                        <datalist class="specification-value-suggestions"></datalist>
+                    </div>
+                    <div class="col-md-1 d-grid">
+                        <button type="button"
+                                class="btn btn-outline-secondary remove-specification-btn"
+                                aria-label="Remove this specification">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    id="add-specification-btn">
+                <i class="bi bi-plus-lg"></i> Add specification
+            </button>
+            <div class="form-text">
+                Voltage, thread pitch, tolerance -- whatever you will want to know later.
+                A name and a value each, so you can filter on them afterwards.
+            </div>
+            <datalist id="specification-name-suggestions"></datalist>
+
+            {# The blank row product-specifications.js clones. Identical to the
+               rendered rows above, so a cloned row and a server-rendered one are
+               the same thing to every other piece of code. #}
+            <template id="specification-row-template">
+                <div class="row g-2 mb-2 specification-row">
+                    <div class="col-md-4">
+                        <input type="text" class="form-control specification-name"
+                               name="spec_name" maxlength="100" placeholder="Name"
+                               aria-label="Specification name"
+                               list="specification-name-suggestions" value="">
+                    </div>
+                    <div class="col-md-7">
+                        <input type="text" class="form-control specification-value"
+                               name="spec_value" placeholder="Value"
+                               aria-label="Specification value" value="">
+                        <datalist class="specification-value-suggestions"></datalist>
+                    </div>
+                    <div class="col-md-1 d-grid">
+                        <button type="button"
+                                class="btn btn-outline-secondary remove-specification-btn"
+                                aria-label="Remove this specification">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>
+            </template>
         </div>
     </div>
 </div>

@@ -8,6 +8,8 @@ description, specification and identifier alike.
 import pytest
 from playwright.sync_api import expect
 
+from tests.e2e.specification_rows import set_specifications
+
 
 def create_product(page, base_url, description, category=None, tags=None,
                    specifications=None, mpn=None):
@@ -18,7 +20,7 @@ def create_product(page, base_url, description, category=None, tags=None,
     if tags:
         page.fill("#tags", tags)
     if specifications:
-        page.fill("#specifications", specifications)
+        set_specifications(page, specifications)
     if mpn:
         page.fill("#manufacturer_part_number", mpn)
     page.click("#save-product-btn")
@@ -28,10 +30,11 @@ def create_product(page, base_url, description, category=None, tags=None,
 def seed(page, base_url):
     create_product(page, base_url, "Carbon film resistor, 10k",
                    category="Electronics/Passives/Resistors", tags="surplus",
-                   specifications="1/4W, 5% tolerance")
+                   specifications=[("Power rating", "1/4W"),
+                                   ("Tolerance", "5% tolerance")])
     create_product(page, base_url, "Ceramic capacitor, 100nF",
                    category="Electronics/Passives/Capacitors", tags="rohs",
-                   specifications="50V X7R")
+                   specifications=[("Voltage", "50V"), ("Dielectric", "X7R")])
     create_product(page, base_url, "LM358 op-amp",
                    category="Electronics/Active", tags="surplus, rohs", mpn="LM358N")
     create_product(page, base_url, "M4 hex bolt",

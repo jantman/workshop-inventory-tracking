@@ -119,4 +119,16 @@ The distinction matters because the consequences are asymmetric. A *deciding* co
 
 **Rationale**: SQLite collates BINARY, so `nox -s tests` passes whether or not any of the three is implemented case-insensitively. The e2e testcontainer runs the deployed collation and is the only place the requirement is observable. `091e918` confirmed each of its four regression tests failed without the fix; the same discipline applies here for the same reason.
 
+**What the confirmation actually found** (recorded after running it, because one of the three predictions above was wrong):
+
+| Requirement | Mutation applied | Test that turned red |
+|---|---|---|
+| FR-004, duplicate name | `key = name` instead of `name.lower()` | **e2e** — `test_a_refusal_re_renders_with_a_message_and_saves_nothing[entries0]`. As predicted. |
+| FR-019, suggestion dedup | `kept.setdefault(value, ...)` instead of `value.lower()` | **e2e** — `test_one_name_recorded_in_two_cases_yields_one_suggestion`, 2 options instead of 1. As predicted. |
+| FR-015, name filter | `ProductSpecification.name == name` instead of `func.lower(...)` | **unit** — `test_the_name_filter_is_case_insensitive`. The e2e test stayed **green**. |
+
+The third is the interesting one, and the reason to write this down rather than assume the symmetry held. `utf8mb4_uca1400_ai_ci` folds case in the *comparison operator itself*, so on MariaDB `name == 'voltage'` already matches `Voltage` and dropping `func.lower` changes nothing observable. `func.lower` is not what makes FR-015 hold in production — the collation is. What `func.lower` buys is that **SQLite agrees**, which means the guard for this requirement belongs in the unit suite, exactly opposite to the other two. A test was added there (`TestSpecificationFilter.test_the_name_filter_is_case_insensitive`) and confirmed to fail under the mutation.
+
+The general lesson, which is the one worth carrying forward: a folding collation *hides* a case-sensitive implementation rather than exposing one. E2E against MariaDB catches a comparison that is wrongly **strict** (Python-side, where the folding is not applied) and is blind to one that is wrongly **loose in the same direction the collation already folds**. Deciding which suite guards a case rule means asking which backend would disagree, not assuming the deployed one always does.
+
 **A gap that cannot be closed the same way**: the Alembic revision is not run by either suite — `tests/conftest.py:51` and `tests/e2e/test_server.py:61` both call `Base.metadata.create_all`. Adding an integration test that drives `alembic upgrade`/`downgrade` against the testcontainer was considered and rejected for this feature: it means a second schema-provisioning path in the test infrastructure, which is a change to how the suite works rather than to what it covers, and it is not warranted by one revision. The mitigation is the scripted manual round-trip in [quickstart.md](./quickstart.md#the-migration-round-trip), performed against MariaDB with real rows including a paragraph containing a colon and a newline. If a future feature ships a second data-carrying revision, that trade should be revisited.
