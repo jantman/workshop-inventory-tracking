@@ -25,14 +25,25 @@ success criteria; details of shapes and payloads live in [data-model.md](./data-
 ## Setup
 
 ```bash
-venv/bin/python manage.py db upgrade      # apply the new catalogue revisions
-venv/bin/python manage.py db downgrade -1 # exercise the downgrade, then re-upgrade
-venv/bin/python manage.py db upgrade
+venv/bin/python manage.py db upgrade                  # apply b1a0c0d10001..b1a0c0d10005
+venv/bin/python manage.py db downgrade 8213852b0b94   # exercise the downgrades
+venv/bin/python manage.py db upgrade                  # and come back
 ```
+
+Name the previous revision explicitly. `db downgrade -1` is the form you will reach for and it
+does not work here — this Flask-Migrate CLI parses `-1` as an option and exits with
+`Error: No such option '-1'` before Alembic sees it. This feature's five revisions sit on top of
+`8213852b0b94`, so naming it walks the whole chain down in one command.
 
 Exercising the downgrade is not optional: Constitution V requires each revision's `downgrade` to
 have been run, and against **MariaDB** — SQLite will not catch an index/FK ordering fault, which
-is a failure mode this repository has already hit once.
+is a failure mode this repository has already hit once. This chain is the one most likely to
+expose that: the six tables it creates are linked by foreign keys, so they only drop cleanly in
+the right order.
+
+Confirm it actually moved rather than trusting the exit code. `SHOW TABLES` should list
+`products`, `purchases`, `product_identifiers`, `tags`, `product_tags` and `product_attachments`
+after each upgrade and none of them in between.
 
 ---
 
