@@ -62,11 +62,27 @@
             ).filter((field) => field.name && field.name !== 'csrf_token');
         }
 
-        // A <select> always reports a value -- its first option. Judging
-        // "has the operator already typed something here?" by that would
-        // mean the answer is always yes and the draft is never offered.
-        get typedFields() {
-            return this.fields.filter((field) => field.tagName !== 'SELECT');
+        /**
+         * The field names whose value is a default rather than something typed.
+         *
+         * A <select> always reports a value -- its first option. Judging "has
+         * the operator already typed something here?" by that would mean the
+         * answer is always yes and the draft is never offered.
+         *
+         * Returned as a name set rather than a list of elements because the
+         * questions below are asked of a *stored draft*, which can name fields
+         * the page has not rendered yet. Judging those questions by the elements
+         * currently in the DOM meant a draft holding nothing but specification
+         * rows looked empty: offerRestore() runs before product-specifications.js
+         * has added the blank row, so there was no `spec_name` input to match
+         * against and the draft was silently unrecoverable.
+         */
+        get untypedNames() {
+            return new Set(
+                this.fields
+                    .filter((field) => field.tagName === 'SELECT')
+                    .map((field) => field.name)
+            );
         }
 
         init() {
@@ -105,16 +121,26 @@
 
         /** Has the operator actually typed anything, ignoring select defaults? */
         hasTypedContent(fields) {
-            return this.typedFields.some(
-                (field) => valuesOf(fields[field.name]).some((value) => value)
+            const untyped = this.untypedNames;
+            return Object.keys(fields).some(
+                (name) => !untyped.has(name)
+                    && valuesOf(fields[name]).some((value) => value)
             );
         }
 
         /** Does the stored draft say anything the form is not already showing? */
         differsFromForm(fields) {
             const current = this.collect();
-            return this.typedFields.some(
-                (field) => !sameValue(fields[field.name], current[field.name])
+            const untyped = this.untypedNames;
+            // The union of both sides: a draft naming a field the page has not
+            // rendered is a difference, and so is one the page shows and the
+            // draft does not.
+            const names = new Set(
+                Object.keys(fields).concat(Object.keys(current))
+            );
+            return Array.from(names).some(
+                (name) => !untyped.has(name)
+                    && !sameValue(fields[name], current[name])
             );
         }
 
@@ -169,7 +195,7 @@
                 0,
                 ...Object.values(fields).filter(Array.isArray).map((list) => list.length)
             );
-            const rows = () => this.form.querySelectorAll('.specification-row').length;
+            const rows = () => this.form.querySelectorAll(REPEATING_ROW).length;
             for (let attempt = 0; attempt < wanted && rows() < wanted; attempt += 1) {
                 addButton.click();
             }

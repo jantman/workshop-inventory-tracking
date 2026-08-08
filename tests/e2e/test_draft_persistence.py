@@ -105,6 +105,31 @@ def test_restoring_a_one_row_draft_does_not_duplicate_it_across_the_form(
 
 
 @pytest.mark.e2e
+def test_a_draft_of_only_specifications_is_still_offered_back(page, live_server):
+    """Nothing typed but the specification rows, and it must still come back.
+
+    `offerRestore()` runs in product-form.js's own DOMContentLoaded listener,
+    which is registered before product-specifications.js's -- and it is the
+    latter that adds the blank row when the page renders none. So the check for
+    "did the operator type anything?" ran against a DOM holding zero
+    `.specification-row` elements, found no field matching `spec_name`, and
+    concluded the draft was empty. It is judged by the draft's own keys now,
+    not by which inputs happen to exist yet.
+    """
+    page.goto(f"{live_server.url}/products/new")
+    set_specifications(page, [("Voltage", "12 V"), ("Output current", "3 A")])
+
+    page.goto(f"{live_server.url}/products/new")
+    page.wait_for_load_state("domcontentloaded")
+
+    expect(page.locator("#draft-restore-banner")).to_be_visible()
+    page.click("#draft-restore-btn")
+
+    expect(page.locator(ROWS)).to_have_count(2)
+    assert row_pairs(page) == [("Voltage", "12 V"), ("Output current", "3 A")]
+
+
+@pytest.mark.e2e
 def test_the_draft_is_offered_not_applied_silently(page, live_server):
     """The operator may have walked away and come back to start something else"""
     page.goto(f"{live_server.url}/products/new")

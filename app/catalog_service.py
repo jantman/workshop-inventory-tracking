@@ -1373,14 +1373,7 @@ class CatalogService:
         Returns:
             The distinct names, sorted case-insensitively.
         """
-        with self._session() as session:
-            query = session.query(ProductSpecification.name)
-            cleaned = _clean(prefix)
-            if cleaned:
-                query = query.filter(func.lower(ProductSpecification.name).like(
-                    f"{_escape_like(cleaned.lower())}%", escape='\\'
-                ))
-            return _dedupe_fold_case(row[0] for row in query.all())
+        return self._distinct_specification_column(ProductSpecification.name, prefix)
 
     def list_specification_values(
         self, name: str, prefix: Optional[str] = None
@@ -1401,15 +1394,40 @@ class CatalogService:
         if not cleaned_name:
             return []
 
+        return self._distinct_specification_column(
+            ProductSpecification.value,
+            prefix,
+            scope=func.lower(ProductSpecification.name) == cleaned_name.lower(),
+        )
+
+    def _distinct_specification_column(
+        self, column, prefix: Optional[str], scope=None
+    ) -> List[str]:
+        """The distinct values of one specification column, for a datalist.
+
+        Both vocabulary readers are this same shape -- open a session, narrow by
+        an optional case-insensitive prefix, fold-case dedupe -- and differ only
+        in the column and whether the rows are scoped to one name.
+
+        Args:
+            column: The ProductSpecification column to read.
+            prefix: Optionally narrow to values starting with this.
+            scope: An optional extra filter clause.
+
+        Returns:
+            The distinct values, sorted and deduplicated case-insensitively.
+        """
         with self._session() as session:
-            query = session.query(ProductSpecification.value).filter(
-                func.lower(ProductSpecification.name) == cleaned_name.lower()
-            )
+            query = session.query(column)
+            if scope is not None:
+                query = query.filter(scope)
+
             cleaned = _clean(prefix)
             if cleaned:
-                query = query.filter(func.lower(ProductSpecification.value).like(
+                query = query.filter(func.lower(column).like(
                     f"{_escape_like(cleaned.lower())}%", escape='\\'
                 ))
+
             return _dedupe_fold_case(row[0] for row in query.all())
 
     # -- Categories --------------------------------------------------------

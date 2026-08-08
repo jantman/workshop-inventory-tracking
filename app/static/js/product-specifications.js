@@ -11,34 +11,19 @@
  * no stable ids to construct against. A datalist also cannot restrict what is
  * typed, so "suggestions never limit what can be entered" holds by construction
  * rather than by care.
+ *
+ * The fetch-and-fill plumbing is shared with catalog-suggestions.js, which fills
+ * datalists the same way, and lives in datalist.js. What is *not* shared is the
+ * per-row wiring below: catalog-suggestions.js fills a fixed datalist by id
+ * once on load, and these rows are cloned at runtime and refilled whenever their
+ * own name changes.
  */
 
 (function () {
     'use strict';
 
-    /** Replace a datalist's options. Missing elements are not an error. */
-    function fill(datalist, values) {
-        if (!datalist) {
-            return;
-        }
-        datalist.innerHTML = '';
-        values.forEach((value) => {
-            const option = document.createElement('option');
-            option.value = value;
-            datalist.appendChild(option);
-        });
-    }
-
-    function load(url, key) {
-        return fetch(url)
-            .then((response) => response.json())
-            .then((data) => (data.success ? data[key] : []))
-            .catch((error) => {
-                // Suggestions are a convenience; typing still works without them.
-                console.warn('[product-specifications] could not load', url, error);
-                return [];
-            });
-    }
+    const fill = window.WorkshopDatalist.fill;
+    const load = window.WorkshopDatalist.load;
 
     function loadNames() {
         return load('/api/specification-names', 'specification_names');
