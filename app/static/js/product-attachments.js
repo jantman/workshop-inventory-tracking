@@ -61,6 +61,38 @@
             );
         });
 
+        // FR-023: an image on the clipboard becomes an attachment on the
+        // product being viewed. No new endpoint and no route change -- the same
+        // FormData shape the file picker already posts, through csrfFetch, and
+        // same-origin so the token travels.
+        //
+        // Clipboard content holding no image uploads nothing **and reports
+        // nothing**. A rejection message on every ordinary text paste would be
+        // noise: a paste is not a request to upload.
+        document.addEventListener('paste', (event) => {
+            if (!event.clipboardData) {
+                return;
+            }
+
+            const items = Array.from(event.clipboardData.items || []);
+            const image = items.find((item) => item.type.startsWith('image/'));
+            if (!image) {
+                return;
+            }
+
+            const file = image.getAsFile();
+            if (!file) {
+                return;
+            }
+
+            upload(
+                `/api/products/${productId}/attachments`,
+                file,
+                () => window.location.reload(),
+                (message) => showAlert(message)
+            );
+        });
+
         card.querySelectorAll('.delete-attachment-btn').forEach((deleteButton) => {
             deleteButton.addEventListener('click', () => {
                 csrfFetch(`/api/attachments/${deleteButton.dataset.attachmentId}`, {

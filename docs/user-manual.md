@@ -609,7 +609,21 @@ Two ways in:
    not yield. This path cannot break when a vendor changes their site.
 2. **The bookmarklet.** Drag *Capture to Workshop* to your bookmarks bar once. On
    a listing, click it: a new tab opens on this application's confirmation page,
-   already filled in. It reads only the page address and title.
+   already filled in. It now reads the listing itself, not just the address --
+   for an Amazon page that means the price, the brand, the description, every
+   *Product information* row, and every image the page's own data names, which is
+   usually more than the thumbnail strip shows.
+
+   What it reads is a page's markup, and a vendor's markup is not a contract. So
+   the confirmation page tells you **what it found before anything is written** --
+   a count of images, a count of information rows, and whether it found a
+   description. A capture that comes back thinner than the listing looks is the
+   signal that the vendor has changed something. The capture still works; it just
+   brings less. Nothing is ever refused for this.
+
+   Whatever it read is written when you press **Capture**, and not before. A full
+   gallery takes eight to fifteen seconds to fetch at that point, which is
+   expected -- the page is downloading a dozen full-resolution images.
 
 > **The bookmarklet requires this application to be served over HTTPS**, and it
 > must be dragged from the `https://` page. Two reasons, and both bite silently:
@@ -626,8 +640,17 @@ Two ways in:
 > `http://` — open it over `https://` and drag the bookmarklet again. The paste
 > box works either way.
 
-Capturing the same listing twice does nothing the second time, so double-clicking
-the bookmark is harmless.
+Capturing the same listing twice **asks** rather than guessing: it tells you a
+purchase for this listing is already recorded today, and lets you say whether
+this is a second order or a double-click. Nothing is written until you answer,
+and answering costs nothing -- everything the listing yielded is still attached to
+the form. A repeat capture adds no second copy of an image and does not overwrite
+a specification you have edited by hand; it only adds what the product does not
+already have.
+
+**An abandoned capture leaves nothing.** Close the confirmation tab without
+pressing Capture and there is no product, no purchase, no specification and no
+stored image -- there was never a record, only a page.
 
 When the parcel arrives, open the purchase and **Mark Received**. The captured
 details are already there; amend the quantity or the price if what turned up
@@ -695,6 +718,13 @@ Products and purchases both take attachments -- images and PDFs, up to 20 MB.
 A **datasheet or wiring diagram belongs to the product**. A **saved listing or
 receipt belongs to the purchase** that captured it. Attach them where they
 belong; PDFs get thumbnails like everywhere else in the application.
+
+A product's attachments show as a **grid of thumbnails** -- a captured gallery is
+a dozen images with derived filenames, and a list of those is not something
+anyone can look through. Click one for the original. A product holds up to 100.
+
+**Copy an image anywhere and paste it on a product page** to attach it, with no
+file to save first. Pasting ordinary text does nothing and says nothing.
 
 ### Finding Things
 

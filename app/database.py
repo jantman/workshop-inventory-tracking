@@ -8,7 +8,7 @@ with proper constraints to ensure data integrity.
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, UniqueConstraint, CheckConstraint, LargeBinary, ForeignKey, Index
 from sqlalchemy.sql.sqltypes import Numeric
-from sqlalchemy.dialects.mysql import MEDIUMBLOB
+from sqlalchemy.dialects.mysql import MEDIUMBLOB, MEDIUMTEXT
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -1178,7 +1178,16 @@ class ProductSpecification(Base):
     name = Column(String(100), nullable=False, index=True)
     # Text rather than String because this has to hold anything the old
     # products.specifications column held, including a multi-line paragraph.
-    value = Column(Text, nullable=False)
+    #
+    # MEDIUMTEXT on MariaDB (b1a0c0d10009), following the dialect-variant
+    # pattern Photo.medium_data uses above. TEXT holds 65,535 *bytes*, and a
+    # captured listing description has to be kept in full (FR-006) -- the
+    # largest of the six sampled reached 28,767 characters, and capping the
+    # extractor to stay inside TEXT would have written a permanent exception
+    # onto a requirement rather than removing it. Under SQLite this stays TEXT,
+    # which is unbounded there, so the unit suite is unaffected and proves
+    # nothing about the widening: the limit being lifted is a MariaDB limit.
+    value = Column(Text().with_variant(MEDIUMTEXT, 'mysql'), nullable=False)
     # The list index at save time, so entry order survives a round-trip.
     display_order = Column(Integer, nullable=False, default=0)
 

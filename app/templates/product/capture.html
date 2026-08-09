@@ -9,6 +9,14 @@
         <form id="capture-form" method="POST" action="{{ url_for('product.product_capture') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
+            {# FR-016, in one line. The template already re-emits form_data on a
+               CaptureDecisionRequired re-render, so the whole extracted payload
+               survives the question with no code of its own. It must stay
+               outside every {% if %}: a payload that only survives some
+               re-renders is worse than one that never does, because the failure
+               would be invisible until the day it mattered. #}
+            <input type="hidden" name="listing" value="{{ form_data.get('listing') or '' }}"/>
+
             {% if from_bookmarklet %}
             <div class="alert alert-info" id="bookmarklet-landing">
                 Read off the listing. <strong>Nothing has been recorded yet</strong> — write
@@ -138,9 +146,15 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="manufacturer" class="form-label">Manufacturer</label>
+                            {# Pre-filled from the listing's byline when the
+                               operator has not typed one (US1 scenario 2). The
+                               form value wins on every re-render, so an edit
+                               survives a question rather than being overwritten
+                               by the extraction a second time. #}
                             <input type="text" class="form-control" id="manufacturer"
                                    name="manufacturer" maxlength="200"
-                                   value="{{ form_data.get('manufacturer') or '' }}">
+                                   value="{{ form_data.get('manufacturer')
+                                             or (listing.brand if listing else '') or '' }}">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="manufacturer_part_number" class="form-label">
@@ -168,13 +182,59 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <label for="unit_price" class="form-label">Unit Price</label>
+                            {# US1 scenario 1. The listing's price is a string all
+                               the way here and stays one until _validate_price
+                               makes it a Decimal -- there is no float on this
+                               path, in transit or otherwise. #}
                             <input type="text" class="form-control" id="unit_price"
                                    name="unit_price" inputmode="decimal"
-                                   value="{{ form_data.get('unit_price') or '' }}">
+                                   value="{{ form_data.get('unit_price')
+                                             or (listing.price if listing else '') or '' }}">
                         </div>
                     </div>
                 </div>
             </div>
+
+            {# FR-017: what will be written, before it is written. It also does a
+               second job -- a capture that comes back thin is the first signal
+               that the vendor's markup has moved, and this is where the operator
+               sees it, because nothing in this design can fail when Amazon
+               changes. Renders nothing at all without a payload, so the
+               paste-a-URL path is visually unchanged. #}
+            {% if listing %}
+            <div class="card mb-4" id="capture-summary">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-list-check"></i> What the listing yielded</h6>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0 small">
+                        <li id="summary-images">
+                            <i class="bi bi-images"></i>
+                            {{ listing.images | length }}
+                            image{{ '' if listing.images | length == 1 else 's' }}
+                        </li>
+                        <li id="summary-specifications">
+                            <i class="bi bi-list-ul"></i>
+                            {{ listing.specifications | length }}
+                            product information
+                            row{{ '' if listing.specifications | length == 1 else 's' }}
+                        </li>
+                        <li id="summary-description">
+                            <i class="bi bi-card-text"></i>
+                            {% if listing.description_text %}
+                            A description, {{ listing.description_text | length }}
+                            characters, kept in full
+                            {% else %}
+                            No description found
+                            {% endif %}
+                        </li>
+                    </ul>
+                    <p class="small text-muted mb-0 mt-2">
+                        Nothing here has been recorded. It is written when you capture.
+                    </p>
+                </div>
+            </div>
+            {% endif %}
 
             <button type="submit" class="btn btn-primary btn-lg mb-5" id="capture-btn">
                 <i class="bi bi-download"></i> Capture
@@ -213,11 +273,17 @@
                 </p>
 
                 <p class="small text-muted mb-0">
-                    It reads the page's URL and title and nothing else -- no page markup, which
-                    is not a contract and changes without warning. It submits a form rather than
-                    making a background request, because a background request to this host is
-                    blocked as mixed content before anything else gets a say. A form is not a way
-                    around that, though: a vendor sending
+                    It reads the listing: the price, the brand, the description, the product
+                    information rows, and every image the page's own data names. <strong>That
+                    means it reads page markup, which is not a contract and changes without
+                    warning</strong> -- deliberately, because none of this can be had from a URL.
+                    A capture that comes back thin is the signal that something moved, which is
+                    why this page tells you what it found before you commit it. It is never
+                    refused for reading nothing: a capture with no extraction is exactly the
+                    capture this page did before.
+                    It submits a form rather than making a background request, because a
+                    background request to this host is blocked as mixed content before anything
+                    else gets a say. A form is not a way around that, though: a vendor sending
                     <code>upgrade-insecure-requests</code> rewrites the form's destination to
                     <code>https</code> too. Serving this application over TLS is what fixes it.
                     Until then, and for any vendor that blocks the form outright, the paste box

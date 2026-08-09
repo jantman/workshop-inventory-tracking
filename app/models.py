@@ -10,7 +10,11 @@ from typing import Optional, List, Dict, Any, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timedelta
 from enum import Enum
+import json
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 def parse_date_value(date_value: Union[str, int, float]) -> Optional[datetime]:
     """
@@ -533,3 +537,146 @@ class CaptureAssessment:
             'has_duplicate': self.has_duplicate,
             'has_uncorroborated_match': self.has_uncorroborated_match,
         }
+
+
+@dataclass
+class ImageCaptureResult:
+    """What the fetcher managed, so the route can tell the operator.
+
+    Plain counts and one flag (FR-017, FR-020, FR-021, FR-022). There is
+    deliberately **no per-image error list**: nothing would consume one, because
+    the operator's next action is the same whether an image failed on a timeout
+    or a 404 -- add it by hand, or capture again.
+    """
+    stored: int = 0
+    duplicates: int = 0
+    skipped: int = 0
+    failed: int = 0
+    cap_reached: bool = False
+
+
+# The payload shape capture-agent.js produces. There is exactly one version and
+# no compatibility machinery: when the shape changes the number goes to 2 and
+# from_json stops accepting 1, at which point a stale cached agent degrades to
+# today's behaviour on its next use and is replaced on the one after.
+LISTING_CAPTURE_VERSION = 1
+
+
+@dataclass
+class ListingCapture:
+    """What the capture agent read off a vendor's listing.
+
+    Not persisted. It exists between the form field ``listing`` and the two
+    services that consume it, and it is built only by :meth:`from_json`.
+
+    **``price`` is a string, deliberately.** JSON's only number type is an IEEE
+    double, so ``24.99`` arriving as a JSON number would be a ``float`` before
+    any Python here saw it, and Principle III has no exemption for a value in
+    transit. It stays a string until ``_validate_price`` turns it into a
+    ``Decimal`` -- the same path a hand-typed price already takes.
+    """
+    source_url: str
+    vendor_item_id: Optional[str] = None
+    listing_title: Optional[str] = None
+    price: Optional[str] = None
+    brand: Optional[str] = None
+    description_text: Optional[str] = None
+    specifications: List[Dict[str, str]] = field(default_factory=list)
+    images: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, raw: Optional[str]) -> Optional['ListingCapture']:
+        """Parse the hidden ``listing`` field, or return None.
+
+        **None is not an error, it is the ordinary case for the other half of
+        this feature.** The paste-a-URL form has no agent and sends no payload,
+        and FR-007 requires a capture with no extraction to behave exactly as it
+        does today. So an absent, empty, unparseable, non-object or
+        wrong-version payload yields None and the caller carries on.
+
+        Within a well-formed payload the parsing is lenient for the same reason
+        one row further down: a malformed specification entry or an image
+        address that is not http(s) is dropped on its own, rather than costing
+        the operator the other twenty-four rows and the whole gallery.
+        """
+        if not raw:
+            return None
+
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            logger.info("Capture payload is not JSON; capturing without it")
+            return None
+
+        if not isinstance(data, dict):
+            logger.info("Capture payload is not an object; capturing without it")
+            return None
+
+        if data.get('version') != LISTING_CAPTURE_VERSION:
+            logger.info(
+                f"Capture payload is version {data.get('version')!r}, not "
+                f"{LISTING_CAPTURE_VERSION}; capturing without it. A stale cached "
+                f"agent is the only way this happens."
+            )
+            return None
+
+        source_url = _payload_string(data.get('source_url'))
+        if not source_url:
+            logger.info("Capture payload names no source_url; capturing without it")
+            return None
+
+        return cls(
+            source_url=source_url,
+            vendor_item_id=_payload_string(data.get('vendor_item_id')),
+            listing_title=_payload_string(data.get('listing_title')),
+            price=_payload_string(data.get('price')),
+            brand=_payload_string(data.get('brand')),
+            description_text=_payload_string(data.get('description_text')),
+            specifications=_payload_specifications(data.get('specifications')),
+            images=_payload_images(data.get('images')),
+        )
+
+
+def _payload_string(value: Any) -> Optional[str]:
+    """A trimmed string, or None for anything that is not one.
+
+    A JSON number is refused rather than coerced. The only field where that
+    matters is ``price``, and there it is the whole point: an agent that emitted
+    ``"price": 24.99`` has already turned the price into a float, and accepting
+    it here would carry that float onwards under a str() disguise.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _payload_specifications(value: Any) -> List[Dict[str, str]]:
+    """The ``{name, value}`` pairs that are actually pairs; the rest are dropped"""
+    if not isinstance(value, list):
+        return []
+
+    entries: List[Dict[str, str]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name = _payload_string(entry.get('name'))
+        text = _payload_string(entry.get('value'))
+        if name and text:
+            entries.append({'name': name, 'value': text})
+    return entries
+
+
+def _payload_images(value: Any) -> List[str]:
+    """The http(s) addresses, in order; anything else is dropped"""
+    if not isinstance(value, list):
+        return []
+
+    return [
+        address for address in (
+            _payload_string(item) for item in value
+        )
+        if address and (
+            address.startswith('http://') or address.startswith('https://')
+        )
+    ]

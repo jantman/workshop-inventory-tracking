@@ -13,4 +13,8 @@ click==8.4.2
 pt-p710bt-label-maker @ git+https://github.com/jantman/pt-p710bt-label-maker.git@jantman
 Pillow>=12.3.0
 PyMuPDF==1.28.0
+# Not a new dependency: installed today as a transitive of
+# google-api-python-client and already imported by app/api_client.py. Pinning
+# what we import is a correction, not an addition.
+requests==2.33.1
 gunicorn==26.0.0

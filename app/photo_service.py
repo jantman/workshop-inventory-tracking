@@ -5,6 +5,7 @@ Handles photo upload, processing, storage, and retrieval for inventory items.
 Supports JPEG, PNG, WebP, and PDF formats with automatic image compression.
 """
 
+import hashlib
 import io
 import logging
 from typing import List, Optional, Dict, Any, Tuple
@@ -54,7 +55,9 @@ class PhotoService:
     # product accumulates datasheets and wiring diagrams over years, an
     # inventory item accumulates photographs of one physical thing, and the
     # two limits should be able to move without surprising each other.
-    MAX_ATTACHMENTS_PER_PRODUCT = 25
+    # FR-012: raised from 25 because one listing capture can contribute more
+    # than a dozen gallery images on its own.
+    MAX_ATTACHMENTS_PER_PRODUCT = 100
     
     def __init__(self, storage_backend=None):
         """Initialize photo service with database connection"""
@@ -590,6 +593,58 @@ class PhotoService:
             owner_model=Product, owner_name='Product',
         )
 
+    def upload_product_attachment_if_new(
+        self, product_id: int, file_data: bytes, filename: str, content_type: str
+    ) -> Optional[ProductAttachment]:
+        """Attach unless this product already holds these exact bytes (FR-018).
+
+        Judged by content, never by address. A vendor serves the same source
+        file under several transform tokens, so two addresses routinely name
+        identical bytes -- an address-keyed check would store the same picture
+        twice and believe it had deduped. It also means the within-a-capture and
+        across-captures halves of FR-018 need one mechanism, because by the time
+        the second copy is considered the first is already stored.
+
+        Scoped to this product. A different product holding the same bytes gets
+        its own row pointing at its own Photo; cross-product blob sharing is a
+        storage optimization nothing has asked for.
+
+        Args:
+            product_id: The product it belongs to.
+            file_data: Raw file bytes.
+            filename: Original filename.
+            content_type: MIME type; must be in SUPPORTED_TYPES.
+
+        Returns:
+            The created ProductAttachment, or None when the content is already
+            on this product.
+
+        Raises:
+            ValueError: For the cap, a refused type or size, or a missing
+                product -- the same contract upload_product_attachment has,
+                because it is the same method underneath.
+        """
+        digest = hashlib.sha256(file_data).hexdigest()
+
+        existing = self.session.query(ProductAttachment).join(
+            Photo, ProductAttachment.photo_id == Photo.id
+        ).filter(
+            ProductAttachment.product_id == product_id,
+            Photo.sha256_hash == digest,
+        ).first()
+        if existing is not None:
+            logger.info(
+                f"Product {product_id} already holds these bytes ({digest[:12]}); "
+                f"not attaching {filename} a second time"
+            )
+            return None
+
+        # Delegated rather than reimplemented, so validation, processing, the
+        # cap and the error contract cannot drift apart from the ordinary path.
+        return self.upload_product_attachment(
+            product_id, file_data, filename, content_type
+        )
+
     def upload_purchase_attachment(
         self, purchase_id: int, file_data: bytes, filename: str, content_type: str
     ) -> ProductAttachment:
@@ -647,6 +702,13 @@ class PhotoService:
                 thumbnail_data=thumbnail_data,
                 medium_data=medium_data,
                 original_data=original_data,
+                # Over the bytes as received, which is exactly what
+                # _process_photo returns unchanged as original_data. Hashing a
+                # Pillow output instead would not be stable across Pillow
+                # versions, and a dedupe key that moves under you is worse than
+                # none. Closes the note this column has carried since
+                # 8213852b0b94: "will be populated on future uploads".
+                sha256_hash=hashlib.sha256(file_data).hexdigest(),
             )
             self.session.add(photo)
             self.session.flush()

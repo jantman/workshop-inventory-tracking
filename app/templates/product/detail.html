@@ -191,25 +191,47 @@
             <div class="card-body">
                 <div id="attachment-alerts"></div>
 
-                <ul class="list-group list-group-flush mb-3" id="attachment-list">
+                {# FR-013: a grid, not a list of filenames. A captured gallery is
+                   a dozen images with opaque derived names, and a list of those
+                   is not something anyone can look through. PDFs already have
+                   rendered thumbnails from _process_pdf, so a datasheet shows
+                   its first page rather than a broken image.
+
+                   The ids and classes are kept exactly as they were --
+                   #attachment-list, .attachment-row, #no-attachments -- because
+                   product-attachments.js binds to them. #}
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2 mb-3"
+                     id="attachment-list">
                     {% for attachment in attachments %}
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center attachment-row">
-                        <a href="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}"
-                           target="_blank">
-                            <i class="bi bi-file-earmark"></i>
-                            {{ attachment.photo.filename }}
-                        </a>
-                        <button type="button" class="btn btn-sm btn-outline-danger delete-attachment-btn"
-                                data-attachment-id="{{ attachment.id }}">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </li>
+                    <div class="col attachment-row">
+                        <div class="card h-100">
+                            <a href="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}"
+                               target="_blank" title="{{ attachment.photo.filename }}">
+                                <img class="card-img-top"
+                                     style="aspect-ratio: 1 / 1; object-fit: contain;"
+                                     src="{{ url_for('main.get_photo_data',
+                                                     photo_id=attachment.photo_id) }}?size=thumbnail"
+                                     alt="{{ attachment.photo.filename }}">
+                            </a>
+                            <div class="card-body p-1 d-flex justify-content-between align-items-center">
+                                <span class="small text-truncate"
+                                      title="{{ attachment.photo.filename }}">
+                                    {{ attachment.photo.filename }}
+                                </span>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger delete-attachment-btn"
+                                        data-attachment-id="{{ attachment.id }}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     {% else %}
-                    <li class="list-group-item px-0 text-muted" id="no-attachments">
+                    <div class="col-12 text-muted" id="no-attachments">
                         Nothing attached. Datasheets, diagrams and photographs all belong here.
-                    </li>
+                    </div>
                     {% endfor %}
-                </ul>
+                </div>
 
                 <div class="input-group">
                     <input type="file" class="form-control" id="product-attachment-input"
