@@ -3,13 +3,20 @@ E2E tests for order-time capture.
 
 Covers the **paste-a-URL** path end to end. The bookmarklet cannot be driven
 against a real vendor page from CI -- it depends on that page's form-action
-policy -- so it is verified by hand and this covers the path that always works.
+policy and on this app being served over TLS -- so it is verified by hand and
+this covers the path that always works.
+
+Capture confirms rather than guesses. A capture with nothing ambiguous about it
+still writes on the first submit and lands on the receive screen; one that finds
+a probable repeat or an item id already naming a product comes back with the
+question and has written nothing.
 """
 
 import pytest
 from playwright.sync_api import expect
 
 AMAZON_URL = "https://www.amazon.com/dp/B0ABCDEFGH/ref=sr_1_3"
+MCMASTER_URL = "https://www.mcmaster.com/91290A115/"
 
 
 def capture(page, base_url, url=AMAZON_URL, **fields):
@@ -45,17 +52,75 @@ def test_the_vendor_and_item_id_are_read_from_the_url(page, live_server):
 
 
 @pytest.mark.e2e
-def test_capturing_the_same_listing_twice_creates_nothing_new(page, live_server):
-    """People double-click bookmarks"""
+def test_the_operator_writes_the_description_at_capture(page, live_server):
+    """US1/FR-001: the label's wording, authored while the listing is open"""
+    capture(
+        page, live_server.url,
+        listing_title="BLUE WIDGET 10 PACK BEST QUALITY FREE SHIPPING",
+        description="Blue widget, 10mm",
+    )
+
+    # The receive screen shows the operator's wording in the editable field and
+    # the vendor's in the read-only block -- both, so they can be compared.
+    expect(page.locator("#description")).to_have_value("Blue widget, 10mm")
+    expect(page.locator("#receive-listing")).to_have_text(
+        "BLUE WIDGET 10 PACK BEST QUALITY FREE SHIPPING"
+    )
+
+    page.goto(f"{live_server.url}/products")
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
+    expect(page.locator("#product-table tbody tr").first).to_contain_text("Blue widget, 10mm")
+
+
+@pytest.mark.e2e
+def test_a_blank_description_still_falls_back_to_the_listing_title(page, live_server):
+    """FR-003: the one-click case stays one click"""
+    capture(page, live_server.url, listing_title="Raw vendor wording")
+
+    expect(page.locator("#description")).to_have_value("Raw vendor wording")
+
+
+@pytest.mark.e2e
+def test_capturing_the_same_listing_twice_asks_before_filing_a_second(page, live_server):
+    """US3: people double-click bookmarks, and they also order two of a thing"""
     capture(page, live_server.url, listing_title="Blue Widget 10-Pack")
     first_url = page.url
 
+    # The second capture comes back with the questions, having written nothing.
+    # Two of them, in fact: it is a probable repeat *and* the item number now
+    # names the product the first capture created. Both are asked at once.
     capture(page, live_server.url, listing_title="Blue Widget 10-Pack")
-    assert page.url == first_url
+    expect(page.locator("#duplicate-warning")).to_be_visible()
+    expect(page.locator("#duplicate-existing-link")).to_be_visible()
+    expect(page.locator("#identifier-warning")).to_be_visible()
 
     page.goto(f"{live_server.url}/products")
-    rows = page.locator("#product-table tbody tr")
-    assert rows.count() == 1
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
+
+    # Answering both records it as a second purchase of the same product.
+    capture(page, live_server.url, listing_title="Blue Widget 10-Pack")
+    page.check("#acknowledged_duplicate_of")
+    page.check("#attach-existing")
+    page.click("#capture-btn")
+    page.wait_for_load_state("domcontentloaded")
+
+    assert page.url != first_url
+    page.goto(f"{live_server.url}/products")
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
+    page.click("#product-table tbody tr a")
+    expect(page.locator("#purchase-history tbody tr")).to_have_count(2)
+
+
+@pytest.mark.e2e
+def test_a_listing_with_no_item_number_is_recognized_by_its_address(page, live_server):
+    """FR-013: most vendors' URLs yield no identifier to be recognized by"""
+    capture(page, live_server.url, url=MCMASTER_URL, listing_title="Socket head screw")
+    capture(page, live_server.url, url=MCMASTER_URL, listing_title="Socket head screw")
+
+    expect(page.locator("#duplicate-warning")).to_be_visible()
+
+    page.goto(f"{live_server.url}/products")
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
 
 
 @pytest.mark.e2e
@@ -89,24 +154,107 @@ def test_completing_it_on_arrival(page, live_server):
 
 
 @pytest.mark.e2e
-def test_a_capture_attaches_to_a_product_that_already_owns_the_identifier(page, live_server):
-    """FR-021"""
-    page.goto(f"{live_server.url}/products/new")
-    page.fill("#description", "Blue widget, already catalogued")
-    page.select_option("#identifier_type", "VENDOR")
-    page.fill("#identifier_value", "B0ABCDEFGH")
-    page.fill("#identifier_vendor", "Amazon")
-    page.click("#save-product-btn")
+def test_the_description_is_correctable_when_the_box_arrives(page, live_server):
+    """US2/FR-023: corrected and received in one submission, without leaving"""
+    products = live_server.add_test_products([
+        {'description': 'Blue widget, guessed at'},
+    ])
+    product_id = products[0].id
+
+    # A purchase recorded by hand, not captured -- FR-025 covers both. Reached by
+    # URL rather than by clicking: the detail page's add-purchase link carries no
+    # id, and the two that do (#add-purchase-to-this-btn, #receive-outstanding-btn)
+    # only render inside the scan-match banner.
+    page.goto(f"{live_server.url}/products/{product_id}/purchases/new")
+    page.fill("#vendor", "Amazon")
+    page.click("#save-purchase-btn")
+    expect(page.locator(".purchase-outstanding")).to_be_visible()
+
+    page.click("#purchase-history a[href*='/receive']")
+    expect(page.locator("#description")).to_have_value("Blue widget, guessed at")
+
+    page.fill("#description", "Blue widget, 12mm as it turns out")
+    page.click("#confirm-receive-btn")
+
+    # One submission did both: the wording is corrected and the order is in.
+    expect(page.locator("#product-description")).to_have_text(
+        "Blue widget, 12mm as it turns out"
+    )
+    expect(page.locator(".purchase-outstanding")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_recycled_item_number_asks_before_attaching(page, live_server):
+    """US4/FR-017: the invisible failure, made visible"""
+    live_server.add_test_products([{
+        'description': 'Blue widget, already catalogued',
+        'manufacturer': 'Acme',
+        'manufacturer_part_number': 'BW-10',
+        'identifiers': [
+            {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
+        ],
+    }])
+
+    capture(page, live_server.url, listing_title="A COMPLETELY DIFFERENT THING")
+
+    expect(page.locator("#identifier-warning")).to_be_visible()
+    expect(page.locator("#identifier-warning")).to_contain_text(
+        "Blue widget, already catalogued"
+    )
+    expect(page.locator("#identifier-warning")).to_contain_text("BW-10")
+
+    # Nothing written while the question is open, and neither option preselected.
+    expect(page.locator("#attach-existing")).not_to_be_checked()
+    expect(page.locator("#attach-new")).not_to_be_checked()
+    page.goto(f"{live_server.url}/products")
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_choosing_a_separate_product_leaves_the_first_alone(page, live_server):
+    """FR-020"""
+    live_server.add_test_products([{
+        'description': 'Blue widget, already catalogued',
+        'identifiers': [
+            {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
+        ],
+    }])
+
+    capture(page, live_server.url, listing_title="A COMPLETELY DIFFERENT THING",
+            description="Green gizmo")
+    expect(page.locator("#identifier-warning")).to_be_visible()
+
+    page.check("#attach-new")
+    page.click("#capture-btn")
     page.wait_for_load_state("domcontentloaded")
 
-    capture(page, live_server.url, listing_title="BLUE WIDGET 10 PACK")
+    page.goto(f"{live_server.url}/products")
+    expect(page.locator("#product-table tbody tr")).to_have_count(2)
+    expect(page.locator("#product-table")).to_contain_text("Blue widget, already catalogued")
+    expect(page.locator("#product-table")).to_contain_text("Green gizmo")
 
-    # Attached to the existing product, and the vendor's shouting did not
-    # overwrite the operator's own wording.
-    expect(page.locator("#receive-product")).to_have_text("Blue widget, already catalogued")
+
+@pytest.mark.e2e
+def test_a_corroborated_match_attaches_without_asking(page, live_server):
+    """FR-019: both values agreeing, case and padding notwithstanding"""
+    live_server.add_test_products([{
+        'description': '12V 3A PSU',
+        'manufacturer': 'Mean Well',
+        'manufacturer_part_number': 'RS-15-12',
+        'identifiers': [
+            {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
+        ],
+    }])
+
+    capture(page, live_server.url, listing_title="MEAN WELL PSU",
+            manufacturer="mean well", manufacturer_part_number=" rs-15-12 ")
+
+    # Straight to the receive screen: no question was asked.
+    expect(page.locator("#identifier-warning")).to_have_count(0)
+    expect(page.locator("#confirm-receive-btn")).to_be_visible()
 
     page.goto(f"{live_server.url}/products")
-    assert page.locator("#product-table tbody tr").count() == 1
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
 
 
 @pytest.mark.e2e

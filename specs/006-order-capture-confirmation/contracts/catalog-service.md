@@ -48,11 +48,13 @@ Every existing parameter keeps its name, position and meaning. A caller passing 
 
 ### Order of operations
 
-1. **Validate.** `vendor` required (unchanged). `unit_price` through `_validate_price`, `quantity` through `_validate_purchase_quantity`, `order_date` through `_parse_datetime` defaulting to midnight today — all unchanged. `description`, when not `None`, through `_validate_description`, which raises `ValidationError` for blank and for over-255 (FR-006).
-2. **Detect a duplicate** via `_find_captured_purchase`.
-3. **Resolve the product** — attach, create, or ask.
-4. **Raise** `CaptureDecisionRequired` if step 2 or step 3 produced an unanswered question. Nothing has been written at this point.
+1. **Validate.** `vendor` required (unchanged). `unit_price` through `_validate_price`, `quantity` through `_validate_purchase_quantity`, `order_date` through `_parse_datetime` defaulting to midnight today — all unchanged. `description` is `_clean`ed first and passed to `_validate_description` **only when non-blank**, so blank falls back (FR-003) while over-255 is refused (FR-006).
+2. **Detect a duplicate** via `_find_captured_purchase`, recording whether the question is open.
+3. **Resolve the product** — attach, create, or record that the question is open.
+4. **Raise once** if either question is open, with a single `CaptureAssessment` carrying whichever halves apply. Nothing has been written at this point.
 5. **Write**: create or update the product, then `record_purchase(..., listing_url=url)`.
+
+**Both questions are worked out before either is raised.** A repeat capture of a listing whose first capture created the product is *both* a probable duplicate and an uncorroborated match — and the operator should be asked once and answer once, not walk two round trips. Steps 2 and 3 therefore set flags rather than raising, and step 4 builds one assessment from whichever are set. `has_duplicate` and `has_uncorroborated_match` are independent, and the template renders a panel per open question.
 
 ### `acknowledged_duplicate_of`
 
@@ -97,7 +99,9 @@ Both values required, both compared case-insensitively after trimming, both in P
 | present | `None` | yes | yes | Attach silently (FR-019). |
 | present | `None` | yes | no | **Raise** (FR-017, FR-018). |
 | any | `'new'` | — | — | Create; the matched product, its identifiers and its history are untouched (FR-020). |
-| any | `int` | — | — | Attach to it, or create if it has vanished. |
+| any | `int` | — | — | Attach to it, or create if it has vanished. Naming a product other than the detected match is stale and re-asks. |
+
+The new product carries the `VENDOR` identifier **only when no product already holds it** — a vendor item id names at most one product per vendor, so a deliberately separate product cannot claim one the matched product owns. The purchase still records it as its own `vendor_item_id`, which is where the fact belongs anyway.
 
 When a product is created, its `description` is the operator's, falling back to the listing title, falling back to the existing `f"{vendor} item {item_id or 'without an identifier'}"` string (FR-003). It carries `manufacturer` and `manufacturer_part_number` when supplied, and the `VENDOR` identifier when there is an item id — all as today.
 

@@ -1016,6 +1016,13 @@ class Purchase(Base):
     # The raw vendor title captured at order time (FR-020), deliberately
     # distinct from the operator's own products.description.
     listing_title = Column(String(500), nullable=True)
+    # The listing's address, as the bookmarklet or the operator supplied it.
+    # Its own column rather than a line in notes, because the duplicate check
+    # falls back to it when the URL yields no item id -- and notes is a field the
+    # receive screen invites the operator to overwrite. Not indexed: the lookup
+    # narrows to one vendor and one day first, and at 1000 x utf8mb4 the column
+    # is past InnoDB's 3072-byte key limit anyway.
+    listing_url = Column(String(1000), nullable=True)
 
     order_date = Column(DateTime, nullable=True)
     # NULL means outstanding (FR-005). Indexed: the reorder view filters on it.
@@ -1064,6 +1071,7 @@ class Purchase(Base):
             'vendor': self.vendor,
             'vendor_item_id': self.vendor_item_id,
             'listing_title': self.listing_title,
+            'listing_url': self.listing_url,
             'order_date': self.order_date.isoformat() if self.order_date else None,
             'received_date': self.received_date.isoformat() if self.received_date else None,
             'is_outstanding': self.is_outstanding,

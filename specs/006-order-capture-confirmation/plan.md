@@ -52,9 +52,19 @@ Deliberately **not** built: a drafts table or any server-side session storage (a
 | **VI. Item Lifecycle and History Invariants** | `inventory_items` is neither read nor written. No add, move, shorten, edit, or search path for inventory items is touched. **N/A** |
 | **Operating Context / Threat Model** | The exemption count stays at one, so the assertion at `tests/unit/test_product_csrf.py` that counts `@csrf.exempt` still passes. The exemption also gets *narrower*: the form representation of `/api/capture` — the one that arrives from a vendor's origin — now renders a page and writes nothing. No sanitization layer, no new validation-as-defense. Descriptions render through Jinja autoescaping as they already do. **PASS** |
 | **Technology Constraints** | Server-rendered Jinja + Bootstrap, no frontend framework, no build step, no new dependency. New code carries type hints and raises the project's own exceptions. SQLAlchemy stays on the legacy `Query` API to match the surrounding file. **PASS** |
-| **Development Workflow** | Feature branch `issues/58`, merged via PR. `app/templates/product/**` changes, so `nox -s screenshots_headless` runs — the screenshot set contains no product-catalogue page, so the expected result is *no diff*, and the run must leave the working tree clean. **PASS — with an obligation recorded in tasks** |
+| **Development Workflow** | Feature branch `issues/58`, merged via PR. `app/templates/product/**` changes, so `nox -s screenshots_headless` runs and its output is committed. **The prediction made here before the work — "the screenshot set contains no product-catalogue page, so expect no diff" — turned out to be wrong, for a reason worth recording:** regeneration is not byte-deterministic. Two consecutive runs with no change in between rewrite seven of the twelve PNGs. So the diff carries no signal about whether this feature altered any screenshotted page, and "a screenshot run leaves the working tree clean" is not a property this repository has. `nox -s screenshots_verify` passes (12 screenshots, all valid PNG, all under 500KB). **PASS — see the note below** |
 
 No violations. The Complexity Tracking table is therefore omitted.
+
+### A note on the screenshot gate, found while running it
+
+Constitution IV says a test session must leave the working tree clean, and the Development Workflow section says CI "blocks merge on stale screenshots". Neither is quite the situation on the ground, and this feature is not the place to fix it — but it should be written down rather than rediscovered.
+
+`nox -s screenshots_headless` is **not reproducible**. Running it twice in a row, with no code change between the runs, rewrites seven of the twelve PNGs (plus the timestamps in `metadata.json`). The byte differences are small — tens to hundreds of bytes on images of 60–190 KB — and are rendering noise, not content. The consequence is that "regenerate and diff" cannot tell anyone whether a UI change affected a screenshot: the diff is there either way.
+
+`.github/workflows/screenshots.yml` already behaves accordingly. It regenerates, reports whether anything differs, uploads the result as an artifact, and **does not fail the job** — the check is informational. The `e2e` session is the one that must leave the tree clean, and it does, because screenshot generation is excluded from it.
+
+So the screenshots are regenerated and committed with this change, as the workflow rule asks, and the diff they produce is not evidence of anything. Making it evidence would mean pinning the rendering enough to be reproducible, which is its own piece of work with its own justification to write.
 
 ### Why `CaptureDecisionRequired` is an exception and not a return value
 

@@ -30,10 +30,10 @@ Then, because `app/templates/product/**` changes:
 
 ```bash
 PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_headless
-git status --porcelain          # must be empty
+PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_verify
 ```
 
-The screenshot set covers inventory-item pages only — there is no capture or receive screenshot — so the expected result is **no diff**. If this produces a diff, something unrelated to this feature moved and it needs explaining before the PR.
+Commit whatever it produces. **Do not read the diff as a signal.** Regeneration is not byte-deterministic: run it twice with no change in between and seven of the twelve PNGs are rewritten anyway. The screenshot set covers inventory-item pages only and this feature touches none of them, so everything in the diff is rendering noise. `screenshots.yml` treats the check as informational for the same reason.
 
 ---
 
@@ -50,8 +50,11 @@ docker run --rm -d --name capture-migration-check \
   -p 3399:3306 mariadb:11.8
 
 export SQLALCHEMY_DATABASE_URI='mysql+pymysql://root:throwaway@127.0.0.1:3399/workshop'
-venv/bin/python manage.py db upgrade b1a0c0d10007     # get to the parent revision
+venv/bin/python manage.py db upgrade                  # this CLI's upgrade always goes to head
+venv/bin/python manage.py db downgrade b1a0c0d10007   # step back to the parent to seed
 ```
+
+**`db upgrade` takes no target in this project.** `manage.py` is a custom Click CLI over Alembic, not Flask-Migrate: its `upgrade` is hard-wired to `head` and rejects an argument (`Error: Got unexpected extra argument`). Only `downgrade` takes a revision. So the way to sit at a chosen revision is to go to head and walk back.
 
 ### Seed rows worth losing
 
@@ -61,10 +64,10 @@ At revision `b1a0c0d10007`, insert purchases covering the cases a careless backf
 |---|---|---|
 | A | `https://www.amazon.com/dp/B0ABCDEFGH/ref=sr_1_3` — a bare captured URL | `listing_url` set to that URL; `notes` **unchanged**, still holding it |
 | B | `Arrived dented, vendor sent a replacement` — operator prose | `listing_url` NULL; notes untouched |
-| C | `https://example.com/thing — arrived dented` — a URL *and* prose | `listing_url` NULL (`LIKE 'http%'` matches, so decide deliberately: the backfill copies the **whole** notes value, which is wrong here). **Verify what your implementation does with this row and make the revision match the table.** |
+| C | `https://example.com/thing -- arrived dented` — a URL *and* prose | `listing_url` NULL — skipped |
 | D | `NULL` | `listing_url` NULL |
 
-Row C is the one to think about. The backfill as specified copies the whole notes value, so C would get a `listing_url` with prose glued to it. Either tighten the predicate so C is skipped, or accept it and say so in the revision's docstring — but do not discover it in production.
+Row C is the one that had to be decided rather than discovered. `LIKE 'http%'` alone matches it, and the backfill copies the *whole* notes value, so C would have got a `listing_url` with prose glued on. **The predicate is therefore `LIKE 'http%' AND NOT LIKE '% %'`**: capture wrote a bare URL and nothing else, so anything containing a space is prose that happens to start with a URL. The cost is that C never participates in duplicate detection, which only ever costs a warning that is not shown.
 
 ### Up, down, up
 
@@ -74,7 +77,7 @@ venv/bin/python manage.py db downgrade b1a0c0d10007   # exercise the downgrade
 venv/bin/python manage.py db upgrade                  # and come back
 ```
 
-Name the previous revision explicitly. `db downgrade -1` is the form you will reach for and it does not work here — this Flask-Migrate CLI parses `-1` as an option and exits with `Error: No such option '-1'` before Alembic sees it.
+Name the previous revision explicitly. `db downgrade -1` is the form you will reach for and it does not work here — the CLI parses `-1` as an option and exits before Alembic sees it.
 
 ### Check, do not trust the exit code
 

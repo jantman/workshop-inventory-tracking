@@ -140,6 +140,27 @@ class TemporaryError(WorkshopInventoryError):
             "type": "temporary_error"
         }
 
+class CaptureDecisionRequired(WorkshopInventoryError):
+    """Raised when an order capture found something only the operator can settle.
+
+    Carries the assessment so the caller can render the question. **Nothing was
+    written**: capture does its detection before it opens a write, so a caller
+    that handles this exception is looking at a database it has not touched.
+
+    This is a step in a flow, not a failure, which is why it is deliberately not
+    registered in app/error_handlers.py. There is no handler for
+    WorkshopInventoryError either, so an unhandled one reaches the 500 page --
+    the intended signal that a caller reached a question and did not answer it.
+    """
+
+    def __init__(self, message: str, assessment=None):
+        super().__init__(message, code="CAPTURE_DECISION_REQUIRED")
+        self.assessment = assessment
+        self.details = {
+            "assessment": assessment.to_dict() if assessment is not None else None,
+            "type": "capture_decision_required"
+        }
+
 class DataIntegrityError(WorkshopInventoryError):
     """Raised when data integrity checks fail"""
     

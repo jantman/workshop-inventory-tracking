@@ -86,7 +86,7 @@ class CaptureAssessment:
     def has_uncorroborated_match(self) -> bool: ...
 ```
 
-**Why plain values and not the ORM rows.** `CatalogService` methods do their work inside `with self._session():` and the session closes on the way out. Handing a live `Product` or `Purchase` to a Jinja template invites a lazy load after close. Copying the four strings and two ids the warning panels actually render is cheaper than arranging eager loading for a display-only object, and it makes the assessment safe to serialize for the JSON representation of `/api/capture` without a second shaping step.
+**Why plain values and not the ORM rows.** Not because scalars would break — `CatalogService` sets `expire_on_commit=False` precisely so a returned object stays readable after its session closes. The hazard is narrower and worth naming exactly: a **relationship** that was not eagerly loaded raises on first touch, and a display-only object handed to a template has no business carrying that hazard. Copying the four strings and two ids the warning panels actually render also makes the assessment serializable for the JSON representation of `/api/capture` with no second shaping step.
 
 **Both flags can be true at once.** A capture can be both a probable repeat *and* land on a recycled identifier; the template renders two panels and the service requires both decisions before writing. Nothing about the two questions is exclusive.
 
