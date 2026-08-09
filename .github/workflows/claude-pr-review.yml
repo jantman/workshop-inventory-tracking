@@ -45,16 +45,26 @@ jobs:
             If Claude has commented before, scope this review to the commits pushed
             since Claude's most recent review comment rather than the whole PR diff,
             and do not re-raise an issue that a previous comment already covers.
+
+            This is a non-interactive CI run. Nothing will resume the session once
+            you produce a final message, so do not launch background or async agents
+            and do not schedule a wakeup — run subagents synchronously and wait for
+            each result. The review must be posted before you finish the turn.
           # Without these the log shows only "init" and "result" — 2+ minutes of
           # invisible work and a bare permission_denials_count when it goes wrong.
           display_report: true
           show_full_output: true
+          # `Skill` is load-bearing: /code-review:code-review IS a skill, so leaving
+          # it off denies the review itself and the run silently improvises the
+          # plugin's steps by hand. That fallback backgrounds an agent and ends the
+          # turn, which is why runs went green having posted nothing.
+          #
           # An enumerated command allowlist starves the review: the plugin fans out
           # ~10 subagents that inherit it, and each reach for sed/awk/jq/diff, none of
           # which were listed. The job is contents:read on a single-user repo with no
           # forks, so allow Bash outright rather than chase the list.
           claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Task,TodoWrite,Bash"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Task,Skill,TodoWrite,Bash"
 
       # The action writes its transcript under the runner temp dir and throws it
       # away with the runner. Without this there is no way to find out why a run
