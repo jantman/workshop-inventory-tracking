@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<!--
+  A hand-written stand-in for an Amazon listing, not a saved copy of one.
+
+  It carries only the structures issue #57 found across the six sampled ASINs,
+  which is what the extractor reads:
+
+  * an inline gallery data block naming SIX images where the thumbnail strip
+    shows THREE -- the finding that ruled out reading the gallery from the DOM;
+  * every address in that block carrying a transform token, so stripping it is
+    exercised rather than assumed (FR-004);
+  * a `.a-price .a-offscreen` price and a byline brand;
+  * the *plain* description form (`#productDescription`). The rich form lives in
+    amazon_listing_aplus.html -- no listing carries both;
+  * four product-information containers in three different markups, because the
+    extractor has to merge across all of them (FR-009).
+
+  `__IMAGE_HOST__` is replaced by the test with the address of the local image
+  server, so the application performs a genuine HTTP fetch of genuine bytes.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Acme 12V 3A Power Supply Adapter, 5.5x2.1mm Barrel Plug</title>
+</head>
+<body>
+
+<div id="titleSection">
+    <h1 id="title"><span id="productTitle">Acme 12V 3A Power Supply Adapter</span></h1>
+    <a id="bylineInfo" class="a-link-normal" href="/stores/AcmeComponents">Visit the Acme Components Store</a>
+</div>
+
+<div id="corePrice_feature_div">
+    <span class="a-price" data-a-color="base">
+        <span class="a-offscreen">$24.99</span>
+        <span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">24</span><span class="a-price-fraction">99</span></span>
+    </span>
+</div>
+
+<!-- The thumbnail strip: three of the six. Reading the gallery from here is
+     precisely the mistake this fixture exists to catch. -->
+<div id="altImages">
+    <ul class="a-unordered-list a-nostyle a-button-list">
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/steel_rod_sample._AC_US40_.jpg" alt=""></li>
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/steel_plate_sample._AC_US40_.jpg" alt=""></li>
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg" alt=""></li>
+    </ul>
+</div>
+
+<script type="text/javascript">
+// Guarded: the agent reads this block's *text*, never its effect, and an
+// unguarded P.when() throws a page error that has nothing to do with the test.
+if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A){
+  var data = {
+    'colorImages': { 'initial': [
+      {"hiRes":"__IMAGE_HOST__/steel_rod_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/steel_rod_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/steel_rod_sample._AC_SX679_.jpg","variant":"MAIN"},
+      {"hiRes":"__IMAGE_HOST__/steel_plate_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/steel_plate_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/steel_plate_sample._AC_SX679_.jpg","variant":"PT01"},
+      {"hiRes":"__IMAGE_HOST__/brass_rod_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/brass_rod_sample._AC_SX679_.jpg","variant":"PT02"},
+      {"hiRes":"__IMAGE_HOST__/aluminum_plate_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/aluminum_plate_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/aluminum_plate_sample._AC_SX679_.jpg","variant":"PT03"},
+      {"hiRes":"__IMAGE_HOST__/aluminum_tube_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/aluminum_tube_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/aluminum_tube_sample._AC_SX679_.jpg","variant":"PT04"},
+      {"hiRes":null,"thumb":"__IMAGE_HOST__/spec_sheet_preview._AC_US40_.jpg","large":"__IMAGE_HOST__/spec_sheet_preview._AC_SX679_.jpg","variant":"PT05"}
+    ]},
+    'colorToAsin': {'initial': {}},
+    'heroImage': {'initial': []}
+  };
+  A.trigger('P.AboveTheFold');
+  return data;
+}); }
+</script>
+
+<!-- Product information, container 1 of 4: the two-column overview table. -->
+<div id="productOverview_feature_div">
+    <table class="a-normal a-spacing-micro">
+        <tr>
+            <td class="a-span3"><span class="a-size-base a-text-bold">Brand</span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">Acme Components</span></td>
+        </tr>
+        <tr>
+            <td class="a-span3"><span class="a-size-base a-text-bold">Material</span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">6061 Aluminium</span></td>
+        </tr>
+    </table>
+</div>
+
+<!-- Container 2 of 4: poExpander, the same shape one level down. -->
+<div id="poExpander">
+    <table class="a-normal a-spacing-micro">
+        <tr>
+            <td class="a-span3"><span class="a-size-base a-text-bold">Connector Type</span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">Barrel 5.5x2.1mm</span></td>
+        </tr>
+        <tr>
+            <!-- Same name as the overview table gives, differing only in case
+                 and surrounding space: the agent folds these to one (FR-009). -->
+            <td class="a-span3"><span class="a-size-base a-text-bold">  material </span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">Steel</span></td>
+        </tr>
+    </table>
+</div>
+
+<!-- Container 3 of 4: the technical-specification table, th/td rather than td/td. -->
+<div id="prodDetails">
+    <table id="productDetails_techSpec_section_1" class="prodDetTable">
+        <tr>
+            <th class="prodDetSectionEntry">Item Length</th>
+            <td class="prodDetAttrValue">300 Millimeters</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Voltage</th>
+            <td class="prodDetAttrValue">12 Volts</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Wattage</th>
+            <td class="prodDetAttrValue">36 Watts</td>
+        </tr>
+    </table>
+</div>
+
+<!-- Container 4 of 4: detail bullets. Bookkeeping rows live here, and they are
+     captured like everything else -- FR-008 forbids filtering by name. -->
+<div id="detailBullets_feature_div">
+    <ul class="a-unordered-list a-nostyle a-vertical a-spacing-none detail-bullet-list">
+        <li><span class="a-list-item">
+            <span class="a-text-bold">Date First Available &rlm; : &lrm;</span>
+            <span>March 14, 2023</span>
+        </span></li>
+        <li><span class="a-list-item">
+            <span class="a-text-bold">Best Sellers Rank:</span>
+            <span>#4,812 in Tools &amp; Home Improvement</span>
+        </span></li>
+        <li><span class="a-list-item">
+            <span class="a-text-bold">Customer Reviews:</span>
+            <span>4.5 out of 5 stars</span>
+        </span></li>
+    </ul>
+</div>
+
+<!-- The plain description form. This listing has no A+ block, and that is the
+     normal case for three of the six sampled (FR-005). -->
+<div id="productDescription">
+    <h3>Product Description</h3>
+    <p>
+        This power supply provides a regulated 12 volts at up to 3 amps through a
+        5.5x2.1mm centre-positive barrel plug. Short-circuit and over-current
+        protected, with a 1.5 metre lead.
+    </p>
+</div>
+
+</body>
+</html>

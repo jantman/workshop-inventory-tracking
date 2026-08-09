@@ -17,7 +17,10 @@ from app.catalog_service import CatalogService
 from app.exceptions import (
     CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
 )
+from app.models import ListingCapture
+from app.photo_service import PhotoService
 from app.product import bp
+from app.services.listing_images import store_listing_images
 
 
 def _get_storage_backend():
@@ -343,6 +346,12 @@ def product_capture():
     this form pre-filled and the operator submits it from here. The route detects
     nothing of its own -- it forwards the form and renders whatever the service
     hands back, including the questions it declines to answer.
+
+    It is also where the extracted listing stops being a string. ``listing`` is
+    parsed here rather than at ``/api/capture`` because this is the first point
+    at which anything is written, and a payload it cannot read is not an error:
+    ``from_json`` returns None and every line below behaves exactly as it did
+    before this feature existed (FR-007).
     """
     service = _get_catalog_service()
 
@@ -350,6 +359,26 @@ def product_capture():
         url = request.form.get('url', '').strip()
         vendor = request.form.get('vendor', '') or _vendor_from_url(url)
         vendor_item_id = request.form.get('vendor_item_id', '') or _asin_from_url(url)
+        listing = ListingCapture.from_json(request.form.get('listing'))
+
+        # The listing fills the blanks and never overwrites: the operator was
+        # looking at the thing, and a value they typed wins over one a selector
+        # found (US1 scenario 3).
+        #
+        # **Absent, not merely empty.** The confirmation form always submits both
+        # of these -- pre-filled from the same payload -- so a field that arrives
+        # empty is one the operator *cleared*, and clearing is a change like any
+        # other. Falling back on empty would quietly put the extracted value back
+        # and there would be no way to say "the listing is wrong about this".
+        # Falling back on absent still covers a POST that carries the payload and
+        # nothing else.
+        manufacturer = request.form.get('manufacturer')
+        unit_price = request.form.get('unit_price')
+        if listing is not None:
+            if manufacturer is None:
+                manufacturer = listing.brand
+            if unit_price is None:
+                unit_price = listing.price
 
         try:
             purchase = service.capture_order(
@@ -357,14 +386,15 @@ def product_capture():
                 vendor_item_id=vendor_item_id,
                 listing_title=request.form.get('listing_title'),
                 url=url,
-                unit_price=request.form.get('unit_price'),
+                unit_price=unit_price,
                 quantity=request.form.get('quantity'),
                 order_date=request.form.get('order_date'),
                 description=request.form.get('description'),
-                manufacturer=request.form.get('manufacturer'),
+                manufacturer=manufacturer,
                 manufacturer_part_number=request.form.get('manufacturer_part_number'),
                 acknowledged_duplicate_of=request.form.get('acknowledged_duplicate_of'),
                 attach_to=request.form.get('attach_to'),
+                listing=listing,
             )
         except CaptureDecisionRequired as e:
             # Not an error page: a step in the flow. Nothing was written, and the
@@ -373,6 +403,7 @@ def product_capture():
                 'product/capture.html',
                 title='Capture an Order',
                 form_data=request.form,
+                listing=listing,
                 assessment=e.assessment,
                 bookmarklet=_capture_bookmarklet(),
             )
@@ -382,44 +413,98 @@ def product_capture():
                 'product/capture.html',
                 title='Capture an Order',
                 form_data=request.form,
+                listing=listing,
                 bookmarklet=_capture_bookmarklet(),
             )
 
         flash('Captured. Confirm the details when it arrives.', 'success')
+
+        # After capture_order returns, and before the redirect. The ordering is
+        # the contract: the operator lands on a finished capture rather than on
+        # one still filling in behind them. It is also what makes this POST take
+        # eight to fifteen seconds for a full gallery, which is expected rather
+        # than a defect -- see research.md, "Why image retrieval is synchronous".
+        if listing is not None and listing.images:
+            images = store_listing_images(
+                purchase.product_id,
+                listing.images,
+                _get_storage_backend(),
+                vendor_item_id=vendor_item_id,
+            )
+            flash(_image_tally(images), 'success' if images.stored else 'warning')
+
         return redirect(url_for('product.purchase_receive', purchase_id=purchase.id))
 
     return render_template(
         'product/capture.html',
         title='Capture an Order',
         form_data=request.args,
+        listing=ListingCapture.from_json(request.args.get('listing')),
         bookmarklet=_capture_bookmarklet(),
     )
+
+
+def _image_tally(images) -> str:
+    """Say what landed and what did not (FR-020, FR-021, FR-022).
+
+    Everything that did not land is named. A capture that quietly stored nine of
+    fourteen images is the failure the operator cannot see and cannot reproduce
+    later, because by then the listing is gone.
+    """
+    parts = [f"Stored {images.stored} image{'' if images.stored == 1 else 's'}"]
+    if images.failed:
+        parts.append(f"{images.failed} could not be retrieved")
+    if images.skipped:
+        parts.append(f"{images.skipped} skipped as an unsupported type or too large")
+    if images.duplicates:
+        # "already stored" rather than "already on this product": a duplicate is
+        # equally a second copy of something an earlier capture stored and a
+        # second copy of something stored a moment ago in this one, and the
+        # operator's next action is the same either way.
+        parts.append(f"{images.duplicates} skipped as already stored")
+    if images.cap_reached:
+        parts.append(
+            f"stopped at the limit of {PhotoService.MAX_ATTACHMENTS_PER_PRODUCT} "
+            f"attachments"
+        )
+    return '; '.join(parts) + '.'
 
 
 def _capture_bookmarklet() -> str:
     """Build the capture bookmarklet, bound to this server's own address.
 
-    Reads ``location.href`` and ``document.title`` and nothing else. It submits
-    a **form into a new tab** rather than issuing a fetch: the vendor page is
-    HTTPS and this app is plain HTTP on the LAN, so a fetch is refused as mixed
-    content before CSRF, CORS or the page's CSP are ever consulted, whereas a
-    form submission is a navigation and is exempt from that rule.
+    **It is a loader and nothing else.** It appends
+    ``app/static/js/capture-agent.js`` to the vendor's page with the endpoint on
+    a data attribute, and the agent does the reading and the submitting. What
+    used to be four lines of extraction inline in a ``javascript:`` URL is now an
+    ordinary reviewable file in this repository.
+
+    ``?v=' + Date.now()`` is what makes FR-024 true: the browser never serves a
+    cached agent, so editing that file is the whole deployment story and the
+    operator never re-drags this bookmarklet. It costs one uncached ~10 KB fetch
+    per capture, which is not worth a version-stamping mechanism.
+
+    Both addresses are absolute and are fixed when *this* page renders, which is
+    why the TLS caveat below is about where you drag it from.
+
+    The agent still submits a **form into a new tab** rather than issuing a
+    fetch: the vendor page is HTTPS and this app is plain HTTP on the LAN, so a
+    fetch is refused as mixed content before CSRF, CORS or the page's CSP are
+    ever consulted, whereas a form submission is a navigation and is exempt from
+    that rule.
 
     The new tab lands on this app's own confirmation page, which is also where
-    the operator amends anything the URL did not yield.
+    the operator amends anything the listing did not yield.
     """
     endpoint = url_for('product.api_capture', _external=True)
+    agent = url_for('static', filename='js/capture-agent.js', _external=True)
 
     script = (
         "javascript:(function(){"
-        "var f=document.createElement('form');"
-        f"f.method='POST';f.action='{endpoint}';f.target='_blank';"
-        "var add=function(n,v){"
-        "var i=document.createElement('input');"
-        "i.type='hidden';i.name=n;i.value=v;f.appendChild(i);};"
-        "add('url',location.href);"
-        "add('listing_title',document.title);"
-        "document.body.appendChild(f);f.submit();f.remove();"
+        "var s=document.createElement('script');"
+        f"s.src='{agent}?v='+Date.now();"
+        f"s.dataset.endpoint='{endpoint}';"
+        "document.body.appendChild(s);"
         "})();"
     )
     return script
@@ -495,7 +580,16 @@ def api_capture():
                 'vendor': vendor,
                 'vendor_item_id': vendor_item_id,
                 'listing_title': data.get('listing_title') or '',
+                # Forwarded verbatim, deliberately not parsed *into form_data*.
+                # Nothing is written by this representation, so there is nothing
+                # yet to validate; the string that goes back out on the hidden
+                # field has to be byte-identical to the one that arrived.
+                'listing': data.get('listing') or '',
             },
+            # Parsed separately, and only for rendering: the form fields fall
+            # back to it (US1 scenarios 1 and 2) and the "what will be written"
+            # panel is built from it (FR-017). Reading it is not writing it.
+            listing=ListingCapture.from_json(data.get('listing')),
             from_bookmarklet=True,
             bookmarklet=_capture_bookmarklet(),
         )

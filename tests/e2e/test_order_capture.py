@@ -276,15 +276,26 @@ def test_the_bookmarklet_says_so_when_it_cannot_work(page, live_server):
 
 @pytest.mark.e2e
 def test_the_bookmarklet_is_offered_and_points_at_this_server(page, live_server):
-    """It is a convenience layered on the paste path, not a replacement for it"""
+    """It is a loader now, and what it loads has to come from *this* server.
+
+    This test used to assert `location.href`, `document.title` and
+    `createElement('form')`, because the bookmarklet was the extractor. All three
+    are false of a loader, and none of them were deleted: the extraction and the
+    form submission moved into capture-agent.js and are asserted there, in
+    test_product_page_capture.py. What is left here is what the *bookmarklet*
+    still has to get right, which is every part of it that cannot be fixed
+    without the operator dragging it again.
+    """
     page.goto(f"{live_server.url}/products/capture")
+    expect(page.locator("#capture-bookmarklet")).to_be_visible()
 
     href = page.locator("#capture-bookmarklet").get_attribute("href")
     assert href.startswith("javascript:")
-    assert "/api/capture" in href
-    # Reads the URL and the title, and nothing else.
-    assert "location.href" in href
-    assert "document.title" in href
-    # A form submission, not a fetch -- mixed content would block the latter.
-    assert "createElement('form')" in href
+    # Both addresses are baked in at render time and must be this server's.
+    assert f"{live_server.url}/static/js/capture-agent.js" in href
+    assert f"{live_server.url}/api/capture" in href
+    # FR-024: cache-busted, so editing the agent takes effect without a re-drag.
+    assert "Date.now()" in href
+    # Still not a fetch -- mixed content would block one before CORS or CSP got
+    # a say, which is the whole reason the agent submits a form.
     assert "fetch(" not in href

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<!--
+  The other description form: an A+ ("aplus") block instead of the plain
+  paragraph. Issue #57 found three of the six sampled listings this way and
+  three the other, never both -- which is why this is a second fixture rather
+  than a second section of the first one (FR-005).
+
+  The aplus block is also where FR-019's size filter earns its keep. Six images
+  sit in it and only two are content:
+
+    | image                | dimensions | kept |
+    |----------------------|------------|------|
+    | spacer               | 1 x 1      | no   |
+    | horizontal rule      | 970 x 20   | no   |
+    | bullet glyph         | 16 x 16    | no   |
+    | small mark           | 150 x 150  | no   |
+    | content, by token    | 970 x 970  | yes  |
+    | content, by token    | 800 x 600  | yes  |
+
+  The four rejects declare their size in width/height attributes; the two
+  content images declare it only in the address's dimension token, so both
+  routes the agent reads dimensions by are exercised. Gallery images are exempt
+  from the filter entirely and are not in this block.
+
+  `__IMAGE_HOST__` is replaced by the test with the local image server.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Acme Aluminium Extrusion 20x20 T-Slot, 300mm</title>
+</head>
+<body>
+
+<div id="titleSection">
+    <h1 id="title"><span id="productTitle">Acme Aluminium Extrusion 20x20 T-Slot</span></h1>
+    <a id="bylineInfo" class="a-link-normal" href="/stores/AcmeComponents">Brand: Acme Components</a>
+</div>
+
+<div id="corePrice_feature_div">
+    <span class="a-price" data-a-color="base">
+        <span class="a-offscreen">$1,249.50</span>
+        <span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">1,249</span><span class="a-price-fraction">50</span></span>
+    </span>
+</div>
+
+<div id="altImages">
+    <ul class="a-unordered-list a-nostyle a-button-list">
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/aluminum_tube_sample._AC_US40_.jpg" alt=""></li>
+    </ul>
+</div>
+
+<script type="text/javascript">
+// Guarded: the agent reads this block's *text*, never its effect, and an
+// unguarded P.when() throws a page error that has nothing to do with the test.
+if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A){
+  var data = {
+    'colorImages': { 'initial': [
+      {"hiRes":"__IMAGE_HOST__/aluminum_tube_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/aluminum_tube_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/aluminum_tube_sample._AC_SX679_.jpg","variant":"MAIN"}
+    ]}
+  };
+  return data;
+}); }
+</script>
+
+<div id="prodDetails">
+    <table id="productDetails_techSpec_section_1" class="prodDetTable">
+        <tr>
+            <th class="prodDetSectionEntry">Material</th>
+            <td class="prodDetAttrValue">6063-T5 Aluminium</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Item Length</th>
+            <td class="prodDetAttrValue">300 Millimeters</td>
+        </tr>
+    </table>
+</div>
+
+<div id="aplus" class="aplus-v2">
+    <div class="aplus-module">
+        <img src="__IMAGE_HOST__/pixel.gif" width="1" height="1" alt="">
+        <img src="__IMAGE_HOST__/rule.png" width="970" height="20" alt="">
+        <h4>Built for the workshop</h4>
+        <p>
+            Extruded 6063-T5 aluminium with a 6mm T-slot on all four faces, cut
+            square to 300mm. Anodised clear; takes M5 T-nuts without tapping.
+        </p>
+        <ul>
+            <li><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""> 6mm slot, four faces</li>
+            <li><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""> Clear anodised finish</li>
+        </ul>
+        <img src="__IMAGE_HOST__/mark._SL150_.jpg" alt="quality mark">
+        <img src="__IMAGE_HOST__/steel_plate_sample._SL970_.jpg" alt="the extrusion in use">
+        <img src="__IMAGE_HOST__/brass_rod_sample._SR800,600_.jpg" alt="slot cross-section">
+    </div>
+</div>
+
+</body>
+</html>

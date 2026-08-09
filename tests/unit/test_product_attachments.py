@@ -10,6 +10,7 @@ service refusing to create a bad row, and the database-level rejection is
 asserted separately below and again by the migration round-trip against MariaDB.
 """
 
+import hashlib
 import io
 
 import pytest
@@ -251,3 +252,147 @@ class TestTheOrphanSweepLeavesAttachmentsAlone:
         photos.cleanup_orphaned_photos()
 
         assert photos.get_photo_data(orphan_id, 'original') is None
+
+
+class TestContentHashing:
+    """`photos.sha256_hash` has existed, indexed and unwritten, since 8213852b0b94.
+
+    Its own backfill wrote ``sha256_hash=None,  # Will be populated on future
+    uploads``. This is that later, and FR-018's content dedupe is that promise
+    being kept rather than a schema change.
+    """
+
+    def test_an_attachment_now_carries_a_hash(self, photos, product):
+        attachment = photos.upload_product_attachment(
+            product.id, png_bytes(), 'datasheet.png', 'image/png'
+        )
+
+        assert attachment.photo.sha256_hash == hashlib.sha256(png_bytes()).hexdigest()
+
+    def test_the_hash_is_over_the_bytes_as_received(self, photos, product):
+        """Not over a Pillow output, which is not stable across Pillow versions"""
+        data = png_bytes(size=(64, 48))
+        attachment = photos.upload_product_attachment(
+            product.id, data, 'a.png', 'image/png'
+        )
+
+        stored, _ = photos.get_photo_data(attachment.photo_id, 'original')
+        assert attachment.photo.sha256_hash == hashlib.sha256(stored).hexdigest()
+
+    def test_a_purchase_attachment_is_hashed_too(self, photos, purchase):
+        """One method underneath, so every attachment path benefits"""
+        attachment = photos.upload_purchase_attachment(
+            purchase.id, png_bytes(), 'receipt.png', 'image/png'
+        )
+
+        assert attachment.photo.sha256_hash is not None
+
+    def test_an_item_photo_is_deliberately_not_hashed(self, photos):
+        """Nothing deduplicates item photos, and no requirement asks for one.
+
+        upload_photo keeps its ``sha256_hash=None``. Asserted rather than
+        assumed, because "we did not change the other path" is exactly the kind
+        of claim that quietly stops being true.
+        """
+        from app.database import InventoryItem
+
+        photos.session.add(InventoryItem(
+            ja_id='JA000111', item_type='Bar', shape='Round',
+            material='Steel', location='Shelf 1', active=True,
+        ))
+        photos.session.commit()
+
+        association = photos.upload_photo(
+            'JA000111', png_bytes(), 'photo.png', 'image/png'
+        )
+        assert association.photo.sha256_hash is None
+
+
+class TestAttachingOnlyWhatIsNew:
+    def test_the_first_upload_attaches(self, photos, product):
+        attachment = photos.upload_product_attachment_if_new(
+            product.id, png_bytes(), 'a.png', 'image/png'
+        )
+
+        assert attachment is not None
+        assert len(photos.get_product_attachments(product.id)) == 1
+
+    def test_the_same_bytes_a_second_time_return_none(self, photos, product):
+        photos.upload_product_attachment_if_new(
+            product.id, png_bytes(), 'a.png', 'image/png'
+        )
+        again = photos.upload_product_attachment_if_new(
+            product.id, png_bytes(), 'a-under-another-name.png', 'image/png'
+        )
+
+        assert again is None
+        assert len(photos.get_product_attachments(product.id)) == 1
+
+    def test_different_bytes_still_attach(self, photos, product):
+        photos.upload_product_attachment_if_new(
+            product.id, png_bytes(size=(40, 30)), 'a.png', 'image/png'
+        )
+        other = photos.upload_product_attachment_if_new(
+            product.id, png_bytes(size=(41, 30)), 'b.png', 'image/png'
+        )
+
+        assert other is not None
+        assert len(photos.get_product_attachments(product.id)) == 2
+
+    def test_the_same_bytes_on_a_different_product_do_attach(self, photos, service, product):
+        """Scoped to the product; cross-product blob sharing is an optimization
+        nothing has asked for."""
+        other_product = service.create_product(description='A different thing')
+
+        photos.upload_product_attachment_if_new(
+            product.id, png_bytes(), 'a.png', 'image/png'
+        )
+        elsewhere = photos.upload_product_attachment_if_new(
+            other_product.id, png_bytes(), 'a.png', 'image/png'
+        )
+
+        assert elsewhere is not None
+        assert len(photos.get_product_attachments(other_product.id)) == 1
+
+    def test_a_pre_existing_null_hashed_photo_never_claims_to_be_a_duplicate(
+        self, photos, product
+    ):
+        """Rows that predate this change keep a null hash, and null never matches.
+
+        The consequence is stated rather than papered over with a backfill: a
+        captured image can be stored alongside a hand-uploaded copy of itself
+        that predates the feature. The operator deletes one.
+        """
+        seeded = photos.upload_product_attachment(
+            product.id, png_bytes(), 'old.png', 'image/png'
+        )
+        seeded.photo.sha256_hash = None
+        photos.session.commit()
+
+        attachment = photos.upload_product_attachment_if_new(
+            product.id, png_bytes(), 'captured.png', 'image/png'
+        )
+
+        assert attachment is not None
+        assert len(photos.get_product_attachments(product.id)) == 2
+
+    def test_it_shares_the_cap_rather_than_reimplementing_it(self, photos, product):
+        for index in range(PhotoService.MAX_ATTACHMENTS_PER_PRODUCT):
+            photos.upload_product_attachment(
+                product.id, png_bytes(size=(40 + index, 30)), f'{index}.png', 'image/png'
+            )
+
+        with pytest.raises(ValueError) as excinfo:
+            photos.upload_product_attachment_if_new(
+                product.id, png_bytes(size=(500, 30)), 'one-too-many.png', 'image/png'
+            )
+        assert 'attachments allowed' in str(excinfo.value)
+
+
+class TestTheRaisedCap:
+    def test_a_product_may_hold_a_hundred_attachments(self, photos, product):
+        """FR-012: one listing capture can contribute more than a dozen"""
+        assert PhotoService.MAX_ATTACHMENTS_PER_PRODUCT == 100
+
+    def test_an_inventory_items_photo_limit_is_unchanged(self):
+        assert PhotoService.MAX_PHOTOS_PER_ITEM == 10

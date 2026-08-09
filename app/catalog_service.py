@@ -38,6 +38,7 @@ from .mariadb_storage import MariaDBStorage
 from .models import (
     CaptureAssessment,
     IdentifierType,
+    ListingCapture,
     ScanClassification,
     ScanKind,
     ScanResolution,
@@ -617,6 +618,92 @@ class CatalogService:
         logger.info(f"Updated product {product_id}")
         return self.get_product(product_id)
 
+    def merge_specifications(
+        self, product_id: int, entries: List[Dict[str, str]]
+    ) -> int:
+        """Add captured specification rows without disturbing what is there.
+
+        The counterpart to ``update_product``'s replace-on-write, and not a
+        variant of it: the form posts a complete set, a capture posts an
+        incomplete one. A capture landing on an existing product and *replacing*
+        its specifications would delete every row the operator had typed, which
+        FR-011 forbids in as many words.
+
+        The rule, and the whole of it:
+
+        * A captured name the product already carries is dropped whole, value
+          included (FR-010). The operator looked at the thing; a selector did
+          not.
+        * Survivors are appended after the highest existing ``display_order``,
+          so no existing row moves.
+        * **Nothing is ever removed.** That is a property of this method rather
+          than of its callers, which is the point of it being a method.
+
+        Validation runs **row by row rather than as a batch**, so one over-long
+        name costs one row and not the other twenty-four (FR-008 scenario 8). A
+        capture is all-or-nothing about nothing.
+
+        Args:
+            product_id: The product to add to.
+            entries: ``{'name', 'value'}`` dicts, as the agent found them.
+
+        Returns:
+            The number of rows added. ``0`` is an ordinary outcome -- recapturing
+            an unchanged listing adds nothing the second time -- and not a
+            failure.
+
+        Raises:
+            ItemNotFoundError: If the product does not exist.
+        """
+        with self._session() as session:
+            product = session.query(Product).options(
+                selectinload(Product.specifications)
+            ).filter(Product.id == product_id).first()
+            if product is None:
+                raise ItemNotFoundError(
+                    f"Product {product_id} not found", item_id=str(product_id)
+                )
+
+            # Folded in Python, never in SQL. The deployment's collation folds
+            # accents as well as case, so a comparison pushed into SQL would
+            # call "Volt" and "Vôlt" one name on MariaDB and two under the unit
+            # suite -- a rule meaning two different things on two backends.
+            # ProductSpecification's own docstring already says
+            # _validate_specifications is the authority and compares in Python;
+            # this joins it.
+            existing = {row.name.lower() for row in product.specifications}
+            next_order = max(
+                (row.display_order for row in product.specifications), default=-1
+            ) + 1
+
+            added = 0
+            for entry in entries or []:
+                try:
+                    validated = self._validate_specifications([entry])
+                except ValidationError as e:
+                    logger.info(f"Captured specification dropped: {e.message}")
+                    continue
+                if not validated:
+                    continue
+
+                name = validated[0]['name']
+                key = name.lower()
+                if key in existing:
+                    continue
+
+                existing.add(key)
+                product.specifications.append(ProductSpecification(
+                    name=name,
+                    value=validated[0]['value'],
+                    display_order=next_order,
+                ))
+                next_order += 1
+                added += 1
+
+        if added:
+            logger.info(f"Merged {added} captured specifications into product {product_id}")
+        return added
+
     # -- Identifiers -------------------------------------------------------
 
     def add_identifier(
@@ -888,6 +975,7 @@ class CatalogService:
         manufacturer_part_number: Optional[str] = None,
         acknowledged_duplicate_of: Optional[Any] = None,
         attach_to: Optional[Any] = None,
+        listing: Optional[ListingCapture] = None,
     ) -> Purchase:
         """Capture an order while the vendor's listing is still on screen.
 
@@ -920,6 +1008,16 @@ class CatalogService:
                 shown and chose to record alongside anyway.
             attach_to: ``None`` to decide automatically, ``'new'`` to force a new
                 product, or a product id to attach to.
+            listing: What the capture agent read off the vendor's page, if
+                anything. ``None`` is exactly today's behaviour, which is what
+                keeps the paste-a-URL form and the JSON representation of
+                ``/api/capture`` working untouched. Its specification rows and
+                its description are merged onto the product **after the product
+                is resolved** -- the merge target is not known until the
+                duplicate and recycled-identifier questions have been settled,
+                so applying it any earlier would apply it to the wrong product.
+                It never fetches an image; that is the route's job, and
+                deliberately outside this transaction.
 
         Returns:
             The newly created Purchase.
@@ -1050,6 +1148,9 @@ class CatalogService:
             # evidence the recycled-identifier question depends on.
             self.update_product(product.id, description=wording)
 
+        if listing is not None:
+            self._apply_listing(product.id, listing)
+
         return self.record_purchase(
             product.id,
             vendor=vendor_name,
@@ -1060,6 +1161,28 @@ class CatalogService:
             quantity=count,
             unit_price=price,
         )
+
+    def _apply_listing(self, product_id: int, listing: ListingCapture) -> None:
+        """Write the parts of a capture that belong to the product.
+
+        The rows and the description, through one ``merge_specifications`` call
+        so that both obey the same "already present wins" rule. A product that
+        already has a ``Description`` keeps the one it has, which is the same
+        rule as everything else and is what "the operator's value wins" means
+        when the operator has not touched it.
+
+        The brand is **not** written here. It reaches ``products.manufacturer``
+        through the ``manufacturer`` parameter, which the route fills from the
+        listing when the operator left it blank -- and onto an *existing* product
+        ``capture_order`` deliberately does not write it at all, because a
+        mismatch there is the evidence the recycled-identifier question depends
+        on.
+        """
+        entries = list(listing.specifications)
+        if listing.description_text:
+            entries.append({'name': 'Description', 'value': listing.description_text})
+        if entries:
+            self.merge_specifications(product_id, entries)
 
     def _find_captured_purchase(
         self,
