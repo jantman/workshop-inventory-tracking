@@ -5,6 +5,14 @@ This module defines custom exception classes for better error handling
 and recovery throughout the application.
 """
 
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    # Type-checking only. app/models.py imports nothing but the standard
+    # library, so a real import would not be circular -- but this module is a
+    # leaf that almost everything else imports, and it is worth keeping it one.
+    from app.models import CaptureAssessment
+
 class WorkshopInventoryError(Exception):
     """Base exception class for workshop inventory application"""
     
@@ -153,7 +161,7 @@ class CaptureDecisionRequired(WorkshopInventoryError):
     the intended signal that a caller reached a question and did not answer it.
     """
 
-    def __init__(self, message: str, assessment=None):
+    def __init__(self, message: str, assessment: Optional['CaptureAssessment'] = None):
         super().__init__(message, code="CAPTURE_DECISION_REQUIRED")
         self.assessment = assessment
         self.details = {

@@ -15,6 +15,7 @@ writes nothing". The system cannot tell a double-click from a second order of th
 same thing on the same day, and the operator can.
 """
 
+import re
 from datetime import datetime
 from decimal import Decimal
 
@@ -676,6 +677,46 @@ class TestTheBookmarkletLanding:
 
         assert response.status_code == 201
         assert len(service.list_products()) == 2
+
+
+class TestTheReceiveForm:
+    """What the description field shows when a submission comes back"""
+
+    @pytest.fixture
+    def purchase(self, service):
+        product = service.create_product(description='Blue widget')
+        return service.record_purchase(product.id, vendor='Amazon')
+
+    def description_input(self, response):
+        match = re.search(r'<input[^>]*id="description"[^>]*>', response.data.decode(), re.S)
+        assert match, "the receive form has no description input"
+        return match.group(0)
+
+    def test_it_is_prefilled_from_the_product(self, client, purchase):
+        response = client.get(f'/purchases/{purchase.id}/receive')
+
+        assert response.status_code == 200
+        assert 'value="Blue widget"' in self.description_input(response)
+
+    def test_a_refused_blank_comes_back_blank(self, client, purchase):
+        """The message says a description is required; the field must agree.
+
+        Re-filling it from the product would put text next to an error
+        complaining that there is none, and would hide what was submitted.
+        """
+        response = client.post(f'/purchases/{purchase.id}/receive', data={'description': ''})
+
+        assert response.status_code == 200
+        assert 'value=""' in self.description_input(response)
+
+    def test_a_refused_over_long_description_is_not_thrown_away(self, client, purchase):
+        typed = 'x' * 300
+        response = client.post(
+            f'/purchases/{purchase.id}/receive', data={'description': typed}
+        )
+
+        assert response.status_code == 200
+        assert typed in self.description_input(response)
 
 
 class TestUrlParsing:

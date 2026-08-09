@@ -67,10 +67,13 @@
 
                     <div class="mb-3">
                         <label for="description" class="form-label">Description</label>
+                        {# On a refusal, show what was submitted -- including a blank, which is
+                           the thing the message is complaining about. Re-filling it from the
+                           product would contradict the error sitting next to it. #}
                         <input type="text" class="form-control" id="description"
                                name="description" maxlength="255"
-                               value="{{ (form_data and form_data.get('description'))
-                                         or product.description }}">
+                               value="{{ form_data.get('description', '') if form_data is not none
+                                         else product.description }}">
                         <div class="form-text">
                             What the label prints. Confirm it against the thing in your hand —
                             this is the moment the listing cannot be consulted for.
