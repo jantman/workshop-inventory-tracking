@@ -10,33 +10,13 @@ and impossible to notice from the UI afterwards:
   count, and clears a manual flag only because the receive path says so.
 """
 
-import re
+from datetime import datetime, timedelta
 
 import pytest
 from playwright.sync_api import expect
 
-
-def wait_for_stock_flag(page, status):
-    """Wait for a stock-status button click to have taken effect.
-
-    The buttons are type="button": they PATCH the API and then reload the page,
-    so nothing has happened yet at the moment the click returns. Waiting on the
-    reloaded button's own styling is the only observable proof the round trip
-    finished -- and without it the next goto() aborts the in-flight PATCH.
-    """
-    if status:
-        colour = 'btn-warning' if status == 'low' else 'btn-danger'
-        expect(page.locator(f"#flag-{status}-btn")).to_have_class(
-            re.compile(rf"\b{colour}\b")
-        )
-    else:
-        # Cleared: every status button is back to its outline variant.
-        expect(page.locator("#flag-low-btn")).to_have_class(
-            re.compile(r"\bbtn-outline-warning\b")
-        )
-        expect(page.locator("#flag-out-btn")).to_have_class(
-            re.compile(r"\bbtn-outline-danger\b")
-        )
+from app.catalog_service import CatalogService
+from tests.e2e.waits import wait_for_stock_flag
 
 
 def create_product(page, base_url, description):
@@ -235,3 +215,34 @@ def test_the_manual_flag_is_set_and_cleared_by_button(page, live_server):
     page.click("#clear-flag-btn")
     wait_for_stock_flag(page, None)
     assert reorder_rows(page, live_server.url) == []
+
+
+@pytest.mark.e2e
+def test_two_flagged_products_show_when_each_was_flagged(page, live_server):
+    """008 SC-004 -- the whole point of dating the flag.
+
+    This is the screen where the operator decides what to buy. Before feature
+    008 these two rows were indistinguishable, so a flag set this morning and
+    one set two years ago and forgotten looked like equally good evidence.
+    Seeded rather than driven: the flag buttons are covered above, and an age
+    cannot be set through them anyway.
+    """
+    service = CatalogService(live_server.storage)
+    recent = service.create_product(description='Flagged recently')
+    stale = service.create_product(description='Flagged long ago')
+    for product in (recent, stale):
+        service.set_stock_status(product.id, 'low')
+    live_server.backdate_product(
+        recent.id, stock_status_updated_at=datetime.now() - timedelta(days=9)
+    )
+    live_server.backdate_product(
+        stale.id, stock_status_updated_at=datetime.now() - timedelta(days=800)
+    )
+
+    page.goto(f"{live_server.url}/products/reorder")
+    expect(page.locator(f"tr[data-product-id='{recent.id}'] .flag-age")).to_have_text(
+        "9 days ago"
+    )
+    expect(page.locator(f"tr[data-product-id='{stale.id}'] .flag-age")).to_have_text(
+        "2 years ago"
+    )

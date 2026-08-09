@@ -45,16 +45,19 @@ above, and issue #56.
 
 ## Reordering and stock
 
-**A manual low flag has no age.** A counted quantity shows how long ago it was counted, so you can
-judge whether to trust it. A hand-set "low" or "out" flag shows nothing, so a product flagged two
-years ago looks exactly like one flagged this morning.
+**~~A manual low flag has no age.~~** *Built — feature 008.* Setting a flag records when, and both
+the product page and the reorder list show it in the same words a count's age uses — *Flagged low 3
+months ago*. Pressing the same flag again resets the age, which is the only way to renew the
+evidence on something that isn't counted; clearing the flag, or receiving an order, discards the
+date with it. Flags set before the upgrade have no recorded date and read *at an unknown time*:
+nothing was backfilled, because no other stored date is evidence that anybody looked at a shelf.
 
-**Receiving an order changes the count.** This is a difference rather than an absence, and it is the
-one place where the built behaviour actively contradicts the plan. Receiving a purchase adds the
-received quantity to a tracked count and marks the count as freshly updated. The plan was emphatic
-that receiving must never touch a count, on the grounds that a count nobody verified should not
-present itself as verified — an inaccurate number being worse than no number. Both positions are
-defensible; what isn't is showing "counted just now" when nobody counted anything.
+**~~Receiving an order changes the count.~~** *Built — feature 008.* Settled in favour of the third
+position rather than either of the two on offer. Receiving still adds the received quantity to a
+tracked count — a count that ignores a delivery is knowingly wrong from the moment the box is opened
+— but it no longer marks the count as freshly updated. The count's age now means the last time a
+person counted, so nothing claims a verification that never happened, and what the delivery changed
+is evidenced by the purchase that changed it.
 
 ## Grouping products that are the same thing
 

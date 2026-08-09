@@ -221,6 +221,33 @@ def wait_for_material_suggestions(page: Page, query: str) -> None:
     )
 
 
+def wait_for_stock_flag(page: Page, status) -> None:
+    """Wait for a stock-status button click to have taken effect.
+
+    The buttons are type="button": they PATCH the API and then reload the page,
+    so nothing has happened yet at the moment the click returns. Waiting on the
+    reloaded button's own styling is the only observable proof the round trip
+    finished -- and without it the next goto() aborts the in-flight PATCH.
+
+    Args:
+        page: The page showing the product detail view.
+        status: 'low', 'out', or None for a cleared flag.
+    """
+    if status:
+        colour = 'btn-warning' if status == 'low' else 'btn-danger'
+        expect(page.locator(f"#flag-{status}-btn")).to_have_class(
+            re.compile(rf"\b{colour}\b")
+        )
+    else:
+        # Cleared: every status button is back to its outline variant.
+        expect(page.locator("#flag-low-btn")).to_have_class(
+            re.compile(r"\bbtn-outline-warning\b")
+        )
+        expect(page.locator("#flag-out-btn")).to_have_class(
+            re.compile(r"\bbtn-outline-danger\b")
+        )
+
+
 def wait_for_select_populated(page: Page, select_id: str) -> None:
     """Wait for a select that is filled from an API call after render.
 

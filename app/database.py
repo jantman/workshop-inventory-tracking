@@ -857,6 +857,13 @@ class Product(Base):
     # The operator's manual flag (FR-025): NULL, 'low' or 'out'. Independent of
     # quantity.
     stock_status = Column(String(20), nullable=True)
+    # When the flag was last set; drives its relative age display (008 FR-001).
+    # NULL alongside a flag means the date was never recorded -- every row
+    # predating feature 008 -- and is rendered as unknown, never guessed at.
+    # Must match migration b1a0c0d10010 exactly: the unit suite builds its
+    # schema with create_all and never runs Alembic, so drift between the two
+    # passes `nox -s tests` and fails on the real database.
+    stock_status_updated_at = Column(DateTime, nullable=True)
 
     notes = Column(Text, nullable=True)
 
@@ -942,7 +949,14 @@ class Product(Base):
 
     @property
     def quantity_age(self) -> Optional[timedelta]:
-        """How long ago the quantity was counted (FR-024).
+        """How long ago an operator last counted the quantity (FR-024).
+
+        Not "how long ago the number was last written", and the difference is
+        the point of feature 008: receiving a purchase adds the received
+        quantity here and deliberately leaves this age alone (008 FR-008),
+        because arithmetic against a packing slip is not a verification. Do not
+        restore a timestamp write to ``receive_purchase`` -- it looks like a
+        missing update and it is the bug that feature removed.
 
         None when the quantity is not tracked, and also when it is tracked but
         no timestamp was recorded -- an unknown age is not an error, and the
@@ -951,6 +965,22 @@ class Product(Base):
         if self.quantity is None or self.quantity_updated_at is None:
             return None
         return datetime.now() - self.quantity_updated_at
+
+    @property
+    def stock_status_age(self) -> Optional[timedelta]:
+        """How long ago the manual flag was set (008 FR-001, FR-004).
+
+        A line-for-line mirror of ``quantity_age``, down to the double None
+        guard, on purpose: two properties answering the same question about
+        different evidence should not be two different shapes.
+
+        None when there is no flag, and also when there is one but no date was
+        recorded -- an unknown age is not an error, and the display renders it
+        as unknown rather than raising.
+        """
+        if self.stock_status is None or self.stock_status_updated_at is None:
+            return None
+        return datetime.now() - self.stock_status_updated_at
 
     @property
     def internal_code(self) -> Optional[str]:
@@ -976,6 +1006,10 @@ class Product(Base):
             'quantity_updated_at': self.quantity_updated_at.isoformat() if self.quantity_updated_at else None,
             'reorder_threshold': self.reorder_threshold,
             'stock_status': self.stock_status,
+            'stock_status_updated_at': (
+                self.stock_status_updated_at.isoformat()
+                if self.stock_status_updated_at else None
+            ),
             'notes': self.notes,
             'internal_code': self.internal_code,
             'is_tracked': self.is_tracked,

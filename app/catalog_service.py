@@ -389,6 +389,18 @@ class CatalogService:
         Independent of any count: an untracked product can be flagged low, which
         is the whole point -- the operator knows things the count does not.
 
+        Storing a flag also records **when** it was stored (008 FR-001), and
+        that happens even when the value stored equals the value already there
+        (008 FR-002): re-pressing "Low" on a product already flagged low is the
+        operator saying "I have just looked and it is still low", which is the
+        only way to renew the evidence on a product that has no count. It is
+        also what makes the re-assertion produce an UPDATE at all -- assigning
+        an identical string is no change as far as SQLAlchemy is concerned, so
+        before feature 008 that button press did nothing.
+
+        Clearing the flag discards its date with it (008 FR-003), so a later
+        flag can never inherit an older one's.
+
         Args:
             product_id: The product.
             stock_status: 'low', 'out', or None to clear the flag.
@@ -419,6 +431,9 @@ class CatalogService:
                     f"Product {product_id} not found", item_id=str(product_id)
                 )
             product.stock_status = value
+            # Written unconditionally, including when `value` equals what is
+            # already stored: 008 FR-002 makes a re-assertion a fresh look.
+            product.stock_status_updated_at = datetime.now() if value else None
 
         return self.get_product(product_id)
 
@@ -560,6 +575,11 @@ class CatalogService:
             ItemNotFoundError: If the product does not exist.
             ValidationError: If a supplied field fails validation.
         """
+        # Deliberately excludes quantity, stock_status and both of their dates.
+        # Those are written by set_quantity, set_stock_status, create_product and
+        # receive_purchase, and by nothing else -- which is the whole of why
+        # "what can reset an age" (008 SC-003) is answerable by reading four
+        # functions rather than auditing the codebase. Do not add them here.
         editable = {
             'description', 'manufacturer', 'manufacturer_part_number',
             'specifications', 'category_path', 'location', 'sub_location',
@@ -1246,6 +1266,15 @@ class CatalogService:
         the count changes, but a manually flagged product stays flagged until
         something clears it, and nothing else knows the operator's intent.
 
+        A tracked count goes up by what arrived, and its **age does not move**
+        (008 FR-007, FR-008). Those are two halves of one rule: the number the
+        catalogue reports should account for the delivery, and the date beside it
+        should keep meaning "the last time a person counted". Adding to a count
+        from a packing slip is not counting, and a screen that says otherwise
+        undermines the age display everything else here depends on. What the
+        receipt changed is recorded, with its date and quantity, on the purchase
+        that changed it.
+
         Marking an already-received purchase received again is a no-op, not an
         error.
 
@@ -1313,19 +1342,26 @@ class CatalogService:
 
             if product is not None and not already_received:
                 # A tracked count goes up by what arrived, which clears any
-                # threshold-derived low on its own.
+                # threshold-derived low on its own (008 FR-007).
+                #
+                # The count's age is deliberately *not* touched (008 FR-008).
+                # Arithmetic against a packing slip is not a verification: the
+                # number moved, but nobody has looked in the drawer, and
+                # quantity_updated_at means the last time somebody did.
                 if product.quantity is not None and purchase.quantity:
                     product.quantity = product.quantity + purchase.quantity
-                    product.quantity_updated_at = datetime.now()
 
                 # The manual flag has to be cleared explicitly -- this is the
-                # other half of FR-029, and the half nothing else covers.
+                # other half of FR-029, and the half nothing else covers. Its
+                # date goes with it (008 FR-006), so that a flag set again
+                # later cannot inherit this one's age.
                 if product.stock_status is not None:
                     logger.info(
-                        f"Clearing manual stock flag on product {product.id}: "
-                        f"purchase {purchase_id} received"
+                        f"Clearing manual stock flag and its date on product "
+                        f"{product.id}: purchase {purchase_id} received"
                     )
                     product.stock_status = None
+                    product.stock_status_updated_at = None
 
         return self.get_purchase(purchase_id)
 
