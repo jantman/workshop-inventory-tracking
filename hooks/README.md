@@ -73,7 +73,9 @@ git commit --no-verify
 # Or respond "skip" when prompted by the hook
 ```
 
-**Note:** Use bypass sparingly. CI/CD will still check screenshots on PRs.
+**Note:** Nothing downstream will catch a skipped regeneration. CI posts a
+reminder on PRs that touch UI files, but it cannot tell whether the screenshots
+are stale — see [CI/CD Integration](#cicd-integration) below.
 
 ## Uninstalling
 

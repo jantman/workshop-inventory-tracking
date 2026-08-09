@@ -24,7 +24,12 @@ jobs:
   remind:
     runs-on: ubuntu-latest
     permissions:
+      # The comment goes through the issues API (a PR is an issue there), so
+      # grant issues: write alongside pull-requests: write. GitHub's docs do not
+      # settle which of the two that endpoint checks, and the other workflows
+      # here that comment on PRs grant both.
       pull-requests: write
+      issues: write
 
     steps:
       - name: Comment on PR
