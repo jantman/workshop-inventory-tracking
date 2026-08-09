@@ -94,7 +94,7 @@ What the fetcher did, so the route can tell the operator (FR-017, FR-020, FR-021
 | Field | Type | Meaning |
 |---|---|---|
 | `stored` | `int` | Attachments created. |
-| `duplicates` | `int` | Skipped: content already on this product. |
+| `duplicates` | `int` | Skipped: this content is already stored on the product, whether by an earlier capture or a moment ago by this one. |
 | `skipped` | `int` | Refused by type or size. |
 | `failed` | `int` | Could not be retrieved. |
 | `cap_reached` | `bool` | Stopped at `MAX_ATTACHMENTS_PER_PRODUCT`. |
@@ -127,7 +127,7 @@ Given the product's existing rows `E` and the captured rows `C`:
 
 Per captured address, in order:
 
-1. **Address seen already in this capture?** Skip without fetching. Network economy only; not the correctness rule.
+1. **Address seen already in this capture?** Skip without fetching — network economy only, not the correctness rule. It is still *counted* as whatever that address came to the first time, because a second mention of an unreachable address is a second failure and not a duplicate of anything. Only a repeat of something actually stored counts as a duplicate.
 2. **Fetch** with a fixed timeout. Non-200, timeout, or connection failure → `failed += 1`, continue.
 3. **Content type** not in `PhotoService.SUPPORTED_TYPES` → `skipped += 1`, continue.
 4. **Size** over `MAX_FILE_SIZE` (20 MB) → `skipped += 1`, continue.

@@ -66,7 +66,10 @@ LISTING_ROUTE = re.compile(r"/dp/[A-Z0-9]{10}")
 class _QuietHandler(SimpleHTTPRequestHandler):
     """SimpleHTTPRequestHandler without a line of stderr per request"""
 
-    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+    def log_message(self, fmt, *args):
+        # Named `fmt` rather than the stdlib's `format`, which shadows the
+        # builtin. BaseHTTPRequestHandler calls this positionally, so the
+        # override still matches.
         pass
 
 
@@ -546,7 +549,7 @@ def test_a_repeat_buy_merges_and_stores_no_second_copy(page, live_server, image_
     again.check("#acknowledged_duplicate_of")
     again.check("#attach-existing")
     again.click("#capture-btn")
-    expect(again.locator(".alert").filter(has_text="already on this product")).to_be_visible()
+    expect(again.locator(".alert").filter(has_text="already stored")).to_be_visible()
 
     again.goto(product_url)
     expect(again.locator("#product-specifications")).to_be_visible()

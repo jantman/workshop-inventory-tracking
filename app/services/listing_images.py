@@ -81,41 +81,50 @@ def store_listing_images(
         return result
 
     stem = vendor_item_id or 'listing'
-    seen_addresses = set()
+    # What each address came to the first time it was named. An address named
+    # twice is fetched once -- that is a network optimization -- but it must
+    # still be *counted* as whatever it actually came to, or the tally reports
+    # something that did not happen. A second mention of an unreachable address
+    # is a second failure, not a duplicate of anything.
+    outcomes = {}
 
     photo_service = PhotoService(storage_backend)
     try:
         for index, url in enumerate(urls):
-            # Cheap first pass, and an optimization of the network rather than
-            # the correctness rule: the same address twice need not be fetched
-            # twice. Correctness is the content hash, further down.
-            if url in seen_addresses:
-                result.duplicates += 1
+            previous = outcomes.get(url)
+            if previous is not None:
+                # A second copy of something stored is a duplicate; a second
+                # mention of anything else repeats that outcome.
+                repeat = 'duplicates' if previous == 'stored' else previous
+                setattr(result, repeat, getattr(result, repeat) + 1)
                 continue
-            seen_addresses.add(url)
 
             try:
                 response = requests.get(url, timeout=timeout)
             except requests.RequestException as e:
                 logger.info(f"Could not retrieve {url}: {e}")
                 result.failed += 1
+                outcomes[url] = 'failed'
                 continue
 
             if response.status_code != 200:
                 logger.info(f"Could not retrieve {url}: HTTP {response.status_code}")
                 result.failed += 1
+                outcomes[url] = 'failed'
                 continue
 
             content_type = (response.headers.get('Content-Type') or '').split(';')[0].strip()
             if content_type not in PhotoService.SUPPORTED_TYPES:
                 logger.info(f"Skipping {url}: content type {content_type!r} is not supported")
                 result.skipped += 1
+                outcomes[url] = 'skipped'
                 continue
 
             data = response.content
             if len(data) > PhotoService.MAX_FILE_SIZE:
                 logger.info(f"Skipping {url}: {len(data)} bytes is over the file size limit")
                 result.skipped += 1
+                outcomes[url] = 'skipped'
                 continue
 
             filename = f"{stem}-{index:02d}{_extension_of(url)}"
@@ -132,6 +141,7 @@ def store_listing_images(
                     break
                 logger.info(f"Skipping {url}: {e}")
                 result.skipped += 1
+                outcomes[url] = 'skipped'
                 continue
             except RuntimeError as e:
                 # Bytes that fetched cleanly but would not decode. Reported as a
@@ -139,8 +149,10 @@ def store_listing_images(
                 # action is identical either way.
                 logger.info(f"Could not store {url}: {e}")
                 result.failed += 1
+                outcomes[url] = 'failed'
                 continue
 
+            outcomes[url] = 'duplicates' if attachment is None else 'stored'
             if attachment is None:
                 result.duplicates += 1
             else:

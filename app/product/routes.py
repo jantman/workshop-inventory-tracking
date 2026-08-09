@@ -457,7 +457,11 @@ def _image_tally(images) -> str:
     if images.skipped:
         parts.append(f"{images.skipped} skipped as an unsupported type or too large")
     if images.duplicates:
-        parts.append(f"{images.duplicates} already on this product")
+        # "already stored" rather than "already on this product": a duplicate is
+        # equally a second copy of something an earlier capture stored and a
+        # second copy of something stored a moment ago in this one, and the
+        # operator's next action is the same either way.
+        parts.append(f"{images.duplicates} skipped as already stored")
     if images.cap_reached:
         parts.append(
             f"stopped at the limit of {PhotoService.MAX_ATTACHMENTS_PER_PRODUCT} "

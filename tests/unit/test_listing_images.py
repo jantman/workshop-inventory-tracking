@@ -167,6 +167,62 @@ class TestRetrievingListingImages:
         assert result.stored == 1
         assert result.duplicates == 1
 
+    def test_a_repeated_address_that_failed_is_not_reported_as_a_duplicate(
+        self, test_storage, product
+    ):
+        """The address-level pass must not invent a duplicate of nothing.
+
+        An address named twice is fetched once, which is a network economy. What
+        it *counts* as has to be what actually happened to it: reporting "1 could
+        not be retrieved; 1 already stored" for a broken address named twice
+        tells the operator something is on the product when nothing is.
+        """
+        import requests
+
+        url = f'{GALLERY}gone.jpg'
+        result = store(product.id, [url, url], test_storage, {
+            url: requests.ConnectionError('no route to host'),
+        })
+
+        assert len(result.calls) == 1
+        assert result.failed == 2
+        assert result.duplicates == 0
+        assert result.stored == 0
+
+    def test_a_repeated_address_that_was_skipped_stays_skipped(self, test_storage, product):
+        url = f'{GALLERY}a.svg'
+        result = store(product.id, [url, url], test_storage, {
+            url: FakeResponse(b'<svg/>', content_type='image/svg+xml'),
+        })
+
+        assert len(result.calls) == 1
+        assert result.skipped == 2
+        assert result.duplicates == 0
+
+    def test_every_address_is_accounted_for_exactly_once(self, test_storage, product):
+        """The tally has to add up, or the summary and the flash disagree"""
+        import requests
+
+        urls = [
+            f'{GALLERY}good.jpg',
+            f'{GALLERY}good.jpg',      # duplicate of a stored image
+            f'{GALLERY}gone.jpg',
+            f'{GALLERY}gone.jpg',      # repeat of a failure, not a duplicate
+            f'{GALLERY}wrong.svg',
+        ]
+        result = store(product.id, urls, test_storage, {
+            urls[0]: FakeResponse(jpeg_bytes()),
+            urls[2]: requests.Timeout('too slow'),
+            urls[4]: FakeResponse(b'<svg/>', content_type='image/svg+xml'),
+        })
+
+        assert (result.stored, result.duplicates, result.failed, result.skipped) == (
+            1, 1, 2, 1
+        )
+        assert (
+            result.stored + result.duplicates + result.failed + result.skipped
+        ) == len(urls)
+
     def test_identical_bytes_at_two_addresses_are_stored_once(self, test_storage, product):
         """FR-018: judged by content, because a vendor serves one file many ways"""
         urls = [f'{GALLERY}a._AC_SL1500_.jpg', f'{GALLERY}a._SX679_.jpg']
