@@ -9,6 +9,75 @@
         <form id="capture-form" method="POST" action="{{ url_for('product.product_capture') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
+            {% if from_bookmarklet %}
+            <div class="alert alert-info" id="bookmarklet-landing">
+                Read off the listing. <strong>Nothing has been recorded yet</strong> — write
+                the description while the page is still open, then capture.
+            </div>
+            {% endif %}
+
+            {% if assessment and assessment.has_duplicate %}
+            <div class="alert alert-warning" id="duplicate-warning">
+                <h6 class="alert-heading">
+                    <i class="bi bi-files"></i> You may have captured this already
+                </h6>
+                <p class="mb-2">
+                    A purchase from <strong>{{ assessment.duplicate_vendor }}</strong> for this
+                    listing is already recorded
+                    {% if assessment.duplicate_order_date %}
+                    on {{ assessment.duplicate_order_date.strftime('%Y-%m-%d') }}{% endif %}.
+                    Nothing has been recorded for this capture.
+                </p>
+                <p class="mb-2">
+                    <a href="{{ url_for('product.purchase_receive',
+                                        purchase_id=assessment.duplicate_purchase_id) }}"
+                       id="duplicate-existing-link" class="btn btn-sm btn-outline-secondary">
+                        Open the one already recorded
+                    </a>
+                </p>
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" id="acknowledged_duplicate_of"
+                           name="acknowledged_duplicate_of"
+                           value="{{ assessment.duplicate_purchase_id }}">
+                    <label class="form-check-label" for="acknowledged_duplicate_of">
+                        This is a separate order — record it anyway.
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if assessment and assessment.has_uncorroborated_match %}
+            <div class="alert alert-warning" id="identifier-warning">
+                <h6 class="alert-heading">
+                    <i class="bi bi-exclamation-triangle"></i> This item number already names
+                    something
+                </h6>
+                <p class="mb-2">
+                    <strong>{{ assessment.matched_product_description }}</strong>{%
+                    if assessment.matched_product_manufacturer %} —
+                    {{ assessment.matched_product_manufacturer }}{% endif %}{%
+                    if assessment.matched_product_part_number %}
+                    ({{ assessment.matched_product_part_number }}){% endif %}.
+                    Vendors reuse item numbers; attaching this purchase to the wrong product
+                    puts two things in one price history. Nothing has been recorded.
+                </p>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="attach_to"
+                           id="attach-existing" value="{{ assessment.matched_product_id }}">
+                    <label class="form-check-label" for="attach-existing">
+                        It is the same thing — add this purchase to it.
+                    </label>
+                </div>
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="radio" name="attach_to"
+                           id="attach-new" value="new">
+                    <label class="form-check-label" for="attach-new">
+                        This is a different product — file it separately.
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="card mb-4">
                 <div class="card-header">
                     <h5 class="mb-0"><i class="bi bi-clipboard"></i> Paste the listing URL</h5>
@@ -49,6 +118,41 @@
                         <input type="text" class="form-control" id="listing_title"
                                name="listing_title" maxlength="500"
                                value="{{ form_data.get('listing_title') or '' }}">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <input type="text" class="form-control" id="description"
+                               name="description" maxlength="255"
+                               value="{{ form_data.get('description')
+                                         or (assessment.matched_product_description
+                                             if assessment and assessment.has_uncorroborated_match
+                                             else '') }}">
+                        <div class="form-text">
+                            What goes on the label and what you will search for. Write it now,
+                            while the listing's specifications are in front of you. Left blank,
+                            the listing title is used.
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="manufacturer" class="form-label">Manufacturer</label>
+                            <input type="text" class="form-control" id="manufacturer"
+                                   name="manufacturer" maxlength="200"
+                                   value="{{ form_data.get('manufacturer') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="manufacturer_part_number" class="form-label">
+                                Manufacturer Part Number
+                            </label>
+                            <input type="text" class="form-control" id="manufacturer_part_number"
+                                   name="manufacturer_part_number" maxlength="100"
+                                   value="{{ form_data.get('manufacturer_part_number') or '' }}">
+                            <div class="form-text">
+                                Both together let a repeat buy attach without asking.
+                            </div>
+                        </div>
                     </div>
 
                     <div class="row">

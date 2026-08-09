@@ -478,3 +478,58 @@ class ScanResolution:
             'product': self.product.to_dict() if self.product is not None else None,
             'prefill': dict(self.prefill),
         }
+
+
+@dataclass(frozen=True)
+class CaptureAssessment:
+    """What a capture found that it will not decide on its own.
+
+    Produced by CatalogService.capture_order() and carried out on
+    CaptureDecisionRequired. Two questions can be open at once -- a capture can
+    be both a probable repeat and a landing on a recycled identifier -- so the
+    two halves are independent and neither implies the other.
+
+    Everything here is a plain value rather than an ORM row. Scalars would in
+    fact survive -- ``expire_on_commit`` is off -- but a *relationship* not
+    eagerly loaded would not, and a display-only object has no business carrying
+    that hazard around. Copying the four strings and two ids the warning panels
+    render also means ``to_dict`` needs no second shaping step for the JSON
+    representation of the capture endpoint.
+    """
+    # The repeat: a purchase already recorded for this vendor, item and day.
+    duplicate_purchase_id: Optional[int] = None
+    duplicate_order_date: Optional[datetime] = None
+    duplicate_vendor: Optional[str] = None
+
+    # The recycled identifier: a product this vendor item id already names,
+    # whose manufacturer and part number did not corroborate the capture.
+    matched_product_id: Optional[int] = None
+    matched_product_description: Optional[str] = None
+    matched_product_manufacturer: Optional[str] = None
+    matched_product_part_number: Optional[str] = None
+
+    @property
+    def has_duplicate(self) -> bool:
+        """Whether a matching purchase was already recorded"""
+        return self.duplicate_purchase_id is not None
+
+    @property
+    def has_uncorroborated_match(self) -> bool:
+        """Whether the item id names a product the capture did not corroborate"""
+        return self.matched_product_id is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            'duplicate_purchase_id': self.duplicate_purchase_id,
+            'duplicate_order_date': (
+                self.duplicate_order_date.isoformat() if self.duplicate_order_date else None
+            ),
+            'duplicate_vendor': self.duplicate_vendor,
+            'matched_product_id': self.matched_product_id,
+            'matched_product_description': self.matched_product_description,
+            'matched_product_manufacturer': self.matched_product_manufacturer,
+            'matched_product_part_number': self.matched_product_part_number,
+            'has_duplicate': self.has_duplicate,
+            'has_uncorroborated_match': self.has_uncorroborated_match,
+        }

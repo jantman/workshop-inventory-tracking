@@ -28,9 +28,15 @@ from .database import (
     Purchase,
     Tag,
 )
-from .exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
+from .exceptions import (
+    CaptureDecisionRequired,
+    DuplicateItemError,
+    ItemNotFoundError,
+    ValidationError,
+)
 from .mariadb_storage import MariaDBStorage
 from .models import (
+    CaptureAssessment,
     IdentifierType,
     ScanClassification,
     ScanKind,
@@ -727,6 +733,7 @@ class CatalogService:
         vendor: str,
         vendor_item_id: Optional[str] = None,
         listing_title: Optional[str] = None,
+        listing_url: Optional[str] = None,
         order_date: Optional[datetime] = None,
         received_date: Optional[datetime] = None,
         quantity: Optional[int] = None,
@@ -741,6 +748,9 @@ class CatalogService:
             vendor: Who it came from. Required -- provenance is the point.
             vendor_item_id: The vendor's own identifier, if there is one.
             listing_title: The vendor's raw title, if captured at order time.
+            listing_url: The listing's address, if captured at order time. Its
+                own field rather than a line in notes, because the duplicate
+                check reads it and notes is the operator's to overwrite.
             order_date: When it was ordered.
             received_date: When it arrived. None means the order is outstanding.
             quantity: How many.
@@ -774,6 +784,7 @@ class CatalogService:
                 vendor=vendor_name,
                 vendor_item_id=_clean(vendor_item_id),
                 listing_title=_clean(listing_title),
+                listing_url=_clean(listing_url),
                 order_date=order_date,
                 received_date=received_date,
                 quantity=quantity,
@@ -872,32 +883,51 @@ class CatalogService:
         unit_price: Optional[Any] = None,
         quantity: Optional[int] = None,
         order_date: Optional[datetime] = None,
+        description: Optional[str] = None,
+        manufacturer: Optional[str] = None,
+        manufacturer_part_number: Optional[str] = None,
+        acknowledged_duplicate_of: Optional[Any] = None,
+        attach_to: Optional[Any] = None,
     ) -> Purchase:
         """Capture an order while the vendor's listing is still on screen.
 
-        Creates an *unreceived* purchase (FR-020). It attaches to an existing
-        product when the captured identifier already names one, and creates a
-        product otherwise (FR-021) -- so a repeat buy joins one history rather
-        than spawning a duplicate.
+        Creates an *unreceived* purchase (FR-020) and either attaches it to the
+        product the captured identifier already names or creates one (FR-021).
 
-        Idempotent on ``(vendor, vendor_item_id, order_date)``: clicking the
-        bookmarklet twice on the same listing captures nothing new, because
-        double-clicking a bookmark is a thing people do.
+        **It confirms rather than guesses.** Two things it used to decide alone
+        it now refuses to decide: a capture that looks like one already recorded,
+        and an item id that already names a product without corroboration. Either
+        raises ``CaptureDecisionRequired`` carrying a ``CaptureAssessment``, and
+        raises it *before anything is written* -- a caller handling that exception
+        is looking at a database this call has not touched.
 
         Args:
             vendor: The vendor, derived from the listing's host.
             vendor_item_id: The vendor's identifier, e.g. an Amazon ASIN.
             listing_title: The page title, as the vendor wrote it.
-            url: The listing URL, kept in the notes for later reference.
+            url: The listing URL, recorded on the purchase.
             unit_price: Price, if the operator supplied one.
             quantity: Quantity, if the operator supplied one.
             order_date: When it was ordered. Defaults to today.
+            description: The operator's own wording for the product, authored
+                while the listing is on screen. **Blank falls back to the listing
+                title** rather than raising -- the opposite of the rule at
+                receipt, where there is nothing to fall back to.
+            manufacturer: Optional; recorded on a newly created product, and half
+                of the corroboration test.
+            manufacturer_part_number: Optional; the other half.
+            acknowledged_duplicate_of: The id of a purchase the operator was
+                shown and chose to record alongside anyway.
+            attach_to: ``None`` to decide automatically, ``'new'`` to force a new
+                product, or a product id to attach to.
 
         Returns:
-            The Purchase -- newly created, or the one already captured.
+            The newly created Purchase.
 
         Raises:
             ValidationError: If vendor is missing or a value fails validation.
+            CaptureDecisionRequired: If a duplicate or an uncorroborated
+                identifier match needs the operator's answer. Nothing is written.
         """
         vendor_name = _clean(vendor)
         if not vendor_name:
@@ -905,68 +935,173 @@ class CatalogService:
 
         item_id = _clean(vendor_item_id)
         title = _clean(listing_title)
+        listing_url = _clean(url)
         ordered = _parse_datetime(order_date, 'order_date') or datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         price = self._validate_price(unit_price)
         count = self._validate_purchase_quantity(quantity)
 
-        existing = self._find_captured_purchase(vendor_name, item_id, ordered)
-        if existing is not None:
-            logger.info(
-                f"Capture of {vendor_name}/{item_id} on {ordered.date()} already "
-                f"recorded as purchase {existing.id}; nothing created"
-            )
-            return existing
+        # Blank is not an error here, it is a fallback (FR-003). Only a
+        # non-blank description is held to the length limit (FR-006).
+        wording = _clean(description)
+        if wording is not None:
+            wording = self._validate_description(wording)
 
-        # FR-021: attach when the identifier already names a product.
-        product = None
+        acknowledged = _as_int(acknowledged_duplicate_of)
+        requested_product_id = None if attach_to == 'new' else _as_int(attach_to)
+        create_new_requested = attach_to == 'new'
+
+        # Both questions are worked out before either is raised, so a capture
+        # that is a probable repeat *and* lands on a recycled identifier asks
+        # once and is answered once. Nothing below writes.
+        duplicate = self._find_captured_purchase(vendor_name, item_id, listing_url, ordered)
+        duplicate_open = duplicate is not None and acknowledged != duplicate.id
+
+        # FR-021: attach when the identifier already names a product -- but only
+        # silently when the operator asked for it, or when the manufacturer and
+        # part number both agree (FR-019).
+        match = None
         if item_id:
-            product = self.find_product_by_identifier(
+            match = self.find_product_by_identifier(
                 item_id, id_type=IdentifierType.VENDOR.value, vendor=vendor_name
+            )
+
+        product = None
+        match_open = False
+        if create_new_requested:
+            product = None
+        elif requested_product_id is not None:
+            if match is not None and match.id != requested_product_id:
+                # The answer was about a different product; it is stale.
+                match_open = True
+            else:
+                product = self.get_product(requested_product_id)
+                if product is None:
+                    # The spec's stated edge case: the choice named a product
+                    # that has since gone. Creating one is what would have
+                    # happened had there been no match, and beats failing on a
+                    # page the operator cannot fix from.
+                    logger.info(
+                        f"Capture asked to attach to product {requested_product_id}, which "
+                        f"no longer exists; creating a product instead"
+                    )
+        elif match is not None:
+            if _corroborates(match, manufacturer, manufacturer_part_number):
+                product = match
+            else:
+                match_open = True
+
+        if duplicate_open or match_open:
+            reasons = []
+            assessment = {}
+            if duplicate_open:
+                reasons.append(
+                    f"a purchase from {vendor_name} for this listing is already recorded "
+                    f"on {duplicate.order_date.date():%Y-%m-%d}"
+                    if duplicate.order_date else
+                    f"a purchase from {vendor_name} for this listing is already recorded"
+                )
+                assessment.update(
+                    duplicate_purchase_id=duplicate.id,
+                    duplicate_order_date=duplicate.order_date,
+                    duplicate_vendor=duplicate.vendor,
+                )
+            if match_open:
+                reasons.append(f"vendor item {item_id} already names a product")
+                assessment.update(
+                    matched_product_id=match.id,
+                    matched_product_description=match.description,
+                    matched_product_manufacturer=match.manufacturer,
+                    matched_product_part_number=match.manufacturer_part_number,
+                )
+
+            logger.info(f"Capture needs a decision: {'; '.join(reasons)}; nothing written")
+            raise CaptureDecisionRequired(
+                f"This capture needs a decision: {'; '.join(reasons)}.",
+                CaptureAssessment(**assessment),
             )
 
         if product is None:
             product = self.create_product(
-                description=title or f"{vendor_name} item {item_id or 'without an identifier'}",
-                notes=f"Captured from {url}" if url else None,
+                description=(
+                    wording
+                    or title
+                    or f"{vendor_name} item {item_id or 'without an identifier'}"
+                ),
+                manufacturer=manufacturer,
+                manufacturer_part_number=manufacturer_part_number,
+                notes=f"Captured from {listing_url}" if listing_url else None,
                 identifiers=(
+                    # Only when the identifier is free. A vendor item id names
+                    # at most one product per vendor, so a deliberately separate
+                    # product cannot claim one the matched product already
+                    # holds -- the purchase still records it as its own
+                    # vendor_item_id, which is where it belongs anyway.
                     [{'id_type': IdentifierType.VENDOR.value,
                       'value': item_id, 'vendor': vendor_name}]
-                    if item_id else None
+                    if item_id and match is None else None
                 ),
             )
+        elif wording is not None and wording != product.description:
+            # FR-005: the operator is looking at the listing and is the
+            # authority. Manufacturer and part number are deliberately *not*
+            # written onto an existing product -- a mismatch there is the
+            # evidence the recycled-identifier question depends on.
+            self.update_product(product.id, description=wording)
 
         return self.record_purchase(
             product.id,
             vendor=vendor_name,
             vendor_item_id=item_id,
             listing_title=title,
+            listing_url=listing_url,
             order_date=ordered,
             quantity=count,
             unit_price=price,
-            notes=url,
         )
 
     def _find_captured_purchase(
-        self, vendor: str, vendor_item_id: Optional[str], order_date: datetime
+        self,
+        vendor: str,
+        vendor_item_id: Optional[str],
+        listing_url: Optional[str],
+        order_date: datetime,
     ) -> Optional[Purchase]:
-        """The idempotency key: same vendor, same item, same day."""
-        if not vendor_item_id:
-            # Without an identifier there is nothing to be idempotent on -- two
-            # captures of two untitled listings are two different purchases.
-            return None
+        """What a repeat capture looks like: same vendor, same listing, same day.
 
+        The item id is the key when there is one. When there is not -- most
+        vendors' URLs yield none -- the listing's address stands in for it
+        (FR-013), which is what makes a second click on the bookmarklet
+        recognizable rather than a second purchase.
+
+        The address is compared **exactly**, and deliberately not normalized. The
+        case this has to catch is one page captured twice in a sitting, where
+        ``location.href`` is byte-identical between clicks. Stripping "tracking
+        junk" would need per-vendor rules -- Amazon puts ``/ref=sr_1_3`` in the
+        path, not the query -- and a normalizer that is right for one vendor and
+        wrong for the next produces false warnings on genuinely different
+        listings, which is worse than a missed one.
+        """
         day_start = order_date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
 
         with self._session() as session:
-            return session.query(Purchase).filter(
+            query = session.query(Purchase).filter(
                 Purchase.vendor == vendor,
-                Purchase.vendor_item_id == vendor_item_id,
                 Purchase.order_date >= day_start,
                 Purchase.order_date < day_end,
-            ).first()
+            )
+            if vendor_item_id:
+                query = query.filter(Purchase.vendor_item_id == vendor_item_id)
+            elif listing_url:
+                query = query.filter(Purchase.listing_url == listing_url)
+            else:
+                # No identifier and no address: nothing to recognize, and saying
+                # so is more honest than matching on the vendor and the date.
+                return None
+
+            return query.first()
 
     def receive_purchase(
         self,
@@ -975,11 +1110,13 @@ class CatalogService:
         quantity: Optional[int] = None,
         unit_price: Optional[Any] = None,
         notes: Optional[str] = None,
+        description: Optional[str] = None,
     ) -> Purchase:
         """Mark an outstanding purchase received, amending it if reality differed.
 
         What arrives is allowed to differ from what was ordered, so quantity and
-        price can be amended here.
+        price can be amended here -- and so can the product's description, which
+        is the whole point of confirming it with the thing in hand (FR-022).
 
         Receiving also **clears the product's manual low flag** (FR-029). This is
         the asymmetry worth stating: a threshold-derived low clears itself once
@@ -995,6 +1132,10 @@ class CatalogService:
             quantity: The quantity actually received, if it differed.
             unit_price: The price actually paid, if it differed.
             notes: Replacement notes, if any.
+            description: The product's description, confirmed or corrected
+                against the thing in hand. ``None`` leaves it alone; **blank is
+                refused** (FR-024) -- unlike at capture, there is no listing
+                title here to fall back to.
 
         Returns:
             The updated Purchase.
@@ -1006,6 +1147,11 @@ class CatalogService:
         received = _parse_datetime(received_date, 'received_date') or datetime.now()
         amended_quantity = self._validate_purchase_quantity(quantity)
         amended_price = self._validate_price(unit_price)
+        # Validated before the session opens, so a refusal leaves the received
+        # state alone as well as the description.
+        amended_description = (
+            self._validate_description(description) if description is not None else None
+        )
 
         with self._session() as session:
             purchase = session.query(Purchase).filter(Purchase.id == purchase_id).first()
@@ -1030,6 +1176,17 @@ class CatalogService:
             product = session.query(Product).filter(
                 Product.id == purchase.product_id
             ).first()
+
+            # Outside the already-received guard on purpose (FR-025). Receiving
+            # twice is a no-op for the received date and for the count; it is
+            # not a no-op for a description the operator has just corrected with
+            # the thing in front of them.
+            if (
+                product is not None
+                and amended_description is not None
+                and amended_description != product.description
+            ):
+                product.description = amended_description
 
             if product is not None and not already_received:
                 # A tracked count goes up by what arrived, which clears any
@@ -1981,6 +2138,53 @@ def _clean(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _as_int(value: Any) -> Optional[int]:
+    """Read an id off a form field, treating anything unreadable as absent.
+
+    A decision field carries an id the page itself put there. If it comes back
+    as something else, the safe reading is that no decision was made -- which
+    re-asks the question rather than acting on a value nobody chose.
+    """
+    if value is None or value == '':
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fold(value: Optional[str]) -> str:
+    """Case-fold and trim, for comparisons that must mean one thing everywhere."""
+    return (value or '').strip().casefold()
+
+
+def _corroborates(product: Product, manufacturer: Any, part_number: Any) -> bool:
+    """Whether a capture's own evidence agrees with the product it matched.
+
+    Both values are required (FR-019). A manufacturer name matches across a
+    vendor's entire catalogue and a bare part number collides between
+    manufacturers, so only the pair is evidence. A matched product carrying no
+    manufacturer can never corroborate, which falls out: a truthy manufacturer
+    cannot fold to the empty string.
+
+    **Compared in Python, deliberately.** This is the one comparison in capture
+    that acts without asking the operator, and the deployed collation folds
+    accents where SQLite folds nothing -- so as a WHERE clause it would mean two
+    different things to the two test suites, and the suite that could not see the
+    difference is the one that runs on every commit. Case folding only: `Wurth`
+    and `Wuerth` are not reliably one manufacturer.
+    """
+    made_by = _clean(manufacturer)
+    number = _clean(part_number)
+    if not made_by or not number:
+        return False
+
+    return (
+        _fold(made_by) == _fold(product.manufacturer)
+        and _fold(number) == _fold(product.manufacturer_part_number)
+    )
 
 
 def _dedupe_fold_case(values: Any) -> List[str]:

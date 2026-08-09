@@ -14,7 +14,9 @@ from flask import current_app, flash, jsonify, redirect, render_template, reques
 
 from app import csrf
 from app.catalog_service import CatalogService
-from app.exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
+from app.exceptions import (
+    CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
+)
 from app.product import bp
 
 
@@ -336,6 +338,11 @@ def product_capture():
 
     The bookmarklet is the fast path, but it depends on the vendor's page letting
     a form POST out. This form depends on nothing but the operator's clipboard.
+
+    This is also where the write happens for both paths: the bookmarklet lands on
+    this form pre-filled and the operator submits it from here. The route detects
+    nothing of its own -- it forwards the form and renders whatever the service
+    hands back, including the questions it declines to answer.
     """
     service = _get_catalog_service()
 
@@ -353,6 +360,21 @@ def product_capture():
                 unit_price=request.form.get('unit_price'),
                 quantity=request.form.get('quantity'),
                 order_date=request.form.get('order_date'),
+                description=request.form.get('description'),
+                manufacturer=request.form.get('manufacturer'),
+                manufacturer_part_number=request.form.get('manufacturer_part_number'),
+                acknowledged_duplicate_of=request.form.get('acknowledged_duplicate_of'),
+                attach_to=request.form.get('attach_to'),
+            )
+        except CaptureDecisionRequired as e:
+            # Not an error page: a step in the flow. Nothing was written, and the
+            # form comes back with the question attached.
+            return render_template(
+                'product/capture.html',
+                title='Capture an Order',
+                form_data=request.form,
+                assessment=e.assessment,
+                bookmarklet=_capture_bookmarklet(),
             )
         except ValidationError as e:
             flash(e.message, 'error')
@@ -406,7 +428,20 @@ def _capture_bookmarklet() -> str:
 @bp.route('/api/capture', methods=['POST'])
 @csrf.exempt
 def api_capture():
-    """Capture an order from a vendor's listing (FR-020, FR-021).
+    """Land a capture from a vendor's listing (FR-007, FR-008, FR-009).
+
+    Two representations, and they no longer do the same thing.
+
+    **A form body -- the bookmarklet -- writes nothing.** It renders the capture
+    form, pre-filled with what the URL and the page title yielded, and the
+    operator confirms it from this application's own origin. That is what makes
+    the description authorable while the listing is still on screen, and it is
+    why an abandoned capture leaves no trace: there was never a record to clean
+    up, only a page that got closed.
+
+    **A JSON body still writes**, honouring the same decision parameters
+    ``product_capture`` forwards, and answering 409 with the assessment when the
+    capture would otherwise have guessed.
 
     **This is the only CSRF exemption the product catalogue adds**, and the only
     one it needs. (It is not the only one in the application: app/main/routes.py
@@ -418,8 +453,8 @@ def api_capture():
     The bookmarklet posts from the vendor's own origin, so a CSRF token cannot
     travel with it. The exemption is proportionate under the constitution's
     stated threat model: the app is LAN-only, has one trusted user, and treats
-    hostile input as out of scope. Nothing here writes anything the operator
-    cannot see and undo on the confirmation page they land on.
+    hostile input as out of scope -- and it is now narrower than it was, because
+    the representation that arrives from a vendor's origin does not write at all.
 
     Accepts a form POST as well as JSON, because the bookmarklet submits a form
     into a new tab rather than issuing a fetch: a fetch from an HTTPS vendor page
@@ -448,6 +483,23 @@ def api_capture():
     vendor = data.get('vendor') or _vendor_from_url(url)
     vendor_item_id = data.get('vendor_item_id') or _asin_from_url(url)
 
+    if not request.is_json:
+        # The bookmarklet's new tab lands here. Show the operator what the URL
+        # yielded and let them finish it; the write happens when they submit to
+        # product_capture, which is on this app's origin and carries a token.
+        return render_template(
+            'product/capture.html',
+            title='Capture an Order',
+            form_data={
+                'url': url,
+                'vendor': vendor,
+                'vendor_item_id': vendor_item_id,
+                'listing_title': data.get('listing_title') or '',
+            },
+            from_bookmarklet=True,
+            bookmarklet=_capture_bookmarklet(),
+        )
+
     try:
         purchase = service.capture_order(
             vendor=vendor,
@@ -457,23 +509,26 @@ def api_capture():
             unit_price=data.get('price') or data.get('unit_price'),
             quantity=data.get('quantity'),
             order_date=data.get('order_date'),
+            description=data.get('description'),
+            manufacturer=data.get('manufacturer'),
+            manufacturer_part_number=data.get('manufacturer_part_number'),
+            acknowledged_duplicate_of=data.get('acknowledged_duplicate_of'),
+            attach_to=data.get('attach_to'),
         )
-    except ValidationError as e:
-        if request.is_json:
-            return jsonify({'success': False, 'error': e.message}), 400
-        flash(e.message, 'error')
-        return redirect(url_for('product.product_capture', url=url))
-
-    if request.is_json:
+    except CaptureDecisionRequired as e:
         return jsonify({
-            'success': True,
-            'purchase': purchase.to_dict(),
-            'url': url_for('product.purchase_receive', purchase_id=purchase.id),
-        }), 201
+            'success': False,
+            'error': e.message,
+            'assessment': e.assessment.to_dict() if e.assessment else None,
+        }), 409
+    except ValidationError as e:
+        return jsonify({'success': False, 'error': e.message}), 400
 
-    # The bookmarklet's new tab lands here: the app's own page, which is also
-    # where the operator amends anything the URL did not yield.
-    return redirect(url_for('product.purchase_receive', purchase_id=purchase.id))
+    return jsonify({
+        'success': True,
+        'purchase': purchase.to_dict(),
+        'url': url_for('product.purchase_receive', purchase_id=purchase.id),
+    }), 201
 
 
 def _vendor_from_url(url: str) -> str:
@@ -523,7 +578,10 @@ def purchase_receive(purchase_id):
     """Confirm or amend a purchase on arrival (FR-005, FR-029).
 
     The captured details are already here; what arrived is allowed to differ from
-    what was ordered, so quantity and price stay editable.
+    what was ordered, so quantity, price and the product's own description stay
+    editable. The description is the reason this screen exists in the shape it
+    does: correcting it against the thing in hand should not mean leaving here,
+    opening the product, saving, and coming back.
     """
     service = _get_catalog_service()
     purchase = service.get_purchase(purchase_id)
@@ -540,6 +598,7 @@ def purchase_receive(purchase_id):
                 quantity=request.form.get('quantity'),
                 unit_price=request.form.get('unit_price'),
                 notes=request.form.get('notes'),
+                description=request.form.get('description'),
             )
         except ValidationError as e:
             flash(e.message, 'error')
@@ -548,6 +607,9 @@ def purchase_receive(purchase_id):
                 title='Receive a Purchase',
                 purchase=purchase,
                 product=product,
+                # What they submitted, not what is stored -- a refused
+                # description they spent time on should still be on the page.
+                form_data=request.form,
             )
 
         flash('Received.', 'success')
@@ -558,6 +620,7 @@ def purchase_receive(purchase_id):
         title='Receive a Purchase',
         purchase=purchase,
         product=product,
+        form_data=None,
     )
 
 

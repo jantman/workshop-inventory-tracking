@@ -5,6 +5,14 @@ This module defines custom exception classes for better error handling
 and recovery throughout the application.
 """
 
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    # Type-checking only. app/models.py imports nothing but the standard
+    # library, so a real import would not be circular -- but this module is a
+    # leaf that almost everything else imports, and it is worth keeping it one.
+    from app.models import CaptureAssessment
+
 class WorkshopInventoryError(Exception):
     """Base exception class for workshop inventory application"""
     
@@ -138,6 +146,27 @@ class TemporaryError(WorkshopInventoryError):
             "retry_count": retry_count,
             "max_retries": max_retries,
             "type": "temporary_error"
+        }
+
+class CaptureDecisionRequired(WorkshopInventoryError):
+    """Raised when an order capture found something only the operator can settle.
+
+    Carries the assessment so the caller can render the question. **Nothing was
+    written**: capture does its detection before it opens a write, so a caller
+    that handles this exception is looking at a database it has not touched.
+
+    This is a step in a flow, not a failure, which is why it is deliberately not
+    registered in app/error_handlers.py. There is no handler for
+    WorkshopInventoryError either, so an unhandled one reaches the 500 page --
+    the intended signal that a caller reached a question and did not answer it.
+    """
+
+    def __init__(self, message: str, assessment: Optional['CaptureAssessment'] = None):
+        super().__init__(message, code="CAPTURE_DECISION_REQUIRED")
+        self.assessment = assessment
+        self.details = {
+            "assessment": assessment.to_dict() if assessment is not None else None,
+            "type": "capture_decision_required"
         }
 
 class DataIntegrityError(WorkshopInventoryError):

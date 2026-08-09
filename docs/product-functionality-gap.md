@@ -20,24 +20,28 @@ The trade-off is real: reading the address is robust and reading the page is not
 can rearrange its markup at any time. But as it stands, capturing an order still leaves the price to
 be transcribed later, from a page that may have changed.
 
-**You can't write the description while you're looking at the listing.** The plan lets you author
-the label description at capture time, precisely because the listing shows specifications that
-often don't survive to delivery. The current capture has no description field at all — the listing
-title becomes the description and stays that way until edited.
+**~~You can't write the description while you're looking at the listing.~~** *Built — feature 006.*
+Capture has a description field, and a manufacturer and part number alongside it. Left blank, the
+listing title is still used, so the one-click case stays one click.
 
-**And you can't fix it when the box arrives.** The receive screen shows the description read-only.
-Confirming or correcting it against the item in hand — the moment the plan built the whole workflow
-around — means leaving the receive screen, opening the product, editing, saving and coming back.
+**~~And you can't fix it when the box arrives.~~** *Built — feature 006.* The receive screen's
+description is an editable field, applied in the same submission that marks the purchase received,
+on hand-recorded purchases as well as captured ones and on already-received ones too.
 
-**Capturing the same thing twice can create duplicates.** Repeat capture is recognized by vendor,
-item number and date. When the address yields no item number there is nothing to recognize, so a
-second click on the bookmarklet files a second purchase. The reverse also holds: two genuinely
-separate orders of the same item on the same day are merged into one.
+**~~Capturing the same thing twice can create duplicates.~~** *Built — feature 006.* Capture no
+longer decides. A repeat is recognized by vendor, item number and date, falling back to the
+listing's address when the URL yields no item number — and it is put to the operator as a question
+naming the existing purchase, with "record it anyway" as one of the answers. Two genuinely separate
+orders of the same item on the same day are therefore two purchases, which the old silent
+idempotency merged.
 
-**Nothing warns you when a vendor recycles an item number.** Amazon reuses identifiers, and when it
-does the current capture silently attaches the new purchase to the old product, quietly corrupting
-that product's price history. The plan called for attaching automatically only when the manufacturer
-and part number agree, and asking for confirmation when they don't.
+**~~Nothing warns you when a vendor recycles an item number.~~** *Built — feature 006.* An item
+number that already names a product produces a named choice showing that product's description and
+part number. It attaches without asking only when the capture supplies a manufacturer *and* a part
+number and both agree, which is what the plan called for.
+
+The one thing capture still doesn't do is read the **price** off the listing — see the paragraph
+above, and issue #56.
 
 ## Reordering and stock
 
