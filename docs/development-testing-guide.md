@@ -204,9 +204,9 @@ The project includes a pre-commit hook that reminds you to regenerate screenshot
 ❓ Did you update screenshots? (y/n/skip)
 ```
 
-#### CI/CD Verification
+#### CI/CD Reminder
 
-GitHub Actions automatically verifies screenshots on pull requests:
+GitHub Actions posts a reminder on pull requests that touch the UI:
 
 **Workflow**: `.github/workflows/screenshots.yml`
 
@@ -215,16 +215,17 @@ GitHub Actions automatically verifies screenshots on pull requests:
 - CSS/JavaScript
 - Screenshot test files
 
-**Actions**:
-1. Regenerates all screenshots
-2. Compares with committed versions
-3. Fails if screenshots are outdated
-4. Comments on PR with instructions
-5. Provides regenerated screenshots as artifacts
+**Actions**: posts (or updates) a single comment suggesting `nox -s screenshots`.
+
+CI does **not** check whether the screenshots are current — it cannot. It used to
+regenerate them and diff against the committed copies, but CI rasterizes fonts
+differently than the machine the screenshots were committed from, so every file
+differed on every run regardless of whether the UI had changed. Deciding whether
+a change is visible enough to warrant regenerating is the author's call.
 
 **PR Requirements:**
-- If you modify UI files, you must regenerate and commit screenshots
-- CI will block merge if screenshots are out of date
+- If you change the UI in a way the screenshots show, regenerate and commit them
+- Nothing blocks the merge either way
 
 ### Screenshot Test Structure
 

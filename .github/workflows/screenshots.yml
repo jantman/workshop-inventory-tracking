@@ -1,4 +1,15 @@
-name: Screenshot Verification
+name: Screenshot Reminder
+
+# This job used to regenerate the screenshots in CI and diff them against the
+# committed ones. That check could never pass: CI rasterizes fonts differently
+# than the machine the screenshots were committed from, so every glyph on every
+# page differed by a few units and `git diff` reported all twelve files changed
+# on every run. It was informational, so it never blocked anything -- it just
+# posted the same comment on every PR touching the UI.
+#
+# What is left is an honest reminder. It does not claim to know whether the
+# screenshots are stale; it says the PR touched UI files and leaves the judgment
+# to the author. See issue #77.
 
 on:
   pull_request:
@@ -8,147 +19,56 @@ on:
       - 'app/static/js/**'
       - 'tests/e2e/test_screenshot_generation.py'
       - 'tests/e2e/fixtures/screenshot_data.py'
-  workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  verify-screenshots:
+  remind:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # The comment goes through the issues API (a PR is an issue there), so
+      # grant issues: write alongside pull-requests: write. GitHub's docs do not
+      # settle which of the two that endpoint checks, and the other workflows
+      # here that comment on PRs grant both.
       pull-requests: write
       issues: write
 
-    services:
-      mariadb:
-        image: mariadb:11.8
-        env:
-          MYSQL_ROOT_PASSWORD: test_root_password
-          MYSQL_DATABASE: workshop_inventory_test
-          MYSQL_USER: inventory_test_user
-          MYSQL_PASSWORD: test_password
-          MARIADB_CHARACTER_SET_SERVER: utf8mb4
-          MARIADB_COLLATION_SERVER: utf8mb4_unicode_ci
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 2  # Need history to compare
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Install system dependencies for pybluez
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            bluetooth libbluetooth-dev
-
-      - name: Cache dependencies
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install nox
-        run: pip install nox
-
-      - name: Wait for MariaDB to be ready
-        run: |
-          for i in {1..30}; do
-            if mysqladmin ping -h127.0.0.1 -P3306 -uinventory_test_user -ptest_password --silent; then
-              echo "MariaDB is ready"
-              break
-            fi
-            echo "Waiting for MariaDB... ($i/30)"
-            sleep 2
-          done
-
-      - name: Set up test database
-        run: |
-          mysql -h127.0.0.1 -P3306 -uinventory_test_user -ptest_password workshop_inventory_test -e "SELECT 1"
-          echo "Database connection verified"
-
-      - name: Regenerate screenshots
-        run: nox -s screenshots_headless
-        env:
-          CI: 'true'
-          PLAYWRIGHT_HEADLESS: true
-          USE_TEST_MARIADB: 1
-          TEST_DB_HOST: 127.0.0.1
-          TEST_DB_PORT: 3306
-          TEST_DB_USER: inventory_test_user
-          TEST_DB_PASSWORD: test_password
-          TEST_DB_NAME: workshop_inventory_test
-
-      - name: Check for screenshot differences
-        id: check_diff
-        run: |
-          if git diff --quiet docs/images/screenshots/; then
-            echo "status=up-to-date" >> $GITHUB_OUTPUT
-            echo "✅ No screenshot differences detected"
-            echo ""
-            echo "This could mean:"
-            echo "  • Screenshots were already regenerated and committed"
-            echo "  • UI changes don't affect screenshot content"
-          else
-            echo "status=outdated" >> $GITHUB_OUTPUT
-            echo "ℹ️  Screenshot differences detected"
-            echo ""
-            echo "Changed screenshot files:"
-            git diff --name-only docs/images/screenshots/
-            echo ""
-            echo "This is expected when UI files change."
-            echo ""
-            echo "If you haven't already, regenerate and commit screenshots:"
-            echo "  1. Run: nox -s screenshots"
-            echo "  2. Review the changes"
-            echo "  3. Commit the updated screenshots with your UI changes"
-            echo ""
-            echo "Updated screenshots are available as artifacts for comparison."
-          fi
-
-      - name: Upload regenerated screenshots
-        if: steps.check_diff.outputs.status == 'outdated'
-        uses: actions/upload-artifact@v7
-        with:
-          name: regenerated-screenshots
-          path: docs/images/screenshots/
-          retention-days: 7
-
-      - name: Comment on PR with screenshot info
-        if: github.event_name == 'pull_request' && steps.check_diff.outputs.status == 'outdated'
+      - name: Comment on PR
         uses: actions/github-script@v9
         with:
           script: |
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '## 📸 Screenshot Update Reminder\n\n' +
-                    'This PR modifies UI files. Screenshot differences were detected when regenerating in CI.\n\n' +
-                    '### Next Steps\n\n' +
-                    'If you haven\'t already, please regenerate and commit screenshots:\n\n' +
-                    '```bash\n' +
-                    'nox -s screenshots\n' +
-                    'git add docs/images/screenshots/\n' +
-                    'git commit -m "Update screenshots for UI changes"\n' +
-                    '```\n\n' +
-                    '### Review\n\n' +
-                    '✅ Updated screenshots are available in the workflow artifacts for comparison\n\n' +
-                    '💡 **Note**: Minor differences in screenshots can occur due to rendering variations. ' +
-                    'The pre-commit hook will also remind you about screenshot updates.\n\n' +
-                    '---\n' +
-                    '*This is an informational message and does not block merging.*'
-            })
+            const marker = '<!-- screenshot-reminder -->'
+            const body = marker + '\n' +
+              '## 📸 Screenshot reminder\n\n' +
+              'This PR touches UI files. If the change is visible in any of the ' +
+              'documentation screenshots, regenerate them:\n\n' +
+              '```bash\n' +
+              'nox -s screenshots\n' +
+              'git add docs/images/screenshots/\n' +
+              '```\n\n' +
+              'Regeneration is not reproducible today — rendered timestamps and ' +
+              'form validation state vary between runs, so expect some files to ' +
+              'change without a real UI difference. Review the diff and keep only ' +
+              'what you meant to change.\n\n' +
+              '---\n' +
+              '*Informational only. Nothing here blocks the merge.*'
+
+            const { owner, repo } = context.repo
+            const issue_number = context.issue.number
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number }
+            )
+            const mine = existing.find(c =>
+              c.user.type === 'Bot' && c.body.includes(marker)
+            )
+
+            if (mine) {
+              await github.rest.issues.updateComment(
+                { owner, repo, comment_id: mine.id, body }
+              )
+            } else {
+              await github.rest.issues.createComment(
+                { owner, repo, issue_number, body }
+              )
+            }

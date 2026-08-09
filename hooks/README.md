@@ -73,7 +73,9 @@ git commit --no-verify
 # Or respond "skip" when prompted by the hook
 ```
 
-**Note:** Use bypass sparingly. CI/CD will still check screenshots on PRs.
+**Note:** Nothing downstream will catch a skipped regeneration. CI posts a
+reminder on PRs that touch UI files, but it cannot tell whether the screenshots
+are stale — see [CI/CD Integration](#cicd-integration) below.
 
 ## Uninstalling
 
@@ -91,12 +93,13 @@ To modify hooks:
 
 ## CI/CD Integration
 
-The pre-commit hook is complemented by CI/CD checks:
+The pre-commit hook is complemented by a CI reminder:
 
 - **GitHub Actions** (`.github/workflows/screenshots.yml`)
   - Runs on PRs that modify UI files
-  - Regenerates screenshots
-  - Fails if screenshots are outdated
-  - Provides download of regenerated screenshots
+  - Posts a single comment suggesting `nox -s screenshots`
 
-This ensures screenshots stay synchronized even if developers skip local hooks.
+CI cannot tell whether the screenshots are stale — it used to regenerate and diff
+them, but font rasterization differs between CI and the machine that committed
+them, so the diff was never empty. Both this hook and the workflow are reminders;
+the judgment is the author's.
