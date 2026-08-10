@@ -20,18 +20,19 @@ American spelling throughout: `catalog`, `cataloged`, `cataloging`, `uncataloged
 prose, user-visible strings, comments, docstrings and code identifiers alike. The repository
 was swept to one spelling; the point is that it stays that way.
 
-**Two trees are deliberately excluded and must not be swept:**
+**Three places are deliberately excluded and must not be swept:**
 
 * **`specs/`** — the frozen record of what was specified at the time. Rewriting it falsifies
   the record.
 * **`migrations/versions/*.py`** — Alembic revision docstrings describe migrations as they
   shipped, for the same reason.
+* **This section of this file** — a rule against a spelling has to be able to name it.
 
 So `grep -ri catalogue specs/ migrations/` returning matches is correct, not a bug to fix. The
 check that matters is that the rest is clean:
 
 ```bash
-grep -ric "catalogue" README.md CLAUDE.md docs/ app/ tests/   # must return nothing
+grep -ric "catalogue" README.md docs/ app/ tests/   # must return nothing
 ```
 
 **A blind `catalogue` → `catalog` substitution is wrong.** It turns `catalogued` into

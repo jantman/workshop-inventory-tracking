@@ -142,19 +142,29 @@ sed -n '/^## Finding Products/,/^## /p' docs/user-manual.md | grep -c "All Produ
 
 ```bash
 # must print nothing
-grep -ric "catalogue" README.md CLAUDE.md docs/ app/ tests/
+grep -ric "catalogue" README.md docs/ app/ tests/
 
 # must still print matches — the frozen records are deliberately untouched
 grep -ric "catalogue" specs/ migrations/ | head -3
 
-# the substitution trap
-grep -rn "uncatalogd\|uncatalogued" app/ tests/ || echo "uncataloged spelled correctly"
+# the substitution traps: a blind catalogue->catalog also breaks the inflections
+grep -rn "catalogd\|catalogng\|uncatalogd\|uncatalogued" app/ tests/ docs/ \
+  || echo "cataloged/cataloging/uncataloged all spelled correctly"
 ```
 
-Confirm `CLAUDE.md` states the rule *and* its exclusions (FR-014):
+**`CLAUDE.md` is deliberately not in the first grep.** FR-014 requires it to state the rule,
+and a rule against a spelling has to name that spelling — the five occurrences in its
+*Spelling* section are the rule itself, not misses. Nothing outside that section may carry it:
 
 ```bash
-grep -A4 -i "catalog" CLAUDE.md | grep -i "specs/\|migrations/"
+# every occurrence must fall inside the Spelling section
+grep -n -i "catalogue" CLAUDE.md
+```
+
+Confirm `CLAUDE.md` states the rule *and* all three exclusions (FR-014):
+
+```bash
+sed -n '/^## Spelling/,/^# /p' CLAUDE.md | grep -c "specs/\|migrations/\|this file"   # >= 3
 ```
 
 ## SC-006 — the renames changed no behavior

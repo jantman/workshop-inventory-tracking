@@ -172,7 +172,7 @@ Exact per-file counts, the rename list and the two traps are in
 - [X] T038 [P] [US4] Rename the eight test functions listed in `contracts/spelling-scope.md` across `tests/unit/test_scan_resolution.py`, `tests/unit/test_vocabulary.py` (×2), `tests/unit/test_catalog_service.py` (×2), `tests/e2e/test_reorder_view.py`, `tests/e2e/test_product_specifications.py` and `tests/e2e/test_product_crud.py`. **`test_an_uncatalogued_barcode_...` becomes `test_an_uncataloged_barcode_...`** — one `g`, one `e`. A blind substitution produces `uncatalogd`.
 - [X] T039 [US4] Add the standing spelling rule to `CLAUDE.md`: American "catalog", never British "catalogue", **and** name the exclusions — files under `specs/` and Alembic revision docstrings under `migrations/` are frozen records and must not be swept. Without the exclusions, the next contributor running the same grep "fixes" the history. Satisfies FR-014.
 - [X] T040 [US4] Verify the sweep: `grep -ric "catalogue" README.md CLAUDE.md docs/ app/ tests/` returns nothing; `grep -ric "catalogue" specs/ migrations/` still returns matches; `grep -rn "uncatalogd\|uncatalogued" app/ tests/` returns nothing. Satisfies SC-005.
-- [ ] T041 [US4] Verify the renames changed no behavior: `nox -s tests` must report **1216 passed** and collect **1216** — a green run alone is insufficient, because a function renamed out of pytest collection passes silently with less in the suite. Then `nox -s e2e` (15-minute timeout) must report **459 passed**. Satisfies FR-012, SC-006.
+- [X] T041 [US4] Verify the renames changed no behavior: `nox -s tests` must report **1216 passed** and collect **1216** — a green run alone is insufficient, because a function renamed out of pytest collection passes silently with less in the suite. Then `nox -s e2e` (15-minute timeout) must report **459 passed**. Satisfies FR-012, SC-006.
 
 **Checkpoint**: One spelling, the frozen records intact, and the suites unchanged in size.
 
@@ -180,10 +180,10 @@ Exact per-file counts, the rename list and the two traps are in
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T042 Run the full merge gate from `quickstart.md`: `nox -s tests` (1216), `nox -s e2e` (459), `git status --porcelain` empty after both, `nox -s screenshots_headless` (18 regenerated), `nox -s screenshots_verify` (all valid, all under 500 KB).
-- [ ] T043 Run the SC-008 regeneration proof: delete the six new PNGs, run `nox -s screenshots_headless`, confirm they reappear with no manual step and pass verification.
-- [ ] T044 Run the SC-001 human check: open `docs/user-manual.md` and, from the table of contents alone, name four things the catalog does and the section documenting each, in under 30 seconds. This is the criterion the whole feature exists for and it is not scriptable.
-- [ ] T045 Confirm `nox -s lint` produces no findings that did not exist at baseline. The session is red at baseline from pre-existing flake8 E501 and is not a merge gate — the check is that nothing new was added.
+- [X] T042 Run the full merge gate from `quickstart.md`: `nox -s tests` (1216), `nox -s e2e` (459), `git status --porcelain` empty after both, `nox -s screenshots_headless` (18 regenerated), `nox -s screenshots_verify` (all valid, all under 500 KB).
+- [X] T043 Run the SC-008 regeneration proof: delete the six new PNGs, run `nox -s screenshots_headless`, confirm they reappear with no manual step and pass verification.
+- [X] T044 Run the SC-001 human check: open `docs/user-manual.md` and, from the table of contents alone, name four things the catalog does and the section documenting each, in under 30 seconds. This is the criterion the whole feature exists for and it is not scriptable.
+- [X] T045 Confirm `nox -s lint` produces no findings that did not exist at baseline. The session is red at baseline from pre-existing flake8 E501 and is not a merge gate — the check is that nothing new was added.
 
 ---
 
