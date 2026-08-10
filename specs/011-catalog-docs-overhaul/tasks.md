@@ -139,9 +139,9 @@ products, and knows where to read more.
 **Independent Test**: Read `README.md` with no other file open and answer "does this track what
 I purchased and what it cost?" and "where do I read more?"
 
-- [ ] T027 [US2] Add the product catalog to the Features list in `README.md`, naming its principal capabilities — cataloging what you buy with identifiers and barcodes, scanning to find or create, purchase and order tracking with reorder lists, categories and tags. Match the existing bullet style (bold lead-in, then description). Satisfies FR-015.
-- [ ] T028 [US2] Ensure the Documentation section of `README.md` points a reader at the catalog guidance — the User Manual entry gains a mention of the catalog half, or a direct link to `docs/user-manual.md#the-product-catalog`. If an anchor is used, it must match the heading created in T006. Satisfies FR-016.
-- [ ] T029 [US2] Embed `docs/images/screenshots/user-manual/product_search.png` in `README.md` with a caption, alongside the existing `readme/inventory_list.png`. Reuse rather than a seventh capture — the README already reuses `user-manual/add_item_form.png` the same way. Depends on T021. Satisfies FR-017.
+- [X] T027 [US2] Add the product catalog to the Features list in `README.md`, naming its principal capabilities — cataloging what you buy with identifiers and barcodes, scanning to find or create, purchase and order tracking with reorder lists, categories and tags. Match the existing bullet style (bold lead-in, then description). Satisfies FR-015.
+- [X] T028 [US2] Ensure the Documentation section of `README.md` points a reader at the catalog guidance — the User Manual entry gains a mention of the catalog half, or a direct link to `docs/user-manual.md#the-product-catalog`. If an anchor is used, it must match the heading created in T006. Satisfies FR-016.
+- [X] T029 [US2] Embed `docs/images/screenshots/user-manual/product_search.png` in `README.md` with a caption, alongside the existing `readme/inventory_list.png`. Reuse rather than a seventh capture — the README already reuses `user-manual/add_item_form.png` the same way. Depends on T021. Satisfies FR-017.
 
 **Checkpoint**: The front door mentions both halves of the application.
 
