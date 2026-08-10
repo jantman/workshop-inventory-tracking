@@ -273,8 +273,9 @@ class CatalogService:
         """Find products by text, category subtree, tag, stock state and spec.
 
         Args:
-            query: Matched against description, specifications, manufacturer part
-                number and every recorded identifier value (FR-032).
+            query: Matched against description, specifications, manufacturer,
+                manufacturer part number, notes and every recorded identifier
+                value (FR-032, 009 FR-010).
             category: A category path; matches it *and its sub-categories*, on
                 segment boundaries, so filtering "foo" never pulls in "foo-bar".
             tag: A tag name; ignores category entirely (FR-031).
@@ -317,6 +318,12 @@ class CatalogService:
                     )),
                     Product.manufacturer_part_number.like(pattern),
                     Product.manufacturer.like(pattern),
+                    # 009 FR-010: the one field the operator writes prose in was
+                    # the one field they could not search. `like`, not `ilike`,
+                    # deliberately -- matching the clauses around it is what
+                    # stops notes and description ever drifting apart, and a
+                    # NULL note is simply never true rather than an error.
+                    Product.notes.like(pattern),
                     Product.id.in_(matching_ids),
                 ))
 
