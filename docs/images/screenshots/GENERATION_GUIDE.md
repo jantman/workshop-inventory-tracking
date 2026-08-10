@@ -21,13 +21,21 @@ nox -s screenshots_verify
 
 ### Run Specific Screenshot Tests
 
-```bash
-# Run a specific test
-python -m pytest tests/e2e/test_screenshot_generation.py::TestDocumentationScreenshots::test_screenshot_inventory_list -v
+Go through nox for these too — **never invoke `pytest` directly** (`CLAUDE.md`). Both
+screenshot sessions forward extra arguments to pytest after a `--`, and the session is what
+installs the Playwright browser and sets `HEADLESS`; running pytest yourself gets neither.
 
-# Run all screenshot tests
-python -m pytest tests/e2e/test_screenshot_generation.py -m screenshot -v
+```bash
+# One test, headless
+nox -s screenshots_headless -- -k test_screenshot_product_detail
+
+# One test, with a visible browser, for debugging
+nox -s screenshots -- -k test_screenshot_product_detail
 ```
+
+Regenerating a single screenshot still rewrites `metadata.json`, whose `generated_at` is a
+timestamp — so expect that one file to show as modified even when the PNG comes back
+byte-identical. Check the PNG itself before committing.
 
 ## Generated Screenshots
 
@@ -105,7 +113,9 @@ Realistic test data is defined in `tests/e2e/fixtures/screenshot_data.py`:
 
 All screenshots must meet these requirements:
 
-- **File Size:** < 500 KB (current avg: 145.7 KB)
+- **File Size:** < 500 KB per file (`nox -s screenshots_verify` is the gate; see
+  [VERIFICATION.md](VERIFICATION.md) for the current sizes rather than a figure duplicated
+  here that goes stale)
 - **Format:** PNG with RGB/RGBA color mode
 - **Dimensions:** 1920px width for full-page screenshots
 - **Optimization:** PNG compression enabled
@@ -122,13 +132,14 @@ Add a new test method to `tests/e2e/test_screenshot_generation.py`:
 @pytest.mark.e2e
 def test_screenshot_new_feature(self, page, live_server):
     """Generate new feature screenshot"""
-    # Load test data
+    # Seed directly -- driving the forms costs seconds per record for
+    # pixels the service path produces identically.
     items = get_inventory_items(count=3)
     self._load_inventory_data(live_server, items)
 
-    # Navigate to page
+    # Navigate, then wait on the thing you are photographing.
     page.goto(f"{live_server.url}/new-feature")
-    page.wait_for_selector("#feature-element", timeout=5000)
+    expect(page.locator("#feature-element")).to_be_visible()
 
     # Capture screenshot
     self.screenshot.capture_viewport(
@@ -144,8 +155,15 @@ Both markers are required. `@pytest.mark.screenshot` is what keeps the test out 
 `nox -s e2e`, which selects `-m "e2e and not screenshot"` — without it an ordinary e2e run
 writes PNGs into `docs/` and leaves the working tree dirty.
 
-Waits must name an element. No `wait_for_timeout`, no `time.sleep`, no
-`wait_for_load_state("networkidle")` — see `CLAUDE.md`.
+**Wait with `expect(locator)`, which polls.** No `wait_for_timeout`, no `time.sleep`, no
+`wait_for_load_state("networkidle")` — `CLAUDE.md`'s *Writing e2e tests* section is the
+normative source and explains why. Resist `page.wait_for_selector(..., timeout=N)` in the test
+body as well: the `timeout=` is a ceiling rather than a duration, so it is not itself a fixed
+wait, but it is the shape that drifts into one, and against a JS-rendered region it is the
+habit that leads to snapshot reads like `count()` returning zero.
+
+A screenshot of a page that renders server-side needs one `expect` and nothing more — the
+element existing after `goto()` is a complete signal.
 
 ### 2. Update This Guide
 
