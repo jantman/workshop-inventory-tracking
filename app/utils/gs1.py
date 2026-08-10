@@ -33,7 +33,15 @@ from typing import Optional
 
 # str.isdigit() is True for Arabic-Indic and other Unicode digits, which would
 # let a non-ASCII string be read as a trade item number. A barcode is ASCII.
-_ASCII_DIGITS = re.compile(r"^[0-9]+$")
+#
+# \Z, not $: in Python '$' also matches immediately before a trailing newline, so
+# '^[0-9]+$' accepts '0012345678905\n' as "digits". That is reachable here -- an
+# interior newline survives the strip() below because it is at neither end -- and
+# it is not harmless: the thirteen digits plus a newline pass the fourteen-digit
+# length check, gtin.normalize() then strips the newline, sees an accepted
+# thirteen-digit length, zero-pads it, and a malformed label resolves to a real
+# product instead of falling through to a search. \Z has no such second meaning.
+_ASCII_DIGITS = re.compile(r"^[0-9]+\Z")
 
 FNC1 = "\x1d"  # the group separator, as a wedge transmits it
 

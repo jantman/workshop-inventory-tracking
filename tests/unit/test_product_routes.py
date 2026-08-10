@@ -58,6 +58,33 @@ class TestReachingAProductByItsCode:
         assert response.status_code == 302
         assert response.headers['Location'].endswith(f'/products/{product.id}')
 
+    @pytest.mark.parametrize(
+        "encoded_suffix,label",
+        [
+            ('%20', 'a trailing space'),
+            ('%0A', 'a trailing newline'),
+            ('%09', 'a trailing tab'),
+        ],
+    )
+    def test_trailing_whitespace_in_the_address_still_reaches_the_product(
+        self, client, service, encoded_suffix, label
+    ):
+        """Raised in review on PR #82: is_internal_id() strips before matching,
+        so a padded code passes validation -- does the lookup then miss it and
+        report a real code as missing?
+
+        It does not. find_product_by_identifier compares against value.strip(),
+        so both halves canonicalize the same way and the product is found. The
+        claim was worth checking and the behaviour is worth pinning, because the
+        two strips are in different modules and nothing else says they agree.
+        """
+        product = service.create_product(description='Blue widget')
+
+        response = client.get(f'/products/{product.internal_code}{encoded_suffix}')
+
+        assert response.status_code == 302
+        assert response.headers['Location'].endswith(f'/products/{product.id}')
+
     def test_a_well_formed_code_no_product_carries_is_reported_missing(
         self, client, service
     ):

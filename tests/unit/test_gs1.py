@@ -86,6 +86,7 @@ class TestNotAnElementString:
             EL + RS + "10LOT42",   # an interior RS is not a group separator
             "01" + "0950600013435",       # thirteen digits, one short
             "01" + "0" * 13 + "X",        # a letter inside the fixed-length field
+            "01" + "0" * 13 + "\n" + "17260101",  # newline inside the field: see below
             "01" + "٠١٢٣٤٥٦٧٨٩٠١٢٣",     # str.isdigit() is True for these; ASCII is required
             GS + "21SN0001",              # AI 21, a serial number
             GS + "17260101",              # AI 17, a date
@@ -103,6 +104,29 @@ class TestNotAnElementString:
     )
     def test_it_is_declined(self, raw):
         assert decode_trade_item_number(raw) is None
+
+    def test_a_newline_inside_the_field_is_not_a_digit(self):
+        """Regression, PR #82 review.
+
+        Python's '$' matches immediately before a trailing newline as well as at
+        end-of-string, so '^[0-9]+$' called thirteen digits plus a newline
+        fourteen digits' worth of match. The newline is interior here, so
+        strip() never sees it. It mattered because gtin.normalize() *does* strip
+        it, then sees a thirteen-digit accepted length and zero-pads it -- so a
+        malformed label resolved to a real product rather than to a search,
+        which is the exact wrong-match failure this module exists to avoid.
+        """
+        assert decode_trade_item_number("010012345678905\n17260101") is None
+
+    @pytest.mark.parametrize(
+        "whitespace",
+        ["\n", "\r", "\t", " ", "\x0b", "\x0c"],
+    )
+    def test_no_whitespace_character_can_stand_in_for_a_digit(self, whitespace):
+        """The newline was the reachable one; none of its siblings may be either"""
+        assert decode_trade_item_number(
+            "01" + "0" * 13 + whitespace + "17260101"
+        ) is None
 
 
 class TestItDoesNotValidate:

@@ -160,6 +160,19 @@ class TestTradeItemElementString:
     def test_something_that_only_resembles_one_stays_free_text(self, scan):
         assert classify(scan).kind is ScanKind.FREE_TEXT
 
+    def test_a_newline_inside_the_field_does_not_reach_a_real_product(self):
+        """Regression, PR #82 review.
+
+        The interesting part is not that this is refused -- it is that when the
+        extractor's anchor was '$' rather than '\\Z', this malformed payload
+        classified as GTIN '00012345678905', which is a key a real product can
+        carry. A scan that should have produced a search produced somebody's
+        product instead.
+        """
+        result = classify("010012345678905\n17260101")
+        assert result.kind is ScanKind.FREE_TEXT
+        assert result.value != VALID_GTIN_KEY
+
 
 class TestPrecedence:
     """Rule 1 outranks rule 3 by design"""
