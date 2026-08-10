@@ -50,8 +50,8 @@ production change at all and can be done any time.
 
 **Purpose**: Make later failures attributable to this change rather than to the environment.
 
-- [ ] T001 Activate the repository virtualenv (`venv/`) and confirm the `nox` sessions resolve Python 3.13 — put pyenv's 3.13 ahead of the system Python on `PATH` if `nox -l` reports a missing interpreter
-- [ ] T002 Record the green baseline: run `nox -s e2e -- tests/e2e/test_bulk_creation.py tests/e2e/test_add_item.py` and confirm all pass **before** any edit, so a later failure in these files is known to be caused by this work
+- [X] T001 Activate the repository virtualenv (`venv/`) and confirm the `nox` sessions resolve Python 3.13 — put pyenv's 3.13 ahead of the system Python on `PATH` if `nox -l` reports a missing interpreter
+- [X] T002 Record the green baseline: run `nox -s e2e -- tests/e2e/test_bulk_creation.py tests/e2e/test_add_item.py` and confirm all pass **before** any edit, so a later failure in these files is known to be caused by this work
 
 **Checkpoint**: Toolchain resolves and the files this feature touches are green.
 
@@ -64,8 +64,8 @@ without it.
 
 **⚠️ Both tasks edit `tests/e2e/test_bulk_creation.py` — strictly sequential, no `[P]`.**
 
-- [ ] T003 Add `submit_and_continue()` to the `BulkCreationPage` class in `tests/e2e/test_bulk_creation.py`, mirroring the existing `submit_form()` (clear `#toast-container`, set `window.__awaitingSubmit`, click `#submit-and-continue-btn`, then `wait_for_function` settling on document replacement, a toast, or `#bulkLabelPrintingModal.show`) — reuse the existing helper's body rather than inventing a second waiting strategy
-- [ ] T004 Add a module-level `count_add_posts(page)` helper in `tests/e2e/test_bulk_creation.py` that attaches `page.on("request", ...)` and returns a mutable counter of `POST` requests whose URL ends in `/inventory/add`; document at the call site that this counts requests *dispatched*, which is what FR-001 constrains
+- [X] T003 Add `submit_and_continue()` to the `BulkCreationPage` class in `tests/e2e/test_bulk_creation.py`, mirroring the existing `submit_form()` (clear `#toast-container`, set `window.__awaitingSubmit`, click `#submit-and-continue-btn`, then `wait_for_function` settling on document replacement, a toast, or `#bulkLabelPrintingModal.show`) — reuse the existing helper's body rather than inventing a second waiting strategy
+- [X] T004 Add a module-level `count_add_posts(page)` helper in `tests/e2e/test_bulk_creation.py` that attaches `page.on("request", ...)` and returns a mutable counter of `POST` requests whose URL ends in `/inventory/add`; document at the call site that this counts requests *dispatched*, which is what FR-001 constrains
 
 **Checkpoint**: A test can drive **Add & Continue** at any quantity and count the resulting POSTs.
 
@@ -86,18 +86,18 @@ that the inventory gained exactly the requested number of items and that no erro
 > error toast (`Failed to create any items`), depending on interleaving. Both outcomes are the
 > bug; if T006 passes on the first run, run it again before believing it.
 
-- [ ] T005 [US1] Add `test_bulk_add_and_continue_sends_one_request` to `tests/e2e/test_bulk_creation.py`: fill a valid item, set quantity 3, submit via `submit_and_continue()`, wait with `wait_for_modal_shown(page, "bulkLabelPrintingModal")`, then assert the T004 counter equals exactly 1
-- [ ] T006 [US1] Add `test_bulk_add_and_continue_creates_exact_count` to `tests/e2e/test_bulk_creation.py`: read `len(InventoryService(live_server.storage).get_all_items())` before submitting, set quantity 3, submit via `submit_and_continue()`, wait for the modal, then assert the count delta is exactly 3 and that `#toast-container .toast-body` contains no error text — establish the modal with `wait_for_modal_shown` *before* the negative toast assertion, per the negative-assertion rule in `CLAUDE.md`
+- [X] T005 [US1] Add `test_bulk_add_and_continue_sends_one_request` to `tests/e2e/test_bulk_creation.py`: fill a valid item, set quantity 3, submit via `submit_and_continue()`, wait with `wait_for_modal_shown(page, "bulkLabelPrintingModal")`, then assert the T004 counter equals exactly 1
+- [X] T006 [US1] Add `test_bulk_add_and_continue_creates_exact_count` to `tests/e2e/test_bulk_creation.py`: read `len(InventoryService(live_server.storage).get_all_items())` before submitting, set quantity 3, submit via `submit_and_continue()`, wait for the modal, then assert the count delta is exactly 3 and that `#toast-container .toast-body` contains no error text — establish the modal with `wait_for_modal_shown` *before* the negative toast assertion, per the negative-assertion rule in `CLAUDE.md`
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] In `app/templates/inventory/add.html`, add `<input type="hidden" name="submit_type" id="submit-type" value="add">` inside `#add-item-form` (near the existing `csrf_token` field at line 31); leave both submit buttons' `name`/`value` attributes in place so `event.submitter.value` keeps working
-- [ ] T008 [US1] In `app/static/js/inventory-add.js`, collapse the two submission entry points into one: delete the `#submit-and-continue-btn` click listener (lines 79-81), change `handleSubmit(event, continueAdding = false)` to derive `const continueAdding = event?.submitter?.value === 'continue'`, delete the `document.createElement('input')` block (lines 668-674), and instead assign `document.getElementById('submit-type').value = continueAdding ? 'continue' : 'add'` — see research.md D1 and D3
-- [ ] T009 [US1] In `app/static/js/inventory-add.js` `handleSubmit()`, add the re-entrancy guard: `if (this.submitting) return;` immediately after `event.preventDefault()` and the validity check, set `this.submitting = true`, and move the button-state restoration into a single `finally` block replacing the duplicated restores in the success and `catch` branches (research.md D2, FR-005)
+- [X] T007 [US1] In `app/templates/inventory/add.html`, add `<input type="hidden" name="submit_type" id="submit-type" value="add">` inside `#add-item-form` (near the existing `csrf_token` field at line 31); leave both submit buttons' `name`/`value` attributes in place so `event.submitter.value` keeps working
+- [X] T008 [US1] In `app/static/js/inventory-add.js`, collapse the two submission entry points into one: delete the `#submit-and-continue-btn` click listener (lines 79-81), change `handleSubmit(event, continueAdding = false)` to derive `const continueAdding = event?.submitter?.value === 'continue'`, delete the `document.createElement('input')` block (lines 668-674), and instead assign `document.getElementById('submit-type').value = continueAdding ? 'continue' : 'add'` — see research.md D1 and D3
+- [X] T009 [US1] In `app/static/js/inventory-add.js` `handleSubmit()`, add the re-entrancy guard: `if (this.submitting) return;` immediately after `event.preventDefault()` and the validity check, set `this.submitting = true`, and move the button-state restoration into a single `finally` block replacing the duplicated restores in the success and `catch` branches (research.md D2, FR-005)
 
 ### Verification for User Story 1
 
-- [ ] T010 [US1] Confirm T005 and T006 now pass, then run `nox -s e2e -- tests/e2e/test_bulk_creation.py tests/e2e/test_add_item.py` — the eight pre-existing bulk tests and `test_add_and_continue_carry_forward_workflow` (quantity-1 continue) are the FR-011 regression surface and must be unchanged
+- [X] T010 [US1] Confirm T005 and T006 now pass, then run `nox -s e2e -- tests/e2e/test_bulk_creation.py tests/e2e/test_add_item.py` — the eight pre-existing bulk tests and `test_add_and_continue_carry_forward_workflow` (quantity-1 continue) are the FR-011 regression surface and must be unchanged
 
 **Checkpoint**: The reported defect is fixed and the inventory is trustworthy. **This is a
 shippable stopping point** — the button's label is still misleading for bulk, but nothing is
@@ -119,18 +119,18 @@ matches what a single-item **Add & Continue** leaves behind.
 
 > All three fail before T014: today the page simply stays put after the dialog closes.
 
-- [ ] T011 [US2] Add `test_bulk_add_and_continue_returns_to_empty_form` to `tests/e2e/test_bulk_creation.py`: submit quantity 3 via `submit_and_continue()`, `close_modal()`, then `expect(page).to_have_url(re.compile(r"/inventory/add$"))` followed by `expect(page.locator("#ja_id")).not_to_have_value("")` — the second wait is `CLAUDE.md` pattern G, because `autoPopulateJaId()` writes the field only after awaiting `/api/inventory/next-ja-id`; then assert `#notes` and `#length` are empty
-- [ ] T012 [US2] Add `test_carry_forward_after_bulk_add_and_continue` to `tests/e2e/test_bulk_creation.py`: after the flow in T011, click `#carry-forward-btn`, wait for the toast, and assert material, location, type and shape are restored from the batch just created (FR-008)
-- [ ] T013 [US2] Add `test_bulk_add_does_not_return_to_empty_form` to `tests/e2e/test_bulk_creation.py`: submit quantity 3 via the **existing** `submit_form()` (plain **Add**), `close_modal()`, and assert the URL did not change and `#material` still holds the submitted value — this is FR-007, the guard against the two buttons collapsing into one, and it is the assertion most easily lost
+- [X] T011 [US2] Add `test_bulk_add_and_continue_returns_to_empty_form` to `tests/e2e/test_bulk_creation.py`: submit quantity 3 via `submit_and_continue()`, `close_modal()`, then `expect(page).to_have_url(re.compile(r"/inventory/add$"))` followed by `expect(page.locator("#ja_id")).not_to_have_value("")` — the second wait is `CLAUDE.md` pattern G, because `autoPopulateJaId()` writes the field only after awaiting `/api/inventory/next-ja-id`; then assert `#notes` and `#length` are empty
+- [X] T012 [US2] Add `test_carry_forward_after_bulk_add_and_continue` to `tests/e2e/test_bulk_creation.py`: after the flow in T011, click `#carry-forward-btn`, wait for the toast, and assert material, location, type and shape are restored from the batch just created (FR-008)
+- [X] T013 [US2] Add `test_bulk_add_does_not_return_to_empty_form` to `tests/e2e/test_bulk_creation.py`: submit quantity 3 via the **existing** `submit_form()` (plain **Add**), `close_modal()`, and assert the URL did not change and `#material` still holds the submitted value — this is FR-007, the guard against the two buttons collapsing into one, and it is the assertion most easily lost
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] In `app/static/js/inventory-add.js`, set `this.continueAfterBulk = continueAdding` before dispatching the bulk `fetch`, and register a `hidden.bs.modal` listener on `#bulkLabelPrintingModal` that navigates to `/inventory/add` when the flag is set (research.md D4) — register it once during setup, not per submission
-- [ ] T015 [US2] Delete the dead `clearFormForContinue()` method from `app/static/js/inventory-add.js` (lines 823-846); it is called from nowhere in `app/` or `tests/`, and leaving a method named for exactly what T014 implements — which it does not correctly do, since it never repopulates the JA ID — misleads the next reader (research.md D7)
+- [X] T014 [US2] In `app/static/js/inventory-add.js`, set `this.continueAfterBulk = continueAdding` before dispatching the bulk `fetch`, and register a `hidden.bs.modal` listener on `#bulkLabelPrintingModal` that navigates to `/inventory/add` when the flag is set (research.md D4) — register it once during setup, not per submission
+- [X] T015 [US2] Delete the dead `clearFormForContinue()` method from `app/static/js/inventory-add.js` (lines 823-846); it is called from nowhere in `app/` or `tests/`, and leaving a method named for exactly what T014 implements — which it does not correctly do, since it never repopulates the JA ID — misleads the next reader (research.md D7)
 
 ### Verification for User Story 2
 
-- [ ] T016 [US2] Confirm T011-T013 pass and re-run `nox -s e2e -- tests/e2e/test_bulk_creation.py tests/e2e/test_add_item.py`
+- [X] T016 [US2] Confirm T011-T013 pass and re-run `nox -s e2e -- tests/e2e/test_bulk_creation.py tests/e2e/test_add_item.py`
 
 **Checkpoint**: **Add & Continue** honors its label at every quantity, and **Add** remains
 distinct from it.
@@ -156,8 +156,8 @@ first, last, or concurrently.
 > same `monkeypatch` technique already used by `test_partial_failure_returns_207`
 > (`tests/unit/test_routes.py:1511`), not end to end.
 
-- [ ] T017 [P] [US3] Add a form-path partial-failure test to `tests/unit/test_routes.py`: monkeypatch `app.main.routes._create_single_item` to fail the second of three items, `POST /inventory/add` with `quantity_to_create=3`, and assert the response is 500 with `success: false`, `count == 2`, and `len(ja_ids) == 2` — the form branch is separate from the JSON API branch already covered at line 1511, and `count`/`ja_ids` are what FR-009's "the count stated matches the inventory" rests on
-- [ ] T018 [P] [US3] Add a form-path complete-failure test to `tests/unit/test_routes.py`: monkeypatch `_create_single_item` to fail every item, `POST /inventory/add` with `quantity_to_create=2`, and assert 500 with the `Failed to create any items` message and no items recorded
+- [X] T017 [P] [US3] Add a form-path partial-failure test to `tests/unit/test_routes.py`: monkeypatch `app.main.routes._create_single_item` to fail the second of three items, `POST /inventory/add` with `quantity_to_create=3`, and assert the response is 500 with `success: false`, `count == 2`, and `len(ja_ids) == 2` — the form branch is separate from the JSON API branch already covered at line 1511, and `count`/`ja_ids` are what FR-009's "the count stated matches the inventory" rests on
+- [X] T018 [P] [US3] Add a form-path complete-failure test to `tests/unit/test_routes.py`: monkeypatch `_create_single_item` to fail every item, `POST /inventory/add` with `quantity_to_create=2`, and assert 500 with the `Failed to create any items` message and no items recorded
 
 **Checkpoint**: The form path's bulk failure reporting is covered, in the fast suite.
 
@@ -165,11 +165,11 @@ first, last, or concurrently.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 Verify SC-005 by proving the guard bites: stash the T007-T009 changes (`git stash`), run T005 alone, confirm it fails with a request count of 2, then restore (`git stash pop`) — a regression test never seen red is not yet a regression test
-- [ ] T020 Run `nox -s tests` and confirm the unit suite is green, including the untouched `tests/unit/test_routes.py:123` audit-logging tests for the **Add & Continue** workflow, whose passing unchanged is the evidence that server behavior did not move
-- [ ] T021 Run the full `nox -s e2e` with a 15-minute tool timeout — the add path is named in Constitution VI, so the active-status, history and multi-row suites are part of this change's regression surface — then confirm `git status` is clean, since an e2e run must not modify tracked files
-- [ ] T022 Walk the ten-step manual acceptance table in [quickstart.md](./quickstart.md) § 3, which covers the requirements no automated test reaches: Enter-key submission (step 10), double-press (step 9), and the quantity-1 paths (steps 6-7)
-- [ ] T023 Prepare the PR: confirm new lines satisfy `nox -s lint` without reformatting surrounding code (the session is red at baseline on pre-existing E501 failures and is advisory), and state in the PR description that documentation screenshots were deliberately **not** regenerated because the change alters a hidden input and event wiring, neither of which renders — the `Screenshot Reminder` workflow will comment on this PR regardless and blocks nothing (research.md D6)
+- [X] T019 Verify SC-005 by proving the guard bites: stash the T007-T009 changes (`git stash`), run T005 alone, confirm it fails with a request count of 2, then restore (`git stash pop`) — a regression test never seen red is not yet a regression test
+- [X] T020 Run `nox -s tests` and confirm the unit suite is green, including the untouched `tests/unit/test_routes.py:123` audit-logging tests for the **Add & Continue** workflow, whose passing unchanged is the evidence that server behavior did not move
+- [X] T021 Run the full `nox -s e2e` with a 15-minute tool timeout — the add path is named in Constitution VI, so the active-status, history and multi-row suites are part of this change's regression surface — then confirm `git status` is clean, since an e2e run must not modify tracked files
+- [X] T022 Walk the ten-step manual acceptance table in [quickstart.md](./quickstart.md) § 3, which covers the requirements no automated test reaches: Enter-key submission (step 10), double-press (step 9), and the quantity-1 paths (steps 6-7)
+- [X] T023 Prepare the PR: confirm new lines satisfy `nox -s lint` without reformatting surrounding code (the session is red at baseline on pre-existing E501 failures and is advisory), and state in the PR description that documentation screenshots were deliberately **not** regenerated because the change alters a hidden input and event wiring, neither of which renders — the `Screenshot Reminder` workflow will comment on this PR regardless and blocks nothing (research.md D6)
 
 ---
 
@@ -251,3 +251,69 @@ the browser work; it shares nothing with the rest and its result is informative 
 - Commit after each phase checkpoint rather than after each task; the tasks within a phase are
   fine-grained edits to one file.
 - No Alembic revision, no schema change, no new dependency, no new pytest marker.
+
+---
+
+## Implementation notes (2026-08-10)
+
+### The stated root cause did not reproduce
+
+T005 and T006 were written to fail first, per the Phase 3 preamble. **They passed
+against the unmodified code.** Measured directly rather than inferred:
+
+| Observation, unmodified code, quantity 3, one press of **Add & Continue** | Predicted | Measured |
+|---|---|---|
+| `POST /inventory/add` requests dispatched | 2 | **1** |
+| `Submit: Submitting form with type: …` console lines | 2 (`continue`, `add`) | **1** (`continue`) |
+| Items created | 3 or 6 | **3** |
+| Error toast / JS page error | one of them | **none** |
+
+`handleSubmit` sets `continueBtn.disabled = true` synchronously, before its first
+`await`. A button's activation behavior returns early when the element is
+disabled, and activation runs after the click listeners — so the click's default
+form submission was suppressed and the `submit` listener never fired. research.md
+carries the same correction at its root-cause section.
+
+**Consequence for SC-005**: T019 as written (stash the fix, watch T005 fail with
+a request count of 2) cannot succeed, because the count was never 2. The stash
+experiment was run anyway and recorded what actually goes red:
+
+| New test | Against unmodified code |
+|---|---|
+| `test_bulk_add_and_continue_sends_one_request` | PASSED (characterization) |
+| `test_bulk_add_and_continue_creates_exact_count` | PASSED (characterization) |
+| `test_bulk_add_and_continue_returns_to_empty_form` | **FAILED** |
+| `test_carry_forward_after_bulk_add_and_continue` | **FAILED** |
+| `test_plain_add_after_bulk_continue_is_not_a_continue` | **FAILED** |
+
+So SC-005 holds for the defects that were real, and three of the five new e2e
+tests have been seen red. The two FR-001/FR-002 tests are characterization
+tests: required by FR-012, but they guard a property rather than reproduce a
+failure.
+
+### Tests added beyond the task list
+
+- `test_plain_add_after_bulk_continue_is_not_a_continue` — the stale
+  `submit_type` defect (research.md D3), the one cross-submission bug that was
+  reproducibly broken. Not in the original task list because the plan attributed
+  everything to the double submission.
+- `test_repeated_submission_creates_one_batch` and
+  `test_enter_key_submits_as_plain_add` — T022's manual acceptance table steps 9
+  and 10. These cover FR-005 and the keyboard-submission edge case, which no
+  automated test reached; they are asserted in the suite rather than walked by
+  hand. Steps 1-8 of that table are covered by the tests in this file and in
+  `test_add_item.py`.
+
+`test_enter_key_submits_as_plain_add` initially failed for an unrelated reason
+worth recording: implicit submission is **silent** when the form is invalid — the
+submit event fires, `checkValidity()` returns false, the handler returns, and
+nothing observable changes. The test had used a material outside the taxonomy.
+It now establishes `is-valid` on `#material` and a populated `#ja_id` before
+pressing Enter.
+
+### Not done
+
+- **Screenshots not regenerated**, per research.md D6 — the change is a hidden
+  input, a `type` attribute and event wiring, none of which renders.
+- **T022 was not walked manually.** Its uncovered steps were automated instead
+  (above). Steps requiring a human at a real browser were not performed.

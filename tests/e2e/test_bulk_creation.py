@@ -5,10 +5,34 @@ Tests the "Quantity to Create" feature that allows creating multiple identical
 items with sequential JA IDs in a single form submission.
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
 from tests.e2e.waits import wait_for_modal_hidden, wait_for_modal_shown
+
+
+def count_add_posts(page):
+    """Count POST requests to /inventory/add dispatched from this point on.
+
+    Returns a single-element list used as a mutable counter; read it as
+    `counter[0]`. This counts requests *dispatched*, not responses received,
+    which is exactly what FR-001 constrains: one press of a submit button must
+    produce one request, regardless of how the server answers it.
+
+    Attach this before the submission being measured -- Playwright delivers
+    `request` events for the page's whole lifetime, so a listener attached
+    afterwards sees nothing.
+    """
+    counter = [0]
+
+    def _on_request(request):
+        if request.method == "POST" and request.url.endswith("/inventory/add"):
+            counter[0] += 1
+
+    page.on("request", _on_request)
+    return counter
 
 
 class BulkCreationPage(BasePage):
@@ -77,6 +101,28 @@ class BulkCreationPage(BasePage):
             """() => window.__awaitingSubmit === undefined
                   || !!document.querySelector('#toast-container .toast')
                   || !!document.querySelector('#bulkLabelPrintingModal.show')"""
+        )
+
+    def submit_and_continue(self):
+        """Press **Add & Continue** and wait for that submission to resolve.
+
+        Same settling strategy as submit_form(), for the same reasons -- see
+        its docstring. The only difference is which button is pressed, so the
+        body is deliberately identical rather than a second waiting strategy
+        that could drift from the first.
+        """
+        self.page.evaluate(
+            """() => {
+                window.__awaitingSubmit = true;
+                const c = document.getElementById('toast-container');
+                if (c) c.innerHTML = '';
+            }"""
+        )
+        self.page.locator("#submit-and-continue-btn").click()
+        self.page.wait_for_function(
+            """() => window.__awaitingSubmit === undefined
+                || !!document.querySelector('#toast-container .toast')
+                || !!document.querySelector('#bulkLabelPrintingModal.show')"""
         )
 
     def get_success_message(self):
@@ -456,6 +502,342 @@ def test_bulk_label_printing_modal_content(page, live_server):
         item_text = items.nth(i).inner_text()
         assert "JA" in item_text
         assert "Stainless Steel" in item_text
+
+
+@pytest.mark.e2e
+def test_bulk_add_and_continue_sends_one_request(page, live_server):
+    """One press of Add & Continue at quantity > 1 dispatches exactly one POST.
+
+    This is FR-001 asserted directly rather than inferred from a symptom, and
+    it holds the single-submission property in place now that the continue
+    button is wired through one listener rather than two.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+
+    item_data = {
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Aluminum',
+        'length': '24',
+        'width': '1',
+        'location': 'Storage A',
+    }
+    bulk_page.fill_item_details(item_data)
+    bulk_page.set_quantity_to_create(3)
+
+    post_count = count_add_posts(page)
+
+    bulk_page.submit_and_continue()
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+
+    assert post_count[0] == 1, (
+        f"Add & Continue dispatched {post_count[0]} POSTs to /inventory/add; "
+        "one press must produce exactly one request"
+    )
+
+
+@pytest.mark.e2e
+def test_bulk_add_and_continue_creates_exact_count(page, live_server):
+    """Add & Continue at quantity N creates exactly N items and shows no error.
+
+    FR-002 and FR-003. Both assertions are here because a duplicated bulk
+    submission can show up either way: two concurrent creations that collide on
+    JA IDs surface as an error toast beside the success dialog, while two that
+    serialise record 2N items and show no error at all. The count is the
+    assertion that catches the silent variant.
+    """
+    from app.mariadb_inventory_service import InventoryService
+
+    service = InventoryService(live_server.storage)
+    count_before = len(service.get_all_items())
+
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+
+    item_data = {
+        'item_type': 'Plate',
+        'shape': 'Rectangular',
+        'material': 'Steel',
+        'length': '12',
+        'width': '6',
+        'thickness': '0.25',
+        'location': 'Shop Floor',
+    }
+    bulk_page.fill_item_details(item_data)
+    bulk_page.set_quantity_to_create(3)
+
+    bulk_page.submit_and_continue()
+
+    # The open modal is what establishes the toast region for the negative
+    # assertion below -- "no error toast" passes trivially against a page that
+    # has not finished the submission.
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+
+    error_toasts = page.locator("#toast-container .toast.text-bg-error")
+    expect(error_toasts).to_have_count(0)
+
+    count_after = len(service.get_all_items())
+    assert count_after - count_before == 3, (
+        f"expected 3 new items, got {count_after - count_before}"
+    )
+
+
+@pytest.mark.e2e
+def test_bulk_add_and_continue_returns_to_empty_form(page, live_server):
+    """Dismissing the bulk dialog after Add & Continue lands on a fresh form.
+
+    FR-006. Before the fix the bulk path had no notion of "continue" at all --
+    the dialog closed and left the filled-in form exactly as it was, so the
+    button did not do what its label says.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+
+    bulk_page.fill_item_details({
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Aluminum',
+        'length': '24',
+        'width': '1',
+        'location': 'Storage A',
+        'notes': 'Batch one',
+    })
+    bulk_page.set_quantity_to_create(3)
+
+    bulk_page.submit_and_continue()
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+    bulk_page.close_modal()
+
+    expect(page).to_have_url(re.compile(r"/inventory/add$"))
+
+    # CLAUDE.md pattern G: autoPopulateJaId() writes #ja_id only after awaiting
+    # /api/inventory/next-ja-id, so the form is not actually ready -- and the
+    # per-item assertions below are not meaningful -- until that write lands.
+    expect(page.locator("#ja_id")).not_to_have_value("")
+
+    expect(page.locator("#notes")).to_have_value("")
+    expect(page.locator("#length")).to_have_value("")
+
+
+@pytest.mark.e2e
+def test_carry_forward_after_bulk_add_and_continue(page, live_server):
+    """Carry Forward restores the batch just created (FR-008).
+
+    The values reach the fresh form through sessionStorage, written by
+    handleSubmit() before the request goes out, which is the same route the
+    single-item continue path already uses.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+
+    bulk_page.fill_item_details({
+        'item_type': 'Plate',
+        'shape': 'Rectangular',
+        'material': 'Stainless Steel',
+        'length': '12',
+        'width': '6',
+        'thickness': '0.25',
+        'location': 'Materials Rack',
+    })
+    bulk_page.set_quantity_to_create(3)
+
+    bulk_page.submit_and_continue()
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+    bulk_page.close_modal()
+
+    expect(page).to_have_url(re.compile(r"/inventory/add$"))
+    expect(page.locator("#ja_id")).not_to_have_value("")
+
+    page.locator("#carry-forward-btn").click()
+
+    # carryForwardData() raises this toast as its last step, after populating
+    # every field, so the toast appearing means the fields are written.
+    expect(page.locator("#toast-container .toast-body")).to_contain_text(
+        "carried forward"
+    )
+
+    expect(page.locator("#material")).to_have_value("Stainless Steel")
+    expect(page.locator("#location")).to_have_value("Materials Rack")
+    expect(page.locator("#item_type")).to_have_value("Plate")
+    expect(page.locator("#shape")).to_have_value("Rectangular")
+
+
+@pytest.mark.e2e
+def test_bulk_add_does_not_return_to_empty_form(page, live_server):
+    """Plain Add at quantity > 1 must NOT navigate away (FR-007).
+
+    This is the assertion most easily lost: if Add starts continuing too, every
+    count is still right and the two buttons have silently collapsed into one.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+
+    bulk_page.fill_item_details({
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Copper',
+        'length': '18',
+        'width': '0.75',
+        'location': 'Storage D',
+    })
+    bulk_page.set_quantity_to_create(3)
+
+    bulk_page.submit_form()
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+    url_after_submit = page.url
+    bulk_page.close_modal()
+
+    assert page.url == url_after_submit
+    expect(page.locator("#material")).to_have_value("Copper")
+
+
+@pytest.mark.e2e
+def test_plain_add_after_bulk_continue_is_not_a_continue(page, live_server):
+    """A bulk Add & Continue must not turn a later plain Add into a continue.
+
+    This is the one case in this file that was reproducibly broken before the
+    fix. The old handler appended a fresh `submit_type=continue` input per
+    continue submission, and a bulk submission never navigates away, so the
+    input survived. The single-item path submits with form.submit(), which
+    carries no submitter, leaving that stale input as the only `submit_type` in
+    the payload -- so the next plain Add was read by the server as a continue
+    and returned to the Add form instead of the inventory list.
+
+    Two changes close it: the submit type now lives in one persistent field
+    that is assigned on every submission, and a bulk continue re-renders the
+    form.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+
+    bulk_page.fill_item_details({
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Aluminum',
+        'length': '24',
+        'width': '1',
+        'location': 'Storage A',
+    })
+    bulk_page.set_quantity_to_create(3)
+    bulk_page.submit_and_continue()
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+    bulk_page.close_modal()
+
+    expect(page).to_have_url(re.compile(r"/inventory/add$"))
+    expect(page.locator("#ja_id")).not_to_have_value("")
+
+    # Now a plain, single-item Add. It must land on the inventory list.
+    bulk_page.fill_item_details({
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Brass',
+        'length': '10',
+        'width': '1',
+        'location': 'Storage B',
+    })
+    bulk_page.set_quantity_to_create(1)
+    bulk_page.submit_form()
+
+    expect(page).to_have_url(re.compile(r"/inventory(\?.*)?$"))
+
+
+@pytest.mark.e2e
+def test_repeated_submission_creates_one_batch(page, live_server):
+    """Two submissions fired back to back produce one batch (FR-005).
+
+    Disabling the buttons covers a double *click*, but Enter still reaches the
+    form while they are disabled, so the re-entrancy flag is what actually
+    holds. requestSubmit() models that: it raises a real submit event carrying
+    the continue button as submitter, exactly as Enter would, and bypasses the
+    disabled state a second click would run into.
+    """
+    from app.mariadb_inventory_service import InventoryService
+
+    service = InventoryService(live_server.storage)
+    count_before = len(service.get_all_items())
+
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+    bulk_page.fill_item_details({
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Aluminum',
+        'length': '24',
+        'width': '1',
+        'location': 'Storage A',
+    })
+    bulk_page.set_quantity_to_create(4)
+
+    post_count = count_add_posts(page)
+
+    page.evaluate(
+        """() => {
+            const c = document.getElementById('toast-container');
+            if (c) c.innerHTML = '';
+            const form = document.getElementById('add-item-form');
+            const btn = document.getElementById('submit-and-continue-btn');
+            form.requestSubmit(btn);
+            form.requestSubmit(btn);
+        }"""
+    )
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+
+    assert post_count[0] == 1, (
+        f"two rapid submissions dispatched {post_count[0]} requests"
+    )
+    assert len(service.get_all_items()) - count_before == 4
+
+    # FR-005: both controls come back to their normal labels and enabled state.
+    expect(page.locator("#submit-btn")).to_be_enabled()
+    expect(page.locator("#submit-and-continue-btn")).to_be_enabled()
+    expect(page.locator("#submit-btn")).not_to_contain_text("Adding...")
+
+
+@pytest.mark.e2e
+def test_enter_key_submits_as_plain_add(page, live_server):
+    """Enter in a text field behaves as Add, not as Add & Continue.
+
+    Implicit submission reports the form's first submit button as the
+    submitter, which is #submit-btn. The observable consequence is that
+    dismissing the dialog does not navigate away.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+    bulk_page.fill_item_details({
+        'item_type': 'Bar',
+        'shape': 'Round',
+        'material': 'Brass',
+        'length': '24',
+        'width': '1',
+        'location': 'Storage E',
+    })
+    bulk_page.set_quantity_to_create(4)
+
+    # Implicit submission is silent when the form is invalid -- it raises the
+    # submit event, the handler finds checkValidity() false and returns, and
+    # nothing observable happens. So both preconditions are established first:
+    # the material is accepted (CLAUDE.md pattern F, is-valid rather than the
+    # absence of is-invalid) and the auto-populated JA ID has landed (pattern
+    # G, autoPopulateJaId() writes it only after awaiting its fetch).
+    expect(page.locator("#material")).to_have_class(
+        re.compile(r"\bis-valid\b"))
+    expect(page.locator("#ja_id")).not_to_have_value("")
+
+    post_count = count_add_posts(page)
+
+    # #ja_id and #location swallow Enter for the barcode scanner, so this uses
+    # an ordinary text field.
+    page.locator("#width").press("Enter")
+    wait_for_modal_shown(page, "bulkLabelPrintingModal")
+
+    assert post_count[0] == 1
+
+    url_after_submit = page.url
+    bulk_page.close_modal()
+
+    assert page.url == url_after_submit
+    expect(page.locator("#material")).to_have_value("Brass")
 
 
 @pytest.mark.e2e

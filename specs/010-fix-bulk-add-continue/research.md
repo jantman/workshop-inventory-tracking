@@ -3,6 +3,36 @@
 The spec deliberately says nothing about mechanism. This file records what the code actually does
 today and the seven decisions that follow from it.
 
+> **Correction from implementation (2026-08-10).** The double-submission root
+> cause described immediately below was **not reproducible**. Measured with
+> `page.on("request", ...)` against the unmodified code, one press of
+> **Add & Continue** at quantity 3 dispatched **one** POST, logged
+> `Submit: Submitting form with type: continue` exactly once, created exactly 3
+> items, raised no error toast and no page error. The reason is that
+> `handleSubmit` sets `continueBtn.disabled = true` synchronously, before its
+> first `await`; per the HTML specification a button's activation behavior
+> returns early if the element is disabled, and activation runs *after* the
+> click listeners. The click's default form submission was therefore suppressed
+> and the `submit` listener never fired. The table below is wrong on that point.
+>
+> What *was* reproducible, and what this feature actually fixes:
+>
+> - **The "continue" never happens** (spec consequence 3, US2/FR-006). After a
+>   bulk **Add & Continue**, dismissing the dialog left the filled-in form in
+>   place.
+> - **A continue submission contaminated the next plain Add** (D3 below). The
+>   appended `submit_type=continue` input survived a bulk submission, which
+>   never navigates away, and `form.submit()` sends no submitter — so the stale
+>   input was the only `submit_type` in a subsequent single-item payload and the
+>   server routed a plain **Add** back to the Add form.
+>
+> The decisions below (D1-D4, D7) are unchanged and were all implemented: they
+> remain correct, and D1 in particular removes a genuine fragility — the code
+> was relying on the disabled-button suppression, undocumented and one edit away
+> from breaking. But the issue-#52 "error" was not observed in this environment,
+> so no test in this feature reproduces it. See the implementation notes in
+> [tasks.md](./tasks.md).
+
 ## Root cause, established
 
 `app/templates/inventory/add.html:349` declares the continue button inside the form:
