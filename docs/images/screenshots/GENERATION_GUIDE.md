@@ -34,7 +34,10 @@ python -m pytest tests/e2e/test_screenshot_generation.py -m screenshot -v
 ### README Screenshots (1)
 - `readme/inventory_list.png` - Main inventory list view
 
-### User Manual Screenshots (11)
+### User Manual Screenshots (17)
+
+Inventory:
+
 - `user-manual/add_item_form.png` - Add new item interface
 - `user-manual/bulk_creation_preview.png` - Bulk item creation preview
 - `user-manual/edit_item_form.png` - Edit item interface
@@ -47,7 +50,21 @@ python -m pytest tests/e2e/test_screenshot_generation.py -m screenshot -v
 - `user-manual/history_view.png` - Item modification history modal
 - `user-manual/batch_operations_menu.png` - Batch operations dropdown menu
 
-**Total:** 12 screenshots
+Product catalog:
+
+- `user-manual/product_search.png` - Product list with filters (also embedded in the README)
+- `user-manual/product_detail.png` - Product detail: identifiers, purchases, stock
+- `user-manual/product_add_form.png` - Add Product form
+- `user-manual/order_capture.png` - Capture an Order, including the HTTP bookmarklet warning
+- `user-manual/reorder_list.png` - Reorder list, all four low states
+- `user-manual/category_tree.png` - Category tree with rename controls
+
+**Total:** 18 screenshots
+
+`product_search.png` is one file embedded in two documents; it counts once. The six catalog
+screenshots share one seed helper, `_seed_catalog`, in
+`tests/e2e/test_screenshot_generation.py` -- read its docstring before changing the seed data,
+because two parts of it are load-bearing and silently degrade the pictures if removed.
 
 ## Screenshot Infrastructure
 
@@ -66,17 +83,15 @@ tests/e2e/
 
 ### Configuration
 
-Screenshots are defined in `tests/e2e/screenshot_config.yaml`:
+**There is none, and `tests/e2e/screenshot_config.yaml` is not it.** Nothing reads that file.
+`test_screenshot_generation.py` does not import the loader and does not mention the YAML;
+every filename, viewport, wait selector and hide list is hardcoded in the test function. The
+YAML declares 20 screenshots, nine of which do not exist on disk, and names `test:` functions
+that do not exist either.
 
-```yaml
-screenshots:
-  - name: "inventory_list_main"
-    description: "Main inventory list view"
-    test: "test_screenshot_inventory_list"
-    output: "docs/images/screenshots/readme/inventory_list.png"
-    viewport: [1920, 1080]
-    wait_for: "table.inventory-table"
-```
+The list above, and the test file, are the only descriptions of what gets generated. Do not
+add entries to the YAML — a new entry generates nothing and makes the file look more
+authoritative than it is.
 
 ### Test Data
 
@@ -125,9 +140,17 @@ def test_screenshot_new_feature(self, page, live_server):
     )
 ```
 
-### 2. Update Configuration
+Both markers are required. `@pytest.mark.screenshot` is what keeps the test out of
+`nox -s e2e`, which selects `-m "e2e and not screenshot"` — without it an ordinary e2e run
+writes PNGs into `docs/` and leaves the working tree dirty.
 
-Add entry to `tests/e2e/screenshot_config.yaml` (optional).
+Waits must name an element. No `wait_for_timeout`, no `time.sleep`, no
+`wait_for_load_state("networkidle")` — see `CLAUDE.md`.
+
+### 2. Update This Guide
+
+Add the file to the list above and correct the total. Do **not** add an entry to
+`tests/e2e/screenshot_config.yaml`; see Configuration above for why.
 
 ### 3. Generate and Verify
 
@@ -167,8 +190,11 @@ Add screenshot reference to relevant documentation files with markdown:
 
 1. Verify element selector is correct
 2. Check if element is visible on page load
-3. Add appropriate wait conditions
-4. Use `page.wait_for_timeout()` if needed
+3. Wait on the element with `expect(...)`, which polls
+
+Do **not** reach for `page.wait_for_timeout()`. Fixed waits are prohibited (`CLAUDE.md`), and
+a screenshot that needs one is a screenshot taken before the page finished — find the element
+whose appearance means the work is done and wait on that instead.
 
 ## CI/CD Integration
 

@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-08-09T14:49:51.968260",
+  "generated_at": "2026-08-10T15:23:16.925446",
   "screenshots": [
     {
-      "filename": "user-manual/batch_operations_menu.png",
+      "filename": "user-manual/category_tree.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-09T14:49:52.645692",
+      "timestamp": "2026-08-10T15:23:18.174045",
       "details": {
         "viewport_size": [
           1920,
           1080
         ],
-        "full_page": false,
-        "wait_for_selector": null,
+        "full_page": true,
+        "wait_for_selector": "#category-tree",
         "hide_selectors": [
           ".toast-container"
         ]

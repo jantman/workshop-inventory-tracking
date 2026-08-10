@@ -723,10 +723,16 @@ The two are separate. A product is a *kind* of thing you buy; an inventory item
 is a specific piece of stock with a JA ID and a cutting history. Nothing in this
 half touches the inventory tables.
 
+![Product Detail](images/screenshots/user-manual/product_detail.png)
+*A product page: what it is, what it cost, where it came from, and how many are on hand*
+
 ## Adding a Product
 
 **Products → Add Product**, or scan something the catalogue does not recognize
 yet.
+
+![Add Product Form](images/screenshots/user-manual/product_add_form.png)
+*The Add Product form -- only Description is required*
 
 Only the description is required, and it is the most important field on the form:
 it is what prints on the label, and it is what you will read when you pick the
@@ -849,6 +855,9 @@ with the most recent price called out.
 price while the listing is still on screen, so that nothing has to be
 reconstructed at unboxing.
 
+![Capture an Order](images/screenshots/user-manual/order_capture.png)
+*Capturing an order: paste the listing URL, or use the bookmarklet. The warning on the right is what an `http://` page shows*
+
 Two ways in:
 
 1. **Paste the URL** into the form. The vendor comes from the address, and for
@@ -932,6 +941,9 @@ description shows the improved one.
 Quantity is deliberately **three-state**, and the three are shown differently
 everywhere:
 
+![Reorder List](images/screenshots/user-manual/reorder_list.png)
+*The reorder list: one row reached its threshold, one was flagged by hand three months ago, one has none on hand, and one is already on the way*
+
 | State | Means | Shown as |
 |---|---|---|
 | Not tracked | You are not counting these | *Not tracked* |
@@ -1002,6 +1014,9 @@ searched on the same terms as everything else, so a phrase you wrote in your own
 words -- *left over from the lathe stand* -- finds the thing you wrote it about
 without your having to remember which field you put it in.
 
+![Product List](images/screenshots/user-manual/product_search.png)
+*The product list, with the filter bar above it and all three quantity states visible at once*
+
 **A product's code is also its address.** The code printed on a label works on
 the end of the address bar: type `/products/WIT…` and you land on that product.
 Handy when the label is in front of you and the scanner is not.
@@ -1021,6 +1036,9 @@ To browse the category and tag trees rather than search across them, see
 **Products → Categories** browses the tree with a count against each. A category
 exists because something is in it: type a new one on a product to create it, and
 move the last product out to remove it. There are no empty categories to tidy up.
+
+![Category Tree](images/screenshots/user-manual/category_tree.png)
+*The category tree, with a count and a Rename control on every row*
 
 **Products → Tags** is the same view for tags: every tag in use, with how many
 products carry it. Unlike categories, a tag with nothing on it survives, and it
