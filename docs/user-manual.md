@@ -693,7 +693,21 @@ the handful where running out costs you something.
 
 Where a quantity is tracked, it is always shown with its age: *counted 8 months
 ago*. A count nobody has revisited in eight months is not a fact about today, and
-showing the age lets you decide how much to trust it.
+showing the age lets you decide how much to trust it. The age means **the last
+time you counted** -- typing a number, or pressing **+** or **−** at the shelf.
+Receiving an order adds to the count without touching the age, because a packing
+slip is not you looking in the drawer.
+
+A hand-set **Low** or **Out** flag is shown with its age the same way: *Flagged
+low 3 months ago*, on the product page and on the reorder list. Pressing the same
+flag again resets its age -- that is you saying you have just looked and it is
+still low, which is the only way to renew the evidence on something you are not
+counting.
+
+Flags you set before this was added have no recorded date, and read *Flagged low
+at an unknown time*. That is not an error: no date was kept at the time, and
+inventing one from something else would be a guess dressed up as a fact. Press
+the flag again to give it a real date.
 
 **Products → Reorder List** gathers everything that needs buying:
 
@@ -706,7 +720,11 @@ page is stored; it is all derived when you open it, so it cannot drift out of
 step with your purchases.
 
 Receiving an order clears both kinds of low: the count goes up, and a manual flag
-is cleared for you.
+is cleared for you -- along with the flag's age, so a flag you set later never
+inherits an old date. What receiving deliberately leaves alone is the *count's*
+age: the number accounts for the delivery, and the date beside it still tells you
+when you last counted. What the delivery changed is on the purchase that changed
+it.
 
 All of these controls are buttons, not typing, so the whole flow works on a
 handheld with no keyboard.

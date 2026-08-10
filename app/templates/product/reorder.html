@@ -61,6 +61,13 @@
                         <span class="badge text-bg-secondary reason-manual">
                             Flagged {{ product.stock_status }}
                         </span>
+                        {# 008 SC-004: this is the screen where the operator
+                           decides what to buy, so the flag's age has to be
+                           legible without opening the product. A class, not an
+                           id -- there are many rows. #}
+                        <div class="text-muted small flag-age">
+                            {{ product.stock_status_age | relative_age('at an unknown time') }}
+                        </div>
                         {% endif %}
                         {% if entry.is_threshold_low %}
                         <span class="badge text-bg-secondary reason-threshold">At threshold</span>

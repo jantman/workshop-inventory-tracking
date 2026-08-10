@@ -221,6 +221,49 @@ def wait_for_material_suggestions(page: Page, query: str) -> None:
     )
 
 
+# The flag values the product page has buttons for, and the class each button
+# carries once it is the active one. A value outside this mapping has no button
+# to wait on, so it is rejected rather than turned into a selector.
+_STOCK_FLAG_ACTIVE_CLASS = {'low': 'btn-warning', 'out': 'btn-danger'}
+
+
+def wait_for_stock_flag(page: Page, status: str | None) -> None:
+    """Wait for a stock-status button click to have taken effect.
+
+    The buttons are type="button": they PATCH the API and then reload the page,
+    so nothing has happened yet at the moment the click returns. Waiting on the
+    reloaded button's own styling is the only observable proof the round trip
+    finished -- and without it the next goto() aborts the in-flight PATCH.
+
+    Args:
+        page: The page showing the product detail view.
+        status: 'low', 'out', or None for a cleared flag.
+
+    Raises:
+        ValueError: If status is not one of those three. Interpolating an
+            unknown value into `#flag-{status}-btn` would instead wait out
+            Playwright's full timeout against an element that never existed,
+            and report it as a flaky UI rather than as the typo it is.
+    """
+    if status is not None and status not in _STOCK_FLAG_ACTIVE_CLASS:
+        valid = ', '.join(repr(s) for s in _STOCK_FLAG_ACTIVE_CLASS)
+        raise ValueError(f"Unknown stock flag {status!r}. Expected {valid}, or None")
+
+    if status:
+        colour = _STOCK_FLAG_ACTIVE_CLASS[status]
+        expect(page.locator(f"#flag-{status}-btn")).to_have_class(
+            re.compile(rf"\b{colour}\b")
+        )
+    else:
+        # Cleared: every status button is back to its outline variant.
+        expect(page.locator("#flag-low-btn")).to_have_class(
+            re.compile(r"\bbtn-outline-warning\b")
+        )
+        expect(page.locator("#flag-out-btn")).to_have_class(
+            re.compile(r"\bbtn-outline-danger\b")
+        )
+
+
 def wait_for_select_populated(page: Page, select_id: str) -> None:
     """Wait for a select that is filled from an API call after render.
 

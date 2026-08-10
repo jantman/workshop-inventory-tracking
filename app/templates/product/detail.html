@@ -328,6 +328,15 @@
                     <button type="button" class="btn btn-lg btn-outline-secondary stock-status-btn"
                             data-status="" id="clear-flag-btn">Clear</button>
                 </div>
+                {% if product.stock_status %}
+                {# 008 FR-004: a flag is evidence too, and evidence with no date
+                   on it cannot be judged. Absent -- not empty -- when there is
+                   no flag, so there is nothing to age. #}
+                <div class="text-muted small mt-2" id="flag-age">
+                    Flagged {{ product.stock_status }}
+                    {{ product.stock_status_age | relative_age('at an unknown time') }}
+                </div>
+                {% endif %}
             </div>
         </div>
 

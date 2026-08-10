@@ -723,16 +723,27 @@ def purchase_receive(purchase_id):
 # ---------------------------------------------------------------------------
 
 @bp.app_template_filter('relative_age')
-def relative_age(age) -> str:
+def relative_age(age, unknown: str = 'never counted') -> str:
     """Render a timedelta the way a person would say it (FR-024).
 
     "counted 8 months ago" is a judgement the operator can make. A bare number
     presents a count as currently authoritative when it may be a year stale, and
     a staleness *flag* would need a policy -- how old is stale? -- that nobody has
     measured and the spec does not state.
+
+    A count's age and a manual flag's age are both rendered here, which is 008
+    FR-012 satisfied by construction: two pieces of evidence on one screen
+    cannot drift into different vocabularies if one function renders both. Only
+    the no-date wording differs, hence ``unknown`` -- "never counted" is right
+    for a count and wrong for a flag, which was certainly set; its date simply
+    was not recorded. The flag templates pass 'at an unknown time'.
+
+    Args:
+        age: The timedelta to render, or None.
+        unknown: What to say when there is no age to render.
     """
     if age is None:
-        return 'never counted'
+        return unknown
 
     days = age.days
     if days < 0:

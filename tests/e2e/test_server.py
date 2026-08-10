@@ -214,6 +214,36 @@ class E2ETestServer:
         print(f"Added {len(products)} test products directly to database")
         return products
 
+    def backdate_product(self, product_id, **fields):
+        """Write a product column directly, bypassing CatalogService.
+
+        For the stock timestamps specifically. Every service path that records
+        one writes ``datetime.now()``, so a count taken three months ago or a
+        flag set two years ago is unreachable through the UI or the service --
+        and those are exactly the states the age display exists for.
+
+        A direct write to one named column is smaller and more local than
+        patching the clock, which would reach every other request the
+        in-process server has in flight.
+
+        Args:
+            product_id: The product to write to.
+            **fields: Column names and values, e.g.
+                ``quantity_updated_at=datetime(2026, 1, 14)``.
+        """
+        if not self.storage:
+            raise RuntimeError("Server not started")
+
+        Session = sessionmaker(bind=self.engine)
+        session = Session()
+        try:
+            product = session.query(Product).filter(Product.id == product_id).one()
+            for name, value in fields.items():
+                setattr(product, name, value)
+            session.commit()
+        finally:
+            session.close()
+
     def add_material_taxonomy(self, taxonomy_data, clear_existing=True):
         """Add custom material taxonomy data for testing
 
