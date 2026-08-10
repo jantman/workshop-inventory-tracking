@@ -26,7 +26,9 @@ Returns the 14 digits carried by a GS1 element string opening with application i
 3. Remove at most one AIM symbology identifier: `]` + one ASCII letter + one ASCII digit.
 4. Remove at most one leading FNC1 (`\x1d`). **Not redundant with step 2's strip** — `'\x1d'.isspace()` is `True`, so a bare leading GS is already gone, but a GS that followed an AIM identifier is interior at the time `strip()` runs and survives it.
 5. Require the remainder to open with `01` followed by exactly 14 **ASCII** digits. (`str.isdigit()` accepts Arabic-Indic digits; `gtin.py` already has `_ASCII_DIGITS` for this reason.)
-6. Require what follows to be **end of input, a GS, or an ASCII digit** — AI `01` is predefined-length, so the next element string abuts it and every AI opens with a digit.
+6. Require what follows to be **end of input, or another element string** — AI `01` is predefined-length, so the next element string abuts the field or is separated from it. Concretely: consume at most one FNC1, then require at least **two** ASCII digits, because every AI is 2–4 digits.
+
+   **Corrected in review (PR #82).** This step first read "end of input, a GS, or an ASCII digit", which admitted three families of free text as trade item numbers — `EL + '1 RES 10K'`, `EL + GS + 'RES 10K'`, and `EL + GS + GS + '10LOT42'` — each resolving to a real product's key. `_MIN_AI_LENGTH = 2` is the operative constant; the separator is a delimiter and not an exemption; exactly one separator is consumed, asymmetric with the leading side where `strip()` absorbs any number.
 7. Return the 14 digits.
 
 ### It does not validate — and that is the contract
@@ -54,6 +56,9 @@ A test asserting these three rows is the one that pins the seam. If extraction e
 | `EL + '\x1d10LOT42'` | `'09506000134352'` — GS-separated |
 | `'01' + '00000000012348'` | `'00000000012348'` |
 | `EL + 'ABC'`, `EL + ' RES 10K'` | `None` — tail is not an element string |
+| `EL + '1ABC'`, `EL + '1 RES 10K'`, `EL + '1'` | `None` — one digit is not an AI |
+| `EL + '\x1dRES 10K'` | `None` — a separator delimits an element string, it does not excuse one |
+| `EL + '\x1d\x1d10LOT42'` | `None` — one separator is consumed; the second opens the tail |
 | `EL + '\x04'` | `None` — EOT is not whitespace, not a GS, not a digit |
 | `'010950600013435'` (13 digits), `'01' + '0'*14 + 'X'` | `None` |
 | `'01' + 14 Arabic-Indic digits` | `None` |

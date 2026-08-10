@@ -90,7 +90,17 @@ This puts the new rule on the padding-tolerant side of the classifier's existing
 
 ## R6 — The tail rule
 
-**Decision**: after `01` and exactly 14 ASCII digits, what follows must be **end of input, a GS, or an ASCII digit**. Anything else means the string only resembles an element string.
+**Decision**: after `01` and exactly 14 ASCII digits, what follows must be **end of input, or another element string** — meaning, after at most one separator, at least **two** ASCII digits.
+
+**Corrected in review (PR #82) — "or an ASCII digit" was too loose, in three ways.** The sentence above originally read "end of input, a GS, or an ASCII digit", copied from the archived branch's *intent contract*. That contract's own review log records that its shipped code ended up stricter than its sentence, and this implementation reproduced the sentence rather than the code — so it reproduced the defect the archived review had already found. All three forms below resolved to GTIN `00012345678905`, a key a real product can carry:
+
+| Payload | Why it got through |
+|---|---|
+| `01<gtin>1 RES 10K 0805` | one digit is not an AI — every AI is 2–4 digits |
+| `01<gtin>` + GS + `RES 10K 0805` | the separator was treated as an exemption rather than a delimiter |
+| `01<gtin>` + GS + GS + `10LOT42` | a doubled separator encloses an empty element string the grammar forbids |
+
+`_MIN_AI_LENGTH = 2` is the operative constant. Exactly one separator is consumed, and only on the tail — deliberately asymmetric with the leading side, where `strip()` absorbs any number. Relaxing any of the three re-opens a defect that has now been found three times across two branches.
 
 **Rationale**: AI `01` is predefined-length (`n2+n14`) in the GS1 General Specifications, so no separator terminates it — on a real label the next element string abuts it directly, and every AI opens with a digit. Accepting an arbitrary tail would make `'0109506000134352 RES 10K 0805'` a barcode scan. Accepting only end-of-input would reject the very common `01`+`17`+`10` concatenation. Digit-or-GS-or-nothing is the rule that admits every legal chain and no prose. It delivers FR-004 and FR-005 as one condition.
 

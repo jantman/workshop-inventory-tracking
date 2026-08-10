@@ -155,10 +155,26 @@ class TestTradeItemElementString:
             AI_01_UPC_A + "ABC",              # a letter cannot open an AI
             "01" + "0001234567890",           # thirteen digits, one short
             GS + "10LOT42" + GS + AI_01_UPC_A,  # AI 01 present but not first
+            AI_01_UPC_A + "1 RES 10K 0805",   # one digit is not an AI: PR #82 review
+            AI_01_UPC_A + GS + "RES 10K",     # a separator is not an exemption
+            AI_01_UPC_A + GS + GS + "10LOT42",  # a doubled separator refuses
         ],
     )
     def test_something_that_only_resembles_one_stays_free_text(self, scan):
         assert classify(scan).kind is ScanKind.FREE_TEXT
+
+    @pytest.mark.parametrize(
+        "scan",
+        [
+            AI_01_UPC_A + "1 RES 10K 0805",
+            AI_01_UPC_A + GS + "RES 10K 0805",
+        ],
+    )
+    def test_free_text_with_a_lucky_prefix_does_not_reach_a_real_product(self, scan):
+        """Regression, PR #82 review. The point is not that these are refused --
+        it is that each one resolved to GTIN '00012345678905' before the tail
+        rule required two digits, which is a key a real product can carry."""
+        assert classify(scan).value != VALID_GTIN_KEY
 
     def test_a_newline_inside_the_field_does_not_reach_a_real_product(self):
         """Regression, PR #82 review.

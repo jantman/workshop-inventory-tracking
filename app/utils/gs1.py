@@ -20,6 +20,23 @@ dates or serial numbers from the same symbol -- those have no screen to show
 them on.  Reading a number out of the middle of an arbitrary payload is how a
 wrong match happens.
 
+**What follows the field must itself be an element string**, or there must be
+nothing.  That is one rule with three teeth, and each was found by somebody
+reviewing a version that lacked it:
+
+- an application identifier is two to four digits, so the tail must open with
+  **two** digits, not one -- otherwise `'01<gtin>1 RES 10K 0805'` is a trade
+  item number with a lucky prefix;
+- a transmitted separator is a **delimiter, not an exemption**: what follows it
+  faces the same test, or `'01<gtin>' + GS + 'RES 10K 0805'` gets through;
+- **exactly one** separator is consumed, so a doubled one leaves a separator as
+  the opener and the scan is refused -- a doubled GS encloses an empty element
+  string the grammar does not permit.  This is deliberately asymmetric with the
+  leading side, where ``strip()`` absorbs any number of them.
+
+Relaxing any of the three re-opens a defect: the first two were each found in
+review, the first of them twice.
+
 **Never raises.**  On any input at all, including a non-``str``, which returns
 ``None`` rather than a ``TypeError``: callers use this in a boolean position, so
 a raise would be noise.  That differs deliberately from
@@ -54,6 +71,15 @@ _AIM_LENGTH = 3
 # AI 01 is predefined-length (n2+n14) in the GS1 General Specifications.
 _TRADE_ITEM_AI = "01"
 _TRADE_ITEM_LENGTH = 14
+
+# Every GS1 application identifier is two to four digits, so whatever follows the
+# fixed-length field must open with at least TWO digits to be another element
+# string. One digit is not enough: it lets '01<gtin>1 RES 10K 0805' through as a
+# trade item number, which is free text with a lucky sixteen-character prefix
+# resolving to a real product. Do not relax this -- the archived branch's review
+# found the one-digit form admitting free text twice, and it is why the docstring
+# rule reads "another element string" rather than "a digit".
+_MIN_AI_LENGTH = 2
 
 
 def decode_trade_item_number(raw: str) -> Optional[str]:
@@ -98,13 +124,28 @@ def decode_trade_item_number(raw: str) -> Optional[str]:
         return None
 
     # AI 01 is fixed-length, so nothing delimits it: on a real label the next
-    # element string abuts it directly, and every AI opens with a digit. What
-    # follows must therefore be another element string -- a separator, a digit,
-    # or nothing. Accepting an arbitrary tail would make '01<14> RES 10K 0805' a
-    # barcode; accepting only end-of-input would reject the very common
-    # 01+17+10 concatenation printed on real boxes.
+    # element string abuts the field directly, or a separator sits between them.
+    # What follows must therefore BE another element string, or nothing at all.
+    # Accepting an arbitrary tail would make '01<14> RES 10K 0805' a barcode;
+    # accepting only end-of-input would reject the very common 01+17+10
+    # concatenation printed on real boxes.
     tail = candidate[field_end:]
-    if tail and tail[0] != FNC1 and not _ASCII_DIGITS.match(tail[0]):
+    if not tail:
+        return digits
+
+    # Exactly one separator is consumed, and only here. That is deliberately not
+    # symmetric with the leading side, where strip() absorbs any number of them:
+    # a doubled GS encloses an empty element string the grammar does not permit,
+    # so leaving the second one as the opener refuses the scan, which is right.
+    if tail.startswith(FNC1):
+        tail = tail[len(FNC1):]
+
+    # The separator is a delimiter, not an exemption -- what follows it is held
+    # to the same test as an abutted tail. Checking only the abutted side leaves
+    # '01<gtin>\x1dRES 10K 0805' reading as a trade item number.
+    if len(tail) < _MIN_AI_LENGTH:
+        return None
+    if not _ASCII_DIGITS.match(tail[:_MIN_AI_LENGTH]):
         return None
 
     return digits

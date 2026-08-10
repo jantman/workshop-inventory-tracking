@@ -67,11 +67,12 @@ class TestTrailingElementStrings:
     def test_a_following_element_string_is_ignored_not_fatal(self, raw):
         assert decode_trade_item_number(raw) == DIGITS
 
-    def test_a_fifteenth_digit_reads_as_the_next_ai_not_as_an_overlong_field(self):
-        """There is no way to tell the two apart, and the standard says the
-        field is fourteen digits -- so a digit after it opens another element
-        string. Rejecting this would also reject the legal 01+17+10 chain."""
-        assert decode_trade_item_number(EL + "1") == DIGITS
+    def test_the_separator_is_consumed_but_only_one_of_them(self):
+        """Asymmetric with the leading side, where strip() absorbs any number.
+        A doubled separator encloses an empty element string the grammar does
+        not permit, so the second one is left as the opener and refuses."""
+        assert decode_trade_item_number(EL + GS + "10LOT42") == DIGITS
+        assert decode_trade_item_number(EL + GS + GS + "10LOT42") is None
 
 
 class TestNotAnElementString:
@@ -103,6 +104,33 @@ class TestNotAnElementString:
         ],
     )
     def test_it_is_declined(self, raw):
+        assert decode_trade_item_number(raw) is None
+
+    @pytest.mark.parametrize(
+        "raw,why",
+        [
+            (EL + "1ABC",            "one digit then letters"),
+            (EL + "1 RES 10K 0805",  "one digit then prose -- the reported case"),
+            (EL + "1",               "a lone digit is not a complete AI"),
+            (EL + "1\x04",           "one digit then a control character"),
+            (EL + GS + "RES 10K",    "the separator is a delimiter, not an exemption"),
+            (EL + GS + "1ABC",       "and what follows it faces the same test"),
+            (EL + GS + GS + "10LOT42",  "a doubled separator opens with a separator"),
+            (EL + GS + "1",          "one digit after a separator is still not an AI"),
+        ],
+    )
+    def test_a_tail_that_is_not_an_element_string_is_refused(self, raw, why):
+        """Regression, PR #82 review.
+
+        Every one of these returned the trade item number when the tail rule
+        asked for one digit rather than two, and each therefore classified as
+        GTIN '00012345678905' -- a key a real product can carry. The failure was
+        not "malformed input accepted", it was free text with a lucky sixteen-
+        character prefix resolving to somebody's product.
+
+        The archived branch's review found the one-digit form twice and the
+        separator exemption once. Do not relax this back.
+        """
         assert decode_trade_item_number(raw) is None
 
     def test_a_newline_inside_the_field_is_not_a_digit(self):
