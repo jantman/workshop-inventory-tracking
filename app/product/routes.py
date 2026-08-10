@@ -17,10 +17,11 @@ from app.catalog_service import CatalogService
 from app.exceptions import (
     CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
 )
-from app.models import ListingCapture
+from app.models import IdentifierType, ListingCapture
 from app.photo_service import PhotoService
 from app.product import bp
 from app.services.listing_images import store_listing_images
+from app.utils import internal_id
 
 
 def _get_storage_backend():
@@ -266,6 +267,44 @@ def product_detail(product_id):
         attachments=attachments,
         purchase_attachments=purchase_attachments,
     )
+
+
+@bp.route('/products/<product_code>')
+def product_by_code(product_code):
+    """Reach a product by the permanent code printed on its label (009 FR-015).
+
+    **Redirects rather than rendering.** 009 FR-015 asks for the same content
+    and the same actions as the canonical page; a redirect makes that identical
+    by construction instead of a claim to test, and keeps product_detail's
+    assembly of purchases, photos and prices in one place. The record number
+    stays canonical (009 FR-017), and the address bar is where that is said.
+
+    **The code is upper-cased here, not in internal_id.** Crockford base32 omits
+    I, L, O and U precisely so a person can retype a scuffed label, and someone
+    typing a code into an address bar is that person. Its alphabet is
+    uppercase-only, so folding is injective and cannot reach a different product
+    (009 FR-018). Loosening ``internal_id.is_internal_id`` instead would make
+    ``witabc...`` an internal code to the *scanner*, changing a classification
+    that resolves today (009 FR-008) for a convenience owed to one route.
+
+    Werkzeug ranks argument-free rules above parameterized ones and the integer
+    converter above the string one, so ``/products/new`` and ``/products/42``
+    keep their own handlers. That is defined behaviour, and
+    ``tests/unit/test_product_routes.py`` pins it because it would otherwise
+    fail silently and far from its cause.
+    """
+    code = product_code.upper()
+    if not internal_id.is_internal_id(code):
+        raise ItemNotFoundError(f"No product carries the code {product_code}")
+
+    service = _get_catalog_service()
+    product = service.find_product_by_identifier(
+        code, id_type=IdentifierType.INTERNAL.value
+    )
+    if product is None:
+        raise ItemNotFoundError(f"No product carries the code {code}")
+
+    return redirect(url_for('product.product_detail', product_id=product.id))
 
 
 @bp.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])

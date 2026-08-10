@@ -92,19 +92,29 @@ free text: searchable by word, not filterable, and shown as a paragraph.
 
 ## Finding things
 
-**A manufacturer's own 2D barcode doesn't resolve.** Scanning handles the codes this system prints,
-distributor labels, and plain retail barcodes. It does not handle the standard structured form a
-manufacturer uses to put a retail barcode in a 2D symbol, so scanning one of those falls through to
-a plain text search instead of finding the product. This one is worth noting because the archived
-branch found it during its own build and amended its spec for it.
+**~~A manufacturer's own 2D barcode doesn't resolve.~~** *Built — feature 009.* Scanning now reads
+the standard structured form a manufacturer uses to put a retail barcode in a 2D symbol, and the
+number it carries resolves exactly as the plain barcode would — same product, same offer to create
+one, same refusal for a bad check digit. Trailing lot codes and dates in the same symbol are ignored
+rather than fatal; only a payload that *opens* with the trade item number is read, because pulling a
+number out of the middle of an arbitrary payload is how a wrong match happens. Reading those other
+fields is deliberately not built: they have no screen to show them on. The archived branch found
+this gap during its own build and amended its spec for it, so the analysis was already paid for.
 
-**Notes aren't searched.** Descriptions, specifications, part numbers and identifiers are. Anything
-written in the notes field is invisible to search.
+**~~Notes aren't searched.~~** *Built — feature 009.* Notes join the free-text search on exactly the
+terms the other fields use — one clause beside the five that were already there, so notes and
+description cannot drift apart. The search box and the manual both name notes now, because a
+searchable field the operator does not know is searchable buys nothing. Purchase notes stay
+unsearched: they record the circumstances of one order, not facts about the part.
 
-**A product's address isn't derived from its label.** The plan gave each product a permanent address
-built from the code printed on its label, so the label and the link are the same fact. Product
-addresses are internal record numbers instead — which works, but means the printed code and the
-product's location in the application are two separate things to keep in step.
+**~~A product's address isn't derived from its label.~~** *Built — feature 009, narrower than
+described.* The printed code now works as an address — `/products/WIT…` reaches that product — but
+it is an *additional* address rather than the only one. The record number stays canonical and every
+existing link keeps working; the code-formed address redirects to it. That was the operator's call
+when the two readings were put to them, and it is what the concession in the original paragraph
+("which works") supports. The full version, where the code replaces the record number everywhere,
+was not built and is not planned: it would move every internal link, template, test and screenshot
+to remove a duplication that costs nothing now that both addresses resolve.
 
 ## Labels
 

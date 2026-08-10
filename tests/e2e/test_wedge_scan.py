@@ -12,6 +12,7 @@ from playwright.sync_api import expect
 from tests.e2e.specification_rows import set_specifications
 
 VALID_UPC_A = "012345678905"
+VALID_GTIN_KEY = "00012345678905"
 
 
 def create_product(page, base_url, description, specifications=None, **fields):
@@ -89,8 +90,27 @@ def test_scanning_junk_lands_on_search_with_the_raw_scan(page, live_server):
 
 
 @pytest.mark.e2e
+def test_scanning_a_manufacturers_2d_barcode_lands_on_its_product(page, live_server):
+    """009 SC-001: the structured form a manufacturer prints resolves in one scan.
+
+    Seeded rather than driven through the form: the grammar is covered
+    exhaustively in tests/unit/test_gs1.py, and what this adds is that the wedge,
+    the classifier and the lookup are wired to each other.
+    """
+    live_server.add_test_products([{
+        'description': 'LM358 dual op-amp',
+        'identifiers': [{'id_type': 'GTIN', 'value': VALID_UPC_A}],
+    }])
+
+    page.goto(live_server.url)
+    scan(page, "01" + VALID_GTIN_KEY)
+
+    expect(page.locator("#product-description")).to_have_text("LM358 dual op-amp")
+
+
+@pytest.mark.e2e
 def test_scanning_a_stored_vendor_identifier_lands_on_its_product(page, live_server):
-    """Rule 4: an ASIN has no shape, so it is found by looking it up"""
+    """Rule 5: an ASIN has no shape, so it is found by looking it up"""
     create_product(
         page, live_server.url, "Amazon widget",
         identifier_type="VENDOR", identifier_value="B0ABCDEFGH",

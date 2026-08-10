@@ -3,8 +3,8 @@ Unit tests for catalogue search, category filtering and tags.
 
 Three properties: a category filter includes its sub-categories and stops at
 segment boundaries, a tag filter ignores category entirely, and search reaches
-description, specifications, part number and identifier alike (FR-030, FR-031,
-FR-032, SC-009).
+description, specifications, part number, identifier and notes alike (FR-030,
+FR-031, FR-032, SC-009, and 009 FR-010).
 """
 
 import pytest
@@ -39,6 +39,9 @@ def catalogue(service):
         ],
         category_path='electronics/passives/capacitors',
         tags=['rohs'],
+        # Names LM358, which is another product's description. Searching for it
+        # must return both products, once each (009 FR-010, FR-011).
+        notes='bought with the LM358 order',
     )
     service.create_product(
         description='LM358 op-amp',
@@ -56,6 +59,14 @@ def catalogue(service):
     service.create_product(
         description='Electronics-adjacent thing',
         category_path='electronics-surplus',
+    )
+    # The notes case: a phrase in the operator's own words that appears in no
+    # other field on any product. Deliberately outside every category and tag
+    # the filter tests assert on, so it constrains only the notes cases.
+    service.create_product(
+        description='Toroidal transformer',
+        category_path='workshop/salvage',
+        notes='left over from the lathe stand rebuild',
     )
     return service
 
@@ -95,7 +106,7 @@ class TestCategoryFilter:
         assert len(catalogue.search_products(category=' Electronics / Passives ')) == 2
 
     def test_a_blank_category_filter_selects_everything(self, catalogue):
-        assert len(catalogue.search_products(category='')) == 5
+        assert len(catalogue.search_products(category='')) == 6
 
     def test_an_unused_category_returns_nothing_rather_than_erroring(self, catalogue):
         assert catalogue.search_products(category='nonexistent') == []
@@ -155,10 +166,55 @@ class TestTextSearch:
         assert len(catalogue.search_products(query='capacit')) == 1
 
     def test_a_blank_query_returns_everything(self, catalogue):
-        assert len(catalogue.search_products(query='   ')) == 5
+        assert len(catalogue.search_products(query='   ')) == 6
 
     def test_nothing_matching_is_an_empty_list_not_an_error(self, catalogue):
         assert catalogue.search_products(query='nothing here matches this') == []
+
+
+class TestNotesAreSearched:
+    """009 FR-010 .. FR-014: the field the operator writes prose in is findable.
+
+    There is deliberately no case-insensitivity test here. SQLite's LIKE and
+    MariaDB's utf8mb4 _ci collation both fold ASCII case, so the two backends
+    agree and such a test would pass whether the query said `like` or `ilike` --
+    it would assert nothing about which. What guarantees 009 FR-012 is that
+    notes use the identical construct as the five clauses beside it, and the
+    test that shows it is test_a_term_in_one_description_and_another_note below.
+    """
+
+    def test_a_phrase_held_only_in_notes_finds_the_product(self, catalogue):
+        assert descriptions(catalogue.search_products(query='lathe stand')) == [
+            'Toroidal transformer'
+        ]
+
+    def test_a_partial_word_from_the_notes_matches(self, catalogue):
+        assert descriptions(catalogue.search_products(query='salvag')) == []
+        assert descriptions(catalogue.search_products(query='rebuild')) == [
+            'Toroidal transformer'
+        ]
+
+    def test_a_product_with_no_notes_is_not_returned_for_someone_elses(self, catalogue):
+        found = descriptions(catalogue.search_products(query='lathe stand'))
+        assert 'M4 hex bolt' not in found
+        assert 'Electronics-adjacent thing' not in found
+
+    def test_a_term_in_one_description_and_another_note(self, catalogue):
+        """009 FR-011: both, once each. An or_ disjunct cannot multiply a row,
+        which is why notes needs no de-duplication the way identifiers do."""
+        found = [p.description for p in catalogue.search_products(query='LM358')]
+        assert sorted(found) == ['Ceramic capacitor, 100nF', 'LM358 op-amp']
+        assert len(found) == len(set(found))
+
+    def test_the_other_filters_still_bind_a_notes_match(self, catalogue):
+        """009 FR-013: matching through notes is not an escape from the filters"""
+        assert descriptions(
+            catalogue.search_products(query='lathe stand', category='workshop')
+        ) == ['Toroidal transformer']
+        assert catalogue.search_products(
+            query='lathe stand', category='electronics'
+        ) == []
+        assert catalogue.search_products(query='lathe stand', tag='surplus') == []
 
 
 class TestStockFilter:
@@ -205,6 +261,7 @@ class TestCategoryListing:
             'electronics/passives/capacitors',
             'electronics/passives/resistors',
             'hardware/fasteners',
+            'workshop/salvage',
         ]
 
     def test_a_prefix_narrows_to_a_subtree(self, catalogue):
