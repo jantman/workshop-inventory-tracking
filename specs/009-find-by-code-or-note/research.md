@@ -138,7 +138,11 @@ This puts the new rule on the padding-tolerant side of the classifier's existing
 
 **Decision**: run `nox -s screenshots_headless` and `nox -s screenshots_verify`; expect zero changed files and a clean working tree.
 
-**Rationale**: the constitution requires regenerating documentation screenshots for any change under `app/templates/**`, and this feature edits one template (`app/templates/product/search.html`, for FR-014). But `tests/e2e/screenshot_config.yaml` defines no product-catalogue screenshot at all — the `search_form.png` and `search_results.png` entries are the *inventory* advanced search (`wait_for: "#search-form"`, captioned "Figure 12: Advanced search form with range queries and filters"), a different page. So the gate is satisfied by running the session, and a diff in `docs/images/screenshots/` would be a signal that something unexpected changed rather than an expected part of this work.
+**Rationale**: the constitution requires regenerating documentation screenshots for any change under `app/templates/**`, and this feature edits one template (`app/templates/product/search.html`, for FR-014). But `tests/e2e/screenshot_config.yaml` defines no product-catalogue screenshot at all — the `search_form.png` and `search_results.png` entries are the *inventory* advanced search (`wait_for: "#search-form"`, captioned "Figure 12: Advanced search form with range queries and filters"), a different page.
+
+**Corrected during implementation — "expect no change" was wrong.** Running `nox -s screenshots_headless` rewrote eight PNGs plus `metadata.json`. None is a product-catalogue page; the PNG diffs are under 0.5% of file size and the metadata diff is timestamps only. This is the known non-reproducibility of the generator (issue #77), which feature 008 hit and documented in the same terms. The prediction accounted for *which pages the config covers* and not for the generator's instability.
+
+So the correct action is the one feature 008 took: run the session to satisfy the gate, then **revert the noise** rather than committing it, and confirm `nox -s screenshots_verify` passes on the committed set. Committing eight rewritten unrelated PNGs would destroy review signal, which the constitution's own rationale for prohibiting mass reformatting argues against. A screenshot diff on a *product* page would still be the real signal to investigate — there was none.
 
 ---
 

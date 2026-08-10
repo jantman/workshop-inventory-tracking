@@ -130,7 +130,7 @@ This feature's largest risk is not that the new behaviour is wrong but that exis
 
 - `nox -s tests` and `nox -s e2e` green, with **no previously passing test newly failing** — particularly `tests/unit/test_scan_router.py`, `tests/unit/test_gtin.py`, `tests/unit/test_ecia.py`, `tests/unit/test_scan_resolution.py`, `tests/e2e/test_wedge_scan.py` and `tests/e2e/test_ecia_scan.py`.
 - `git status --porcelain` empty after every session, including the e2e one.
-- `nox -s screenshots_verify` passes and `docs/images/screenshots/` is unchanged. One template is edited, but no screenshot covers the product catalogue — a diff there means something unintended happened.
+- `nox -s screenshots_verify` passes and `docs/images/screenshots/` is unchanged **in the commit**. Note that running `nox -s screenshots_headless` *will* rewrite eight unrelated inventory PNGs with rasterization noise — that is issue #77, not this feature. Revert them (`git checkout -- docs/images/screenshots/`) rather than committing them. A diff on a *product* page would be the real signal; there is none, because no screenshot covers the product catalogue.
 - No Alembic revision was created. If you wrote one, the design was misunderstood: this feature stores nothing new.
 
 ## Writing the e2e tests

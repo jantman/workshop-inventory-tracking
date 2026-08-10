@@ -50,8 +50,21 @@ def product_by_code(product_code): ...
 |---|---|
 | a code carried by a product | **302** to `/products/<id>` (`url_for('product.product_detail', …)`) |
 | the same code in lower or mixed case | **302** to the same place |
-| a well-formed code carried by nothing | **404**, via `ItemNotFoundError` |
-| a segment that is not a well-formed code | **404**, via `ItemNotFoundError` |
+| a well-formed code carried by nothing | whatever an unknown record number does — see below |
+| a segment that is not a well-formed code | the same |
+
+**Correction, found during implementation.** This contract first said a missing code returns **404**. It does not, for an HTML request: `app/error_handlers.py:308` answers `ItemNotFoundError` with `jsonify(...), 404` only when `request.is_json`, and otherwise flashes a warning and redirects to the inventory list. That is already what `/products/999999` does today, so the route needs no special handling — FR-016 asks for "the catalogue's existing treatment of a missing product" and this *is* it.
+
+The test asserts the equivalence rather than a literal status code, so the two paths cannot drift:
+
+```python
+unknown_code = client.get('/products/WITZZZZZZZZZZ')
+unknown_id   = client.get('/products/999999')
+assert unknown_code.status_code == unknown_id.status_code
+assert unknown_code.headers['Location'] == unknown_id.headers['Location']
+```
+
+Worth noting but out of scope: that redirect lands on the *inventory* list, not the product catalogue, which is a slightly odd destination for a missing product. It is pre-existing behaviour for every product-not-found in the app, and changing it belongs to its own change rather than this one.
 
 Handler shape — thin, per Constitution II, with no ORM query of its own:
 

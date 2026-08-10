@@ -559,10 +559,18 @@ A scan always gets an answer. There is no "not found":
 | What you scanned | What happens |
 |---|---|
 | An internal code, or a barcode you have catalogued | The product opens |
+| A manufacturer's own 2D barcode | Exactly as though you had scanned the plain barcode it carries |
 | A valid barcode you have not catalogued | A create form, with the barcode already attached |
 | A distributor's 2D label | A create form, filled in from the label |
 | An ASIN you have recorded | The product opens |
 | Anything else | A search, carrying what you scanned |
+
+**A manufacturer's 2D code needs nothing from you.** Many boxes carry the retail
+barcode a second time inside a square 2D symbol, wrapped up with a label saying
+which number it is. Scan either mark and you land in the same place. If the same
+symbol also carries a lot number or a date, those are ignored rather than
+getting in the way. A number that fails its check digit is still refused here,
+just as it is when printed plainly -- you get a search, not the wrong product.
 
 Scanning a product you already hold offers **add a purchase to this product**, and
 offers to receive any order you have outstanding for it -- because at the
@@ -746,8 +754,15 @@ file to save first. Pasting ordinary text does nothing and says nothing.
 
 ### Finding Things
 
-**Products → All Products** searches descriptions, specifications, part numbers
-and every recorded identifier at once, including internal codes.
+**Products → All Products** searches descriptions, specifications, part numbers,
+notes and every recorded identifier at once, including internal codes. Notes are
+searched on the same terms as everything else, so a phrase you wrote in your own
+words -- *left over from the lathe stand* -- finds the thing you wrote it about
+without your having to remember which field you put it in.
+
+**A product's code is also its address.** The code printed on a label works on
+the end of the address bar: type `/products/WIT…` and you land on that product.
+Handy when the label is in front of you and the scanner is not.
 
 Filters, which combine:
 
