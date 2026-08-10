@@ -67,29 +67,67 @@ grep -rn "user-manual.md#" --exclude-dir=.git --exclude-dir=venv . || echo "no e
 ## SC-003 — no guidance was dropped
 
 The rework moves and re-titles prose. This check confirms the *facts* survived. Each phrase
-below is load-bearing guidance from the current catalog section; each must still be present:
+below is load-bearing guidance from the current catalog section; each must still be present.
+
+The manual is hard-wrapped, so several of these phrases straddle a newline and a plain
+`grep -F` reports them absent even in the untouched document. The check normalizes whitespace
+first — three of the thirteen phrases (`Flagged low at an unknown time`,
+`onto a name already in use merges`, `forwarding address`) fail a naive `grep` against the
+**baseline** file, so a naive grep proves nothing either way:
 
 ```bash
-for phrase in \
-  "fails its check digit is refused" \
-  "all zeros" \
-  "scoped to their vendor" \
-  "upgrade-insecure-requests" \
-  "baked in when the page renders" \
-  "Not tracked" \
-  "None on hand" \
-  "Flagged low at an unknown time" \
-  "Renaming never merges two categories" \
-  "Renaming onto a name already in use merges" \
-  "no forwarding address" \
-  "deactivated" \
-  "Thread Size and Purchase Location are inventory-only" ; do
-  printf '%-50s %s\n' "$phrase" "$(grep -qF "$phrase" docs/user-manual.md && echo present || echo '*** MISSING ***')"
-done
+python3 - <<'PY'
+import re, pathlib
+text = re.sub(r'\s+', ' ', pathlib.Path('docs/user-manual.md').read_text())
+phrases = [
+    "fails its check digit is refused",
+    "all zeros",
+    "scoped to their vendor",
+    "upgrade-insecure-requests",
+    "baked in when the page renders",
+    "Not tracked",
+    "None on hand",
+    "Flagged low at an unknown time",
+    "Renaming never merges two categories",
+    "onto a name already in use merges",
+    "forwarding address",
+    "deactivated",
+    "Thread Size and Purchase Location are inventory-only",
+]
+for p in phrases:
+    print(f"{p:<52} {'present' if p in text else '*** MISSING ***'}")
+PY
 ```
 
 **Expect** every line `present`. A `MISSING` means the rework dropped a fact FR-004 requires
-kept — not that the wording changed, since these are the exact strings in today's text.
+kept.
+
+Stronger than the phrase list, and the check actually used during implementation: every
+paragraph of the old catalog block must still appear verbatim (modulo re-wrapping) in the
+reworked manual.
+
+```bash
+python3 - <<'PY'
+import re, pathlib, subprocess
+norm = lambda s: re.sub(r'\s+', ' ', s)
+base = subprocess.run(['git', 'show', 'HEAD:docs/user-manual.md'],
+                      capture_output=True, text=True).stdout
+new = norm(pathlib.Path('docs/user-manual.md').read_text())
+block = '\n'.join(base.split('\n')[474:836])          # the old ## Product Catalogue block
+paras = [p for p in block.split('\n\n') if p.strip() and not p.strip().startswith('#')]
+missing = [norm(p).strip() for p in paras if norm(p).strip() not in new]
+print(f"{len(paras)} paragraphs checked, {len(missing)} not found verbatim")
+for m in missing:
+    print(' ---', m[:120])
+PY
+```
+
+**Expect** at most the two paragraphs the rework deliberately edits, both because
+re-levelling invalidated a word: *"Nothing in this **section** touches the inventory tables"*
+becomes *"this **half**"*, and the *Identifier* bullet's *"See **below**"* becomes an explicit
+link, since neither "this section" nor "below" survives the promotion to top-level sections.
+Run this against `HEAD` before the manual is committed; afterwards compare against the
+pre-rework commit.
 
 For the split described in data-model.md, confirm both halves landed:
 

@@ -1,20 +1,45 @@
 # Workshop Inventory Tracking - User Manual
 
 ## Table of Contents
+
+**Getting oriented**
+
 1. [Getting Started](#getting-started)
 2. [Overview](#overview)
+
+**Inventory — tracking physical stock**
+
 3. [Adding New Inventory](#adding-new-inventory)
 4. [Label Printing](#label-printing)
 5. [Managing Existing Inventory](#managing-existing-inventory)
    - [Photo Management](#photo-management)
-6. [Product Catalogue](#product-catalogue)
-7. [Advanced Search](#advanced-search)
-8. [Batch Operations](#batch-operations)
-9. [Data Export](#data-export)
-10. [REST API](#rest-api)
-11. [Help and Utilities](#help-and-utilities)
-12. [Tips and Best Practices](#tips-and-best-practices)
-13. [Troubleshooting](#troubleshooting)
+6. [Advanced Search](#advanced-search)
+7. [Batch Operations](#batch-operations)
+
+**Product Catalog — what you bought, what it cost, where it came from**
+
+8. [The Product Catalog](#the-product-catalog)
+9. [Adding a Product](#adding-a-product)
+10. [Product Identifiers](#product-identifiers)
+11. [Scanning Products](#scanning-products)
+    - [Distributor Labels](#distributor-labels)
+12. [Recording Purchases](#recording-purchases)
+13. [Capturing an Order When You Place It](#capturing-an-order-when-you-place-it)
+14. [Printing Product Labels](#printing-product-labels)
+15. [Stock Levels and Reordering](#stock-levels-and-reordering)
+16. [Product Attachments](#product-attachments)
+17. [Finding Products](#finding-products)
+18. [Categories and Tags](#categories-and-tags)
+
+**Across both halves**
+
+19. [Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary)
+20. [Data Export](#data-export)
+21. [REST API](#rest-api)
+22. [Help and Utilities](#help-and-utilities)
+23. [Tips and Best Practices](#tips-and-best-practices)
+24. [Troubleshooting](#troubleshooting)
+25. [Quick Reference Card](#quick-reference-card)
 
 ## Getting Started
 
@@ -40,7 +65,13 @@
 
 ## Overview
 
-The Workshop Inventory Tracking system helps you manage metal stock, hardware, and other workshop materials. The system tracks:
+The Workshop Inventory Tracking system has **two halves**, and knowing which one
+you are in answers most questions about where to look.
+
+**Inventory** is your physical stock -- metal, hardware and other workshop
+materials. Every piece carries a JA ID, and cutting one in half leaves a history
+that says so. It answers *what do I have, how long is it, and where is it?* The
+inventory half tracks:
 
 - **Physical Properties**: Length, width, thickness, weight
 - **Material Information**: Type, shape, material composition
@@ -48,6 +79,22 @@ The Workshop Inventory Tracking system helps you manage metal stock, hardware, a
 - **Location Tracking**: Current location and sub-location
 - **Purchase Information**: Date, price, vendor details
 - **Status**: Active/inactive status for each item
+
+**The product catalogue** is what you bought. It answers *what is this thing,
+what did it cost, and where did it come from?* -- the question a part in a bin
+six months later cannot answer for itself. The catalogue half tracks
+descriptions and specifications, barcodes and part numbers, purchases with their
+vendors and prices, how many you have and what needs reordering, categories and
+tags, and attachments such as datasheets and receipts.
+
+The two are separate, and the distinction is the one worth holding onto: a
+product is a *kind* of thing you buy; an inventory item is a specific piece of
+stock with a JA ID and a cutting history. Buying a second reel of the same wire
+adds a purchase to one product; cutting a bar in two makes a new inventory item.
+
+They meet in exactly one place -- the vocabulary of locations and vendors, which
+is shared across both halves. See
+[Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary).
 
 ## Adding New Inventory
 
@@ -173,6 +220,10 @@ The **Add & Continue** button (green button next to "Add Item") submits the curr
 ## Label Printing
 
 The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from the Add Item form, Edit Item form, or in bulk from the Inventory List.
+
+These are inventory labels, carrying a JA ID. Catalogue products get their own
+labels, carrying the product's internal code -- see
+[Printing Product Labels](#printing-product-labels).
 
 ### Accessing Label Printing
 
@@ -472,368 +523,6 @@ To delete a photo from an item:
   - Historical versions remain accessible via API and History UI
   - Search and filtering only return active items by default
 
-## Product Catalogue
-
-The **inventory** side of this application tracks metal stock by JA ID. The
-**product catalogue** answers a different question: *what is this thing, what did
-it cost, and where did it come from?* It exists because a part in a bin months
-after purchase is unidentifiable without it, and reaching for a vendor page to
-find out is the work this removes.
-
-The two are separate. A product is a *kind* of thing you buy; an inventory item
-is a specific piece of stock with a JA ID and a cutting history. Nothing in this
-section touches the inventory tables.
-
-### Adding a Product
-
-**Products → Add Product**, or scan something the catalogue does not recognize
-yet.
-
-Only the description is required, and it is the most important field on the form:
-it is what prints on the label, and it is what you will read when you pick the
-bin up. Write it the way you would say it out loud.
-
-- **Description** -- your own words. This is the product's identity.
-- **Manufacturer / Manufacturer Part Number** -- optional.
-- **Specifications** -- free-form. Voltage, thread pitch, tolerance; whatever you
-  will want to know later. Nothing generates this for you.
-- **Category** -- slash-separated and any depth: `electronics/passives/resistors`.
-  Typing a new one creates it. There is no setup step and no admin screen.
-- **Tags** -- comma-separated, and they cut across categories.
-- **Storage Location** -- optional, and free text. As you type, it suggests
-  locations already recorded *anywhere* in the application -- on metal stock as
-  well as on other products. The suggestions never restrict what you can type.
-- **Sub-Location** -- optional. The bin or drawer within the location, the same
-  way an inventory item records one. Its suggestions are scoped to whatever you
-  put in Storage Location, so filling in `Drawer 3` first offers you the bins
-  already used in `Drawer 3`. A product with no sub-location is perfectly
-  ordinary -- products that predate this field simply have none.
-- **Identifier** -- a manufacturer part number, a retail barcode, or a vendor's
-  own item id. See below.
-
-Every product is given an **internal code** the moment it is created -- `WIT`
-followed by ten characters. You do not type it and you cannot choose it. It is
-what makes a product scannable before any label has been printed.
-
-If the connection drops while you are part-way through writing a description, the
-text is kept in the browser. Come back to the form and it offers to restore it.
-
-### Identifiers
-
-A product can carry any number of coded names, of five kinds:
-
-| Kind | What it is |
-|---|---|
-| `INTERNAL` | This system's own code. Generated, never typed. |
-| `MPN` | The manufacturer's part number. |
-| `GTIN` | A retail barcode -- UPC-A, EAN-13, GTIN-8 or GTIN-14. |
-| `VENDOR` | A vendor's own item id, such as an Amazon ASIN. |
-| `DISTRIBUTOR` | A distributor's part number, such as a DigiKey number. |
-
-**Barcodes are normalized on the way in.** A UPC-A and its EAN-13 rendering are
-the same trade item, so both are stored as the same 14-digit key and both scan
-back to the same product. You do not have to know or care which form the scanner
-read.
-
-A barcode that fails its check digit is refused, because a mistyped barcode that
-silently "works" is worse than one that does not. If you know the value is right
-anyway -- some vendors print odd ones -- tick **Store even if the barcode fails
-validation** and it is kept, with the override recorded on the row so it is
-visible later rather than silent. There is one exception with no override: a
-barcode reading as all zeros is what a scanner emits when it fails to read
-anything, so it is always refused. Rescan it.
-
-**Vendor and distributor identifiers are scoped to their vendor.** An ASIN only
-means anything within Amazon. If a vendor reuses an item id for a completely
-different product -- and they do -- the catalogue will not merge the two, because
-a product's identity is its own record and never one of its names. You can delete
-every identifier a product has and the product is still there.
-
-### Scanning
-
-There is a scan box in the header on every page, so a scan starts wherever you
-already are. It also accepts typing, if you would rather.
-
-A scan always gets an answer. There is no "not found":
-
-| What you scanned | What happens |
-|---|---|
-| An internal code, or a barcode you have catalogued | The product opens |
-| A manufacturer's own 2D barcode | Exactly as though you had scanned the plain barcode it carries |
-| A valid barcode you have not catalogued | A create form, with the barcode already attached |
-| A distributor's 2D label | A create form, filled in from the label |
-| An ASIN you have recorded | The product opens |
-| Anything else | A search, carrying what you scanned |
-
-**A manufacturer's 2D code needs nothing from you.** Many boxes carry the retail
-barcode a second time inside a square 2D symbol, wrapped up with a label saying
-which number it is. Scan either mark and you land in the same place. If the same
-symbol also carries a lot number or a date, those are ignored rather than
-getting in the way. A number that fails its check digit is still refused here,
-just as it is when printed plainly -- you get a search, not the wrong product.
-
-Scanning a product you already hold offers **add a purchase to this product**, and
-offers to receive any order you have outstanding for it -- because at the
-receiving bench, the thing in your hand is usually the thing you just ordered.
-
-### Distributor Labels
-
-DigiKey and Mouser print a 2D label carrying the manufacturer part number, the
-quantity and your order references. Scanning one produces a filled-in draft, with
-**every value editable before you save** -- values are taken exactly as printed
-and nothing is reformatted or rejected on your behalf.
-
-If the label is damaged, or carries only fields this catalogue has no home for,
-you get a search with the raw scan shown rather than a silent failure. You can
-always read it yourself and type what you need.
-
-> This depends on the scanner passing through the field separators inside the
-> label. If distributor scans suddenly come out as one run-together string, that
-> is the setting to check.
-
-### Recording Purchases
-
-**Add Purchase** on a product records one acquisition: vendor, item id, listing
-title, order date, quantity, unit price and order reference.
-
-Leave **Received Date** blank while the order is still on its way. That blank is
-the entire representation of "outstanding" -- there is no separate status to keep
-in step with it.
-
-Buying the same thing again adds a second purchase to the same product. It does
-not create a duplicate. The product page shows the whole history oldest-first
-with the most recent price called out.
-
-### Capturing an Order When You Place It
-
-**Products → Capture an Order.** The point is to catch vendor, item id, title and
-price while the listing is still on screen, so that nothing has to be
-reconstructed at unboxing.
-
-Two ways in:
-
-1. **Paste the URL** into the form. The vendor comes from the address, and for
-   Amazon the item id comes out of the `/dp/` path. Fill in anything the URL did
-   not yield. This path cannot break when a vendor changes their site.
-2. **The bookmarklet.** Drag *Capture to Workshop* to your bookmarks bar once. On
-   a listing, click it: a new tab opens on this application's confirmation page,
-   already filled in. It now reads the listing itself, not just the address --
-   for an Amazon page that means the price, the brand, the description, every
-   *Product information* row, and every image the page's own data names, which is
-   usually more than the thumbnail strip shows.
-
-   What it reads is a page's markup, and a vendor's markup is not a contract. So
-   the confirmation page tells you **what it found before anything is written** --
-   a count of images, a count of information rows, and whether it found a
-   description. A capture that comes back thinner than the listing looks is the
-   signal that the vendor has changed something. The capture still works; it just
-   brings less. Nothing is ever refused for this.
-
-   Whatever it read is written when you press **Capture**, and not before. A full
-   gallery takes eight to fifteen seconds to fetch at that point, which is
-   expected -- the page is downloading a dozen full-resolution images.
-
-> **The bookmarklet requires this application to be served over HTTPS**, and it
-> must be dragged from the `https://` page. Two reasons, and both bite silently:
->
-> - Amazon and most large vendors send an `upgrade-insecure-requests` policy that
->   rewrites every outgoing link from their page to `https://` — the
->   bookmarklet's included. Against a plain-`http://` server that arrives as a
->   TLS handshake and fails with `ERR_SSL_PROTOCOL_ERROR`.
-> - The address the bookmarklet posts to is **baked in when the page renders**.
->   One saved from an `http://` page keeps pointing at `http://` no matter how
->   the application is served afterwards, and keeps failing. Re-drag it.
->
-> If the capture page is showing a warning about this, you are viewing it over
-> `http://` — open it over `https://` and drag the bookmarklet again. The paste
-> box works either way.
-
-Capturing the same listing twice **asks** rather than guessing: it tells you a
-purchase for this listing is already recorded today, and lets you say whether
-this is a second order or a double-click. Nothing is written until you answer,
-and answering costs nothing -- everything the listing yielded is still attached to
-the form. A repeat capture adds no second copy of an image and does not overwrite
-a specification you have edited by hand; it only adds what the product does not
-already have.
-
-**An abandoned capture leaves nothing.** Close the confirmation tab without
-pressing Capture and there is no product, no purchase, no specification and no
-stored image -- there was never a record, only a page.
-
-When the parcel arrives, open the purchase and **Mark Received**. The captured
-details are already there; amend the quantity or the price if what turned up
-differed from what you ordered, which it sometimes does.
-
-### Labels
-
-**Print Label** on a product composes a label carrying three things:
-
-- the description,
-- where it came from and what it cost, when there is a purchase to say so,
-- the internal code, as a barcode **and** as readable text.
-
-Both forms of the code are always present. Direct-thermal labels scuff on a
-workshop shelf, and the readable code is what keeps a label with a damaged
-barcode usable -- so it is never dropped to make room. On a narrow label the
-description is shortened instead.
-
-All six label stocks are available, the same set the inventory labels use. On the
-1x2 stock the description will often be truncated; that is the trade-off, and it
-is why you choose the stock at print time.
-
-Reprinting takes two clicks and no typing. The label is composed from the record
-each time rather than stored, so a reprint after you have improved the
-description shows the improved one.
-
-### Quantity, and Knowing What to Reorder
-
-Quantity is deliberately **three-state**, and the three are shown differently
-everywhere:
-
-| State | Means | Shown as |
-|---|---|---|
-| Not tracked | You are not counting these | *Not tracked* |
-| `0` | You are counting, and there are none | **None on hand** |
-| A number | That many | the number |
-
-New products are not tracked. Most things never need to be -- start counting only
-the handful where running out costs you something.
-
-Where a quantity is tracked, it is always shown with its age: *counted 8 months
-ago*. A count nobody has revisited in eight months is not a fact about today, and
-showing the age lets you decide how much to trust it. The age means **the last
-time you counted** -- typing a number, or pressing **+** or **−** at the shelf.
-Receiving an order adds to the count without touching the age, because a packing
-slip is not you looking in the drawer.
-
-A hand-set **Low** or **Out** flag is shown with its age the same way: *Flagged
-low 3 months ago*, on the product page and on the reorder list. Pressing the same
-flag again resets its age -- that is you saying you have just looked and it is
-still low, which is the only way to renew the evidence on something you are not
-counting.
-
-Flags you set before this was added have no recorded date, and read *Flagged low
-at an unknown time*. That is not an error: no date was kept at the time, and
-inventing one from something else would be a guess dressed up as a fact. Press
-the flag again to give it a real date.
-
-**Products → Reorder List** gathers everything that needs buying:
-
-- anything you flagged **Low** or **Out** by hand, and
-- anything tracked that has reached its reorder threshold.
-
-Items with an order already outstanding are marked **on the way**, worked out
-from the orders themselves -- you never record that separately. Nothing on this
-page is stored; it is all derived when you open it, so it cannot drift out of
-step with your purchases.
-
-Receiving an order clears both kinds of low: the count goes up, and a manual flag
-is cleared for you -- along with the flag's age, so a flag you set later never
-inherits an old date. What receiving deliberately leaves alone is the *count's*
-age: the number accounts for the delivery, and the date beside it still tells you
-when you last counted. What the delivery changed is on the purchase that changed
-it.
-
-All of these controls are buttons, not typing, so the whole flow works on a
-handheld with no keyboard.
-
-### Attachments
-
-Products and purchases both take attachments -- images and PDFs, up to 20 MB.
-
-A **datasheet or wiring diagram belongs to the product**. A **saved listing or
-receipt belongs to the purchase** that captured it. Attach them where they
-belong; PDFs get thumbnails like everywhere else in the application.
-
-A product's attachments show as a **grid of thumbnails** -- a captured gallery is
-a dozen images with derived filenames, and a list of those is not something
-anyone can look through. Click one for the original. A product holds up to 100.
-
-**Copy an image anywhere and paste it on a product page** to attach it, with no
-file to save first. Pasting ordinary text does nothing and says nothing.
-
-### Finding Things
-
-**Products → All Products** searches descriptions, specifications, part numbers,
-notes and every recorded identifier at once, including internal codes. Notes are
-searched on the same terms as everything else, so a phrase you wrote in your own
-words -- *left over from the lathe stand* -- finds the thing you wrote it about
-without your having to remember which field you put it in.
-
-**A product's code is also its address.** The code printed on a label works on
-the end of the address bar: type `/products/WIT…` and you land on that product.
-Handy when the label is in front of you and the scanner is not.
-
-Filters, which combine:
-
-- **Category** -- includes sub-categories. Filtering `electronics` finds
-  `electronics/passives/resistors`, and does not find `electronics-surplus`.
-- **Tag** -- ignores category entirely.
-- **Stock** -- low, on order, tracked, not tracked, none on hand.
-
-**Products → Categories** browses the tree with a count against each. A category
-exists because something is in it: type a new one on a product to create it, and
-move the last product out to remove it. There are no empty categories to tidy up.
-
-**Products → Tags** is the same view for tags: every tag in use, with how many
-products carry it. Unlike categories, a tag with nothing on it survives, and it
-is shown here with a count of zero -- that is the debris the page exists to
-reveal.
-
-### Fixing a Misspelled Category or Tag
-
-Both pages have a **Rename** button on every row.
-
-**Renaming a category carries everything beneath it.** Renaming `elctronics` to
-`electronics` moves `elctronics/passives` and
-`elctronics/passives/resistors` with it, along with every product in any of them
--- one action, not one edit per product. The boundary is the slash, so
-`elctronics-surplus` is a *different* category and is left alone. The dialog
-tells you how many products and how many categories will move before you commit.
-
-Renaming is refused, with nothing changed, when:
-
-| You try | What happens |
-|---|---|
-| Renaming onto a category that already exists | Refused, naming the collision. Renaming never merges two categories. |
-| Renaming a category to somewhere inside itself (`power` → `power/supplies`) | Refused. |
-| Changing only capitalization or spacing | Refused as a no-op -- those never distinguished two categories in the first place. |
-| A name so long it would overflow a path beneath it | Refused. Nothing is silently truncated. |
-
-A refusal is all-or-nothing: not one product moves.
-
-**Renaming a tag onto a name already in use merges the two.** The dialog says so
-before you commit. Afterwards one tag remains carrying both sets of products, and
-a product that happened to carry both spellings carries the survivor exactly
-once. Renaming onto an unused name is a plain rename. Tags are stored lowercase,
-so renaming `Surplus` to `surplus` is a no-op and is refused as one.
-
-Neither rename leaves a forwarding address. An old bookmark to a renamed category
-or tag simply stops matching.
-
-### One Vocabulary for Locations and Vendors
-
-Storage locations, sub-locations and vendors are suggested from everything
-already recorded, on both halves of the application:
-
-| Field | Drawn from |
-|---|---|
-| Storage Location | inventory items and products |
-| Sub-Location | inventory items and products, scoped by the location you typed |
-| Vendor | inventory items and purchases |
-
-There is nothing to publish and nothing to keep in sync -- record `Drawer 3` on a
-product and the Add Item form offers it immediately, and vice versa. A vendor
-recorded only on a *deactivated* item is still offered; deactivating a piece of
-stock does not retire the vendor's name. Two spellings differing only in case
-count as one suggestion.
-
-The suggestions are advisory. Every one of these fields is plain text, and typing
-something that matches nothing saves exactly as typed.
-
-Thread Size and Purchase Location are inventory-only fields and are unchanged --
-nothing in the catalogue records either.
-
 ## Advanced Search
 
 ### Search Interface
@@ -1021,6 +710,374 @@ Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA00
 3. **New Length**: Specify remaining length after cut
 4. **New ID**: Assign new JA ID for shortened piece
 5. **Automatic**: Original item becomes inactive, new item created
+
+## The Product Catalog
+
+The **inventory** side of this application tracks metal stock by JA ID. The
+**product catalogue** answers a different question: *what is this thing, what did
+it cost, and where did it come from?* It exists because a part in a bin months
+after purchase is unidentifiable without it, and reaching for a vendor page to
+find out is the work this removes.
+
+The two are separate. A product is a *kind* of thing you buy; an inventory item
+is a specific piece of stock with a JA ID and a cutting history. Nothing in this
+half touches the inventory tables.
+
+## Adding a Product
+
+**Products → Add Product**, or scan something the catalogue does not recognize
+yet.
+
+Only the description is required, and it is the most important field on the form:
+it is what prints on the label, and it is what you will read when you pick the
+bin up. Write it the way you would say it out loud.
+
+- **Description** -- your own words. This is the product's identity.
+- **Manufacturer / Manufacturer Part Number** -- optional.
+- **Specifications** -- free-form. Voltage, thread pitch, tolerance; whatever you
+  will want to know later. Nothing generates this for you.
+- **Category** -- slash-separated and any depth: `electronics/passives/resistors`.
+  Typing a new one creates it. There is no setup step and no admin screen.
+- **Tags** -- comma-separated, and they cut across categories.
+- **Storage Location** -- optional, and free text. As you type, it suggests
+  locations already recorded *anywhere* in the application -- on metal stock as
+  well as on other products. The suggestions never restrict what you can type.
+- **Sub-Location** -- optional. The bin or drawer within the location, the same
+  way an inventory item records one. Its suggestions are scoped to whatever you
+  put in Storage Location, so filling in `Drawer 3` first offers you the bins
+  already used in `Drawer 3`. A product with no sub-location is perfectly
+  ordinary -- products that predate this field simply have none.
+- **Identifier** -- a manufacturer part number, a retail barcode, or a vendor's
+  own item id. See [Product Identifiers](#product-identifiers).
+
+Every product is given an **internal code** the moment it is created -- `WIT`
+followed by ten characters. You do not type it and you cannot choose it. It is
+what makes a product scannable before any label has been printed.
+
+If the connection drops while you are part-way through writing a description, the
+text is kept in the browser. Come back to the form and it offers to restore it.
+
+## Product Identifiers
+
+A product can carry any number of coded names, of five kinds:
+
+| Kind | What it is |
+|---|---|
+| `INTERNAL` | This system's own code. Generated, never typed. |
+| `MPN` | The manufacturer's part number. |
+| `GTIN` | A retail barcode -- UPC-A, EAN-13, GTIN-8 or GTIN-14. |
+| `VENDOR` | A vendor's own item id, such as an Amazon ASIN. |
+| `DISTRIBUTOR` | A distributor's part number, such as a DigiKey number. |
+
+**Barcodes are normalized on the way in.** A UPC-A and its EAN-13 rendering are
+the same trade item, so both are stored as the same 14-digit key and both scan
+back to the same product. You do not have to know or care which form the scanner
+read.
+
+A barcode that fails its check digit is refused, because a mistyped barcode that
+silently "works" is worse than one that does not. If you know the value is right
+anyway -- some vendors print odd ones -- tick **Store even if the barcode fails
+validation** and it is kept, with the override recorded on the row so it is
+visible later rather than silent. There is one exception with no override: a
+barcode reading as all zeros is what a scanner emits when it fails to read
+anything, so it is always refused. Rescan it.
+
+**Vendor and distributor identifiers are scoped to their vendor.** An ASIN only
+means anything within Amazon. If a vendor reuses an item id for a completely
+different product -- and they do -- the catalogue will not merge the two, because
+a product's identity is its own record and never one of its names. You can delete
+every identifier a product has and the product is still there.
+
+## Scanning Products
+
+There is a scan box in the header on every page, so a scan starts wherever you
+already are. It also accepts typing, if you would rather.
+
+A scan always gets an answer. There is no "not found":
+
+| What you scanned | What happens |
+|---|---|
+| An internal code, or a barcode you have catalogued | The product opens |
+| A manufacturer's own 2D barcode | Exactly as though you had scanned the plain barcode it carries |
+| A valid barcode you have not catalogued | A create form, with the barcode already attached |
+| A distributor's 2D label | A create form, filled in from the label |
+| An ASIN you have recorded | The product opens |
+| Anything else | A search, carrying what you scanned |
+
+**A manufacturer's 2D code needs nothing from you.** Many boxes carry the retail
+barcode a second time inside a square 2D symbol, wrapped up with a label saying
+which number it is. Scan either mark and you land in the same place. If the same
+symbol also carries a lot number or a date, those are ignored rather than
+getting in the way. A number that fails its check digit is still refused here,
+just as it is when printed plainly -- you get a search, not the wrong product.
+
+Scanning a product you already hold offers **add a purchase to this product**, and
+offers to receive any order you have outstanding for it -- because at the
+receiving bench, the thing in your hand is usually the thing you just ordered.
+
+### Distributor Labels
+
+DigiKey and Mouser print a 2D label carrying the manufacturer part number, the
+quantity and your order references. Scanning one produces a filled-in draft, with
+**every value editable before you save** -- values are taken exactly as printed
+and nothing is reformatted or rejected on your behalf.
+
+If the label is damaged, or carries only fields this catalogue has no home for,
+you get a search with the raw scan shown rather than a silent failure. You can
+always read it yourself and type what you need.
+
+> This depends on the scanner passing through the field separators inside the
+> label. If distributor scans suddenly come out as one run-together string, that
+> is the setting to check.
+
+## Recording Purchases
+
+**Add Purchase** on a product records one acquisition: vendor, item id, listing
+title, order date, quantity, unit price and order reference.
+
+Leave **Received Date** blank while the order is still on its way. That blank is
+the entire representation of "outstanding" -- there is no separate status to keep
+in step with it.
+
+Buying the same thing again adds a second purchase to the same product. It does
+not create a duplicate. The product page shows the whole history oldest-first
+with the most recent price called out.
+
+## Capturing an Order When You Place It
+
+**Products → Capture an Order.** The point is to catch vendor, item id, title and
+price while the listing is still on screen, so that nothing has to be
+reconstructed at unboxing.
+
+Two ways in:
+
+1. **Paste the URL** into the form. The vendor comes from the address, and for
+   Amazon the item id comes out of the `/dp/` path. Fill in anything the URL did
+   not yield. This path cannot break when a vendor changes their site.
+2. **The bookmarklet.** Drag *Capture to Workshop* to your bookmarks bar once. On
+   a listing, click it: a new tab opens on this application's confirmation page,
+   already filled in. It now reads the listing itself, not just the address --
+   for an Amazon page that means the price, the brand, the description, every
+   *Product information* row, and every image the page's own data names, which is
+   usually more than the thumbnail strip shows.
+
+   What it reads is a page's markup, and a vendor's markup is not a contract. So
+   the confirmation page tells you **what it found before anything is written** --
+   a count of images, a count of information rows, and whether it found a
+   description. A capture that comes back thinner than the listing looks is the
+   signal that the vendor has changed something. The capture still works; it just
+   brings less. Nothing is ever refused for this.
+
+   Whatever it read is written when you press **Capture**, and not before. A full
+   gallery takes eight to fifteen seconds to fetch at that point, which is
+   expected -- the page is downloading a dozen full-resolution images.
+
+> **The bookmarklet requires this application to be served over HTTPS**, and it
+> must be dragged from the `https://` page. Two reasons, and both bite silently:
+>
+> - Amazon and most large vendors send an `upgrade-insecure-requests` policy that
+>   rewrites every outgoing link from their page to `https://` — the
+>   bookmarklet's included. Against a plain-`http://` server that arrives as a
+>   TLS handshake and fails with `ERR_SSL_PROTOCOL_ERROR`.
+> - The address the bookmarklet posts to is **baked in when the page renders**.
+>   One saved from an `http://` page keeps pointing at `http://` no matter how
+>   the application is served afterwards, and keeps failing. Re-drag it.
+>
+> If the capture page is showing a warning about this, you are viewing it over
+> `http://` — open it over `https://` and drag the bookmarklet again. The paste
+> box works either way.
+
+Capturing the same listing twice **asks** rather than guessing: it tells you a
+purchase for this listing is already recorded today, and lets you say whether
+this is a second order or a double-click. Nothing is written until you answer,
+and answering costs nothing -- everything the listing yielded is still attached to
+the form. A repeat capture adds no second copy of an image and does not overwrite
+a specification you have edited by hand; it only adds what the product does not
+already have.
+
+**An abandoned capture leaves nothing.** Close the confirmation tab without
+pressing Capture and there is no product, no purchase, no specification and no
+stored image -- there was never a record, only a page.
+
+When the parcel arrives, open the purchase and **Mark Received**. The captured
+details are already there; amend the quantity or the price if what turned up
+differed from what you ordered, which it sometimes does.
+
+## Printing Product Labels
+
+These are the catalogue's labels, carrying a product's internal code. For the
+JA ID labels that go on inventory items, see [Label Printing](#label-printing).
+
+**Print Label** on a product composes a label carrying three things:
+
+- the description,
+- where it came from and what it cost, when there is a purchase to say so,
+- the internal code, as a barcode **and** as readable text.
+
+Both forms of the code are always present. Direct-thermal labels scuff on a
+workshop shelf, and the readable code is what keeps a label with a damaged
+barcode usable -- so it is never dropped to make room. On a narrow label the
+description is shortened instead.
+
+All six label stocks are available, the same set the inventory labels use. On the
+1x2 stock the description will often be truncated; that is the trade-off, and it
+is why you choose the stock at print time.
+
+Reprinting takes two clicks and no typing. The label is composed from the record
+each time rather than stored, so a reprint after you have improved the
+description shows the improved one.
+
+## Stock Levels and Reordering
+
+Quantity is deliberately **three-state**, and the three are shown differently
+everywhere:
+
+| State | Means | Shown as |
+|---|---|---|
+| Not tracked | You are not counting these | *Not tracked* |
+| `0` | You are counting, and there are none | **None on hand** |
+| A number | That many | the number |
+
+New products are not tracked. Most things never need to be -- start counting only
+the handful where running out costs you something.
+
+Where a quantity is tracked, it is always shown with its age: *counted 8 months
+ago*. A count nobody has revisited in eight months is not a fact about today, and
+showing the age lets you decide how much to trust it. The age means **the last
+time you counted** -- typing a number, or pressing **+** or **−** at the shelf.
+Receiving an order adds to the count without touching the age, because a packing
+slip is not you looking in the drawer.
+
+A hand-set **Low** or **Out** flag is shown with its age the same way: *Flagged
+low 3 months ago*, on the product page and on the reorder list. Pressing the same
+flag again resets its age -- that is you saying you have just looked and it is
+still low, which is the only way to renew the evidence on something you are not
+counting.
+
+Flags you set before this was added have no recorded date, and read *Flagged low
+at an unknown time*. That is not an error: no date was kept at the time, and
+inventing one from something else would be a guess dressed up as a fact. Press
+the flag again to give it a real date.
+
+**Products → Reorder List** gathers everything that needs buying:
+
+- anything you flagged **Low** or **Out** by hand, and
+- anything tracked that has reached its reorder threshold.
+
+Items with an order already outstanding are marked **on the way**, worked out
+from the orders themselves -- you never record that separately. Nothing on this
+page is stored; it is all derived when you open it, so it cannot drift out of
+step with your purchases.
+
+Receiving an order clears both kinds of low: the count goes up, and a manual flag
+is cleared for you -- along with the flag's age, so a flag you set later never
+inherits an old date. What receiving deliberately leaves alone is the *count's*
+age: the number accounts for the delivery, and the date beside it still tells you
+when you last counted. What the delivery changed is on the purchase that changed
+it.
+
+All of these controls are buttons, not typing, so the whole flow works on a
+handheld with no keyboard.
+
+## Product Attachments
+
+Products and purchases both take attachments -- images and PDFs, up to 20 MB.
+
+A **datasheet or wiring diagram belongs to the product**. A **saved listing or
+receipt belongs to the purchase** that captured it. Attach them where they
+belong; PDFs get thumbnails like everywhere else in the application.
+
+A product's attachments show as a **grid of thumbnails** -- a captured gallery is
+a dozen images with derived filenames, and a list of those is not something
+anyone can look through. Click one for the original. A product holds up to 100.
+
+**Copy an image anywhere and paste it on a product page** to attach it, with no
+file to save first. Pasting ordinary text does nothing and says nothing.
+
+## Finding Products
+
+**Products → All Products** searches descriptions, specifications, part numbers,
+notes and every recorded identifier at once, including internal codes. Notes are
+searched on the same terms as everything else, so a phrase you wrote in your own
+words -- *left over from the lathe stand* -- finds the thing you wrote it about
+without your having to remember which field you put it in.
+
+**A product's code is also its address.** The code printed on a label works on
+the end of the address bar: type `/products/WIT…` and you land on that product.
+Handy when the label is in front of you and the scanner is not.
+
+Filters, which combine:
+
+- **Category** -- includes sub-categories. Filtering `electronics` finds
+  `electronics/passives/resistors`, and does not find `electronics-surplus`.
+- **Tag** -- ignores category entirely.
+- **Stock** -- low, on order, tracked, not tracked, none on hand.
+
+To browse the category and tag trees rather than search across them, see
+[Categories and Tags](#categories-and-tags).
+
+## Categories and Tags
+
+**Products → Categories** browses the tree with a count against each. A category
+exists because something is in it: type a new one on a product to create it, and
+move the last product out to remove it. There are no empty categories to tidy up.
+
+**Products → Tags** is the same view for tags: every tag in use, with how many
+products carry it. Unlike categories, a tag with nothing on it survives, and it
+is shown here with a count of zero -- that is the debris the page exists to
+reveal.
+
+Both pages have a **Rename** button on every row.
+
+**Renaming a category carries everything beneath it.** Renaming `elctronics` to
+`electronics` moves `elctronics/passives` and
+`elctronics/passives/resistors` with it, along with every product in any of them
+-- one action, not one edit per product. The boundary is the slash, so
+`elctronics-surplus` is a *different* category and is left alone. The dialog
+tells you how many products and how many categories will move before you commit.
+
+Renaming is refused, with nothing changed, when:
+
+| You try | What happens |
+|---|---|
+| Renaming onto a category that already exists | Refused, naming the collision. Renaming never merges two categories. |
+| Renaming a category to somewhere inside itself (`power` → `power/supplies`) | Refused. |
+| Changing only capitalization or spacing | Refused as a no-op -- those never distinguished two categories in the first place. |
+| A name so long it would overflow a path beneath it | Refused. Nothing is silently truncated. |
+
+A refusal is all-or-nothing: not one product moves.
+
+**Renaming a tag onto a name already in use merges the two.** The dialog says so
+before you commit. Afterwards one tag remains carrying both sets of products, and
+a product that happened to carry both spellings carries the survivor exactly
+once. Renaming onto an unused name is a plain rename. Tags are stored lowercase,
+so renaming `Surplus` to `surplus` is a no-op and is refused as one.
+
+Neither rename leaves a forwarding address. An old bookmark to a renamed category
+or tag simply stops matching.
+
+## Locations and Vendors: One Shared Vocabulary
+
+Storage locations, sub-locations and vendors are suggested from everything
+already recorded, on both halves of the application:
+
+| Field | Drawn from |
+|---|---|
+| Storage Location | inventory items and products |
+| Sub-Location | inventory items and products, scoped by the location you typed |
+| Vendor | inventory items and purchases |
+
+There is nothing to publish and nothing to keep in sync -- record `Drawer 3` on a
+product and the Add Item form offers it immediately, and vice versa. A vendor
+recorded only on a *deactivated* item is still offered; deactivating a piece of
+stock does not retire the vendor's name. Two spellings differing only in case
+count as one suggestion.
+
+The suggestions are advisory. Every one of these fields is plain text, and typing
+something that matches nothing saves exactly as typed.
+
+Thread Size and Purchase Location are inventory-only fields and are unchanged --
+nothing in the catalogue records either.
 
 ## Data Export
 
