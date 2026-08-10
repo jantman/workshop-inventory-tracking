@@ -721,7 +721,9 @@ class TestDocumentationScreenshots:
           row has to sit on a product that is also below its threshold.
 
         Returns:
-            A dict of description -> Product for the captures that need one.
+            The seeded products keyed by short name -- ``resistor``,
+            ``capacitor``, ``opamp``, ``bolt``, ``threadlocker``, ``psu`` and
+            ``kit`` -- for the captures that need to address one directly.
         """
         from datetime import datetime, timedelta
         from app.catalog_service import CatalogService

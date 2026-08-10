@@ -35,7 +35,14 @@ nox -s screenshots -- -k test_screenshot_product_detail
 
 Regenerating a single screenshot still rewrites `metadata.json`, whose `generated_at` is a
 timestamp — so expect that one file to show as modified even when the PNG comes back
-byte-identical. Check the PNG itself before committing.
+byte-identical. Diff it before committing; the other seventeen entries should be untouched.
+
+`metadata.json` is merged by filename rather than written over the top, so a targeted run
+updates one entry and leaves the rest. This has not always been true: it used to be
+overwritten wholesale by each test's own generator, which meant the committed file described
+only whichever test ran last. An entry for a deleted screenshot survives until something
+regenerates — the authoritative inventory is the directory, which is what
+`nox -s screenshots_verify` and `VERIFICATION.md` both read.
 
 ## Generated Screenshots
 

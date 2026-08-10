@@ -53,7 +53,7 @@ appending to it.
 - All files are valid PNG images
 - All files under the 500 KB size limit
 - All full-page screenshots use 1920px width
-- All images use RGB colour mode
+- All images use RGB color mode
 - PNG optimization applied
 
 ## How to Reproduce

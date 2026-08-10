@@ -149,6 +149,59 @@ class TestScreenshotGenerator:
         assert len(saved_metadata['screenshots']) == 1
         assert saved_metadata['screenshots'][0]['filename'] == 'test.png'
 
+    def test_save_metadata_keeps_entries_from_other_generators(
+        self, mock_page, temp_output_dir
+    ):
+        """A second generator must not erase the first one's entry.
+
+        The screenshot suite builds a fresh ScreenshotGenerator per test and
+        saves in teardown, so each instance knows only about its own captures.
+        While save_metadata overwrote the file, that left metadata.json
+        describing whichever test ran last -- one entry against eighteen files
+        on disk, committed that way for months, with nothing to signal it.
+        """
+        first = ScreenshotGenerator(mock_page, output_dir=temp_output_dir)
+        first.metadata['screenshots'].append(
+            {'filename': 'user-manual/a.png', 'capture_type': 'viewport'}
+        )
+        first.save_metadata()
+
+        second = ScreenshotGenerator(mock_page, output_dir=temp_output_dir)
+        second.metadata['screenshots'].append(
+            {'filename': 'user-manual/b.png', 'capture_type': 'viewport'}
+        )
+        metadata_path = second.save_metadata()
+
+        with open(metadata_path) as f:
+            saved = json.load(f)
+
+        assert [s['filename'] for s in saved['screenshots']] == [
+            'user-manual/a.png',
+            'user-manual/b.png',
+        ]
+
+    def test_save_metadata_replaces_an_entry_for_the_same_screenshot(
+        self, mock_page, temp_output_dir
+    ):
+        """Regenerating one screenshot updates its entry rather than doubling it."""
+        first = ScreenshotGenerator(mock_page, output_dir=temp_output_dir)
+        first.metadata['screenshots'].append(
+            {'filename': 'user-manual/a.png', 'capture_type': 'viewport'}
+        )
+        first.save_metadata()
+
+        second = ScreenshotGenerator(mock_page, output_dir=temp_output_dir)
+        second.metadata['screenshots'].append(
+            {'filename': 'user-manual/a.png', 'capture_type': 'full_page'}
+        )
+        metadata_path = second.save_metadata()
+
+        with open(metadata_path) as f:
+            saved = json.load(f)
+
+        assert len(saved['screenshots']) == 1
+        assert saved['screenshots'][0]['capture_type'] == 'full_page'
+
 
 class TestScreenshotConfig:
     """Tests for ScreenshotConfig class"""

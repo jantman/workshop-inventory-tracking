@@ -1,10 +1,73 @@
 {
-  "generated_at": "2026-08-10T15:23:16.925446",
+  "generated_at": "2026-08-10T18:48:15.527326",
   "screenshots": [
+    {
+      "filename": "readme/inventory_list.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:47:53.398537",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "table.inventory-table",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/add_item_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:47:56.046954",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#add-item-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/batch_operations_menu.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:09.994599",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": false,
+        "wait_for_selector": null,
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/bulk_creation_preview.png",
+      "capture_type": "element",
+      "timestamp": "2026-08-10T18:47:56.938784",
+      "details": {
+        "selector": "#quantity_to_create",
+        "padding": 40,
+        "clip": {
+          "x": 301,
+          "y": 200.390625,
+          "width": 298,
+          "height": 118
+        }
+      }
+    },
     {
       "filename": "user-manual/category_tree.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T15:23:18.174045",
+      "timestamp": "2026-08-10T18:48:16.710525",
       "details": {
         "viewport_size": [
           1920,
@@ -12,6 +75,214 @@
         ],
         "full_page": true,
         "wait_for_selector": "#category-tree",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/edit_item_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:47:58.206035",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#add-item-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/history_view.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:09.071761",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": false,
+        "wait_for_selector": "#item-history-modal.show",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/move_items.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:03.560596",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#batch-move-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/order_capture.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:14.193670",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#capture-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/photo_gallery.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:00.227491",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#photo-manager-container",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/photo_upload.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:47:58.951445",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#photo-manager-container",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/product_add_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:13.549683",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#product-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/product_detail.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:12.329676",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#identifier-list",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/product_search.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:10.928456",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#product-table",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/reorder_list.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:15.496824",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#reorder-table",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/search_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:47:54.141812",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#advanced-search-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/search_results.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:47:54.971399",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#results-table-container .table",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/shorten_items.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-10T18:48:04.200344",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#shorten-form",
         "hide_selectors": [
           ".toast-container"
         ]
