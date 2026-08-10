@@ -311,6 +311,27 @@ nothing observable changes. The test had used a material outside the taxonomy.
 It now establishes `is-valid` on `#material` and a populated `#ja_id` before
 pressing Enter.
 
+### Deviation from T007: `name` removed from the submit buttons
+
+T007 said to leave both submit buttons' `name`/`value` attributes in place "so
+`event.submitter.value` keeps working". Only `value` is needed for that — a
+`<button>` exposes `.value` regardless of whether it has a `name`. Keeping the
+names left three controls called `submit_type` in one form, which is ambiguous
+on any native submission (the hidden field wins by document order, so
+**Add & Continue** would read as a plain **Add**). Raised in review on PR #83.
+
+The `name` attributes were therefore dropped from both buttons, leaving exactly
+one `submit_type` control. No supported path changes behavior: `FormData(form)`
+never includes submit-button entries, and `form.submit()` sends no submitter, so
+the hidden field was already the only `submit_type` transmitted in both the bulk
+and single-item paths.
+
+The reviewer's alternative — strip `name` from the *hidden* input and have the
+handler add it back before submitting — was declined: it restores the
+per-submission field mutation that D3 removed, and introduces a failure mode
+where a missed assignment sends no `submit_type` at all, which the server reads
+as a plain **Add**.
+
 ### Not done
 
 - **Screenshots not regenerated**, per research.md D6 — the change is a hidden
