@@ -26,7 +26,7 @@
 <div class="alert alert-info d-flex flex-wrap align-items-center gap-2" id="scan-match-banner">
     <span class="me-auto">
         <i class="bi bi-check-circle"></i>
-        This scan matched a product already in the catalogue.
+        This scan matched a product already in the catalog.
     </span>
     {% for purchase in outstanding %}
     <a href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}"
@@ -98,7 +98,7 @@
                 <h5 class="mb-0"><i class="bi bi-rulers"></i> Specifications</h5>
             </div>
             <div class="card-body">
-                {# Each value links back into the catalogue filtered to that exact
+                {# Each value links back into the catalog filtered to that exact
                    name and value, so "what else records this?" is one click. #}
                 <dl class="row mb-0" id="product-specifications">
                     {% for spec in product.specifications %}

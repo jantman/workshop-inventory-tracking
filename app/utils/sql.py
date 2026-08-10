@@ -1,7 +1,7 @@
 """Small SQL helpers shared by the services.
 
 One function, and it is here rather than in either caller because both the
-catalogue and the shared vocabulary need it and two copies of an escaping rule
+catalog and the shared vocabulary need it and two copies of an escaping rule
 are two chances to fix a bug once.
 """
 

@@ -13,7 +13,7 @@ product is offered on the Add Item form with nothing in between.
 
 Ranking, LIKE-escaping and case-insensitive deduplication were moved here from
 ``MariaDBInventoryService`` unchanged. What is new is that ``location``,
-``sub_location`` and ``vendor`` read the catalogue's columns as well as metal
+``sub_location`` and ``vendor`` read the catalog's columns as well as metal
 stock's.
 """
 
@@ -37,7 +37,7 @@ from config import Config
 # own location column, never the other's.
 #
 # ``thread_size`` and ``purchase_location`` stay single-source because nothing in
-# the catalogue records either. Adding a source is a line in this table.
+# the catalog records either. Adding a source is a line in this table.
 FIELD_SUGGESTION_COLUMNS = {
     'thread_size': (
         (InventoryItem, 'thread_size', None),
@@ -61,7 +61,7 @@ FIELD_SUGGESTION_COLUMNS = {
 
 
 # Kept as a module-level name so this file's existing call sites read unchanged.
-# The rule itself lives in app/utils/sql.py because the catalogue needs it too.
+# The rule itself lives in app/utils/sql.py because the catalog needs it too.
 _escape_like = escape_like
 
 
@@ -98,7 +98,7 @@ class VocabularyService:
     ) -> List[str]:
         """
         Return distinct existing values for a whitelisted field, suitable
-        for autocomplete on the metal stock and catalogue forms.
+        for autocomplete on the metal stock and catalog forms.
 
         Pulls DISTINCT values across every table that records the field,
         including inactive ``inventory_items`` history rows so deactivated

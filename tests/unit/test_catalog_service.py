@@ -238,7 +238,7 @@ class TestFr008ProductIdentityIsItsOwnRow:
     """The spec edge case: a vendor reuses an item identifier over time.
 
     Nothing else in the suite covers this, and every assertion here is about the
-    catalogue refusing to conflate two things a vendor happened to give the same
+    catalog refusing to conflate two things a vendor happened to give the same
     name.
     """
 
@@ -313,7 +313,7 @@ class TestListProducts:
         service.create_product(description='second')
         assert {p.description for p in service.list_products()} == {'first', 'second'}
 
-    def test_empty_catalogue_is_an_empty_list(self, service):
+    def test_empty_catalog_is_an_empty_list(self, service):
         assert service.list_products() == []
 
 
@@ -583,7 +583,7 @@ class TestRenameTagRefusals:
 
 
 class TestTagListWithCounts:
-    def test_empty_catalogue_is_an_empty_list(self, service):
+    def test_empty_catalog_is_an_empty_list(self, service):
         assert service.tag_list_with_counts() == []
 
     def test_counts_the_products_carrying_each_tag(self, service):

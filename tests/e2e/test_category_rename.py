@@ -136,7 +136,7 @@ def test_a_self_nesting_rename_is_refused_and_changes_nothing(page, live_server)
 
 @pytest.mark.e2e
 def test_the_renamed_products_are_findable_under_the_new_category(page, live_server):
-    """The rename is real in the catalogue, not only on the categories page"""
+    """The rename is real in the catalog, not only on the categories page"""
     live_server.add_test_products(SUBTREE)
     submit_rename(page, live_server.url, 'elctronics', 'electronics')
 

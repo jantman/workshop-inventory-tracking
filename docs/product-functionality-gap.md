@@ -1,7 +1,7 @@
-# Product Catalogue: What Was Planned but Isn't Built
+# Product Catalog: What Was Planned but Isn't Built
 
 The abandoned `archive/bmad-product-catalog` branch contains a large body of planning work for the
-product catalogue. Only about half of it was ever built there, and the catalogue that now ships on
+product catalog. Only about half of it was ever built there, and the catalog that now ships on
 `main` was designed separately. This is a list of the user-facing things that plan describes and the
 current application does not do.
 
@@ -61,7 +61,7 @@ is evidenced by the purchase that changed it.
 
 ## Grouping products that are the same thing
 
-The plan has a way to declare that several catalogue entries are one manufacturer's part sold under
+The plan has a way to declare that several catalog entries are one manufacturer's part sold under
 different brand names — the same module relabelled by three sellers. Those entries then show each
 other, with each one's latest price, so you can see where it's cheapest; they collapse to a single
 line when reordering; and an order already in flight on any one of them suppresses the reorder
@@ -72,7 +72,7 @@ listings for one item are meant to be handled by putting several identifiers and
 on a single product. That covers the identification case well. It does not cover price comparison
 across brands or the double-ordering problem, which is what the grouping was for.
 
-## Organising the catalogue
+## Organising the catalog
 
 **Categories and tags can't be renamed.** Categories are created by typing them, which means they
 accrete typos and second thoughts. There is no way to rename one — the plan had a rename carry all
@@ -130,7 +130,7 @@ space is tight.
 
 The plan restricted capture to Amazon; the built version recognizes several vendors and falls back
 to the site name for the rest, and has a paste-the-address page that works for anything at all. The
-plan reserved the largest label stock for shipping and allowed catalogue labels on only two sizes;
+plan reserved the largest label stock for shipping and allowed catalog labels on only two sizes;
 the built version offers every stock. The plan stored attachments in a new mechanism of their own;
 the built version reuses the photo storage the application already had. And the built version
 refuses a barcode that reads as all zeros — a scanner misread rather than a product — which the

@@ -66,7 +66,7 @@ class TestGtin:
         resolution = service.scan('0012345678905')
         assert resolution.product.id == product.id
 
-    def test_an_uncatalogued_barcode_offers_creation_with_it_attached(self, service):
+    def test_an_uncataloged_barcode_offers_creation_with_it_attached(self, service):
         """FR-018: never a 404, never a dead end"""
         resolution = service.scan(VALID_UPC_A)
 

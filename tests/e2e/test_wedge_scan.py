@@ -71,11 +71,11 @@ def test_the_offered_product_can_be_created_from_there(page, live_server):
     page.goto(live_server.url)
     scan(page, VALID_UPC_A)
 
-    page.fill("#description", "Newly catalogued thing")
+    page.fill("#description", "Newly cataloged thing")
     page.click("#save-product-btn")
     page.wait_for_load_state("domcontentloaded")
 
-    expect(page.locator("#product-description")).to_have_text("Newly catalogued thing")
+    expect(page.locator("#product-description")).to_have_text("Newly cataloged thing")
     expect(page.locator("#identifier-list")).to_contain_text("00012345678905")
 
 

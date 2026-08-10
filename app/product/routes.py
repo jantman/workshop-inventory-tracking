@@ -1,5 +1,5 @@
 """
-Product catalogue routes.
+Product catalog routes.
 
 Thin by design (Constitution II): no ORM queries and no raw SQL live here.
 Everything delegates to CatalogService. Server-rendered pages return HTML,
@@ -34,7 +34,7 @@ def _get_storage_backend():
 
 
 def _get_catalog_service() -> CatalogService:
-    """Get the catalogue service bound to this app's storage backend"""
+    """Get the catalog service bound to this app's storage backend"""
     return CatalogService(_get_storage_backend())
 
 
@@ -138,7 +138,7 @@ def _split_tags(raw) -> list:
 
 @bp.route('/products')
 def product_search():
-    """The catalogue list, with text search and category/tag/stock filters."""
+    """The catalog list, with text search and category/tag/stock filters."""
     service = _get_catalog_service()
     filters = {
         'q': request.args.get('q', ''),
@@ -567,7 +567,7 @@ def api_capture():
     ``product_capture`` forwards, and answering 409 with the assessment when the
     capture would otherwise have guessed.
 
-    **This is the only CSRF exemption the product catalogue adds**, and the only
+    **This is the only CSRF exemption the product catalog adds**, and the only
     one it needs. (It is not the only one in the application: app/main/routes.py
     carries fourteen pre-existing ones, which this feature neither added nor
     audited. The planning documents assert this would be the sole exemption in
@@ -958,7 +958,7 @@ def api_specification_values():
 
 @bp.route('/api/products/search')
 def api_search_products():
-    """Search and filter the catalogue (FR-032)."""
+    """Search and filter the catalog (FR-032)."""
     service = _get_catalog_service()
 
     try:

@@ -6,7 +6,7 @@ DigiKey and Mouser print an envelope of the shape::
     '[)>' RS '06' GS <record> GS <record> ... RS EOT
 
 where each record is one ANSI MH10.8.2 data identifier immediately followed by
-its value.  Seven identifiers have a home in this catalogue; every other legal
+its value.  Seven identifiers have a home in this catalog; every other legal
 identifier a distributor prints is ignored silently, because an unrecognized
 identifier is a field with no screen to show it on, not a damaged scan.
 
@@ -32,7 +32,7 @@ EOT = "\x04"  # end of transmission
 HEADER = "[)>"
 FORMAT_INDICATOR = "06"
 
-# The seven MH10.8.2 identifiers this catalogue has a home for.
+# The seven MH10.8.2 identifiers this catalog has a home for.
 RECOGNIZED_IDENTIFIERS = frozenset({"P", "1P", "Q", "K", "1K", "9D", "10D"})
 
 # An MH10.8.2 data identifier is an optional numeric qualifier followed by a

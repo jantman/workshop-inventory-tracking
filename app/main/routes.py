@@ -1160,7 +1160,7 @@ def inventory_field_suggestions(field):
     """Return distinct existing values for a whitelisted field.
 
     Used by the metal stock Add/Edit Item forms and by the product
-    catalogue's forms to autocomplete free-form fields (Thread Size,
+    catalog's forms to autocomplete free-form fields (Thread Size,
     Purchase Location, Vendor, Location, Sub-Location).
 
     The ``inventory`` segment in the path is historical rather than

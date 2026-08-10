@@ -1,6 +1,6 @@
-"""Product catalogue blueprint.
+"""Product catalog blueprint.
 
-A third blueprint package alongside ``main`` and ``admin``. The catalogue's
+A third blueprint package alongside ``main`` and ``admin``. The catalog's
 routes live here rather than in app/main/routes.py, which is already ~2900 lines
 and would not stay readable with a dozen more surfaces bolted on.
 """

@@ -1,5 +1,5 @@
 """
-Unit tests for the product catalogue ORM models.
+Unit tests for the product catalog ORM models.
 
 Covers app/database.py's Product, Purchase, ProductIdentifier, Tag and
 ProductAttachment -- in particular the tri-state quantity default (FR-023) and

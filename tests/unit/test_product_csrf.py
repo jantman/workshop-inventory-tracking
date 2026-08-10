@@ -1,5 +1,5 @@
 """
-CSRF behaviour of the product catalogue's AJAX endpoints, with protection ON.
+CSRF behaviour of the product catalog's AJAX endpoints, with protection ON.
 
 The rest of the suite runs with ``WTF_CSRF_ENABLED = False``, which is what let a
 real bug through review: every one of these endpoints is called by fetch() from

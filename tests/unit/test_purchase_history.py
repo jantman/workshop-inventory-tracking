@@ -90,7 +90,7 @@ class TestLatestPrice:
 
 
 class TestRepeatPurchaseBuildsOneHistory:
-    """SC-005: buying the same thing again does not fork the catalogue"""
+    """SC-005: buying the same thing again does not fork the catalog"""
 
     def test_two_purchases_of_one_product_stay_under_one_product(self, service, product):
         service.record_purchase(

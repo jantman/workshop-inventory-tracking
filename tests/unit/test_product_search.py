@@ -1,5 +1,5 @@
 """
-Unit tests for catalogue search, category filtering and tags.
+Unit tests for catalog search, category filtering and tags.
 
 Three properties: a category filter includes its sub-categories and stops at
 segment boundaries, a tag filter ignores category entirely, and search reaches
@@ -19,8 +19,8 @@ def service(test_storage):
 
 
 @pytest.fixture
-def catalogue(service):
-    """A small catalogue with nested categories and cross-cutting tags"""
+def catalog(service):
+    """A small catalog with nested categories and cross-cutting tags"""
     service.create_product(
         description='Carbon film resistor, 10k',
         specifications=[
@@ -78,98 +78,98 @@ def descriptions(products):
 class TestCategoryFilter:
     """Story 7 scenario 1"""
 
-    def test_a_category_includes_its_sub_categories(self, catalogue):
-        found = catalogue.search_products(category='electronics')
+    def test_a_category_includes_its_sub_categories(self, catalog):
+        found = catalog.search_products(category='electronics')
         assert descriptions(found) == [
             'Carbon film resistor, 10k',
             'Ceramic capacitor, 100nF',
             'LM358 op-amp',
         ]
 
-    def test_a_deeper_category_narrows_further(self, catalogue):
-        found = catalogue.search_products(category='electronics/passives')
+    def test_a_deeper_category_narrows_further(self, catalog):
+        found = catalog.search_products(category='electronics/passives')
         assert descriptions(found) == [
             'Carbon film resistor, 10k',
             'Ceramic capacitor, 100nF',
         ]
 
-    def test_a_leaf_category_returns_only_its_own(self, catalogue):
-        found = catalogue.search_products(category='electronics/passives/resistors')
+    def test_a_leaf_category_returns_only_its_own(self, catalog):
+        found = catalog.search_products(category='electronics/passives/resistors')
         assert descriptions(found) == ['Carbon film resistor, 10k']
 
-    def test_a_sibling_sharing_a_prefix_is_not_included(self, catalogue):
+    def test_a_sibling_sharing_a_prefix_is_not_included(self, catalog):
         """The boundary is the separator, not the character count"""
-        found = catalogue.search_products(category='electronics')
+        found = catalog.search_products(category='electronics')
         assert 'Electronics-adjacent thing' not in descriptions(found)
 
-    def test_the_filter_is_normalized_like_the_stored_path(self, catalogue):
-        assert len(catalogue.search_products(category=' Electronics / Passives ')) == 2
+    def test_the_filter_is_normalized_like_the_stored_path(self, catalog):
+        assert len(catalog.search_products(category=' Electronics / Passives ')) == 2
 
-    def test_a_blank_category_filter_selects_everything(self, catalogue):
-        assert len(catalogue.search_products(category='')) == 6
+    def test_a_blank_category_filter_selects_everything(self, catalog):
+        assert len(catalog.search_products(category='')) == 6
 
-    def test_an_unused_category_returns_nothing_rather_than_erroring(self, catalogue):
-        assert catalogue.search_products(category='nonexistent') == []
+    def test_an_unused_category_returns_nothing_rather_than_erroring(self, catalog):
+        assert catalog.search_products(category='nonexistent') == []
 
 
 class TestTagFilter:
     """Story 7 scenario 2: tags cut across categories"""
 
-    def test_a_tag_returns_matches_regardless_of_category(self, catalogue):
-        found = catalogue.search_products(tag='surplus')
+    def test_a_tag_returns_matches_regardless_of_category(self, catalog):
+        found = catalog.search_products(tag='surplus')
         assert descriptions(found) == [
             'Carbon film resistor, 10k', 'LM358 op-amp', 'M4 hex bolt',
         ]
 
-    def test_a_tag_filter_is_case_insensitive(self, catalogue):
-        assert len(catalogue.search_products(tag='SURPLUS')) == 3
+    def test_a_tag_filter_is_case_insensitive(self, catalog):
+        assert len(catalog.search_products(tag='SURPLUS')) == 3
 
-    def test_a_product_can_carry_several_tags(self, catalogue):
-        assert 'LM358 op-amp' in descriptions(catalogue.search_products(tag='rohs'))
-        assert 'LM358 op-amp' in descriptions(catalogue.search_products(tag='surplus'))
+    def test_a_product_can_carry_several_tags(self, catalog):
+        assert 'LM358 op-amp' in descriptions(catalog.search_products(tag='rohs'))
+        assert 'LM358 op-amp' in descriptions(catalog.search_products(tag='surplus'))
 
-    def test_category_and_tag_narrow_together(self, catalogue):
-        found = catalogue.search_products(category='electronics', tag='surplus')
+    def test_category_and_tag_narrow_together(self, catalog):
+        found = catalog.search_products(category='electronics', tag='surplus')
         assert descriptions(found) == ['Carbon film resistor, 10k', 'LM358 op-amp']
 
-    def test_an_unused_tag_returns_nothing(self, catalogue):
-        assert catalogue.search_products(tag='nonexistent') == []
+    def test_an_unused_tag_returns_nothing(self, catalog):
+        assert catalog.search_products(tag='nonexistent') == []
 
 
 class TestTextSearch:
     """Story 7 scenario 3: across all four fields"""
 
-    def test_matches_a_description(self, catalogue):
-        assert descriptions(catalogue.search_products(query='resistor')) == [
+    def test_matches_a_description(self, catalog):
+        assert descriptions(catalog.search_products(query='resistor')) == [
             'Carbon film resistor, 10k'
         ]
 
-    def test_matches_a_specification(self, catalogue):
-        assert descriptions(catalogue.search_products(query='X7R')) == [
+    def test_matches_a_specification(self, catalog):
+        assert descriptions(catalog.search_products(query='X7R')) == [
             'Ceramic capacitor, 100nF'
         ]
 
-    def test_matches_a_manufacturer_part_number(self, catalogue):
-        assert descriptions(catalogue.search_products(query='LM358N')) == ['LM358 op-amp']
+    def test_matches_a_manufacturer_part_number(self, catalog):
+        assert descriptions(catalog.search_products(query='LM358N')) == ['LM358 op-amp']
 
-    def test_matches_a_stored_identifier(self, catalogue):
-        assert descriptions(catalogue.search_products(query='CF14JT10K0')) == [
+    def test_matches_a_stored_identifier(self, catalog):
+        assert descriptions(catalog.search_products(query='CF14JT10K0')) == [
             'Carbon film resistor, 10k'
         ]
 
-    def test_matches_an_internal_code(self, catalogue):
-        product = catalogue.search_products(query='resistor')[0]
-        found = catalogue.search_products(query=product.internal_code)
+    def test_matches_an_internal_code(self, catalog):
+        product = catalog.search_products(query='resistor')[0]
+        found = catalog.search_products(query=product.internal_code)
         assert [p.id for p in found] == [product.id]
 
-    def test_a_partial_match_works(self, catalogue):
-        assert len(catalogue.search_products(query='capacit')) == 1
+    def test_a_partial_match_works(self, catalog):
+        assert len(catalog.search_products(query='capacit')) == 1
 
-    def test_a_blank_query_returns_everything(self, catalogue):
-        assert len(catalogue.search_products(query='   ')) == 6
+    def test_a_blank_query_returns_everything(self, catalog):
+        assert len(catalog.search_products(query='   ')) == 6
 
-    def test_nothing_matching_is_an_empty_list_not_an_error(self, catalogue):
-        assert catalogue.search_products(query='nothing here matches this') == []
+    def test_nothing_matching_is_an_empty_list_not_an_error(self, catalog):
+        assert catalog.search_products(query='nothing here matches this') == []
 
 
 class TestNotesAreSearched:
@@ -183,38 +183,38 @@ class TestNotesAreSearched:
     test that shows it is test_a_term_in_one_description_and_another_note below.
     """
 
-    def test_a_phrase_held_only_in_notes_finds_the_product(self, catalogue):
-        assert descriptions(catalogue.search_products(query='lathe stand')) == [
+    def test_a_phrase_held_only_in_notes_finds_the_product(self, catalog):
+        assert descriptions(catalog.search_products(query='lathe stand')) == [
             'Toroidal transformer'
         ]
 
-    def test_a_partial_word_from_the_notes_matches(self, catalogue):
-        assert descriptions(catalogue.search_products(query='salvag')) == []
-        assert descriptions(catalogue.search_products(query='rebuild')) == [
+    def test_a_partial_word_from_the_notes_matches(self, catalog):
+        assert descriptions(catalog.search_products(query='salvag')) == []
+        assert descriptions(catalog.search_products(query='rebuild')) == [
             'Toroidal transformer'
         ]
 
-    def test_a_product_with_no_notes_is_not_returned_for_someone_elses(self, catalogue):
-        found = descriptions(catalogue.search_products(query='lathe stand'))
+    def test_a_product_with_no_notes_is_not_returned_for_someone_elses(self, catalog):
+        found = descriptions(catalog.search_products(query='lathe stand'))
         assert 'M4 hex bolt' not in found
         assert 'Electronics-adjacent thing' not in found
 
-    def test_a_term_in_one_description_and_another_note(self, catalogue):
+    def test_a_term_in_one_description_and_another_note(self, catalog):
         """009 FR-011: both, once each. An or_ disjunct cannot multiply a row,
         which is why notes needs no de-duplication the way identifiers do."""
-        found = [p.description for p in catalogue.search_products(query='LM358')]
+        found = [p.description for p in catalog.search_products(query='LM358')]
         assert sorted(found) == ['Ceramic capacitor, 100nF', 'LM358 op-amp']
         assert len(found) == len(set(found))
 
-    def test_the_other_filters_still_bind_a_notes_match(self, catalogue):
+    def test_the_other_filters_still_bind_a_notes_match(self, catalog):
         """009 FR-013: matching through notes is not an escape from the filters"""
         assert descriptions(
-            catalogue.search_products(query='lathe stand', category='workshop')
+            catalog.search_products(query='lathe stand', category='workshop')
         ) == ['Toroidal transformer']
-        assert catalogue.search_products(
+        assert catalog.search_products(
             query='lathe stand', category='electronics'
         ) == []
-        assert catalogue.search_products(query='lathe stand', tag='surplus') == []
+        assert catalog.search_products(query='lathe stand', tag='surplus') == []
 
 
 class TestStockFilter:
@@ -254,8 +254,8 @@ class TestStockFilter:
 
 
 class TestCategoryListing:
-    def test_lists_the_categories_in_use(self, catalogue):
-        assert catalogue.list_categories() == [
+    def test_lists_the_categories_in_use(self, catalog):
+        assert catalog.list_categories() == [
             'electronics-surplus',
             'electronics/active',
             'electronics/passives/capacitors',
@@ -264,8 +264,8 @@ class TestCategoryListing:
             'workshop/salvage',
         ]
 
-    def test_a_prefix_narrows_to_a_subtree(self, catalogue):
-        assert catalogue.list_categories(prefix='electronics') == [
+    def test_a_prefix_narrows_to_a_subtree(self, catalog):
+        assert catalog.list_categories(prefix='electronics') == [
             'electronics/active',
             'electronics/passives/capacitors',
             'electronics/passives/resistors',
@@ -279,14 +279,14 @@ class TestCategoryListing:
         service.update_product(product.id, category_path=None)
         assert service.list_categories() == []
 
-    def test_the_tree_carries_direct_counts(self, catalogue):
-        tree = {entry['path']: entry['count'] for entry in catalogue.category_tree()}
+    def test_the_tree_carries_direct_counts(self, catalog):
+        tree = {entry['path']: entry['count'] for entry in catalog.category_tree()}
         assert tree['electronics/passives/resistors'] == 1
         assert tree['hardware/fasteners'] == 1
 
-    def test_the_tree_carries_depth_and_leaf_name(self, catalogue):
+    def test_the_tree_carries_depth_and_leaf_name(self, catalog):
         entry = next(
-            e for e in catalogue.category_tree()
+            e for e in catalog.category_tree()
             if e['path'] == 'electronics/passives/resistors'
         )
         assert entry['depth'] == 3
@@ -302,11 +302,11 @@ class TestTags:
         assert 'brand/new/category' in service.list_categories()
         assert 'brand-new-tag' in service.list_tags()
 
-    def test_tags_are_listed_alphabetically(self, catalogue):
-        assert catalogue.list_tags() == ['rohs', 'surplus']
+    def test_tags_are_listed_alphabetically(self, catalog):
+        assert catalog.list_tags() == ['rohs', 'surplus']
 
-    def test_a_prefix_narrows_the_tag_list(self, catalogue):
-        assert catalogue.list_tags(prefix='sur') == ['surplus']
+    def test_a_prefix_narrows_the_tag_list(self, catalog):
+        assert catalog.list_tags(prefix='sur') == ['surplus']
 
     def test_set_tags_replaces_the_whole_set(self, service):
         product = service.create_product(description='x', tags=['one', 'two'])
@@ -333,7 +333,7 @@ class TestTags:
 
 @pytest.fixture
 def converters(service):
-    """The SC-001 catalogue: two recorded voltages and one that only says so"""
+    """The SC-001 catalog: two recorded voltages and one that only says so"""
     service.create_product(
         description='12 V buck converter',
         specifications=[

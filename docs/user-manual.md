@@ -60,7 +60,7 @@
 - **Inventory List** - View and manage all inventory
 - **Move Items** - Batch move operations
 - **Shorten Items** - Cut materials to length
-- **Products** - The product catalogue: what a part is, what it cost, where it came from
+- **Products** - The product catalog: what a part is, what it cost, where it came from
 - **Scan box** - In the header on every page; scan or type a code from wherever you are
 
 ## Overview
@@ -80,9 +80,9 @@ inventory half tracks:
 - **Purchase Information**: Date, price, vendor details
 - **Status**: Active/inactive status for each item
 
-**The product catalogue** is what you bought. It answers *what is this thing,
+**The product catalog** is what you bought. It answers *what is this thing,
 what did it cost, and where did it come from?* -- the question a part in a bin
-six months later cannot answer for itself. The catalogue half tracks
+six months later cannot answer for itself. The catalog half tracks
 descriptions and specifications, barcodes and part numbers, purchases with their
 vendors and prices, how many you have and what needs reordering, categories and
 tags, and attachments such as datasheets and receipts.
@@ -221,7 +221,7 @@ The **Add & Continue** button (green button next to "Add Item") submits the curr
 
 The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from the Add Item form, Edit Item form, or in bulk from the Inventory List.
 
-These are inventory labels, carrying a JA ID. Catalogue products get their own
+These are inventory labels, carrying a JA ID. Catalog products get their own
 labels, carrying the product's internal code -- see
 [Printing Product Labels](#printing-product-labels).
 
@@ -714,7 +714,7 @@ Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA00
 ## The Product Catalog
 
 The **inventory** side of this application tracks metal stock by JA ID. The
-**product catalogue** answers a different question: *what is this thing, what did
+**product catalog** answers a different question: *what is this thing, what did
 it cost, and where did it come from?* It exists because a part in a bin months
 after purchase is unidentifiable without it, and reaching for a vendor page to
 find out is the work this removes.
@@ -728,7 +728,7 @@ half touches the inventory tables.
 
 ## Adding a Product
 
-**Products → Add Product**, or scan something the catalogue does not recognize
+**Products → Add Product**, or scan something the catalog does not recognize
 yet.
 
 ![Add Product Form](images/screenshots/user-manual/product_add_form.png)
@@ -790,7 +790,7 @@ anything, so it is always refused. Rescan it.
 
 **Vendor and distributor identifiers are scoped to their vendor.** An ASIN only
 means anything within Amazon. If a vendor reuses an item id for a completely
-different product -- and they do -- the catalogue will not merge the two, because
+different product -- and they do -- the catalog will not merge the two, because
 a product's identity is its own record and never one of its names. You can delete
 every identifier a product has and the product is still there.
 
@@ -803,9 +803,9 @@ A scan always gets an answer. There is no "not found":
 
 | What you scanned | What happens |
 |---|---|
-| An internal code, or a barcode you have catalogued | The product opens |
+| An internal code, or a barcode you have cataloged | The product opens |
 | A manufacturer's own 2D barcode | Exactly as though you had scanned the plain barcode it carries |
-| A valid barcode you have not catalogued | A create form, with the barcode already attached |
+| A valid barcode you have not cataloged | A create form, with the barcode already attached |
 | A distributor's 2D label | A create form, filled in from the label |
 | An ASIN you have recorded | The product opens |
 | Anything else | A search, carrying what you scanned |
@@ -828,7 +828,7 @@ quantity and your order references. Scanning one produces a filled-in draft, wit
 **every value editable before you save** -- values are taken exactly as printed
 and nothing is reformatted or rejected on your behalf.
 
-If the label is damaged, or carries only fields this catalogue has no home for,
+If the label is damaged, or carries only fields this catalog has no home for,
 you get a search with the raw scan shown rather than a silent failure. You can
 always read it yourself and type what you need.
 
@@ -914,7 +914,7 @@ differed from what you ordered, which it sometimes does.
 
 ## Printing Product Labels
 
-These are the catalogue's labels, carrying a product's internal code. For the
+These are the catalog's labels, carrying a product's internal code. For the
 JA ID labels that go on inventory items, see [Label Printing](#label-printing).
 
 **Print Label** on a product composes a label carrying three things:
@@ -1095,7 +1095,7 @@ The suggestions are advisory. Every one of these fields is plain text, and typin
 something that matches nothing saves exactly as typed.
 
 Thread Size and Purchase Location are inventory-only fields and are unchanged --
-nothing in the catalogue records either.
+nothing in the catalog records either.
 
 ## Data Export
 

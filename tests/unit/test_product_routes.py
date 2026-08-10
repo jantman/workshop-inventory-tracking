@@ -88,7 +88,7 @@ class TestReachingAProductByItsCode:
     def test_a_well_formed_code_no_product_carries_is_reported_missing(
         self, client, service
     ):
-        """009 FR-016 -- and by "the catalogue's existing treatment" the spec
+        """009 FR-016 -- and by "the catalog's existing treatment" the spec
         means literally the same response an unknown record number produces,
         which for an HTML request is a flash and a redirect rather than a 404.
         Asserted as equivalence so the two cannot drift apart."""

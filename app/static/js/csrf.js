@@ -6,7 +6,7 @@
  * header, so this reads the token out of the meta tag in base.html and adds that
  * header to any state-changing request.
  *
- * This exists so the catalogue's AJAX endpoints do not have to be exempted from
+ * This exists so the catalog's AJAX endpoints do not have to be exempted from
  * CSRF one by one. The one endpoint that genuinely cannot carry a token -- the
  * bookmarklet's POST /api/capture, which arrives from a vendor's origin -- stays
  * exempt and says why at the endpoint.

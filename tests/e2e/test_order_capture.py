@@ -187,7 +187,7 @@ def test_the_description_is_correctable_when_the_box_arrives(page, live_server):
 def test_a_recycled_item_number_asks_before_attaching(page, live_server):
     """US4/FR-017: the invisible failure, made visible"""
     live_server.add_test_products([{
-        'description': 'Blue widget, already catalogued',
+        'description': 'Blue widget, already cataloged',
         'manufacturer': 'Acme',
         'manufacturer_part_number': 'BW-10',
         'identifiers': [
@@ -199,7 +199,7 @@ def test_a_recycled_item_number_asks_before_attaching(page, live_server):
 
     expect(page.locator("#identifier-warning")).to_be_visible()
     expect(page.locator("#identifier-warning")).to_contain_text(
-        "Blue widget, already catalogued"
+        "Blue widget, already cataloged"
     )
     expect(page.locator("#identifier-warning")).to_contain_text("BW-10")
 
@@ -214,7 +214,7 @@ def test_a_recycled_item_number_asks_before_attaching(page, live_server):
 def test_choosing_a_separate_product_leaves_the_first_alone(page, live_server):
     """FR-020"""
     live_server.add_test_products([{
-        'description': 'Blue widget, already catalogued',
+        'description': 'Blue widget, already cataloged',
         'identifiers': [
             {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
         ],
@@ -230,7 +230,7 @@ def test_choosing_a_separate_product_leaves_the_first_alone(page, live_server):
 
     page.goto(f"{live_server.url}/products")
     expect(page.locator("#product-table tbody tr")).to_have_count(2)
-    expect(page.locator("#product-table")).to_contain_text("Blue widget, already catalogued")
+    expect(page.locator("#product-table")).to_contain_text("Blue widget, already cataloged")
     expect(page.locator("#product-table")).to_contain_text("Green gizmo")
 
 

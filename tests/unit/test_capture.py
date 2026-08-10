@@ -335,7 +335,7 @@ class TestAttachVsCreate:
 
     def test_an_uncorroborated_match_raises_and_names_the_product(self, service):
         existing = service.create_product(
-            description='Blue widget, already catalogued',
+            description='Blue widget, already cataloged',
             manufacturer_part_number='BW-10',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
@@ -347,7 +347,7 @@ class TestAttachVsCreate:
 
         assessment = excinfo.value.assessment
         assert assessment.matched_product_id == existing.id
-        assert assessment.matched_product_description == 'Blue widget, already catalogued'
+        assert assessment.matched_product_description == 'Blue widget, already cataloged'
         assert assessment.matched_product_part_number == 'BW-10'
         assert assessment.has_uncorroborated_match is True
         # Nothing written while the question is open.
@@ -355,7 +355,7 @@ class TestAttachVsCreate:
 
     def test_choosing_the_matched_product_attaches_to_it(self, service):
         existing = service.create_product(
-            description='Blue widget, already catalogued',
+            description='Blue widget, already cataloged',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
         purchase = service.capture_order(
@@ -367,7 +367,7 @@ class TestAttachVsCreate:
     def test_choosing_a_separate_product_leaves_the_first_untouched(self, service):
         """FR-020, including its identifiers"""
         existing = service.create_product(
-            description='Blue widget, already catalogued',
+            description='Blue widget, already cataloged',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
         purchase = service.capture_order(
@@ -379,7 +379,7 @@ class TestAttachVsCreate:
         assert len(service.list_products()) == 2
 
         untouched = service.get_product(existing.id)
-        assert untouched.description == 'Blue widget, already catalogued'
+        assert untouched.description == 'Blue widget, already cataloged'
         assert [i.value for i in untouched.identifiers if i.id_type == 'VENDOR'] == [
             'B0ABCDEFGH'
         ]
@@ -432,42 +432,42 @@ class TestCorroboration:
     """FR-019: attach without asking only when the evidence is a pair"""
 
     @pytest.fixture
-    def catalogued(self, service):
+    def cataloged(self, service):
         return service.create_product(
             description='12V 3A PSU',
             manufacturer='Mean Well', manufacturer_part_number='RS-15-12',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
 
-    def test_both_matching_attaches_silently(self, service, catalogued):
+    def test_both_matching_attaches_silently(self, service, cataloged):
         purchase = service.capture_order(
             vendor='Amazon', vendor_item_id='B0ABCDEFGH',
             manufacturer='Mean Well', manufacturer_part_number='RS-15-12',
         )
-        assert purchase.product_id == catalogued.id
+        assert purchase.product_id == cataloged.id
 
-    def test_case_and_padding_do_not_defeat_it(self, service, catalogued):
+    def test_case_and_padding_do_not_defeat_it(self, service, cataloged):
         purchase = service.capture_order(
             vendor='Amazon', vendor_item_id='B0ABCDEFGH',
             manufacturer='  mean well ', manufacturer_part_number='rs-15-12',
         )
-        assert purchase.product_id == catalogued.id
+        assert purchase.product_id == cataloged.id
 
-    def test_the_manufacturer_alone_is_not_evidence(self, service, catalogued):
-        """One name matches a vendor's whole catalogue"""
+    def test_the_manufacturer_alone_is_not_evidence(self, service, cataloged):
+        """One name matches a vendor's whole catalog"""
         with pytest.raises(CaptureDecisionRequired):
             service.capture_order(
                 vendor='Amazon', vendor_item_id='B0ABCDEFGH', manufacturer='Mean Well',
             )
 
-    def test_the_part_number_alone_is_not_evidence(self, service, catalogued):
+    def test_the_part_number_alone_is_not_evidence(self, service, cataloged):
         with pytest.raises(CaptureDecisionRequired):
             service.capture_order(
                 vendor='Amazon', vendor_item_id='B0ABCDEFGH',
                 manufacturer_part_number='RS-15-12',
             )
 
-    def test_a_disagreeing_part_number_asks(self, service, catalogued):
+    def test_a_disagreeing_part_number_asks(self, service, cataloged):
         """The recycled-identifier case the whole story exists for"""
         with pytest.raises(CaptureDecisionRequired):
             service.capture_order(
@@ -658,7 +658,7 @@ class TestTheBookmarkletLanding:
         self, client, service
     ):
         service.create_product(
-            description='Blue widget, already catalogued',
+            description='Blue widget, already cataloged',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
         response = client.post('/api/capture', json={'url': AMAZON_URL})
@@ -666,12 +666,12 @@ class TestTheBookmarkletLanding:
         assert response.status_code == 409
         assessment = response.get_json()['assessment']
         assert assessment['has_uncorroborated_match'] is True
-        assert assessment['matched_product_description'] == 'Blue widget, already catalogued'
+        assert assessment['matched_product_description'] == 'Blue widget, already cataloged'
         assert len(service.list_products()) == 1
 
     def test_re_posting_with_the_answer_resolves_it(self, client, service):
         service.create_product(
-            description='Blue widget, already catalogued',
+            description='Blue widget, already cataloged',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
         response = client.post('/api/capture', json={
@@ -989,7 +989,7 @@ class TestTheListingFillsTheForm:
 
 
 class TestCapturedSpecifications:
-    """US3: the listing's product information becomes filterable catalogue data.
+    """US3: the listing's product information becomes filterable catalog data.
 
     The invariant under all of it is FR-011, and it is a property of
     ``merge_specifications`` rather than of its callers: **a capture never
@@ -1351,7 +1351,7 @@ class TestThePayloadSurvivesAQuestion:
     def already_named(self, service):
         """A product the item id already names, without corroboration"""
         return service.create_product(
-            description='Something already catalogued',
+            description='Something already cataloged',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
 
@@ -1402,7 +1402,7 @@ class TestThePayloadSurvivesAQuestion:
     def test_both_questions_at_once_land_the_payload_exactly_once(self, client, service):
         """A capture can be a probable repeat *and* land on a recycled identifier"""
         product = service.create_product(
-            description='Something already catalogued',
+            description='Something already cataloged',
             identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
         )
         # Dated today, because "the same capture" means the same vendor, the
