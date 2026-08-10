@@ -29,7 +29,12 @@
 
 <form id="add-item-form" class="needs-validation" novalidate method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-    
+    {# Which submit control was used. The single-item path submits with
+       form.submit(), which is programmatic and therefore carries no submitter,
+       so the buttons' own name/value never reach the server on that path. The
+       submit handler assigns this field instead. #}
+    <input type="hidden" name="submit_type" id="submit-type" value="add"/>
+
     <!-- Alert for messages -->
     <div id="form-alerts"></div>
     
@@ -343,10 +348,14 @@
                 </div>
                 
                 <div class="btn-group">
-                    <button type="submit" name="submit_type" value="add" class="btn btn-primary" id="submit-btn">
+                    {# These carry `value` but deliberately not `name`: the
+                       handler reads event.submitter.value, and a name here
+                       would put a second `submit_type` in the payload on a
+                       native submission, competing with the hidden field. #}
+                    <button type="submit" value="add" class="btn btn-primary" id="submit-btn">
                         <i class="bi bi-check-circle"></i> Add Item
                     </button>
-                    <button type="submit" name="submit_type" value="continue" class="btn btn-success" id="submit-and-continue-btn">
+                    <button type="submit" value="continue" class="btn btn-success" id="submit-and-continue-btn">
                         <i class="bi bi-plus-circle"></i> Add & Continue
                     </button>
                     <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">

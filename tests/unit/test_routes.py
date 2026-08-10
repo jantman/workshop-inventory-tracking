@@ -1649,6 +1649,63 @@ class TestFormAddItemRouteAfterRefactor:
         assert data['count'] == 2
         assert len(data['ja_ids']) == 2
 
+    def test_bulk_form_partial_failure_reports_count(
+            self, client, monkeypatch):
+        """A partly-successful bulk form submission states what it recorded.
+
+        FR-009 rests on `count` and `ja_ids` describing what actually reached
+        the database, not what was requested. The form branch builds its own
+        response separately from the JSON API branch covered by
+        TestApiCreateItems, so it needs its own coverage.
+
+        A partial failure is not reachable through the browser -- the server
+        allocates above the current maximum precisely to avoid collisions -- so
+        it is provoked here the same way the JSON API test does it.
+        """
+        from app.main.routes import _create_single_item as real_create
+
+        call_count = {'n': 0}
+
+        def flaky_create(service, form_data, bulk_context=None):
+            call_count['n'] += 1
+            if call_count['n'] == 2:
+                return (False, form_data.get('ja_id'),
+                        'simulated failure', 'error')
+            return real_create(service, form_data, bulk_context)
+
+        monkeypatch.setattr(
+            'app.main.routes._create_single_item', flaky_create)
+
+        form = self._minimum_form(quantity_to_create='3')
+        response = client.post('/inventory/add', data=form)
+
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data['success'] is False
+        assert data['count'] == 2
+        assert len(data['ja_ids']) == 2
+
+    def test_bulk_form_complete_failure_creates_nothing(
+            self, client, app, monkeypatch):
+        """When no item can be created the form says so and records none."""
+        def always_fail(service, form_data, bulk_context=None):
+            return (False, form_data.get('ja_id'),
+                    'simulated total failure', 'error')
+
+        monkeypatch.setattr('app.main.routes._create_single_item', always_fail)
+
+        form = self._minimum_form(quantity_to_create='2')
+        response = client.post('/inventory/add', data=form)
+
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'Failed to create any items' in data['error']
+
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            assert _get_inventory_service().get_all_items() == []
+
 
 class TestFieldSuggestionsRoute:
     """Tests for GET /api/inventory/field-suggestions/<field>."""

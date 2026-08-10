@@ -72,14 +72,26 @@ class InventoryAddForm {
     }
     
     setupEventListeners() {
-        // Form submission
+        // Form submission. Both submit buttons go through this one listener --
+        // which one was pressed is read from event.submitter inside the handler.
+        // A second listener on the continue button would be a second entry point
+        // for one user action, which is what this replaced.
         this.form.addEventListener('submit', (e) => this.handleSubmit(e));
-        
-        // Submit and continue button
-        document.getElementById('submit-and-continue-btn').addEventListener('click', () => {
-            this.handleSubmit(null, true);
-        });
-        
+
+        // Honour "continue" on the bulk path. Bulk creation answers with JSON
+        // consumed by fetch(), so the server cannot redirect the way it does for
+        // a single item -- the client owns this navigation. Re-rendering the
+        // form is what makes the end state identical to the single-item path
+        // rather than merely similar. Registered once, not per submission.
+        const bulkModal = document.getElementById('bulkLabelPrintingModal');
+        if (bulkModal) {
+            bulkModal.addEventListener('hidden.bs.modal', () => {
+                if (this.continueAfterBulk) {
+                    window.location.href = '/inventory/add';
+                }
+            });
+        }
+
         // Type and shape changes
         document.getElementById('item_type').addEventListener('change', () => {
             this.updateDimensionRequirements();
@@ -651,11 +663,11 @@ class InventoryAddForm {
         }
     }
     
-    async handleSubmit(event, continueAdding = false) {
+    async handleSubmit(event) {
         if (event) {
             event.preventDefault();
         }
-        
+
         // Validate form
         if (!this.form.checkValidity()) {
             event?.stopPropagation();
@@ -663,16 +675,26 @@ class InventoryAddForm {
             this.showValidationErrors();
             return;
         }
-        
-        // Set submit type for continue functionality
-        if (continueAdding) {
-            const submitTypeInput = document.createElement('input');
-            submitTypeInput.type = 'hidden';
-            submitTypeInput.name = 'submit_type';
-            submitTypeInput.value = 'continue';
-            this.form.appendChild(submitTypeInput);
+
+        // One submission per user action. The buttons are disabled below while a
+        // request is in flight, but Enter still reaches the form even when they
+        // are, so the flag is what actually guarantees it.
+        if (this.submitting) {
+            console.log('Submit: Ignoring submission, one is already in flight');
+            return;
         }
-        
+        this.submitting = true;
+
+        // Which control was pressed. Implicit submission (Enter) reports the
+        // form's first submit button, which is #submit-btn -- so Enter means
+        // Add, matching the previous behavior.
+        const continueAdding = event?.submitter?.value === 'continue';
+
+        // Carry the choice in the form's own hidden field rather than appending
+        // one per submission: form.submit() sends no submitter, and appended
+        // inputs outlive a bulk submission that never navigates away.
+        document.getElementById('submit-type').value = continueAdding ? 'continue' : 'add';
+
         // Show loading state
         const submitBtn = document.getElementById('submit-btn');
         const continueBtn = document.getElementById('submit-and-continue-btn');
@@ -706,6 +728,9 @@ class InventoryAddForm {
 
         if (quantity > 1) {
             console.log(`Submit: Using AJAX for bulk creation (quantity=${quantity})`);
+            // Set on every bulk submission, not only the continue ones, so a
+            // failed continue cannot leave the flag set for a later plain Add.
+            this.continueAfterBulk = continueAdding;
             // Use AJAX for bulk creation to handle JSON response
             try {
                 const formData = new FormData(this.form);
@@ -717,12 +742,6 @@ class InventoryAddForm {
 
                 const data = await response.json();
                 console.log(`Submit: Parsed JSON response:`, data);
-
-                // Reset button states
-                submitBtn.innerHTML = originalSubmitHTML;
-                continueBtn.innerHTML = originalContinueHTML;
-                submitBtn.disabled = false;
-                continueBtn.disabled = false;
 
                 if (data.success) {
                     console.log(`Submit: Success! Created ${data.count} items, showing modal...`);
@@ -743,15 +762,20 @@ class InventoryAddForm {
             } catch (error) {
                 console.error('Error during bulk creation:', error);
                 WorkshopInventory.utils.showToast('An error occurred. Please try again.', 'error');
-
-                // Reset button states
+            } finally {
+                // One restore for success, failure and error alike (FR-005).
+                // Two copies of this drifting apart is how a disabled button
+                // gets stranded.
                 submitBtn.innerHTML = originalSubmitHTML;
                 continueBtn.innerHTML = originalContinueHTML;
                 submitBtn.disabled = false;
                 continueBtn.disabled = false;
+                this.submitting = false;
             }
         } else {
-            // Submit form normally for single item creation
+            // Submit form normally for single item creation. The page is being
+            // replaced, so the loading state stays up and `submitting` stays set
+            // until the new document loads.
             this.form.submit();
         }
     }
@@ -818,31 +842,6 @@ class InventoryAddForm {
         data.active = formData.has('active');
         
         return data;
-    }
-    
-    clearFormForContinue() {
-        // Clear specific fields but keep others for carry-forward
-        const clearFields = [
-            'ja_id', 'length', 'width', 'thickness', 'wall_thickness', 
-            'weight', 'thread_size', 'notes', 'vendor_part_number',
-            'purchase_date', 'purchase_price'
-        ];
-        
-        clearFields.forEach(field => {
-            const input = document.getElementById(field);
-            if (input) {
-                input.value = '';
-            }
-        });
-        
-        // Clear validation states
-        this.form.classList.remove('was-validated');
-        this.form.querySelectorAll('.is-invalid').forEach(el => {
-            el.classList.remove('is-invalid');
-        });
-        
-        // Focus on JA ID for next item
-        document.getElementById('ja_id').focus();
     }
     
     showValidationErrors() {
