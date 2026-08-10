@@ -3,17 +3,17 @@
 **Feature Branch**: `product-catalog`
 **Created**: 2026-08-02
 **Status**: Draft
-**Input**: Enhancement to an existing workshop inventory application, adding the ability to catalogue and identify purchased parts, supplies, and components.
+**Input**: Enhancement to an existing workshop inventory application, adding the ability to catalog and identify purchased parts, supplies, and components.
 
 ---
 
 ## Overview
 
-The existing application manages metal stock inventory for a single-person hobby workshop. This feature extends it to catalogue the other things the workshop buys: electronic, electrical, and hardware components and supplies, mostly unbranded imports from Amazon, plus well-labeled parts from industrial distributors.
+The existing application manages metal stock inventory for a single-person hobby workshop. This feature extends it to catalog the other things the workshop buys: electronic, electrical, and hardware components and supplies, mostly unbranded imports from Amazon, plus well-labeled parts from industrial distributors.
 
 The purpose is **identification, not inventory control**. When a part is picked up off a shelf months after purchase, the operator needs to know what it is, its key specifications, where it came from, and what it cost — without depending on a vendor product page that may have changed or disappeared. Today this information is transcribed by hand onto a printed label at the moment a package is unpacked, and no copy of that label is retained. This feature captures that information as durable, searchable data and removes the need to re-derive it from vendor pages.
 
-The operator has an established inventory of tens of thousands of existing items. The overwhelming majority will never be catalogued, and that is expected and acceptable. The goal is to identify things acquired from this point forward, plus the occasional high-value existing item the operator chooses to enter by hand.
+The operator has an established inventory of tens of thousands of existing items. The overwhelming majority will never be cataloged, and that is expected and acceptable. The goal is to identify things acquired from this point forward, plus the occasional high-value existing item the operator chooses to enter by hand.
 
 ---
 
@@ -29,9 +29,9 @@ The operator finds an unlabeled or unfamiliar part on a shelf, or picks up a bin
 
 **Acceptance Scenarios**:
 
-1. **Given** a catalogued product with a printed label, **When** the operator scans that label, **Then** the system displays the product's description, specifications, purchase history, and location if recorded.
-2. **Given** a catalogued product whose packaging carries a manufacturer barcode that was recorded, **When** the operator scans that barcode, **Then** the same product is displayed.
-3. **Given** a barcode that matches nothing in the catalogue, **When** the operator scans it, **Then** the system offers to create a new product with that identifier already attached, rather than showing an error.
+1. **Given** a cataloged product with a printed label, **When** the operator scans that label, **Then** the system displays the product's description, specifications, purchase history, and location if recorded.
+2. **Given** a cataloged product whose packaging carries a manufacturer barcode that was recorded, **When** the operator scans that barcode, **Then** the same product is displayed.
+3. **Given** a barcode that matches nothing in the catalog, **When** the operator scans it, **Then** the system offers to create a new product with that identifier already attached, rather than showing an error.
 
 ---
 
@@ -69,13 +69,13 @@ Rather than reconstructing purchase information at unboxing time from a vendor p
 
 ---
 
-### User Story 4 - Catalogue a distributor part from its own label (Priority: P2)
+### User Story 4 - Catalog a distributor part from its own label (Priority: P2)
 
-Parts from industrial distributors already arrive well-labeled with a machine-readable code carrying the manufacturer part number, quantity, and order references. The operator scans that code and the catalogue entry is populated from it, without printing a new label — the distributor's own labeling is sufficient.
+Parts from industrial distributors already arrive well-labeled with a machine-readable code carrying the manufacturer part number, quantity, and order references. The operator scans that code and the catalog entry is populated from it, without printing a new label — the distributor's own labeling is sufficient.
 
-**Why this priority**: These parts don't need a printed label, so the value here is capturing them into the searchable catalogue and purchase history cheaply. Lower priority than the Amazon-style flow because the identification problem is already partly solved by the distributor.
+**Why this priority**: These parts don't need a printed label, so the value here is capturing them into the searchable catalog and purchase history cheaply. Lower priority than the Amazon-style flow because the identification problem is already partly solved by the distributor.
 
-**Independent Test**: Scan a distributor's part label and confirm the manufacturer part number, quantity, and order reference are extracted into a draft catalogue entry.
+**Independent Test**: Scan a distributor's part label and confirm the manufacturer part number, quantity, and order reference are extracted into a draft catalog entry.
 
 **Acceptance Scenarios**:
 
@@ -89,7 +89,7 @@ Parts from industrial distributors already arrive well-labeled with a machine-re
 
 Some items are bought repeatedly. When the operator buys something they've purchased before, the system recognizes it as the same product and records the new purchase against it, building a visible history of what was paid and when.
 
-**Why this priority**: Valuable for reordering decisions and avoiding duplicate catalogue entries, but the core identification purpose works without it.
+**Why this priority**: Valuable for reordering decisions and avoiding duplicate catalog entries, but the core identification purpose works without it.
 
 **Independent Test**: Record two purchases of the same product at different prices and dates, and confirm both appear in one product's history with the prices shown.
 
@@ -97,7 +97,7 @@ Some items are bought repeatedly. When the operator buys something they've purch
 
 1. **Given** a product with a prior purchase, **When** the operator records a new purchase of the same product, **Then** both purchases appear in one chronological history.
 2. **Given** a product with purchase history, **When** the operator views it, **Then** the most recent price paid is visible.
-3. **Given** two visually similar but genuinely different variants, **When** they are catalogued, **Then** the operator can keep them as distinct products.
+3. **Given** two visually similar but genuinely different variants, **When** they are cataloged, **Then** the operator can keep them as distinct products.
 
 ---
 
@@ -120,9 +120,9 @@ For the minority of items where running out actually matters — high-value or l
 
 ### User Story 7 - Classify and find things (Priority: P3)
 
-The operator organizes products into a rough hierarchy of categories and can also tag them freely across categories. They can search the catalogue by description, specification, identifier, or category and filter the results.
+The operator organizes products into a rough hierarchy of categories and can also tag them freely across categories. They can search the catalog by description, specification, identifier, or category and filter the results.
 
-**Why this priority**: Improves retrieval as the catalogue grows, but a small catalogue is navigable without it, and the identification loop doesn't depend on it.
+**Why this priority**: Improves retrieval as the catalog grows, but a small catalog is navigable without it, and the identification loop doesn't depend on it.
 
 **Independent Test**: Assign several products to categories and tags, then confirm searching and filtering returns the expected subsets.
 
@@ -139,7 +139,7 @@ The operator organizes products into a rough hierarchy of categories and can als
 
 - A scanned identifier is a manufacturer barcode that the operator has never associated with a product. The system must let them create the product with that identifier attached, not dead-end on "not found."
 - The same real-world product is sold under several different vendor listings and identifiers. The operator must be able to keep it as one product with multiple purchases and multiple recorded identifiers.
-- A vendor reuses an item identifier for a completely different product over time. The catalogue must not silently conflate the two; product identity must not depend solely on a vendor's item identifier.
+- A vendor reuses an item identifier for a completely different product over time. The catalog must not silently conflate the two; product identity must not depend solely on a vendor's item identifier.
 - A quantity is recorded and then not revisited for a long time. The system must convey that the count may be stale rather than presenting it as currently authoritative.
 - A code prints on a label and then partially degrades on the shelf. The label must remain usable, because the same information is present in human-readable form.
 - An item is received in a quantity or condition that differs from what was ordered. The operator must be able to amend the purchase at receipt.
@@ -152,14 +152,14 @@ The operator organizes products into a rough hierarchy of categories and can als
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST allow products to be catalogued independently of any purchase, so that existing items can be entered by hand.
+- **FR-001**: The system MUST allow products to be cataloged independently of any purchase, so that existing items can be entered by hand.
 - **FR-002**: The system MUST keep products and purchases as distinct records, where one product may have many purchases over time.
 - **FR-003**: The system MUST allow a product's identifying description to be authored and edited by the operator, and MUST treat this description as the authoritative human-readable identity of the product.
 - **FR-004**: The system MUST record, for each purchase, at minimum the vendor, the vendor's item identifier, the order date, whether and when it was received, the quantity, and the price paid.
 - **FR-005**: The system MUST allow a purchase to exist in an unreceived state and later be marked received.
 - **FR-006**: The system MUST present, for any product, its full purchase history including dates, vendors, and prices, and MUST make the most recent price visible.
 - **FR-007**: The system MUST store multiple identifiers of differing kinds against a single product, including manufacturer part numbers, retail/consumer barcodes, vendor item identifiers, and any code the system itself prints.
-- **FR-008**: The system MUST NOT make a product's identity depend on a vendor's reusable item identifier, so that later reuse of that identifier by the vendor cannot corrupt the catalogue.
+- **FR-008**: The system MUST NOT make a product's identity depend on a vendor's reusable item identifier, so that later reuse of that identifier by the vendor cannot corrupt the catalog.
 - **FR-009**: The system MUST resolve equivalent forms of the same retail/consumer barcode to a single product, regardless of which length or form was scanned.
 - **FR-010**: The system MUST detect and reject clearly invalid retail/consumer barcodes on entry, while allowing the operator to override and store one deliberately.
 - **FR-011**: The system MUST produce, for any product, a printed label bearing the operator's description, the purchase provenance, and a scannable code that resolves back to that product.
@@ -207,12 +207,12 @@ The operator organizes products into a rough hierarchy of categories and can als
 - **SC-001**: A part bearing a system-printed label can be identified by a single scan, with no navigation to any external site and no network access beyond the application itself.
 - **SC-002**: Recording a received purchase and producing its label requires the operator to author only the description and specifications; all mechanical purchase details are already present when captured at order time.
 - **SC-003**: A worn or lost label can be reproduced without re-entering any information.
-- **SC-004**: A part from an industrial distributor can be catalogued from its own label by scanning, without composing a description or printing a new label.
-- **SC-005**: A repeat purchase of a previously catalogued product is recorded against the existing product, not as a duplicate, in the normal flow.
+- **SC-004**: A part from an industrial distributor can be cataloged from its own label by scanning, without composing a description or printing a new label.
+- **SC-005**: A repeat purchase of a previously cataloged product is recorded against the existing product, not as a duplicate, in the normal flow.
 - **SC-006**: Every item flagged low or fallen below threshold appears in one reorder view, and items already on order are visibly distinguished there.
 - **SC-007**: The distinction between "none on hand" and "not tracked" is unambiguous everywhere quantity is shown.
 - **SC-008**: A scan of an unknown code leads directly to product creation with that code attached, never to a dead end.
-- **SC-009**: The catalogue can be searched and a specific product located by any of its description, specification, or identifier.
+- **SC-009**: The catalog can be searched and a specific product located by any of its description, specification, or identifier.
 - **SC-010**: Every task that can be performed at the workshop cart can also be performed on a handheld touch device without a keyboard.
 
 ---
@@ -237,8 +237,8 @@ These are boundaries already decided, stated as constraints on the solution rath
 - Barcode scanning uses the existing keyboard-style scanner input already supported by the application. No scanner-specific driver or vendor integration is to be introduced, so that future handheld scanners work unchanged.
 - Automated or unattended scraping of vendor websites is out of scope. Order-time capture is an operator-initiated action while viewing a listing.
 - Automatic generation of product descriptions or specifications by a language model is out of scope. Descriptions are authored by the operator, because they routinely contain knowledge not present in any listing and an incorrect specification printed on a durable label is a serious, silent failure. Language-model assistance, if ever added, is confined to search and retrieval where errors are visible and recoverable.
-- Integration with distributor product APIs for catalogue enrichment is out of scope for this feature. The design should not preclude adding such enrichment later, but no such integration is to be built now.
-- An external-database lookup of retail barcodes is not relied upon. Coverage for the kinds of parts catalogued here is poor, so any such lookup could only ever be an optional convenience, and none is in scope.
+- Integration with distributor product APIs for catalog enrichment is out of scope for this feature. The design should not preclude adding such enrichment later, but no such integration is to be built now.
+- An external-database lookup of retail barcodes is not relied upon. Coverage for the kinds of parts cataloged here is poor, so any such lookup could only ever be an optional convenience, and none is in scope.
 
 ### Environmental assumptions
 

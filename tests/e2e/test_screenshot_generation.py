@@ -696,6 +696,350 @@ class TestDocumentationScreenshots:
             print("Note: Options button not found, skipping batch operations screenshot")
 
     # ========================================================================
+    # Product Catalog Screenshots
+    # ========================================================================
+
+    def _seed_catalog(self, live_server):
+        """Seed the catalog the six catalog screenshots share.
+
+        Seeded through the service layer rather than the Add Product form --
+        the form costs about three seconds per product and these pixels are
+        identical either way (add_test_products' own docstring says so).
+
+        Two things here are load-bearing and easy to undo by accident:
+
+        - **The backdating.** create_product stamps every count with
+          ``datetime.now()``, so an unbackdated capture reads "counted today"
+          against every row -- picturing the quantity-age feature at the one
+          value where it looks pointless. The manual describes "counted 8
+          months ago" and "Flagged low 3 months ago"; these dates are what put
+          those strings on the screen.
+        - **The capacitor's outstanding purchase.** The reorder list is
+          *only* the effectively-low products, and "on the way" is a status on
+          those rows. An outstanding order against a product that is not low
+          never appears there at all, so the order that makes the "on the way"
+          row has to sit on a product that is also below its threshold.
+
+        Returns:
+            The seeded products keyed by short name -- ``resistor``,
+            ``capacitor``, ``opamp``, ``bolt``, ``threadlocker``, ``psu`` and
+            ``kit`` -- for the captures that need to address one directly.
+        """
+        from datetime import datetime, timedelta
+        from app.catalog_service import CatalogService
+
+        resistor, capacitor, opamp, bolt, threadlocker, psu, kit = live_server.add_test_products([
+            {
+                'description': 'Carbon film resistor, 10k 1/4W',
+                'manufacturer': 'Yageo',
+                'manufacturer_part_number': 'CF14JT10K0',
+                'category_path': 'electronics/passives/resistors',
+                'tags': ['surplus'],
+                'location': 'Parts Cabinet',
+                'sub_location': 'Drawer 3',
+                'quantity': 240,
+                'reorder_threshold': 50,
+                'identifiers': [
+                    {'id_type': 'MPN', 'value': 'CF14JT10K0'},
+                    {'id_type': 'GTIN', 'value': '012345678905'},
+                ],
+            },
+            {
+                'description': 'Ceramic capacitor, 100nF 50V X7R',
+                'manufacturer': 'Kemet',
+                'manufacturer_part_number': 'C0805C104K5RAC',
+                'category_path': 'electronics/passives/capacitors',
+                'tags': ['rohs'],
+                'location': 'Parts Cabinet',
+                'sub_location': 'Drawer 4',
+                'quantity': 12,
+                'reorder_threshold': 25,
+            },
+            {
+                'description': 'LM358 dual op-amp, DIP-8',
+                'manufacturer': 'Texas Instruments',
+                'manufacturer_part_number': 'LM358N',
+                'category_path': 'electronics/active',
+                'tags': ['surplus', 'rohs'],
+                'location': 'Parts Cabinet',
+                'sub_location': 'Drawer 1',
+                'identifiers': [{'id_type': 'MPN', 'value': 'LM358N'}],
+            },
+            {
+                'description': 'M4x16 hex bolt, stainless',
+                'category_path': 'hardware/fasteners',
+                'tags': ['surplus'],
+                'location': 'Shop Wall',
+                'sub_location': 'Bin 12',
+                'quantity': 0,
+                'reorder_threshold': 10,
+            },
+            {
+                'description': 'Blue thread locker, 10ml',
+                'manufacturer': 'Loctite',
+                'manufacturer_part_number': '243',
+                'category_path': 'chemicals/adhesives',
+                'location': 'Shop Wall',
+                'sub_location': 'Shelf 2',
+                'quantity': 3,
+                'reorder_threshold': 2,
+                'notes': 'Medium strength -- the one for anything that comes apart again.',
+                'specifications': [
+                    {'name': 'Strength', 'value': 'Medium'},
+                    {'name': 'Volume', 'value': '10 ml'},
+                    {'name': 'Temperature range', 'value': '-55 to 150 C'},
+                ],
+                'identifiers': [
+                    {'id_type': 'MPN', 'value': '243'},
+                    {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'},
+                ],
+            },
+            {
+                'description': '24V 5A switching PSU',
+                'manufacturer': 'Mean Well',
+                'manufacturer_part_number': 'LRS-120-24',
+                'category_path': 'electronics/power',
+                'location': 'Shop Wall',
+                'sub_location': 'Shelf 1',
+                'identifiers': [
+                    {'id_type': 'DISTRIBUTOR', 'value': '1866-3789-ND', 'vendor': 'DigiKey'},
+                ],
+            },
+            {
+                # Filed at electronics/passives rather than under one of its
+                # children, and that is the point. category_tree() lists only
+                # the categories that hold a product *directly*, so an
+                # intermediate category nobody has filed anything in does not
+                # render at all -- without this row the tree shows
+                # `capacitors` and `resistors` with no parent above them, and
+                # "renaming carries everything beneath it" has nothing to
+                # point at.
+                'description': 'Resistor assortment kit, 1/4W E12',
+                'category_path': 'electronics/passives',
+                'tags': ['surplus'],
+                'location': 'Parts Cabinet',
+                'sub_location': 'Drawer 3',
+                'quantity': 1,
+            },
+        ])
+
+        service = CatalogService(live_server.storage)
+
+        # The hand-set flag, and its age -- unreachable through the service,
+        # which always writes datetime.now().
+        service.set_stock_status(opamp.id, 'low')
+        live_server.backdate_product(
+            opamp.id, stock_status_updated_at=datetime.now() - timedelta(days=91)
+        )
+
+        # Counts of different ages, so the age line reads as evidence with a
+        # date on it rather than as "today" repeated six times.
+        live_server.backdate_product(
+            resistor.id, quantity_updated_at=datetime.now() - timedelta(days=243)
+        )
+        live_server.backdate_product(
+            capacitor.id, quantity_updated_at=datetime.now() - timedelta(days=61)
+        )
+        live_server.backdate_product(
+            bolt.id, quantity_updated_at=datetime.now() - timedelta(days=17)
+        )
+        # The detail capture's subject. Without this it reads "counted just
+        # now", which is the one value that makes the age line look pointless.
+        live_server.backdate_product(
+            threadlocker.id, quantity_updated_at=datetime.now() - timedelta(days=34)
+        )
+        live_server.backdate_product(
+            kit.id, quantity_updated_at=datetime.now() - timedelta(days=128)
+        )
+
+        # Thread locker: a received purchase and an outstanding one, so the
+        # detail page shows a history with a latest price rather than a single
+        # row.
+        service.record_purchase(
+            product_id=threadlocker.id,
+            vendor='Amazon',
+            vendor_item_id='B0ABCDEFGH',
+            listing_title='Loctite 243 Medium Strength Threadlocker, 10ml',
+            order_date=datetime.now() - timedelta(days=400),
+            received_date=datetime.now() - timedelta(days=393),
+            quantity=2,
+            unit_price=Decimal('8.47'),
+            order_reference='114-2298471-3390612',
+        )
+        service.record_purchase(
+            product_id=threadlocker.id,
+            vendor='Amazon',
+            vendor_item_id='B0ABCDEFGH',
+            listing_title='Loctite 243 Medium Strength Threadlocker, 10ml',
+            order_date=datetime.now() - timedelta(days=6),
+            quantity=1,
+            unit_price=Decimal('9.12'),
+            order_reference='114-7781203-9948217',
+        )
+
+        # See the docstring: this is what puts an "on the way" row on the
+        # reorder list. The capacitor is below its threshold, so it is on the
+        # list to be marked in the first place.
+        service.record_purchase(
+            product_id=capacitor.id,
+            vendor='DigiKey',
+            listing_title='Kemet C0805C104K5RAC, 100 pcs',
+            order_date=datetime.now() - timedelta(days=3),
+            quantity=100,
+            unit_price=Decimal('0.11'),
+            order_reference='89234117',
+        )
+
+        service.record_purchase(
+            product_id=psu.id,
+            vendor='DigiKey',
+            vendor_item_id='1866-3789-ND',
+            listing_title='Mean Well LRS-120-24 switching power supply',
+            order_date=datetime.now() - timedelta(days=210),
+            received_date=datetime.now() - timedelta(days=203),
+            quantity=1,
+            unit_price=Decimal('24.60'),
+            order_reference='89011455',
+        )
+
+        return {
+            'resistor': resistor,
+            'capacitor': capacitor,
+            'opamp': opamp,
+            'bolt': bolt,
+            'threadlocker': threadlocker,
+            'psu': psu,
+            'kit': kit,
+        }
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_product_search(self, page, live_server):
+        """Generate the product list screenshot for the manual and the README"""
+        self._seed_catalog(live_server)
+
+        page.goto(f"{live_server.url}/products")
+        expect(page.locator("#product-table tbody tr").first).to_be_visible()
+
+        self.screenshot.capture_viewport(
+            "user-manual/product_search.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#product-table",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/product_search.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_product_detail(self, page, live_server):
+        """Generate the product detail screenshot -- what it is, what it cost"""
+        products = self._seed_catalog(live_server)
+
+        page.goto(f"{live_server.url}/products/{products['threadlocker'].id}")
+        expect(page.locator("#stock-card")).to_be_visible()
+        expect(page.locator("#identifier-list")).to_be_visible()
+
+        self.screenshot.capture_viewport(
+            "user-manual/product_detail.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#identifier-list",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/product_detail.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_product_add_form(self, page, live_server):
+        """Generate the Add Product form screenshot"""
+        # Seeded first on purpose: the location and sub-location fields
+        # autocomplete from what already exists, and an empty database makes
+        # that invisible.
+        self._seed_catalog(live_server)
+
+        page.goto(f"{live_server.url}/products/new")
+        expect(page.locator("#product-form")).to_be_visible()
+
+        self.screenshot.capture_viewport(
+            "user-manual/product_add_form.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#product-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/product_add_form.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_order_capture(self, page, live_server):
+        """Generate the order capture screenshot"""
+        page.goto(f"{live_server.url}/products/capture")
+        expect(page.locator("#capture-form")).to_be_visible()
+
+        # #bookmarklet-http-warning is deliberately NOT hidden. The test server
+        # runs over plain HTTP so the page renders its HTTPS warning, and the
+        # manual spends a block quote on exactly that warning -- hiding it would
+        # picture a state the manual then explains.
+        self.screenshot.capture_viewport(
+            "user-manual/order_capture.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#capture-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/order_capture.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_reorder_list(self, page, live_server):
+        """Generate the reorder list screenshot"""
+        self._seed_catalog(live_server)
+
+        page.goto(f"{live_server.url}/products/reorder")
+        # #nothing-to-reorder renders instead when nothing qualifies, and a
+        # screenshot of an empty reorder list documents nothing. Asserting the
+        # table is here fails loudly if the seed ever stops qualifying.
+        expect(page.locator("#reorder-table")).to_be_visible()
+        expect(page.locator("#reorder-table tbody tr.reorder-row").first).to_be_visible()
+
+        self.screenshot.capture_viewport(
+            "user-manual/reorder_list.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#reorder-table",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/reorder_list.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_category_tree(self, page, live_server):
+        """Generate the category tree screenshot"""
+        # The seed's electronics/passives/resistors path is what makes the
+        # three-level nesting -- and so the "renaming carries everything
+        # beneath it" rule -- legible.
+        self._seed_catalog(live_server)
+
+        page.goto(f"{live_server.url}/products/categories")
+        expect(page.locator("#category-tree")).to_be_visible()
+
+        self.screenshot.capture_viewport(
+            "user-manual/category_tree.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#category-tree",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/category_tree.png")
+
+    # ========================================================================
     # Helper Tests for Debugging (not in config, but useful)
     # ========================================================================
 

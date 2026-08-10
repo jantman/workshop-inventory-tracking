@@ -561,7 +561,7 @@ class PhotoService:
         return buffer.getvalue()
     
     # -----------------------------------------------------------------
-    # Product catalogue attachments (FR-034)
+    # Product catalog attachments (FR-034)
     #
     # Datasheets, wiring diagrams, saved listings and photographs, stored the
     # same way item photos already are. Datasheets are PDFs, and PDFs already

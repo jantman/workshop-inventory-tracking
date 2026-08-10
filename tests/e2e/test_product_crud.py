@@ -87,7 +87,7 @@ def test_edit_a_product(page, live_server):
 
 
 @pytest.mark.e2e
-def test_product_appears_in_the_catalogue_list(page, live_server):
+def test_product_appears_in_the_catalog_list(page, live_server):
     """The list page is reachable from the nav and shows what was created"""
     create_product(page, live_server.url, "Findable widget")
 

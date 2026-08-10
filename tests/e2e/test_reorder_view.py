@@ -151,7 +151,7 @@ def test_none_on_hand_and_not_tracked_look_different_on_the_product_page(page, l
 
 
 @pytest.mark.e2e
-def test_none_on_hand_and_not_tracked_look_different_in_the_catalogue_list(page, live_server):
+def test_none_on_hand_and_not_tracked_look_different_in_the_catalog_list(page, live_server):
     """SC-007, everywhere quantity is shown"""
     counted = create_product(page, live_server.url, "Counted, none left")
     set_quantity(page, counted, 0)

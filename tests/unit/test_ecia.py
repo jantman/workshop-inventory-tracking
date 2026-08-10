@@ -16,7 +16,7 @@ def envelope(*records: str, trailer: str = RS + EOT) -> str:
 
 
 class TestWellFormedEnvelopes:
-    """The seven identifiers this catalogue has a home for"""
+    """The seven identifiers this catalog has a home for"""
 
     def test_extracts_manufacturer_part_number(self):
         assert parse(envelope("1PLM358N")) == {"1P": "LM358N"}

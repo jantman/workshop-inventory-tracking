@@ -246,7 +246,7 @@ def test_unknown_field_returns_empty_dropdown(page, live_server):
 
 @pytest.mark.e2e
 def test_a_metal_stock_vendor_is_offered_on_a_purchase_form(page, live_server):
-    """FR-016/FR-017: recorded on metal stock, offered on the catalogue, no step between"""
+    """FR-016/FR-017: recorded on metal stock, offered on the catalog, no step between"""
     _seed_items(live_server)
     product = live_server.add_test_products([{'description': 'Cross-half widget'}])[0]
 
@@ -279,7 +279,7 @@ def test_a_product_location_is_offered_on_the_add_item_form(page, live_server):
 
 @pytest.mark.e2e
 def test_a_product_sub_location_is_offered_scoped_by_location(page, live_server):
-    """The catalogue's sub-locations scope by the catalogue's own location column"""
+    """The catalog's sub-locations scope by the catalog's own location column"""
     live_server.add_test_products([
         {'description': 'Located widget', 'location': 'Drawer 3', 'sub_location': 'Bin 7'},
         {'description': 'Elsewhere widget', 'location': 'Drawer 9', 'sub_location': 'Bin 99'},

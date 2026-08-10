@@ -53,7 +53,7 @@ def shown_specifications(page):
 
 
 def listed(page):
-    """Descriptions currently shown in the catalogue table"""
+    """Descriptions currently shown in the catalog table"""
     links = page.locator("#product-table tbody tr td:first-child a")
     return sorted(links.nth(i).inner_text().strip() for i in range(links.count()))
 
@@ -258,7 +258,7 @@ def converters(live_server):
 
 
 def filtered(page, base_url, **params):
-    """Open the catalogue with these filters applied and return what it lists"""
+    """Open the catalog with these filters applied and return what it lists"""
     query = "&".join(f"{k}={v}" for k, v in params.items())
     page.goto(f"{base_url}/products?{query}")
     # The filter card renders with the page, so it establishes the region
@@ -331,7 +331,7 @@ def test_free_text_still_reaches_a_word_only_in_a_specification(page, converters
 
 
 @pytest.mark.e2e
-def test_following_a_link_from_the_detail_page_lands_on_the_filtered_catalogue(
+def test_following_a_link_from_the_detail_page_lands_on_the_filtered_catalog(
     page, converters
 ):
     """FR-018"""

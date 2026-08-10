@@ -392,9 +392,9 @@ class Dimensions:
 
 
 # ---------------------------------------------------------------------------
-# Product catalogue
+# Product catalog
 #
-# Enums and frozen value types for the product catalogue feature. The ORM models
+# Enums and frozen value types for the product catalog feature. The ORM models
 # they describe live in app/database.py; the logic that uses them lives in
 # app/catalog_service.py.
 # ---------------------------------------------------------------------------

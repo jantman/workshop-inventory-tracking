@@ -809,7 +809,7 @@ class ItemPhotoAssociation(Base):
         return result
 
 # ===========================================================================
-# Product catalogue
+# Product catalog
 #
 # Five new tables plus an attachment association. No existing table is modified;
 # inventory_items and its JA ID history invariants are untouched. The one
@@ -823,7 +823,7 @@ class Product(Base):
 
     Identity is this row's surrogate id and never a vendor's item identifier
     (FR-008): a vendor may reuse an item id for a different product, and the
-    catalogue must survive that without merging two products.
+    catalog must survive that without merging two products.
     """
     __tablename__ = 'products'
 

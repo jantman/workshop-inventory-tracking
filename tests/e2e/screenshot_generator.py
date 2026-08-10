@@ -275,7 +275,24 @@ class ScreenshotGenerator:
 
     def save_metadata(self, filename: str = 'metadata.json') -> Path:
         """
-        Save JSON metadata about generated screenshots.
+        Merge this generator's screenshots into the metadata file.
+
+        Merged by filename rather than written over the top, because one
+        generator does not know about the whole run. The screenshot suite's
+        autouse fixture builds a fresh ``ScreenshotGenerator`` per test and
+        saves in teardown, so each instance holds only the one or two captures
+        its own test took. A plain overwrite therefore left the file describing
+        whichever test happened to run last -- 1 entry against 18 files on
+        disk, and no error to say so.
+
+        That also makes a targeted run safe: regenerating one screenshot with
+        ``nox -s screenshots_headless -- -k <test>`` updates that entry and
+        leaves the other seventeen alone.
+
+        An entry for a screenshot that has since been deleted survives until
+        something regenerates; ``VERIFICATION.md`` and ``nox -s
+        screenshots_verify`` both read the directory, so the authoritative
+        inventory is the disk, not this file.
 
         Args:
             filename: Metadata filename
@@ -285,8 +302,30 @@ class ScreenshotGenerator:
         """
         metadata_path = self.output_dir / filename
 
+        merged = {}
+        if metadata_path.exists():
+            try:
+                with open(metadata_path) as f:
+                    existing = json.load(f)
+                for entry in existing.get('screenshots', []):
+                    merged[entry.get('filename')] = entry
+            except (json.JSONDecodeError, OSError):
+                # A corrupt or unreadable file is not worth failing a
+                # screenshot run over -- it is regenerated from this run.
+                merged = {}
+
+        for entry in self.metadata['screenshots']:
+            merged[entry['filename']] = entry
+
         with open(metadata_path, 'w') as f:
-            json.dump(self.metadata, f, indent=2)
+            json.dump(
+                {
+                    'generated_at': self.metadata['generated_at'],
+                    'screenshots': [merged[k] for k in sorted(merged)],
+                },
+                f,
+                indent=2,
+            )
 
         return metadata_path
 

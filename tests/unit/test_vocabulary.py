@@ -225,7 +225,7 @@ class TestVocabularyUnion:
         return InventoryItem(ja_id=ja_id, **defaults)
 
     @pytest.mark.unit
-    def test_catalogue_only_location_is_offered(self, service, catalog):
+    def test_catalog_only_location_is_offered(self, service, catalog):
         catalog.create_product(description='Widget', location='Drawer 3')
         assert 'Drawer 3' in service.suggest('location', limit=20)
 
@@ -235,7 +235,7 @@ class TestVocabularyUnion:
         assert 'M1-A' in service.suggest('location', limit=20)
 
     @pytest.mark.unit
-    def test_catalogue_only_sub_location_is_offered(self, service, catalog):
+    def test_catalog_only_sub_location_is_offered(self, service, catalog):
         catalog.create_product(
             description='Widget', location='Drawer 3', sub_location='Bin 7'
         )
@@ -296,7 +296,7 @@ class TestVocabularyUnion:
 
     @pytest.mark.unit
     def test_thread_size_reads_metal_stock_only(self, service, items, catalog):
-        """Nothing in the catalogue records a thread size"""
+        """Nothing in the catalog records a thread size"""
         items.add_item(self._make_item('JA000001', thread_size='1/4-20'))
         catalog.create_product(description='Widget', location='1/4-20')
 

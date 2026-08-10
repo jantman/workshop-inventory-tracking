@@ -102,7 +102,7 @@ def test_renaming_onto_an_existing_tag_merges_them(page, live_server):
 
 @pytest.mark.e2e
 def test_the_merged_tag_finds_every_product(page, live_server):
-    """The merge is real in the catalogue, not only on the tags page"""
+    """The merge is real in the catalog, not only on the tags page"""
     live_server.add_test_products(NEAR_DUPLICATES)
     submit_rename(page, live_server.url, 'surpluss', 'surplus')
 

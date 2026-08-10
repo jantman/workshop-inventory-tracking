@@ -1,11 +1,11 @@
 """
-Product catalogue service.
+Product catalog service.
 
-All business logic for the product catalogue lives here: routes in the ``product``
+All business logic for the product catalog lives here: routes in the ``product``
 blueprint stay thin and issue no ORM queries and no raw SQL.
 
 Session handling follows the InventoryService precedent -- take ``storage.engine``
-and build a sessionmaker from it -- rather than routing catalogue queries through
+and build a sessionmaker from it -- rather than routing catalog queries through
 the sheet-shaped ``Storage`` ABC, which cannot express them. ``expire_on_commit``
 is off so that an object handed back to a route is still readable after its
 session closes.
@@ -239,7 +239,7 @@ class CatalogService:
             )
 
     def list_products(self, limit: int = 500) -> List[Product]:
-        """List the catalogue, most recently added first.
+        """List the catalog, most recently added first.
 
         Args:
             limit: Most products to return.
@@ -1275,7 +1275,7 @@ class CatalogService:
 
         A tracked count goes up by what arrived, and its **age does not move**
         (008 FR-007, FR-008). Those are two halves of one rule: the number the
-        catalogue reports should account for the delivery, and the date beside it
+        catalog reports should account for the delivery, and the date beside it
         should keep meaning "the last time a person counted". Adding to a count
         from a packing slip is not counting, and a screen that says otherwise
         undermines the age display everything else here depends on. What the
@@ -1548,7 +1548,7 @@ class CatalogService:
             if existing.product_id == product_id:
                 return existing
             # Not a ValidationError: the operator's input is fine, it is the
-            # catalogue that already has a claim on this value. Callers treat the
+            # catalog that already has a claim on this value. Callers treat the
             # two cases differently.
             raise DuplicateItemError(
                 f"Identifier {normalized} already belongs to product {existing.product_id}",
@@ -2330,7 +2330,7 @@ def _corroborates(product: Product, manufacturer: Any, part_number: Any) -> bool
     """Whether a capture's own evidence agrees with the product it matched.
 
     Both values are required (FR-019). A manufacturer name matches across a
-    vendor's entire catalogue and a bare part number collides between
+    vendor's entire catalog and a bare part number collides between
     manufacturers, so only the pair is evidence. A matched product carrying no
     manufacturer can never corroborate, which falls out: a truthy manufacturer
     cannot fold to the empty string.

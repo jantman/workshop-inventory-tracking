@@ -12,6 +12,7 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 *Main inventory list interface showing materials with search, filtering, and batch operations*
 
 - **Complete Inventory Management**: Add, move, shorten, and track materials with parent-child relationships
+- **Product Catalog**: Catalog what you buy -- what a part is, what it cost, and where it came from. Manufacturer part numbers, retail barcodes and vendor item ids on every product, with a generated internal code that makes it scannable before any label is printed; scan any code to open the product or start a filled-in create form; purchase and order tracking, including a derived reorder list that marks what is already on the way; and categories and tags that are created by using them, with renames that carry every product beneath them
 - **MariaDB Storage Backend**: Production-ready database with Google Sheets export functionality
 - **Multi-Row Item History**: Complete shortening history tracking with active/inactive item management
 - **Barcode Scanner Integration**: Keyboard wedge barcode scanner support across all workflows
@@ -23,6 +24,9 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 - **Performance Optimization**: Caching, batch operations, and monitoring capabilities
 - **Production-Grade Error Handling**: Custom exceptions, circuit breakers, and comprehensive logging
 - **Automated Deployment**: Complete Docker containerization and monitoring tools
+
+![Product Catalog](docs/images/screenshots/user-manual/product_search.png)
+*The product catalog: what you bought, what it cost, and where it came from -- filtered by category, tag or stock level*
 
 ## Quick Start (Docker)
 
@@ -70,7 +74,7 @@ Once running, navigate to `http://127.0.0.1:5000` to access the inventory interf
 ## Documentation
 
 - **[Deployment Guide](docs/deployment-guide.md)** - Docker and bare-metal deployment, configuration, and releases
-- **[User Manual](docs/user-manual.md)** - Complete feature guide and workflows
+- **[User Manual](docs/user-manual.md)** - Complete feature guide and workflows, covering both halves of the application: inventory, and the [product catalog](docs/user-manual.md#the-product-catalog)
 - **[Development Testing Guide](docs/development-testing-guide.md)** - Testing framework and development workflow
 - **[Troubleshooting Guide](docs/troubleshooting-guide.md)** - Problem-solving and diagnostics
 

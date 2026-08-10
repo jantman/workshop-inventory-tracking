@@ -42,7 +42,7 @@ def seed(page, base_url):
 
 
 def listed(page):
-    """Descriptions currently shown in the catalogue table"""
+    """Descriptions currently shown in the catalog table"""
     links = page.locator("#product-table tbody tr td:first-child a")
     return sorted(links.nth(i).inner_text().strip() for i in range(links.count()))
 

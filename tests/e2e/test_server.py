@@ -193,7 +193,7 @@ class E2ETestServer:
     def add_test_products(self, products_data):
         """Add products directly through CatalogService.
 
-        The counterpart of add_test_data for the catalogue half. Driving the Add
+        The counterpart of add_test_data for the catalog half. Driving the Add
         Product form costs about three seconds per product and the rename tests
         need several across a category subtree, so they seed here instead.
 

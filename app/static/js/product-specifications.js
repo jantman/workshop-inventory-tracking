@@ -137,7 +137,7 @@
         }
     }
 
-    /** The catalogue filter: one name input, one value input, same endpoints. */
+    /** The catalog filter: one name input, one value input, same endpoints. */
     function initFilter() {
         const name = document.getElementById('filter-spec-name');
         const values = document.getElementById('specification-value-suggestions');

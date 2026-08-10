@@ -107,7 +107,7 @@ class TestTradeItemElementString:
 
     Every case here classified as FREE_TEXT before feature 009, which is what
     made a scan of a manufacturer's box land on a search for digits that appear
-    nowhere in the catalogue.
+    nowhere in the catalog.
     """
 
     @pytest.mark.parametrize(
