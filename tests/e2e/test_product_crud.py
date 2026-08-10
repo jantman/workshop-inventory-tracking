@@ -56,6 +56,20 @@ def test_new_product_carries_an_internal_code(page, live_server):
 
 
 @pytest.mark.e2e
+def test_a_product_is_reachable_by_its_printed_code(page, live_server):
+    """009 SC-007: the label's code is the whole address, no lookup step first"""
+    product = live_server.add_test_products([{
+        'description': 'Toroidal transformer',
+    }])[0]
+
+    page.goto(f"{live_server.url}/products/{product.internal_code}")
+
+    expect(page.locator("#product-description")).to_have_text("Toroidal transformer")
+    # 009 FR-017: the record number stays canonical, and says so in the address.
+    expect(page).to_have_url(f"{live_server.url}/products/{product.id}")
+
+
+@pytest.mark.e2e
 def test_edit_a_product(page, live_server):
     """Edits are saved and shown"""
     create_product(page, live_server.url, "Blue widget", location="Bin 4")
