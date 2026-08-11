@@ -192,6 +192,13 @@ class InventoryListManager {
         const doneBtn = document.getElementById('list-bulk-print-done-btn');
         const cancelBtn = document.getElementById('list-bulk-print-cancel');
 
+        // Clear anything a previous attempt left behind. The modal reset only
+        // runs when the dialog opens and closes, so without this a refused
+        // count's warning would still be sitting there after the user corrects
+        // it and prints -- visible directly above a successful completion line.
+        errorsDiv.classList.add('d-none');
+        errorsDiv.innerHTML = '';
+
         // Read the count before anything is printed -- a refused count must
         // leave the dialog untouched and print nothing at all.
         const countResult = window.readLabelCount('list-bulk-label-count');
@@ -263,8 +270,10 @@ class InventoryListManager {
         // partial figure -- one item's copies are one lp job with one exit code,
         // so the total must never claim more labels than actually emerged.
         const labelsPrinted = successCount * labelCount;
+        const itemsAttempted = successCount + failureCount;
         statusSpan.textContent =
-            `Complete: ${labelsPrinted} labels for ${successCount + failureCount} items, ` +
+            `Complete: ${labelsPrinted} ${labelsPrinted === 1 ? 'label' : 'labels'} ` +
+            `for ${itemsAttempted} ${itemsAttempted === 1 ? 'item' : 'items'}, ` +
             `${failureCount} failed`;
         progressBar.classList.remove('progress-bar-animated');
 

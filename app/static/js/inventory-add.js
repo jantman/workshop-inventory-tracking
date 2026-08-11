@@ -833,7 +833,16 @@ class InventoryAddForm {
                 select.appendChild(option);
             });
         } catch (error) {
+            // Without this the user gets an empty select and a permanently
+            // disabled Print button with nothing explaining why -- diagnosable
+            // only from DevTools. The list page's equivalent surfaces it too.
             console.error('Error loading label types:', error);
+            const errorsDiv = document.getElementById('bulk-print-errors');
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML =
+                '<strong>Warning:</strong> Failed to load label types. ' +
+                'The items were created; close this dialog and print from the ' +
+                'inventory list.';
         }
     }
 
@@ -930,6 +939,13 @@ class InventoryAddForm {
         const doneBtn = document.getElementById('bulk-print-done-btn');
         const skipBtn = document.getElementById('bulk-print-skip');
 
+        // Clear anything a previous attempt left behind. The modal reset only
+        // runs when the dialog opens, so without this a refused count's warning
+        // would still be sitting there after the user corrects it and prints --
+        // visible directly above a successful completion line.
+        errorsDiv.classList.add('d-none');
+        errorsDiv.innerHTML = '';
+
         // Read the count before anything is printed -- a refused count must
         // leave the dialog untouched and print nothing at all.
         const countResult = window.readLabelCount('bulk-label-count');
@@ -1001,8 +1017,10 @@ class InventoryAddForm {
         // A failed item contributes 0 labels rather than a partial figure, so
         // the total never claims more labels than actually emerged.
         const labelsPrinted = successCount * labelCount;
+        const itemsAttempted = successCount + failureCount;
         statusSpan.textContent =
-            `Complete: ${labelsPrinted} labels for ${successCount + failureCount} items, ` +
+            `Complete: ${labelsPrinted} ${labelsPrinted === 1 ? 'label' : 'labels'} ` +
+            `for ${itemsAttempted} ${itemsAttempted === 1 ? 'item' : 'items'}, ` +
             `${failureCount} failed`;
         progressBar.classList.remove('progress-bar-animated');
 

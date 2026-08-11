@@ -565,7 +565,8 @@ def test_bulk_label_count_progress_line_names_the_count(page, live_server):
     page.locator('#list-bulk-print-all-btn').click()
 
     status_span = page.locator('#list-bulk-print-status')
-    expect(status_span).to_have_text('Complete: 4 labels for 1 items, 0 failed')
+    # Singular "item" -- one selected item, four labels for it.
+    expect(status_span).to_have_text('Complete: 4 labels for 1 item, 0 failed')
 
     assert payloads == [
         {"ja_id": "JA730001", "label_type": "Sato 1x2", "label_count": 4}
@@ -622,3 +623,45 @@ def test_bulk_label_count_resets_on_reopen(page, live_server):
     _open_bulk_print_modal(page)
 
     expect(page.locator('#list-bulk-label-count')).to_have_value('1')
+
+
+@pytest.mark.e2e
+def test_bulk_corrected_count_clears_the_earlier_warning(page, live_server):
+    """A refused count's warning must not survive the corrected retry.
+
+    The modal reset only runs when the dialog opens and closes, so without an
+    explicit clear at the start of a run the warning stays on screen -- sitting
+    directly above a successful completion line, which reads as a failure.
+    """
+    _seed_and_select(page, live_server, ["JA760001", "JA760002"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-label-count').fill('0')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    errors_div = page.locator('#list-bulk-print-errors')
+    expect(errors_div).to_be_visible()
+
+    # Correct the count and print for real.
+    page.locator('#list-bulk-label-count').fill('2')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 4 labels for 2 items, 0 failed')
+
+    # Established by the completion assertion above, so this is a real negative.
+    expect(errors_div).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_bulk_summary_uses_singular_nouns_for_one(page, live_server):
+    """One item at a count of 1 reads "1 label for 1 item", not "1 labels ... 1 items" """
+    _seed_and_select(page, live_server, ["JA770001"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 1 label for 1 item, 0 failed')

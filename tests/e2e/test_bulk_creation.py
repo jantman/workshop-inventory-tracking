@@ -1053,3 +1053,36 @@ def test_post_creation_label_count_refused_prints_nothing(page, live_server, bad
     expect(page.locator("#bulkLabelPrintingModal")).to_be_visible()
     expect(page.locator("#bulk-label-type")).to_have_value("Sato 1x2")
     expect(page.locator("#bulk-print-progress")).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_post_creation_corrected_count_clears_the_earlier_warning(page, live_server):
+    """A refused count's warning must not survive the corrected retry.
+
+    Same defect as the list page's dialog: the reset only runs when the modal
+    is shown, so the warning would otherwise remain visible above a successful
+    completion line.
+    """
+    _create_batch_and_open_print_dialog(page, live_server, 2)
+
+    page.locator("#bulk-label-type").select_option("Sato 1x2")
+    page.locator("#bulk-label-count").fill("0")
+    page.locator("#bulk-print-all-btn").click()
+
+    errors_div = page.locator("#bulk-print-errors")
+    expect(errors_div).to_be_visible()
+
+    page.locator("#bulk-label-count").fill("3")
+    page.locator("#bulk-print-all-btn").click()
+
+    status_span = page.locator("#bulk-print-status")
+    expect(status_span).to_have_text('Complete: 6 labels for 2 items, 0 failed')
+
+    expect(errors_div).not_to_be_visible()
+
+
+# The singular "1 item" branch is deliberately not tested on this dialog: it
+# only opens for a quantity of 2 or more (a quantity of 1 takes the ordinary
+# single-item path), so one item is unreachable here. The list page's dialog,
+# where a single item can be selected, covers that branch --
+# test_bulk_summary_uses_singular_nouns_for_one.

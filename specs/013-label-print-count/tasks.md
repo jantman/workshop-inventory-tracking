@@ -97,6 +97,14 @@ type, Print All. Six labels' worth of requests go out — three requests each ca
 - [X] T014 [US2] In `app/static/js/inventory-list.js`, update the reporting: append ` ({n} labels)` to the existing `Printing {i} of {m}: {ja_id}` status line only when the count exceeds 1, and change the completion line to `Complete: {labels} labels for {items} items, {failed} failed` at every count. A failed item contributes `0` labels, never a partial figure (FR-009, research.md Decision 6) (depends on T013)
 - [X] T015 [US2] In `tests/e2e/test_bulk_label_printing_list.py`, add tests covering spec Story 2 scenarios 1–7: default of 1; three items at the default producing three single-label requests; three items at 2 producing three requests each carrying `label_count: 2`; the completion summary text; a refused count printing nothing while the dialog stays open; and the count resetting to 1 on reopen. `expect(status).to_contain_text("Complete:")` is a complete wait for the run — it renders only after every request settles (depends on T014)
 
+**Deviation from the literal format string in T014** (raised in review on PR #88): the completion
+line pluralizes its nouns, so one item reads `Complete: 1 label for 1 item, 0 failed` rather than
+`1 labels ... 1 items`. The `{labels} labels for {items} items` format in research.md Decision 5 and
+plan.md was written against a three-item illustration; "1 items" is an unconsidered consequence of it
+rather than an intended outcome. Both numbers are still reported at every count, so FR-008 and the
+reasoning behind Decision 5 are untouched. `research.md` and `plan.md` are left as written — they are
+the frozen record of what was specified, not a description of what shipped.
+
 **Checkpoint**: US1 and US2 both work independently. The post-bulk-Add dialog is still broken — it
 was broken before this feature and Phase 5 is where that changes.
 
