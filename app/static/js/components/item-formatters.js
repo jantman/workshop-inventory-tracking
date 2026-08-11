@@ -29,6 +29,11 @@
  * // Returns: '12" × 0.25"'
  *
  * @example
+ * // Round plate -- a disc, with no length at all
+ * formatFullDimensions({width: 6, thickness: 0.25}, 'Plate', null, 'Round')
+ * // Returns: '⌀6" × 0.25"'
+ *
+ * @example
  * // Round tube with wall thickness
  * formatFullDimensions({length: 96, width: 2, wall_thickness: 0.125}, 'Tube', null, 'Round')
  * // Returns: '⌀2" × 0.125"'
@@ -41,6 +46,23 @@
  * @note The length is intentionally excluded here; it is shown in its own
  *       dedicated Length column (see formatDimensions).
  */
+/**
+ * The ⌀ prefix for a width, when the item is round and it does not already
+ * carry one.
+ *
+ * @param {*} width - The width value about to be rendered.
+ * @param {string} [shape] - Item shape, if known.
+ * @param {boolean} defaultToRound - What an unknown shape means for this
+ *   caller. Only the single-width branch defaults to round, for backwards
+ *   compatibility with rows that predate the shape argument.
+ * @returns {string} '⌀' or ''.
+ */
+function diameterSymbol(width, shape, defaultToRound) {
+    const isRound = shape ? shape.toString().toLowerCase() === 'round' : defaultToRound;
+    const alreadyHasSymbol = width.toString().includes('⌀');
+    return (isRound && !alreadyHasSymbol) ? '⌀' : '';
+}
+
 export function formatFullDimensions(dimensions, itemType, thread, shape) {
     if (!dimensions) return '<span class="text-muted">-</span>';
 
@@ -59,8 +81,13 @@ export function formatFullDimensions(dimensions, itemType, thread, shape) {
     const hasWallThickness = !isNaN(wallThickness) && wallThickness !== 0;
 
     if (dimensions.width && dimensions.thickness) {
-        // Rectangular: width × thickness (× wall thickness)
-        let dims = `${dimensions.width}" × ${dimensions.thickness}"`;
+        // Width × thickness (× wall thickness). A round plate carries both, and
+        // without the ⌀ it reads identically to a rectangular one -- there would
+        // be nothing to say the first number is a diameter. The shape must be
+        // stated here: unlike the single-width branch below, an unlabelled
+        // width × thickness has never defaulted to round.
+        const symbol = diameterSymbol(dimensions.width, shape, false);
+        let dims = `${symbol}${dimensions.width}" × ${dimensions.thickness}"`;
         if (hasWallThickness) {
             dims += ` × ${dimensions.wall_thickness}"`;
         }
@@ -69,9 +96,7 @@ export function formatFullDimensions(dimensions, itemType, thread, shape) {
         // Single cross-section width (× wall thickness). The diameter symbol (⌀)
         // is only meaningful for round items; square/hex/etc. show the bare width.
         // Default to round when the shape is unknown for backwards compatibility.
-        const isRound = shape ? shape.toString().toLowerCase() === 'round' : true;
-        const alreadyHasSymbol = dimensions.width.toString().includes('⌀');
-        const symbol = (isRound && !alreadyHasSymbol) ? '⌀' : '';
+        const symbol = diameterSymbol(dimensions.width, shape, true);
         let dims = `${symbol}${dimensions.width}"`;
         if (hasWallThickness) {
             dims += ` × ${dimensions.wall_thickness}"`;

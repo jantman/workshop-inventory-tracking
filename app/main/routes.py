@@ -174,6 +174,28 @@ def _add_item_with_logging(service, item, operation='add_item', context=None):
         return (False, item.ja_id, error_msg)
 
 
+def _missing_dimensions_error(input_data: dict) -> str | None:
+    """Name every field this item's type and shape require and it lacks.
+
+    Returns None when nothing is missing, or when the type or shape is not one
+    the taxonomy knows — enforcing type/shape compatibility is a separate gap
+    and is not this check's business.
+    """
+    try:
+        item_type = ItemType(input_data.get('item_type'))
+        shape = ItemShape(input_data.get('shape'))
+    except ValueError:
+        return None
+
+    missing = type_shape_validator.get_missing_required_fields(
+        item_type, shape, input_data)
+    if not missing:
+        return None
+
+    return (f'Missing required field(s) for {item_type.value}/{shape.value}: '
+            f'{", ".join(missing)}')
+
+
 def _create_single_item(
     service,
     form_data: dict,
@@ -262,6 +284,10 @@ def _process_item_creation(input_data: dict) -> dict[str, Any]:
     missing_fields = [field for field in required_fields if not input_data.get(field)]
     if missing_fields:
         return _validation_error(f'Missing required fields: {", ".join(missing_fields)}')
+
+    missing_dimensions = _missing_dimensions_error(input_data)
+    if missing_dimensions:
+        return _validation_error(missing_dimensions)
 
     material = input_data.get('material', '').strip()
     valid_materials = _get_valid_materials()
@@ -558,7 +584,8 @@ def inventory_add():
         valid_materials = _get_valid_materials()
         return render_template('inventory/add.html', title='Add Item',
                              ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
-                             valid_materials=valid_materials)
+                             valid_materials=valid_materials,
+                             type_shape_requirements=type_shape_validator.requirements_by_name())
     
     # Handle POST request for adding item
     try:
@@ -645,7 +672,8 @@ def inventory_edit(ja_id):
             valid_materials = _get_valid_materials()
             return render_template('inventory/edit.html', title=f'Edit {ja_id}',
                                  item=item, ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
-                                 valid_materials=valid_materials, validation_errors={})
+                                 valid_materials=valid_materials, validation_errors={},
+                                 type_shape_requirements=type_shape_validator.requirements_by_name())
         
         # Handle POST request for updating item
         form_data = request.form.to_dict()
@@ -663,12 +691,23 @@ def inventory_edit(ja_id):
         if missing_fields:
             error_msg = f'Missing required fields: {", ".join(missing_fields)}'
             # AUDIT: Log validation error
-            log_audit_operation('edit_item', 'error', 
-                              item_id=ja_id, 
+            log_audit_operation('edit_item', 'error',
+                              item_id=ja_id,
                               error_details=error_msg)
             flash(error_msg, 'error')
             return redirect(url_for('main.inventory_edit', ja_id=ja_id))
-        
+
+        # The same rule the Add paths apply, so an item one path accepts every
+        # path accepts (FR-006, FR-017).
+        missing_dimensions = _missing_dimensions_error(form_data)
+        if missing_dimensions:
+            log_audit_operation('edit_item', 'error',
+                              item_id=ja_id,
+                              error_details=missing_dimensions)
+            flash(missing_dimensions, 'error')
+            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+
+
         # Validate material is in taxonomy
         material = form_data.get('material', '').strip()
         valid_materials = _get_valid_materials()
@@ -691,7 +730,8 @@ def inventory_edit(ja_id):
             return render_template('inventory/edit.html', title=f'Edit {ja_id}',
                                  item=temp_item, ItemType=ItemType, ItemShape=ItemShape,
                                  ThreadSeries=ThreadSeries, valid_materials=valid_materials,
-                                 validation_errors={'material': error_msg})
+                                 validation_errors={'material': error_msg},
+                                 type_shape_requirements=type_shape_validator.requirements_by_name())
         
         # Parse form data into updated item
         updated_item = _parse_item_from_form(form_data)

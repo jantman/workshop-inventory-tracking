@@ -597,7 +597,7 @@ def test_add_channel_item_rectangular_shape(page, live_server):
 
     # Add a Channel item with Rectangular shape
     add_page.fill_basic_item_data("JA900001", "Channel", "Rectangular", "Carbon Steel")
-    add_page.fill_dimensions(length="72", width="2", diameter="0.125")  # 72" x 2" x 1/8" channel
+    add_page.fill_dimensions(length="72", width="2", thickness="0.125")  # 72" x 2" x 1/8" channel
     add_page.fill_location_and_notes(location="Storage C", notes="C-channel structural steel")
     add_page.submit_form()
 
@@ -628,7 +628,7 @@ def test_add_channel_item_square_shape(page, live_server):
 
     # Add a Channel item with Square shape
     add_page.fill_basic_item_data("JA900002", "Channel", "Square", "Aluminum")
-    add_page.fill_dimensions(length="48", width="1.5", diameter="0.0625")  # 48" x 1.5" x 1/16" square channel
+    add_page.fill_dimensions(length="48", width="1.5", thickness="0.0625")  # 48" x 1.5" x 1/16" square channel
     add_page.fill_location_and_notes(location="Storage D", notes="Square aluminum channel")
     add_page.submit_form()
 
@@ -655,7 +655,7 @@ def test_channel_item_in_type_filter(page, live_server):
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
     add_page.fill_basic_item_data("JA900003", "Channel", "Rectangular", "Stainless Steel")
-    add_page.fill_dimensions(length="60", width="3", diameter="0.25")
+    add_page.fill_dimensions(length="60", width="3", thickness="0.25")
     add_page.fill_location_and_notes(location="Storage E")
     add_page.submit_form()
     add_page.assert_form_submitted_successfully()
@@ -690,7 +690,7 @@ def test_channel_item_in_search(page, live_server):
     add_page = AddItemPage(page, live_server.url)
     add_page.navigate()
     add_page.fill_basic_item_data("JA900004", "Channel", "Square", "Brass")
-    add_page.fill_dimensions(length="36", width="1", diameter="0.125")
+    add_page.fill_dimensions(length="36", width="1", thickness="0.125")
     add_page.fill_location_and_notes(location="Storage F")
     add_page.submit_form()
     add_page.assert_form_submitted_successfully()
