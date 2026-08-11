@@ -1165,8 +1165,9 @@ class TestEditPathDimensionRequirements:
         monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: [])
 
     @pytest.fixture
-    def round_plate(self, test_storage):
-        """A round plate recorded with a diameter and a thickness and no length."""
+    def service_with_round_plate(self, test_storage):
+        """Seed a round plate -- diameter and thickness, no length -- and return
+        the service, so a test can read back what its request did to it."""
         from app.mariadb_inventory_service import InventoryService
         from app.database import InventoryItem
         from decimal import Decimal
@@ -1198,17 +1199,17 @@ class TestEditPathDimensionRequirements:
         form.update(overrides)
         return form
 
-    def test_saving_unchanged_round_plate_demands_nothing(self, client, round_plate):
+    def test_saving_unchanged_round_plate_demands_nothing(self, client, service_with_round_plate):
         """SC-003: what the Add form recorded, the Edit form saves back."""
         response = client.post('/inventory/edit/JA085100', data=self._edit_form())
         assert response.status_code == 302
         assert '/inventory/edit' not in response.headers['Location']
 
-        item = round_plate.get_canonical_item('JA085100')
+        item = service_with_round_plate.get_canonical_item('JA085100')
         assert item.length is None
         assert float(item.thickness) == 0.25
 
-    def test_clearing_the_thickness_is_refused(self, client, round_plate):
+    def test_clearing_the_thickness_is_refused(self, client, service_with_round_plate):
         """Story 2, scenario 3: the change is refused and the dimension named."""
         response = client.post(
             '/inventory/edit/JA085100',
@@ -1218,10 +1219,10 @@ class TestEditPathDimensionRequirements:
         assert response.status_code == 200
         assert 'Thickness' in response.get_data(as_text=True)
 
-        item = round_plate.get_canonical_item('JA085100')
+        item = service_with_round_plate.get_canonical_item('JA085100')
         assert float(item.thickness) == 0.25
 
-    def test_clearing_the_diameter_is_refused_by_that_name(self, client, round_plate):
+    def test_clearing_the_diameter_is_refused_by_that_name(self, client, service_with_round_plate):
         response = client.post(
             '/inventory/edit/JA085100',
             data=self._edit_form(width=''),
@@ -1229,10 +1230,10 @@ class TestEditPathDimensionRequirements:
         )
         assert 'Diameter' in response.get_data(as_text=True)
 
-        item = round_plate.get_canonical_item('JA085100')
+        item = service_with_round_plate.get_canonical_item('JA085100')
         assert float(item.width) == 6.0
 
-    def test_changing_shape_to_rectangular_demands_a_length(self, client, round_plate):
+    def test_changing_shape_to_rectangular_demands_a_length(self, client, service_with_round_plate):
         """Story 2, scenario 5: the rule follows the shape."""
         response = client.post(
             '/inventory/edit/JA085100',
@@ -1241,16 +1242,16 @@ class TestEditPathDimensionRequirements:
         )
         assert 'Length' in response.get_data(as_text=True)
 
-        item = round_plate.get_canonical_item('JA085100')
+        item = service_with_round_plate.get_canonical_item('JA085100')
         assert item.shape == 'Round'
 
-    def test_a_length_supplied_on_a_round_plate_is_retained(self, client, round_plate):
+    def test_a_length_supplied_on_a_round_plate_is_retained(self, client, service_with_round_plate):
         """FR-002: a length is not discarded for want of being demanded."""
         response = client.post(
             '/inventory/edit/JA085100', data=self._edit_form(length='3'))
         assert response.status_code == 302
 
-        item = round_plate.get_canonical_item('JA085100')
+        item = service_with_round_plate.get_canonical_item('JA085100')
         assert float(item.length) == 3.0
 
 

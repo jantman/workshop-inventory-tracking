@@ -6,7 +6,7 @@ the single authoritative statement of which fields each combination requires.
 Material taxonomy is now handled by the MaterialHierarchyService.
 """
 
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from dataclasses import dataclass, field
 from app.models import ItemType, ItemShape
 
@@ -119,7 +119,7 @@ class TypeShapeValidator:
 
         self._type_shape_compatibility = compatibilities
 
-    def _compatibility_for(self, item_type: ItemType):
+    def _compatibility_for(self, item_type: ItemType) -> Optional[TypeShapeCompatibility]:
         """The rules for an item type, or None if it has none."""
         for compatibility in self._type_shape_compatibility:
             if compatibility.item_type == item_type:
