@@ -192,6 +192,16 @@ class InventoryListManager {
         const doneBtn = document.getElementById('list-bulk-print-done-btn');
         const cancelBtn = document.getElementById('list-bulk-print-cancel');
 
+        // Read the count before anything is printed -- a refused count must
+        // leave the dialog untouched and print nothing at all.
+        const countResult = window.readLabelCount('list-bulk-label-count');
+        if (!countResult.ok) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `<strong>Warning:</strong> ${countResult.error}`;
+            return;
+        }
+        const labelCount = countResult.value;
+
         // Show progress section
         progressDiv.classList.remove('d-none');
         printBtn.classList.add('d-none');
@@ -206,8 +216,11 @@ class InventoryListManager {
             const jaId = selectedJaIds[i];
             const progress = Math.round(((i + 1) / selectedJaIds.length) * 100);
 
-            // Update progress display
-            statusSpan.textContent = `Printing ${i + 1} of ${selectedJaIds.length}: ${jaId}`;
+            // Update progress display. The count suffix appears only above 1,
+            // so a run at the default reads exactly as it does today.
+            const countSuffix = labelCount > 1 ? ` (${labelCount} labels)` : '';
+            statusSpan.textContent =
+                `Printing ${i + 1} of ${selectedJaIds.length}: ${jaId}${countSuffix}`;
             progressBar.style.width = `${progress}%`;
             progressBar.textContent = `${progress}%`;
 
@@ -219,7 +232,8 @@ class InventoryListManager {
                     },
                     body: JSON.stringify({
                         ja_id: jaId,
-                        label_type: labelType
+                        label_type: labelType,
+                        label_count: labelCount
                     })
                 });
 
@@ -245,8 +259,13 @@ class InventoryListManager {
             `;
         }
 
-        // Update final status
-        statusSpan.textContent = `Complete: ${successCount} printed, ${failureCount} failed`;
+        // Update final status. A failed item contributes 0 labels rather than a
+        // partial figure -- one item's copies are one lp job with one exit code,
+        // so the total must never claim more labels than actually emerged.
+        const labelsPrinted = successCount * labelCount;
+        statusSpan.textContent =
+            `Complete: ${labelsPrinted} labels for ${successCount + failureCount} items, ` +
+            `${failureCount} failed`;
         progressBar.classList.remove('progress-bar-animated');
 
         // Show done button
@@ -254,7 +273,7 @@ class InventoryListManager {
 
         // Show success toast notification
         if (successCount > 0) {
-            this.showToast(`Printed ${successCount} label(s) successfully`, 'success');
+            this.showToast(`Printed ${labelsPrinted} label(s) successfully`, 'success');
         }
     }
 
@@ -569,6 +588,13 @@ class InventoryListManager {
         // Reset label type selection
         const labelTypeSelect = document.getElementById('list-bulk-label-type');
         labelTypeSelect.value = '';
+
+        // Reset the label count. The modal is reused rather than recreated, so
+        // the markup's value="1" only covers the first open.
+        const labelCountInput = document.getElementById('list-bulk-label-count');
+        if (labelCountInput) {
+            labelCountInput.value = '1';
+        }
 
         // Hide progress section
         const progressDiv = document.getElementById('list-bulk-print-progress');

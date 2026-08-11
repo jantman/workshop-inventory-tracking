@@ -1808,19 +1808,42 @@ def print_label():
                 'success': False,
                 'error': f'Invalid label type. Available types: {available_types}'
             }), 400
-        
+
+        # Validate label count. Absent means 1, which is what lets callers that
+        # do not send a count keep working unchanged.
+        label_count = data.get('label_count', 1)
+        # bool is a subclass of int, so True would otherwise pass as 1.
+        if isinstance(label_count, bool) or not isinstance(label_count, int):
+            return jsonify({
+                'success': False,
+                'error': 'label_count must be a whole number'
+            }), 400
+        if label_count < 1 or label_count > 99:
+            return jsonify({
+                'success': False,
+                'error': 'label_count must be between 1 and 99'
+            }), 400
+
         # Print the label
-        print_label_for_ja_id(ja_id, label_type)
-        
-        current_app.logger.info(f'Successfully printed {label_type} label for {ja_id}')
-        
+        print_label_for_ja_id(ja_id, label_type, label_count)
+
+        current_app.logger.info(
+            f'Successfully printed {label_count} {label_type} label(s) for {ja_id}'
+        )
+
+        if label_count == 1:
+            message = f'Label printed successfully for {ja_id}'
+        else:
+            message = f'{label_count} labels printed successfully for {ja_id}'
+
         return jsonify({
             'success': True,
-            'message': f'Label printed successfully for {ja_id}',
+            'message': message,
             'ja_id': ja_id,
-            'label_type': label_type
+            'label_type': label_type,
+            'label_count': label_count
         })
-        
+
     except ValueError as e:
         current_app.logger.warning(f'Validation error printing label: {e}')
         return jsonify({

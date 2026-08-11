@@ -219,7 +219,7 @@ The **Add & Continue** button (green button next to "Add Item") submits the curr
 
 ## Label Printing
 
-The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from the Add Item form, Edit Item form, or in bulk from the Inventory List.
+The system can print barcode labels for any JA ID using connected label printers. Labels can be printed from the Add Item form, Edit Item form, in bulk from the Inventory List, or in bulk immediately after creating a batch of items with the Add Item form's "Quantity to Create".
 
 These are inventory labels, carrying a JA ID. Catalog products get their own
 labels, carrying the product's internal code -- see
@@ -246,6 +246,12 @@ labels, carrying the product's internal code -- see
 4. Select "Print Labels" from the dropdown menu
 5. The bulk label printing dialog will open showing all selected items
 
+#### After Creating a Batch of Items
+1. On the Add Item form, set "Quantity to Create" to more than 1 and submit
+2. A print dialog opens over the form listing every JA ID that was just created
+3. Choose a label type and print, or dismiss the dialog — the items are already
+   created either way, and dismissing changes nothing about them
+
 ### Using the Label Printing Dialog
 
 1. **Select Label Type**: Choose from available label types:
@@ -256,9 +262,16 @@ labels, carrying the product's internal code -- see
    - **Sato 4x6**: Large 4" × 6" labels
    - **Sato 4x6 Flag**: 4" × 6" labels with flag mode
 
-2. **Print Label**: Click "Print Label" to send the job to the printer
-3. **Success Confirmation**: A green success message will appear when printing completes
-4. **Auto-close**: The dialog automatically closes after successful printing
+2. **Set the Number of Labels**: "Number of labels" controls how many copies of
+   this item's label to print. It accepts whole numbers from 1 to 99 and starts
+   at 1. All the copies are produced in a single print job.
+3. **Print Label**: Click "Print Label" to send the job to the printer
+4. **Success Confirmation**: A green success message will appear when printing completes
+5. **Auto-close**: The dialog automatically closes after successful printing
+
+If the number of labels is blank, fractional, or outside 1–99, nothing is
+printed and the dialog tells you the allowed range. The number is not clamped
+for you — correct it and print again.
 
 ### Label Type Selection
 
@@ -277,6 +290,11 @@ labels, carrying the product's internal code -- see
 - You must select the label type each time you open the bulk printing dialog
 - All selected items will be printed with the same label type
 
+#### The Number of Labels Is Never Remembered
+Unlike the label type on the Add Item form, the label count is **not**
+remembered. Every dialog opens at 1, on every surface. Printing five copies of
+one label does not quietly arm the next print for five as well.
+
 ### Using the Bulk Label Printing Dialog
 
 When printing labels for multiple items from the Inventory List:
@@ -284,18 +302,29 @@ When printing labels for multiple items from the Inventory List:
 1. **Review Selected Items**: The dialog displays all selected items with their JA IDs
 2. **Select Label Type**: Choose the label type to use for all selected items
    - The same label type will be used for all items in the batch
-3. **Print All Labels**: Click "Print All Labels" to start the batch printing process
-4. **Monitor Progress**: A progress bar shows the printing status
-   - Current item being printed
+3. **Set Labels per Item**: "Labels per item" is how many labels each selected
+   item gets — not how many items there are. Three items at 2 labels per item
+   produces six labels. It accepts whole numbers from 1 to 99 and starts at 1.
+4. **Print All Labels**: Click "Print All Labels" to start the batch printing process
+5. **Monitor Progress**: A progress bar shows the printing status
+   - Current item being printed, and its label count when above 1
    - Number of items completed
    - Percentage complete
-5. **Review Results**: After completion, the dialog shows:
-   - Number of labels printed successfully
+6. **Review Results**: After completion, the dialog shows:
+   - How many labels were printed and how many items they covered, as
+     `Complete: 6 labels for 3 items, 0 failed`
    - Number of failures (if any)
    - Detailed error messages for any failed prints
-6. **Close or Retry**: Click "Done" to close the dialog
+   - An item whose print failed counts as **zero** labels, never a partial
+     number — all of one item's copies are a single print job
+7. **Close or Retry**: Click "Done" to close the dialog
    - Your item selection remains unchanged for convenience
    - You can retry printing if needed
+
+The dialog offered after a batch creation works the same way, with one thing
+worth calling out: its "Labels per item" always starts at 1, whatever quantity
+produced the batch. Creating 8 items does not mean 8 labels each — those are
+two different numbers and the dialog keeps them apart.
 
 **Tips for Bulk Printing:**
 - Print labels in batches of similar sizes to ensure label consistency

@@ -73,7 +73,7 @@ def generate_and_print_label(
     fixed_len_px: int,
     flag_mode: bool = False,
     lp_dpi: int = 305,
-    num_copies: int = 1
+    label_count: int = 1
 ) -> None:
     """
     Generate and print a barcode label equivalent to pt-barcode-label commands.
@@ -86,7 +86,7 @@ def generate_and_print_label(
         fixed_len_px: Fixed length in pixels for the final image
         flag_mode: Whether to use flag mode (rotated barcodes at ends)
         lp_dpi: DPI for LP printing (default: 305)
-        num_copies: Number of copies to print (default: 1)
+        label_count: Number of labels to print (default: 1)
     """
     # Test mode short-circuit - prevents actual printing during tests or if disabled
     if current_app and (current_app.config.get('TESTING', False) or current_app.config.get('DISABLE_LABEL_PRINTING', False)):
@@ -95,7 +95,7 @@ def generate_and_print_label(
             f"Would have printed: barcode_value='{barcode_value}', "
             f"lp_options='{lp_options}', maxlen_inches={maxlen_inches}, "
             f"lp_width_px={lp_width_px}, fixed_len_px={fixed_len_px}, "
-            f"flag_mode={flag_mode}, lp_dpi={lp_dpi}, num_copies={num_copies}"
+            f"flag_mode={flag_mode}, lp_dpi={lp_dpi}, label_count={label_count}"
         )
         return
 
@@ -127,7 +127,7 @@ def generate_and_print_label(
         # Print using lp
         try:
             printer: LpPrinter = LpPrinter(lp_options)
-            images: List[BytesIO] = [generator.file_obj] * num_copies if num_copies > 1 else [generator.file_obj]
+            images: List[BytesIO] = [generator.file_obj] * label_count if label_count > 1 else [generator.file_obj]
             printer.print_images(images)
         except Exception as print_error:
             import traceback
@@ -137,21 +137,24 @@ def generate_and_print_label(
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise print_error
 
-        logger.info(f"Successfully printed {num_copies} label(s) for {barcode_value}")
+        logger.info(f"Successfully printed {label_count} label(s) for {barcode_value}")
 
     except Exception as e:
         logger.error(f"Error printing label for {barcode_value}: {str(e)}")
         raise
 
 
-def print_label_for_ja_id(ja_id: str, label_type: str) -> None:
+def print_label_for_ja_id(
+    ja_id: str, label_type: str, label_count: int = 1
+) -> None:
     """
-    Print a label for a specific JA ID using the specified label type.
-    
+    Print labels for a specific JA ID using the specified label type.
+
     Args:
         ja_id: The JA ID to print (e.g., "JA123456")
         label_type: The type of label to print (must be a key in LABEL_TYPES)
-        
+        label_count: Number of labels to print (default: 1)
+
     Raises:
         ValueError: If label_type is not valid
         Exception: If printing fails
@@ -159,13 +162,14 @@ def print_label_for_ja_id(ja_id: str, label_type: str) -> None:
     if label_type not in LABEL_TYPES:
         valid_types = list(LABEL_TYPES.keys())
         raise ValueError(f"Invalid label type '{label_type}'. Valid types: {valid_types}")
-    
-    logger.info(f"Printing {label_type} label for JA ID: {ja_id}")
-    
+
+    logger.info(f"Printing {label_count} {label_type} label(s) for JA ID: {ja_id}")
+
     # Get the label configuration
     label_config = LABEL_TYPES[label_type].copy()
     label_config['barcode_value'] = ja_id
-    
+    label_config['label_count'] = label_count
+
     # Call the core printing function
     generate_and_print_label(**label_config)
 

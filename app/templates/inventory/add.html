@@ -380,6 +380,7 @@ window.validMaterials = {{ valid_materials | tojson }};
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
 <script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
+<script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
 <script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/inventory-add.js') }}"></script>
 <script>
@@ -440,12 +441,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
 
                 <div class="mb-3">
-                    <label for="bulk-label-size" class="form-label">Label Size</label>
-                    <select class="form-select" id="bulk-label-size">
-                        <option value="2.25x1.25">2.25" × 1.25" (Standard)</option>
-                        <option value="2.25x0.5">2.25" × 0.5" (Small)</option>
-                        <option value="custom">Custom Size</option>
+                    <label for="bulk-label-type" class="form-label">Label Type *</label>
+                    <select class="form-select" id="bulk-label-type" required>
+                        <option value="">Select label type...</option>
+                        <!-- Options will be populated by JavaScript from API -->
                     </select>
+                    <div class="form-text">Choose the type and size of label to print for all created items</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="bulk-label-count" class="form-label">Labels per item</label>
+                    <input type="number" class="form-control" id="bulk-label-count"
+                           min="1" max="99" step="1" value="1">
+                    <div class="form-text">How many labels to print for each created item (1-99)</div>
                 </div>
 
                 <div id="bulk-print-progress" class="d-none">
@@ -457,12 +465,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div id="bulk-print-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
                              role="progressbar" style="width: 0%"></div>
                     </div>
-                    <div id="bulk-print-errors" class="alert alert-warning mt-2 d-none"></div>
                 </div>
+
+                <!-- Outside the progress region: a refused label count is
+                     reported before any run starts, so it cannot be nested in
+                     a container that only appears once printing has begun. -->
+                <div id="bulk-print-errors" class="alert alert-warning mt-2 d-none"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="bulk-print-skip">Skip</button>
-                <button type="button" class="btn btn-primary" id="bulk-print-all-btn">
+                <button type="button" class="btn btn-primary" id="bulk-print-all-btn" disabled>
                     <i class="bi bi-printer"></i> Print All Labels
                 </button>
                 <button type="button" class="btn btn-success d-none" id="bulk-print-done-btn" data-bs-dismiss="modal">

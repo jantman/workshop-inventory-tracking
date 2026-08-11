@@ -362,3 +362,161 @@ def test_label_printing_different_label_types(page, live_server):
         # makes the next iteration's re-open safe, so no delay is needed here.
         modal = page.locator("#label-printing-modal")
         expect(modal).not_to_be_visible()
+
+def _set_ja_id(page, ja_id):
+    """Put a JA ID into the Add Item form's #ja_id field.
+
+    autoPopulateJaId() checks "only if empty" before awaiting
+    GET /api/inventory/next-ja-id and writes the result after, so a fill()
+    issued in that gap has its selection collapsed and appends instead of
+    replacing. Let the page's write land first, then confirm ours stuck.
+    """
+    ja_field = page.locator("#ja_id")
+    expect(ja_field).not_to_have_value("")
+    ja_field.fill(ja_id)
+    expect(ja_field).to_have_value(ja_id)
+
+
+def _capture_print_payloads(page):
+    """Collect the decoded bodies of every POST to /api/labels/print."""
+    payloads = []
+
+    def handle_request(request):
+        if "/api/labels/print" in request.url and request.method == "POST":
+            payloads.append(json.loads(request.post_data))
+
+    page.on("request", handle_request)
+    return payloads
+
+
+def _open_print_modal(page):
+    """Open the single-item print dialog and wait for it to finish loading."""
+    page.locator("#print-label-btn").click()
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, "label-type-select")
+
+
+@pytest.mark.e2e
+def test_label_count_defaults_to_one(page, live_server):
+    """Story 1 scenario 1: the label count input shows 1 when the dialog opens"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    _set_ja_id(page, "JA123456")
+    _open_print_modal(page)
+
+    count_input = page.locator("#label-count")
+    expect(count_input).to_be_visible()
+    expect(count_input).to_have_value("1")
+
+    # The wording has to keep the count apart from the Add form's quantity.
+    expect(page.locator("label[for='label-count']")).to_have_text("Number of labels")
+
+
+@pytest.mark.e2e
+def test_label_count_default_sends_one_label(page, live_server):
+    """Story 1 scenario 2: printing at the default count produces one label"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    payloads = _capture_print_payloads(page)
+
+    _set_ja_id(page, "JA222222")
+    _open_print_modal(page)
+
+    page.locator("#label-type-select").select_option("Sato 1x2")
+    page.locator("#modal-print-label-btn").click()
+
+    # The success alert renders after the fetch resolves, so it is a complete
+    # signal that the request was made and answered.
+    success_alert = page.locator("#label-print-alerts .alert-success")
+    expect(success_alert).to_be_visible()
+    expect(success_alert).to_have_text("Label printed successfully for JA222222")
+
+    assert payloads == [{
+        "ja_id": "JA222222",
+        "label_type": "Sato 1x2",
+        "label_count": 1,
+    }]
+
+
+@pytest.mark.e2e
+def test_label_count_of_three_reaches_the_request(page, live_server):
+    """Story 1 scenario 3: a count of 3 is sent and reported as three labels"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    payloads = _capture_print_payloads(page)
+
+    _set_ja_id(page, "JA333333")
+    _open_print_modal(page)
+
+    page.locator("#label-type-select").select_option("Sato 1x2")
+    page.locator("#label-count").fill("3")
+    page.locator("#modal-print-label-btn").click()
+
+    success_alert = page.locator("#label-print-alerts .alert-success")
+    expect(success_alert).to_be_visible()
+    expect(success_alert).to_have_text("3 labels printed successfully for JA333333")
+
+    # One request per item whatever the count -- not three requests.
+    assert payloads == [{
+        "ja_id": "JA333333",
+        "label_type": "Sato 1x2",
+        "label_count": 3,
+    }]
+
+
+@pytest.mark.e2e
+def test_label_count_resets_while_label_type_persists(page, live_server):
+    """Story 1 scenario 4: reopening resets the count but keeps the label type"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    _set_ja_id(page, "JA444444")
+    _open_print_modal(page)
+
+    page.locator("#label-type-select").select_option("Sato 2x4")
+    page.locator("#label-count").fill("3")
+    page.locator("#modal-print-label-btn").click()
+
+    # Printing closes the modal on its own; that is the signal to reopen.
+    expect(page.locator(f"#{MODAL}")).not_to_be_visible()
+
+    _open_print_modal(page)
+
+    # The count is deliberately not remembered; the label type still is.
+    expect(page.locator("#label-count")).to_have_value("1")
+    expect(page.locator("#label-type-select")).to_have_value("Sato 2x4")
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bad_count", ["0", "100", "2.5", "-1", ""])
+def test_label_count_refused_prints_nothing(page, live_server, bad_count):
+    """Story 1 scenario 5: an invalid count is refused and no request is sent"""
+    add_page = AddItemPage(page, live_server.url)
+    add_page.navigate()
+
+    payloads = _capture_print_payloads(page)
+
+    _set_ja_id(page, "JA555555")
+    _open_print_modal(page)
+
+    page.locator("#label-type-select").select_option("Sato 1x2")
+    page.locator("#label-count").fill(bad_count)
+    page.locator("#modal-print-label-btn").click()
+
+    # The error alert is rendered synchronously by the click handler before it
+    # would have fetched, so its presence establishes that the handler ran and
+    # returned early. Only then is "no request was sent" a meaningful claim.
+    error_alert = page.locator("#label-print-alerts .alert-danger")
+    expect(error_alert).to_be_visible()
+    expect(error_alert).to_contain_text(
+        "Label count must be a whole number between 1 and 99"
+    )
+
+    assert payloads == []
+
+    # The dialog stays open with the label type still selected.
+    expect(page.locator(f"#{MODAL}")).to_be_visible()
+    expect(page.locator("#label-type-select")).to_have_value("Sato 1x2")
