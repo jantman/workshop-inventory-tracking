@@ -63,6 +63,13 @@ class LabelPrintingModal {
                                     </select>
                                     <div class="form-text">Choose the type and size of label to print</div>
                                 </div>
+
+                                <div class="mb-3">
+                                    <label for="label-count" class="form-label">Number of labels</label>
+                                    <input type="number" class="form-control" id="label-count"
+                                           min="1" max="99" step="1" value="1">
+                                    <div class="form-text">How many copies of this label to print (1-99)</div>
+                                </div>
                             </form>
                         </div>
                         <div class="modal-footer">
@@ -160,7 +167,15 @@ class LabelPrintingModal {
             this.showError('Please select a label type');
             return;
         }
-        
+
+        const countResult = window.readLabelCount('label-count');
+        if (!countResult.ok) {
+            console.log('Error: Invalid label count');
+            this.showError(countResult.error);
+            return;
+        }
+        const labelCount = countResult.value;
+
         // Disable print button and show loading state
         const printButton = document.getElementById('modal-print-label-btn');
         const originalHTML = printButton.innerHTML;
@@ -175,18 +190,22 @@ class LabelPrintingModal {
                 },
                 body: JSON.stringify({
                     ja_id: jaId,
-                    label_type: labelType
+                    label_type: labelType,
+                    label_count: labelCount
                 })
             });
-            
+
             const data = await response.json();
-            
+
             if (!response.ok || !data.success) {
                 throw new Error(data.error || 'Failed to print label');
             }
-            
-            this.showSuccess(`Label printed successfully for ${jaId}`);
-            
+
+            // A count of 1 keeps today's exact wording.
+            this.showSuccess(labelCount === 1
+                ? `Label printed successfully for ${jaId}`
+                : `${labelCount} labels printed successfully for ${jaId}`);
+
             // Save label type selection if persistence is enabled
             if (this.persistLabelType) {
                 this.saveLabelTypeSelection();
@@ -229,7 +248,14 @@ class LabelPrintingModal {
         
         // Clear any previous alerts
         this.clearAlerts();
-        
+
+        // Reset the label count. The Bootstrap modal is reused rather than
+        // recreated, so the markup's value="1" only covers the first open.
+        const countInput = document.getElementById('label-count');
+        if (countInput) {
+            countInput.value = '1';
+        }
+
         // Restore saved label type if persistence is enabled
         if (this.persistLabelType) {
             this.restoreLabelTypeSelection();

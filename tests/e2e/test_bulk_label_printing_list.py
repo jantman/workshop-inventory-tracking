@@ -244,7 +244,8 @@ def test_bulk_label_printing_successful_batch_print(page, live_server):
     # Verify completion status
     status_span = page.locator('#list-bulk-print-status')
     expect(status_span).to_contain_text('Complete')
-    expect(status_span).to_contain_text('2 printed')
+    # The summary reports labels and items at every count, not just above 1.
+    expect(status_span).to_have_text('Complete: 2 labels for 2 items, 0 failed')
 
     # Verify Done button is visible
     done_btn = page.locator('#list-bulk-print-done-btn')
@@ -441,3 +442,226 @@ def test_bulk_label_printing_different_label_types(page, live_server):
         # Close modal via Done button
         page.locator('#list-bulk-print-done-btn').click()
         wait_for_modal_hidden(page, MODAL)
+
+
+def _capture_print_payloads(page):
+    """Collect the decoded bodies of every POST to /api/labels/print."""
+    payloads = []
+
+    def handle_request(request):
+        if "/api/labels/print" in request.url and request.method == "POST":
+            payloads.append(json.loads(request.post_data))
+
+    page.on("request", handle_request)
+    return payloads
+
+
+def _seed_and_select(page, live_server, ja_ids):
+    """Seed items directly and tick their checkboxes on the inventory list."""
+    live_server.add_test_data([
+        {
+            "ja_id": ja_id,
+            "item_type": "Bar",
+            "shape": "Round",
+            "material": "Aluminum",
+            "width": "1",
+            "length": "12",
+            "location": "Test Storage A",
+            "active": True,
+        }
+        for ja_id in ja_ids
+    ])
+
+    list_page = InventoryListPage(page, live_server.url)
+    list_page.navigate()
+    list_page.wait_for_items_loaded()
+
+    for ja_id in ja_ids:
+        page.locator(f'input.item-checkbox[data-ja-id="{ja_id}"]').check()
+
+
+def _open_bulk_print_modal(page):
+    """Open the list page's bulk print dialog and wait for it to finish loading."""
+    page.locator('button:has-text("Options")').click()
+    page.locator('#bulk-print-labels-btn').click()
+    wait_for_modal_shown(page, MODAL)
+    wait_for_select_populated(page, SELECT)
+
+
+@pytest.mark.e2e
+def test_bulk_label_count_defaults_to_one(page, live_server):
+    """Story 2 scenario 1: the label count shows 1 when the dialog opens"""
+    _seed_and_select(page, live_server, ["JA700001", "JA700002"])
+    _open_bulk_print_modal(page)
+
+    count_input = page.locator('#list-bulk-label-count')
+    expect(count_input).to_be_visible()
+    expect(count_input).to_have_value('1')
+
+    # "Labels per item", not "Quantity" -- the Add form's quantity is a
+    # different number and the two must not read alike.
+    expect(page.locator("label[for='list-bulk-label-count']")).to_have_text(
+        'Labels per item'
+    )
+
+
+@pytest.mark.e2e
+def test_bulk_label_count_default_sends_one_per_item(page, live_server):
+    """Story 2 scenario 2: three items at the default produce three labels"""
+    ja_ids = ["JA710001", "JA710002", "JA710003"]
+    payloads = _capture_print_payloads(page)
+
+    _seed_and_select(page, live_server, ja_ids)
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    # The completion line is rendered after every request has settled, so it is
+    # a complete signal for the whole run.
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 3 labels for 3 items, 0 failed')
+
+    assert payloads == [
+        {"ja_id": ja_id, "label_type": "Sato 1x2", "label_count": 1}
+        for ja_id in ja_ids
+    ]
+
+
+@pytest.mark.e2e
+def test_bulk_label_count_of_two_sends_two_per_item(page, live_server):
+    """Story 2 scenarios 3, 4 and the summary: three items at 2 produce six labels"""
+    ja_ids = ["JA720001", "JA720002", "JA720003"]
+    payloads = _capture_print_payloads(page)
+
+    _seed_and_select(page, live_server, ja_ids)
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-label-count').fill('2')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 6 labels for 3 items, 0 failed')
+
+    # One request per item carrying the count -- not two requests per item.
+    # That is also what keeps an item's copies consecutive: they are one job.
+    assert payloads == [
+        {"ja_id": ja_id, "label_type": "Sato 1x2", "label_count": 2}
+        for ja_id in ja_ids
+    ]
+
+
+@pytest.mark.e2e
+def test_bulk_label_count_progress_line_names_the_count(page, live_server):
+    """The progress line gains a count suffix only above 1"""
+    payloads = _capture_print_payloads(page)
+
+    _seed_and_select(page, live_server, ["JA730001"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-label-count').fill('4')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    # Singular "item" -- one selected item, four labels for it.
+    expect(status_span).to_have_text('Complete: 4 labels for 1 item, 0 failed')
+
+    assert payloads == [
+        {"ja_id": "JA730001", "label_type": "Sato 1x2", "label_count": 4}
+    ]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bad_count", ["0", "100", "2.5", "-1", ""])
+def test_bulk_label_count_refused_prints_nothing(page, live_server, bad_count):
+    """Story 2 scenario 6: an invalid count prints nothing and says why"""
+    payloads = _capture_print_payloads(page)
+
+    _seed_and_select(page, live_server, ["JA740001", "JA740002"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-label-count').fill(bad_count)
+    page.locator('#list-bulk-print-all-btn').click()
+
+    # The error region is written synchronously before the loop would have
+    # started, so its visibility establishes that the handler ran and returned.
+    # Only then does "no request was sent" mean anything.
+    errors_div = page.locator('#list-bulk-print-errors')
+    expect(errors_div).to_be_visible()
+    expect(errors_div).to_contain_text(
+        'Label count must be a whole number between 1 and 99'
+    )
+
+    assert payloads == []
+
+    # The dialog stays open with the label type still selected, and the run
+    # never started -- the progress section is still hidden.
+    expect(page.locator(f'#{MODAL}')).to_be_visible()
+    expect(page.locator('#list-bulk-label-type')).to_have_value('Sato 1x2')
+    expect(page.locator('#list-bulk-print-progress')).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_bulk_label_count_resets_on_reopen(page, live_server):
+    """Story 2 scenario 7: reopening the dialog resets the count to 1"""
+    _seed_and_select(page, live_server, ["JA750001", "JA750002"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-label-count').fill('5')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 10 labels for 2 items, 0 failed')
+
+    page.locator('#list-bulk-print-done-btn').click()
+    wait_for_modal_hidden(page, MODAL)
+
+    _open_bulk_print_modal(page)
+
+    expect(page.locator('#list-bulk-label-count')).to_have_value('1')
+
+
+@pytest.mark.e2e
+def test_bulk_corrected_count_clears_the_earlier_warning(page, live_server):
+    """A refused count's warning must not survive the corrected retry.
+
+    The modal reset only runs when the dialog opens and closes, so without an
+    explicit clear at the start of a run the warning stays on screen -- sitting
+    directly above a successful completion line, which reads as a failure.
+    """
+    _seed_and_select(page, live_server, ["JA760001", "JA760002"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-label-count').fill('0')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    errors_div = page.locator('#list-bulk-print-errors')
+    expect(errors_div).to_be_visible()
+
+    # Correct the count and print for real.
+    page.locator('#list-bulk-label-count').fill('2')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 4 labels for 2 items, 0 failed')
+
+    # Established by the completion assertion above, so this is a real negative.
+    expect(errors_div).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_bulk_summary_uses_singular_nouns_for_one(page, live_server):
+    """One item at a count of 1 reads "1 label for 1 item", not "1 labels ... 1 items" """
+    _seed_and_select(page, live_server, ["JA770001"])
+    _open_bulk_print_modal(page)
+
+    page.locator('#list-bulk-label-type').select_option('Sato 1x2')
+    page.locator('#list-bulk-print-all-btn').click()
+
+    status_span = page.locator('#list-bulk-print-status')
+    expect(status_span).to_have_text('Complete: 1 label for 1 item, 0 failed')

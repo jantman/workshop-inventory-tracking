@@ -5,12 +5,17 @@ Tests the "Quantity to Create" feature that allows creating multiple identical
 items with sequential JA IDs in a single form submission.
 """
 
+import json
 import re
 
 import pytest
 from playwright.sync_api import expect
 from tests.e2e.pages.base_page import BasePage
-from tests.e2e.waits import wait_for_modal_hidden, wait_for_modal_shown
+from tests.e2e.waits import (
+    wait_for_modal_hidden,
+    wait_for_modal_shown,
+    wait_for_select_populated,
+)
 
 
 def count_add_posts(page):
@@ -874,3 +879,210 @@ def test_bulk_creation_preview_updates_dynamically(page, live_server):
     bulk_page.set_quantity_to_create(1)
     info_text = bulk_page.get_bulk_creation_info_text()
     assert info_text is None
+
+
+ITEM_DATA_FOR_PRINTING = {
+    'item_type': 'Plate',
+    'shape': 'Rectangular',
+    'material': 'Steel',
+    'length': '12',
+    'width': '6',
+    'thickness': '0.25',
+    'location': 'Shop Floor',
+}
+
+
+def _capture_print_payloads(page):
+    """Collect the decoded bodies of every POST to /api/labels/print."""
+    payloads = []
+
+    def handle_request(request):
+        if "/api/labels/print" in request.url and request.method == "POST":
+            payloads.append(json.loads(request.post_data))
+
+    page.on("request", handle_request)
+    return payloads
+
+
+def _create_batch_and_open_print_dialog(page, live_server, quantity):
+    """Create `quantity` items in bulk and return the page object plus JA IDs.
+
+    The label type options now arrive from GET /api/labels/types rather than
+    being hardcoded in the template, so the select has to be waited on.
+    """
+    bulk_page = BulkCreationPage(page, live_server.url)
+    bulk_page.navigate_to_add_page()
+    bulk_page.fill_item_details(ITEM_DATA_FOR_PRINTING)
+    bulk_page.set_quantity_to_create(quantity)
+    bulk_page.submit_form()
+
+    assert bulk_page.is_bulk_label_modal_visible()
+    wait_for_select_populated(page, "bulk-label-type")
+
+    return bulk_page, bulk_page.get_modal_ja_ids()
+
+
+@pytest.mark.e2e
+def test_post_creation_dialog_offers_real_label_types(page, live_server):
+    """Story 3 scenario 1: the real label types, and none of the old sizes"""
+    _create_batch_and_open_print_dialog(page, live_server, 2)
+
+    label_select = page.locator("#bulk-label-type")
+    expect(label_select).to_be_visible()
+
+    for label_type in ['Sato 1x2', 'Sato 1x2 Flag', 'Sato 2x4',
+                       'Sato 2x4 Flag', 'Sato 4x6', 'Sato 4x6 Flag']:
+        expect(label_select.locator(f"option[value='{label_type}']")).to_have_count(1)
+
+    # The select is established above, so these negative assertions are real
+    # rather than passing against a dialog that has not rendered. Nothing in
+    # this dialog may read as a label *size* any more.
+    for old_size in ['2.25x1.25', '2.25x0.5', 'custom']:
+        expect(label_select.locator(f"option[value='{old_size}']")).to_have_count(0)
+
+    expect(page.locator("#bulk-label-size")).to_have_count(0)
+
+    # Print All stays disabled until a type is chosen, as on the list page.
+    expect(page.locator("#bulk-print-all-btn")).to_be_disabled()
+    page.locator("#bulk-label-type").select_option("Sato 1x2")
+    expect(page.locator("#bulk-print-all-btn")).to_be_enabled()
+
+
+@pytest.mark.e2e
+def test_post_creation_dialog_prints_at_default_count(page, live_server):
+    """Story 3 scenario 2: a default-count print succeeds -- it could not before"""
+    payloads = _capture_print_payloads(page)
+
+    bulk_page, ja_ids = _create_batch_and_open_print_dialog(page, live_server, 3)
+    assert len(ja_ids) == 3
+
+    page.locator("#bulk-label-type").select_option("Sato 1x2")
+    page.locator("#bulk-print-all-btn").click()
+
+    # The completion line renders after every request settles.
+    status_span = page.locator("#bulk-print-status")
+    expect(status_span).to_have_text('Complete: 3 labels for 3 items, 0 failed')
+
+    # Zero failures: before this repair the dialog sent a label_size the
+    # endpoint has no field for and omitted the label_type it requires, so
+    # every one of these requests came back 400.
+    expect(page.locator("#bulk-print-errors")).not_to_be_visible()
+
+    assert payloads == [
+        {"ja_id": ja_id, "label_type": "Sato 1x2", "label_count": 1}
+        for ja_id in ja_ids
+    ]
+
+
+@pytest.mark.e2e
+def test_post_creation_dialog_honors_a_label_count(page, live_server):
+    """Story 3 scenario 3: a count of 2 sends one request per JA ID carrying it"""
+    payloads = _capture_print_payloads(page)
+
+    bulk_page, ja_ids = _create_batch_and_open_print_dialog(page, live_server, 4)
+    assert len(ja_ids) == 4
+
+    page.locator("#bulk-label-type").select_option("Sato 2x4")
+    page.locator("#bulk-label-count").fill("2")
+    page.locator("#bulk-print-all-btn").click()
+
+    status_span = page.locator("#bulk-print-status")
+    expect(status_span).to_have_text('Complete: 8 labels for 4 items, 0 failed')
+
+    assert payloads == [
+        {"ja_id": ja_id, "label_type": "Sato 2x4", "label_count": 2}
+        for ja_id in ja_ids
+    ]
+
+
+@pytest.mark.e2e
+def test_post_creation_label_count_starts_at_one_not_the_quantity(page, live_server):
+    """Story 3 scenario 4: a batch of 8 still opens with a label count of 1"""
+    _create_batch_and_open_print_dialog(page, live_server, 8)
+
+    count_input = page.locator("#bulk-label-count")
+    expect(count_input).to_be_visible()
+    # How many items were created and how many labels each gets are different
+    # numbers; nothing reads one to seed the other.
+    expect(count_input).to_have_value("1")
+
+    expect(page.locator("label[for='bulk-label-count']")).to_have_text(
+        'Labels per item'
+    )
+
+
+@pytest.mark.e2e
+def test_post_creation_dialog_dismissed_leaves_items_intact(page, live_server):
+    """Story 3 scenario 5: dismissing the dialog does not touch the created items"""
+    bulk_page, ja_ids = _create_batch_and_open_print_dialog(page, live_server, 3)
+    assert len(ja_ids) == 3
+
+    bulk_page.close_modal()
+
+    # Printing is an offer, never a condition of the creation.
+    from app.mariadb_inventory_service import InventoryService
+    service = InventoryService(live_server.storage)
+    for ja_id in ja_ids:
+        item = service.get_item(ja_id)
+        assert item is not None, f"Item {ja_id} not found after dismissing the dialog"
+        assert item.active is True
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bad_count", ["0", "100", "2.5", ""])
+def test_post_creation_label_count_refused_prints_nothing(page, live_server, bad_count):
+    """An invalid count on this dialog prints nothing and says why"""
+    payloads = _capture_print_payloads(page)
+
+    _create_batch_and_open_print_dialog(page, live_server, 2)
+
+    page.locator("#bulk-label-type").select_option("Sato 1x2")
+    page.locator("#bulk-label-count").fill(bad_count)
+    page.locator("#bulk-print-all-btn").click()
+
+    # Written synchronously before the loop would have started, so its
+    # visibility establishes that the handler ran and returned early.
+    errors_div = page.locator("#bulk-print-errors")
+    expect(errors_div).to_be_visible()
+    expect(errors_div).to_contain_text(
+        'Label count must be a whole number between 1 and 99'
+    )
+
+    assert payloads == []
+
+    expect(page.locator("#bulkLabelPrintingModal")).to_be_visible()
+    expect(page.locator("#bulk-label-type")).to_have_value("Sato 1x2")
+    expect(page.locator("#bulk-print-progress")).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_post_creation_corrected_count_clears_the_earlier_warning(page, live_server):
+    """A refused count's warning must not survive the corrected retry.
+
+    Same defect as the list page's dialog: the reset only runs when the modal
+    is shown, so the warning would otherwise remain visible above a successful
+    completion line.
+    """
+    _create_batch_and_open_print_dialog(page, live_server, 2)
+
+    page.locator("#bulk-label-type").select_option("Sato 1x2")
+    page.locator("#bulk-label-count").fill("0")
+    page.locator("#bulk-print-all-btn").click()
+
+    errors_div = page.locator("#bulk-print-errors")
+    expect(errors_div).to_be_visible()
+
+    page.locator("#bulk-label-count").fill("3")
+    page.locator("#bulk-print-all-btn").click()
+
+    status_span = page.locator("#bulk-print-status")
+    expect(status_span).to_have_text('Complete: 6 labels for 2 items, 0 failed')
+
+    expect(errors_div).not_to_be_visible()
+
+
+# The singular "1 item" branch is deliberately not tested on this dialog: it
+# only opens for a quantity of 2 or more (a quantity of 1 takes the ordinary
+# single-item path), so one item is unreachable here. The list page's dialog,
+# where a single item can be selected, covers that branch --
+# test_bulk_summary_uses_singular_nouns_for_one.

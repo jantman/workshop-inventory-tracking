@@ -806,6 +806,52 @@ class InventoryAddForm {
         }
     }
 
+    async loadBulkLabelTypes() {
+        const select = document.getElementById('bulk-label-type');
+        if (!select) return;
+
+        try {
+            const response = await fetch('/api/labels/types');
+            if (!response.ok) {
+                throw new Error('Failed to load label types');
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load label types');
+            }
+
+            // Clear existing options except the first placeholder
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+
+            data.label_types.forEach(labelType => {
+                const option = document.createElement('option');
+                option.value = labelType;
+                option.textContent = labelType;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            // Without this the user gets an empty select and a permanently
+            // disabled Print button with nothing explaining why -- diagnosable
+            // only from DevTools. The list page's equivalent surfaces it too.
+            console.error('Error loading label types:', error);
+            const errorsDiv = document.getElementById('bulk-print-errors');
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML =
+                '<strong>Warning:</strong> Failed to load label types. ' +
+                'The items were created; close this dialog and print from the ' +
+                'inventory list.';
+        }
+    }
+
+    onBulkLabelTypeChange() {
+        const select = document.getElementById('bulk-label-type');
+        const printBtn = document.getElementById('bulk-print-all-btn');
+        printBtn.disabled = !select.value;
+    }
+
     showBulkLabelPrintingModal() {
         console.log('showBulkLabelPrintingModal: Called');
         const modal = document.getElementById('bulkLabelPrintingModal');
@@ -849,9 +895,28 @@ class InventoryAddForm {
 
         // Reset modal state
         document.getElementById('bulk-print-progress').classList.add('d-none');
+        const errorsDiv = document.getElementById('bulk-print-errors');
+        errorsDiv.classList.add('d-none');
+        errorsDiv.innerHTML = '';
         document.getElementById('bulk-print-all-btn').classList.remove('d-none');
         document.getElementById('bulk-print-done-btn').classList.add('d-none');
         document.getElementById('bulk-print-skip').classList.remove('d-none');
+
+        // Reset the label count. It starts at 1 whatever quantity produced this
+        // batch -- how many items were created and how many labels each one
+        // gets are different numbers.
+        const countInput = document.getElementById('bulk-label-count');
+        if (countInput) {
+            countInput.value = '1';
+        }
+
+        // Populate the label types from the API, as the other print dialogs do.
+        // Print All stays disabled until one is chosen.
+        const labelTypeSelect = document.getElementById('bulk-label-type');
+        labelTypeSelect.value = '';
+        document.getElementById('bulk-print-all-btn').disabled = true;
+        labelTypeSelect.onchange = () => this.onBulkLabelTypeChange();
+        this.loadBulkLabelTypes();
 
         // Setup print button handler
         const printBtn = document.getElementById('bulk-print-all-btn');
@@ -865,7 +930,7 @@ class InventoryAddForm {
     }
 
     async printAllLabels() {
-        const labelSize = document.getElementById('bulk-label-size').value;
+        const labelType = document.getElementById('bulk-label-type').value;
         const progressDiv = document.getElementById('bulk-print-progress');
         const progressBar = document.getElementById('bulk-print-progress-bar');
         const statusSpan = document.getElementById('bulk-print-status');
@@ -873,6 +938,23 @@ class InventoryAddForm {
         const printBtn = document.getElementById('bulk-print-all-btn');
         const doneBtn = document.getElementById('bulk-print-done-btn');
         const skipBtn = document.getElementById('bulk-print-skip');
+
+        // Clear anything a previous attempt left behind. The modal reset only
+        // runs when the dialog opens, so without this a refused count's warning
+        // would still be sitting there after the user corrects it and prints --
+        // visible directly above a successful completion line.
+        errorsDiv.classList.add('d-none');
+        errorsDiv.innerHTML = '';
+
+        // Read the count before anything is printed -- a refused count must
+        // leave the dialog untouched and print nothing at all.
+        const countResult = window.readLabelCount('bulk-label-count');
+        if (!countResult.ok) {
+            errorsDiv.classList.remove('d-none');
+            errorsDiv.innerHTML = `<strong>Warning:</strong> ${countResult.error}`;
+            return;
+        }
+        const labelCount = countResult.value;
 
         // Show progress
         progressDiv.classList.remove('d-none');
@@ -887,7 +969,11 @@ class InventoryAddForm {
             const jaId = this.createdJaIds[i];
             const progress = Math.round(((i + 1) / this.createdJaIds.length) * 100);
 
-            statusSpan.textContent = `Printing ${i + 1} of ${this.createdJaIds.length}: ${jaId}`;
+            // The count suffix appears only above 1, so a run at the default
+            // reads exactly as the list page's does.
+            const countSuffix = labelCount > 1 ? ` (${labelCount} labels)` : '';
+            statusSpan.textContent =
+                `Printing ${i + 1} of ${this.createdJaIds.length}: ${jaId}${countSuffix}`;
             progressBar.style.width = `${progress}%`;
             progressBar.textContent = `${progress}%`;
 
@@ -899,15 +985,19 @@ class InventoryAddForm {
                     },
                     body: JSON.stringify({
                         ja_id: jaId,
-                        label_size: labelSize
+                        label_type: labelType,
+                        label_count: labelCount
                     })
                 });
 
                 if (response.ok) {
                     successCount++;
                 } else {
+                    // Report the endpoint's own message, not just the status
+                    // text -- the status text says nothing about what was wrong.
+                    const data = await response.json();
                     failureCount++;
-                    errors.push(`${jaId}: ${response.statusText}`);
+                    errors.push(`${jaId}: ${data.error || response.statusText}`);
                 }
             } catch (error) {
                 failureCount++;
@@ -924,7 +1014,14 @@ class InventoryAddForm {
             `;
         }
 
-        statusSpan.textContent = `Complete: ${successCount} printed, ${failureCount} failed`;
+        // A failed item contributes 0 labels rather than a partial figure, so
+        // the total never claims more labels than actually emerged.
+        const labelsPrinted = successCount * labelCount;
+        const itemsAttempted = successCount + failureCount;
+        statusSpan.textContent =
+            `Complete: ${labelsPrinted} ${labelsPrinted === 1 ? 'label' : 'labels'} ` +
+            `for ${itemsAttempted} ${itemsAttempted === 1 ? 'item' : 'items'}, ` +
+            `${failureCount} failed`;
         progressBar.classList.remove('progress-bar-animated');
 
         // Show done button
@@ -932,7 +1029,7 @@ class InventoryAddForm {
 
         // Show success message
         if (successCount > 0) {
-            WorkshopInventory.utils.showToast(`Printed ${successCount} label(s) successfully`, 'success');
+            WorkshopInventory.utils.showToast(`Printed ${labelsPrinted} label(s) successfully`, 'success');
         }
     }
 
