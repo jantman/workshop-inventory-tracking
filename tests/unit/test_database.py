@@ -154,22 +154,21 @@ class TestInventoryItemValidation:
         item = InventoryItem()
         item.ja_id = "JA000001"
         item.item_type = "Threaded Rod"
+        item.shape = "Round"
         item.material = "Steel"
-        
-        # Missing length and thread size
+
+        # Missing length and thread specification
         errors = item.validate()
-        assert any("Length is required for threaded rods" in error for error in errors)
-        assert any("Thread size is required for threaded rods" in error for error in errors)
-        
+        assert any("Length is required for Threaded Rod/Round" in error for error in errors)
+        assert any("Thread Size is required for Threaded Rod/Round" in error for error in errors)
+
         # Add required fields
         item.length = 12.0
         item.thread_size = "1/4-20"
+        item.thread_series = "UNC"
         errors = item.validate()
-        length_errors = [e for e in errors if "Length is required" in e]
-        thread_errors = [e for e in errors if "Thread size is required" in e]
-        assert len(length_errors) == 0
-        assert len(thread_errors) == 0
-    
+        assert errors == []
+
     @pytest.mark.unit
     def test_validate_rectangular_item_requirements(self):
         """Test validation for rectangular item specific requirements"""
@@ -178,13 +177,107 @@ class TestInventoryItemValidation:
         item.item_type = "Plate"
         item.shape = "Rectangular"
         item.material = "Steel"
-        
+
         # Missing dimensions
         errors = item.validate()
-        assert any("Length is required for rectangular items" in error for error in errors)
-        assert any("Width is required for rectangular items" in error for error in errors)
-        assert any("Thickness is required for rectangular items" in error for error in errors)
-    
+        assert any("Length is required for Plate/Rectangular" in error for error in errors)
+        assert any("Width is required for Plate/Rectangular" in error for error in errors)
+        assert any("Thickness is required for Plate/Rectangular" in error for error in errors)
+
+    @pytest.mark.unit
+    def test_validate_round_plate_needs_no_length(self):
+        """A round plate is described by its diameter and thickness (FR-001)."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.material = "Aluminum"
+        item.width = 6.0        # diameter
+        item.thickness = 0.25
+
+        assert item.validate() == []
+
+    @pytest.mark.unit
+    def test_validate_round_plate_missing_thickness(self):
+        """A disc with no thickness is not described."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.material = "Aluminum"
+        item.width = 6.0
+
+        errors = item.validate()
+        assert errors == ["Thickness is required for Plate/Round"]
+
+    @pytest.mark.unit
+    def test_validate_round_plate_missing_diameter(self):
+        """The width of a round item is reported as its Diameter."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.material = "Aluminum"
+        item.thickness = 0.25
+
+        errors = item.validate()
+        assert errors == ["Diameter is required for Plate/Round"]
+
+    @pytest.mark.unit
+    def test_validate_round_plate_reports_both_missing_dimensions(self):
+        """FR-018: correcting one omission must not reveal the next."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.material = "Aluminum"
+
+        errors = item.validate()
+        assert errors == [
+            "Diameter is required for Plate/Round",
+            "Thickness is required for Plate/Round",
+        ]
+
+    @pytest.mark.unit
+    def test_validate_round_plate_with_a_length_is_still_accepted(self):
+        """FR-002: length remains available, it has merely stopped being demanded."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.material = "Aluminum"
+        item.width = 6.0
+        item.thickness = 0.25
+        item.length = 12.0
+
+        assert item.validate() == []
+
+    @pytest.mark.unit
+    def test_validate_round_sheet_needs_no_length(self):
+        """A round sheet carries the identical rule to a round plate."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Sheet"
+        item.shape = "Round"
+        item.material = "Aluminum"
+        item.width = 6.0
+        item.thickness = 0.06
+
+        assert item.validate() == []
+
+    @pytest.mark.unit
+    def test_validate_round_bar_still_requires_length(self):
+        """FR-009: round bar is unchanged."""
+        item = InventoryItem()
+        item.ja_id = "JA000001"
+        item.item_type = "Bar"
+        item.shape = "Round"
+        item.material = "Steel"
+        item.width = 1.0
+
+        errors = item.validate()
+        assert errors == ["Length is required for Bar/Round"]
+
     @pytest.mark.unit
     def test_validate_positive_dimensions(self):
         """Test validation fails for negative dimensions"""
@@ -241,6 +334,43 @@ class TestInventoryItemBusinessLogic:
         expected = "Steel Plate Rectangular 6.0\" × 0.25\" × 12.0\""
         assert item.display_name == expected
     
+    @pytest.mark.unit
+    def test_display_name_round_plate_without_length(self):
+        """FR-013: a disc names its diameter and thickness, not nothing at all."""
+        item = InventoryItem()
+        item.material = "Aluminum"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.width = 6.0        # diameter
+        item.thickness = 0.25
+
+        assert item.display_name == "Aluminum Plate Round ⌀6.0\" × 0.25\""
+
+    @pytest.mark.unit
+    def test_display_name_round_plate_with_length(self):
+        """FR-015: nothing recorded is withheld. Cross-section first, then length."""
+        item = InventoryItem()
+        item.material = "Aluminum"
+        item.item_type = "Plate"
+        item.shape = "Round"
+        item.width = 6.0
+        item.thickness = 0.25
+        item.length = 12.0
+
+        assert item.display_name == "Aluminum Plate Round ⌀6.0\" × 0.25\" × 12.0\""
+
+    @pytest.mark.unit
+    def test_display_name_rectangular_item_without_length(self):
+        """A length is no longer the gate on every other dimension."""
+        item = InventoryItem()
+        item.material = "Steel"
+        item.item_type = "Plate"
+        item.shape = "Rectangular"
+        item.width = 6.0
+        item.thickness = 0.25
+
+        assert item.display_name == "Steel Plate Rectangular 6.0\" × 0.25\""
+
     @pytest.mark.unit
     def test_is_threaded_property(self):
         """Test is_threaded property"""

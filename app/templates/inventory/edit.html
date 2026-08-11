@@ -156,15 +156,9 @@
                     <small class="text-muted">All dimensions in inches</small>
                 </div>
                 <div class="card-body">
-                    <!-- Required dimensions message -->
-                    <div id="required-dimensions-info" class="alert alert-info d-none">
-                        <i class="bi bi-info-circle"></i>
-                        <span id="required-dimensions-text"></span>
-                    </div>
-                    
                     <div class="row" id="dimensions-row">
                         <div class="col-md-3 mb-3">
-                            <label for="length" class="form-label">Length *</label>
+                            <label for="length" class="form-label">Length <span class="dimension-required" style="display:none">*</span></label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="length" name="length" 
                                        value="{{ item.dimensions.length if item.dimensions.length }}" 
@@ -177,7 +171,12 @@
                         </div>
                         
                         <div class="col-md-3 mb-3" id="width-field">
-                            <label for="width" class="form-label" id="width-label">Width *</label>
+                            {# #width-label carries only the name, so the module
+                               can swap it to "Diameter" without eating the mark. #}
+                            <label for="width" class="form-label">
+                                <span id="width-label">Width</span>
+                                <span class="dimension-required" style="display:none">*</span>
+                            </label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="width" name="width" 
                                        value="{{ item.dimensions.width if item.dimensions.width }}" 
@@ -190,7 +189,7 @@
                         </div>
                         
                         <div class="col-md-3 mb-3" id="thickness-field">
-                            <label for="thickness" class="form-label">Thickness</label>
+                            <label for="thickness" class="form-label">Thickness <span class="dimension-required" style="display:none">*</span></label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="thickness" name="thickness" 
                                        value="{{ item.dimensions.thickness if item.dimensions.thickness }}" 
@@ -200,7 +199,7 @@
                         </div>
                         
                         <div class="col-md-3 mb-3" id="wall-thickness-field">
-                            <label for="wall_thickness" class="form-label">Wall Thickness</label>
+                            <label for="wall_thickness" class="form-label">Wall Thickness <span class="dimension-required" style="display:none">*</span></label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="wall_thickness" name="wall_thickness" 
                                        value="{{ item.dimensions.wall_thickness if item.dimensions.wall_thickness }}" 
@@ -415,10 +414,14 @@
 {% endblock %}
 
 {% block scripts %}
+{# The dimension rules, from app/taxonomy.py. Rendered rather than fetched so
+   the browser applies the same rules the server enforces. #}
+<script id="type-shape-requirements" type="application/json">{{ type_shape_requirements | tojson }}</script>
 <script>
 // Make valid materials available globally
 window.validMaterials = {{ valid_materials | tojson }};
 </script>
+<script src="{{ url_for('static', filename='js/dimension-requirements.js') }}"></script>
 <script type="module">
 import { toggleItemStatus } from "{{ url_for('static', filename='js/components/item-actions.js') }}";
 window.toggleItemStatus = toggleItemStatus;
@@ -435,42 +438,31 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const form = document.getElementById('add-item-form');
     const itemType = document.getElementById('item_type');
-    const shape = document.getElementById('shape');
-    
-    // Basic type/shape change handlers for field visibility
+
+
+    // Requirement marks, the Diameter label and Shape filtering are owned by
+    // dimension-requirements.js, which reads the rules the server rendered into
+    // the page. What is left here is the threading section, which is this
+    // form's own business.
+    new DimensionRequirements().init();
+
     function updateFieldVisibility() {
-        const typeValue = itemType.value;
-        const shapeValue = shape.value;
-        
         // Show/hide threading section for Threaded Rod
         const threadingSection = document.getElementById('threading-section');
         if (threadingSection) {
-            if (typeValue === 'Threaded Rod') {
+            if (itemType.value === 'Threaded Rod') {
                 threadingSection.style.display = 'block';
             } else {
                 threadingSection.style.display = 'none';
             }
         }
-        
-        // Update width label for round items
-        const widthLabel = document.getElementById('width-label');
-        if (widthLabel) {
-            if (shapeValue === 'Round') {
-                widthLabel.textContent = 'Diameter *';
-            } else {
-                widthLabel.textContent = 'Width *';
-            }
-        }
     }
-    
+
     // Set up event listeners
     if (itemType) {
         itemType.addEventListener('change', updateFieldVisibility);
     }
-    if (shape) {
-        shape.addEventListener('change', updateFieldVisibility);
-    }
-    
+
     // Initialize field visibility based on current values
     updateFieldVisibility();
 

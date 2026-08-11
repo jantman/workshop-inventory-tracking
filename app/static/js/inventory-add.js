@@ -13,38 +13,12 @@ class InventoryAddForm {
         this.scanTimeout = null;
         this.lastItemData = null;
         this.photoManager = null;
-        
-        // Field mappings for dynamic requirements (updated for current ItemType/ItemShape enums)
-        this.typeShapeRequirements = {
-            'Bar': {
-                'Rectangular': ['length', 'width', 'thickness'],
-                'Round': ['length', 'width'],
-                'Square': ['length', 'width'],
-                'Hex': ['length', 'width']
-            },
-            'Plate': {
-                'Rectangular': ['length', 'width', 'thickness'],
-                'Square': ['length', 'width', 'thickness'],
-                'Round': ['length', 'width', 'thickness']
-            },
-            'Sheet': {
-                'Rectangular': ['length', 'width', 'thickness'],
-                'Square': ['length', 'width', 'thickness'],
-                'Round': ['length', 'width', 'thickness']
-            },
-            'Tube': {
-                'Round': ['length', 'width', 'wall_thickness'],
-                'Square': ['length', 'width', 'wall_thickness'],
-                'Rectangular': ['length', 'width', 'wall_thickness']
-            },
-            'Threaded Rod': {
-                'Round': ['length', 'thread_series', 'thread_size']
-            },
-            'Angle': {
-                'Rectangular': ['length', 'width', 'thickness']
-            }
-        };
-        
+
+        // Requirement marks, the Diameter label and Shape filtering are owned
+        // by the shared module, which reads the rules the server rendered into
+        // the page. This form does not restate them.
+        this.dimensionRequirements = new DimensionRequirements().init();
+
         // Material suggestions cache
         this.materialSuggestions = [];
         
@@ -61,7 +35,6 @@ class InventoryAddForm {
         } else {
             console.log('InventoryAdd: MaterialSelector is active, skipping old autocomplete');
         }
-        this.updateDimensionRequirements();
         this.autoPopulateJaId();
         
         // Initialize carry forward data from sessionStorage if available
@@ -92,16 +65,7 @@ class InventoryAddForm {
             });
         }
 
-        // Type and shape changes
-        document.getElementById('item_type').addEventListener('change', () => {
-            this.updateDimensionRequirements();
-            this.updateShapeOptions();
-        });
-        
-        document.getElementById('shape').addEventListener('change', () => {
-            this.updateDimensionRequirements();
-            this.updateWidthLabel();
-        });
+        // Type and shape changes are handled by DimensionRequirements.
 
         // Quantity to create field
         const quantityField = document.getElementById('quantity_to_create');
@@ -274,94 +238,6 @@ class InventoryAddForm {
         } catch (error) {
             console.warn('Error auto-populating JA ID:', error);
             // Silently fail - user can still manually enter or use generate button
-        }
-    }
-    
-    updateDimensionRequirements() {
-        const typeSelect = document.getElementById('item_type');
-        const shapeSelect = document.getElementById('shape');
-        
-        const selectedType = typeSelect.value;
-        const selectedShape = shapeSelect.value;
-        
-        // Reset all dimension and thread requirements
-        const allFields = ['length', 'width', 'thickness', 'wall_thickness', 'thread_series', 'thread_size'];
-        allFields.forEach(field => {
-            const input = document.getElementById(field);
-            if (input) {
-                input.removeAttribute('required');
-                input.classList.remove('is-invalid');
-                
-                // Find and hide requirement indicators
-                const indicator = input.closest('.mb-3')?.querySelector('.dimension-required');
-                if (indicator) {
-                    indicator.style.display = 'none';
-                }
-            }
-        });
-        
-        // Apply requirements based on type/shape combination
-        if (selectedType && selectedShape && this.typeShapeRequirements[selectedType]) {
-            const requirements = this.typeShapeRequirements[selectedType][selectedShape];
-            
-            if (requirements) {
-                requirements.forEach(field => {
-                    const input = document.getElementById(field);
-                    if (input) {
-                        input.setAttribute('required', 'required');
-                        
-                        // Find and show requirement indicators for dimension fields
-                        const indicator = input.closest('.mb-3')?.querySelector('.dimension-required');
-                        if (indicator) {
-                            indicator.style.display = 'inline';
-                        }
-                    }
-                });
-            }
-        }
-    }
-    
-    updateShapeOptions() {
-        const typeSelect = document.getElementById('item_type');
-        const shapeSelect = document.getElementById('shape');
-        const selectedType = typeSelect.value;
-        
-        // Get all shape options
-        const allOptions = shapeSelect.querySelectorAll('option');
-        
-        // Show all options first
-        allOptions.forEach(option => {
-            if (option.value !== '') {
-                option.style.display = 'block';
-            }
-        });
-        
-        // Filter based on type if we have restrictions
-        if (selectedType && this.typeShapeRequirements[selectedType]) {
-            const validShapes = Object.keys(this.typeShapeRequirements[selectedType]);
-            
-            allOptions.forEach(option => {
-                if (option.value !== '' && !validShapes.includes(option.value)) {
-                    option.style.display = 'none';
-                    
-                    // If currently selected shape is invalid, clear it
-                    if (option.selected) {
-                        shapeSelect.value = '';
-                    }
-                }
-            });
-        }
-    }
-    
-    updateWidthLabel() {
-        const shapeSelect = document.getElementById('shape');
-        const widthLabel = document.getElementById('width-label');
-        
-        // Update label based on shape
-        if (shapeSelect.value === 'Round') {
-            widthLabel.textContent = 'Diameter';
-        } else {
-            widthLabel.textContent = 'Width';
         }
     }
     
@@ -621,10 +497,12 @@ class InventoryAddForm {
 
         console.log('CarryForward: Fields populated:', fieldsPopulated);
         
-        // Trigger updates
-        this.updateDimensionRequirements();
-        this.updateWidthLabel();
-        
+        // Carry-forward writes Type and Shape directly, so the marks and the
+        // width label have to be re-applied for the values it set.
+        this.dimensionRequirements.updateShapeOptions();
+        this.dimensionRequirements.apply();
+
+
         console.log('CarryForward: Successfully carried forward data');
         WorkshopInventory.utils.showToast('Previous item data carried forward', 'success');
     }

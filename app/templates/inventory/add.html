@@ -369,10 +369,14 @@
 {% endblock %}
 
 {% block scripts %}
+{# The dimension rules, from app/taxonomy.py. Rendered rather than fetched so
+   the browser applies the same rules the server enforces. #}
+<script id="type-shape-requirements" type="application/json">{{ type_shape_requirements | tojson }}</script>
 <script>
 // Make valid materials available globally
 window.validMaterials = {{ valid_materials | tojson }};
 </script>
+<script src="{{ url_for('static', filename='js/dimension-requirements.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
 <script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>

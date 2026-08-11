@@ -1146,6 +1146,114 @@ class TestEditPageActions:
         assert '/inventory/shorten?ja_id=JA600002' not in body
 
 
+@pytest.mark.unit
+class TestEditPathDimensionRequirements:
+    """The edit path applies the same rule as create (FR-006, FR-017)."""
+
+    @pytest.fixture
+    def app(self, test_storage):
+        from app import create_app
+        from tests.test_config import TestConfig
+        return create_app(TestConfig, storage_backend=test_storage)
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    @pytest.fixture(autouse=True)
+    def _no_material_taxonomy(self, monkeypatch):
+        monkeypatch.setattr('app.main.routes._get_valid_materials', lambda: [])
+
+    @pytest.fixture
+    def round_plate(self, test_storage):
+        """A round plate recorded with a diameter and a thickness and no length."""
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id="JA085100",
+            item_type="Plate",
+            shape="Round",
+            material="Aluminum",
+            width=Decimal("6.0"),
+            thickness=Decimal("0.25"),
+            location="Storage A",
+            active=True,
+        ))
+        return service
+
+    def _edit_form(self, **overrides):
+        form = {
+            'ja_id': 'JA085100',
+            'item_type': 'Plate',
+            'shape': 'Round',
+            'material': 'Aluminum',
+            'location': 'Storage A',
+            'width': '6.0',
+            'thickness': '0.25',
+            'active': 'on',
+        }
+        form.update(overrides)
+        return form
+
+    def test_saving_unchanged_round_plate_demands_nothing(self, client, round_plate):
+        """SC-003: what the Add form recorded, the Edit form saves back."""
+        response = client.post('/inventory/edit/JA085100', data=self._edit_form())
+        assert response.status_code == 302
+        assert '/inventory/edit' not in response.headers['Location']
+
+        item = round_plate.get_canonical_item('JA085100')
+        assert item.length is None
+        assert float(item.thickness) == 0.25
+
+    def test_clearing_the_thickness_is_refused(self, client, round_plate):
+        """Story 2, scenario 3: the change is refused and the dimension named."""
+        response = client.post(
+            '/inventory/edit/JA085100',
+            data=self._edit_form(thickness=''),
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert 'Thickness' in response.get_data(as_text=True)
+
+        item = round_plate.get_canonical_item('JA085100')
+        assert float(item.thickness) == 0.25
+
+    def test_clearing_the_diameter_is_refused_by_that_name(self, client, round_plate):
+        response = client.post(
+            '/inventory/edit/JA085100',
+            data=self._edit_form(width=''),
+            follow_redirects=True,
+        )
+        assert 'Diameter' in response.get_data(as_text=True)
+
+        item = round_plate.get_canonical_item('JA085100')
+        assert float(item.width) == 6.0
+
+    def test_changing_shape_to_rectangular_demands_a_length(self, client, round_plate):
+        """Story 2, scenario 5: the rule follows the shape."""
+        response = client.post(
+            '/inventory/edit/JA085100',
+            data=self._edit_form(shape='Rectangular'),
+            follow_redirects=True,
+        )
+        assert 'Length' in response.get_data(as_text=True)
+
+        item = round_plate.get_canonical_item('JA085100')
+        assert item.shape == 'Round'
+
+    def test_a_length_supplied_on_a_round_plate_is_retained(self, client, round_plate):
+        """FR-002: a length is not discarded for want of being demanded."""
+        response = client.post(
+            '/inventory/edit/JA085100', data=self._edit_form(length='3'))
+        assert response.status_code == 302
+
+        item = round_plate.get_canonical_item('JA085100')
+        assert float(item.length) == 3.0
+
+
 class TestDuplicateUpdatedFieldsBoolean:
     """Tests for the duplicate-with-save-changes flow when the user toggles
     a checkbox (active / precision) before duplicating.
@@ -1587,6 +1695,126 @@ class TestApiCreateItems:
         assert data['success'] is False
         assert 'length' in data['error'].lower()
         assert data['created_ja_ids'] == []
+
+    def _round_plate_payload(self, **overrides):
+        payload = self._minimum_payload(
+            item_type='Plate', shape='Round', material='Aluminum')
+        del payload['length']
+        payload['width'] = '6'
+        payload['thickness'] = '0.25'
+        payload.update(overrides)
+        return payload
+
+    def test_round_plate_without_length_is_accepted(self, client, app):
+        """FR-001: a disc is recorded from a diameter and a thickness."""
+        response = client.post(
+            '/api/inventory/items', json=self._round_plate_payload())
+        assert response.status_code == 200, response.get_json()
+        ja_id = response.get_json()['created_ja_ids'][0]
+
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            item = _get_inventory_service().get_canonical_item(ja_id)
+        assert float(item.width) == 6.0
+        assert float(item.thickness) == 0.25
+        assert item.length is None
+
+    def test_round_plate_without_thickness_returns_400(self, client, app):
+        """FR-017: the rule the form applies is applied here too."""
+        payload = self._round_plate_payload()
+        del payload['thickness']
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'Thickness' in data['error']
+        assert data['created_ja_ids'] == []
+
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            assert _get_inventory_service().get_all_items() == []
+
+    def test_round_plate_missing_both_dimensions_names_both(self, client):
+        """FR-018: every missing dimension is reported, not only the first."""
+        payload = self._round_plate_payload()
+        del payload['thickness']
+        del payload['width']
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        error = response.get_json()['error']
+        assert 'Diameter' in error
+        assert 'Thickness' in error
+
+    def test_round_plate_with_a_length_is_accepted(self, client, app):
+        """FR-002: length remains available, and is preserved when supplied."""
+        response = client.post(
+            '/api/inventory/items',
+            json=self._round_plate_payload(length='12'))
+        assert response.status_code == 200, response.get_json()
+        ja_id = response.get_json()['created_ja_ids'][0]
+
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            item = _get_inventory_service().get_canonical_item(ja_id)
+        assert float(item.length) == 12.0
+
+    def test_round_sheet_without_length_is_accepted(self, client):
+        response = client.post(
+            '/api/inventory/items',
+            json=self._round_plate_payload(item_type='Sheet'))
+        assert response.status_code == 200, response.get_json()
+
+    def test_blank_thickness_is_refused_like_a_missing_one(self, client):
+        """Clearing a field means the same thing as never filling it."""
+        response = client.post(
+            '/api/inventory/items', json=self._round_plate_payload(thickness='  '))
+        assert response.status_code == 400
+        assert 'Thickness' in response.get_json()['error']
+
+    def test_round_bar_still_requires_its_length(self, client):
+        """FR-019: enforcement applies the requirement set each pair already has."""
+        payload = self._minimum_payload()
+        del payload['length']
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        assert 'Length' in response.get_json()['error']
+
+    def test_rectangular_plate_still_requires_thickness(self, client):
+        """FR-010: rectangular plate is unchanged."""
+        payload = self._minimum_payload(
+            item_type='Plate', shape='Rectangular')
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        assert 'Thickness' in response.get_json()['error']
+
+    def test_channel_requires_no_dimensions(self, client):
+        """Channel's empty rule is carried forward (spec, Out of Scope)."""
+        payload = self._minimum_payload(
+            item_type='Channel', shape='Rectangular')
+        del payload['length']
+        del payload['width']
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 200, response.get_json()
+
+    def test_unparseable_dimension_still_reports_as_one(self, client):
+        """The presence check must not mask a parse failure."""
+        response = client.post(
+            '/api/inventory/items',
+            json=self._round_plate_payload(thickness='not-a-number'))
+        assert response.status_code == 400
+        assert 'thickness' in response.get_json()['error'].lower()
+
+    def test_bulk_creation_refuses_the_whole_request(self, client, app):
+        """The payload describes one item repeated: it is valid or it is not."""
+        payload = self._round_plate_payload(quantity_to_create=3)
+        del payload['thickness']
+        response = client.post('/api/inventory/items', json=payload)
+        assert response.status_code == 400
+        assert response.get_json()['created_ja_ids'] == []
+
+        from app.main.routes import _get_inventory_service
+        with app.app_context():
+            assert _get_inventory_service().get_all_items() == []
 
 
 @pytest.mark.unit

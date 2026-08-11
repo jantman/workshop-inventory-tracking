@@ -1402,15 +1402,44 @@ The full set of accepted fields follows.
 | `material`  | string | Material name. Validated against the materials taxonomy when one is configured; pass a name or alias from the taxonomy (e.g. `"Steel"`, `"4140"`, `"6061-T6"`, `"316"`). When the taxonomy is empty the field is accepted as-is. |
 | `location`  | string | Physical location label (e.g. `"Shelf A"`). Free-form. |
 
-#### Optional dimension fields (inches, except `weight` in pounds)
+#### Dimension fields (inches, except `weight` in pounds)
 
 | Field            | Type             | Description |
 |------------------|------------------|-------------|
 | `length`         | string \| number | Length in inches. Strings may be decimal (`"12.5"`), simple fraction (`"3/4"`), or mixed number (`"1 1/2"`). Numbers are coerced to string before parsing. |
-| `width`          | string \| number | Width / outer diameter in inches. Same parsing rules as `length`. |
+| `width`          | string \| number | Width in inches — **the diameter for any round item**. Same parsing rules as `length`. |
 | `thickness`      | string \| number | Thickness in inches. Same parsing rules. |
 | `wall_thickness` | string \| number | Wall thickness for tubular shapes, in inches. Same parsing rules. |
-| `weight`         | string \| number | Weight in pounds. Same parsing rules. |
+| `weight`         | string \| number | Weight in pounds. Always optional. |
+
+Which of these are required depends on the item's type and shape — the
+same rule the Add Item and Edit Item forms apply. A request missing one
+returns 400 naming **every** dimension that is missing, so correcting one
+omission does not reveal the next.
+
+| Type           | Shape                         | Required |
+|----------------|-------------------------------|----------|
+| `Bar`          | `Rectangular`                 | `length`, `width`, `thickness` |
+| `Bar`          | `Round`, `Square`, `Hex`      | `length`, `width` |
+| `Plate`        | `Rectangular`, `Square`       | `length`, `width`, `thickness` |
+| `Plate`        | `Round`                       | `width` (diameter), `thickness` — **no length** |
+| `Sheet`        | `Rectangular`, `Square`       | `length`, `width`, `thickness` |
+| `Sheet`        | `Round`                       | `width` (diameter), `thickness` — **no length** |
+| `Tube`         | `Round`, `Square`, `Rectangular` | `length`, `width`, `wall_thickness` |
+| `Threaded Rod` | `Round`                       | `length`, `thread_series`, `thread_size` |
+| `Angle`        | `Rectangular`                 | `length`, `width`, `thickness` |
+| `Channel`      | `Rectangular`, `Square`       | *(none)* |
+
+A round plate or sheet is a disc, described by its diameter and its
+thickness; a length is accepted and preserved if you send one, but is
+never asked for.
+
+```json
+{
+  "success": false,
+  "error": "Missing required field(s) for Plate/Round: Diameter, Thickness"
+}
+```
 
 An unparseable dimension (e.g. `"abc"`) returns 400 with the field
 name in the error message.

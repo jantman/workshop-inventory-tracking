@@ -19,8 +19,11 @@ class AddItemPage(BasePage):
     SHAPE_SELECT = "#shape"
     MATERIAL_INPUT = "#material"
     LENGTH_INPUT = "#length"
+    # The diameter of a round item is entered in the width field, which the
+    # form relabels "Diameter". There has never been a #diameter element.
     WIDTH_INPUT = "#width"
-    DIAMETER_INPUT = "#diameter"
+    WIDTH_LABEL = "#width-label"
+    THICKNESS_INPUT = "#thickness"
     THREAD_SERIES_SELECT = "#thread_series"
     THREAD_SIZE_INPUT = "#thread_size"
     THREAD_HANDEDNESS_SELECT = "#thread_handedness"
@@ -98,16 +101,20 @@ class AddItemPage(BasePage):
         expect(field).to_be_visible()
         field.fill(value)
 
-    def fill_dimensions(self, length: str = None, width: str = None, diameter: str = None):
-        """Fill dimension fields"""
+    def fill_dimensions(self, length: str = None, width: str = None, thickness: str = None):
+        """Fill dimension fields.
+
+        `width` is the diameter for a round item -- the form labels the same
+        field both ways.
+        """
         if length:
             self._fill_if_on_this_form(self.LENGTH_INPUT, length)
 
         if width:
             self._fill_if_on_this_form(self.WIDTH_INPUT, width)
 
-        if diameter:
-            self._fill_if_on_this_form(self.DIAMETER_INPUT, diameter)
+        if thickness:
+            self._fill_if_on_this_form(self.THICKNESS_INPUT, thickness)
 
     def fill_thread_information(self, thread_series: str = None, thread_size: str = None, thread_handedness: str = None):
         """Fill thread information fields"""

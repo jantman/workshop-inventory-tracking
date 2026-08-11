@@ -99,6 +99,18 @@ DIMENSION_ITEMS = [
         "active": True,
     },
     {
+        # Round plate -- a disc, with NO length at all. Diameter and thickness
+        # together, and the ⌀ that says which is which: "⌀6" × 0.25""
+        "ja_id": "JA070008",
+        "item_type": "Plate",
+        "shape": "Round",
+        "material": "Aluminum",
+        "width": "6",
+        "thickness": "0.25",
+        "location": "Test Storage A",
+        "active": True,
+    },
+    {
         # Hex rod -> width across flats only, NO diameter symbol: "0.375""
         "ja_id": "JA070007",
         "item_type": "Rod",
@@ -120,6 +132,7 @@ EXPECTED_DIMENSIONS = {
     "JA070005": '🔩1/2-13 UNC ⌀0.5"',
     "JA070006": '2" × 0.188"',
     "JA070007": '0.375"',
+    "JA070008": '⌀6" × 0.25"',
 }
 
 # Expected Length cell text keyed by JA ID (length lives in its own column).
@@ -131,6 +144,9 @@ EXPECTED_LENGTH = {
     "JA070005": '36"',
     "JA070006": '60"',
     "JA070007": '12"',
+    # A disc has no length, and the Length column says so rather than
+    # inventing one.
+    "JA070008": '-',
 }
 
 

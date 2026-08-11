@@ -19,6 +19,8 @@ import re
 
 # Import enums and helper classes from models module
 from .models import ItemType, ItemShape, ThreadSeries, ThreadHandedness, Dimensions, Thread
+# The authoritative statement of what each type and shape requires
+from .taxonomy import type_shape_validator
 
 Base = declarative_base()
 
@@ -207,34 +209,19 @@ class InventoryItem(Base):
         if not self.item_type:
             errors.append("Item type is required")
         
-        # Type and shape-specific dimension requirements
+        # Type and shape-specific requirements, from the one table in
+        # app.taxonomy that the forms and the write paths also read.
         item_type_enum = self.item_type_enum
         shape_enum = self.shape_enum
-        
-        if item_type_enum == ItemType.THREADED_ROD:
-            # Threaded rods only need length and thread specification
-            if not self.length:
-                errors.append("Length is required for threaded rods")
-            if not self.thread_size or not self.thread_size.strip():
-                errors.append("Thread size is required for threaded rods")
-        elif shape_enum == ItemShape.RECTANGULAR:
-            if not self.length:
-                errors.append("Length is required for rectangular items")
-            if not self.width:
-                errors.append("Width is required for rectangular items") 
-            if not self.thickness:
-                errors.append("Thickness is required for rectangular items")
-        elif shape_enum == ItemShape.ROUND:
-            if not self.length:
-                errors.append("Length is required for round items")
-            if not self.width:  # width = diameter for round items
-                errors.append("Diameter (width) is required for round items")
-        elif shape_enum == ItemShape.SQUARE:
-            if not self.length:
-                errors.append("Length is required for square items")
-            if not self.width:
-                errors.append("Width is required for square items")
-        
+
+        if item_type_enum and shape_enum:
+            values = {name: getattr(self, name, None)
+                      for name in ('length', 'width', 'thickness',
+                                   'wall_thickness', 'thread_series', 'thread_size')}
+            errors.extend(type_shape_validator.validate_required_fields(
+                item_type_enum, shape_enum, values))
+
+
         # Validate dimension values are positive
         dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
         for field_name in dimension_fields:
@@ -254,14 +241,27 @@ class InventoryItem(Base):
         if self.shape_enum:
             parts.append(self.shape_enum.value)
         
-        if self.length:
-            if self.shape_enum == ItemShape.ROUND:
-                parts.append(f"⌀{self.width}\" × {self.length}\"")
-            elif self.shape_enum == ItemShape.RECTANGULAR:
-                parts.append(f"{self.width}\" × {self.thickness}\" × {self.length}\"")
-            elif self.shape_enum == ItemShape.SQUARE:
-                parts.append(f"{self.width}\" × {self.length}\"")
-        
+        # Cross-section first, then the length. Each term is included only if
+        # it was recorded: a round plate has no length and must still name its
+        # diameter and thickness rather than nothing at all (FR-013).
+        if self.shape_enum == ItemShape.ROUND:
+            dimensions = [f"⌀{self.width}\"" if self.width else None,
+                          f"{self.thickness}\"" if self.thickness else None,
+                          f"{self.length}\"" if self.length else None]
+        elif self.shape_enum == ItemShape.RECTANGULAR:
+            dimensions = [f"{self.width}\"" if self.width else None,
+                          f"{self.thickness}\"" if self.thickness else None,
+                          f"{self.length}\"" if self.length else None]
+        elif self.shape_enum == ItemShape.SQUARE:
+            dimensions = [f"{self.width}\"" if self.width else None,
+                          f"{self.length}\"" if self.length else None]
+        else:
+            dimensions = []
+
+        recorded = [d for d in dimensions if d]
+        if recorded:
+            parts.append(" × ".join(recorded))
+
         return " ".join(str(p) for p in parts if p)
     
     @property

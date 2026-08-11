@@ -40,8 +40,8 @@ pass before a change is merged." Every phase below ends by running them.
 **Purpose**: know what green looks like before changing anything, and confirm the design still
 matches the code.
 
-- [ ] T001 Establish the baseline: run `nox -s tests`, and `nox -s e2e` in the background, and record any failure that already exists. This suite has a documented history of flakes, and a pre-existing red is not yours to own
-- [ ] T002 [P] Re-read the three rule statements side by side — `app/taxonomy.py:32-75`, `app/database.py:210-236`, `app/static/js/inventory-add.js:18-46` — and confirm the table in [data-model.md](./data-model.md) §2 still matches what is there. If it has drifted, correct the table before writing code from it
+- [X] T001 Establish the baseline: run `nox -s tests`, and `nox -s e2e` in the background, and record any failure that already exists. This suite has a documented history of flakes, and a pre-existing red is not yours to own
+- [X] T002 [P] Re-read the three rule statements side by side — `app/taxonomy.py:32-75`, `app/database.py:210-236`, `app/static/js/inventory-add.js:18-46` — and confirm the table in [data-model.md](./data-model.md) §2 still matches what is there. If it has drifted, correct the table before writing code from it
 
 ---
 
@@ -51,12 +51,12 @@ matches the code.
 
 **⚠️ CRITICAL**: no user story work can begin until this phase is complete.
 
-- [ ] T003 Write `tests/unit/test_taxonomy.py` (new file — this module has never had a test) covering: Plate+Round and Sheet+Round require width and thickness and **not** length; Plate+Rectangular, Plate+Square and Sheet+Rectangular still require all three; Threaded Rod+Round does **not** require width; Bar+Round requires length and width; Channel yields no requirements; `validate_required_fields` returns **both** names when diameter and thickness are both missing; a round shape reports `width` as "Diameter" and a rectangular one as "Width". Confirm these fail before continuing
-- [ ] T004 Restructure `TypeShapeCompatibility` in `app/taxonomy.py` so requirements vary by shape. Today `required_dimensions` is keyed on type alone and `get_required_dimensions()` (`:93-101`) takes `shape` only as a compatibility gate — that is the structural reason the rule got restated in JavaScript
-- [ ] T005 Seed the table in `app/taxonomy.py` from [data-model.md](./data-model.md) §2, all 17 rows. Reproduce today's **effective** behaviour — the JS table, because it is the only one that runs — with exactly two rows changed. The Threaded Rod, Bar+Round and Channel rows each have a justification in §2; getting any of them wrong turns passing tests red at a distance
-- [ ] T006 Add `validate_required_fields(item_type, shape, values)` to `app/taxonomy.py` per [contracts/dimension-rules.md](./contracts/dimension-rules.md) §C1. It returns a message for **every** missing field, never just the first (FR-018), and names `width` as "Diameter" for round shapes
-- [ ] T007 Re-derive `get_required_dimensions()`, `get_compatible_shapes()` and `is_shape_compatible_with_type()` in `app/taxonomy.py` from the one table, so no method can answer from a stale second copy
-- [ ] T008 Run `nox -s tests`. T003 goes green
+- [X] T003 Write `tests/unit/test_taxonomy.py` (new file — this module has never had a test) covering: Plate+Round and Sheet+Round require width and thickness and **not** length; Plate+Rectangular, Plate+Square and Sheet+Rectangular still require all three; Threaded Rod+Round does **not** require width; Bar+Round requires length and width; Channel yields no requirements; `validate_required_fields` returns **both** names when diameter and thickness are both missing; a round shape reports `width` as "Diameter" and a rectangular one as "Width". Confirm these fail before continuing
+- [X] T004 Restructure `TypeShapeCompatibility` in `app/taxonomy.py` so requirements vary by shape. Today `required_dimensions` is keyed on type alone and `get_required_dimensions()` (`:93-101`) takes `shape` only as a compatibility gate — that is the structural reason the rule got restated in JavaScript
+- [X] T005 Seed the table in `app/taxonomy.py` from [data-model.md](./data-model.md) §2, all 17 rows. Reproduce today's **effective** behaviour — the JS table, because it is the only one that runs — with exactly two rows changed. The Threaded Rod, Bar+Round and Channel rows each have a justification in §2; getting any of them wrong turns passing tests red at a distance
+- [X] T006 Add `validate_required_fields(item_type, shape, values)` to `app/taxonomy.py` per [contracts/dimension-rules.md](./contracts/dimension-rules.md) §C1. It returns a message for **every** missing field, never just the first (FR-018), and names `width` as "Diameter" for round shapes
+- [X] T007 Re-derive `get_required_dimensions()`, `get_compatible_shapes()` and `is_shape_compatible_with_type()` in `app/taxonomy.py` from the one table, so no method can answer from a stale second copy
+- [X] T008 Run `nox -s tests`. T003 goes green
 
 **Checkpoint**: one table, tested. User stories can begin.
 
@@ -72,20 +72,20 @@ thickness, submit, and confirm the item exists with exactly those dimensions and
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Add round-shape validation cases to `tests/unit/test_database.py`: `validate()` accepts a Plate+Round with width and thickness and no length, and rejects one missing either. There is no test for round-shape validation at all today — `test_validate_rectangular_item_requirements` (`:174`) is the nearest and uses Plate+Rectangular
-- [ ] T010 [P] [US1] Add create-path cases to `tests/unit/test_routes.py`: `POST /api/inventory/items` refuses a round plate with no thickness (400, message naming it), accepts one with diameter and thickness and no length, and names **both** when both are missing. The 21 existing tests built on `_minimum_payload` (`:1347`) must stay green — they are the check that enforcement did not overreach
+- [X] T009 [P] [US1] Add round-shape validation cases to `tests/unit/test_database.py`: `validate()` accepts a Plate+Round with width and thickness and no length, and rejects one missing either. There is no test for round-shape validation at all today — `test_validate_rectangular_item_requirements` (`:174`) is the nearest and uses Plate+Rectangular
+- [X] T010 [P] [US1] Add create-path cases to `tests/unit/test_routes.py`: `POST /api/inventory/items` refuses a round plate with no thickness (400, message naming it), accepts one with diameter and thickness and no length, and names **both** when both are missing. The 21 existing tests built on `_minimum_payload` (`:1347`) must stay green — they are the check that enforcement did not overreach
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Replace the dimension branch of `InventoryItem.validate()` (`app/database.py:210-236`) with a call to `validate_required_fields`. Leave the JA-ID, material, item-type and positive-value checks alone. This deletes the third copy of the rules
-- [ ] T012 [US1] Enforce on the create paths in `app/main/routes.py` — the Add form POST and the JSON create path — beside the existing `required_fields` check (`:261`), after dimension parsing so an unparseable dimension still reports as one. Refusal shape per [contracts/dimension-rules.md](./contracts/dimension-rules.md) §C2. **Not** in `InventoryService`: e2e fixtures seed through it (research D2)
-- [ ] T013 [US1] Pass the rules table to the Add Item view in `app/main/routes.py`
-- [ ] T014 [US1] Render the table as a JSON constant in `app/templates/inventory/add.html` per [contracts/dimension-rules.md](./contracts/dimension-rules.md) §C3
-- [ ] T015 [US1] Create `app/static/js/dimension-requirements.js` owning four behaviours and nothing else: requirement marks and `required` attributes, the Width→Diameter label for round shapes, Shape-option filtering, and no fetch. It must not know about threading sections, carry-forward, barcode scanning or photos
-- [ ] T016 [US1] Delete the `typeShapeRequirements` literal and the methods that moved — `updateDimensionRequirements()` (`:280-322`), `updateShapeOptions()` (`:324-354`), `updateWidthLabel()` (`:356-366`) — from `app/static/js/inventory-add.js`, and call the shared module instead. The literal is deleted, not corrected
-- [ ] T017 [US1] In `tests/e2e/pages/add_item_page.py`: add a `thickness=` parameter to `fill_dimensions()` (`:101-110`), and **delete `DIAMETER_INPUT = "#diameter"` (`:23`)** or repoint it at `#width`. It matches no element in any template and `_fill_if_on_this_form` (`:93-99`) returns silently on `count() == 0`, so every `diameter=` argument in the suite has always set nothing
-- [ ] T018 [US1] Write the add-side scenarios in `tests/e2e/test_round_plate.py` (new file). Wait conditions per [quickstart.md](./quickstart.md): `expect(...).to_have_attribute('required', '')` rather than `get_attribute()`, `expect(width_label).to_have_text('Diameter')`, and **check `submit_and_wait()`'s return value** — it returns `False` when constraint validation refuses, and a caller that ignores it carries on as though the item exists. Assert the row exists; leave dimension-text assertions to US3
-- [ ] T019 [US1] Run `nox -s tests`, and `nox -s e2e` in the background
+- [X] T011 [US1] Replace the dimension branch of `InventoryItem.validate()` (`app/database.py:210-236`) with a call to `validate_required_fields`. Leave the JA-ID, material, item-type and positive-value checks alone. This deletes the third copy of the rules
+- [X] T012 [US1] Enforce on the create paths in `app/main/routes.py` — the Add form POST and the JSON create path — beside the existing `required_fields` check (`:261`), after dimension parsing so an unparseable dimension still reports as one. Refusal shape per [contracts/dimension-rules.md](./contracts/dimension-rules.md) §C2. **Not** in `InventoryService`: e2e fixtures seed through it (research D2)
+- [X] T013 [US1] Pass the rules table to the Add Item view in `app/main/routes.py`
+- [X] T014 [US1] Render the table as a JSON constant in `app/templates/inventory/add.html` per [contracts/dimension-rules.md](./contracts/dimension-rules.md) §C3
+- [X] T015 [US1] Create `app/static/js/dimension-requirements.js` owning four behaviours and nothing else: requirement marks and `required` attributes, the Width→Diameter label for round shapes, Shape-option filtering, and no fetch. It must not know about threading sections, carry-forward, barcode scanning or photos
+- [X] T016 [US1] Delete the `typeShapeRequirements` literal and the methods that moved — `updateDimensionRequirements()` (`:280-322`), `updateShapeOptions()` (`:324-354`), `updateWidthLabel()` (`:356-366`) — from `app/static/js/inventory-add.js`, and call the shared module instead. The literal is deleted, not corrected
+- [X] T017 [US1] In `tests/e2e/pages/add_item_page.py`: add a `thickness=` parameter to `fill_dimensions()` (`:101-110`), and **delete `DIAMETER_INPUT = "#diameter"` (`:23`)** or repoint it at `#width`. It matches no element in any template and `_fill_if_on_this_form` (`:93-99`) returns silently on `count() == 0`, so every `diameter=` argument in the suite has always set nothing
+- [X] T018 [US1] Write the add-side scenarios in `tests/e2e/test_round_plate.py` (new file). Wait conditions per [quickstart.md](./quickstart.md): `expect(...).to_have_attribute('required', '')` rather than `get_attribute()`, `expect(width_label).to_have_text('Diameter')`, and **check `submit_and_wait()`'s return value** — it returns `False` when constraint validation refuses, and a caller that ignores it carries on as though the item exists. Assert the row exists; leave dimension-text assertions to US3
+- [X] T019 [US1] Run `nox -s tests`, and `nox -s e2e` in the background
 
 **Checkpoint**: issue #85's actual request is delivered. A round plate is recordable from two measurements.
 
@@ -102,16 +102,16 @@ naming it.
 
 ### Tests for User Story 2
 
-- [ ] T020 [P] [US2] Add edit-path cases to `tests/unit/test_routes.py`: an edit that clears a required dimension is refused and names it; an edit that changes nothing on a length-less round plate succeeds
+- [X] T020 [P] [US2] Add edit-path cases to `tests/unit/test_routes.py`: an edit that clears a required dimension is refused and names it; an edit that changes nothing on a length-less round plate succeeds
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Enforce on the edit path in `app/main/routes.py`, beside its `required_fields` check (`:660`), using the same call and the same refusal shape as T012
-- [ ] T022 [US2] Pass the rules table to the Edit Item view in `app/main/routes.py`
-- [ ] T023 [US2] In `app/templates/inventory/edit.html`: render the rules JSON, and remove the hard-coded asterisks — `Length *` (`:167`), `Width *` (`:179`), and the `'Diameter *'`/`'Width *'` strings in the inline script (`:458-461`). The asterisk is now driven by the requirement mark, so it must not be baked into the label text
-- [ ] T024 [US2] Wire `dimension-requirements.js` into `app/templates/inventory/edit.html`, replacing `updateFieldVisibility()`'s label swapping (`:441-466`) while leaving its threading-section toggle alone. Resolve `#required-dimensions-info` / `#required-dimensions-text` (`:160-162`) — either drive them from the module or delete them; leaving them present, empty and unexplained is the one option to avoid
-- [ ] T025 [US2] Add the edit-side scenarios to `tests/e2e/test_round_plate.py`: save unchanged, clear a required dimension and be refused, and change Shape from Rectangular to Round with a length present and confirm the length is retained rather than discarded (spec Story 2, scenario 6)
-- [ ] T026 [US2] Run `nox -s tests`, and `nox -s e2e` in the background
+- [X] T021 [US2] Enforce on the edit path in `app/main/routes.py`, beside its `required_fields` check (`:660`), using the same call and the same refusal shape as T012
+- [X] T022 [US2] Pass the rules table to the Edit Item view in `app/main/routes.py`
+- [X] T023 [US2] In `app/templates/inventory/edit.html`: render the rules JSON, and remove the hard-coded asterisks — `Length *` (`:167`), `Width *` (`:179`), and the `'Diameter *'`/`'Width *'` strings in the inline script (`:458-461`). The asterisk is now driven by the requirement mark, so it must not be baked into the label text
+- [X] T024 [US2] Wire `dimension-requirements.js` into `app/templates/inventory/edit.html`, replacing `updateFieldVisibility()`'s label swapping (`:441-466`) while leaving its threading-section toggle alone. Resolve `#required-dimensions-info` / `#required-dimensions-text` (`:160-162`) — either drive them from the module or delete them; leaving them present, empty and unexplained is the one option to avoid
+- [X] T025 [US2] Add the edit-side scenarios to `tests/e2e/test_round_plate.py`: save unchanged, clear a required dimension and be refused, and change Shape from Rectangular to Round with a length present and confirm the length is retained rather than discarded (spec Story 2, scenario 6)
+- [X] T026 [US2] Run `nox -s tests`, and `nox -s e2e` in the background
 
 **Checkpoint**: an item that one path accepts, every path accepts. FR-006, FR-007 and FR-017 hold.
 
@@ -128,14 +128,14 @@ the list, in search results and in history, and confirm each shows `⌀6" × 0.2
 
 ### Tests for User Story 3
 
-- [ ] T027 [P] [US3] Add `display_name` cases to `tests/unit/test_database.py`: a length-less round plate includes its diameter and thickness. The existing `test_display_name_with_dimensions_round` (`:217`, a Bar) must keep passing
+- [X] T027 [P] [US3] Add `display_name` cases to `tests/unit/test_database.py`: a length-less round plate includes its diameter and thickness. The existing `test_display_name_with_dimensions_round` (`:217`, a Bar) must keep passing
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Fix `display_name` in `app/database.py:248-265`. Every dimension currently sits under `if self.length:` (`:257`), so a length-less round plate renders as `Steel Plate Round` with no dimensions at all; the ROUND branch (`:259`) also has no thickness term, so even a round plate that *has* a length loses its thickness. This reaches five API payloads (`routes.py:39, 1435, 1478, 1858, 2079`) and every screen showing an item's name
-- [ ] T029 [P] [US3] Fix `formatFullDimensions` in `app/static/js/components/item-formatters.js`. The `width && thickness` branch (`:61`) never emits ⌀, so a round plate renders identically to a rectangular one; only the `width`-alone branch (`:68`) emits it. Already wrong today, and FR-014 forbids it
-- [ ] T030 [US3] Add a Plate+Round item **with no length** to `DIMENSION_ITEMS` (`:25-107`) in `tests/e2e/test_dimensions_display.py`, with its expected rendering in `EXPECTED_DIMENSIONS` (`:110`) and `EXPECTED_LENGTH` (`:121`). No Plate+Round item and no length-less item exists anywhere in the suite today, which is why the missing ⌀ has gone unnoticed. Establish the table region with `expect()` before any `count()` or `text_content()`
-- [ ] T031 [US3] Run `nox -s tests`, and `nox -s e2e` in the background
+- [X] T028 [US3] Fix `display_name` in `app/database.py:248-265`. Every dimension currently sits under `if self.length:` (`:257`), so a length-less round plate renders as `Steel Plate Round` with no dimensions at all; the ROUND branch (`:259`) also has no thickness term, so even a round plate that *has* a length loses its thickness. This reaches five API payloads (`routes.py:39, 1435, 1478, 1858, 2079`) and every screen showing an item's name
+- [X] T029 [P] [US3] Fix `formatFullDimensions` in `app/static/js/components/item-formatters.js`. The `width && thickness` branch (`:61`) never emits ⌀, so a round plate renders identically to a rectangular one; only the `width`-alone branch (`:68`) emits it. Already wrong today, and FR-014 forbids it
+- [X] T030 [US3] Add a Plate+Round item **with no length** to `DIMENSION_ITEMS` (`:25-107`) in `tests/e2e/test_dimensions_display.py`, with its expected rendering in `EXPECTED_DIMENSIONS` (`:110`) and `EXPECTED_LENGTH` (`:121`). No Plate+Round item and no length-less item exists anywhere in the suite today, which is why the missing ⌀ has gone unnoticed. Establish the table region with `expect()` before any `count()` or `text_content()`
+- [X] T031 [US3] Run `nox -s tests`, and `nox -s e2e` in the background
 
 **Checkpoint**: all three stories independently functional.
 
@@ -143,12 +143,12 @@ the list, in search results and in history, and confirm each shows `⌀6" × 0.2
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T032 [P] Update the item API reference in `docs/user-manual.md:1404-1416`. The dimension fields are documented as unconditionally optional; after FR-017 they are conditionally required, and a request missing one now returns 400. Say which combination requires what, and note that `width` carries the diameter for round items
-- [ ] T033 Verify the cause is fixed and not only the symptom: `grep -rn "typeShapeRequirements" app/` must return nothing, and `grep -rn "required_dimensions" app/` must find only `app/taxonomy.py`
-- [ ] T034 Regenerate documentation screenshots — `nox -s screenshots_headless`, then `nox -s screenshots_verify` — and commit the changed PNGs alongside the code. This is obligatory, not optional: the change touches `app/templates/**` and `app/static/js/**`, and CI blocks merge on stale screenshots. `user-manual/add_item_form.png` and `user-manual/edit_item_form.png` both show requirement asterisks that move
-- [ ] T035 Full green: `nox -s tests`, and `nox -s e2e` in the background. Then confirm `git status` is clean after the e2e run — if it is dirty, a screenshot test leaked into the session, which the constitution forbids
-- [ ] T036 Walk the manual scenarios in [quickstart.md](./quickstart.md) against `python app.py`, including the `curl` that must now return 400
-- [ ] T037 [P] Carry the plan's **Known gaps** into the pull request description — the latent shorten hole at `app/mariadb_inventory_service.py:500`, the dead `dimensions.diameter` reads, Channel's empty rule and its narrowed Shape dropdown. They are deliberate omissions, and a reviewer should see them as decisions rather than discover them as oversights
+- [X] T032 [P] Update the item API reference in `docs/user-manual.md:1404-1416`. The dimension fields are documented as unconditionally optional; after FR-017 they are conditionally required, and a request missing one now returns 400. Say which combination requires what, and note that `width` carries the diameter for round items
+- [X] T033 Verify the cause is fixed and not only the symptom: `grep -rn "typeShapeRequirements" app/` must return nothing, and `grep -rn "required_dimensions" app/` must find only `app/taxonomy.py`
+- [X] T034 Regenerate documentation screenshots — `nox -s screenshots_headless`, then `nox -s screenshots_verify` — and commit the changed PNGs alongside the code. This is obligatory, not optional: the change touches `app/templates/**` and `app/static/js/**`, and CI blocks merge on stale screenshots. `user-manual/add_item_form.png` and `user-manual/edit_item_form.png` both show requirement asterisks that move
+- [X] T035 Full green: `nox -s tests`, and `nox -s e2e` in the background. Then confirm `git status` is clean after the e2e run — if it is dirty, a screenshot test leaked into the session, which the constitution forbids
+- [X] T036 Walk the manual scenarios in [quickstart.md](./quickstart.md) against `python app.py`, including the `curl` that must now return 400
+- [X] T037 [P] Carry the plan's **Known gaps** into the pull request description — the latent shorten hole at `app/mariadb_inventory_service.py:500`, the dead `dimensions.diameter` reads, Channel's empty rule and its narrowed Shape dropdown. They are deliberate omissions, and a reviewer should see them as decisions rather than discover them as oversights
 
 ---
 
