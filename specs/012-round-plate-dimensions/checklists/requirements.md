@@ -46,5 +46,30 @@
   the line by forbidding *new* disagreements.
 - Issue #85 asks for a database schema change. The spec does not require one, and says why
   in Assumptions: the dimension already exists and is already optional in storage, so the
-  requirement is imposed entirely above it. Worth confirming at plan time that nothing in
-  the storage layer contradicts this.
+  requirement is imposed entirely above it. **Confirmed during planning** — `length` is
+  already a nullable column and its check constraint already reads `IS NULL OR > 0`, so
+  there is no Alembic revision in this feature. See `research.md` D8.
+
+## Amendment — 2026-08-10, during `/speckit-plan`
+
+Planning put one further question to the operator, because the spec could be read two ways
+and the readings differed in size: should the dimension rules be *enforced* on the write
+paths, or only stated consistently and marked on the forms? Today nothing enforces them
+anywhere except as browser-side marks on the Add Item form, so the item API has always
+accepted a round plate with no thickness.
+
+The operator chose enforcement on every write path, over both narrower options, with the
+blast-radius risk stated. The spec was amended rather than left contradicting the plan:
+
+- **Added** FR-017 (enforce on every path), FR-018 (report every missing dimension, not the
+  first), FR-019 (enforcement introduces no new requirement for any other combination).
+- **Qualified** SC-005 and **added** SC-008 to separate *which* dimensions are required —
+  unchanged for every other type and shape — from *where* the requirement is applied, which
+  is what actually changes for them.
+- **Added** two assumptions recording the decision and its bound: enforcement covers the
+  paths a person can reach, not internal test seeding.
+- **Extended** the Channel entry under Out of Scope with the one visible side effect that
+  consolidating the rules forces — Channel's Shape dropdown narrowing to the shapes it is
+  recorded as taking.
+
+All checklist items above were re-run against the amended spec and still pass.

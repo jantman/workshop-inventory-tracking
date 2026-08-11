@@ -126,6 +126,12 @@ The operator finds the round plate in the inventory list. Its dimensions read as
 - **FR-015**: Any item that carries a length MUST continue to show it. Nothing recorded is withheld from display.
 - **FR-016**: Items other than round plates and round sheets MUST display exactly as they do today.
 
+**Enforcement**
+
+- **FR-017**: The dimension requirements MUST be enforced on every path by which an item can be recorded or amended — the Add Item form, the Edit Item form, and the application's item interface alike. It MUST NOT be possible to record through one path an item that another path would refuse.
+- **FR-018**: A refusal MUST report every dimension that is missing, not only the first. An operator correcting one omission MUST NOT be made to submit again to discover the next.
+- **FR-019**: Enforcement MUST apply the requirement set each type and shape already has. It introduces no new requirement for any combination other than round Plate and round Sheet, and relaxes none.
+
 ### Key Entities
 
 - **Inventory item**: A piece of stock on the shelf. Already carries a Type, a Shape, and its dimensions. This feature adds nothing to it and removes nothing from it; it changes which of the dimensions it already has must be filled in for one Type and Shape pairing.
@@ -140,9 +146,10 @@ The operator finds the round plate in the inventory list. Its dimensions read as
 - **SC-002**: No round plate or round sheet entered after this change carries a length the operator made up, because none is asked for.
 - **SC-003**: A round plate created on the Add Item form can be opened in the Edit Item form and saved back unchanged, without supplying anything further.
 - **SC-004**: On every screen that shows an item's dimensions, a round plate with no length is shown as a disc of a stated diameter and thickness — never as an item with no dimensions.
-- **SC-005**: Every type and shape combination other than round Plate and round Sheet records exactly the dimensions it recorded before, required and optional alike.
+- **SC-005**: Every type and shape combination other than round Plate and round Sheet requires exactly the dimensions it required before, required and optional alike. What changes for them is not *which* dimensions are demanded but *where* the demand is applied — see SC-008.
 - **SC-006**: Every item already in the inventory still displays and still edits, including round plates that carry a length and round plates that lack a thickness.
 - **SC-007**: Asking the system what a round plate requires gives the same answer from every part of it that has an answer.
+- **SC-008**: A dimension the forms demand can no longer be evaded by recording the item another way. The requirement sets are unchanged (SC-005); the difference is that every path now applies them, where previously only the Add Item form did.
 
 ## Assumptions
 
@@ -152,13 +159,15 @@ The operator finds the round plate in the inventory list. Its dimensions read as
 - **Thickness is required, not merely allowed.** A disc with no thickness is not described. This matches what the Add Item form already demands of a round plate; it tightens only the rule keyed on shape alone, which asks for no thickness for any round item.
 - **Wall thickness and weight are unaffected.** Wall thickness does not apply to a solid plate and is not required for one today. Weight is optional for every type and shape and stays optional.
 - **"The application's item interface" means the existing programmatic route for creating and amending items.** No new entry point is introduced, and no existing one is retired.
+- **The requirements become enforced rather than merely advertised.** Confirmed with the operator, and it widens the feature beyond what issue #85 describes. Today no dimension requirement is enforced anywhere except as a browser-side mark on the Add Item form; the item interface accepts anything it is given, for every type and shape. FR-017 closes that. The requirement *sets* do not change for any other combination (FR-019, SC-005) — but a type and shape whose rules could previously be sidestepped by recording the item another way can no longer be. The operator accepted this trade knowingly when the risk was put to them.
+- **Enforcement covers the paths a person can reach, not internal seeding.** Test fixtures and any future bulk import that construct items directly, beneath the interface, are not in the path of this check.
 - **The operator is the only user.** Per the project's operating context there are no roles, permissions or approval steps to consider in any of this.
 
 ## Out of Scope
 
 - Introducing a separately stored diameter dimension, or any change to how dimensions are stored. Diameter remains the measurement the inventory already records for round items.
 - Reconciling the pre-existing disagreements between the system's several statements of the dimension rules for type and shape combinations *other than* round Plate and round Sheet. Those disagreements are real and predate this issue; FR-008 requires only that this change not add to them.
-- Supplying the dimension rule for `Channel`, which the Add Item form's rule set omits entirely today.
+- Supplying the dimension rule for `Channel`, which the Add Item form's rule set omits entirely today. Its empty rule is carried forward unchanged, so a channel continues to require no dimensions. One visible side effect is accepted: because the Add Item form filters its Shape choices from the same rule set, a channel — which today offers all four shapes because it is absent from that set — will offer only the shapes it is actually recorded as taking. That is a correction, but it is a correction this feature did not set out to make.
 - Enforcing type-and-shape compatibility when an item is recorded. Which shapes a type may take is filtered on the Add Item form and enforced nowhere; that is a separate gap.
 - Estimated volume. It is calculated from length and is not shown anywhere in the application.
 - Any change to the inventory's search filters, including adding a filter named for diameter. The existing filters continue to work on the dimensions they already work on.
