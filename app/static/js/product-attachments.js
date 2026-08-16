@@ -176,7 +176,19 @@
             }
 
             deleteSelected.disabled = true;
-            deleteSelection(chosen).finally(refresh);
+            deleteSelection(chosen).finally(() => {
+                // FR-008: a deletion *attempt* ends with an empty selection,
+                // however it went. The tiles that were deleted took their boxes
+                // with them; the ones that refused have to be cleared here, or
+                // the failure path leaves a selection the user did not make and
+                // a delete button armed to retry it. Cancelling is the only path
+                // that keeps a selection, and it returns above without reaching
+                // this.
+                card.querySelectorAll('.attachment-select').forEach((box) => {
+                    box.checked = false;
+                });
+                refresh();
+            });
         });
 
         refresh();
@@ -231,7 +243,10 @@
 
         const noun = failures === 1 ? 'attachment' : 'attachments';
         showAlert(
-            `${failures} ${noun} could not be removed. The rest were deleted.`
+            removed.length === 0
+                // "The rest were deleted" is a lie when there is no rest.
+                ? `${failures} ${noun} could not be removed.`
+                : `${failures} ${noun} could not be removed. The rest were deleted.`
         );
     }
 

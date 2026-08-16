@@ -47,9 +47,20 @@ venv/bin/nox -s screenshots_verify
 git status docs/images/screenshots/
 ```
 
-Expect `user-manual/photo_gallery.png` to change — the item photo gallery's header gains the
-select-all. The product detail page is not in `tests/e2e/screenshot_config.yaml`, so Stories 1–2
-should move no image. See `research.md` §9.
+Five images move, and only five:
+
+- `user-manual/photo_gallery.png`, `photo_upload.png`, `edit_item_form.png` and
+  `add_item_form.png` each grow by exactly 5 pixels of height — the select-all row in the gallery
+  header (Story 3).
+- `user-manual/product_detail.png` changes inside the attachments card (Stories 1–2). The set of
+  screenshots is defined by `tests/e2e/test_screenshot_generation.py`, **not** only by the named
+  entries in `screenshot_config.yaml`, and `test_screenshot_product_detail` writes this one.
+
+Regeneration is not reproducible: expect several *other* images to change too, by a fraction of a
+percent, in regions holding generated dates and JA IDs. **Measure before committing a screenshot
+sweep — do not assume the churn is yours.** Revert what is not. Nothing in CI diffs these; the job
+that did was removed because per-machine font rendering made every glyph differ. See
+`research.md` §9.
 
 ## Scenarios the automated tests cover
 
@@ -73,6 +84,10 @@ Each maps to acceptance scenarios in [spec.md](./spec.md); selectors are fixed i
 9. A single attachment reads `Delete 1 attachment?`, not `1 attachment(s)` (edge case).
 10. The per-tile trash button still deletes just that one, with no confirmation, exactly as before
     (FR-012).
+11. A partial failure removes what went, keeps what refused, says so, empties the selection, and
+    does **not** reload — the message surviving is the proof of that last part (FR-008, FR-009).
+    Reached by refusing one attachment's `DELETE` at the network boundary with `page.route`.
+12. When *nothing* could be deleted, the message does not go on to claim "the rest were deleted".
 
 **Item photo gallery** — alongside the existing photo tests
 
@@ -102,10 +117,12 @@ positive `expect` first; `count()` against a page mid-reload reads zero and pass
 
 ## By hand — what the automated tests cannot show
 
-1. **The partial-failure path.** Reachable only by making one delete fail. Stop the database, or
-   delete an attachment row out from under the page, then bulk-delete a selection containing it.
-   Expect: the deletable ones disappear, the failed one stays, `#attachment-alerts` says the
-   deletion did not fully succeed, and the page does **not** reload (FR-008, FR-009).
+1. **The partial-failure path against a real failure.** *Now covered automatically* — scenarios 11
+   and 12 refuse the `DELETE` at the network boundary, which exercises the real handler against a
+   real failed response. What that cannot show is a failure the *server* produces rather than the
+   network: stop the database, or delete an attachment row out from under the page, then bulk-delete
+   a selection containing it, and confirm the message and the surviving tile look the same
+   (FR-008, FR-009).
 2. **The second-tab case.** Open one product in two tabs, delete an attachment in tab A, then select
    it among others in tab B and delete. Expect no error — the already-gone one counts as removed
    (FR-010).

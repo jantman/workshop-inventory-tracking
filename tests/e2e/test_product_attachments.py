@@ -92,10 +92,34 @@ def open_with_attachments(page, live_server, product, count):
     Seeded rather than pasted: the selection tests are not about pasting, and
     pasting each one costs a full page reload -- see
     ``TestServer.add_product_attachments`` for why that is also a race.
+
+    Returns the attachment ids, in the order created.
     """
-    live_server.add_product_attachments(product.id, count)
+    ids = live_server.add_product_attachments(product.id, count)
     page.goto(f"{live_server.url}/products/{product.id}")
     expect(page.locator(CARDS)).to_have_count(count)
+    return ids
+
+
+def fail_deletes(page, attachment_ids):
+    """Make the delete of each id in ``attachment_ids`` fail with a 500.
+
+    The partial-failure path cannot be reached by asking the application
+    nicely -- every delete it issues succeeds. Refusing the request at the
+    network boundary is the smallest way in, and it exercises the real handler:
+    the response it reads is a genuine failed response, not a stub of one.
+    """
+    wanted = {str(one) for one in attachment_ids}
+
+    def handler(route, request):
+        target = request.url.rstrip('/').rsplit('/', 1)[-1]
+        if request.method == "DELETE" and target in wanted:
+            route.fulfill(status=500, content_type="application/json",
+                          body='{"success": false, "error": "nope"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/attachments/*", handler)
 
 
 def record_dialogs(page, accept=True):
@@ -296,6 +320,56 @@ def test_ticking_a_tile_does_not_open_the_image(page, live_server, product):
 
     expect(page.locator(SELECTORS).first).to_be_checked()
     expect(page).to_have_url(product_url)
+    expect(page.locator(CARDS)).to_have_count(2)
+
+
+@pytest.mark.e2e
+def test_a_partial_failure_says_so_and_keeps_the_grid_honest(
+    page, live_server, product
+):
+    """FR-008, FR-009: what went, goes; what refused, stays; and the user is
+    told rather than left to notice.
+
+    The message is also the proof that the page did **not** reload -- a reload
+    would wipe it, which is exactly why this path skips the reload the success
+    path takes.
+    """
+    ids = open_with_attachments(page, live_server, product, 3)
+    fail_deletes(page, [ids[1]])
+
+    record_dialogs(page)
+    page.locator(SELECT_ALL).check()
+    page.locator(DELETE_SELECTED).click()
+
+    alert = page.locator("#attachment-alert")
+    expect(alert).to_contain_text("1 attachment could not be removed")
+    expect(alert).to_contain_text("The rest were deleted")
+
+    # The one that refused is the one still there.
+    expect(page.locator(CARDS)).to_have_count(1)
+    expect(page.locator(SELECTORS)).to_have_count(1)
+
+    # FR-008: an attempt ends with an empty selection, however it went.
+    expect(page.locator(SELECTORS).first).not_to_be_checked()
+    expect(page.locator(DELETE_SELECTED)).to_be_disabled()
+
+
+@pytest.mark.e2e
+def test_when_nothing_could_be_deleted_it_does_not_claim_otherwise(
+    page, live_server, product
+):
+    """"The rest were deleted" is a lie when there is no rest."""
+    ids = open_with_attachments(page, live_server, product, 2)
+    fail_deletes(page, ids)
+
+    record_dialogs(page)
+    page.locator(SELECT_ALL).check()
+    page.locator(DELETE_SELECTED).click()
+
+    alert = page.locator("#attachment-alert")
+    expect(alert).to_contain_text("2 attachments could not be removed")
+    expect(alert).not_to_contain_text("The rest were deleted")
+
     expect(page.locator(CARDS)).to_have_count(2)
 
 
