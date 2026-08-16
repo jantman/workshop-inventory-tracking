@@ -214,6 +214,48 @@ class E2ETestServer:
         print(f"Added {len(products)} test products directly to database")
         return products
 
+    def add_product_attachments(self, product_id, count):
+        """Attach ``count`` distinct images to a product, directly.
+
+        The other way to fill an attachments grid is to paste ``count`` images
+        into it, and every one of those uploads ends in a full page reload --
+        which makes a five-attachment fixture five reloads long, and gives the
+        next paste a window in which the tiles have rendered but the page's
+        DOMContentLoaded handler has not yet bound the paste listener, so the
+        event lands on nothing. Seeding sidesteps both.
+
+        Drive the paste path only in the tests that are about pasting.
+
+        Args:
+            product_id: The product to attach to.
+            count: How many images to attach.
+
+        Returns:
+            The created ProductAttachment ids, in the order created.
+        """
+        if not self.storage:
+            raise RuntimeError("Server not started")
+
+        import io
+        from PIL import Image
+        from app.photo_service import PhotoService
+
+        ids = []
+        with PhotoService(self.storage) as photos:
+            for index in range(count):
+                buffer = io.BytesIO()
+                Image.new(
+                    'RGB', (64, 48), (10 + index * 30, 120, 200)
+                ).save(buffer, format='PNG')
+                attachment = photos.upload_product_attachment(
+                    product_id, buffer.getvalue(),
+                    f"attachment-{index}.png", "image/png",
+                )
+                ids.append(attachment.id)
+
+        print(f"Attached {count} images to product {product_id}")
+        return ids
+
     def backdate_product(self, product_id, **fields):
         """Write a product column directly, bypassing CatalogService.
 

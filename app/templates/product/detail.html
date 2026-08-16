@@ -191,6 +191,30 @@
             <div class="card-body">
                 <div id="attachment-alerts"></div>
 
+                {# Issue #96: capture reads page markup, markup changes without
+                   warning, and a capture that brings in too much is a normal
+                   outcome the design accepts. Pruning it should cost one press
+                   and one confirmation, not one of each per image.
+
+                   Only rendered when there is something to select -- a
+                   select-all over an empty grid is a puzzle, not a control. #}
+                {% if attachments %}
+                <div class="d-flex align-items-center gap-3 mb-2"
+                     id="attachment-selection-toolbar">
+                    <div class="form-check mb-0">
+                        <input type="checkbox" class="form-check-input"
+                               id="select-all-attachments">
+                        <label class="form-check-label small"
+                               for="select-all-attachments">Select all</label>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-danger"
+                            id="delete-selected-attachments" disabled>
+                        <i class="bi bi-trash"></i>
+                        <span id="delete-selected-attachments-label">Delete Selected</span>
+                    </button>
+                </div>
+                {% endif %}
+
                 {# FR-013: a grid, not a list of filenames. A captured gallery is
                    a dozen images with opaque derived names, and a list of those
                    is not something anyone can look through. PDFs already have
@@ -213,7 +237,14 @@
                                                      photo_id=attachment.photo_id) }}?size=thumbnail"
                                      alt="{{ attachment.photo.filename }}">
                             </a>
-                            <div class="card-body p-1 d-flex justify-content-between align-items-center">
+                            <div class="card-body p-1 d-flex justify-content-between align-items-center gap-1">
+                                {# Issue #96: the tick sits here and not over the
+                                   thumbnail, because the thumbnail is a link to
+                                   the original -- selecting must never navigate. #}
+                                <input type="checkbox"
+                                       class="form-check-input flex-shrink-0 m-0 attachment-select"
+                                       data-attachment-id="{{ attachment.id }}"
+                                       aria-label="Select {{ attachment.photo.filename }}">
                                 <span class="small text-truncate"
                                       title="{{ attachment.photo.filename }}">
                                     {{ attachment.photo.filename }}
