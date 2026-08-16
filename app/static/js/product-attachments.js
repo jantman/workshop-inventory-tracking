@@ -108,6 +108,131 @@
                     .catch((error) => showAlert(String(error)));
             });
         });
+
+        initSelection(card);
+    }
+
+    /**
+     * Selecting several attachments and removing them in one press (#96).
+     *
+     * The selection is the checked boxes, read from the DOM when it is needed.
+     * There is no client-side model of the tiles to hang a flag on -- they are
+     * server-rendered -- and inventing one would be a second place for the
+     * truth about a checkbox to live.
+     */
+    function initSelection(card) {
+        const deleteSelected = document.getElementById('delete-selected-attachments');
+        if (!deleteSelected) {
+            // No attachments, so no toolbar was rendered.
+            return;
+        }
+
+        const label = document.getElementById('delete-selected-attachments-label');
+
+        // Read live rather than captured: the partial-failure path removes tiles
+        // from the grid, and a list captured at load would go on counting them.
+        function selected() {
+            return Array.from(card.querySelectorAll('.attachment-select'))
+                .filter((box) => box.checked);
+        }
+
+        const selectAll = document.getElementById('select-all-attachments');
+
+        function refresh() {
+            const boxes = Array.from(card.querySelectorAll('.attachment-select'));
+            const count = selected().length;
+
+            deleteSelected.disabled = count === 0;
+            label.textContent = count === 0
+                ? 'Delete Selected'
+                : `Delete Selected (${count})`;
+
+            // Kept honest against the tiles: "all" must not stay lit while one
+            // of them is unticked.
+            selectAll.checked = boxes.length > 0 && count === boxes.length;
+            selectAll.indeterminate = count > 0 && count < boxes.length;
+        }
+
+        card.querySelectorAll('.attachment-select').forEach((box) => {
+            box.addEventListener('change', refresh);
+        });
+
+        selectAll.addEventListener('change', () => {
+            card.querySelectorAll('.attachment-select').forEach((box) => {
+                box.checked = selectAll.checked;
+            });
+            refresh();
+        });
+
+        deleteSelected.addEventListener('click', () => {
+            const chosen = selected();
+            if (chosen.length === 0) {
+                return;
+            }
+
+            const noun = chosen.length === 1 ? 'attachment' : 'attachments';
+            if (!window.confirm(`Delete ${chosen.length} ${noun}?`)) {
+                return;
+            }
+
+            deleteSelected.disabled = true;
+            deleteSelection(chosen).finally(refresh);
+        });
+
+        refresh();
+    }
+
+    /**
+     * Delete each chosen attachment, **one at a time**.
+     *
+     * Sequential on purpose, and not because of any user-facing race: two
+     * attachments can reference the same photo row, and delete_attachment drops
+     * the photo bytes once nothing else references them. Two of those in flight
+     * together can both find the photo unreferenced and both try to delete it,
+     * so one reports a failure for a delete that actually happened. Awaiting
+     * each request makes that unreachable, and at this scale costs nothing
+     * anyone can perceive.
+     */
+    async function deleteSelection(chosen) {
+        const removed = [];
+        let failures = 0;
+
+        for (const box of chosen) {
+            try {
+                const response = await csrfFetch(
+                    `/api/attachments/${box.dataset.attachmentId}`,
+                    { method: 'DELETE' }
+                );
+                // 404 is the attachment already being gone -- which is the state
+                // that was asked for. A second tab is the realistic cause.
+                if (response.ok || response.status === 404) {
+                    removed.push(box);
+                } else {
+                    failures += 1;
+                }
+            } catch (error) {
+                failures += 1;
+            }
+        }
+
+        if (failures === 0) {
+            window.location.reload();
+            return;
+        }
+
+        // Not a reload: it would wipe the message. The grid is brought back to
+        // the truth instead -- what was deleted goes, what refused to stays.
+        removed.forEach((box) => {
+            const row = box.closest('.attachment-row');
+            if (row) {
+                row.remove();
+            }
+        });
+
+        const noun = failures === 1 ? 'attachment' : 'attachments';
+        showAlert(
+            `${failures} ${noun} could not be removed. The rest were deleted.`
+        );
     }
 
     function initPurchaseAttachments() {

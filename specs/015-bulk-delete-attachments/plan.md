@@ -56,7 +56,7 @@ keep their names — see [contracts/README.md](./contracts/README.md)
 | **V. MariaDB Is the Source of Truth** | **Pass.** No schema change, so no Alembic revision — which is the tell that the plan is right, not an omission. Deletion still goes through `PhotoService`, so photo-byte reclamation is inherited, not reimplemented (FR-011). |
 | **VI. Item Lifecycle and History Invariants** | **Not applicable.** Nothing here touches JA IDs, active rows, shortening history or parent-child links. Product attachments and item photos carry no history semantics. |
 | **Operating Context / Threat Model** | **Pass.** CSRF stays as it is — the attachment route is already called through `csrfFetch` and continues to be. No new validation layer, no hardening, nothing added against an attacker who does not exist. |
-| **Development Workflow** | **Obligations.** Feature branch + PR (`issues/96`) — required, since this is a non-trivial code change. `app/templates/**` and `app/static/js/**` change, so screenshots MUST be regenerated and committed, and `nox -s screenshots_verify` must pass. |
+| **Development Workflow** | **Obligations.** Feature branch + PR (`issues/96`) — required, since this is a non-trivial code change. `app/templates/**` and `app/static/js/**` change, so screenshots MUST be regenerated and committed, and `nox -s screenshots_verify` must pass. *(Corrected during implementation: CI does **not** block on stale screenshots — that job was removed because per-machine font rendering made every glyph differ, and it now only posts a reminder. See [research.md](./research.md) §9.)* |
 
 **Gate result: PASS.** No violations, so [Complexity Tracking](#complexity-tracking) is empty.
 

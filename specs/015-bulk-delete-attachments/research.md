@@ -147,6 +147,30 @@ inherits FR-016's read-only rule by being placed there rather than by a new cond
 **Alternatives considered**: Leaving the item gallery alone. Rejected — the user chose to include it
 during specification, and issue #96 names it.
 
+### 7a. A pre-existing bug found while implementing this: the gallery deletes by the wrong id
+
+**Found**: every delete from the item photo gallery — the single-photo one as much as the batch —
+sends the **`Photo`** id to `DELETE /api/photos/<id>`, which takes the **`ItemPhotoAssociation`** id
+(`PhotoService.delete_photo` → `get_photo`, whose docstring says "association ID, not photo ID").
+The two are equal only while every `Photo` row has exactly one association and nothing else has
+created a `Photo`. Product attachments create `Photo` rows with **no** item association at all, so on
+any database this application has actually been used on the sequences drift apart and photo deletion
+returns 404. `photo-manager.js` picks the `Photo` id deliberately — there is a comment saying so —
+because the *display* routes (`GET /api/photos/<id>`, thumbnails) do want the `Photo` id.
+
+**Decision**: carry both. `loadExistingPhotos` and the upload response both already have the
+association id (`photoData.id` and `result.photo.id`); it is stored as `photo.associationId` and used
+for the `DELETE` alone. Three lines, in the file this feature already changes, no Python.
+
+**Why it is in scope**: it is not a nicety. A bulk delete that 404s on every photo is not a
+deliverable, and the story cannot be tested without fixing it. Note that FR-017 freezes the *behavior*
+of the single-photo delete, and this restores the behavior it was always meant to have rather than
+changing it.
+
+**Not fixed here**: `GET /api/photos/<id>/download` has the same confusion in the other direction —
+`download_photo` looks the id up with `get_photo` (association) while `get_photo_data` treats it as a
+`Photo`. Nothing in this feature touches download, so it is left alone and recorded here instead.
+
 ---
 
 ## 8. Testing approach
@@ -175,14 +199,33 @@ partial-failure path removes tiles after `await`, so the same holds. No `wait_fo
 **Decision**: Regenerate documentation screenshots and commit them with the change.
 
 **Rationale**: The constitution's Development Workflow section requires it for any change to
-`app/templates/**` or `app/static/js/**`, and CI blocks merge on stale screenshots. Run
-`nox -s screenshots` (or `screenshots_headless`), then `nox -s screenshots_verify`.
+`app/templates/**` or `app/static/js/**`. Run `nox -s screenshots` (or `screenshots_headless`), then
+`nox -s screenshots_verify`.
 
-What actually moves is worth knowing in advance. The product detail page is **not** in
-`tests/e2e/screenshot_config.yaml`, so Stories 1–2 change no documented image. Story 3 does: the
-item photo gallery appears in `photo_gallery` (`user-manual/photo_gallery.png`) and
-`photo_upload_interface`, and the new select-all sits in the gallery header those capture. Expect
-`user-manual/photo_gallery.png` to change and commit it with the rest.
+**Two things this entry originally got wrong, corrected after running it:**
+
+1. *"CI blocks merge on stale screenshots"* — it does not, any more. `.github/workflows/screenshots.yml`
+   says so in its own header: the job that regenerated and diffed was removed, because CI's font
+   rendering differs from the machine the screenshots were committed from and so every glyph on every
+   image differed. It now posts a reminder comment when a PR touches UI files and leaves the judgment
+   to a human. `screenshots_verify` is a format and size check (valid PNG, RGB/RGBA, under 500KB), not
+   a diff. The constitution still states the old behavior and is out of date on this point.
+2. *"The product detail page is not in the screenshot set"* — it is. The set is defined by
+   `tests/e2e/test_screenshot_generation.py`, not only by the named entries in
+   `screenshot_config.yaml`, and `test_screenshot_product_detail` writes
+   `user-manual/product_detail.png`. Stories 1–2 do change a documented image.
+
+**What actually moved.** Regeneration rewrote 12 PNGs; only 5 were this feature:
+
+- `add_item_form.png`, `edit_item_form.png`, `photo_gallery.png`, `photo_upload.png` each grew by
+  exactly 5 pixels of height — the select-all row in the gallery header.
+- `product_detail.png` changed within the attachments card only (bounding box confined to it).
+
+The other seven — `batch_operations_menu`, `bulk_creation_preview`, `history_view`, `move_items`,
+`search_form`, `search_results`, `shorten_items` — changed by a tenth of a percent of their pixels in
+regions holding generated dates and JA IDs, which differ per run. Those were reverted rather than
+committed, since the workflow no longer diffs them and they would be pure review noise. Measure
+before committing a screenshot sweep; do not assume the churn is yours.
 
 Documentation prose is the other half: `docs/user-manual.md`'s "Photo Management" section describes
 the gallery, and its figures are captioned from this config. If it describes deleting photos one at

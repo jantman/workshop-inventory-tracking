@@ -443,6 +443,19 @@ Photos can be uploaded when adding or editing items:
 - **Item Details Modal**: Click any item to view full-size photos in a gallery
 - **Edit Page**: View and manage all photos for an item
 
+#### Removing Photos
+
+On the Add Item and Edit Item pages, each photo carries a tick box:
+
+- Tick several and press **Delete Selected** -- one confirmation, naming how
+  many photos are going, then they all go.
+- **Select all** takes every photo in the gallery; pressing it again clears the
+  selection.
+- The trash button on a single photo removes just that one and asks about that
+  one.
+
+The gallery in the item details modal is read-only, so it offers none of these.
+
 #### Copying Photos Between Items
 
 There are two ways to copy photos between items:
@@ -1034,6 +1047,16 @@ anyone can look through. Click one for the original. A product holds up to 100.
 
 **Copy an image anywhere and paste it on a product page** to attach it, with no
 file to save first. Pasting ordinary text does nothing and says nothing.
+
+**Removing several at once.** Capture reads the page's markup, and markup
+changes without warning, so a capture that brings in a dozen of the vendor's
+*other* products is a normal outcome rather than a fault. Tick the ones you do
+not want and press **Delete Selected** -- one confirmation, naming how many are
+going, and they all go. **Select all** takes the whole grid, so clearing a
+capture that got nothing right is three actions: select all, delete, confirm.
+
+The trash button on a single thumbnail still removes just that one, and still
+asks nothing first.
 
 ## Finding Products
 

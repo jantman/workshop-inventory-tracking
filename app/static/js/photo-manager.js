@@ -115,8 +115,15 @@ const PhotoManager = {
                                 <i class="bi bi-images"></i> Photos (<span class="photo-count">0</span>)
                             </h6>
                             ${this.isReadOnly ? '' : `
-                                <div class="gallery-actions">
-                                    <button type="button" class="btn btn-outline-danger btn-sm delete-selected-btn" 
+                                <div class="gallery-actions d-flex align-items-center gap-3">
+                                    <div class="form-check mb-0">
+                                        <input type="checkbox" class="form-check-input select-all-photos"
+                                               id="select-all-photos">
+                                        <label class="form-check-label small" for="select-all-photos">
+                                            Select all
+                                        </label>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger btn-sm delete-selected-btn"
                                             style="display: none;">
                                         <i class="bi bi-trash"></i> Delete Selected
                                     </button>
@@ -180,6 +187,20 @@ const PhotoManager = {
                 if (deleteSelectedBtn) {
                     deleteSelectedBtn.addEventListener('click', () => {
                         this.deleteSelectedPhotos();
+                    });
+                }
+
+                // Select every photo at once, or clear the selection
+                const selectAll = this.container.querySelector('.select-all-photos');
+                if (selectAll) {
+                    selectAll.addEventListener('change', () => {
+                        this.photos.forEach(photo => {
+                            photo.selected = selectAll.checked;
+                        });
+                        this.container.querySelectorAll('.photo-select').forEach(box => {
+                            box.checked = selectAll.checked;
+                        });
+                        this.updateSelectionActions();
                     });
                 }
             },
@@ -342,6 +363,9 @@ const PhotoManager = {
                     // result.photo contains the ItemPhotoAssociation with nested photo object
                     // Use photo.photo.id to get the actual Photo ID (not the association ID)
                     photo.id = result.photo.photo.id;
+                    // The association, which is what DELETE takes -- see the
+                    // note in loadExistingPhotos.
+                    photo.associationId = result.photo.id;
                     photo.uploaded = true;
                     
                     // For PDFs, update preview to use server-generated thumbnail
@@ -372,6 +396,15 @@ const PhotoManager = {
                         const photoInfo = photoData.photo || photoData; // Fallback for backwards compatibility
                         const photo = {
                             id: photoInfo.id,
+                            // Two different ids, and they are not interchangeable:
+                            // GET /api/photos/<id> wants the Photo, DELETE
+                            // /api/photos/<id> wants the association. They match
+                            // only while every Photo has exactly one association
+                            // and nothing else has created a Photo row -- product
+                            // attachments create Photo rows with no association at
+                            // all, so on any real database they drift apart and
+                            // deleting by the Photo id starts 404ing.
+                            associationId: photoData.id || photoInfo.id,
                             name: photoInfo.filename,
                             size: photoInfo.file_size,
                             type: photoInfo.content_type,
@@ -560,62 +593,109 @@ const PhotoManager = {
                 document.body.removeChild(link);
             },
             
-            // Delete single photo
-            deletePhoto: async function(photo) {
-                if (!confirm(`Delete photo "${photo.name}"?`)) return;
-                
+            // Remove one photo -- no confirmation of its own.
+            //
+            // Split out of deletePhoto so that deleting a selection can ask once
+            // for the whole batch. It used to call deletePhoto in a loop, which
+            // confirmed the batch and then confirmed again for every photo in
+            // it: thirteen prompts to delete twelve photos.
+            removePhoto: async function(photo) {
                 try {
                     if (photo.uploaded) {
-                        const response = await fetch(`/api/photos/${photo.id}`, {
-                            method: 'DELETE'
-                        });
-                        
+                        // The association id, not the Photo id -- see the note in
+                        // loadExistingPhotos.
+                        const response = await fetch(
+                            `/api/photos/${photo.associationId || photo.id}`,
+                            { method: 'DELETE' }
+                        );
+
                         if (!response.ok) {
                             throw new Error('Failed to delete photo');
                         }
                     }
-                    
+
                     // Remove from photos array
                     const index = this.photos.indexOf(photo);
                     if (index > -1) {
                         this.photos.splice(index, 1);
                     }
-                    
+
                     // Remove from DOM
                     const photoCard = this.container.querySelector(`[data-photo-id="${photo.id}"]`);
                     if (photoCard) {
                         photoCard.remove();
                     }
-                    
+
                     this.updateGalleryDisplay();
-                    PhotoManager.showToast('Photo deleted', 'success');
+                    return true;
 
                 } catch (error) {
                     console.error('Error deleting photo:', error);
+                    return false;
+                }
+            },
+
+            // Delete single photo
+            deletePhoto: async function(photo) {
+                if (!confirm(`Delete photo "${photo.name}"?`)) return;
+
+                if (await this.removePhoto(photo)) {
+                    PhotoManager.showToast('Photo deleted', 'success');
+                } else {
                     PhotoManager.showToast('Failed to delete photo', 'danger');
                 }
             },
-            
-            // Delete selected photos
+
+            // Delete selected photos -- one confirmation for the whole selection
             deleteSelectedPhotos: async function() {
-                const selectedPhotos = this.photos.filter(p => p.selected);
+                // A copy: removePhoto splices this.photos as it goes, and
+                // iterating the array being mutated skips every other member.
+                const selectedPhotos = this.photos.filter(p => p.selected).slice();
                 if (selectedPhotos.length === 0) return;
-                
-                if (!confirm(`Delete ${selectedPhotos.length} selected photo(s)?`)) return;
-                
+
+                const noun = selectedPhotos.length === 1 ? 'photo' : 'photos';
+                if (!confirm(`Delete ${selectedPhotos.length} ${noun}?`)) return;
+
+                let deleted = 0;
                 for (const photo of selectedPhotos) {
-                    await this.deletePhoto(photo);
+                    if (await this.removePhoto(photo)) {
+                        deleted += 1;
+                    }
                 }
+
+                // One toast for one action, for the same reason as one prompt.
+                if (deleted === selectedPhotos.length) {
+                    PhotoManager.showToast(
+                        `${deleted} ${deleted === 1 ? 'photo' : 'photos'} deleted`,
+                        'success'
+                    );
+                } else {
+                    PhotoManager.showToast(
+                        `Deleted ${deleted} of ${selectedPhotos.length} photos`,
+                        'danger'
+                    );
+                }
+
+                this.updateSelectionActions();
             },
-            
+
             // Update selection actions visibility
             updateSelectionActions: function() {
                 const selectedCount = this.photos.filter(p => p.selected).length;
                 const deleteSelectedBtn = this.container.querySelector('.delete-selected-btn');
-                
+
                 if (deleteSelectedBtn) {
                     deleteSelectedBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
                     deleteSelectedBtn.textContent = `Delete Selected (${selectedCount})`;
+                }
+
+                // Keep select-all honest against the tiles: it must not read as
+                // "all" while one of them is unticked.
+                const selectAll = this.container.querySelector('.select-all-photos');
+                if (selectAll) {
+                    const total = this.photos.length;
+                    selectAll.checked = total > 0 && selectedCount === total;
+                    selectAll.indeterminate = selectedCount > 0 && selectedCount < total;
                 }
             },
             

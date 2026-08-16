@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-08-10T21:13:39.222134",
+  "generated_at": "2026-08-16T16:26:02.273105",
   "screenshots": [
     {
       "filename": "readme/inventory_list.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:16.509620",
+      "timestamp": "2026-08-16T16:25:39.382930",
       "details": {
         "viewport_size": [
           1920,
@@ -20,7 +20,7 @@
     {
       "filename": "user-manual/add_item_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:19.195085",
+      "timestamp": "2026-08-16T16:25:42.837002",
       "details": {
         "viewport_size": [
           1920,
@@ -36,7 +36,7 @@
     {
       "filename": "user-manual/batch_operations_menu.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:32.859195",
+      "timestamp": "2026-08-16T16:25:55.801081",
       "details": {
         "viewport_size": [
           1920,
@@ -52,7 +52,7 @@
     {
       "filename": "user-manual/bulk_creation_preview.png",
       "capture_type": "element",
-      "timestamp": "2026-08-10T21:13:19.920166",
+      "timestamp": "2026-08-16T16:25:43.404951",
       "details": {
         "selector": "#quantity_to_create",
         "padding": 40,
@@ -67,7 +67,7 @@
     {
       "filename": "user-manual/category_tree.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:40.375941",
+      "timestamp": "2026-08-16T16:26:03.550649",
       "details": {
         "viewport_size": [
           1920,
@@ -83,7 +83,7 @@
     {
       "filename": "user-manual/edit_item_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:20.753317",
+      "timestamp": "2026-08-16T16:25:44.337269",
       "details": {
         "viewport_size": [
           1920,
@@ -99,7 +99,7 @@
     {
       "filename": "user-manual/history_view.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:32.042773",
+      "timestamp": "2026-08-16T16:25:54.989181",
       "details": {
         "viewport_size": [
           1920,
@@ -115,7 +115,7 @@
     {
       "filename": "user-manual/move_items.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:26.806100",
+      "timestamp": "2026-08-16T16:25:49.955698",
       "details": {
         "viewport_size": [
           1920,
@@ -131,7 +131,7 @@
     {
       "filename": "user-manual/order_capture.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:37.987668",
+      "timestamp": "2026-08-16T16:26:00.938172",
       "details": {
         "viewport_size": [
           1920,
@@ -147,7 +147,7 @@
     {
       "filename": "user-manual/photo_gallery.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:23.302572",
+      "timestamp": "2026-08-16T16:25:46.594944",
       "details": {
         "viewport_size": [
           1920,
@@ -163,7 +163,7 @@
     {
       "filename": "user-manual/photo_upload.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:21.571417",
+      "timestamp": "2026-08-16T16:25:45.052509",
       "details": {
         "viewport_size": [
           1920,
@@ -179,7 +179,7 @@
     {
       "filename": "user-manual/product_add_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:37.323048",
+      "timestamp": "2026-08-16T16:26:00.309983",
       "details": {
         "viewport_size": [
           1920,
@@ -195,7 +195,7 @@
     {
       "filename": "user-manual/product_detail.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:35.889139",
+      "timestamp": "2026-08-16T16:25:59.101095",
       "details": {
         "viewport_size": [
           1920,
@@ -211,7 +211,7 @@
     {
       "filename": "user-manual/product_search.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:34.381168",
+      "timestamp": "2026-08-16T16:25:57.356433",
       "details": {
         "viewport_size": [
           1920,
@@ -227,7 +227,7 @@
     {
       "filename": "user-manual/reorder_list.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:39.198641",
+      "timestamp": "2026-08-16T16:26:02.248092",
       "details": {
         "viewport_size": [
           1920,
@@ -243,7 +243,7 @@
     {
       "filename": "user-manual/search_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:17.301164",
+      "timestamp": "2026-08-16T16:25:41.010688",
       "details": {
         "viewport_size": [
           1920,
@@ -259,7 +259,7 @@
     {
       "filename": "user-manual/search_results.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:18.232462",
+      "timestamp": "2026-08-16T16:25:41.848630",
       "details": {
         "viewport_size": [
           1920,
@@ -275,7 +275,7 @@
     {
       "filename": "user-manual/shorten_items.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-10T21:13:27.297135",
+      "timestamp": "2026-08-16T16:25:50.370427",
       "details": {
         "viewport_size": [
           1920,

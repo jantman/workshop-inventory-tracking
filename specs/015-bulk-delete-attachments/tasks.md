@@ -36,7 +36,7 @@ Flask web application, server-rendered. This feature lives entirely in `app/temp
 
 **Purpose**: Nothing to scaffold — the feature adds no dependency, no module and no configuration.
 
-- [ ] T001 Confirm work is on feature branch `issues/96`, not `main` (constitution: non-trivial code changes go through a branch and a PR)
+- [x] T001 Confirm work is on feature branch `issues/96`, not `main` (constitution: non-trivial code changes go through a branch and a PR)
 
 ---
 
@@ -66,17 +66,17 @@ confirm the single prompt naming four — exactly those four are gone and the re
 
 > Write these first. They will fail against the current page, which has no selection controls at all.
 
-- [ ] T002 [US1] E2E: selection controls exist and drive the button — every tile has a `.attachment-select` checkbox with nothing selected initially; `#delete-selected-attachments` is `disabled` at zero selected and reports the count once tiles are ticked (FR-001, FR-003, FR-004; quickstart scenarios 1–2) in `tests/e2e/test_product_attachments.py`
-- [ ] T003 [US1] E2E: **exactly one** confirmation, and cancel deletes nothing — register a `page.on('dialog', ...)` handler that **records every dialog message** so a second prompt fails the assertion rather than hanging the page; assert one message naming the count, that confirming removes exactly the ticked attachments and leaves the rest, and that dismissing removes nothing and leaves the tiles ticked (FR-005, FR-006, FR-007; quickstart scenarios 3–4) in `tests/e2e/test_product_attachments.py`
-- [ ] T004 [US1] E2E: edge cases and regression — ticking a checkbox does not navigate to the full-size image; a one-attachment selection reads `Delete 1 attachment?` and never `1 attachment(s)`; the existing `.delete-attachment-btn` still deletes just its own tile with no confirmation (FR-012; quickstart scenarios 8–10) in `tests/e2e/test_product_attachments.py`
+- [x] T002 [US1] E2E: selection controls exist and drive the button — every tile has a `.attachment-select` checkbox with nothing selected initially; `#delete-selected-attachments` is `disabled` at zero selected and reports the count once tiles are ticked (FR-001, FR-003, FR-004; quickstart scenarios 1–2) in `tests/e2e/test_product_attachments.py`
+- [x] T003 [US1] E2E: **exactly one** confirmation, and cancel deletes nothing — register a `page.on('dialog', ...)` handler that **records every dialog message** so a second prompt fails the assertion rather than hanging the page; assert one message naming the count, that confirming removes exactly the ticked attachments and leaves the rest, and that dismissing removes nothing and leaves the tiles ticked (FR-005, FR-006, FR-007; quickstart scenarios 3–4) in `tests/e2e/test_product_attachments.py`
+- [x] T004 [US1] E2E: edge cases and regression — ticking a checkbox does not navigate to the full-size image; a one-attachment selection reads `Delete 1 attachment?` and never `1 attachment(s)`; the existing `.delete-attachment-btn` still deletes just its own tile with no confirmation (FR-012; quickstart scenarios 8–10) in `tests/e2e/test_product_attachments.py`
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Add a `.attachment-select` checkbox carrying `data-attachment-id` to each `.attachment-row` in `app/templates/product/detail.html`, placed in the card-body row beside the filename and trash button — **outside** the `<a>` that wraps the thumbnail, so ticking never opens the image
-- [ ] T006 [US1] Add the selection toolbar above `#attachment-list` in `app/templates/product/detail.html`: a `#delete-selected-attachments` button, `disabled` by default, rendered only when the product has at least one attachment (`{% if attachments %}`). Leave `#no-attachments` exactly as it is — it must stay **absent** while attachments exist, because `tests/e2e/test_product_attachments.py` asserts `to_have_count(0)` on it
-- [ ] T007 [US1] Wire selection state in `app/static/js/product-attachments.js`: on every checkbox `change`, count the checked boxes, enable/disable `#delete-selected-attachments` and set its label to report the count. Read the selection from the DOM each time — do not keep a parallel array ([data-model.md](./data-model.md))
-- [ ] T008 [US1] Implement the bulk delete handler in `app/static/js/product-attachments.js`: confirm **once** with singular/plural wording, disable the button for the duration so a second press cannot start a second loop, then `await` `csrfFetch(DELETE /api/attachments/<id>)` for each selected id **one at a time** (sequential — two attachments can share a photo row; [research.md](./research.md) §2). Treat `204` **and `404`** as removed (FR-010); anything else as failed. With no failures, `window.location.reload()`
-- [ ] T009 [US1] Implement the partial-failure path in `app/static/js/product-attachments.js`: when any delete failed, do **not** reload — remove the tiles that were deleted, leave the ones that were not, and report through the existing `showAlert` into `#attachment-alerts` that the deletion did not fully succeed (FR-008, FR-009)
+- [x] T005 [US1] Add a `.attachment-select` checkbox carrying `data-attachment-id` to each `.attachment-row` in `app/templates/product/detail.html`, placed in the card-body row beside the filename and trash button — **outside** the `<a>` that wraps the thumbnail, so ticking never opens the image
+- [x] T006 [US1] Add the selection toolbar above `#attachment-list` in `app/templates/product/detail.html`: a `#delete-selected-attachments` button, `disabled` by default, rendered only when the product has at least one attachment (`{% if attachments %}`). Leave `#no-attachments` exactly as it is — it must stay **absent** while attachments exist, because `tests/e2e/test_product_attachments.py` asserts `to_have_count(0)` on it
+- [x] T007 [US1] Wire selection state in `app/static/js/product-attachments.js`: on every checkbox `change`, count the checked boxes, enable/disable `#delete-selected-attachments` and set its label to report the count. Read the selection from the DOM each time — do not keep a parallel array ([data-model.md](./data-model.md))
+- [x] T008 [US1] Implement the bulk delete handler in `app/static/js/product-attachments.js`: confirm **once** with singular/plural wording, disable the button for the duration so a second press cannot start a second loop, then `await` `csrfFetch(DELETE /api/attachments/<id>)` for each selected id **one at a time** (sequential — two attachments can share a photo row; [research.md](./research.md) §2). Treat `204` **and `404`** as removed (FR-010); anything else as failed. With no failures, `window.location.reload()`
+- [x] T009 [US1] Implement the partial-failure path in `app/static/js/product-attachments.js`: when any delete failed, do **not** reload — remove the tiles that were deleted, leave the ones that were not, and report through the existing `showAlert` into `#attachment-alerts` that the deletion did not fully succeed (FR-008, FR-009)
 
 **Checkpoint**: A user can prune a captured gallery in one pass. This is a shippable MVP on its own —
 select-all is convenience on top of it.
@@ -95,12 +95,12 @@ button US1 wires.
 
 ### Tests for User Story 2
 
-- [ ] T010 [US2] E2E: select-all ticks every tile and toggles them all off again; select-all then delete empties the grid and makes `#no-attachments` visible; ticking two by hand and then using select-all keeps those two ticked and adds the rest (FR-002, FR-014; quickstart scenarios 5–7) in `tests/e2e/test_product_attachments.py`
+- [x] T010 [US2] E2E: select-all ticks every tile and toggles them all off again; select-all then delete empties the grid and makes `#no-attachments` visible; ticking two by hand and then using select-all keeps those two ticked and adds the rest (FR-002, FR-014; quickstart scenarios 5–7) in `tests/e2e/test_product_attachments.py`
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] Add the `#select-all-attachments` checkbox to the selection toolbar in `app/templates/product/detail.html`, with a visible label
-- [ ] T012 [US2] Implement select-all in `app/static/js/product-attachments.js`: checking it ticks every `.attachment-select`, unchecking it clears them, and either way the button state from T007 is refreshed. Keep it honest when individual boxes change — it must not read as "all selected" while one tile is unticked
+- [x] T011 [US2] Add the `#select-all-attachments` checkbox to the selection toolbar in `app/templates/product/detail.html`, with a visible label
+- [x] T012 [US2] Implement select-all in `app/static/js/product-attachments.js`: checking it ticks every `.attachment-select`, unchecking it clears them, and either way the button state from T007 is refreshed. Keep it honest when individual boxes change — it must not read as "all selected" while one tile is unticked
 
 **Checkpoint**: Both product-grid stories work. The Attachments card is done.
 
@@ -118,13 +118,13 @@ different test file. This phase can be worked in parallel with Phases 3–4.
 
 ### Tests for User Story 3
 
-- [ ] T013 [P] [US3] E2E for the item photo gallery in a new `tests/e2e/test_photo_bulk_delete.py`: selecting four photos and pressing "Delete Selected" produces **exactly one** dialog naming four and removes all four (record every dialog message, as in T003 — a test that only checks *a* prompt appeared passes against today's N+1 bug); dismissing it deletes nothing; select-all ticks every photo and toggles off; a read-only gallery offers neither select-all nor "Delete Selected"; a single photo's own delete button still confirms for that one photo (FR-015, FR-016, FR-017; quickstart scenarios 11–15)
+- [x] T013 [P] [US3] E2E for the item photo gallery in a new `tests/e2e/test_photo_bulk_delete.py`: selecting four photos and pressing "Delete Selected" produces **exactly one** dialog naming four and removes all four (record every dialog message, as in T003 — a test that only checks *a* prompt appeared passes against today's N+1 bug); dismissing it deletes nothing; select-all ticks every photo and toggles off; a read-only gallery offers neither select-all nor "Delete Selected"; a single photo's own delete button still confirms for that one photo (FR-015, FR-016, FR-017; quickstart scenarios 11–15)
 
 ### Implementation for User Story 3
 
-- [ ] T014 [US3] Extract the removal from `deletePhoto` in `app/static/js/photo-manager.js` into a confirmation-free helper (the `fetch` to `DELETE /api/photos/<id>` when uploaded, the splice out of `this.photos`, the card `.remove()`, `updateGalleryDisplay()`). `deletePhoto` keeps its own `confirm` and calls the helper, so the single-photo path behaves exactly as it does today (FR-017)
-- [ ] T015 [US3] Rewrite `deleteSelectedPhotos` in `app/static/js/photo-manager.js` to confirm **once** with singular/plural wording and then call the T014 helper for each selected photo — iterating a **copy** of the selected list, because the helper splices `this.photos` while it runs. Collapse the per-photo success toast into one summary toast for the batch; the single-photo delete keeps its own single toast (FR-015)
-- [ ] T016 [US3] Add a `.select-all-photos` checkbox inside the existing `.gallery-actions` block in `app/static/js/photo-manager.js`, setting `photo.selected` and each `.photo-select` checkbox, then calling `updateSelectionActions()`. Placing it in `.gallery-actions` is what satisfies the read-only rule — that block is already omitted when `isReadOnly` (FR-016)
+- [x] T014 [US3] Extract the removal from `deletePhoto` in `app/static/js/photo-manager.js` into a confirmation-free helper (the `fetch` to `DELETE /api/photos/<id>` when uploaded, the splice out of `this.photos`, the card `.remove()`, `updateGalleryDisplay()`). `deletePhoto` keeps its own `confirm` and calls the helper, so the single-photo path behaves exactly as it does today (FR-017)
+- [x] T015 [US3] Rewrite `deleteSelectedPhotos` in `app/static/js/photo-manager.js` to confirm **once** with singular/plural wording and then call the T014 helper for each selected photo — iterating a **copy** of the selected list, because the helper splices `this.photos` while it runs. Collapse the per-photo success toast into one summary toast for the batch; the single-photo delete keeps its own single toast (FR-015)
+- [x] T016 [US3] Add a `.select-all-photos` checkbox inside the existing `.gallery-actions` block in `app/static/js/photo-manager.js`, setting `photo.selected` and each `.photo-select` checkbox, then calling `updateSelectionActions()`. Placing it in `.gallery-actions` is what satisfies the read-only rule — that block is already omitted when `isReadOnly` (FR-016)
 
 **Checkpoint**: Both grids select and delete the same way.
 
@@ -132,11 +132,11 @@ different test file. This phase can be worked in parallel with Phases 3–4.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T017 Update `docs/user-manual.md`: in **Product Attachments** (~line 1023), describe selecting several thumbnails and deleting them in one press with one confirmation; in **Photo Management** (~line 420), which currently does not mention deleting photos at all, describe select-all and "Delete Selected". American spelling — `catalog`, never `catalogue` (CLAUDE.md)
-- [ ] T018 Regenerate documentation screenshots — `venv/bin/nox -s screenshots_headless`, then `venv/bin/nox -s screenshots_verify` — and commit what changes. Expect `docs/images/screenshots/user-manual/photo_gallery.png` to move (the gallery header gains the select-all); the product detail page is not in `tests/e2e/screenshot_config.yaml`, so US1/US2 should move no image. Required by the constitution for any change to `app/templates/**` or `app/static/js/**`, and CI blocks merge on stale screenshots
-- [ ] T019 [P] Run `venv/bin/nox -s tests` — must stay green. This feature adds no Python, so nothing here should move
-- [ ] T020 Run `venv/bin/nox -s e2e` with a **≥15-minute** timeout on the tool running it (constitution Principle IV; the suite takes ~8–9 minutes warm). Then confirm `git status` is clean — a dirty tree means a screenshot test leaked into the run
-- [ ] T021 Review the new E2E tests against the checklist in `CLAUDE.md` § "Reviewing a new e2e test": every wait names an element rather than a number; no `wait_for_timeout`, no `time.sleep`, no `networkidle`; every `count()` / `is_visible()` / `get_attribute()` has a positive `expect(...)` establishing the region first; every negative assertion would fail against a page that has not loaded
+- [x] T017 Update `docs/user-manual.md`: in **Product Attachments** (~line 1023), describe selecting several thumbnails and deleting them in one press with one confirmation; in **Photo Management** (~line 420), which currently does not mention deleting photos at all, describe select-all and "Delete Selected". American spelling — `catalog`, never `catalogue` (CLAUDE.md)
+- [x] T018 Regenerate documentation screenshots — `venv/bin/nox -s screenshots_headless`, then `venv/bin/nox -s screenshots_verify` — and commit what changes. Expect `docs/images/screenshots/user-manual/photo_gallery.png` to move (the gallery header gains the select-all); the product detail page is not in `tests/e2e/screenshot_config.yaml`, so US1/US2 should move no image. Required by the constitution for any change to `app/templates/**` or `app/static/js/**`, and CI blocks merge on stale screenshots
+- [x] T019 [P] Run `venv/bin/nox -s tests` — must stay green. This feature adds no Python, so nothing here should move
+- [x] T020 Run `venv/bin/nox -s e2e` with a **≥15-minute** timeout on the tool running it (constitution Principle IV; the suite takes ~8–9 minutes warm). Then confirm `git status` is clean — a dirty tree means a screenshot test leaked into the run
+- [x] T021 Review the new E2E tests against the checklist in `CLAUDE.md` § "Reviewing a new e2e test": every wait names an element rather than a number; no `wait_for_timeout`, no `time.sleep`, no `networkidle`; every `count()` / `is_visible()` / `get_attribute()` has a positive `expect(...)` establishing the region first; every negative assertion would fail against a page that has not loaded
 - [ ] T022 Work through the by-hand list in [quickstart.md](./quickstart.md) — the partial-failure path (make one delete fail), the second-tab already-deleted case, whether pruning a real over-captured gallery actually feels like one pass, and the checkbox touch targets at phone width. These are the four things the browser tests cannot show
 - [ ] T023 Open a pull request for `issues/96` referencing issue #96, with `test.yml` green
 
