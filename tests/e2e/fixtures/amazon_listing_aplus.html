@@ -72,10 +72,48 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
             <th class="prodDetSectionEntry">Item Length</th>
             <td class="prodDetAttrValue">300 Millimeters</td>
         </tr>
+        <!-- Issue #91 again, on the other surface: the rating widget carries its
+             own styling and script, and the same helper read the cell. This is
+             the row that arrived carrying a stylesheet on B09GM8FB3X. -->
+        <tr>
+            <th class="prodDetSectionEntry">Customer Reviews</th>
+            <td class="prodDetAttrValue">
+                <style type="text/css">.a-star { background-position: -1px -1px; }</style>
+                <span class="a-icon-alt">4.6 out of 5 stars</span>
+                <script type="text/javascript">var reviewsReady = true;</script>
+            </td>
+        </tr>
+        <!-- A value the listing genuinely shows on two lines. It keeps them. -->
+        <tr>
+            <th class="prodDetSectionEntry">Finish</th>
+            <td class="prodDetAttrValue">
+                <p>Clear anodised, 10 micron.</p>
+                <p>Matte, non-conductive.</p>
+            </td>
+        </tr>
+        <!-- A *name* broken across two lines. It must come back as one line, or
+             the two folds that key on the name see two different names. -->
+        <tr>
+            <th class="prodDetSectionEntry">Country of<br>Origin</th>
+            <td class="prodDetAttrValue">United Kingdom</td>
+        </tr>
     </table>
 </div>
 
 <div id="aplus" class="aplus-v2">
+    <!-- Issue #91's first half. A real A+ block carries its own stylesheet and
+         script inline, and `textContent` reports both as prose -- which is how
+         a captured description came to measure 21,415 characters. None of the
+         text below may appear in `description_text`. -->
+    <style type="text/css">
+      .aplus-module { margin: 0; padding: 0; font-size: 14px; }
+      .aplus-module .divider { border-top: 1px solid #ddd; }
+    </style>
+    <script type="text/javascript">
+      var aplusModuleReady = 1;
+      function aplusInit(node) { return node && aplusModuleReady; }
+    </script>
+    <noscript>Enable JavaScript to view the enhanced product description.</noscript>
     <div class="aplus-module">
         <img src="__IMAGE_HOST__/pixel.gif" width="1" height="1" alt="">
         <img src="__IMAGE_HOST__/rule.png" width="970" height="20" alt="">
@@ -84,9 +122,23 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
             Extruded 6063-T5 aluminium with a 6mm T-slot on all four faces, cut
             square to 300mm. Anodised clear; takes M5 T-nuts without tapping.
         </p>
+        <!-- An explicit break, and a paragraph whose source is indented across
+             three lines. The first must become one newline; the second must not
+             become any, because the reader never saw those newlines. -->
+        <p>Cut square to length.<br>Deburred
+           both
+           ends.</p>
+        <!-- Nesting three deep, then a sibling. However many separators that
+             emits, the reader must end up with exactly one blank line. -->
+        <div><div><div><p>Packed in a protective sleeve.</p></div></div></div>
+        <!-- A block holding nothing but spacing. It contributes no visible line
+             and must leave no blank one behind. -->
+        <div>   </div>
+        <p>Ships from a UK warehouse.</p>
         <ul>
             <li><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""> 6mm slot, four faces</li>
             <li><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""> Clear anodised finish</li>
+            <li>Sold singly<br>not in packs</li>
         </ul>
         <img src="__IMAGE_HOST__/mark._SL150_.jpg" alt="quality mark">
         <img src="__IMAGE_HOST__/steel_plate_sample._SL970_.jpg" alt="the extrusion in use">

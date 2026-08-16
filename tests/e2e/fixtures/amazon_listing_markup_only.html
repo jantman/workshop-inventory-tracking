@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!--
+  FR-004: a description block whose text is *only* markup is not a description.
+
+  The block that is empty here is `#productDescription`, deliberately, because
+  that is the one `DESCRIPTION_CONTAINERS` checks **first**. Putting the empty
+  block second would prove nothing -- the loop would never reach it. With the
+  order this fixture uses, the only way `description_text` can arrive holding
+  the A+ copy is if the emptiness test rejected `#productDescription`, which is
+  exactly the fall-through FR-004 asks for.
+
+  Before issue #91 this listing captured a description consisting of a
+  stylesheet and a function body, and the real A+ copy below was never reached.
+
+  `__IMAGE_HOST__` is replaced by the test with the local image server.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Acme Knurled Brass Standoff M3, 10mm</title>
+</head>
+<body>
+
+<div id="titleSection">
+    <h1 id="title"><span id="productTitle">Acme Knurled Brass Standoff M3</span></h1>
+    <a id="bylineInfo" class="a-link-normal" href="/stores/AcmeComponents">Brand: Acme Components</a>
+</div>
+
+<div id="corePrice_feature_div">
+    <span class="a-price" data-a-color="base">
+        <span class="a-offscreen">$8.75</span>
+    </span>
+</div>
+
+<script type="text/javascript">
+// Guarded, as in the other fixtures: the agent reads this block's text, never
+// its effect.
+if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A){
+  var data = {
+    'colorImages': { 'initial': [
+      {"hiRes":"__IMAGE_HOST__/brass_rod_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/brass_rod_sample._AC_SX679_.jpg","variant":"MAIN"}
+    ]}
+  };
+  return data;
+}); }
+</script>
+
+<div id="prodDetails">
+    <table id="productDetails_techSpec_section_1" class="prodDetTable">
+        <tr>
+            <th class="prodDetSectionEntry">Material</th>
+            <td class="prodDetAttrValue">Brass</td>
+        </tr>
+    </table>
+</div>
+
+<!-- Checked first, and it has to lose. Nothing in here is prose. -->
+<div id="productDescription">
+    <style type="text/css">
+      #productDescription { font-size: 13px; line-height: 1.4; }
+      #productDescription p { margin-bottom: 8px; }
+    </style>
+    <script type="text/javascript">
+      var descriptionReady = 1;
+      function renderDescription(target) { return target && descriptionReady; }
+    </script>
+</div>
+
+<!-- Checked second, and it is what must be captured. -->
+<div id="aplus" class="aplus-v2">
+    <div class="aplus-module">
+        <p>Knurled brass standoff, M3 thread, 10mm between faces.</p>
+    </div>
+</div>
+
+</body>
+</html>
