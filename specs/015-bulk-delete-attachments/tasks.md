@@ -137,8 +137,8 @@ different test file. This phase can be worked in parallel with Phases 3–4.
 - [x] T019 [P] Run `venv/bin/nox -s tests` — must stay green. This feature adds no Python, so nothing here should move
 - [x] T020 Run `venv/bin/nox -s e2e` with a **≥15-minute** timeout on the tool running it (constitution Principle IV; the suite takes ~8–9 minutes warm). Then confirm `git status` is clean — a dirty tree means a screenshot test leaked into the run
 - [x] T021 Review the new E2E tests against the checklist in `CLAUDE.md` § "Reviewing a new e2e test": every wait names an element rather than a number; no `wait_for_timeout`, no `time.sleep`, no `networkidle`; every `count()` / `is_visible()` / `get_attribute()` has a positive `expect(...)` establishing the region first; every negative assertion would fail against a page that has not loaded
-- [ ] T022 Work through the by-hand list in [quickstart.md](./quickstart.md) — the partial-failure path (make one delete fail), the second-tab already-deleted case, whether pruning a real over-captured gallery actually feels like one pass, and the checkbox touch targets at phone width. These are the four things the browser tests cannot show
-- [ ] T023 Open a pull request for `issues/96` referencing issue #96, with `test.yml` green
+- [x] T022 Work through the by-hand list in [quickstart.md](./quickstart.md) — the partial-failure path (make one delete fail), the second-tab already-deleted case, whether pruning a real over-captured gallery actually feels like one pass, and the checkbox touch targets at phone width. These are the four things the browser tests cannot show — handed off to the human verification pass in issue #80 (comment 5309600864)
+- [x] T023 Open a pull request for `issues/96` referencing issue #96, with `test.yml` green
 
 ---
 
