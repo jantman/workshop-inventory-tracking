@@ -41,12 +41,107 @@
     // Reading the page
     // ---------------------------------------------------------------
 
-    /** Trimmed, whitespace-collapsed text, or '' -- never null, never a throw. */
-    function textOf(node) {
-        if (!node) {
-            return '';
+    // Elements whose text was never prose. `textContent` includes them, which is
+    // why a captured A+ description used to arrive carrying a stylesheet and a
+    // function body rendered as writing (issue #91). `template` is here for the
+    // next reader rather than out of necessity -- the parser puts a template's
+    // children in its `content` fragment, so its `textContent` is already ''.
+    const NON_CONTENT = 'style, script, noscript, template';
+
+    // What the reader sees as a new paragraph. Matched on `nodeName`, which is
+    // upper-case for HTML elements. Deliberately short: `DIV` and `P` dominate
+    // A+ markup, everything else worth naming contains one of these, and the
+    // fold in `proseFrom` makes a redundant separator invisible anyway.
+    const BLOCK_ELEMENTS = {
+        P: true, DIV: true, LI: true, TR: true,
+        H1: true, H2: true, H3: true, H4: true, H5: true, H6: true
+    };
+
+    /**
+     * A detached copy of `node` with the non-content elements gone.
+     *
+     * **The original is never touched.** `canonicalDocument()` falls back to the
+     * live `document` whenever the canonical fetch fails, so removing nodes in
+     * place would edit the page the operator is looking at (FR-003). Cloning
+     * makes the fetched-document path and the fallback path behave identically,
+     * which is also what makes the fixture-driven test mean anything.
+     *
+     * Callers wanting *images* must go on passing the original block:
+     * `knownEdges()` reads `img.naturalWidth`, which is 0 on a detached clone,
+     * so a clone would silently change which images survive the size filter.
+     */
+    function contentClone(node) {
+        const clone = node.cloneNode(true);
+        const junk = clone.querySelectorAll(NON_CONTENT);
+        for (let i = 0; i < junk.length; i++) {
+            junk[i].remove();
         }
-        return (node.textContent || '').replace(/\s+/g, ' ').trim();
+        return clone;
+    }
+
+    /**
+     * The text of an already-cleaned clone, with the page's line structure kept.
+     *
+     * A `<br>` becomes one newline and a block boundary becomes a paragraph
+     * break, emitted on *both* sides of the element -- which is what makes
+     * `Intro<div>Boxed</div>` two paragraphs rather than `IntroBoxed`. The
+     * doubling that produces is what step 3 below folds away.
+     *
+     * **A newline inside a text node is not a line break.** Markup is indented,
+     * so a paragraph's own text is full of source newlines the reader never
+     * sees; collapsing each text node as it is appended is what guarantees every
+     * newline in the result is one this walk deliberately emitted.
+     */
+    function proseFrom(clone) {
+        const parts = [];
+
+        const walk = function (node) {
+            const children = node.childNodes;
+            for (let i = 0; i < children.length; i++) {
+                const child = children[i];
+                if (child.nodeType === 3) {  // Node.TEXT_NODE
+                    parts.push((child.data || '').replace(/\s+/g, ' '));
+                } else if (child.nodeType !== 1) {  // comments and the rest
+                    continue;
+                } else if (child.nodeName === 'BR') {
+                    parts.push('\n');
+                } else if (BLOCK_ELEMENTS[child.nodeName]) {
+                    parts.push('\n\n');
+                    walk(child);
+                    parts.push('\n\n');
+                } else {
+                    walk(child);
+                }
+            }
+        };
+        walk(clone);
+
+        // These four run in this order and the order is load-bearing. Step 2
+        // must precede step 3, or a line holding nothing but spaces survives the
+        // fold and shows up as a blank line the listing never had.
+        return parts.join('')
+            .replace(/[^\S\n]+/g, ' ')   // 1. spaces and tabs, but not newlines
+            .replace(/ *\n */g, '\n')    // 2. so a "blank" line is really empty
+            .replace(/\n{3,}/g, '\n\n')  // 3. at most one blank line (FR-007)
+            .trim();                     // 4.
+    }
+
+    /** Text with the page's line structure kept -- for descriptions and values. */
+    function proseOf(node) {
+        return node ? proseFrom(contentClone(node)) : '';
+    }
+
+    /**
+     * Trimmed, whitespace-collapsed text, or '' -- never null, never a throw.
+     *
+     * Same contract as it has always had: one line, runs collapsed, trimmed.
+     * Only the *content* changed -- it no longer reports a stylesheet as prose.
+     * Defined through `proseOf` so the stripping has exactly one implementation;
+     * the single-line guarantee is what `brandFrom`'s patterns and the
+     * specification-name fold both depend on (FR-009).
+     */
+    function textOf(node) {
+        return proseOf(node).replace(/\s+/g, ' ').trim();
     }
 
     /**
@@ -126,25 +221,40 @@
         const rows = [];
 
         // Shape one: a two-cell table row, th/td or td/td.
+        //
+        // The name is read single-line and the value is not. A name with a
+        // newline in it would be two spellings of one name to the two folds that
+        // follow -- `specificationsFrom`'s and `merge_specifications`' -- and a
+        // value with one is a cell the listing genuinely showed on two lines.
         const tableRows = container.querySelectorAll('tr');
         for (let i = 0; i < tableRows.length; i++) {
             const cells = tableRows[i].querySelectorAll('th, td');
             if (cells.length === 2) {
-                rows.push({ name: tidyName(textOf(cells[0])), value: textOf(cells[1]) });
+                rows.push({ name: tidyName(textOf(cells[0])), value: proseOf(cells[1]) });
             }
         }
 
         // Shape two: a detail bullet, where the name is the bold span and the
         // value is whatever is left over.
+        //
+        // "Left over" used to mean `whole.slice(textOf(bold).length)`, which
+        // assumed the name's text was a character-for-character prefix of the
+        // item's. That held only while both sides were single-line, and it would
+        // have failed by silently slicing at the wrong offset rather than by
+        // throwing. Removing the node says the same thing and cannot drift.
         const items = container.querySelectorAll('li');
         for (let i = 0; i < items.length; i++) {
             const bold = items[i].querySelector('.a-text-bold');
             if (!bold) {
                 continue;
             }
-            const whole = textOf(items[i]);
             const name = tidyName(textOf(bold));
-            const value = whole.slice(textOf(bold).length).replace(/^[\s:]+/, '').trim();
+            const remainder = contentClone(items[i]);
+            const boldInClone = remainder.querySelector('.a-text-bold');
+            if (boldInClone) {
+                boldInClone.remove();
+            }
+            const value = proseFrom(remainder).replace(/^[\s:]+/, '');
             if (name && value) {
                 rows.push({ name: name, value: value });
             }
@@ -358,7 +468,9 @@
             // Uncapped, and sent whole. b1a0c0d10009 widened the column it lands
             // in to 16,777,215 bytes precisely so there is nothing to truncate
             // against and FR-006 holds without an exception.
-            set('description_text', textOf(description));
+            set('description_text', proseOf(description));
+            // The *original* block, not a clone: `knownEdges()` falls back to
+            // `img.naturalWidth`, which is 0 on anything detached.
             addImages(descriptionImages(description));
         }
 
@@ -388,7 +500,15 @@
     // this reads whichever is present rather than combining them (FR-005).
     const DESCRIPTION_CONTAINERS = ['#productDescription', '#aplus', '#aplus_feature_div'];
 
-    /** Whichever description block the listing carries, or null. */
+    /**
+     * Whichever description block the listing carries, or null.
+     *
+     * The `textOf(block)` test is what earns FR-004, and it does so through the
+     * stripping rather than through any code here: a block whose only text was a
+     * stylesheet and a script now reads as '', fails the test, and the loop goes
+     * on to the next container. It is tested rather than assumed precisely
+     * because it is behavior emerging from a change somewhere else.
+     */
     function descriptionBlock(doc) {
         for (let i = 0; i < DESCRIPTION_CONTAINERS.length; i++) {
             const block = doc.querySelector(DESCRIPTION_CONTAINERS[i]);

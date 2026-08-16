@@ -484,14 +484,23 @@ def test_the_rich_description_is_kept_and_its_furniture_is_not(
         page, live_server, image_host, fixture="amazon_listing_aplus.html"
     )
 
-    payload = landed.locator("input[name='listing']").input_value()
-    images = json.loads(payload)["images"]
-    assert images == [
+    payload = payload_of(landed)
+    assert payload["images"] == [
         f"{image_host}/aluminum_tube_sample.jpg",   # the gallery, exempt
         f"{image_host}/steel_plate_sample.jpg",     # 970 on its longest edge
         f"{image_host}/brass_rod_sample.jpg",       # 800x600
     ]
     expect(landed.locator("#summary-description")).to_contain_text("kept in full")
+
+    # FR-014 / SC-006. Issue #91 changed how text is read, and every one of these
+    # goes through the same helper -- so "the description got cleaner" has to be
+    # accompanied by "and nothing else moved". These are the pre-#91 values.
+    assert payload["listing_title"] == "Acme Aluminium Extrusion 20x20 T-Slot"
+    assert payload["brand"] == "Acme Components"
+    assert payload["price"] == "1249.50"
+    assert [row["name"] for row in payload["specifications"]] == [
+        "Material", "Item Length", "Customer Reviews", "Finish", "Country of Origin",
+    ]
 
     confirm(landed, description="20x20 T-slot extrusion")
 
@@ -519,6 +528,297 @@ def test_the_plain_description_form_is_kept_too(page, live_server, image_host):
     expect(landed.locator("#product-specifications")).to_contain_text(
         "regulated 12 volts at up to 3 amps"
     )
+
+
+# ---------------------------------------------------------------
+# Issue #91: the description is the listing's words, not its markup
+# ---------------------------------------------------------------
+
+# What amazon_listing_aplus.html's block yields once the stylesheet, the script
+# and the <noscript> are out and the block boundaries are in.
+#
+# Asserted **whole** rather than by substring, deliberately. The shape is the
+# requirement here: a substring check passes just as happily against paragraphs
+# that arrived in the wrong order, against a stray blank line, and against a
+# <br> that became a paragraph break. One equality catches all three.
+APLUS_DESCRIPTION = (
+    "Built for the workshop\n"
+    "\n"
+    "Extruded 6063-T5 aluminium with a 6mm T-slot on all four faces, cut square "
+    "to 300mm. Anodised clear; takes M5 T-nuts without tapping.\n"
+    "\n"
+    "Cut square to length.\n"          # the <br>: one newline, not a paragraph
+    "Deburred both ends.\n"            # indented across three source lines
+    "\n"
+    "Packed in a protective sleeve.\n"  # nested three deep: still one blank line
+    "\n"
+    "Ships from a UK warehouse.\n"      # the whitespace-only div left no gap
+    "\n"
+    "6mm slot, four faces\n"
+    "\n"
+    "Clear anodised finish\n"
+    "\n"
+    "Sold singly\n"                     # a <br> inside a list item
+    "not in packs"
+)
+
+# The plain form, which has no stylesheet to lose. The only difference from what
+# capture produced before #91 is the break after the heading, which is FR-006
+# working -- see test_the_plain_description_loses_no_prose.
+PLAIN_DESCRIPTION = (
+    "Product Description\n"
+    "\n"
+    "This power supply provides a regulated 12 volts at up to 3 amps through a "
+    "5.5x2.1mm centre-positive barrel plug. Short-circuit and over-current "
+    "protected, with a 1.5 metre lead."
+)
+
+# Byte-for-byte what capture stored for the plain fixture before #91.
+PLAIN_DESCRIPTION_BEFORE_91 = (
+    "Product Description This power supply provides a regulated 12 volts at up "
+    "to 3 amps through a 5.5x2.1mm centre-positive barrel plug. Short-circuit "
+    "and over-current protected, with a 1.5 metre lead."
+)
+
+
+@pytest.mark.e2e
+def test_the_description_carries_no_stylesheet_or_script(
+    page, live_server, image_host
+):
+    """US1 / FR-001. The defect that made a captured description 21,415 chars.
+
+    ``textContent`` includes the text of any <style> and <script> descendant,
+    and an A+ block routinely carries both. So a stylesheet and a function body
+    were stored and displayed as though they were the manufacturer's writing.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+
+    description = payload_of(landed)["description_text"]
+
+    # The stylesheet.
+    assert ".aplus-module" not in description
+    assert "font-size" not in description
+    assert "border-top" not in description
+    # The script.
+    assert "aplusModuleReady" not in description
+    assert "function aplusInit" not in description
+    # The <noscript> fallback, which is markup's answer to not having script.
+    assert "Enable JavaScript" not in description
+
+    # Positively, so this cannot be satisfied by capturing nothing at all.
+    assert "Extruded 6063-T5 aluminium" in description
+
+
+@pytest.mark.e2e
+def test_a_block_of_only_markup_is_not_a_description(page, live_server, image_host):
+    """US1 / FR-004: an empty block is skipped, not stored.
+
+    The empty block in this fixture is ``#productDescription``, which is the one
+    the container list checks *first*. That ordering is the whole point: the
+    only way the A+ copy can arrive is if the emptiness test rejected the block
+    ahead of it.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_markup_only.html"
+    )
+
+    description = payload_of(landed)["description_text"]
+
+    assert description == "Knurled brass standoff, M3 thread, 10mm between faces."
+    assert "renderDescription" not in description
+    assert "line-height" not in description
+
+
+@pytest.mark.e2e
+def test_the_plain_description_loses_no_prose(page, live_server, image_host):
+    """US1 / FR-010, SC-003. The half of this feature that is easy to break.
+
+    Making the A+ descriptions shorter is worthless if it also makes the plain
+    ones shorter -- that trades one data-loss defect for another, and FR-006 of
+    the capture feature says nothing is truncated. Collapsing the newlines this
+    feature introduces must give back exactly the pre-#91 value.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    description = payload_of(landed)["description_text"]
+
+    assert description == PLAIN_DESCRIPTION
+    assert re.sub(r"\s+", " ", description) == PLAIN_DESCRIPTION_BEFORE_91
+
+
+@pytest.mark.e2e
+def test_reading_the_listing_does_not_change_it(page, live_server, image_host):
+    """US1 / FR-003: the extraction removes nodes from a clone, never the page.
+
+    ``canonicalDocument()`` falls back to the operator's live ``document``
+    whenever the canonical fetch fails, so a removal in place would edit the
+    page they are looking at -- and the second capture would see a page with no
+    stylesheet, no script and possibly no description at all. Two captures from
+    the one tab agreeing is what says the first one left no mark.
+    """
+    serve_listing(page, image_host, "amazon_listing_aplus.html")
+
+    first = payload_of(run_bookmarklet(page, live_server, listing_url(live_server)))
+    second = payload_of(run_bookmarklet(page, live_server, listing_url(live_server)))
+
+    assert first == second
+
+
+@pytest.mark.e2e
+def test_the_description_keeps_the_shape_the_listing_gave_it(
+    page, live_server, image_host
+):
+    """US2 / FR-005 to FR-008, as one string.
+
+    Every case at once: an explicit break becomes one newline, a paragraph
+    becomes a paragraph, three levels of nesting still yield one blank line, a
+    division holding only spaces yields none, and a paragraph indented across
+    three source lines stays on one line -- because a newline in the markup is
+    not a newline the reader ever saw.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+
+    description = payload_of(landed)["description_text"]
+
+    assert description == APLUS_DESCRIPTION
+    # The guarantees, restated as properties, so a future fixture edit that
+    # changes the expected string still cannot quietly break them.
+    assert description == description.strip()
+    assert "\n\n\n" not in description
+    assert not any(line != line.strip() for line in description.split("\n"))
+
+
+@pytest.mark.e2e
+def test_a_captured_description_is_displayed_with_its_breaks(
+    page, live_server, image_host
+):
+    """US2 / FR-011: storing newlines and flattening them at render solves nothing"""
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+    confirm(landed, description="20x20 T-slot extrusion")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    # Establish the region before reading it: inner_text() does not wait, and
+    # against a table that has not rendered it reads empty -- which would pass
+    # the "no run-on paragraph" half of this by accident.
+    specifications = landed.locator("#product-specifications")
+    expect(specifications).to_contain_text("Description")
+
+    values = landed.locator("#product-specifications .specification-value")
+    shown = [values.nth(i).inner_text() for i in range(values.count())]
+    description = next(v for v in shown if "Extruded 6063-T5 aluminium" in v)
+
+    assert "Built for the workshop\n" in description
+    assert "Cut square to length.\nDeburred both ends." in description
+
+
+@pytest.mark.e2e
+def test_an_unrelated_edit_does_not_reflow_a_captured_description(
+    page, live_server, image_host
+):
+    """US2 / FR-012: the round trip an <input> would silently destroy.
+
+    The HTML value sanitization algorithm strips CR and LF, so a multi-line
+    value in an ``<input>`` posts back as one run-on line. The form renders a
+    textarea instead whenever the stored value has a newline in it; this is the
+    test that says so for a value that arrived from a *capture* rather than from
+    the migration that first needed it.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+    confirm(landed, description="20x20 T-slot extrusion")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+    expect(landed.locator("#product-specifications")).to_contain_text("Description")
+    product_url = landed.url
+
+    landed.goto(f"{product_url}/edit")
+    expect(landed.locator(specification_rows.ROWS)).not_to_have_count(0)
+    landed.fill("#description", "Renamed, specifications untouched")
+    landed.click("#save-product-btn")
+
+    expect(landed.locator("#product-description")).to_have_text(
+        "Renamed, specifications untouched"
+    )
+    # And the region being read, established in its own right rather than
+    # inferred from the description above having rendered.
+    expect(landed.locator("#product-specifications")).to_contain_text("Description")
+
+    values = landed.locator("#product-specifications .specification-value")
+    shown = [values.nth(i).inner_text() for i in range(values.count())]
+    description = next(v for v in shown if "Extruded 6063-T5 aluminium" in v)
+
+    assert "Cut square to length.\nDeburred both ends." in description
+
+
+@pytest.mark.e2e
+def test_a_specification_value_carries_no_stylesheet_or_script(
+    page, live_server, image_host
+):
+    """US3 / FR-002: the same helper read the table cells, so the same junk landed.
+
+    On B09GM8FB3X it was the ``Customer Reviews`` row: a rating widget with its
+    own inline styling and script.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+
+    rows = {row["name"]: row["value"] for row in payload_of(landed)["specifications"]}
+
+    assert rows["Customer Reviews"] == "4.6 out of 5 stars"
+
+
+@pytest.mark.e2e
+def test_a_specification_value_keeps_its_lines_and_its_name_does_not(
+    page, live_server, image_host
+):
+    """US3 / FR-009: values may span lines, names never may.
+
+    A name carrying a newline would be two spellings of one name to both folds
+    that key on it -- the agent's own merge across containers, and
+    ``merge_specifications`` against the product's existing rows.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+
+    entries = payload_of(landed)["specifications"]
+    rows = {row["name"]: row["value"] for row in entries}
+
+    assert rows["Finish"] == "Clear anodised, 10 micron.\n\nMatte, non-conductive."
+    # The <th> holding "Country of<br>Origin".
+    assert rows["Country of Origin"] == "United Kingdom"
+    assert not any("\n" in row["name"] for row in entries)
+
+
+@pytest.mark.e2e
+def test_detail_bullets_still_split_into_name_and_value(
+    page, live_server, image_host
+):
+    """US3: the rewrite that removed the slice arithmetic was equivalent.
+
+    The value used to be ``whole.slice(textOf(bold).length)``, which assumed the
+    name's text was a character-for-character prefix of the item's. It is now
+    the item with the bold node removed. These three rows are the ones that
+    would have moved if the two were not the same thing.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    rows = {row["name"]: row["value"] for row in payload_of(landed)["specifications"]}
+
+    assert rows["Date First Available"] == "March 14, 2023"
+    assert rows["Best Sellers Rank"] == "#4,812 in Tools & Home Improvement"
+    assert rows["Customer Reviews"] == "4.5 out of 5 stars"
 
 
 @pytest.mark.e2e
