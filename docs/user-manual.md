@@ -938,6 +938,26 @@ Two ways in:
 > `http://` — open it over `https://` and drag the bookmarklet again. The paste
 > box works either way.
 
+### When it is sold as a pack
+
+A listing that sells a 3-pack quotes one price, and that price is what the *pack*
+cost. A purchase records what *one* costs. So the form asks for both: **Paid for
+the Pack**, already filled in with the listing's price, and **Units in the Pack**.
+Fill in the second and **Unit Price** works itself out.
+
+It stays an ordinary field. Type over it if the listing was wrong about the price
+or if something else was; what is in the field when you press **Capture** is what
+gets recorded, whoever arrived at it.
+
+**Units in the Pack is not Quantity.** It is how many came in one pack; Quantity
+is how many units the order brings in. Neither pack field is stored — they exist
+to work the unit price out and are forgotten the moment you capture.
+
+A pack price rarely divides evenly. $17.99 across three is $5.996666…, and a price
+is recorded to the cent, so the unit price is rounded — $6.00 here. Three of those
+do not add back up to the $17.99 you paid, and the page says so beneath the field
+rather than letting you discover it during a reconciliation months later.
+
 Capturing the same listing twice **asks** rather than guessing: it tells you a
 purchase for this listing is already recorded today, and lets you say whether
 this is a second order or a double-click. Nothing is written until you answer,

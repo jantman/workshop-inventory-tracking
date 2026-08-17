@@ -170,15 +170,49 @@
                     </div>
 
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-6 mb-3">
                             <label for="order_date" class="form-label">Order Date</label>
                             <input type="date" class="form-control" id="order_date"
                                    name="order_date" value="{{ form_data.get('order_date') or '' }}">
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-6 mb-3">
                             <label for="quantity" class="form-label">Quantity</label>
                             <input type="number" class="form-control" id="quantity" name="quantity"
                                    min="1" step="1" value="{{ form_data.get('quantity') or '' }}">
+                        </div>
+                    </div>
+
+                    {# The pack, and what one of it costs. Read left to right:
+                       what you paid, how many were in it, what that makes one.
+
+                       **Neither pack field is recorded anywhere.** They are
+                       submitted because they are form fields and product_capture
+                       ignores them; they exist to produce the unit price on this
+                       page and to still be here explaining it when the form comes
+                       back with a question. There is no pack size in the schema
+                       and this is not the beginning of one. #}
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="pack_price" class="form-label">Paid for the Pack</label>
+                            {# The listing quotes what the *pack* cost, so that is
+                               the field its price belongs in. It also still fills
+                               Unit Price, which is not redundancy: at a pack size
+                               of one the two agree, so a capture that never touches
+                               these fields -- or a browser with no JavaScript --
+                               records exactly what it recorded before this existed. #}
+                            <input type="text" class="form-control" id="pack_price"
+                                   name="pack_price" inputmode="decimal"
+                                   value="{{ form_data.get('pack_price')
+                                             or (listing.price if listing else '') or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="pack_size" class="form-label">Units in the Pack</label>
+                            <input type="number" class="form-control" id="pack_size"
+                                   name="pack_size" min="1" step="1"
+                                   value="{{ form_data.get('pack_size') or '1' }}">
+                            <div class="form-text">
+                                How many came in it -- not how many you ordered.
+                            </div>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label for="unit_price" class="form-label">Unit Price</label>
@@ -190,6 +224,11 @@
                                    name="unit_price" inputmode="decimal"
                                    value="{{ form_data.get('unit_price')
                                              or (listing.price if listing else '') or '' }}">
+                            {# Worked out from the two fields to the left, and
+                               yours to overrule -- this is the value that gets
+                               recorded, whoever arrived at it. #}
+                            <div class="form-text d-none" id="unit-price-inexact"></div>
+                            <div class="form-text text-danger d-none" id="unit-price-error"></div>
                         </div>
                     </div>
                 </div>
@@ -297,4 +336,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pack-unit-price.js') }}"></script>
 {% endblock %}
