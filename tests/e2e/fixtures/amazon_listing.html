@@ -113,6 +113,13 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
             <th class="prodDetSectionEntry">Wattage</th>
             <td class="prodDetAttrValue">36 Watts</td>
         </tr>
+        <!-- 016: a real listing publishes the barcode, and this row is what makes
+             the product findable by the one printed on its box. Same constant the
+             wedge-scan suite calls VALID_UPC_A. -->
+        <tr>
+            <th class="prodDetSectionEntry">UPC</th>
+            <td class="prodDetAttrValue">012345678905</td>
+        </tr>
     </table>
 </div>
 

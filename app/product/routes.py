@@ -8,6 +8,7 @@ rather than any new error machinery.
 """
 
 import re
+from typing import List
 from urllib.parse import urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -17,7 +18,7 @@ from app.catalog_service import CatalogService
 from app.exceptions import (
     CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
 )
-from app.models import IdentifierType, ListingCapture
+from app.models import CapturedBarcode, IdentifierType, ListingCapture
 from app.photo_service import PhotoService
 from app.product import bp
 from app.services.listing_images import store_listing_images
@@ -458,6 +459,18 @@ def product_capture():
 
         flash('Captured. Confirm the details when it arrives.', 'success')
 
+        # Above the image tally, because what the product is called by matters
+        # more than how many pictures of it landed. Read-only and derived from
+        # the catalog's final state -- the write happened inside capture_order.
+        if listing is not None:
+            barcodes = service.describe_captured_barcodes(purchase.product_id, listing)
+            if barcodes:
+                flash(
+                    _barcode_tally(barcodes),
+                    'success' if all(n.outcome == 'recorded' for n in barcodes)
+                    else 'warning',
+                )
+
         # After capture_order returns, and before the redirect. The ordering is
         # the contract: the operator lands on a finished capture rather than on
         # one still filling in behind them. It is also what makes this POST take
@@ -481,6 +494,43 @@ def product_capture():
         listing=ListingCapture.from_json(request.args.get('listing')),
         bookmarklet=_capture_bookmarklet(),
     )
+
+
+def _barcode_tally(barcodes: List[CapturedBarcode]) -> str:
+    """Say what the listing's barcode rows came to (016 FR-009).
+
+    Follows ``_image_tally``'s rule: everything that did not land is named, and
+    named with the reason. A barcode that quietly failed its check digit is the
+    failure the operator cannot see -- they find out months later when the box
+    will not scan, by which time the listing is gone.
+
+    The "kept as a specification" reassurance is conditional, because it is not
+    always true: a row the merge dropped took its value with it. Telling the
+    operator a value is on the product when it is not would be worse than saying
+    nothing, which is the whole reason this tally exists.
+    """
+    sentences = []
+    for note in barcodes:
+        kept = " It is kept as a specification." if note.kept_as_specification else ""
+
+        if note.outcome == 'recorded':
+            sentences.append(f"Barcode {note.value} is recorded on this product.")
+        elif note.outcome == 'unusable':
+            sentences.append(
+                f"The listing's {note.row_name} value \"{note.value}\" was not "
+                f"recorded: it is not a valid barcode.{kept}"
+            )
+        elif note.outcome == 'taken':
+            sentences.append(
+                f"Barcode {note.value} was not recorded: product {note.holder_id} "
+                f"({note.holder_description}) already holds it.{kept}"
+            )
+        elif note.outcome == 'not_examined':
+            sentences.append(
+                f"The listing's {note.row_name} row was not examined, because this "
+                f"product already lists a {note.row_name} row."
+            )
+    return ' '.join(sentences)
 
 
 def _image_tally(images) -> str:

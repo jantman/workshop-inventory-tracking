@@ -37,6 +37,7 @@ from .exceptions import (
 from .mariadb_storage import MariaDBStorage
 from .models import (
     CaptureAssessment,
+    CapturedBarcode,
     IdentifierType,
     ListingCapture,
     ScanClassification,
@@ -60,6 +61,12 @@ MAX_SPECIFICATION_NAME_LENGTH = 100
 
 # The identifier types whose meaning depends on knowing whose identifier it is.
 VENDOR_SCOPED_TYPES = (IdentifierType.VENDOR, IdentifierType.DISTRIBUTOR)
+
+# Specification row names that mean "this value is a retail barcode" (016 FR-001).
+# A captured row carrying one of these is a candidate for promotion to a GTIN
+# identifier; see _promote_barcode_rows. The list is closed and short, and adding
+# to it is a one-line change -- which is why it is a constant and not a setting.
+BARCODE_ROW_NAMES = frozenset({'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A'})
 
 
 class CatalogService:
@@ -647,7 +654,7 @@ class CatalogService:
 
     def merge_specifications(
         self, product_id: int, entries: List[Dict[str, str]]
-    ) -> int:
+    ) -> List[Dict[str, str]]:
         """Add captured specification rows without disturbing what is there.
 
         The counterpart to ``update_product``'s replace-on-write, and not a
@@ -675,9 +682,16 @@ class CatalogService:
             entries: ``{'name', 'value'}`` dicts, as the agent found them.
 
         Returns:
-            The number of rows added. ``0`` is an ordinary outcome -- recapturing
-            an unchanged listing adds nothing the second time -- and not a
-            failure.
+            The validated entries it appended, in the order it appended them.
+            Empty is an ordinary outcome -- recapturing an unchanged listing adds
+            nothing the second time -- and not a failure.
+
+            **The rows rather than a count, because the caller needs to know
+            which ones.** ``_promote_barcode_rows`` turns a captured ``UPC`` row
+            into a GTIN identifier, and 016 FR-003 limits that to rows this
+            capture actually added. Whether a row was added is decided here and
+            nowhere else, so reporting it here is what keeps the drop rule from
+            being implemented twice.
 
         Raises:
             ItemNotFoundError: If the product does not exist.
@@ -703,7 +717,7 @@ class CatalogService:
                 (row.display_order for row in product.specifications), default=-1
             ) + 1
 
-            added = 0
+            added = []
             for entry in entries or []:
                 try:
                     validated = self._validate_specifications([entry])
@@ -725,10 +739,12 @@ class CatalogService:
                     display_order=next_order,
                 ))
                 next_order += 1
-                added += 1
+                added.append(validated[0])
 
         if added:
-            logger.info(f"Merged {added} captured specifications into product {product_id}")
+            logger.info(
+                f"Merged {len(added)} captured specifications into product {product_id}"
+            )
         return added
 
     # -- Identifiers -------------------------------------------------------
@@ -1209,7 +1225,158 @@ class CatalogService:
         if listing.description_text:
             entries.append({'name': 'Description', 'value': listing.description_text})
         if entries:
-            self.merge_specifications(product_id, entries)
+            self._promote_barcode_rows(
+                product_id, self.merge_specifications(product_id, entries)
+            )
+
+    def _promote_barcode_rows(
+        self, product_id: int, added: List[Dict[str, str]]
+    ) -> None:
+        """Turn the barcode-named rows a capture added into GTIN identifiers.
+
+        016's whole feature. A listing that publishes a UPC has handed us the
+        thing that makes the product findable by the barcode on its box, and
+        storing it only as a specification throws that away.
+
+        **It reads the rows the merge added, not the rows the listing carried,
+        and that is FR-003 in its entirety.** A captured row whose name the
+        product already lists is dropped by ``merge_specifications`` and never
+        reaches this list, so it cannot be promoted -- what is in the
+        specification list is what was promoted, and no identifier can contradict
+        a row the operator can see.
+
+        **There is no override, deliberately** (FR-004). A value that fails its
+        check digit is skipped and stays a specification row. ``add_identifier``
+        has an override for a value an operator typed and stood behind; nobody
+        typed this one, so nobody would see the prompt, and an unattended
+        override is how a wrong barcode becomes permanent.
+
+        Nothing here can fail the capture (FR-011). The purchase is already
+        resolved by the time this runs, and a barcode the catalog will not accept
+        is a smaller problem than a capture that refuses to complete.
+        """
+        for entry in added:
+            if not _is_barcode_row_name(entry.get('name')):
+                continue
+
+            raw = entry.get('value') or ''
+            key = gtin_utils.normalize_and_validate(raw)
+            if key is None:
+                logger.info(
+                    f"Captured {entry.get('name')} row {raw!r} is not a valid barcode; "
+                    f"kept as a specification on product {product_id}"
+                )
+                continue
+
+            try:
+                self.add_identifier(product_id, IdentifierType.GTIN.value, key)
+                logger.info(f"Promoted captured barcode {key} onto product {product_id}")
+            except DuplicateItemError as e:
+                # FR-006: the catalog already has a claim on this value. Leaving
+                # it as a specification is the only answer that does not guess.
+                logger.info(
+                    f"Captured barcode {key} not promoted onto product {product_id}: "
+                    f"product {e.item_id} already holds it"
+                )
+            except ValidationError as e:
+                # Belt and braces: normalize_and_validate has already agreed the
+                # value is storable, so reaching here means the identifier rules
+                # changed underneath this and the capture should still finish.
+                logger.warning(
+                    f"Captured barcode {key} refused by add_identifier: {e.message}"
+                )
+
+    def describe_captured_barcodes(
+        self, product_id: int, listing: ListingCapture
+    ) -> List[CapturedBarcode]:
+        """What became of a listing's barcode-named rows, for the operator.
+
+        Read-only, and called by the capture route **after** the write, so every
+        outcome is derived from the catalog's final state rather than carried out
+        of the write path. See the class docstring on
+        :class:`~app.models.CapturedBarcode` for why the report is state-shaped.
+
+        Args:
+            product_id: The product the capture resolved to.
+            listing: What the capture agent read off the vendor's page.
+
+        Returns:
+            One entry per barcode-named row, in listing order, deduplicated by
+            normalized key -- a listing carrying both a 12-digit ``UPC`` and its
+            13-digit ``EAN`` form is publishing one barcode, and two lines saying
+            so reads as two. Empty when the listing carried no barcode-named row,
+            which is when the route says nothing at all (FR-013).
+        """
+        notes: List[CapturedBarcode] = []
+        seen = set()
+
+        product = self.get_product(product_id)
+        # What the product's specification list holds *now*, folded the way
+        # merge_specifications folds it. This is how a row that did not survive
+        # the merge is recognized -- see the first test in the loop.
+        listed = {_fold(row.name): row.value for row in (product.specifications if product else [])}
+
+        for entry in listing.specifications if listing else []:
+            name = entry.get('name') or ''
+            if not _is_barcode_row_name(name):
+                continue
+
+            raw = (entry.get('value') or '').strip()
+            key = gtin_utils.normalize_and_validate(raw)
+
+            # Only equivalent *valid* forms are one barcode (FR-009). Two rows
+            # carrying the same unusable text are still two rows, and FR-009
+            # wants every one of them accounted for.
+            if key is not None:
+                if key in seen:
+                    continue
+                seen.add(key)
+
+            listed_value = listed.get(_fold(name))
+            kept = listed_value == raw
+
+            # **Tested first, before anything about the value itself.** The
+            # product already carries a row of this name holding something else,
+            # so the merge dropped this one whole and the captured value is
+            # stored nowhere (FR-010). Every outcome below would tell the
+            # operator where the value is, and it is not anywhere.
+            if listed_value is not None and not kept:
+                notes.append(CapturedBarcode(
+                    row_name=name, value=raw, outcome='not_examined',
+                    kept_as_specification=False,
+                ))
+                continue
+
+            if key is None:
+                notes.append(CapturedBarcode(
+                    row_name=name, value=raw, outcome='unusable',
+                    kept_as_specification=kept,
+                ))
+                continue
+
+            holder = self.find_product_by_identifier(key, id_type=IdentifierType.GTIN.value)
+            if holder is not None and holder.id == product_id:
+                notes.append(CapturedBarcode(
+                    row_name=name, value=key, outcome='recorded',
+                    kept_as_specification=kept,
+                ))
+            elif holder is not None:
+                notes.append(CapturedBarcode(
+                    row_name=name, value=key, outcome='taken',
+                    holder_id=holder.id, holder_description=holder.description,
+                    kept_as_specification=kept,
+                ))
+            else:
+                # Inferred, not flagged: every row the merge *added* was either
+                # promoted -- so this product holds it -- or refused because
+                # another product does. A valid barcode nobody holds, on a row
+                # whose value is already listed, is the same-value drop (FR-010).
+                notes.append(CapturedBarcode(
+                    row_name=name, value=key, outcome='not_examined',
+                    kept_as_specification=kept,
+                ))
+
+        return notes
 
     def _find_captured_purchase(
         self,
@@ -2324,6 +2491,18 @@ def _as_int(value: Any) -> Optional[int]:
 def _fold(value: Optional[str]) -> str:
     """Case-fold and trim, for comparisons that must mean one thing everywhere."""
     return (value or '').strip().casefold()
+
+
+def _is_barcode_row_name(name: Optional[str]) -> bool:
+    """Whether a specification row's name means "this value is a barcode".
+
+    016 FR-001: case and whitespace are folded, so ``upc``, ``UPC `` and ``Upc``
+    are one name. The comparison is against the **whole** folded name and not a
+    substring: ``Manufacturer UPC`` and ``UPC Code`` are not ``UPC`` rows. A
+    feature that promised six names should promote six names, and this runs with
+    nobody watching.
+    """
+    return ' '.join((name or '').split()).upper() in BARCODE_ROW_NAMES
 
 
 def _corroborates(product: Product, manufacturer: Any, part_number: Any) -> bool:
