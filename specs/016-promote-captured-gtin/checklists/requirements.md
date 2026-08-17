@@ -41,7 +41,15 @@ Two questions were open on the first pass and were settled by the owner on 2026-
    in the "Nothing is retrofitted" assumption.
 2. **What the confirmation page reports** — everything: what was recorded, and every barcode-named
    row that was not, with the reason. FR-009. FR-010 extends that to a row the merge dropped, so the
-   rule in (1) is never silently surprising, while staying quiet on an ordinary re-capture.
+   rule in (1) is never silently surprising.
+
+**Amended during `/speckit-plan` (2026-08-17).** Planning found that reporting the *action* this
+capture took — as opposed to the barcode's resulting *state* — would require changing
+`capture_order`'s return type at roughly 55 call sites, for the sake of staying silent on a repeat
+capture instead of repeating one true sentence. FR-009 was reworded to be state-shaped, FR-009a was
+added to say so explicitly, FR-010's silent-case exception collapsed into it, and SC-003 and two
+acceptance scenarios follow. The pricing is in [research.md](../research.md) §3. Nothing about what
+gets *written* changed.
 
 Two judgments were taken as defaults rather than asked, and are recorded in the Assumptions: a
 value holding several space-separated barcodes is not promoted, and no retrofit sweep over

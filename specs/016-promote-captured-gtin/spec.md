@@ -55,10 +55,11 @@ product now holds a GTIN identifier, then find the product by scanning or typing
    scanned or typed into the find-by-code path, **Then** the operator lands on that product.
 3. **Given** the same listing captured a second time onto the same product, **When** the operator
    confirms the capture, **Then** the product still carries exactly one GTIN identifier for that
-   barcode, no error is shown, and nothing is reported about the barcode.
-4. **Given** a product that already carries a specification row named `UPC`, **When** a capture
-   supplies its own `UPC` row, **Then** the captured row is dropped as it is today, no identifier is
-   created, and the confirmation page says the row was not examined (FR-010).
+   barcode, no error is shown, and the barcode is reported as recorded (FR-009a).
+4. **Given** a product that already carries a specification row named `UPC` whose value is not on
+   any product as an identifier, **When** a capture supplies its own `UPC` row, **Then** the captured
+   row is dropped as it is today, no identifier is created, and the confirmation page says the row
+   was not examined (FR-010).
 5. **Given** a listing whose product information includes a row named `EAN`, `GTIN`, `ISBN`,
    `GTIN-13` or `UPC-A` with a valid barcode value, **When** the operator confirms the capture,
    **Then** the row is promoted exactly as a `UPC` row would be.
@@ -179,16 +180,23 @@ product has no GTIN identifier, and the confirmation page says so.
 - **FR-008**: The system MUST evaluate promotion against the product the capture finally resolved
   to, after the duplicate-purchase and recycled-identifier decisions are settled, and MUST write
   nothing when the capture does not complete.
-- **FR-009**: The system MUST report the promotion outcome to the operator on the confirmation page,
-  in the same place and manner the capture already reports what it did. The report MUST name what
-  was recorded, and MUST name every barcode-named row that was not recorded together with the
-  reason — a failed check digit, a value that is not a plausible barcode, or another product already
-  holding it. A capture with no barcode-named row MUST report nothing on this subject.
+- **FR-009**: The system MUST report the outcome to the operator on the confirmation page, in the
+  same place and manner the capture already reports what it did. For every barcode-named row the
+  listing carried, the report MUST say which of exactly four things is true of it: the barcode is
+  recorded on this product; it was not recorded because the value is not a valid barcode; it was not
+  recorded because another product already holds it, and which; or the row was not examined. Two
+  rows whose values are equivalent barcode forms MUST produce one line, not two. A capture with no
+  barcode-named row MUST report nothing on this subject.
+- **FR-009a**: The report states **what is true of the barcode after the capture**, not what this
+  particular capture did. So a listing captured a second time reports its barcode as recorded, the
+  same as the first time, rather than falling silent — the statement is true either way, and
+  distinguishing the two would cost a change out of all proportion to the sentence. See
+  [research.md](./research.md) §3, which is where this was decided and priced.
 - **FR-010**: A barcode-named row that was dropped by the merge (FR-003) MUST be reported as not
-  examined, naming the row, **unless** the product already holds that row's value as an identifier —
-  in which case there is nothing to say and nothing is reported. Without this, the chosen rule is
-  silent exactly where it surprises: a capture that looks like it should have produced an identifier
-  and did not.
+  examined, naming the row. This is what keeps the chosen rule from being silent exactly where it
+  surprises: a capture that looks like it should have produced an identifier and did not. A dropped
+  row whose value the product already holds as an identifier falls under "recorded" by FR-009a, and
+  needs no separate treatment.
 - **FR-011**: A refused or collided promotion MUST NOT fail the capture: the purchase, the
   specification rows, the description and the images all land regardless.
 - **FR-012**: The system MUST evaluate each barcode-named row independently, so one unusable value
@@ -216,8 +224,8 @@ product has no GTIN identifier, and the confirmation page says so.
   so verifying against it means removing the row first — see the Assumptions.)
 - **SC-002**: A capture of the same listing with one digit of the UPC altered produces zero
   identifiers, and the altered value is present as a specification row.
-- **SC-003**: Capturing the same listing twice yields exactly one GTIN identifier on the product,
-  no error on the second capture, and no report about the barcode on the second capture.
+- **SC-003**: Capturing the same listing twice yields exactly one GTIN identifier on the product and
+  no error on the second capture. Both captures report the barcode as recorded (FR-009a).
 - **SC-004**: When the barcode already belongs to another product, both products end the capture
   with the identifiers they started with, and the operator is told on the confirmation page without
   having to look anywhere else.
