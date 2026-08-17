@@ -23,7 +23,7 @@ from decimal import Decimal
 import pytest
 from markupsafe import escape
 
-from app.catalog_service import CatalogService
+from app.catalog_service import CatalogService, _is_barcode_row_name
 from app.exceptions import CaptureDecisionRequired, ValidationError
 from app.models import ListingCapture
 
@@ -1159,7 +1159,8 @@ class TestCapturedSpecifications:
         with pytest.raises(ItemNotFoundError):
             service.merge_specifications(9999, [{'name': 'Voltage', 'value': '12 V'}])
 
-    def test_it_returns_the_number_it_added(self, service):
+    def test_it_returns_the_rows_it_added(self, service):
+        """016 FR-003 rides on this: the caller has to know *which* rows landed"""
         product = service.create_product(
             description='12V PSU',
             specifications=[{'name': 'Material', 'value': 'What I measured'}],
@@ -1170,7 +1171,7 @@ class TestCapturedSpecifications:
             {'name': 'Voltage', 'value': '12 Volts'},
         ])
 
-        assert added == 1
+        assert added == [{'name': 'Voltage', 'value': '12 Volts'}]
 
     def test_update_product_still_replaces(self, service):
         """The two are not variants of each other, and this is the guard on that"""
@@ -1209,7 +1210,7 @@ class TestTheFoldHappensInPython:
             {'name': 'Vôlt', 'value': 'douze'},
         ])
 
-        assert added == 1
+        assert len(added) == 1
         names = [row.name for row in service.get_product(product.id).specifications]
         assert names == ['Volt', 'Vôlt']
 
@@ -1451,3 +1452,316 @@ class TestThePayloadSurvivesAQuestion:
         })
 
         assert service.list_products() == []
+
+
+# ---------------------------------------------------------------------------
+# 016: a captured barcode becomes a scannable identifier
+# ---------------------------------------------------------------------------
+
+VALID_UPC_A = '012345678905'
+VALID_EAN_13 = '0012345678905'      # the same trade item, one form up
+VALID_GTIN_KEY = '00012345678905'   # what both of them are stored as
+BAD_CHECK_DIGIT = '012345678906'
+VALID_ISBN_13 = '9780306406157'
+ISBN_13_KEY = '09780306406157'
+ISBN_10 = '0306406152'              # a different arithmetic, and only ten digits
+
+
+def barcode_listing(*rows, **fields):
+    """A listing carrying (name, value) product-information rows"""
+    return ListingCapture(
+        source_url=AMAZON_URL,
+        specifications=[{'name': name, 'value': value} for name, value in rows],
+        **fields,
+    )
+
+
+def capture(service, listing, **fields):
+    """Capture the listing, defaulting the fields this story does not care about"""
+    fields.setdefault('vendor', 'Amazon')
+    fields.setdefault('vendor_item_id', 'B0ABCDEFGH')
+    fields.setdefault('order_date', datetime(2026, 1, 15))
+    return service.capture_order(listing=listing, **fields)
+
+
+def gtins(service, product_id):
+    """The GTIN identifier values on a product"""
+    return [
+        row.value for row in service.get_product(product_id).identifiers
+        if row.id_type == 'GTIN'
+    ]
+
+
+def spec_rows(service, product_id):
+    return [
+        (row.name, row.value)
+        for row in service.get_product(product_id).specifications
+    ]
+
+
+class TestWhichRowNamesMeanABarcode:
+    """FR-001: six names, folded -- and nothing else, however barcode-shaped"""
+
+    @pytest.mark.parametrize('name', [
+        'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A',
+    ])
+    def test_the_six_names_are_recognized(self, name):
+        assert _is_barcode_row_name(name)
+
+    @pytest.mark.parametrize('name', ['upc', '  UPC  ', 'Upc', 'gtin-13', 'uPc-A'])
+    def test_case_and_surrounding_whitespace_are_folded(self, name):
+        assert _is_barcode_row_name(name)
+
+    @pytest.mark.parametrize('name', [
+        'Manufacturer UPC', 'UPC Code', 'Item UPC', 'UPCs', 'EANx', 'Barcode',
+    ])
+    def test_the_whole_name_must_match_not_a_part_of_it(self, name):
+        """A feature that promised six names should promote six names"""
+        assert not _is_barcode_row_name(name)
+
+    @pytest.mark.parametrize('name', [None, '', '   '])
+    def test_a_missing_name_is_not_a_barcode_row(self, name):
+        assert not _is_barcode_row_name(name)
+
+
+class TestACapturedBarcodeBecomesAnIdentifier:
+    """US1: the listing hands us the barcode, so the box scans (FR-002, FR-003)"""
+
+    def test_a_captured_upc_becomes_a_gtin_identifier(self, service):
+        purchase = capture(service, barcode_listing(('UPC', VALID_UPC_A)))
+
+        assert gtins(service, purchase.product_id) == [VALID_GTIN_KEY]
+
+    def test_the_row_is_still_a_specification_as_well(self, service):
+        """FR-005: promotion adds, it never moves or filters"""
+        purchase = capture(service, barcode_listing(
+            ('UPC', VALID_UPC_A), ('Voltage', '12 Volts'),
+        ))
+
+        assert spec_rows(service, purchase.product_id) == [
+            ('UPC', VALID_UPC_A),
+            ('Voltage', '12 Volts'),
+        ]
+
+    @pytest.mark.parametrize('name', [
+        'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A', 'upc', ' UPC ',
+    ])
+    def test_every_recognized_name_promotes_the_same_way(self, service, name):
+        purchase = capture(service, barcode_listing((name, VALID_UPC_A)))
+
+        assert gtins(service, purchase.product_id) == [VALID_GTIN_KEY]
+
+    def test_a_name_that_is_not_recognized_promotes_nothing(self, service):
+        purchase = capture(service, barcode_listing(('Manufacturer UPC', VALID_UPC_A)))
+
+        assert gtins(service, purchase.product_id) == []
+
+    def test_an_isbn_13_is_a_valid_barcode_and_promotes(self, service):
+        purchase = capture(service, barcode_listing(('ISBN', VALID_ISBN_13)))
+
+        assert gtins(service, purchase.product_id) == [ISBN_13_KEY]
+
+    def test_equivalent_forms_are_one_identifier(self, service):
+        """The 12-digit UPC and its 13-digit EAN form are one trade item"""
+        listing = barcode_listing(('UPC', VALID_UPC_A), ('EAN', VALID_EAN_13))
+        purchase = capture(service, listing)
+
+        assert gtins(service, purchase.product_id) == [VALID_GTIN_KEY]
+
+    def test_equivalent_forms_are_also_one_report_line(self, service):
+        """FR-009: two lines for one barcode reads as two barcodes"""
+        listing = barcode_listing(('UPC', VALID_UPC_A), ('EAN', VALID_EAN_13))
+        purchase = capture(service, listing)
+
+        notes = service.describe_captured_barcodes(purchase.product_id, listing)
+
+        assert [(n.value, n.outcome) for n in notes] == [(VALID_GTIN_KEY, 'recorded')]
+
+    def test_two_different_barcodes_both_promote(self, service):
+        listing = barcode_listing(('UPC', VALID_UPC_A), ('ISBN', VALID_ISBN_13))
+        purchase = capture(service, listing)
+
+        assert sorted(gtins(service, purchase.product_id)) == [
+            VALID_GTIN_KEY, ISBN_13_KEY,
+        ]
+
+    def test_capturing_the_same_listing_twice_leaves_one_identifier(self, service):
+        """FR-007: the second capture is a no-op, not a duplicate and not an error"""
+        listing = barcode_listing(('UPC', VALID_UPC_A))
+        first = capture(service, listing)
+        second = capture(service, listing, order_date=datetime(2026, 1, 16),
+                         attach_to=str(first.product_id))
+
+        assert second.product_id == first.product_id
+        assert gtins(service, first.product_id) == [VALID_GTIN_KEY]
+
+    def test_the_second_capture_still_reports_it_as_recorded(self, service):
+        """FR-009a: the report states what is true, not what this capture did"""
+        listing = barcode_listing(('UPC', VALID_UPC_A))
+        first = capture(service, listing)
+        capture(service, listing, order_date=datetime(2026, 1, 16),
+                attach_to=str(first.product_id))
+
+        notes = service.describe_captured_barcodes(first.product_id, listing)
+
+        assert [n.outcome for n in notes] == ['recorded']
+
+    def test_a_row_the_merge_dropped_is_not_promoted(self, service):
+        """FR-003, and the rule that decides what re-capturing an old product does"""
+        product = service.create_product(
+            description='12V PSU',
+            specifications=[{'name': 'UPC', 'value': VALID_UPC_A}],
+        )
+
+        capture(service, barcode_listing(('UPC', VALID_UPC_A)),
+                attach_to=str(product.id))
+
+        assert gtins(service, product.id) == []
+
+    def test_that_row_is_reported_as_not_examined(self, service):
+        """FR-010: otherwise the rule is silent exactly where it surprises"""
+        product = service.create_product(
+            description='12V PSU',
+            # A value no product holds, so 'not examined' is the only reading.
+            specifications=[{'name': 'UPC', 'value': VALID_UPC_A}],
+        )
+        listing = barcode_listing(('UPC', VALID_UPC_A))
+
+        capture(service, listing, attach_to=str(product.id))
+        notes = service.describe_captured_barcodes(product.id, listing)
+
+        assert [(n.row_name, n.outcome) for n in notes] == [('UPC', 'not_examined')]
+
+    def test_a_listing_with_no_barcode_row_reports_nothing(self, service):
+        """FR-013: today's behaviour, byte for byte, and nothing said about it"""
+        listing = barcode_listing(('Voltage', '12 Volts'), ('Wattage', '36 Watts'))
+        purchase = capture(service, listing)
+
+        assert gtins(service, purchase.product_id) == []
+        assert service.describe_captured_barcodes(purchase.product_id, listing) == []
+
+
+class TestAWrongBarcodeIsNeverRecorded:
+    """US2: nobody typed this value, so nobody would see a prompt (FR-004)"""
+
+    @pytest.mark.parametrize('value', [
+        BAD_CHECK_DIGIT,        # one digit out
+        '00000000000000',       # a wedge scanner's no-read
+        '01234567890X',         # not all digits
+        '0123456789',           # wrong length
+        '',                     # nothing at all
+        ISBN_10,                # ten digits and a different arithmetic
+        f'{VALID_UPC_A} {VALID_EAN_13}',   # two codes in one row
+        f'  {VALID_UPC_A}-{VALID_EAN_13}',
+    ])
+    def test_an_unusable_value_records_no_identifier(self, service, value):
+        purchase = capture(service, barcode_listing(('UPC', value)))
+
+        assert gtins(service, purchase.product_id) == []
+
+    @pytest.mark.parametrize('value', [BAD_CHECK_DIGIT, ISBN_10, ''])
+    def test_the_row_is_kept_as_a_specification(self, service, value):
+        """FR-005: refusing to promote is not refusing to record"""
+        purchase = capture(service, barcode_listing(
+            ('UPC', value), ('Voltage', '12 Volts'),
+        ))
+
+        names = [name for name, _ in spec_rows(service, purchase.product_id)]
+        assert 'UPC' in names or value == ''
+        assert 'Voltage' in names
+
+    def test_nothing_is_ever_stored_as_an_override(self, service):
+        """FR-004: there is no override, and this is the test that says so"""
+        purchase = capture(service, barcode_listing(('UPC', BAD_CHECK_DIGIT)))
+
+        identifiers = service.get_product(purchase.product_id).identifiers
+        assert not any(row.validation_overridden for row in identifiers)
+
+    def test_an_unusable_value_is_reported_with_the_value(self, service):
+        listing = barcode_listing(('UPC', BAD_CHECK_DIGIT))
+        purchase = capture(service, listing)
+
+        notes = service.describe_captured_barcodes(purchase.product_id, listing)
+
+        assert [(n.row_name, n.value, n.outcome) for n in notes] == [
+            ('UPC', BAD_CHECK_DIGIT, 'unusable')
+        ]
+
+    def test_a_refusal_costs_the_row_and_nothing_else(self, service):
+        """FR-011: a refused promotion never fails the capture"""
+        purchase = capture(service, barcode_listing(
+            ('UPC', BAD_CHECK_DIGIT),
+            ('Voltage', '12 Volts'),
+            ('Material', '6061 Aluminium'),
+        ), description='12V PSU', unit_price='24.99')
+
+        assert purchase.id is not None
+        assert purchase.unit_price == Decimal('24.99')
+        assert spec_rows(service, purchase.product_id) == [
+            ('UPC', BAD_CHECK_DIGIT),
+            ('Voltage', '12 Volts'),
+            ('Material', '6061 Aluminium'),
+        ]
+
+    def test_one_unusable_row_does_not_cost_a_usable_one(self, service):
+        purchase = capture(service, barcode_listing(
+            ('UPC', BAD_CHECK_DIGIT), ('ISBN', VALID_ISBN_13),
+        ))
+
+        assert gtins(service, purchase.product_id) == [ISBN_13_KEY]
+
+
+class TestABarcodeAnotherProductHolds:
+    """US3: a collision does not guess (FR-006)"""
+
+    @pytest.fixture
+    def holder(self, service):
+        return service.create_product(
+            description='The product that got there first',
+            identifiers=[{'id_type': 'GTIN', 'value': VALID_UPC_A}],
+        )
+
+    def test_the_captured_product_gets_no_identifier(self, service, holder):
+        purchase = capture(service, barcode_listing(('UPC', VALID_UPC_A)))
+
+        assert purchase.product_id != holder.id
+        assert gtins(service, purchase.product_id) == []
+
+    def test_the_holding_product_is_left_exactly_as_it_was(self, service, holder):
+        capture(service, barcode_listing(('UPC', VALID_UPC_A)))
+
+        assert gtins(service, holder.id) == [VALID_GTIN_KEY]
+
+    def test_the_value_is_still_kept_as_a_specification(self, service, holder):
+        purchase = capture(service, barcode_listing(('UPC', VALID_UPC_A)))
+
+        assert spec_rows(service, purchase.product_id) == [('UPC', VALID_UPC_A)]
+
+    def test_the_report_names_the_product_that_holds_it(self, service, holder):
+        listing = barcode_listing(('UPC', VALID_UPC_A))
+        purchase = capture(service, listing)
+
+        note = service.describe_captured_barcodes(purchase.product_id, listing)[0]
+
+        assert note.outcome == 'taken'
+        assert note.holder_id == holder.id
+        assert note.holder_description == 'The product that got there first'
+
+    def test_a_collision_does_not_fail_the_capture(self, service, holder):
+        """FR-011 again, on the other refusal path"""
+        purchase = capture(service, barcode_listing(
+            ('UPC', VALID_UPC_A), ('Voltage', '12 Volts'),
+        ), description='12V PSU')
+
+        assert purchase.id is not None
+        assert service.get_product(purchase.product_id).description == '12V PSU'
+
+    def test_the_same_barcode_on_the_same_product_is_a_no_op(self, service, holder):
+        """FR-007: recapturing a product onto its own identifier is not a duplicate"""
+        listing = barcode_listing(('UPC', VALID_UPC_A))
+
+        capture(service, listing, attach_to=str(holder.id))
+
+        assert gtins(service, holder.id) == [VALID_GTIN_KEY]
+        notes = service.describe_captured_barcodes(holder.id, listing)
+        assert [n.outcome for n in notes] == ['recorded']

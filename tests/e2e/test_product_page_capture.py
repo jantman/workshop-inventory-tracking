@@ -885,3 +885,118 @@ def test_an_abandoned_capture_leaves_no_trace_of_any_kind(page, live_server, ima
     page.goto(f"{live_server.url}/products")
     expect(page.locator("#product-table")).to_be_visible()
     expect(page.locator("#no-products")).to_be_visible()
+
+
+# ---------------------------------------------------------------------------
+# 016: the captured UPC row becomes a scannable identifier
+# ---------------------------------------------------------------------------
+
+FIXTURE_UPC = "012345678905"          # the row in the fixture's tech-spec table
+FIXTURE_GTIN_KEY = "00012345678905"   # what the catalog stores it as
+CORRUPTED_UPC = "012345678906"        # one digit out, so the check digit fails
+
+
+def serve_listing_with_upc(page, image_host, upc):
+    """The fixture listing with its UPC row rewritten."""
+    body = (
+        (FIXTURES / "amazon_listing.html")
+        .read_text()
+        .replace("__IMAGE_HOST__", image_host)
+        .replace(FIXTURE_UPC, upc)
+    )
+    page.route(
+        LISTING_ROUTE,
+        lambda route: route.fulfill(status=200, content_type="text/html", body=body),
+    )
+
+
+def scan(page, text):
+    """Type a scan into the global scan input and terminate it like a wedge does"""
+    page.click("#global-scan-input")
+    page.keyboard.type(text)
+    page.keyboard.press("Enter")
+
+
+@pytest.mark.e2e
+def test_a_captured_upc_makes_the_product_scannable(page, live_server, image_host):
+    """016 US1, end to end: the listing hands us the barcode, so the box scans"""
+    landed = capture_from_listing(page, live_server, image_host)
+    confirm(landed, description="12V 3A PSU")
+
+    # Its own locator rather than ".alert": the success flash and the image tally
+    # are on the page too, and "an alert somewhere" would pass on the wrong one.
+    expect(
+        landed.locator(".alert").filter(has_text=FIXTURE_GTIN_KEY)
+    ).to_be_visible()
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    identifiers = landed.locator("#identifier-list")
+    expect(identifiers).to_contain_text("GTIN")
+    expect(identifiers).to_contain_text(FIXTURE_GTIN_KEY)
+    # FR-005: promotion adds, it never moves the row out of the specifications.
+    expect(landed.locator("#product-specifications")).to_contain_text(FIXTURE_UPC)
+
+    # And the point of all of it: the barcode off the box finds the product.
+    landed.goto(live_server.url)
+    scan(landed, FIXTURE_UPC)
+
+    expect(landed.locator("#product-description")).to_have_text("12V 3A PSU")
+
+
+@pytest.mark.e2e
+def test_a_barcode_that_fails_its_check_digit_is_not_recorded(
+    page, live_server, image_host
+):
+    """016 US2: nobody typed it, so nobody would see a prompt -- refuse it"""
+    serve_listing_with_upc(page, image_host, CORRUPTED_UPC)
+    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    confirm(landed, description="12V 3A PSU")
+
+    expect(
+        landed.locator(".alert").filter(has_text="not a valid barcode")
+    ).to_be_visible()
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    # Establish the card with a positive assertion first -- the capture always
+    # leaves a VENDOR identifier, so an empty list would mean the page has not
+    # rendered rather than that nothing was promoted.
+    identifiers = landed.locator("#identifier-list")
+    expect(identifiers).to_contain_text("VENDOR")
+    expect(identifiers).not_to_contain_text("GTIN")
+    # The value is kept, just not as an identifier.
+    expect(landed.locator("#product-specifications")).to_contain_text(CORRUPTED_UPC)
+
+
+@pytest.mark.e2e
+def test_a_barcode_another_product_holds_is_left_alone(page, live_server, image_host):
+    """016 US3: a collision does not guess, and says so"""
+    page.goto(f"{live_server.url}/products/new")
+    page.fill("#description", "The product that got there first")
+    page.select_option("#identifier_type", "GTIN")
+    page.fill("#identifier_value", FIXTURE_UPC)
+    page.click("#save-product-btn")
+    expect(page.locator("#identifier-list")).to_contain_text(FIXTURE_GTIN_KEY)
+
+    landed = capture_from_listing(page, live_server, image_host)
+    confirm(landed, description="12V 3A PSU")
+
+    expect(
+        landed.locator(".alert").filter(has_text="already holds it")
+    ).to_be_visible()
+    expect(
+        landed.locator(".alert").filter(has_text="The product that got there first")
+    ).to_be_visible()
+
+    landed.goto(f"{live_server.url}/products")
+    rows = landed.locator("#product-table tbody tr")
+    expect(rows).to_have_count(2)
+    rows.filter(has_text="12V 3A PSU").locator("td a").first.click()
+
+    identifiers = landed.locator("#identifier-list")
+    expect(identifiers).to_contain_text("VENDOR")
+    expect(identifiers).not_to_contain_text("GTIN")
+    expect(landed.locator("#product-specifications")).to_contain_text(FIXTURE_UPC)

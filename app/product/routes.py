@@ -458,6 +458,18 @@ def product_capture():
 
         flash('Captured. Confirm the details when it arrives.', 'success')
 
+        # Above the image tally, because what the product is called by matters
+        # more than how many pictures of it landed. Read-only and derived from
+        # the catalog's final state -- the write happened inside capture_order.
+        if listing is not None:
+            barcodes = service.describe_captured_barcodes(purchase.product_id, listing)
+            if barcodes:
+                flash(
+                    _barcode_tally(barcodes),
+                    'success' if all(n.outcome == 'recorded' for n in barcodes)
+                    else 'warning',
+                )
+
         # After capture_order returns, and before the redirect. The ordering is
         # the contract: the operator lands on a finished capture rather than on
         # one still filling in behind them. It is also what makes this POST take
@@ -481,6 +493,37 @@ def product_capture():
         listing=ListingCapture.from_json(request.args.get('listing')),
         bookmarklet=_capture_bookmarklet(),
     )
+
+
+def _barcode_tally(barcodes) -> str:
+    """Say what the listing's barcode rows came to (016 FR-009).
+
+    Follows ``_image_tally``'s rule: everything that did not land is named, and
+    named with the reason. A barcode that quietly failed its check digit is the
+    failure the operator cannot see -- they find out months later when the box
+    will not scan, by which time the listing is gone.
+    """
+    sentences = []
+    for note in barcodes:
+        if note.outcome == 'recorded':
+            sentences.append(f"Barcode {note.value} is recorded on this product.")
+        elif note.outcome == 'unusable':
+            sentences.append(
+                f"The listing's {note.row_name} value {note.value!r} was not recorded: "
+                f"it is not a valid barcode. It is kept as a specification."
+            )
+        elif note.outcome == 'taken':
+            sentences.append(
+                f"Barcode {note.value} was not recorded: product {note.holder_id} "
+                f"({note.holder_description}) already holds it. It is kept as a "
+                f"specification."
+            )
+        else:
+            sentences.append(
+                f"The listing's {note.row_name} row was not examined, because this "
+                f"product already lists a {note.row_name} row."
+            )
+    return ' '.join(sentences)
 
 
 def _image_tally(images) -> str:

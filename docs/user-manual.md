@@ -946,6 +946,26 @@ the form. A repeat capture adds no second copy of an image and does not overwrit
 a specification you have edited by hand; it only adds what the product does not
 already have.
 
+**A captured barcode makes the product scannable.** When the listing publishes
+one -- a `UPC`, `EAN`, `GTIN`, `ISBN`, `GTIN-13` or `UPC-A` row in its product
+information -- the capture records it as the product's barcode as well as
+keeping it in the specification list, so the code printed on the box finds the
+product without anyone typing it in. The confirmation page says what became of
+it, because three things can stop it:
+
+- **The value is not a valid barcode.** A vendor's product table is typed by a
+  person and read by a selector, and either can be wrong. A value that fails its
+  check digit is kept as a specification and is never recorded as a barcode.
+  There is no "store it anyway" here, deliberately -- you are not watching this
+  happen, so nothing should record a barcode you have not seen.
+- **Another product already has it.** Then nothing moves and nothing is
+  duplicated; the page tells you which product holds it, and you decide.
+- **The product already lists a row of that name.** Your row wins, as it does
+  for every other specification -- so the captured one is not examined, and the
+  page says so. This is the case to know about for products captured before this
+  existed: re-capturing them does not add the barcode. Add it by hand from the
+  product's **Identifiers** card, or delete the old row and capture again.
+
 **An abandoned capture leaves nothing.** Close the confirmation tab without
 pressing Capture and there is no product, no purchase, no specification and no
 stored image -- there was never a record, only a page.

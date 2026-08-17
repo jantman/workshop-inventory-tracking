@@ -540,6 +540,36 @@ class CaptureAssessment:
 
 
 @dataclass
+class CapturedBarcode:
+    """What became of one barcode-named row a listing carried (016 FR-009).
+
+    Produced by ``CatalogService.describe_captured_barcodes`` and rendered by the
+    capture route into the confirmation page's message. Display-only, and a plain
+    value object for the same reason :class:`CaptureAssessment` is one.
+
+    **It states what is true of the barcode after the capture, not what this
+    capture did** (FR-009a). ``recorded`` therefore means "this product holds it",
+    which reads the same on a first capture and a repeat. Distinguishing the two
+    would mean carrying the promotion's outcome out of ``capture_order``, which
+    costs a signature change at every one of its call sites to save one true
+    sentence; see ``specs/016-promote-captured-gtin/research.md`` section 3.
+
+    The four outcomes are exclusive and exhaustive, tested in this order:
+
+    * ``unusable`` -- the value is not a valid barcode, so nobody can hold it.
+    * ``recorded`` -- this product holds it.
+    * ``taken`` -- another product holds it, named by ``holder_id``.
+    * ``not_examined`` -- valid, and no product holds it, which can only mean the
+      merge dropped the row before promotion could see it.
+    """
+    row_name: str
+    value: str
+    outcome: str
+    holder_id: Optional[int] = None
+    holder_description: Optional[str] = None
+
+
+@dataclass
 class ImageCaptureResult:
     """What the fetcher managed, so the route can tell the operator.
 
