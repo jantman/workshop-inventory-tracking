@@ -145,8 +145,10 @@ Three pieces:
 
 - `paid` must match `^\d+(\.\d+)?$` after trimming; `packSize` must match `^\d+$` and be
   greater than zero. Anything else is `ok: false` with the offending field named, and the
-  caller leaves `#unit_price` alone. Deliberately the same strictness `_validate_price` has —
-  `1,249.50` is not a price there and is not one here either.
+  caller leaves `#unit_price` alone. A deliberate strict *subset* of what `_validate_price`
+  takes — it is `Decimal(str(...).strip())`, so `5.`, `.5`, `+5` and `1e2` get through there and
+  not here. Everything this accepts, it accepts, which is the direction that matters;
+  `1,249.50` is a price to neither.
 - A pack size of `1`, or an empty pack size, returns `paid` **verbatim**: no parse, no round,
   no reformat. `1249.50` stays `1249.50` and today's single-unit capture is untouched (FR-010,
   FR-015).

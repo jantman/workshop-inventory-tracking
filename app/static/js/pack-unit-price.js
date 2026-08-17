@@ -25,9 +25,13 @@
  * instead of typing into the form fifteen times.
  */
 
-// Exactly what `_validate_price` accepts, deliberately: a value the server
-// would refuse must not be turned into a unit price here. "$17.99" and
-// "1,249.50" are prices to a person and not to either end of this path.
+// A deliberate strict *subset* of what `_validate_price` accepts. That method
+// is `Decimal(str(price).strip())`, which also takes `5.`, `.5`, `+5`, `1e2`
+// and -- less comfortably -- `Infinity` and `NaN`. The direction that matters
+// is that everything accepted here is accepted there, so this can never derive
+// a unit price the server would then refuse. Tightening rather than matching is
+// the point: none of those forms is how a person writes what they paid, and
+// "$17.99" and "1,249.50", which are, are refused at both ends.
 const PACK_PRICE_PATTERN = /^\d+(\.\d+)?$/;
 const PACK_SIZE_PATTERN = /^\d+$/;
 

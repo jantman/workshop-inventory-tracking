@@ -41,9 +41,13 @@ unitPriceFromPack(paid: string, packSize: string)
 
 1. **Trim both.** An empty `paid` is `ok: false` on `pack_price`; there is nothing to divide.
 2. **`paid` must match `^\d+(\.\d+)?$`.** Anything else — a currency symbol, a thousands
-   separator, a sign, a second point — is `ok: false` on `pack_price`. This is the same
-   strictness `_validate_price` applies server-side, deliberately: a value it would reject must
-   not be turned into a unit price here.
+   separator, a sign, a second point — is `ok: false` on `pack_price`. This is a deliberate
+   strict *subset* of what `_validate_price` accepts: that method is
+   `Decimal(str(price).strip())`, which also takes `5.`, `.5`, `+5`, `1e2` and even
+   `Infinity`. The property this contract guarantees is the one-way one — **everything accepted
+   here is accepted there** — so this can never derive a unit price the server would refuse.
+   Matching the server's permissiveness would be the wrong repair: none of those forms is how a
+   person writes what they paid.
 3. **`packSize` empty, or `1`** → `{ok: true, value: paid, exact: true}`. The amount paid is
    returned **verbatim**, unparsed and unrounded, so a single-unit capture is byte-identical to
    today's (FR-010, FR-015).

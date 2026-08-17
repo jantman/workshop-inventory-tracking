@@ -109,11 +109,20 @@ reformatted, which is a change in behavior disguised as a no-op (FR-010, FR-015)
 **Decision**: `^\d+(\.\d+)?$` for the amount paid, `^\d+$` and greater than zero for the pack
 size. On failure, leave `#unit_price` untouched and name the offending field.
 
-**Rationale**: The same strictness `_validate_price` already applies — `$1,249.50` is not a
-price there (there is a test asserting exactly that) and accepting it here would produce a
-unit price the server would then reject, which is a worse experience than refusing it in
-place. Leaving `#unit_price` alone on failure is FR-011 and matters more than it sounds:
-clearing it would destroy a price the operator typed by hand and never intended to derive.
+**Rationale**: `$1,249.50` is not a price to `_validate_price` either (there is a test
+asserting exactly that), and accepting it here would produce a unit price the server would then
+reject — worse than refusing it in place.
+
+This is a strict *subset* of the server's rule rather than the same rule, and the difference is
+worth stating because it looks like a bug and is not. `_validate_price` is
+`Decimal(str(price).strip())`, which also accepts `5.`, `.5`, `+5`, `1e2`, and — a genuine
+latent quirk, out of scope here — `Infinity` and `NaN`. The property that matters is one-way:
+**everything this accepts, the server accepts**, so the page cannot derive a price the capture
+would refuse. Loosening to match would be the wrong repair; none of those forms is how a person
+writes what they paid, and one of them is not a price at all.
+
+Leaving `#unit_price` alone on failure is FR-011 and matters more than it sounds: clearing it
+would destroy a price the operator typed by hand and never intended to derive.
 
 ## Testing the arithmetic without a JavaScript test runner
 
