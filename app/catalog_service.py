@@ -1310,6 +1310,12 @@ class CatalogService:
         notes: List[CapturedBarcode] = []
         seen = set()
 
+        product = self.get_product(product_id)
+        # What the product's specification list holds *now*, folded the way
+        # merge_specifications folds it. This is how a row that did not survive
+        # the merge is recognized -- see the first test in the loop.
+        listed = {_fold(row.name): row.value for row in (product.specifications if product else [])}
+
         for entry in listing.specifications if listing else []:
             name = entry.get('name') or ''
             if not _is_barcode_row_name(name):
@@ -1318,32 +1324,56 @@ class CatalogService:
             raw = (entry.get('value') or '').strip()
             key = gtin_utils.normalize_and_validate(raw)
 
-            # Deduplicated on what identifies the barcode: the normalized key
-            # when there is one, and the raw text when there is not.
-            marker = ('key', key) if key is not None else ('raw', raw)
-            if marker in seen:
+            # Only equivalent *valid* forms are one barcode (FR-009). Two rows
+            # carrying the same unusable text are still two rows, and FR-009
+            # wants every one of them accounted for.
+            if key is not None:
+                if key in seen:
+                    continue
+                seen.add(key)
+
+            listed_value = listed.get(_fold(name))
+            kept = listed_value == raw
+
+            # **Tested first, before anything about the value itself.** The
+            # product already carries a row of this name holding something else,
+            # so the merge dropped this one whole and the captured value is
+            # stored nowhere (FR-010). Every outcome below would tell the
+            # operator where the value is, and it is not anywhere.
+            if listed_value is not None and not kept:
+                notes.append(CapturedBarcode(
+                    row_name=name, value=raw, outcome='not_examined',
+                    kept_as_specification=False,
+                ))
                 continue
-            seen.add(marker)
 
             if key is None:
-                notes.append(CapturedBarcode(row_name=name, value=raw, outcome='unusable'))
+                notes.append(CapturedBarcode(
+                    row_name=name, value=raw, outcome='unusable',
+                    kept_as_specification=kept,
+                ))
                 continue
 
             holder = self.find_product_by_identifier(key, id_type=IdentifierType.GTIN.value)
             if holder is not None and holder.id == product_id:
-                notes.append(CapturedBarcode(row_name=name, value=key, outcome='recorded'))
+                notes.append(CapturedBarcode(
+                    row_name=name, value=key, outcome='recorded',
+                    kept_as_specification=kept,
+                ))
             elif holder is not None:
                 notes.append(CapturedBarcode(
                     row_name=name, value=key, outcome='taken',
                     holder_id=holder.id, holder_description=holder.description,
+                    kept_as_specification=kept,
                 ))
             else:
                 # Inferred, not flagged: every row the merge *added* was either
                 # promoted -- so this product holds it -- or refused because
-                # another product does. A valid barcode nobody holds can only be
-                # a row the merge dropped (FR-010).
+                # another product does. A valid barcode nobody holds, on a row
+                # whose value is already listed, is the same-value drop (FR-010).
                 notes.append(CapturedBarcode(
-                    row_name=name, value=key, outcome='not_examined'
+                    row_name=name, value=key, outcome='not_examined',
+                    kept_as_specification=kept,
                 ))
 
         return notes

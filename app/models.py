@@ -559,14 +559,21 @@ class CapturedBarcode:
     * ``unusable`` -- the value is not a valid barcode, so nobody can hold it.
     * ``recorded`` -- this product holds it.
     * ``taken`` -- another product holds it, named by ``holder_id``.
-    * ``not_examined`` -- valid, and no product holds it, which can only mean the
-      merge dropped the row before promotion could see it.
+    * ``not_examined`` -- the merge dropped the row, so the captured value is
+      stored nowhere.
+
+    ``kept_as_specification`` is what stops the report claiming the value is on
+    the product when it is not. A captured row whose name the product already
+    lists is dropped whole, value included -- so an unusable or contested value
+    on such a row is not "kept as a specification", and saying it was would be
+    the silent loss this report exists to prevent.
     """
     row_name: str
     value: str
     outcome: str
     holder_id: Optional[int] = None
     holder_description: Optional[str] = None
+    kept_as_specification: bool = True
 
 
 @dataclass

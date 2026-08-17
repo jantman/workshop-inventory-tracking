@@ -63,6 +63,7 @@ the route's message builder. It sits beside `CaptureAssessment`, which is the es
 | `outcome` | `str` | One of `recorded`, `unusable`, `taken`, `not_examined` |
 | `holder_id` | `Optional[int]` | Set only for `taken`: the product that holds the barcode |
 | `holder_description` | `Optional[str]` | Set only for `taken`: that product's description, so the message can name it |
+| `kept_as_specification` | `bool` | Whether the product's specification list actually holds this value under this row name. Gates the message's "It is kept as a specification" clause |
 
 Everything is a plain value rather than an ORM row, for the reason `CaptureAssessment`'s docstring
 already gives: a relationship that was not eagerly loaded does not survive the session, and a
@@ -70,14 +71,22 @@ display object has no business carrying that hazard.
 
 **The four outcomes are exclusive and exhaustive**, tested in that order:
 
-1. `gtin.normalize_and_validate(value)` returns `None` → `unusable`
-2. this product holds the key → `recorded`
-3. another product holds the key → `taken`
-4. otherwise → `not_examined`
+1. the product lists this row name with a **different** value → `not_examined`
+2. `gtin.normalize_and_validate(value)` returns `None` → `unusable`
+3. this product holds the key → `recorded`
+4. another product holds the key → `taken`
+5. otherwise → `not_examined`
 
-(4) is an inference, and the one place a reader needs a comment: a valid barcode that no product
-holds can only be a row the merge dropped, because every row the merge *added* was either promoted —
-so this product holds it — or collided, so another product does.
+(1) is the drop test, and it comes first for a reason found in review: a captured row whose name the
+product already lists is dropped **whole, value included**, so the captured value is stored nowhere.
+Classifying such a row by its value — `unusable` because the check digit failed, or `taken` because
+another product holds it — attaches a message telling the operator the value is kept as a
+specification, and it is not. Whether the row survived has to be settled before the value is
+considered at all.
+
+(5) is an inference and needs its comment: a valid barcode that no product holds, on a row whose
+value *is* listed, can only be the same-value drop, because every row the merge *added* was either
+promoted — so this product holds it — or collided, so another product does.
 
 ### `merge_specifications` return value (changed)
 

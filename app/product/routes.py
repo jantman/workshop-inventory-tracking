@@ -8,6 +8,7 @@ rather than any new error machinery.
 """
 
 import re
+from typing import List
 from urllib.parse import urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -17,7 +18,7 @@ from app.catalog_service import CatalogService
 from app.exceptions import (
     CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
 )
-from app.models import IdentifierType, ListingCapture
+from app.models import CapturedBarcode, IdentifierType, ListingCapture
 from app.photo_service import PhotoService
 from app.product import bp
 from app.services.listing_images import store_listing_images
@@ -495,30 +496,36 @@ def product_capture():
     )
 
 
-def _barcode_tally(barcodes) -> str:
+def _barcode_tally(barcodes: List[CapturedBarcode]) -> str:
     """Say what the listing's barcode rows came to (016 FR-009).
 
     Follows ``_image_tally``'s rule: everything that did not land is named, and
     named with the reason. A barcode that quietly failed its check digit is the
     failure the operator cannot see -- they find out months later when the box
     will not scan, by which time the listing is gone.
+
+    The "kept as a specification" reassurance is conditional, because it is not
+    always true: a row the merge dropped took its value with it. Telling the
+    operator a value is on the product when it is not would be worse than saying
+    nothing, which is the whole reason this tally exists.
     """
     sentences = []
     for note in barcodes:
+        kept = " It is kept as a specification." if note.kept_as_specification else ""
+
         if note.outcome == 'recorded':
             sentences.append(f"Barcode {note.value} is recorded on this product.")
         elif note.outcome == 'unusable':
             sentences.append(
-                f"The listing's {note.row_name} value {note.value!r} was not recorded: "
-                f"it is not a valid barcode. It is kept as a specification."
+                f"The listing's {note.row_name} value \"{note.value}\" was not "
+                f"recorded: it is not a valid barcode.{kept}"
             )
         elif note.outcome == 'taken':
             sentences.append(
                 f"Barcode {note.value} was not recorded: product {note.holder_id} "
-                f"({note.holder_description}) already holds it. It is kept as a "
-                f"specification."
+                f"({note.holder_description}) already holds it.{kept}"
             )
-        else:
+        elif note.outcome == 'not_examined':
             sentences.append(
                 f"The listing's {note.row_name} row was not examined, because this "
                 f"product already lists a {note.row_name} row."

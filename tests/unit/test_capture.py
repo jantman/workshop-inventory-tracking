@@ -1765,3 +1765,147 @@ class TestABarcodeAnotherProductHolds:
         assert gtins(service, holder.id) == [VALID_GTIN_KEY]
         notes = service.describe_captured_barcodes(holder.id, listing)
         assert [n.outcome for n in notes] == ['recorded']
+
+
+class TestADroppedRowNeverClaimsToBeKept:
+    """The row the merge dropped took its value with it, whatever the value was.
+
+    ``describe_captured_barcodes`` used to classify from the value alone, so a
+    dropped row carrying a bad check digit was reported ``unusable`` -- with the
+    confirmation page's "It is kept as a specification" attached to a value that
+    was stored nowhere. Telling the operator a value is on the product when it is
+    not is the silent loss the report exists to prevent, so these are the tests
+    for the drop being recognized before anything about the value is considered.
+    """
+
+    def listing_of(self, value):
+        return barcode_listing(('UPC', value))
+
+    def test_a_dropped_row_with_a_bad_check_digit_is_not_examined(self, service):
+        product = service.create_product(
+            description='12V PSU',
+            specifications=[{'name': 'UPC', 'value': VALID_UPC_A}],
+        )
+        listing = self.listing_of(BAD_CHECK_DIGIT)
+
+        capture(service, listing, attach_to=str(product.id))
+        note = service.describe_captured_barcodes(product.id, listing)[0]
+
+        assert note.outcome == 'not_examined'
+        assert note.kept_as_specification is False
+
+    def test_the_captured_value_really_is_stored_nowhere(self, service):
+        """The claim the old message made, stated as an assertion"""
+        product = service.create_product(
+            description='12V PSU',
+            specifications=[{'name': 'UPC', 'value': VALID_UPC_A}],
+        )
+
+        capture(service, self.listing_of(BAD_CHECK_DIGIT), attach_to=str(product.id))
+
+        assert spec_rows(service, product.id) == [('UPC', VALID_UPC_A)]
+        assert gtins(service, product.id) == []
+
+    def test_a_dropped_row_another_product_holds_is_not_examined_either(self, service):
+        """The same false claim reached through the collision branch"""
+        service.create_product(
+            description='The product that got there first',
+            identifiers=[{'id_type': 'GTIN', 'value': VALID_ISBN_13}],
+        )
+        product = service.create_product(
+            description='12V PSU',
+            specifications=[{'name': 'UPC', 'value': VALID_UPC_A}],
+        )
+        listing = self.listing_of(VALID_ISBN_13)
+
+        capture(service, listing, attach_to=str(product.id))
+        note = service.describe_captured_barcodes(product.id, listing)[0]
+
+        assert note.outcome == 'not_examined'
+        assert note.kept_as_specification is False
+        assert spec_rows(service, product.id) == [('UPC', VALID_UPC_A)]
+
+    def test_a_row_the_merge_kept_still_says_so(self, service):
+        """The guard on over-correcting: an added row *is* kept"""
+        listing = self.listing_of(BAD_CHECK_DIGIT)
+        purchase = capture(service, listing)
+
+        note = service.describe_captured_barcodes(purchase.product_id, listing)[0]
+
+        assert note.outcome == 'unusable'
+        assert note.kept_as_specification is True
+
+    def test_the_same_value_arriving_twice_is_still_the_ordinary_drop(self, service):
+        """FR-010's original case: the row is dropped, but the value is listed"""
+        product = service.create_product(
+            description='12V PSU',
+            specifications=[{'name': 'UPC', 'value': VALID_UPC_A}],
+        )
+        listing = self.listing_of(VALID_UPC_A)
+
+        capture(service, listing, attach_to=str(product.id))
+        note = service.describe_captured_barcodes(product.id, listing)[0]
+
+        assert note.outcome == 'not_examined'
+        assert note.kept_as_specification is True
+
+
+class TestTheReportCoversEveryRow:
+    """FR-009: only equivalent *valid* forms collapse into one line"""
+
+    def test_two_unusable_rows_are_two_lines(self, service):
+        listing = barcode_listing(('UPC', BAD_CHECK_DIGIT), ('EAN', BAD_CHECK_DIGIT))
+        purchase = capture(service, listing)
+
+        notes = service.describe_captured_barcodes(purchase.product_id, listing)
+
+        assert [(n.row_name, n.outcome) for n in notes] == [
+            ('UPC', 'unusable'), ('EAN', 'unusable'),
+        ]
+
+    def test_two_valid_equivalent_rows_are_one_line(self, service):
+        """The dedupe that is still wanted, as the counterweight"""
+        listing = barcode_listing(('UPC', VALID_UPC_A), ('EAN', VALID_EAN_13))
+        purchase = capture(service, listing)
+
+        assert len(service.describe_captured_barcodes(purchase.product_id, listing)) == 1
+
+
+class TestTheMessageTheOperatorReads:
+    """_barcode_tally is where a wrong classification becomes a wrong sentence"""
+
+    def note(self, **fields):
+        from app.models import CapturedBarcode
+        fields.setdefault('row_name', 'UPC')
+        fields.setdefault('value', BAD_CHECK_DIGIT)
+        return CapturedBarcode(**fields)
+
+    def tally(self, *notes):
+        from app.product.routes import _barcode_tally
+        return _barcode_tally(list(notes))
+
+    def test_a_kept_row_is_said_to_be_kept(self):
+        message = self.tally(self.note(outcome='unusable'))
+
+        assert 'not a valid barcode' in message
+        assert 'kept as a specification' in message
+
+    def test_a_dropped_row_is_never_said_to_be_kept(self):
+        message = self.tally(self.note(outcome='unusable', kept_as_specification=False))
+
+        assert 'not a valid barcode' in message
+        assert 'kept as a specification' not in message
+
+    def test_a_dropped_collision_is_never_said_to_be_kept(self):
+        message = self.tally(self.note(
+            outcome='taken', value=VALID_GTIN_KEY, holder_id=7,
+            holder_description='Something else', kept_as_specification=False,
+        ))
+
+        assert 'already holds it' in message
+        assert 'kept as a specification' not in message
+
+    def test_an_unusable_value_is_quoted_rather_than_repr_ed(self):
+        message = self.tally(self.note(outcome='unusable'))
+
+        assert f'"{BAD_CHECK_DIGIT}"' in message

@@ -32,7 +32,9 @@ def describe_captured_barcodes(
 ```
 
 - Returns one entry per barcode-named row in `listing.specifications`, in listing order,
-  **deduplicated by normalized key** (FR-009: equivalent forms are one barcode, so one line).
+  **deduplicated by normalized key** (FR-009: equivalent forms are one barcode, so one line). Only
+  *valid* values dedupe: two rows carrying the same unusable text are still two rows, and FR-009
+  wants every barcode-named row accounted for.
 - Returns `[]` when the listing has no barcode-named row — the route then flashes nothing (FR-013).
 - **Read-only.** It is called after the write and must stay that way; if it ever needs to write, the
   design in [research.md](./research.md) §3 has been misread.
@@ -57,9 +59,14 @@ everything that did not land is named. One sentence per note, joined with a spac
 | Outcome | Sentence |
 |---|---|
 | `recorded` | `Barcode 00012345678905 is recorded on this product.` |
-| `unusable` | `The listing's UPC value 01234567890X was not recorded: it is not a valid barcode. It is kept as a specification.` |
-| `taken` | `Barcode 00012345678905 was not recorded: product 42 (12V 3A PSU) already holds it. It is kept as a specification.` |
+| `unusable` | `The listing's UPC value "01234567890X" was not recorded: it is not a valid barcode.` |
+| `taken` | `Barcode 00012345678905 was not recorded: product 42 (12V 3A PSU) already holds it.` |
 | `not_examined` | `The listing's UPC row was not examined, because this product already lists a UPC row.` |
+
+`unusable` and `taken` gain a trailing ` It is kept as a specification.` **only when
+`kept_as_specification` is true** — that is, when the product's specification list really does hold
+that value under that row name. A row the merge dropped took its value with it, and the reassurance
+would be false.
 
 Category: `'success'` when every note is `recorded`, `'warning'` otherwise. The exact wording is not
 a contract — the E2E tests should assert on a distinctive fragment (the barcode value, `not
