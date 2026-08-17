@@ -411,7 +411,9 @@ def test_the_operator_can_overrule_the_worked_out_price(page, live_server):
 
 
 @pytest.mark.e2e
-def test_it_recomputes_from_the_two_inputs_not_from_what_it_last_wrote(page, live_server):
+def test_it_recomputes_from_the_two_inputs_not_from_what_it_last_wrote(
+    page, live_server
+):
     """US1 scenario 3/FR-005: the derivation has one source, and it is the inputs.
 
     The trap this guards is a recompute that folds the *displayed* unit price
@@ -487,7 +489,9 @@ def test_the_note_goes_away_when_the_pack_size_divides_evenly(page, live_server)
 
 
 @pytest.mark.e2e
-def test_a_rounded_price_still_explains_itself_on_a_page_nobody_typed_into(page, live_server):
+def test_a_rounded_price_still_explains_itself_on_a_page_nobody_typed_into(
+    page, live_server
+):
     """FR-008 across a re-render, and FR-005's other half.
 
     The GET path renders `form_data` from the query string, which is the same
