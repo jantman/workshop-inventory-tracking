@@ -162,7 +162,7 @@ comment about.
 - [X] T028 Confirm the test session left the working tree clean (`git status --short` empty apart from intended edits) — a test run that rewrites screenshots is a failed run
 - [X] T029 Review the diff against [quickstart.md](./quickstart.md#what-to-check-in-the-diff): no `parseFloat`, `toFixed` or arithmetic on a `Number` in `pack-unit-price.js`; no change to `app/product/routes.py`; no Alembic revision; no `wait_for_timeout` or `networkidle` in the new tests
 - [ ] T030 Walk the eight manual checks in [quickstart.md](./quickstart.md#manual-validation), including the no-JavaScript check and one real bookmarklet capture — the bookmarklet path prefills `#pack_price` and cannot be exercised from CI
-- [ ] T031 Open the pull request for `issues/97` referencing issue #97, stating the rounding decision and its consequence in the description so the choice is reviewable where the code is
+- [X] T031 Open the pull request for `issues/97` referencing issue #97, stating the rounding decision and its consequence in the description so the choice is reviewable where the code is
 
 ---
 
