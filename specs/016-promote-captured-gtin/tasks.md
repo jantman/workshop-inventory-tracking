@@ -123,7 +123,7 @@ the first product still holds it, the second has none, and the page says which p
 - [X] T025 Run `venv/bin/nox -s e2e`. **The Bash tool caps at 10 minutes and this suite needs ~8–15**, so run it detached (background/`nohup`) and poll, rather than in the foreground
 - [X] T026 Confirm `git status` is clean after the E2E run, and that the diff touches no file under `migrations/`, `app/templates/` or `app/static/` — no screenshot regeneration is expected or wanted for this feature
 - [ ] T027 Walk [quickstart.md](./quickstart.md) "By hand" once against a scratch database. **Read step 2's warning first**: `B01N4OSKWE` already carries a `UPC` specification row, so re-capturing it correctly reports `not examined` and creates nothing — that is the rule firing, not a bug
-- [ ] T028 Open the pull request from `issues/93`, noting the spec amendment made during planning ([research.md](./research.md) §3) so a reviewer does not have to rediscover why the report is state-shaped
+- [X] T028 Open the pull request from `issues/93`, noting the spec amendment made during planning ([research.md](./research.md) §3) so a reviewer does not have to rediscover why the report is state-shaped
 
 ---
 
