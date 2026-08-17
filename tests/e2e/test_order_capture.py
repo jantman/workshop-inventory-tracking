@@ -299,3 +299,229 @@ def test_the_bookmarklet_is_offered_and_points_at_this_server(page, live_server)
     # Still not a fetch -- mixed content would block one before CORS or CSP got
     # a say, which is the whole reason the agent submits a form.
     assert "fetch(" not in href
+
+
+# ---------------------------------------------------------------------------
+# The unit price of one item out of a pack (issue #97)
+# ---------------------------------------------------------------------------
+
+# paid, pack size, unit price, exact
+ROUNDING_TABLE = [
+    ("29.97", "3", "9.99", True),
+    # $17.99 across three is $5.996666..., which is the ordinary case rather
+    # than the awkward one. Rounded to the cent, and said so on the page.
+    ("17.99", "3", "6.00", False),
+    ("0.01", "3", "0.00", False),
+    ("10.00", "4", "2.50", True),
+    # The half-up step, exactly on the boundary: 8.9975 -> 9.00.
+    ("17.995", "2", "9.00", False),
+    # A pack of one is not a division: the amount comes back untouched, not
+    # reformatted, which is what keeps a single-unit capture what it was.
+    ("1249.50", "1", "1249.50", True),
+    ("1249.50", "", "1249.50", True),
+    ("9", "2", "4.50", True),
+]
+
+# paid, pack size, the field named
+REJECTIONS = [
+    ("1,249.50", "3", "pack_price"),
+    ("$5", "3", "pack_price"),
+    ("", "3", "pack_price"),
+    ("5.", "3", "pack_price"),
+    ("29.97", "0", "pack_size"),
+    ("29.97", "-1", "pack_size"),
+    ("29.97", "2.5", "pack_size"),
+    ("29.97", "three", "pack_size"),
+]
+
+
+def open_capture(page, base_url, url=AMAZON_URL):
+    """The capture form, with a listing URL in it and the script loaded"""
+    page.goto(f"{base_url}/products/capture")
+    page.fill("#url", url)
+    return page
+
+
+@pytest.mark.e2e
+def test_the_unit_price_arithmetic_is_exact(page, live_server):
+    """FR-006/FR-007: integer division, half up at the cent, and never a float.
+
+    Driven against the function rather than through the form. There is no JS
+    test runner in this repository and there is not going to be one for ninety
+    lines of arithmetic, so `window.unitPriceFromPack` is exposed the way
+    `window.readLabelCount` is and the whole table costs one page load instead
+    of sixteen.
+    """
+    open_capture(page, live_server.url)
+    # The state to wait on is the script having run -- `goto` waits for `load`,
+    # but this says so rather than relying on it.
+    page.wait_for_function("() => typeof window.unitPriceFromPack === 'function'")
+
+    for paid, size, value, exact in ROUNDING_TABLE:
+        result = page.evaluate(
+            "([p, n]) => window.unitPriceFromPack(p, n)", [paid, size]
+        )
+        assert result == {"ok": True, "value": value, "exact": exact}, (paid, size)
+
+    for paid, size, field in REJECTIONS:
+        result = page.evaluate(
+            "([p, n]) => window.unitPriceFromPack(p, n)", [paid, size]
+        )
+        assert result["ok"] is False, (paid, size)
+        assert result["field"] == field, (paid, size)
+        assert result["error"], (paid, size)
+
+    # A price that arrived as a number is refused rather than coerced: this is
+    # the guard that makes "no float, ever" true instead of merely intended.
+    refused = page.evaluate("() => window.unitPriceFromPack(17.99, '3')")
+    assert refused["ok"] is False
+    assert refused["field"] == "pack_price"
+
+
+@pytest.mark.e2e
+def test_the_unit_price_is_worked_out_from_the_pack(page, live_server):
+    """US1 scenarios 1 and 4: the calculator issue #97 was reaching for"""
+    open_capture(page, live_server.url)
+    page.fill("#listing_title", "Blue Widget 3-Pack")
+    page.fill("#pack_price", "29.97")
+    page.fill("#pack_size", "3")
+
+    expect(page.locator("#unit_price")).to_have_value("9.99")
+
+    page.click("#capture-btn")
+    expect(page.locator("#confirm-receive-btn")).to_be_visible()
+    # What was recorded is what the page showed.
+    expect(page.locator("#unit_price")).to_have_value("9.99")
+
+
+@pytest.mark.e2e
+def test_the_operator_can_overrule_the_worked_out_price(page, live_server):
+    """US1 scenario 2/FR-004: it is a field, not a verdict"""
+    open_capture(page, live_server.url)
+    page.fill("#listing_title", "Blue Widget 3-Pack")
+    page.fill("#pack_price", "29.97")
+    page.fill("#pack_size", "3")
+    expect(page.locator("#unit_price")).to_have_value("9.99")
+
+    page.fill("#unit_price", "9.95")
+    page.click("#capture-btn")
+
+    expect(page.locator("#confirm-receive-btn")).to_be_visible()
+    expect(page.locator("#unit_price")).to_have_value("9.95")
+
+
+@pytest.mark.e2e
+def test_it_recomputes_from_the_two_inputs_not_from_what_it_last_wrote(page, live_server):
+    """US1 scenario 3/FR-005: the derivation has one source, and it is the inputs.
+
+    The trap this guards is a recompute that folds the *displayed* unit price
+    back in -- changing the pack size twice would then give a different answer
+    from typing the second value first.
+    """
+    open_capture(page, live_server.url)
+    page.fill("#pack_price", "29.97")
+    page.fill("#pack_size", "3")
+    expect(page.locator("#unit_price")).to_have_value("9.99")
+
+    page.fill("#unit_price", "1.00")
+    page.fill("#pack_size", "6")
+
+    # 29.97 / 6 = 4.995, rounded up. Nothing derived from the 1.00.
+    expect(page.locator("#unit_price")).to_have_value("5.00")
+
+
+@pytest.mark.e2e
+def test_an_unusable_pack_size_destroys_nothing(page, live_server):
+    """FR-011: the failure mode is a message, never a cleared price field"""
+    open_capture(page, live_server.url)
+    page.fill("#pack_price", "12.00")
+    page.fill("#unit_price", "4.00")
+
+    page.fill("#pack_size", "0")
+
+    error = page.locator("#unit-price-error")
+    expect(error).to_be_visible()
+    expect(error).to_contain_text("pack size")
+    # The price the operator typed is still theirs.
+    expect(page.locator("#unit_price")).to_have_value("4.00")
+
+
+@pytest.mark.e2e
+def test_a_price_that_does_not_divide_evenly_says_so(page, live_server):
+    """US2 scenarios 1 and 2/FR-008, FR-009: the rounding is not silent.
+
+    The operator who later reconciles three at six pounds against a 17.99
+    charge needs to have been told where the penny went at the time, rather
+    than suspecting the wrong price was recorded.
+    """
+    open_capture(page, live_server.url)
+    page.fill("#pack_price", "17.99")
+    page.fill("#pack_size", "3")
+
+    expect(page.locator("#unit_price")).to_have_value("6.00")
+    note = page.locator("#unit-price-inexact")
+    expect(note).to_be_visible()
+    # All three numbers, so the claim can be checked without doing it again.
+    expect(note).to_contain_text("3")
+    expect(note).to_contain_text("6.00")
+    expect(note).to_contain_text("17.99")
+
+    # And absent when it comes out even.
+    page.fill("#pack_price", "29.97")
+    expect(page.locator("#unit_price")).to_have_value("9.99")
+    expect(note).not_to_be_visible()
+
+
+@pytest.mark.e2e
+def test_the_note_goes_away_when_the_pack_size_divides_evenly(page, live_server):
+    """US2 scenario 3: and the amount paid comes back verbatim at a pack of one"""
+    open_capture(page, live_server.url)
+    page.fill("#pack_price", "17.99")
+    page.fill("#pack_size", "3")
+    expect(page.locator("#unit-price-inexact")).to_be_visible()
+
+    page.fill("#pack_size", "1")
+
+    expect(page.locator("#unit-price-inexact")).not_to_be_visible()
+    expect(page.locator("#unit_price")).to_have_value("17.99")
+
+
+@pytest.mark.e2e
+def test_a_rounded_price_still_explains_itself_on_a_page_nobody_typed_into(page, live_server):
+    """FR-008 across a re-render, and FR-005's other half.
+
+    The GET path renders `form_data` from the query string, which is the same
+    mechanism that carries the pack fields back through a duplicate question.
+    The note has to survive that; writing the unit price must not, because a
+    re-render can be carrying one the operator typed by hand.
+    """
+    page.goto(f"{live_server.url}/products/capture?pack_price=17.99&pack_size=3")
+
+    # Wait for the note first: it is the proof that the load-time recompute
+    # ran, and without it the assertion below would pass against a page whose
+    # script had simply not executed yet.
+    expect(page.locator("#unit-price-inexact")).to_be_visible()
+    expect(page.locator("#unit_price")).to_have_value("")
+
+
+@pytest.mark.e2e
+def test_the_pack_fields_survive_a_question(page, live_server):
+    """US3/FR-012: a derivation that stops explaining itself is worse than none.
+
+    This passes on the strength of `form_data=request.form`, which the route
+    already did. The test is here so that a later edit to the template cannot
+    quietly take it away.
+    """
+    capture(page, live_server.url, listing_title="Blue Widget 3-Pack")
+
+    open_capture(page, live_server.url)
+    page.fill("#listing_title", "Blue Widget 3-Pack")
+    page.fill("#pack_price", "29.97")
+    page.fill("#pack_size", "3")
+    expect(page.locator("#unit_price")).to_have_value("9.99")
+    page.click("#capture-btn")
+
+    expect(page.locator("#duplicate-warning")).to_be_visible()
+    expect(page.locator("#pack_price")).to_have_value("29.97")
+    expect(page.locator("#pack_size")).to_have_value("3")
+    expect(page.locator("#unit_price")).to_have_value("9.99")

@@ -96,5 +96,7 @@ Rejections: `1,249.50` / `$5` / `` (empty) / `5.` → `pack_price`; `0` / `-1` /
 
 Behavioral contract: `input` on `#pack_price` or `#pack_size` recomputes, writes `#unit_price`
 on success, and leaves it untouched on failure. `input` on `#unit_price` triggers nothing — an
-override is an override. On page load the two notes are evaluated and `#unit_price` is not
-written.
+override is an override. On page load the computation runs once with the *inexactness note
+only*: `#unit_price` is not written (a re-render may be carrying an override) and
+`#unit-price-error` is not shown (an empty pack price on a page nobody has typed into is not
+an error to report).

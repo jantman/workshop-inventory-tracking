@@ -74,6 +74,11 @@ state: FR-005 requires each computation to start from the two current input valu
 the previously displayed unit price, which is what makes changing the pack size twice in a row
 give the same answer as typing the second value first.
 
-On page load the note and the error are evaluated, but `#unit_price` is **not** written. A
-re-render may be carrying a unit price the operator typed over the derived one before the
-form came back with a question, and a load-time write would silently discard it.
+On page load the inexactness note is evaluated, but `#unit_price` is **not** written and the
+error line is **not** shown. Two different reasons, both worth stating:
+
+- **Not written**, because a re-render may be carrying a unit price the operator typed over
+  the derived one before the form came back with a question, and a load-time write would
+  silently discard it.
+- **No error**, because an error is feedback on an edit. Every fresh capture page arrives with
+  an empty pack price, and an error line is the wrong thing to greet it with.
