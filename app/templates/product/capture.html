@@ -233,6 +233,21 @@
                     </div>
                 </div>
             </div>
+            {# Where it goes in the shop. Neither value can ever come from a
+               listing -- only the operator knows them, and they know them now,
+               which is the whole of issue #99. The fields themselves are shared
+               with the product form so the two cannot drift (FR-007, FR-008);
+               all three are optional and uncategorized is an ordinary state. #}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Classification &amp; Location</h5>
+                </div>
+                <div class="card-body">
+                    {% with values = form_data %}
+                    {% include "product/_classification_fields.html" %}
+                    {% endwith %}
+                </div>
+            </div>
 
             {# FR-017: what will be written, before it is written. It also does a
                second job -- a capture that comes back thin is the first signal
@@ -335,6 +350,11 @@
 {% endblock %}
 
 {% block scripts %}
+{# datalist.js first: catalog-suggestions.js reads window.WorkshopDatalist as
+   it loads, not on DOMContentLoaded. The ordering is load-bearing, not tidy --
+   the same comment stands over the same three tags in product/add.html. #}
+<script src="{{ url_for('static', filename='js/datalist.js') }}"></script>
+<script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
 <script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
 <script src="{{ url_for('static', filename='js/pack-unit-price.js') }}"></script>
 {% endblock %}

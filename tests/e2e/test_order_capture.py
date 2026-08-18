@@ -529,3 +529,273 @@ def test_the_pack_fields_survive_a_question(page, live_server):
     expect(page.locator("#pack_price")).to_have_value("29.97")
     expect(page.locator("#pack_size")).to_have_value("3")
     expect(page.locator("#unit_price")).to_have_value("9.99")
+
+
+# ---------------------------------------------------------------------------
+# Filing at capture: category, location and sub-location (issue #99)
+# ---------------------------------------------------------------------------
+
+FILING = {
+    "category_path": "electronics/passives/resistors",
+    "location": "Shelf A",
+    "sub_location": "Bin 3",
+}
+
+
+def open_product_from_receive(page):
+    """Follow the receive page's own link back to the product it captured.
+
+    A successful capture lands on the receive screen, so the product id is not
+    something the test knows. Clicking the link the page already carries beats
+    reconstructing the URL, and the click is a plain navigation rather than a
+    fetch -- the heading is the whole wait.
+    """
+    page.click("text=Back to Product")
+    expect(page.locator("#product-description")).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_a_capture_files_the_product(page, live_server):
+    """US1/SC-001: filed while the listing was on screen, with no second visit"""
+    capture(page, live_server.url, description="Blue widget, 10mm", **FILING)
+    open_product_from_receive(page)
+
+    expect(page.locator("#product-category")).to_have_text(
+        "electronics/passives/resistors"
+    )
+    expect(page.locator("#product-location")).to_have_text("Shelf A")
+    expect(page.locator("#product-sub-location")).to_have_text("Bin 3")
+
+
+@pytest.mark.e2e
+def test_leaving_them_blank_files_nothing_and_says_nothing(page, live_server):
+    """FR-003: uncategorized is an ordinary state, not a deficiency"""
+    capture(page, live_server.url, description="Blue widget, 10mm")
+    open_product_from_receive(page)
+
+    # Established by the heading wait in the helper, so a negative assertion
+    # here is against a page that has rendered rather than one that has not.
+    expect(page.locator("#product-category")).to_have_count(0)
+    expect(page.locator("#product-location")).to_have_text("Not recorded")
+    expect(page.locator("#product-sub-location")).to_have_text("Not recorded")
+
+
+@pytest.mark.e2e
+def test_a_category_typed_here_did_not_have_to_exist_first(page, live_server):
+    """FR-006: typing a path is how a path is created -- there is no setup step"""
+    capture(page, live_server.url, category_path="Shop/Consumables/Abrasives")
+    open_product_from_receive(page)
+
+    expect(page.locator("#product-category")).to_have_text("shop/consumables/abrasives")
+
+    page.goto(f"{live_server.url}/products/categories")
+    expect(page.locator("body")).to_contain_text("shop/consumables/abrasives")
+
+
+@pytest.mark.e2e
+def test_attaching_to_an_existing_product_refiles_it(page, live_server):
+    """FR-009: the operator is holding the thing, which outranks an older record"""
+    live_server.add_test_products([{
+        'description': 'Blue widget, already cataloged',
+        'location': 'Shelf B',
+        'sub_location': 'Bin 1',
+        'identifiers': [
+            {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
+        ],
+    }])
+
+    capture(page, live_server.url, listing_title="A COMPLETELY DIFFERENT THING",
+            location="Shelf A", sub_location="Bin 3")
+    expect(page.locator("#identifier-warning")).to_be_visible()
+
+    page.check("#attach-existing")
+    page.click("#capture-btn")
+    open_product_from_receive(page)
+
+    expect(page.locator("#product-location")).to_have_text("Shelf A")
+    expect(page.locator("#product-sub-location")).to_have_text("Bin 3")
+
+
+@pytest.mark.e2e
+def test_attaching_with_the_fields_blank_leaves_the_filing_alone(page, live_server):
+    """FR-010: blank is "I am not saying", never "erase it".
+
+    The failure this catches is silent: pass the three keys through
+    unconditionally and this capture unfiles a product nobody asked to move.
+    """
+    live_server.add_test_products([{
+        'description': 'Blue widget, already cataloged',
+        'category_path': 'misc',
+        'location': 'Shelf B',
+        'sub_location': 'Bin 1',
+        'identifiers': [
+            {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
+        ],
+    }])
+
+    capture(page, live_server.url, listing_title="A COMPLETELY DIFFERENT THING")
+    expect(page.locator("#identifier-warning")).to_be_visible()
+
+    page.check("#attach-existing")
+    page.click("#capture-btn")
+    open_product_from_receive(page)
+
+    expect(page.locator("#product-category")).to_have_text("misc")
+    expect(page.locator("#product-location")).to_have_text("Shelf B")
+    expect(page.locator("#product-sub-location")).to_have_text("Bin 1")
+
+
+# ---------------------------------------------------------------------------
+# The suggestion vocabularies, shared with the product form (issue #99, US2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.e2e
+def test_the_category_datalist_offers_what_is_already_in_use(page, live_server):
+    """FR-008: the same list the product form gets, from the same endpoint"""
+    live_server.add_test_products([
+        {'description': 'A resistor', 'category_path': 'electronics/passives'},
+    ])
+
+    open_capture(page, live_server.url)
+
+    # The datalist is filled by a fetch after DOMContentLoaded, so the option is
+    # the completion signal -- the element existing empty proves nothing.
+    expect(
+        page.locator("#category-suggestions option[value='electronics/passives']")
+    ).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_a_location_recorded_on_metal_stock_is_offered_here(page, live_server):
+    """FR-008: one vocabulary across both halves of the shop.
+
+    Seeded as a metal stock item and on no product, so a suggestion list built
+    only from the catalog would come back empty.
+    """
+    live_server.add_test_data([{
+        'ja_id': 'JA000201',
+        'item_type': 'Bar',
+        'shape': 'Rectangular',
+        'material': 'Aluminum',
+        'length': '36',
+        'location': 'Rack 7',
+    }])
+
+    open_capture(page, live_server.url)
+    page.fill("#location", "Rack")
+
+    # field-autocomplete.js debounces then fetches; expect() polls, which is
+    # what absorbs both. A count() here would read the dropdown before it filled.
+    expect(page.locator("#location-suggestions")).to_contain_text("Rack 7")
+
+
+@pytest.mark.e2e
+def test_sub_location_suggestions_are_scoped_to_the_location(page, live_server):
+    """FR-008: already inside Shelf A, only Shelf A's bins are worth offering"""
+    live_server.add_test_products([
+        {'description': 'One', 'location': 'Shelf A', 'sub_location': 'Bin 3'},
+        {'description': 'Two', 'location': 'Shelf B', 'sub_location': 'Drawer 9'},
+    ])
+
+    open_capture(page, live_server.url)
+    page.fill("#location", "Shelf A")
+    page.fill("#sub_location", "")
+
+    dropdown = page.locator("#sub_location-suggestions")
+    # Establish the region on its positive content first; the assertion that
+    # Shelf B's bin is absent would otherwise pass against an unfilled dropdown.
+    expect(dropdown).to_contain_text("Bin 3")
+    expect(dropdown).not_to_contain_text("Drawer 9")
+
+
+@pytest.mark.e2e
+def test_a_value_in_no_list_is_still_accepted(page, live_server):
+    """FR-008: these are suggestions, never a permitted set"""
+    live_server.add_test_products([
+        {'description': 'A resistor', 'category_path': 'electronics/passives'},
+    ])
+
+    capture(page, live_server.url, category_path="fasteners/socket-head-cap-screws",
+            location="Somewhere nobody has ever recorded")
+    open_product_from_receive(page)
+
+    expect(page.locator("#product-category")).to_have_text(
+        "fasteners/socket-head-cap-screws"
+    )
+    expect(page.locator("#product-location")).to_have_text(
+        "Somewhere nobody has ever recorded"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The filing survives a question (issue #99, US3)
+# ---------------------------------------------------------------------------
+
+
+def expect_filing_preserved(page):
+    """All three fields still holding what the operator typed"""
+    expect(page.locator("#category_path")).to_have_value(FILING["category_path"])
+    expect(page.locator("#location")).to_have_value(FILING["location"])
+    expect(page.locator("#sub_location")).to_have_value(FILING["sub_location"])
+
+
+@pytest.mark.e2e
+def test_the_filing_survives_the_duplicate_question(page, live_server):
+    """FR-011: the page comes back with the question, not with empty fields"""
+    capture(page, live_server.url, listing_title="Blue Widget 10-Pack")
+
+    capture(page, live_server.url, listing_title="Blue Widget 10-Pack", **FILING)
+    expect(page.locator("#duplicate-warning")).to_be_visible()
+    expect_filing_preserved(page)
+
+    # Two questions, not one: it is a probable repeat *and* the item number now
+    # names the product the first capture created. Answering only the duplicate
+    # leaves the second open and the page comes back again.
+    page.check("#acknowledged_duplicate_of")
+    page.check("#attach-existing")
+    page.click("#capture-btn")
+    open_product_from_receive(page)
+
+    expect(page.locator("#product-category")).to_have_text(FILING["category_path"])
+    expect(page.locator("#product-location")).to_have_text(FILING["location"])
+
+
+@pytest.mark.e2e
+def test_the_filing_survives_the_recycled_identifier_question(page, live_server):
+    """FR-011, on the other question -- the two re-render through one path"""
+    live_server.add_test_products([{
+        'description': 'Blue widget, already cataloged',
+        'manufacturer': 'Acme',
+        'manufacturer_part_number': 'BW-10',
+        'identifiers': [
+            {'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}
+        ],
+    }])
+
+    capture(page, live_server.url, listing_title="A COMPLETELY DIFFERENT THING",
+            **FILING)
+    expect(page.locator("#identifier-warning")).to_be_visible()
+    expect_filing_preserved(page)
+
+
+@pytest.mark.e2e
+def test_the_category_field_will_not_take_an_over_long_path(page, live_server):
+    """FR-005 as a browser actually meets it.
+
+    ``maxlength="512"`` refuses the 513th character at the keyboard, and
+    canonicalization never lengthens a path, so an over-length path cannot be
+    submitted from this page at all -- the service's rejection is the backstop
+    behind that, not the thing the operator sees. Asserting the cap here is
+    therefore the honest E2E claim; the rejection itself is unreachable through
+    a browser and is covered where it is reachable, in
+    ``tests/unit/test_capture.py``.
+
+    This is worth a test rather than a comment because the two halves have to
+    keep agreeing: widen the column without widening ``maxlength`` and the field
+    silently stops accepting paths the catalog would store.
+    """
+    open_capture(page, live_server.url)
+    page.fill("#category_path", "a" * 513)
+
+    expect(page.locator("#category_path")).to_have_value("a" * 512)
