@@ -148,8 +148,8 @@ it, and keeping it proven — which is the whole reason US3 is a story rather th
 - [X] T021 `venv/bin/nox -s tests` — the full unit suite green
 - [X] T022 `venv/bin/nox -s e2e` with a **15-minute** tool timeout (constitution Principle IV; run it detached and poll, since it outlasts a 10-minute cap). Then confirm `git status --short` is clean apart from intended edits — a test session that rewrites tracked files is a failed session
 - [X] T023 Review the diff against [quickstart.md](./quickstart.md): no Alembic revision and no edit to `app/database.py`; no new route; no change to `/api/capture`; the three fields never read from `listing`; the attach path passes keys by presence, not by value; and no `wait_for_timeout`, `time.sleep` or `networkidle` anywhere in the new tests
-- [ ] T024 Walk the manual checks in [quickstart.md](./quickstart.md#2-manual-walkthrough), especially step 4 of the FR-009/FR-010 sequence — capture a third time with the location blank and confirm the product is still filed where it was. That is the single check that catches T013 written the obvious way
-- [ ] T025 Open the pull request for `issues/99` referencing issue #99, stating the FR-009 decision (a typed value replaces what an existing product held) in the description so the choice is reviewable where the code is
+- [ ] T024 **Left for the operator** — it writes captures into the live inventory database, which is not mine to write to. Its most important step (attach with the field blank, confirm the filing is unchanged) is covered by `test_attaching_with_the_fields_blank_leaves_the_filing_alone` and by two unit tests. Walk the manual checks in [quickstart.md](./quickstart.md#2-manual-walkthrough), especially step 4 of the FR-009/FR-010 sequence — capture a third time with the location blank and confirm the product is still filed where it was. That is the single check that catches T013 written the obvious way
+- [X] T025 Open the pull request for `issues/99` referencing issue #99, stating the FR-009 decision (a typed value replaces what an existing product held) in the description so the choice is reviewable where the code is
 
 ---
 
