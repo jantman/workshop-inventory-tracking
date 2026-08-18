@@ -599,6 +599,62 @@ class ImageCaptureResult:
 LISTING_CAPTURE_VERSION = 1
 
 
+def normalized_row_name(name: Optional[str]) -> str:
+    """A specification row's name, folded for comparison against a fixed list.
+
+    Trims, collapses internal runs of whitespace, and upper-cases, so
+    ``mfr  part number`` and ``  Mfr Part Number `` are one name.
+
+    **Shared with the barcode-row matcher** (``_is_barcode_row_name`` in
+    ``catalog_service``), which is where this body came from. 019 FR-001
+    requires the part-number names to fold exactly as the barcode names already
+    do, and the only way to keep that true is for there to be one
+    implementation. Two lists that fold differently is the failure this
+    prevents.
+
+    Not to be confused with ``catalog_service._fold``, which case-folds and
+    trims but deliberately does **not** collapse internal whitespace. That one
+    compares two arbitrary operator-supplied strings; this one matches against a
+    fixed list of ASCII names. Different questions, different tools.
+    """
+    return ' '.join((name or '').split()).upper()
+
+
+# The product-information row names that mean "this value is the manufacturer's
+# part number", in **priority order** -- 019 FR-002. Stored already normalized,
+# so they compare against normalized_row_name(...) directly.
+#
+# **A tuple, where BARCODE_ROW_NAMES is a frozenset**, because order is the
+# specification here and is not there. A listing publishing both Model Number
+# and Mfr Part Number means the second one; membership alone cannot say that.
+#
+# The order encodes confidence and the bottom of it is deliberately loose. The
+# first two say what they are. PART NUMBER may be the vendor's rather than the
+# manufacturer's, and the two model names may be a marketing model that is not
+# orderable as a part. They earn their place because the operator reviews every
+# value this produces and can overrule it -- see ListingCapture's method below.
+PART_NUMBER_ROW_NAMES = (
+    'MANUFACTURER PART NUMBER',
+    'MFR PART NUMBER',
+    'PART NUMBER',
+    'MODEL NUMBER',
+    'ITEM MODEL NUMBER',
+)
+
+# Mirrors the String(100) on Product.manufacturer_part_number at
+# app/database.py:838.
+#
+# **Nothing in the stack checks this length**: _clean strips and nothing more,
+# and catalog_service validates no field width. So a derived default longer than
+# the column would submit, the capture would run, the gallery would be
+# retrieved, and only then would the write fail -- an error at the end of a
+# fifteen-second operation over a value the operator never typed. A candidate
+# that does not fit is passed over instead (019 FR-003), never truncated: a
+# truncated part number is a wrong one, and a wrong one corroborates a later
+# repeat buy against the wrong product.
+MANUFACTURER_PART_NUMBER_MAX_LENGTH = 100
+
+
 @dataclass
 class ListingCapture:
     """What the capture agent read off a vendor's listing.
@@ -620,6 +676,42 @@ class ListingCapture:
     description_text: Optional[str] = None
     specifications: List[Dict[str, str]] = field(default_factory=list)
     images: List[str] = field(default_factory=list)
+
+    def manufacturer_part_number(self) -> Optional[str]:
+        """The part number this listing's own rows name, or None (019).
+
+        **A default for the confirmation form, never an assertion about the
+        product.** The operator sees it, and can type over it or empty it before
+        capturing; nothing downstream may treat a part number as more
+        trustworthy for having come from here. Issue #90: the rows were already
+        on the page and the field was still being typed by hand.
+
+        The walk is names-outer, rows-inner, which is what makes FR-002's two
+        rules fall out rather than needing to be written: priority is by
+        position in ``PART_NUMBER_ROW_NAMES`` and never by position on the
+        vendor's page, and among rows sharing a name the first captured wins
+        because that is the order the inner walk visits them.
+
+        An unusable value does not end the search, it is passed over -- an empty
+        ``Model Number`` cell must not stop a real ``Item model number`` two
+        rows down (FR-003).
+
+        **Pure**: no I/O, no request, no mutation. A Jinja template calls this,
+        so it has to stay that way.
+
+        Returns:
+            The row's value with surrounding whitespace removed, or None when no
+            row qualifies. None is the ordinary case -- most listings name no
+            part number at all -- and never an error.
+        """
+        for wanted in PART_NUMBER_ROW_NAMES:
+            for entry in self.specifications:
+                if normalized_row_name(entry.get('name')) != wanted:
+                    continue
+                value = (entry.get('value') or '').strip()
+                if value and len(value) <= MANUFACTURER_PART_NUMBER_MAX_LENGTH:
+                    return value
+        return None
 
     @classmethod
     def from_json(cls, raw: Optional[str]) -> Optional['ListingCapture']:

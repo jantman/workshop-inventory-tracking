@@ -20,7 +20,8 @@ This is the payoff of putting the derivation on `ListingCapture`: the whole of F
 is checkable in under a second.
 
 ```bash
-venv/bin/nox -s tests -- tests/unit/test_capture.py -k part_number
+venv/bin/nox -s tests -- tests/unit/test_capture.py \
+  -k 'TestThePartNumberTheListingNames or TestWhichRowNamesMeanAPartNumber'
 ```
 
 **Expected**: green, and fast. Covers each recognized name, priority order beating page order, the
@@ -49,12 +50,16 @@ the internal double space in the row's name does not stop it matching.
 ## 2. The route rules — absent versus empty, and redisplay
 
 ```bash
-venv/bin/nox -s tests -- tests/unit/test_capture.py -k 'part_number and (form or cleared)'
+venv/bin/nox -s tests -- tests/unit/test_capture.py \
+  -k 'TestThePartNumberFillsTheForm or TestAClearedPartNumberStaysCleared'
 ```
 
-**Expected**: green. Covers FR-005 (a POST carrying the payload and no field falls back to the
-derived value; a POST carrying an empty field does not) and FR-006 (a re-render after a capture
-question redisplays a cleared field as cleared).
+**Expected**: 11 tests, green. Covers FR-002 at each render path, FR-005 (a POST carrying the
+payload and no field falls back to the derived value; a POST carrying an empty field does not) and
+FR-006 (a re-render after a capture question redisplays a cleared field as cleared).
+
+`test_a_cleared_field_comes_back_cleared` is the one that earns its keep: rewrite the template's
+expression as `form_data.get(...) or ...` and it is the **only** test in the suite that fails.
 
 ## 3. The whole unit suite
 
@@ -77,7 +82,8 @@ nohup venv/bin/nox -s e2e > /tmp/e2e.log 2>&1 &
 Or just this feature's tests, which is what you want while iterating:
 
 ```bash
-venv/bin/nox -s e2e -- tests/e2e/test_product_page_capture.py -k part_number
+venv/bin/nox -s e2e -- tests/e2e/test_product_page_capture.py \
+  -k 'part_number or repeat_buy or hand_edited or passed_over'
 ```
 
 **Expected**: the fixture listing (`tests/e2e/fixtures/amazon_listing.html`, which gains a
@@ -95,11 +101,17 @@ git status --short docs/images/screenshots/
 venv/bin/nox -s screenshots_verify
 ```
 
-**Expected**: `screenshots_verify` passes, and
-`docs/images/screenshots/user-manual/order_capture.png` shows the confirmation form. That is the
-capture page's screenshot — 018 regenerated the same file when it last edited this template.
-Screenshots churn on every run regardless of the change, so inspect what actually differs and commit
-only `order_capture.png` plus anything whose content genuinely moved — not the whole directory.
+**Expected**: `screenshots_verify` passes, and — measured on 2026-08-18 — **`order_capture.png` does
+not change**, while nine unrelated images do.
+
+That is the correct outcome, not a missed step. The template edit adds a Jinja comment (which renders
+nothing) and an expression that yields the same empty string in the screenshot's scenario, because
+that scenario has no listing to derive from. The visible change only appears on a capture that
+carries product-information rows, which no screenshot does. The nine that moved — add item, search,
+history, move, shorten, product detail — are the run-to-run churn, a few hundred bytes each on pages
+this feature does not touch, and `metadata.json` differs only in timestamps.
+
+**So this feature commits no screenshot.** Revert them: `git checkout -- docs/images/screenshots/`.
 
 ## 6. By hand, against the two listings from the issue
 

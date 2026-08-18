@@ -120,6 +120,28 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
             <th class="prodDetSectionEntry">UPC</th>
             <td class="prodDetAttrValue">012345678905</td>
         </tr>
+        <!-- 019 / issue #90: the listings that prompted the issue published the
+             part number in a row exactly like this one, and the confirmation
+             form still came up with the field blank. This is what fills it. -->
+        <!-- 019 FR-003: higher priority than the row below, and deliberately
+             longer than the manufacturer_part_number column holds. It must be
+             passed over rather than end the search, so the pair of rows -- not
+             either one alone -- is what makes the browser path exercise the
+             rule.
+
+             **Over-long rather than empty**, which was the first attempt: the
+             agent drops a row with no value (specificationsFrom, capture-agent.js
+             line 295), so an empty cell never reaches Python and a test built on
+             one proves nothing. The empty and whitespace-only cases are covered
+             where they can be, in the unit tests. -->
+        <tr>
+            <th class="prodDetSectionEntry">Manufacturer Part Number</th>
+            <td class="prodDetAttrValue">NOT-A-PART-NUMBER-BUT-A-WHOLE-SENTENCE-ABOUT-COMPATIBILITY-WITH-EVERY-MODEL-THIS-VENDOR-HAS-EVER-SOLD</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Mfr Part Number</th>
+            <td class="prodDetAttrValue">ACME-7700-B</td>
+        </tr>
     </table>
 </div>
 

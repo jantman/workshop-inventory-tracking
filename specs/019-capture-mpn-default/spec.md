@@ -137,6 +137,16 @@ value and whose next one has a real value. Confirm the field holds the second.
   recycled-identifier question depends on. So the derived default may be filled in, reviewed and
   then not stored. That is correct and unchanged by this feature; the field is still worth filling
   because the operator does not know at that moment which case they are in.
+- **A re-capture of the same listing stops asking the recycled-identifier question.** *(Found
+  during implementation, 2026-08-18.)* That question is raised when a capture lands on an identifier
+  an existing product already holds and its own evidence does not corroborate the match. The
+  evidence is the manufacturer **and** the part number together; both are required. The capture has
+  always supplied the manufacturer and never the part number, so the pair never corroborated and
+  every re-capture asked. Once the listing supplies both, a repeat buy of the same listing attaches
+  without being asked. This is a real behavior change beyond the field itself, it is the outcome US1
+  is named for, and it is what "the second half of the pair that lets a repeat buy attach without
+  asking" cashes out to. The duplicate-purchase question is untouched — no part number can answer
+  "did you order this twice today?".
 - **Two rows with the same recognized name.** Deduplicated before this feature sees them on the
   bookmarklet path; where a duplicate name does survive, the first one in the captured order wins.
 - **A row that names the vendor's part number rather than the manufacturer's.** `Part Number` is
@@ -213,6 +223,9 @@ value and whose next one has a real value. Confirm the field holds the second.
   including the row a default was derived from, in all of the above cases.
 - **SC-006**: A capture carrying no part-number-named row completes exactly as it does today, with
   no change to what is stored.
+- **SC-006a**: Capturing a listing whose product information names the part number, and then
+  capturing the same listing again, attaches to the existing product **without** raising the
+  recycled-identifier question — one question fewer per repeat buy than before this feature.
 - **SC-007**: Deriving the default adds no measurable time to a capture — no listing is read twice
   and no request is made.
 

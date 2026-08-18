@@ -54,6 +54,12 @@
   read as requiring the stronger behavior for this field, and the last Assumption records that
   aligning the other two is out of scope. If the owner would rather have three consistent fields
   than one correct one, this is the requirement to revisit.
+- **Found during implementation (2026-08-18), spec amended.** Filling the part number changes more
+  than the field: `_corroborates` requires the manufacturer *and* the part number to agree before a
+  capture may attach to a product whose identifier it landed on, and the capture never supplied the
+  second half until now. Two existing E2E tests failed because the recycled-identifier question they
+  relied on is no longer raised on a re-capture. The behavior is the intended payoff, not a
+  regression; it is now an edge case in the spec, SC-006a, and a dedicated E2E test that pins it.
 - **Terminology exclusion.** The recognized names in FR-001 are quoted as vendors spell them, so
   `Mfr Part Number` and `Item model number` keep their source capitalization. These are data
   values being matched, not prose.

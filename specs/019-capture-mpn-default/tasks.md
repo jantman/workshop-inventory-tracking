@@ -36,8 +36,8 @@ Flask app at the repository root: `app/` for source, `tests/unit/` and `tests/e2
 **Purpose**: Nothing to install, nothing to scaffold. This phase exists to confirm the ground is
 where the plan says it is before anything is edited.
 
-- [ ] T001 Confirm the working tree is clean apart from `specs/019-capture-mpn-default/` and `.specify/feature.json`, and that the branch is `issues/90`, with `git status --short && git branch --show-current`
-- [ ] T002 Establish the green baseline with `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — it must pass in about a second before anything is changed
+- [X] T001 Confirm the working tree is clean apart from `specs/019-capture-mpn-default/` and `.specify/feature.json`, and that the branch is `issues/90`, with `git status --short && git branch --show-current`
+- [X] T002 Establish the green baseline with `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — it must pass in about a second before anything is changed
 
 **No dependency is added and no package is installed.** If `requirements.txt` appears in the diff,
 the plan has been misread.
@@ -52,9 +52,9 @@ verbatim move, and the existing barcode tests staying green untouched is the pro
 **⚠️ BLOCKS**: every user story. `PART_NUMBER_ROW_NAMES` is stored pre-normalized, so nothing can be
 matched until the normalizer exists.
 
-- [ ] T003 Add `normalized_row_name(name: Optional[str]) -> str` to `app/models.py`, near `LISTING_CAPTURE_VERSION` (line 599) — body lifted **verbatim** from `_is_barcode_row_name`: `return ' '.join((name or '').split()).upper()`. Docstring must say it trims, collapses internal whitespace runs, and upper-cases, and that it is shared with the barcode-row matcher (FR-001)
-- [ ] T004 Rewrite `_is_barcode_row_name` in `app/catalog_service.py:2541` to `return normalized_row_name(name) in BARCODE_ROW_NAMES`, importing `normalized_row_name` from `.models` in the existing import block at line 38. Keep the existing docstring — its reasoning about whole-name matching is still exactly right
-- [ ] T005 Verify the move was verbatim: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests -- tests/unit/test_capture.py -k Barcode`. `TestWhichRowNamesMeanABarcode` (`tests/unit/test_capture.py:1762`) must pass **with no edit to that file**. A red result here means the move changed behavior; fix the move, do not touch the test
+- [X] T003 Add `normalized_row_name(name: Optional[str]) -> str` to `app/models.py`, near `LISTING_CAPTURE_VERSION` (line 599) — body lifted **verbatim** from `_is_barcode_row_name`: `return ' '.join((name or '').split()).upper()`. Docstring must say it trims, collapses internal whitespace runs, and upper-cases, and that it is shared with the barcode-row matcher (FR-001)
+- [X] T004 Rewrite `_is_barcode_row_name` in `app/catalog_service.py:2541` to `return normalized_row_name(name) in BARCODE_ROW_NAMES`, importing `normalized_row_name` from `.models` in the existing import block at line 38. Keep the existing docstring — its reasoning about whole-name matching is still exactly right
+- [X] T005 Verify the move was verbatim: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests -- tests/unit/test_capture.py -k Barcode`. `TestWhichRowNamesMeanABarcode` (`tests/unit/test_capture.py:1762`) must pass **with no edit to that file**. A red result here means the move changed behavior; fix the move, do not touch the test
 
 **Checkpoint**: nothing observable has changed. `nox -s tests` is green and no test file was edited.
 
@@ -71,19 +71,19 @@ row is still in the product's specification list.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Add `PART_NUMBER_ROW_NAMES` to `app/models.py` as a **tuple** in priority order, entries stored pre-normalized: `('MANUFACTURER PART NUMBER', 'MFR PART NUMBER', 'PART NUMBER', 'MODEL NUMBER', 'ITEM MODEL NUMBER')`. Comment must say order is the specification (FR-002), and that this is a tuple where `BARCODE_ROW_NAMES` is a frozenset because order matters here and does not there
-- [ ] T007 [US1] Add `MANUFACTURER_PART_NUMBER_MAX_LENGTH = 100` to `app/models.py`, with a comment naming `app/database.py:838` (`String(100)`) as the column it mirrors, and stating that an over-long default would fail the write at the end of a fifteen-second capture because nothing in the stack checks length ([research.md](./research.md) §4)
-- [ ] T008 [US1] Add `ListingCapture.manufacturer_part_number(self) -> Optional[str]` to `app/models.py` (class at line 603): walk `PART_NUMBER_ROW_NAMES` outer, `self.specifications` inner, return the first row whose `normalized_row_name(name)` matches **and** whose stripped value is non-empty and at most `MANUFACTURER_PART_NUMBER_MAX_LENGTH`; return the stripped value; return `None` when nothing qualifies. Must be pure — no I/O, no mutation — because a Jinja template calls it. Docstring must say it is a default, never an assertion
-- [ ] T009 [US1] Change the `manufacturer_part_number` input in `app/templates/product/capture.html:163-165` from `value="{{ form_data.get('manufacturer_part_number') or '' }}"` to a **presence test on the key**, falling back to `listing.manufacturer_part_number()` when `listing` is set — the exact expression is in [research.md](./research.md) §5. Add a Jinja comment explaining that the test is on presence rather than truthiness because a cleared field must stay cleared (FR-006), and that this deliberately differs from the `manufacturer` field ten lines above
+- [X] T006 [US1] Add `PART_NUMBER_ROW_NAMES` to `app/models.py` as a **tuple** in priority order, entries stored pre-normalized: `('MANUFACTURER PART NUMBER', 'MFR PART NUMBER', 'PART NUMBER', 'MODEL NUMBER', 'ITEM MODEL NUMBER')`. Comment must say order is the specification (FR-002), and that this is a tuple where `BARCODE_ROW_NAMES` is a frozenset because order matters here and does not there
+- [X] T007 [US1] Add `MANUFACTURER_PART_NUMBER_MAX_LENGTH = 100` to `app/models.py`, with a comment naming `app/database.py:838` (`String(100)`) as the column it mirrors, and stating that an over-long default would fail the write at the end of a fifteen-second capture because nothing in the stack checks length ([research.md](./research.md) §4)
+- [X] T008 [US1] Add `ListingCapture.manufacturer_part_number(self) -> Optional[str]` to `app/models.py` (class at line 603): walk `PART_NUMBER_ROW_NAMES` outer, `self.specifications` inner, return the first row whose `normalized_row_name(name)` matches **and** whose stripped value is non-empty and at most `MANUFACTURER_PART_NUMBER_MAX_LENGTH`; return the stripped value; return `None` when nothing qualifies. Must be pure — no I/O, no mutation — because a Jinja template calls it. Docstring must say it is a default, never an assertion
+- [X] T009 [US1] Change the `manufacturer_part_number` input in `app/templates/product/capture.html:163-165` from `value="{{ form_data.get('manufacturer_part_number') or '' }}"` to a **presence test on the key**, falling back to `listing.manufacturer_part_number()` when `listing` is set — the exact expression is in [research.md](./research.md) §5. Add a Jinja comment explaining that the test is on presence rather than truthiness because a cleared field must stay cleared (FR-006), and that this deliberately differs from the `manufacturer` field ten lines above
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add `TestWhichRowNamesMeanAPartNumber` to `tests/unit/test_capture.py`, beside `TestWhichRowNamesMeanABarcode` (line 1762): each of the five names recognized; case, surrounding whitespace and **internal** whitespace runs folded (`'Mfr  Part   Number'`); the whole name must match, not a part of it (`'Vendor Part Number'`, `'Part Numbers'` do not); `None` and `''` are not part-number names; and a guard asserting every `PART_NUMBER_ROW_NAMES` entry equals its own `normalized_row_name` — a typo there would make an entry permanently unmatchable, and silently so (FR-001)
-- [ ] T011 [P] [US1] Add `TestThePartNumberTheListingNames` to `tests/unit/test_capture.py`, beside `TestTheListingPayload` (line 952): construct `ListingCapture` directly, no app and no database. Cover each recognized name yielding its value; **priority beats page order** (a `Model Number` row first and a `Mfr Part Number` row second yields the second — FR-002, US1 scenario 3); two rows sharing a name yield the first in captured order; the value is returned trimmed and otherwise unaltered (FR-004); and a listing with no rows, and one with no recognized name, both yield `None`
-- [ ] T012 [US1] Add `TestThePartNumberFillsTheForm` to `tests/unit/test_capture.py`, beside `TestTheListingFillsTheForm` (line 1064), reusing its `payload`/`capture` helper shape: a POST carrying the payload and **no** `manufacturer_part_number` field stores the derived value; the same POST carrying a value stores that value instead; and `GET /products/capture?listing=...` renders the derived value into the field (FR-002)
-- [ ] T013 [P] [US1] Add a `Mfr Part Number` row with a real value to the `productDetails_techSpec_section_1` table in `tests/e2e/fixtures/amazon_listing.html`, beside the `UPC` row at line 120. The fixture has no part-number row at all today. Comment it the way the `UPC` row is commented, naming issue #90
-- [ ] T014 [US1] Add an E2E test to `tests/e2e/test_product_page_capture.py`: capture from the fixture, assert `#manufacturer_part_number` already holds the fixture's value with nothing typed, then `confirm(landed)` and assert the stored product carries it. Follow `test_the_agent_fills_in_the_price_and_the_brand` (line 169) exactly — same helpers, same assertion style. **No fixed wait**: the form is server-rendered, so `expect(...).to_have_value(...)` is the whole wait (`CLAUDE.md` Pattern C)
-- [ ] T015 [US1] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — green, sub-second, network blocked
+- [X] T010 [P] [US1] Add `TestWhichRowNamesMeanAPartNumber` to `tests/unit/test_capture.py`, beside `TestWhichRowNamesMeanABarcode` (line 1762): each of the five names recognized; case, surrounding whitespace and **internal** whitespace runs folded (`'Mfr  Part   Number'`); the whole name must match, not a part of it (`'Vendor Part Number'`, `'Part Numbers'` do not); `None` and `''` are not part-number names; and a guard asserting every `PART_NUMBER_ROW_NAMES` entry equals its own `normalized_row_name` — a typo there would make an entry permanently unmatchable, and silently so (FR-001)
+- [X] T011 [P] [US1] Add `TestThePartNumberTheListingNames` to `tests/unit/test_capture.py`, beside `TestTheListingPayload` (line 952): construct `ListingCapture` directly, no app and no database. Cover each recognized name yielding its value; **priority beats page order** (a `Model Number` row first and a `Mfr Part Number` row second yields the second — FR-002, US1 scenario 3); two rows sharing a name yield the first in captured order; the value is returned trimmed and otherwise unaltered (FR-004); and a listing with no rows, and one with no recognized name, both yield `None`
+- [X] T012 [US1] Add `TestThePartNumberFillsTheForm` to `tests/unit/test_capture.py`, beside `TestTheListingFillsTheForm` (line 1064), reusing its `payload`/`capture` helper shape: a POST carrying the payload and **no** `manufacturer_part_number` field stores the derived value; the same POST carrying a value stores that value instead; and `GET /products/capture?listing=...` renders the derived value into the field (FR-002)
+- [X] T013 [P] [US1] Add a `Mfr Part Number` row with a real value to the `productDetails_techSpec_section_1` table in `tests/e2e/fixtures/amazon_listing.html`, beside the `UPC` row at line 120. The fixture has no part-number row at all today. Comment it the way the `UPC` row is commented, naming issue #90
+- [X] T014 [US1] Add an E2E test to `tests/e2e/test_product_page_capture.py`: capture from the fixture, assert `#manufacturer_part_number` already holds the fixture's value with nothing typed, then `confirm(landed)` and assert the stored product carries it. Follow `test_the_agent_fills_in_the_price_and_the_brand` (line 169) exactly — same helpers, same assertion style. **No fixed wait**: the form is server-rendered, so `expect(...).to_have_value(...)` is the whole wait (`CLAUDE.md` Pattern C)
+- [X] T015 [US1] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — green, sub-second, network blocked
 
 **Checkpoint**: US1 is complete and independently demonstrable end to end. **This alone closes what
 issue #90 reported.**
@@ -105,14 +105,14 @@ absent-versus-empty distinction on the write, and the re-render.
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] In `app/product/routes.py`, `product_capture` POST branch, add `manufacturer_part_number` to the absent-versus-empty fallback block at lines 415–421 — read it with `request.form.get(...)`, and fall back to `listing.manufacturer_part_number()` **only when it is `None`** (FR-005). Pass the local into the `capture_order` call at line 434, replacing the inline `request.form.get('manufacturer_part_number')`. Extend the existing comment above the block to name the third field rather than writing a second comment
-- [ ] T017 [US2] Verify no change was made to the `manufacturer` or `unit_price` handling in that same block, and none to the `manufacturer` input at `app/templates/product/capture.html:154`, with `git diff app/product/routes.py app/templates/product/capture.html`. Those two still use `or` on re-render; that wart is out of scope by a stated spec assumption and **must not appear in this diff**
+- [X] T016 [US2] In `app/product/routes.py`, `product_capture` POST branch, add `manufacturer_part_number` to the absent-versus-empty fallback block at lines 415–421 — read it with `request.form.get(...)`, and fall back to `listing.manufacturer_part_number()` **only when it is `None`** (FR-005). Pass the local into the `capture_order` call at line 434, replacing the inline `request.form.get('manufacturer_part_number')`. Extend the existing comment above the block to name the third field rather than writing a second comment
+- [X] T017 [US2] Verify no change was made to the `manufacturer` or `unit_price` handling in that same block, and none to the `manufacturer` input at `app/templates/product/capture.html:154`, with `git diff app/product/routes.py app/templates/product/capture.html`. Those two still use `or` on re-render; that wart is out of scope by a stated spec assumption and **must not appear in this diff**
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Add `TestAClearedPartNumberStaysCleared` to `tests/unit/test_capture.py`, beside `TestThePayloadSurvivesAQuestion` (line 1579), reusing its `payload`/`post` helper shape: a POST submitting an **empty** `manufacturer_part_number` stores no part number and the derived value is not silently restored (FR-005, US2 scenario 2); a POST that triggers `CaptureDecisionRequired` re-renders with the field **empty**, not refilled (FR-006, US2 scenario 3); and the same re-render with a *typed* value shows the typed value
-- [ ] T019 [US2] Add an E2E test to `tests/e2e/test_product_page_capture.py`: capture from the fixture, clear the field with `confirm(landed, manufacturer_part_number="")`, and assert the stored product carries no part number. Establish the region with `expect(...)` before any snapshot read — a negative assertion against a region that has not rendered passes trivially (`CLAUDE.md`)
-- [ ] T020 [US2] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — green
+- [X] T018 [P] [US2] Add `TestAClearedPartNumberStaysCleared` to `tests/unit/test_capture.py`, beside `TestThePayloadSurvivesAQuestion` (line 1579), reusing its `payload`/`post` helper shape: a POST submitting an **empty** `manufacturer_part_number` stores no part number and the derived value is not silently restored (FR-005, US2 scenario 2); a POST that triggers `CaptureDecisionRequired` re-renders with the field **empty**, not refilled (FR-006, US2 scenario 3); and the same re-render with a *typed* value shows the typed value
+- [X] T019 [US2] Add an E2E test to `tests/e2e/test_product_page_capture.py`: capture from the fixture, clear the field with `confirm(landed, manufacturer_part_number="")`, and assert the stored product carries no part number. Establish the region with `expect(...)` before any snapshot read — a negative assertion against a region that has not rendered passes trivially (`CLAUDE.md`)
+- [X] T020 [US2] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — green
 
 **Checkpoint**: US1 and US2 both work. The feature is now safe to ship: the default exists and it can
 always be overruled.
@@ -130,9 +130,9 @@ next one has a real value yields the second.
 **Note**: US3's *implementation* landed in T008 — the usability test is part of the same walk, and
 splitting it out would mean editing one method twice. What is genuinely separate is its coverage.
 
-- [ ] T021 [US3] Extend `TestThePartNumberTheListingNames` (created in T011) in `tests/unit/test_capture.py` with FR-003's cases: a row whose stripped value exceeds `MANUFACTURER_PART_NUMBER_MAX_LENGTH` yields nothing from that row **and the search continues to the next recognized name**; a value at exactly the limit is accepted; a row whose value is empty or whitespace-only is passed over rather than ending the search (US3 scenarios 1 and 2); and the returned value is trimmed (US3 scenario 3)
-- [ ] T022 [US3] Add a second part-number row to `tests/e2e/fixtures/amazon_listing.html`, higher-priority than T013's row but with an **empty** value, so the browser path exercises the pass-over and not only the happy case. Comment it naming issue #90 and FR-003
-- [ ] T023 [US3] Add an E2E test to `tests/e2e/test_product_page_capture.py` asserting the confirmation form skips the empty higher-priority row and shows T013's usable lower-priority value, via `capture_from_listing` and `expect(landed.locator("#manufacturer_part_number")).to_have_value(...)`
+- [X] T021 [US3] Extend `TestThePartNumberTheListingNames` (created in T011) in `tests/unit/test_capture.py` with FR-003's cases: a row whose stripped value exceeds `MANUFACTURER_PART_NUMBER_MAX_LENGTH` yields nothing from that row **and the search continues to the next recognized name**; a value at exactly the limit is accepted; a row whose value is empty or whitespace-only is passed over rather than ending the search (US3 scenarios 1 and 2); and the returned value is trimmed (US3 scenario 3)
+- [X] T022 [US3] Add a second part-number row to `tests/e2e/fixtures/amazon_listing.html`, higher-priority than T013's row but with an **empty** value, so the browser path exercises the pass-over and not only the happy case. Comment it naming issue #90 and FR-003
+- [X] T023 [US3] Add an E2E test to `tests/e2e/test_product_page_capture.py` asserting the confirmation form skips the empty higher-priority row and shows T013's usable lower-priority value, via `capture_from_listing` and `expect(landed.locator("#manufacturer_part_number")).to_have_value(...)`
 
 **Checkpoint**: all three stories are independently demonstrable.
 
@@ -140,12 +140,12 @@ splitting it out would mean editing one method twice. What is genuinely separate
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T024 [P] Update the bookmarklet paragraph in `docs/user-manual.md` (around line 905 — "for an Amazon page that means the price, the brand, the description, every *Product information* row, and every image...") to name the manufacturer part number, and say it is a default the operator can change or clear
-- [ ] T025 Run the E2E suite: `nohup env PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e > /tmp/e2e-019.log 2>&1 &` then poll. **It outlasts a 10-minute command cap — run it detached.** Constitution IV requires a 15-minute allowance
-- [ ] T026 Regenerate screenshots: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_headless`, then `venv/bin/nox -s screenshots_verify`. `docs/images/screenshots/user-manual/order_capture.png` is the capture page's screenshot (written by `tests/e2e/test_screenshot_generation.py::test_screenshot_order_capture`) and 018 regenerated exactly that file when it last edited this template. Screenshots churn on every run — inspect what actually differs and commit `order_capture.png` plus anything whose content genuinely moved, **not** the whole directory
-- [ ] T027 Confirm the working tree is clean after a plain `nox -s tests` and `nox -s e2e` run (Constitution IV: a test session must leave the tree clean) with `git status --short`
-- [ ] T028 Walk [quickstart.md](./quickstart.md) sections 1–3 and 5 end to end, and section 6 by hand against `B0CZ72JRHP` and `B0FX4PDW6M` if a TLS-served instance is available. SC-001 is the acceptance: the field arrives filled with zero keystrokes
-- [ ] T029 Review the full diff against the file list in [plan.md](./plan.md): `app/models.py`, `app/catalog_service.py`, `app/product/routes.py`, `app/templates/product/capture.html`, `tests/unit/test_capture.py`, `tests/e2e/test_product_page_capture.py`, `tests/e2e/fixtures/amazon_listing.html`, `docs/user-manual.md`, one screenshot, and this spec directory. **Anything else in the diff is a defect**: no migration, no `requirements.txt`, no JavaScript, no `app/database.py`, no `_form_fields.html`
+- [X] T024 [P] Update the bookmarklet paragraph in `docs/user-manual.md` (around line 905 — "for an Amazon page that means the price, the brand, the description, every *Product information* row, and every image...") to name the manufacturer part number, and say it is a default the operator can change or clear
+- [X] T025 Run the E2E suite: `nohup env PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e > /tmp/e2e-019.log 2>&1 &` then poll. **It outlasts a 10-minute command cap — run it detached.** Constitution IV requires a 15-minute allowance
+- [X] T026 Regenerate screenshots: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_headless`, then `venv/bin/nox -s screenshots_verify`. `docs/images/screenshots/user-manual/order_capture.png` is the capture page's screenshot (written by `tests/e2e/test_screenshot_generation.py::test_screenshot_order_capture`) and 018 regenerated exactly that file when it last edited this template. Screenshots churn on every run — inspect what actually differs and commit `order_capture.png` plus anything whose content genuinely moved, **not** the whole directory
+- [X] T027 Confirm the working tree is clean after a plain `nox -s tests` and `nox -s e2e` run (Constitution IV: a test session must leave the tree clean) with `git status --short`
+- [X] T028 Walk [quickstart.md](./quickstart.md) sections 1–3 and 5 end to end, and section 6 by hand against `B0CZ72JRHP` and `B0FX4PDW6M` if a TLS-served instance is available. SC-001 is the acceptance: the field arrives filled with zero keystrokes
+- [X] T029 Review the full diff against the file list in [plan.md](./plan.md): `app/models.py`, `app/catalog_service.py`, `app/product/routes.py`, `app/templates/product/capture.html`, `tests/unit/test_capture.py`, `tests/e2e/test_product_page_capture.py`, `tests/e2e/fixtures/amazon_listing.html`, `docs/user-manual.md`, one screenshot, and this spec directory. **Anything else in the diff is a defect**: no migration, no `requirements.txt`, no JavaScript, no `app/database.py`, no `_form_fields.html`
 - [ ] T030 Open the pull request against `main` referencing issue #90, and note in the body the FR-006 scope call — this field's cleared value survives a re-render, `manufacturer` and unit price still do not, and aligning them is deliberately a separate change
 
 ---
@@ -228,3 +228,44 @@ add classes to `tests/unit/test_capture.py` (T010, T011, T012, T018) and one ext
   number, and a wrong one corroborates a later repeat buy against the wrong product
 - E2E waiting rules are not style: `CLAUDE.md` and Constitution IV. Both pages here are
   server-rendered, so `expect(locator).to_have_value(...)` is the whole wait
+
+---
+
+## What changed during implementation
+
+Recorded here rather than silently, because three of these change what the tasks said.
+
+- **The recycled-identifier question stops being asked on a re-capture.** Not anticipated anywhere in
+  the planning documents, and found by two E2E tests failing. `_corroborates` requires the
+  manufacturer **and** the part number to agree before a capture may attach to a product whose
+  identifier it landed on; the capture has always supplied the first and never the second, so the
+  pair never corroborated and every re-capture raised the question. Filling the part number supplies
+  the missing half. `test_a_hand_edited_value_survives_a_re_capture` and
+  `test_a_repeat_buy_merges_and_stores_no_second_copy` both used that question to reach their
+  subject; both now clear the field on their first capture, with a comment saying why.
+  `test_a_repeat_buy_no_longer_has_to_answer_the_identifier_question` pins the new behaviour, and
+  the spec gained an edge case and SC-006a. This is the outcome US1 is named for — it is the payoff,
+  not a regression.
+- **T022/T023 changed shape.** The plan called for an *empty* higher-priority row in the E2E
+  fixture. The capture agent drops a row with no value before the payload is built
+  (`specificationsFrom`, `capture-agent.js:295`), so an empty cell never reaches Python and a test
+  built on one proves nothing. The fixture row is *over-long* instead, at 101 characters against a
+  ceiling of 100, which does survive the agent and does exercise FR-003. The empty and
+  whitespace-only cases are covered in the unit tests, where they can be reached.
+- **T012 was narrowed and T018 widened.** T012 was written to cover the write-path fallback, whose
+  implementation is T016 in the next phase. The render assertions stayed in T012; the
+  absent-versus-empty write assertions moved into `TestAClearedPartNumberStaysCleared` alongside the
+  code that makes them pass.
+- **T026 commits no screenshot.** `order_capture.png` came back byte-identical: the template edit
+  adds a Jinja comment and an expression that yields the same empty string in a scenario with no
+  listing. Nine unrelated images churned by a few hundred bytes each and were reverted. Details in
+  [quickstart.md](./quickstart.md) §5.
+- **The quickstart's test selectors were wrong** and are corrected. `-k part_number` matches test
+  function names only and picks up eight of the forty-eight; the class names are what select the
+  feature.
+- **T015/T020's "sub-second" is inherited from the constitution and is stale.** The unit suite runs
+  in about 23 seconds, 44 with nox's overhead. Not this feature's to fix.
+
+**Verification at the end**: `nox -s tests` 1432 passed; `nox -s e2e` 558 passed, 0 failed;
+`nox -s screenshots_verify` 18 verified. A mutation check confirmed the FR-006 guard bites — rewriting
+the template expression with `or` fails `test_a_cleared_field_comes_back_cleared` and nothing else.

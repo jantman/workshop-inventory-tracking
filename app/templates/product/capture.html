@@ -160,9 +160,33 @@
                             <label for="manufacturer_part_number" class="form-label">
                                 Manufacturer Part Number
                             </label>
+                            {# Pre-filled from the listing's own product-information
+                               rows when the operator has not supplied one (019
+                               US1). The five names it looks for, in priority
+                               order, are PART_NUMBER_ROW_NAMES in app/models.py.
+
+                               **Tests whether the key is present, not whether
+                               the value is truthy** -- and that is the whole of
+                               019 FR-006. form_data has no such key on either
+                               first render (the bookmarklet's landing dict, and
+                               request.args on the GET), so the listing fills the
+                               field. It always has one on a re-render, because
+                               this form submits the field, so what comes back is
+                               what the operator decided -- **including their
+                               decision to empty it**. Written with `or`, a
+                               cleared field would refill itself the moment the
+                               capture asked a question.
+
+                               The manufacturer field above still uses `or` and
+                               still has that wart. Aligning it is a separate
+                               change against a separate issue; do not fix it
+                               here. #}
                             <input type="text" class="form-control" id="manufacturer_part_number"
                                    name="manufacturer_part_number" maxlength="100"
-                                   value="{{ form_data.get('manufacturer_part_number') or '' }}">
+                                   value="{{ form_data['manufacturer_part_number']
+                                             if 'manufacturer_part_number' in form_data
+                                             else ((listing.manufacturer_part_number() or '')
+                                                   if listing else '') }}">
                             <div class="form-text">
                                 Both together let a repeat buy attach without asking.
                             </div>

@@ -912,6 +912,15 @@ Two ways in:
    *Product information* row, and every image the page's own data names, which is
    usually more than the thumbnail strip shows.
 
+   **Manufacturer Part Number is filled from those rows too.** A row named
+   *Manufacturer Part Number*, *Mfr Part Number*, *Part Number*, *Model Number*
+   or *Item model number* fills the field, in that order of preference — the more
+   specific name wins when a listing publishes several. It is a suggestion, not a
+   finding: the last two are often a marketing model rather than an orderable
+   part, so read it before you press Capture. Type over it or empty it and your
+   version is what gets recorded, including if the capture comes back asking you
+   a question first. The row itself stays in the specification list either way.
+
    What it reads is a page's markup, and a vendor's markup is not a contract. So
    the confirmation page tells you **what it found before anything is written** --
    a count of images, a count of information rows, and whether it found a

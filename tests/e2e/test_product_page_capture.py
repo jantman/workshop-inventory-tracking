@@ -427,7 +427,14 @@ def test_a_captured_specification_filter_finds_the_product(page, live_server, im
 def test_a_hand_edited_value_survives_a_re_capture(page, live_server, image_host):
     """US3's independent test, and FR-010 and FR-011 together"""
     landed = capture_from_listing(page, live_server, image_host)
-    confirm(landed, description="12V 3A PSU")
+    # The part number is cleared so this capture leaves the product without one.
+    # 019 fills that field from the listing, and a product carrying both the
+    # manufacturer and the part number *corroborates* a later capture of the
+    # same listing -- which suppresses the recycled-identifier question this
+    # test needs in order to reach its subject. That suppression is the intended
+    # payoff and is covered by
+    # test_a_repeat_buy_no_longer_has_to_answer_the_identifier_question.
+    confirm(landed, description="12V 3A PSU", manufacturer_part_number="")
 
     landed.goto(f"{live_server.url}/products")
     landed.click("#product-table tbody tr td a")
@@ -830,7 +837,14 @@ def test_a_repeat_buy_merges_and_stores_no_second_copy(page, live_server, image_
     without duplicating them, and store **no second copy of any image**.
     """
     landed = capture_from_listing(page, live_server, image_host)
-    confirm(landed, description="12V 3A PSU")
+    # The part number is cleared so this capture leaves the product without one.
+    # 019 fills that field from the listing, and a product carrying both the
+    # manufacturer and the part number *corroborates* a later capture of the
+    # same listing -- which suppresses the recycled-identifier question this
+    # test needs in order to reach its subject. That suppression is the intended
+    # payoff and is covered by
+    # test_a_repeat_buy_no_longer_has_to_answer_the_identifier_question.
+    confirm(landed, description="12V 3A PSU", manufacturer_part_number="")
 
     landed.goto(f"{live_server.url}/products")
     landed.click("#product-table tbody tr td a")
@@ -1000,3 +1014,127 @@ def test_a_barcode_another_product_holds_is_left_alone(page, live_server, image_
     expect(identifiers).to_contain_text("VENDOR")
     expect(identifiers).not_to_contain_text("GTIN")
     expect(landed.locator("#product-specifications")).to_contain_text(FIXTURE_UPC)
+
+
+# ---------------------------------------------------------------------------
+# 019: the listing fills in the manufacturer part number (issue #90)
+# ---------------------------------------------------------------------------
+
+FIXTURE_MPN = "ACME-7700-B"   # the Mfr Part Number row in the fixture's tech-spec table
+
+
+@pytest.mark.e2e
+def test_the_listing_fills_in_the_manufacturer_part_number(
+    page, live_server, image_host
+):
+    """019 US1, end to end: the row was on the page, so the field is filled.
+
+    Issue #90's whole complaint: the capture displayed a `Mfr Part Number` row
+    and left the field next to it blank.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    # Nothing has been typed into it. The form is server-rendered, so the value
+    # being there is the completion signal -- no further wait is possible or
+    # needed (CLAUDE.md, render-implies-completion).
+    expect(landed.locator("#manufacturer_part_number")).to_have_value(FIXTURE_MPN)
+
+    confirm(landed, description="12V 3A PSU")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    expect(landed.locator("#product-mpn")).to_have_text(FIXTURE_MPN)
+    # FR-008: the row it came from is still an ordinary specification.
+    expect(landed.locator("#product-specifications")).to_contain_text(FIXTURE_MPN)
+
+
+@pytest.mark.e2e
+def test_a_cleared_part_number_is_not_put_back(page, live_server, image_host):
+    """019 US2 scenario 2: it is a default, and clearing it is a decision"""
+    landed = capture_from_listing(page, live_server, image_host)
+    expect(landed.locator("#manufacturer_part_number")).to_have_value(FIXTURE_MPN)
+
+    confirm(landed, description="12V 3A PSU", manufacturer_part_number="")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    # The region first, then the absence -- #product-mpn is rendered only when
+    # the product has one, so "no such element" would also be true of a page
+    # that has not loaded.
+    expect(landed.locator("#product-description")).to_have_text("12V 3A PSU")
+    expect(landed.locator("#product-mpn")).to_have_count(0)
+    # ...and the row is still there regardless, unfiltered.
+    expect(landed.locator("#product-specifications")).to_contain_text(FIXTURE_MPN)
+
+
+@pytest.mark.e2e
+def test_an_unusable_higher_priority_row_is_passed_over(page, live_server, image_host):
+    """019 US3 scenario 2, in a browser.
+
+    The fixture carries a `Manufacturer Part Number` row longer than the column
+    holds, above its usable `Mfr Part Number`. Ending the search on the unusable
+    one would leave the field blank -- the bug this feature exists to fix,
+    reintroduced through the front door. Offering it instead would fail the
+    write at the end of the capture.
+
+    The empty and whitespace-only cases cannot be reached from here: the agent
+    drops a row with no value before the payload is built. They are covered in
+    ``TestThePartNumberTheListingNames``.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    expect(landed.locator("#manufacturer_part_number")).to_have_value(FIXTURE_MPN)
+
+    confirm(landed, description="12V 3A PSU")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    expect(landed.locator("#product-mpn")).to_have_text(FIXTURE_MPN)
+    # FR-008: passed over as a default, still kept as a specification row.
+    expect(landed.locator("#product-specifications")).to_contain_text(
+        "NOT-A-PART-NUMBER"
+    )
+
+
+@pytest.mark.e2e
+def test_a_repeat_buy_no_longer_has_to_answer_the_identifier_question(
+    page, live_server, image_host
+):
+    """019's payoff beyond the field itself, and a behaviour change worth pinning.
+
+    The manufacturer and the part number together are the evidence that decides
+    whether a capture landing on an existing product's identifier is the same
+    product or a recycled id (006 FR-019, `_corroborates`). The bookmarklet has
+    always supplied the manufacturer; until 019 nothing supplied the part number,
+    so the pair never corroborated and every re-capture raised the question.
+
+    Now the listing supplies both halves, so a repeat buy of the same listing
+    attaches to the product without being asked -- which is the reason the spec
+    calls the empty field a cost paid at every later purchase, not a cosmetic
+    gap.
+
+    The duplicate-purchase question is unaffected and is still raised: that one
+    is about two orders on one day, and no part number can answer it.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+    expect(landed.locator("#manufacturer_part_number")).to_have_value(FIXTURE_MPN)
+    confirm(landed, description="12V 3A PSU")
+
+    again = capture_from_listing(page, live_server, image_host)
+    again.click("#capture-btn")
+
+    # The duplicate question still stands, and its arrival is what tells us the
+    # submit was processed -- so the absence below is a real absence, not a page
+    # that has not rendered yet.
+    expect(again.locator("#duplicate-warning")).to_be_visible()
+    expect(again.locator("#identifier-warning")).to_have_count(0)
+
+    again.check("#acknowledged_duplicate_of")
+    again.click("#capture-btn")
+
+    again.goto(f"{live_server.url}/products")
+    # One product, not two: it attached rather than branching.
+    expect(again.locator("#product-table tbody tr")).to_have_count(1)
