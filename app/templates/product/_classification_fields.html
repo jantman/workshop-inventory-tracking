@@ -1,0 +1,58 @@
+{# The Category / Storage Location / Sub-Location inputs.
+
+   Included by product/_form_fields.html (the add and edit forms) and by
+   product/capture.html, so the two pages offer one vocabulary rather than two
+   that agree until someone edits one of them (018 FR-007, FR-008). Each page
+   keeps its own card wrapper; only the fields live here.
+
+   Reads `values`, a mapping of field name to current value. capture.html names
+   its context `form_data` and binds it with {% with values = form_data %}.
+
+   The element ids are a contract, not decoration: field-autocomplete.js binds
+   #location and #sub_location by id on DOM ready, and catalog-suggestions.js
+   fills #category-suggestions by id. Renaming one silently switches its
+   suggestions off. #}
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="category_path" class="form-label">Category</label>
+                <input type="text" class="form-control" id="category_path" name="category_path"
+                       maxlength="512" list="category-suggestions"
+                       placeholder="electronics/passives/resistors"
+                       value="{{ values.get('category_path') or '' }}">
+                <datalist id="category-suggestions"></datalist>
+                <div class="form-text">
+                    Slash-separated, any depth. Typing a new one creates it -- there is no setup step.
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label for="location" class="form-label">Storage Location</label>
+                {# position-relative + a sibling dropdown is the whole integration with
+                   field-autocomplete.js -- it binds #location on DOM ready and skips any
+                   target whose dropdown is absent. #}
+                <div class="position-relative">
+                    <input type="text" class="form-control" id="location" name="location"
+                           maxlength="100" autocomplete="off"
+                           value="{{ values.get('location') or '' }}">
+                    <div id="location-suggestions" class="dropdown-menu position-absolute w-100"
+                         style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                </div>
+                <div class="form-text">
+                    Suggested from everything already recorded, on metal stock as well as
+                    products. Anything else is still accepted.
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="sub_location" class="form-label">Sub-Location</label>
+                <div class="position-relative">
+                    <input type="text" class="form-control" id="sub_location" name="sub_location"
+                           maxlength="100" autocomplete="off"
+                           value="{{ values.get('sub_location') or '' }}">
+                    <div id="sub_location-suggestions" class="dropdown-menu position-absolute w-100"
+                         style="max-height: 200px; overflow-y: auto; z-index: 1000;"></div>
+                </div>
+                <div class="form-text">The bin or drawer within the location. Optional.</div>
+            </div>
+        </div>

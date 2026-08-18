@@ -958,6 +958,25 @@ is recorded to the cent, so the unit price is rounded — $6.00 here. Three of t
 do not add back up to the $17.99 you paid, and the page says so beneath the field
 rather than letting you discover it during a reconciliation months later.
 
+### Filing it while you are there
+
+The confirmation page also asks for **Category**, **Storage Location** and
+**Sub-Location** -- the same three fields the product form has, offering the same
+suggestions from everything already recorded, metal stock included. Nothing on a
+vendor's page can tell the application where a thing goes in your shop, so these
+are the two facts a capture can never bring you; typing them here is what saves
+opening the product afterwards to file it.
+
+All three are optional and independent, and leaving them blank is an ordinary
+outcome rather than an omission to come back to. A category you type does not
+have to exist first -- typing it is how it is created.
+
+**On a capture that attaches to a product you already own**, a value you type
+here *replaces* the one the product had: you are holding the thing and saying
+where it goes now, which is better information than an older order's. Leaving a
+field blank changes nothing -- blank means "I am not saying", never "erase it",
+so there is no way to unfile a product from this page.
+
 Capturing the same listing twice **asks** rather than guessing: it tells you a
 purchase for this listing is already recorded today, and lets you say whether
 this is a second order or a double-click. Nothing is written until you answer,

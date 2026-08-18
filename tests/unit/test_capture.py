@@ -23,7 +23,11 @@ from decimal import Decimal
 import pytest
 from markupsafe import escape
 
-from app.catalog_service import CatalogService, _is_barcode_row_name
+from app.catalog_service import (
+    MAX_CATEGORY_PATH_LENGTH,
+    CatalogService,
+    _is_barcode_row_name,
+)
 from app.exceptions import CaptureDecisionRequired, ValidationError
 from app.models import ListingCapture
 
@@ -426,6 +430,196 @@ class TestAttachVsCreate:
             listing_title='BLUE WIDGET 10 PACK BEST QUALITY ✨',
         )
         assert service.get_product(existing.id).description == 'Blue widget, 10mm, the good ones'
+
+
+class TestFilingAtCapture:
+    """018: where the thing goes, stated while the listing is still on screen.
+
+    Beside ``TestAttachVsCreate`` because that is the distinction that matters
+    here: a created product takes whatever it is given, and an existing one is
+    written to only where the operator actually said something (FR-009, FR-010).
+    """
+
+    def cataloged(self, service, **fields):
+        return service.create_product(
+            description='Blue widget, already cataloged',
+            identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
+            **fields,
+        )
+
+    def test_all_three_are_recorded_on_a_created_product(self, service):
+        purchase = service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', description='Blue widget',
+            category_path='electronics/passives/resistors',
+            location='Shelf A', sub_location='Bin 3',
+        )
+
+        product = service.get_product(purchase.product_id)
+        assert product.category_path == 'electronics/passives/resistors'
+        assert product.location == 'Shelf A'
+        assert product.sub_location == 'Bin 3'
+
+    def test_stating_none_of_them_leaves_the_product_unfiled(self, service):
+        """FR-003, FR-004: uncategorized is an ordinary state, not a warning"""
+        purchase = service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', description='Blue widget',
+        )
+
+        product = service.get_product(purchase.product_id)
+        assert product.category_path is None
+        assert product.location is None
+        assert product.sub_location is None
+
+    def test_each_field_stands_alone(self, service):
+        """FR-003: a category with no location is a filed-enough product"""
+        purchase = service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH',
+            category_path='fasteners',
+        )
+
+        product = service.get_product(purchase.product_id)
+        assert product.category_path == 'fasteners'
+        assert product.location is None
+
+    def test_a_sub_location_without_a_location_is_accepted(self, service):
+        """The catalog stores one without the other; capture invents no rule"""
+        purchase = service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', sub_location='Bin 3',
+        )
+
+        product = service.get_product(purchase.product_id)
+        assert product.location is None
+        assert product.sub_location == 'Bin 3'
+
+    def test_the_category_is_stored_in_canonical_form(self, service):
+        """The same typing produces the same path as it does on the product form"""
+        purchase = service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH',
+            category_path='/Electronics//Passives/',
+        )
+
+        assert service.get_product(
+            purchase.product_id
+        ).category_path == 'electronics/passives'
+
+    def test_an_over_long_category_is_refused_and_writes_nothing(self, service):
+        """FR-005: a rejection, never a truncation -- and nothing is left behind"""
+        with pytest.raises(ValidationError) as excinfo:
+            service.capture_order(
+                vendor='Amazon', vendor_item_id='B0ABCDEFGH',
+                category_path='a' * (MAX_CATEGORY_PATH_LENGTH + 1),
+            )
+
+        assert excinfo.value.field == 'category_path'
+        assert service.list_products() == []
+
+    def test_a_stated_value_refiles_an_existing_product(self, service):
+        """FR-009: the operator is holding the thing, and that outranks the record"""
+        existing = self.cataloged(
+            service, category_path='misc', location='Shelf B', sub_location='Bin 1',
+        )
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+            category_path='electronics/passives', location='Shelf A',
+            sub_location='Bin 3',
+        )
+
+        product = service.get_product(existing.id)
+        assert product.category_path == 'electronics/passives'
+        assert product.location == 'Shelf A'
+        assert product.sub_location == 'Bin 3'
+
+    def test_a_blank_field_leaves_an_existing_value_alone(self, service):
+        """FR-010: blank is "I am not saying", never "erase it".
+
+        The failure this guards is silent and total: pass the three keys to
+        update_product unconditionally and every capture that touched none of
+        them sets the columns to NULL, unfiling a product nobody asked to move.
+        """
+        existing = self.cataloged(
+            service, category_path='misc', location='Shelf B', sub_location='Bin 1',
+        )
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+            category_path='', location='', sub_location='',
+        )
+
+        product = service.get_product(existing.id)
+        assert product.category_path == 'misc'
+        assert product.location == 'Shelf B'
+        assert product.sub_location == 'Bin 1'
+
+    def test_omitting_them_entirely_leaves_an_existing_value_alone(self, service):
+        """The same, for a caller that does not pass them at all -- e.g. /api/capture"""
+        existing = self.cataloged(service, category_path='misc', location='Shelf B')
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+        )
+
+        product = service.get_product(existing.id)
+        assert product.category_path == 'misc'
+        assert product.location == 'Shelf B'
+
+    def test_a_category_of_separators_does_not_clear_an_existing_one(self, service):
+        """FR-010 by the side door.
+
+        ``_clean('///')`` is truthy and reads as stated; ``canonical('///')`` is
+        None and would be written as NULL. The two "was it stated?" tests have to
+        be matched to their own normalizers, and this is the test that says so.
+        """
+        existing = self.cataloged(service, category_path='misc')
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+            category_path='///',
+        )
+
+        assert service.get_product(existing.id).category_path == 'misc'
+
+    def test_whitespace_is_not_a_statement_either(self, service):
+        existing = self.cataloged(service, location='Shelf B')
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+            location='   ',
+        )
+
+        assert service.get_product(existing.id).location == 'Shelf B'
+
+    def test_filing_an_existing_product_that_had_none(self, service):
+        """The common case: the product exists, nobody ever filed it"""
+        existing = self.cataloged(service)
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+            location='Shelf A',
+        )
+
+        assert service.get_product(existing.id).location == 'Shelf A'
+
+    def test_filing_does_not_disturb_the_description_rule(self, service):
+        """Stating a location must not drag the listing title onto the product"""
+        existing = self.cataloged(service)
+        service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', attach_to=existing.id,
+            listing_title='BLUE WIDGET 10 PACK BEST QUALITY', location='Shelf A',
+        )
+
+        product = service.get_product(existing.id)
+        assert product.description == 'Blue widget, already cataloged'
+        assert product.location == 'Shelf A'
+
+    def test_nothing_in_a_listing_can_file_a_product(self, service):
+        """FR-013: no selector can read a category, so none may be inferred"""
+        listing = ListingCapture(
+            source_url=AMAZON_URL,
+            specifications=[{'name': 'Category', 'value': 'Electronics > Resistors'}],
+            brand='Acme',
+        )
+        purchase = service.capture_order(
+            vendor='Amazon', vendor_item_id='B0ABCDEFGH', listing=listing,
+        )
+
+        product = service.get_product(purchase.product_id)
+        assert product.category_path is None
+        assert product.location is None
 
 
 class TestCorroboration:
@@ -986,6 +1180,72 @@ class TestTheListingFillsTheForm:
 
         assert re.search(r'<input[^>]*id="unit_price"[^>]*value=""', body)
         assert re.search(r'<input[^>]*id="manufacturer"[^>]*value=""', body)
+
+
+class TestFilingReachesTheProductFromTheForm:
+    """018 FR-013: the three fields travel from the form and from nowhere else.
+
+    The service tests in TestFilingAtCapture cover what the values do once they
+    arrive. This covers that they arrive at all -- and, more usefully, that a
+    listing cannot supply one. The route deliberately falls back to the listing
+    for manufacturer and unit price and deliberately does not for these.
+    """
+
+    def capture(self, client, **form):
+        data = {'url': AMAZON_URL, 'listing_title': 'Blue Widget 10-Pack'}
+        data.update(form)
+        return client.post('/products/capture', data=data, follow_redirects=False)
+
+    def only_product(self, service):
+        products = service.list_products()
+        assert len(products) == 1
+        return products[0]
+
+    def test_the_form_files_the_product(self, client, service):
+        self.capture(
+            client,
+            category_path='electronics/passives/resistors',
+            location='Shelf A',
+            sub_location='Bin 3',
+        )
+
+        product = self.only_product(service)
+        assert product.category_path == 'electronics/passives/resistors'
+        assert product.location == 'Shelf A'
+        assert product.sub_location == 'Bin 3'
+
+    def test_a_listing_cannot_file_a_product(self, client, service):
+        """A full payload, and the product still comes out unfiled"""
+        listing = json.dumps({
+            'version': 1,
+            'source_url': AMAZON_URL,
+            'brand': 'Acme Components',
+            'price': '24.99',
+            'specifications': [
+                {'name': 'Category', 'value': 'Electronics > Passives'},
+                {'name': 'Location', 'value': 'Warehouse 4'},
+            ],
+        })
+        self.capture(client, listing=listing)
+
+        product = self.only_product(service)
+        # The listing did fill the fields it is allowed to fill.
+        assert product.manufacturer == 'Acme Components'
+        # And none of the three it is not.
+        assert product.category_path is None
+        assert product.location is None
+        assert product.sub_location is None
+
+    def test_an_over_long_category_comes_back_to_the_form_as_typed(self, client, service):
+        """FR-005 and FR-011 together: refused, and not silently shortened"""
+        typed = 'a' * (MAX_CATEGORY_PATH_LENGTH + 1)
+        response = self.capture(client, category_path=typed, location='Shelf A')
+
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        assert f'value="{typed}"' in body
+        assert 'value="Shelf A"' in body
+        assert service.list_products() == []
 
 
 class TestCapturedSpecifications:

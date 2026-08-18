@@ -1019,6 +1019,9 @@ class CatalogService:
         acknowledged_duplicate_of: Optional[Any] = None,
         attach_to: Optional[Any] = None,
         listing: Optional[ListingCapture] = None,
+        category_path: Optional[str] = None,
+        location: Optional[str] = None,
+        sub_location: Optional[str] = None,
     ) -> Purchase:
         """Capture an order while the vendor's listing is still on screen.
 
@@ -1051,6 +1054,20 @@ class CatalogService:
                 shown and chose to record alongside anyway.
             attach_to: ``None`` to decide automatically, ``'new'`` to force a new
                 product, or a product id to attach to.
+            category_path: Where the operator files the product. Validated and
+                normalized up front, with the price and the quantity, so an
+                over-length path is refused before any question is raised.
+            location: The storage location, as the operator states it.
+            sub_location: The bin or drawer. Accepted with or without a
+                ``location``, because the catalog stores one without the other.
+
+                **None of these three is ever read off the listing** (018
+                FR-013). No selector can produce a category or a shelf, and a
+                guessed value that looks stated is worse than a blank one. On a
+                product this call *creates*, blank means uncategorized, which is
+                an ordinary state. On one it *attaches to*, a stated value
+                replaces what the product held -- the rule ``description``
+                already follows -- and a blank one changes nothing.
             listing: What the capture agent read off the vendor's page, if
                 anything. ``None`` is exactly today's behaviour, which is what
                 keeps the paste-a-URL form and the JSON representation of
@@ -1082,6 +1099,11 @@ class CatalogService:
         )
         price = self._validate_price(unit_price)
         count = self._validate_purchase_quantity(quantity)
+        # Here rather than inside create_product/update_product so that an
+        # over-length path is refused before the duplicate and recycled-
+        # identifier questions are put to the operator, keeping this method's
+        # "a refused capture writes nothing" contract in one place.
+        filed_under = self._validate_category_path(category_path)
 
         # Blank is not an error here, it is a fallback (FR-003). Only a
         # non-blank description is held to the length limit (FR-006).
@@ -1183,13 +1205,36 @@ class CatalogService:
                       'value': item_id, 'vendor': vendor_name}]
                     if item_id and match is None else None
                 ),
+                category_path=filed_under,
+                location=location,
+                sub_location=sub_location,
             )
-        elif wording is not None and wording != product.description:
+        else:
             # FR-005: the operator is looking at the listing and is the
             # authority. Manufacturer and part number are deliberately *not*
             # written onto an existing product -- a mismatch there is the
             # evidence the recycled-identifier question depends on.
-            self.update_product(product.id, description=wording)
+            #
+            # **Filing is written by presence, not by value** (018 FR-010).
+            # ``_clean('')`` and ``canonical('')`` are both None, and
+            # update_product writes every key it is given -- so passing these
+            # three unconditionally would set the columns to NULL and unfile a
+            # product on every capture where the operator touched none of them.
+            # Omitting the key is how "I am not saying" is said.
+            changes = {}
+            if wording is not None and wording != product.description:
+                changes['description'] = wording
+            # The two tests differ on purpose: _clean('///') is truthy and reads
+            # as stated, while canonical('///') is None and would be stored as
+            # NULL. Each field is asked the question its own normalizer answers.
+            if filed_under is not None:
+                changes['category_path'] = filed_under
+            if _clean(location) is not None:
+                changes['location'] = location
+            if _clean(sub_location) is not None:
+                changes['sub_location'] = sub_location
+            if changes:
+                self.update_product(product.id, **changes)
 
         if listing is not None:
             self._apply_listing(product.id, listing)

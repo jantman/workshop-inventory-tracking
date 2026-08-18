@@ -435,6 +435,14 @@ def product_capture():
                 acknowledged_duplicate_of=request.form.get('acknowledged_duplicate_of'),
                 attach_to=request.form.get('attach_to'),
                 listing=listing,
+                # Straight from the form and from nowhere else. Unlike the two
+                # fields above, these three have no listing fallback and must
+                # not grow one (018 FR-013): no selector can read where a thing
+                # goes in this shop, so a value that looked extracted would be a
+                # guess wearing the clothes of a statement.
+                category_path=request.form.get('category_path'),
+                location=request.form.get('location'),
+                sub_location=request.form.get('sub_location'),
             )
         except CaptureDecisionRequired as e:
             # Not an error page: a step in the flow. Nothing was written, and the
