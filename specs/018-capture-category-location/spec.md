@@ -1,6 +1,6 @@
 # Feature Specification: Category and Location on the Capture Confirmation Page
 
-**Feature Branch**: `018-capture-category-location`
+**Feature Branch**: `issues/99` (the feature directory is `specs/018-capture-category-location`)
 
 **Created**: 2026-08-17
 

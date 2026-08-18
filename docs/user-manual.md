@@ -963,9 +963,9 @@ rather than letting you discover it during a reconciliation months later.
 The confirmation page also asks for **Category**, **Storage Location** and
 **Sub-Location** -- the same three fields the product form has, offering the same
 suggestions from everything already recorded, metal stock included. Nothing on a
-vendor's page can tell the application where a thing goes in your shop, so these
-are the two facts a capture can never bring you; typing them here is what saves
-opening the product afterwards to file it.
+vendor's page can say what kind of thing this is to *you*, or where it goes in
+*your* shop, so these three are what a capture can never bring you; typing them
+here is what saves opening the product afterwards to file it.
 
 All three are optional and independent, and leaving them blank is an ordinary
 outcome rather than an omission to come back to. A category you type does not
