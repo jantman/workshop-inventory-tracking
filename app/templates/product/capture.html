@@ -334,6 +334,12 @@
                     an SSL error instead of reaching the app. Open this page over
                     <code>https</code> and drag it again. The paste box on the left works either
                     way.
+                    {# If the address bar says https and this box is still here, the TLS
+                       terminator in front of the app is not sending X-Forwarded-Proto:
+                       the app is reading the connection it actually got. Issue #89. #}
+                    If the address bar already says <code>https</code>, the reverse proxy
+                    terminating TLS is not sending <code>X-Forwarded-Proto</code>, and the app
+                    cannot tell.
                 </div>
                 {% endif %}
 
