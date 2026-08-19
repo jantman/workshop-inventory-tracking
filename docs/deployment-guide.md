@@ -708,6 +708,38 @@ release. If it is higher, the workflow builds and pushes
 creates a `v<version>` GitHub release with generated notes. If the version is
 unchanged, the workflow does nothing, so ordinary merges to `main` are safe.
 
+## Serving Behind a TLS Reverse Proxy
+
+If you terminate TLS in front of the application -- nginx, Caddy, Traefik -- the
+proxy must pass the original scheme and host through:
+
+```nginx
+location / {
+    proxy_pass http://workshop-inventory:5000;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+}
+```
+
+The application trusts exactly one hop of those headers
+(`werkzeug.middleware.proxy_fix.ProxyFix` in `app/__init__.py`). It has to,
+because the connection it actually receives is plain HTTP: without them it
+reports the page as `http` even though the browser loaded it over `https`.
+
+That matters in one place beyond cosmetics. The capture bookmarklet on
+`/products/capture` bakes the server's own address into itself when that page
+renders. If the app thinks it is on `http`, the bookmarklet points at `http`,
+and a vendor page sending `upgrade-insecure-requests` rewrites that to `https`
+and fails against a server that does not answer TLS on that port. The page shows
+a warning box whenever it believes it is being served over `http`, so if you are
+looking at an `https` address bar and still see that box, the proxy is not
+sending `X-Forwarded-Proto`.
+
+Nothing here is a security control. On a LAN-only single-user application there
+is no one to spoof the headers; the trust is there so the URLs come out right.
+
 ## Security Posture for `/api/*` Endpoints
 
 The application exposes a handful of JSON endpoints under `/api/*`

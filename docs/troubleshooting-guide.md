@@ -394,6 +394,11 @@ sudo systemctl status nginx
 2. **SSL certificate problems**
 3. **Upstream connection failures**
 4. **File permission issues**
+5. **Missing `X-Forwarded-Proto`** -- the app then reads the plain-HTTP hop it
+   received rather than the HTTPS the browser used. The visible symptom is the
+   "Not from this page" warning on `/products/capture` at an `https` address
+   bar, and a bookmarklet that points at `http`. See
+   [Serving Behind a TLS Reverse Proxy](deployment-guide.md#serving-behind-a-tls-reverse-proxy).
 
 #### Nginx Logs
 ```bash

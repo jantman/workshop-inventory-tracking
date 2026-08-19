@@ -589,7 +589,11 @@ def _capture_bookmarklet() -> str:
     per capture, which is not worth a version-stamping mechanism.
 
     Both addresses are absolute and are fixed when *this* page renders, which is
-    why the TLS caveat below is about where you drag it from.
+    why the TLS caveat below is about where you drag it from. Their scheme is
+    whatever ``request.scheme`` says, which behind a TLS-terminating proxy means
+    whatever ``X-Forwarded-Proto`` says -- see the ``ProxyFix`` wrapping in
+    ``create_app``. Without it the page renders over https and hands out http
+    addresses, which is issue #89.
 
     The agent still submits a **form into a new tab** rather than issuing a
     fetch: the vendor page is HTTPS and this app is plain HTTP on the LAN, so a

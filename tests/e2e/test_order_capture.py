@@ -301,6 +301,29 @@ def test_the_bookmarklet_is_offered_and_points_at_this_server(page, live_server)
     assert "fetch(" not in href
 
 
+@pytest.mark.e2e
+def test_the_bookmarklet_follows_the_proxy_s_scheme(page, live_server):
+    """Behind a TLS terminator the page is on https and must say so (issue #89).
+
+    The test server speaks plain http, which is exactly the deployment this is
+    about: nginx terminates TLS and forwards http, so the only thing that tells
+    the app what the browser used is `X-Forwarded-Proto`. Without ProxyFix the
+    page renders the http warning at an https address bar *and* hands out an
+    http bookmarklet -- the very failure the warning exists to prevent.
+    """
+    page.set_extra_http_headers({"X-Forwarded-Proto": "https"})
+    page.goto(f"{live_server.url}/products/capture")
+
+    expect(page.locator("#capture-bookmarklet")).to_be_visible()
+    expect(page.locator("#bookmarklet-http-warning")).to_have_count(0)
+
+    href = page.locator("#capture-bookmarklet").get_attribute("href")
+    https_url = live_server.url.replace("http://", "https://")
+    assert f"{https_url}/static/js/capture-agent.js" in href
+    assert f"{https_url}/api/capture" in href
+    assert "http://" not in href
+
+
 # ---------------------------------------------------------------------------
 # The unit price of one item out of a pack (issue #97)
 # ---------------------------------------------------------------------------
