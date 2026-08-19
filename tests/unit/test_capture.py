@@ -29,7 +29,12 @@ from app.catalog_service import (
     _is_barcode_row_name,
 )
 from app.exceptions import CaptureDecisionRequired, ValidationError
-from app.models import ListingCapture
+from app.models import (
+    MANUFACTURER_PART_NUMBER_MAX_LENGTH,
+    PART_NUMBER_ROW_NAMES,
+    ListingCapture,
+    normalized_row_name,
+)
 
 AMAZON_URL = 'https://www.amazon.com/dp/B0ABCDEFGH/ref=sr_1_3'
 MCMASTER_URL = 'https://www.mcmaster.com/91290A115/'
@@ -1061,6 +1066,117 @@ class TestTheListingPayload:
         assert service.list_products() == []
 
 
+class TestThePartNumberTheListingNames:
+    """019 US1/US3: which row fills the field, and which are passed over.
+
+    Straight against ``ListingCapture`` -- no app, no client, no database. The
+    whole of FR-002 through FR-004 is a property of one pure method, and this is
+    what putting the rule in the domain layer bought.
+    """
+
+    def listing(self, *rows):
+        return ListingCapture(
+            source_url=AMAZON_URL,
+            specifications=[{'name': n, 'value': v} for n, v in rows],
+        )
+
+    def test_priority_beats_the_order_on_the_page(self):
+        """FR-002 / US1 scenario 3: second on the page, first in the list"""
+        listing = self.listing(
+            ('Model Number', 'MKT-7700'), ('Mfr Part Number', '7700-B'),
+        )
+
+        assert listing.manufacturer_part_number() == '7700-B'
+
+    def test_the_full_priority_order_holds(self):
+        """Every name loses to the one above it.
+
+        Rows are listed highest-priority first and dropped off the front, so
+        each pass leaves a different name as the best available one.
+        """
+        rows = [
+            ('Manufacturer Part Number', 'a'), ('Mfr Part Number', 'b'),
+            ('Part Number', 'c'), ('Model Number', 'd'), ('Item model number', 'e'),
+        ]
+        for cut, expected in enumerate('abcde'):
+            assert self.listing(*rows[cut:]).manufacturer_part_number() == expected
+
+    def test_two_rows_of_one_name_take_the_first_captured(self):
+        listing = self.listing(
+            ('Part Number', 'first'), ('Part Number', 'second'),
+        )
+
+        assert listing.manufacturer_part_number() == 'first'
+
+    def test_the_value_is_trimmed_and_otherwise_unaltered(self):
+        """FR-004 / US3 scenario 3. Internal punctuation and spacing survive."""
+        listing = self.listing(('Part Number', '  91290A115 / rev B  '))
+
+        assert listing.manufacturer_part_number() == '91290A115 / rev B'
+
+    def test_a_listing_with_no_rows_names_nothing(self):
+        assert ListingCapture(source_url=AMAZON_URL).manufacturer_part_number() is None
+
+    def test_a_listing_with_no_recognized_name_names_nothing(self):
+        listing = self.listing(('Voltage', '12 Volts'), ('UPC', '012345678905'))
+
+        assert listing.manufacturer_part_number() is None
+
+    # -- 019 US3: a candidate that cannot be a part number is passed over ----
+
+    def test_an_empty_value_does_not_end_the_search(self):
+        """US3 scenario 1. The highest-priority row is the one vendors leave blank."""
+        listing = self.listing(
+            ('Manufacturer Part Number', ''), ('Model Number', 'MKT-7700'),
+        )
+
+        assert listing.manufacturer_part_number() == 'MKT-7700'
+
+    def test_a_whitespace_only_value_does_not_end_the_search(self):
+        listing = self.listing(
+            ('Mfr Part Number', '   \t  '), ('Part Number', '7700-B'),
+        )
+
+        assert listing.manufacturer_part_number() == '7700-B'
+
+    def test_an_over_long_value_does_not_end_the_search(self):
+        """US3 scenario 2 / FR-003.
+
+        Not a cosmetic refusal. Nothing between the form and the column checks
+        length, so an over-long default would submit, the capture would run, the
+        gallery would be retrieved, and the write would fail at the end of it --
+        over a value nobody typed.
+        """
+        listing = self.listing(
+            ('Part Number', 'X' * (MANUFACTURER_PART_NUMBER_MAX_LENGTH + 1)),
+            ('Model Number', 'MKT-7700'),
+        )
+
+        assert listing.manufacturer_part_number() == 'MKT-7700'
+
+    def test_a_value_at_exactly_the_limit_is_accepted(self):
+        """The ceiling is what the column holds, not one less than it"""
+        value = 'X' * MANUFACTURER_PART_NUMBER_MAX_LENGTH
+        listing = self.listing(('Part Number', value))
+
+        assert listing.manufacturer_part_number() == value
+
+    def test_length_is_measured_after_trimming(self):
+        """A value that only exceeds the limit with its padding still fits"""
+        value = 'X' * MANUFACTURER_PART_NUMBER_MAX_LENGTH
+        listing = self.listing(('Part Number', f'   {value}   '))
+
+        assert listing.manufacturer_part_number() == value
+
+    def test_an_over_long_value_is_never_truncated_to_fit(self):
+        """A truncated part number is a wrong one, and a wrong one corroborates"""
+        listing = self.listing(
+            ('Part Number', 'X' * (MANUFACTURER_PART_NUMBER_MAX_LENGTH + 1)),
+        )
+
+        assert listing.manufacturer_part_number() is None
+
+
 class TestTheListingFillsTheForm:
     """US1: the price and the brand arrive without the operator typing them.
 
@@ -1180,6 +1296,66 @@ class TestTheListingFillsTheForm:
 
         assert re.search(r'<input[^>]*id="unit_price"[^>]*value=""', body)
         assert re.search(r'<input[^>]*id="manufacturer"[^>]*value=""', body)
+
+
+class TestThePartNumberFillsTheForm:
+    """019 US1 scenario 1: the field arrives filled, on every first render.
+
+    ``TestTheListingFillsTheForm`` above is the same story for the price and the
+    brand. This one is separate because its rule is not that one: the field is
+    filled by a **presence** test on form_data rather than a truthiness test, so
+    a cleared value can survive. The clearing half lives in
+    ``TestAClearedPartNumberStaysCleared``.
+    """
+
+    def payload(self, *rows):
+        return json.dumps({
+            'version': 1,
+            'source_url': AMAZON_URL,
+            'specifications': [{'name': n, 'value': v} for n, v in rows],
+        })
+
+    def field_of(self, response):
+        """The rendered value of the manufacturer_part_number input"""
+        html = response.data.decode()
+        match = re.search(
+            r'id="manufacturer_part_number".*?value="([^"]*)"', html, re.S,
+        )
+        assert match, 'the manufacturer part number input is not on the page'
+        return match.group(1)
+
+    def test_the_get_form_arrives_filled_from_the_listing(self, client):
+        response = client.get(
+            '/products/capture',
+            query_string={'url': AMAZON_URL,
+                          'listing': self.payload(('Mfr Part Number', '7700-B'))},
+        )
+
+        assert self.field_of(response) == '7700-B'
+
+    def test_the_bookmarklet_landing_arrives_filled_from_the_listing(self, client):
+        """The other first render: a form POST to /api/capture, which writes nothing"""
+        response = client.post('/api/capture', data={
+            'url': AMAZON_URL,
+            'listing': self.payload(('Item model number', 'MKT-7700')),
+        })
+
+        assert self.field_of(response) == 'MKT-7700'
+
+    def test_a_listing_naming_no_part_number_leaves_the_field_empty(self, client):
+        response = client.get(
+            '/products/capture',
+            query_string={'url': AMAZON_URL,
+                          'listing': self.payload(('Voltage', '12 Volts'))},
+        )
+
+        assert self.field_of(response) == ''
+
+    def test_a_capture_with_no_listing_at_all_leaves_the_field_empty(self, client):
+        """FR-009: the paste-a-URL path behaves exactly as it did before"""
+        response = client.get('/products/capture', query_string={'url': AMAZON_URL})
+
+        assert self.field_of(response) == ''
 
 
 class TestFilingReachesTheProductFromTheForm:
@@ -1759,6 +1935,116 @@ def spec_rows(service, product_id):
     ]
 
 
+class TestAClearedPartNumberStaysCleared:
+    """019 US2 / FR-005 and FR-006: a default the operator can actually refuse.
+
+    The half of this feature that makes the other half safe. A part number
+    guessed from a `Model Number` row will sometimes be wrong, and a wrong one
+    corroborates a later repeat buy against the wrong product -- so the operator
+    emptying the field has to mean something, on the submission and on the
+    re-render after a question.
+
+    The re-render is where this differs from the manufacturer and unit price
+    fields beside it: those use `or` in the template, and `''` is falsy, so a
+    cleared value comes back filled. Aligning them is deliberately out of scope
+    (see the spec's assumptions); this class is what stops the part number from
+    joining them.
+    """
+
+    def payload(self, name='Mfr Part Number', value='7700-B'):
+        return json.dumps({
+            'version': 1,
+            'source_url': AMAZON_URL,
+            'specifications': [{'name': name, 'value': value}],
+        })
+
+    def post(self, client, **form):
+        data = {'url': AMAZON_URL, 'listing_title': '12V PSU'}
+        data.update(form)
+        return client.post('/products/capture', data=data, follow_redirects=False)
+
+    def only_product(self, service):
+        products = service.list_products()
+        assert len(products) == 1
+        return products[0]
+
+    def field_of(self, response):
+        match = re.search(
+            r'id="manufacturer_part_number".*?value="([^"]*)"',
+            response.data.decode(), re.S,
+        )
+        assert match, 'the manufacturer part number input is not on the page'
+        return match.group(1)
+
+    @pytest.fixture
+    def already_named(self, service):
+        """A product the item id already names -- posting raises the question"""
+        return service.create_product(
+            description='Something already cataloged',
+            identifiers=[{'id_type': 'VENDOR', 'value': 'B0ABCDEFGH', 'vendor': 'Amazon'}],
+        )
+
+    # -- the write ---------------------------------------------------------
+
+    def test_a_field_that_never_arrived_falls_back_to_the_listing(self, client, service):
+        """FR-005: absent is not a decision, so the listing fills it"""
+        self.post(client, listing=self.payload())
+
+        assert self.only_product(service).manufacturer_part_number == '7700-B'
+
+    def test_an_empty_field_is_a_decision_and_stores_nothing(self, client, service):
+        """FR-005 / US2 scenario 2: the derived value is not put back"""
+        self.post(client, listing=self.payload(), manufacturer_part_number='')
+
+        assert self.only_product(service).manufacturer_part_number is None
+
+    def test_a_typed_field_wins_over_the_listing(self, client, service):
+        """US2 scenario 1"""
+        self.post(
+            client, listing=self.payload(), manufacturer_part_number='What I know it is',
+        )
+
+        assert self.only_product(service).manufacturer_part_number == 'What I know it is'
+
+    def test_a_capture_with_no_listing_is_unaffected(self, client, service):
+        """FR-009: the path with no payload behaves exactly as it did before"""
+        self.post(client, manufacturer_part_number='Typed by hand')
+
+        assert self.only_product(service).manufacturer_part_number == 'Typed by hand'
+
+    # -- the re-render -----------------------------------------------------
+
+    def test_a_cleared_field_comes_back_cleared(self, client, already_named):
+        """FR-006 / US2 scenario 3.
+
+        Written with `or` in the template this fails: '' is falsy, the listing
+        fills the blank a second time, and the operator's decision is undone by
+        a question they were only asked because of something else.
+        """
+        response = self.post(
+            client, listing=self.payload(), manufacturer_part_number='',
+        )
+
+        assert response.status_code == 200
+        assert self.field_of(response) == ''
+
+    def test_a_typed_field_comes_back_as_typed(self, client, already_named):
+        response = self.post(
+            client, listing=self.payload(), manufacturer_part_number='Mine',
+        )
+
+        assert response.status_code == 200
+        assert self.field_of(response) == 'Mine'
+
+    def test_the_question_does_not_write_the_part_number_either(
+        self, client, service, already_named
+    ):
+        """Nothing is written by a capture that stopped to ask"""
+        self.post(client, listing=self.payload())
+
+        assert service.get_product(already_named.id).manufacturer_part_number is None
+
+
 class TestWhichRowNamesMeanABarcode:
     """FR-001: six names, folded -- and nothing else, however barcode-shaped"""
 
@@ -1782,6 +2068,53 @@ class TestWhichRowNamesMeanABarcode:
     @pytest.mark.parametrize('name', [None, '', '   '])
     def test_a_missing_name_is_not_a_barcode_row(self, name):
         assert not _is_barcode_row_name(name)
+
+
+class TestWhichRowNamesMeanAPartNumber:
+    """019 FR-001: five names, folded -- and nothing else"""
+
+    def named(self, name, value='7700-B'):
+        return ListingCapture(
+            source_url=AMAZON_URL, specifications=[{'name': name, 'value': value}],
+        ).manufacturer_part_number()
+
+    @pytest.mark.parametrize('name', [
+        'Manufacturer Part Number', 'Mfr Part Number', 'Part Number',
+        'Model Number', 'Item model number',
+    ])
+    def test_the_five_names_are_recognized(self, name):
+        assert self.named(name) == '7700-B'
+
+    @pytest.mark.parametrize('name', [
+        'mfr part number', 'MFR PART NUMBER', '  Mfr Part Number  ',
+        'Mfr  Part   Number', '\tItem Model Number\n',
+    ])
+    def test_case_and_whitespace_are_folded(self, name):
+        """Internal runs collapse too, not only the surrounding ones"""
+        assert self.named(name) == '7700-B'
+
+    @pytest.mark.parametrize('name', [
+        'Vendor Part Number', 'Part Numbers', 'Number', 'Serial Number',
+        'Manufacturer', 'Model', 'UPC',
+    ])
+    def test_the_whole_name_must_match_not_a_part_of_it(self, name):
+        """A feature that promised five names should fill from five names"""
+        assert self.named(name) is None
+
+    @pytest.mark.parametrize('name', [None, '', '   '])
+    def test_a_missing_name_is_not_a_part_number_row(self, name):
+        assert self.named(name) is None
+
+    @pytest.mark.parametrize('wanted', PART_NUMBER_ROW_NAMES)
+    def test_every_recognized_name_is_stored_already_normalized(self, wanted):
+        """A typo here would make an entry permanently unmatchable, silently.
+
+        The tuple is compared against ``normalized_row_name(...)`` output, so an
+        entry that is not itself normalized can never equal anything. No test
+        that goes through a listing would notice -- the name would simply never
+        match, which is indistinguishable from a listing that does not carry it.
+        """
+        assert normalized_row_name(wanted) == wanted
 
 
 class TestACapturedBarcodeBecomesAnIdentifier:

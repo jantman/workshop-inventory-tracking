@@ -405,20 +405,27 @@ def product_capture():
         # looking at the thing, and a value they typed wins over one a selector
         # found (US1 scenario 3).
         #
-        # **Absent, not merely empty.** The confirmation form always submits both
-        # of these -- pre-filled from the same payload -- so a field that arrives
-        # empty is one the operator *cleared*, and clearing is a change like any
-        # other. Falling back on empty would quietly put the extracted value back
-        # and there would be no way to say "the listing is wrong about this".
-        # Falling back on absent still covers a POST that carries the payload and
-        # nothing else.
+        # **Absent, not merely empty.** The confirmation form always submits all
+        # three of these -- pre-filled from the same payload -- so a field that
+        # arrives empty is one the operator *cleared*, and clearing is a change
+        # like any other. Falling back on empty would quietly put the extracted
+        # value back and there would be no way to say "the listing is wrong about
+        # this". Falling back on absent still covers a POST that carries the
+        # payload and nothing else.
+        #
+        # The part number joined the pair in 019: unlike the brand and the price,
+        # which the agent puts on the payload, it is derived here from the
+        # listing's own product-information rows. Same rule either way.
         manufacturer = request.form.get('manufacturer')
         unit_price = request.form.get('unit_price')
+        manufacturer_part_number = request.form.get('manufacturer_part_number')
         if listing is not None:
             if manufacturer is None:
                 manufacturer = listing.brand
             if unit_price is None:
                 unit_price = listing.price
+            if manufacturer_part_number is None:
+                manufacturer_part_number = listing.manufacturer_part_number()
 
         try:
             purchase = service.capture_order(
@@ -431,7 +438,7 @@ def product_capture():
                 order_date=request.form.get('order_date'),
                 description=request.form.get('description'),
                 manufacturer=manufacturer,
-                manufacturer_part_number=request.form.get('manufacturer_part_number'),
+                manufacturer_part_number=manufacturer_part_number,
                 acknowledged_duplicate_of=request.form.get('acknowledged_duplicate_of'),
                 attach_to=request.form.get('attach_to'),
                 listing=listing,

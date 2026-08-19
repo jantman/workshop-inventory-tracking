@@ -44,6 +44,7 @@ from .models import (
     ScanKind,
     ScanResolution,
     StockStatus,
+    normalized_row_name,
 )
 from .utils import category as category_utils
 from .utils import gtin as gtin_utils
@@ -2546,8 +2547,11 @@ def _is_barcode_row_name(name: Optional[str]) -> bool:
     substring: ``Manufacturer UPC`` and ``UPC Code`` are not ``UPC`` rows. A
     feature that promised six names should promote six names, and this runs with
     nobody watching.
+
+    The fold itself lives in ``models.normalized_row_name``, shared with 019's
+    part-number names so the two lists cannot drift apart.
     """
-    return ' '.join((name or '').split()).upper() in BARCODE_ROW_NAMES
+    return normalized_row_name(name) in BARCODE_ROW_NAMES
 
 
 def _corroborates(product: Product, manufacturer: Any, part_number: Any) -> bool:
