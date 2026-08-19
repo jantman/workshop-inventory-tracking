@@ -30,7 +30,7 @@ def create_app(config_class=Config, storage_backend=None):
     # the proxy has to actually set the headers, which the deployment guide
     # says.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-    
+
     # Store the storage backend in app config for access by routes
     if storage_backend:
         app.config['STORAGE_BACKEND'] = storage_backend
