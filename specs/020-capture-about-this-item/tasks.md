@@ -270,9 +270,9 @@ and every other field is what it was before this feature.
       **Not in the original task list** -- found while the suite was running. That passage
       enumerates what the capture reads, so a feature that adds to the reading and leaves it
       alone makes the manual quietly wrong
-- [ ] T040 Open the pull request against `main`, referencing issue #92, and note in the description
+- [X] T040 Open the pull request against `main`, referencing issue #92, and note in the description
       the two premises of the issue that the live probe corrected (research.md §1) so the record
-      travels with the change
+      travels with the change -- opened as #111
 
 ---
 
