@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!--
+  020 / issue #92, US4 scenario 2: an About this item section that is *present*
+  and holds nothing readable.
+
+  A sibling of amazon_listing_markup_only.html and the same joke as that
+  fixture's `#productDescription`: a block that looks like content and is not.
+  The heading and the "See more product details" link are here, and the list
+  holds one item with nothing in it. All three must yield no line, and the
+  absence of lines must yield **no row at all** -- not a row named
+  "About this item" with an empty value, which `_payload_specifications` would
+  drop on arrival without telling anyone.
+
+  The container-missing-entirely case is amazon_listing_markup_only.html's, and
+  the two are different branches: one never finds the container, this one finds
+  it and reads nothing out of it.
+
+  `__IMAGE_HOST__` is replaced by the test with the local image server.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Acme Nylon Spacer M3, 6mm</title>
+</head>
+<body>
+
+<div id="titleSection">
+    <h1 id="title"><span id="productTitle">Acme Nylon Spacer M3</span></h1>
+    <a id="bylineInfo" class="a-link-normal" href="/stores/AcmeComponents">Brand: Acme Components</a>
+</div>
+
+<div id="corePrice_feature_div">
+    <span class="a-price" data-a-color="base">
+        <span class="a-offscreen">$4.20</span>
+    </span>
+</div>
+
+<script type="text/javascript">
+// Guarded, as in the other fixtures: the agent reads this block's text, never
+// its effect.
+if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A){
+  var data = {
+    'colorImages': { 'initial': [
+      {"hiRes":"__IMAGE_HOST__/brass_rod_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/brass_rod_sample._AC_SX679_.jpg","variant":"MAIN"}
+    ]}
+  };
+  return data;
+}); }
+</script>
+
+<div id="featurebullets_feature_div">
+    <div id="feature-bullets" class="a-section a-spacing-medium a-spacing-top-small">
+        <hr aria-hidden="true" class="a-spacing-base a-divider-normal">
+        <h2 class="a-size-base-plus a-text-bold">About this item</h2>
+        <ul class="a-unordered-list a-vertical a-spacing-mini">
+            <li class="a-spacing-mini"><span class="a-list-item"> </span></li>
+        </ul>
+        <div class="a-section"><span class="caretnext">&rsaquo;</span> <a class="a-link-normal" href="#prodDetails">See more product details</a></div>
+    </div>
+</div>
+
+<div id="prodDetails">
+    <table id="productDetails_techSpec_section_1" class="prodDetTable">
+        <tr>
+            <th class="prodDetSectionEntry">Material</th>
+            <td class="prodDetAttrValue">Nylon 6/6</td>
+        </tr>
+    </table>
+</div>
+
+<div id="productDescription">
+    <p>Unthreaded nylon spacer, 3mm bore, 6mm long.</p>
+</div>
+
+</body>
+</html>

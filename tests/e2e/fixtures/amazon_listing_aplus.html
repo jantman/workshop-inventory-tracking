@@ -97,7 +97,36 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
             <th class="prodDetSectionEntry">Country of<br>Origin</th>
             <td class="prodDetAttrValue">United Kingdom</td>
         </tr>
+        <!-- 020 / issue #92: a detail-table row wearing the bullets' own name,
+             differing only in case. The agent seeds its fold with the bullets
+             row *before* reading any container, so exactly one row of this name
+             survives and it is the bullets -- not this. Without the seeding
+             this would arrive as a second "About this item" row, and neither
+             fold downstream would catch it. -->
+        <tr>
+            <th class="prodDetSectionEntry">about this item</th>
+            <td class="prodDetAttrValue">A table row that must lose to the bullets</td>
+        </tr>
     </table>
+</div>
+
+<!-- "About this item" on the other description form (020 / issue #92). Same
+     furniture as the plain fixture; different bullets, deliberately sharing no
+     wording with the A+ copy below, so an assertion can tell which of the two
+     it is looking at.
+
+     A listing carries bullets or it does not, independently of which
+     description form it uses -- so both fixtures have them. -->
+<div id="featurebullets_feature_div">
+    <div id="feature-bullets" class="a-section a-spacing-medium a-spacing-top-small">
+        <hr aria-hidden="true" class="a-spacing-base a-divider-normal">
+        <h2 class="a-size-base-plus a-text-bold">About this item</h2>
+        <ul class="a-unordered-list a-vertical a-spacing-mini">
+            <li class="a-spacing-mini"><span class="a-list-item">Stocked in 300mm and 600mm lengths; longer bars are cut to order.</span></li>
+            <li class="a-spacing-mini"><span class="a-list-item">End caps, corner brackets and drop-in T-nuts are ordered separately.</span></li>
+        </ul>
+        <div class="a-section"><span class="caretnext">&rsaquo;</span> <a class="a-link-normal" href="#prodDetails">See more product details</a></div>
+    </div>
 </div>
 
 <div id="aplus" class="aplus-v2">
