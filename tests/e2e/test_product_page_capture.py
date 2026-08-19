@@ -506,6 +506,9 @@ def test_the_rich_description_is_kept_and_its_furniture_is_not(
     assert payload["brand"] == "Acme Components"
     assert payload["price"] == "1249.50"
     assert [row["name"] for row in payload["specifications"]] == [
+        # 020: the bullets lead, and the detail table's own "about this item"
+        # row is folded away behind them rather than appearing twice.
+        "About this item",
         "Material", "Item Length", "Customer Reviews", "Finish", "Country of Origin",
     ]
 
@@ -1138,3 +1141,223 @@ def test_a_repeat_buy_no_longer_has_to_answer_the_identifier_question(
     again.goto(f"{live_server.url}/products")
     # One product, not two: it attached rather than branching.
     expect(again.locator("#product-table tbody tr")).to_have_count(1)
+
+
+# ---------------------------------------------------------------
+# Issue #92: the listing's own "About this item" bullets
+# ---------------------------------------------------------------
+
+ABOUT_THIS_ITEM = "About this item"
+
+# What amazon_listing.html's bullet list must yield. Two of B01N4OSKWE's real
+# bullets -- the second is where that listing publishes its dimensions, and it
+# publishes them nowhere else -- and one that had to be cleaned of the styling
+# and script inside it. The whitespace-only item and the image-only item are
+# absent, because a bullet with no words is not a line.
+BULLET_LINES = [
+    "Country of Manufacture: CHINA; Material: Plastic,Metal; Net Weight: 9g",
+    'Main Body Size: 15 x 7 x 7mm/0.59"x0.28"x0.28"(L*W*H); Overall Size: 23 x 16 x 7mm',
+    "Action Type: Latching; Contact Type: DPDT; Terminal Quantity: 6",
+]
+
+
+def about_this_item(payload):
+    """The bullets row out of a payload, or None.
+
+    Folded the way both merges fold a name, so a fixture that changed the
+    heading's capitalisation would still be found rather than silently missed.
+    """
+    for row in payload.get("specifications", []):
+        if row["name"].strip().lower() == ABOUT_THIS_ITEM.lower():
+            return row
+    return None
+
+
+@pytest.mark.e2e
+def test_the_about_this_item_bullets_are_captured(page, live_server, image_host):
+    """US1 scenarios 1-3 / FR-001..FR-004, FR-010.
+
+    The whole feature. On B01N4OSKWE every dimension the product has is in
+    these bullets and in no table on the page, so a capture that skipped them
+    stored a record that said nothing about the thing that was bought.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    entries = payload_of(landed)["specifications"]
+
+    # FR-010, and not an accident of ordering: `specificationsFrom` seeds both
+    # its list and its fold with this row before it reads a single container.
+    assert entries[0]["name"] == ABOUT_THIS_ITEM
+    # FR-003: one bullet per line, in the order the listing shows them.
+    assert entries[0]["value"].split("\n") == BULLET_LINES
+
+
+@pytest.mark.e2e
+def test_the_bullets_reach_the_product(page, live_server, image_host):
+    """US1 scenario 4: the dimensions are in the catalog, not just the payload"""
+    landed = capture_from_listing(page, live_server, image_host)
+    confirm(landed, description="12V 3A PSU")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+
+    specifications = landed.locator("#product-specifications")
+    expect(specifications).to_contain_text(ABOUT_THIS_ITEM)
+    # The reason the issue was filed, in one assertion.
+    expect(specifications).to_contain_text("Main Body Size: 15 x 7 x 7mm")
+
+
+@pytest.mark.e2e
+def test_the_bullets_row_changes_nothing_else(page, live_server, image_host):
+    """US1 scenario 5 / FR-012: a row was added to the reading, not swapped in"""
+    landed = capture_from_listing(page, live_server, image_host)
+    payload = payload_of(landed)
+
+    assert payload["listing_title"] == "Acme 12V 3A Power Supply Adapter"
+    assert payload["brand"] == "Acme Components"
+    assert payload["price"] == "24.99"
+    assert len(payload["images"]) == GALLERY_IMAGE_COUNT
+    # Every container is still read and still merged across all four of them.
+    names = [row["name"] for row in payload["specifications"]]
+    for expected in ("Brand", "Connector Type", "Item Length", "Best Sellers Rank"):
+        assert expected in names
+
+
+@pytest.mark.e2e
+def test_the_bullets_row_holds_no_page_furniture(page, live_server, image_host):
+    """US3 / FR-005..FR-007, and the trap issue #92 only half identified.
+
+    ``#feature-bullets`` is not only bullets. It opens with an ``<h2>About this
+    item</h2>`` and closes with a "See more product details" link, both inside
+    the container and both outside the list -- so the container's own
+    ``textContent`` begins "About this item Country of Manufacture: CHINA...".
+    Reading the ``li`` elements is what excludes them.
+
+    Nothing here tests visibility, and nothing could: ``canonicalDocument()``
+    parses a detached document with no layout and no stylesheets, where
+    ``offsetHeight`` is 0 for everything. The exclusion is structural.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+    value = about_this_item(payload_of(landed))["value"]
+
+    # The heading, which shares its wording with the row's own name.
+    assert ABOUT_THIS_ITEM not in value
+    # The trailing link. Issue #92 expected a hidden <li>; it is a visible
+    # sibling <div>, and `li` scoping excludes it either way.
+    assert "See more product details" not in value
+
+    lines = value.split("\n")
+    # FR-006: the whitespace-only bullet and the image-only bullet contributed
+    # nothing, and neither left a blank line behind them.
+    assert lines == BULLET_LINES
+    assert "" not in lines
+    assert value == value.strip()
+
+    # FR-007: #91's rule, on a third surface. Neither is writing.
+    assert "color: #0F1111" not in value
+    assert "bulletsReady" not in value
+
+
+@pytest.mark.e2e
+def test_a_table_row_of_the_same_name_loses_to_the_bullets(
+    page, live_server, image_host
+):
+    """US2 scenario 3 / FR-009, and the reason the fold is *seeded*.
+
+    The A+ fixture publishes a detail-table row named ``about this item``,
+    differing from the bullets' name only in case. Exactly one row of that name
+    may survive and it must be the bullets -- which holds only because
+    ``specificationsFrom`` seeds its ``seen`` map before reading any container.
+    Pushing the bullets onto the list without seeding would yield both, and
+    neither fold downstream would catch it.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+    entries = payload_of(landed)["specifications"]
+
+    matching = [
+        row for row in entries
+        if row["name"].strip().lower() == ABOUT_THIS_ITEM.lower()
+    ]
+    assert len(matching) == 1
+    assert matching[0]["value"].startswith("Stocked in 300mm")
+    assert "must lose to the bullets" not in matching[0]["value"]
+
+
+@pytest.mark.e2e
+def test_re_capturing_leaves_one_bullets_row(page, live_server, image_host):
+    """US2 scenarios 1-2 / FR-009. Delivered by machinery that already existed.
+
+    ``merge_specifications`` drops a captured name the product already carries,
+    value included. Nothing was written for this story; what is asserted here is
+    that the new row is not somehow exempt from the rule.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+    confirm(landed, description="12V 3A PSU")
+
+    landed.goto(f"{live_server.url}/products")
+    landed.click("#product-table tbody tr td a")
+    # Establishes the region before the count below is read: the negative half
+    # of this test is a count, and a count against a page that has not rendered
+    # is zero for the wrong reason.
+    expect(landed.locator("#product-specifications")).to_contain_text(ABOUT_THIS_ITEM)
+    product_url = landed.url
+    before = landed.locator("#product-specifications .specification-name").count()
+
+    again = capture_from_listing(page, live_server, image_host)
+    again.click("#capture-btn")
+    # Raised in response to the submit rather than on the landing page, so its
+    # arrival is what tells us the submit was processed. The identifier question
+    # is not raised: 019 fills the part number, which corroborates.
+    expect(again.locator("#duplicate-warning")).to_be_visible()
+    again.check("#acknowledged_duplicate_of")
+    again.click("#capture-btn")
+
+    again.goto(product_url)
+    names = again.locator("#product-specifications .specification-name")
+    expect(names).to_have_count(before)
+    expect(names.filter(has_text=re.compile(r"^About this item$"))).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_a_listing_with_no_bullet_list_captures_as_before(
+    page, live_server, image_host
+):
+    """US4 scenario 1 / FR-008, FR-012: no section, no row, nothing else moved"""
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_markup_only.html"
+    )
+    payload = payload_of(landed)
+
+    assert about_this_item(payload) is None
+    # FR-008: and not an empty-valued row either. One would be dropped by
+    # `_payload_specifications` on arrival without anyone hearing about it,
+    # which is why the agent must not emit it rather than merely tolerate it.
+    assert all(row["value"] for row in payload["specifications"])
+    # FR-012, on the fixture that has no bullets to distract from it.
+    assert payload["description_text"] == (
+        "Knurled brass standoff, M3 thread, 10mm between faces."
+    )
+    assert payload["price"] == "8.75"
+    assert [row["name"] for row in payload["specifications"]] == ["Material"]
+
+
+@pytest.mark.e2e
+def test_a_bullet_list_with_nothing_readable_yields_no_row(
+    page, live_server, image_host
+):
+    """US4 scenario 2 / FR-008, FR-011: found the container, read nothing from it.
+
+    A different branch from the test above, which never finds the container at
+    all. This one finds it, finds the heading, the "See more" link and one empty
+    item, and must still produce no row.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_bullets_empty.html"
+    )
+    payload = payload_of(landed)
+
+    assert about_this_item(payload) is None
+    assert all(row["value"] for row in payload["specifications"])
+    assert payload["price"] == "4.20"

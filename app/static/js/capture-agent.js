@@ -210,6 +210,23 @@
         '#detailBullets_feature_div'
     ];
 
+    // "About this item": the bullets Amazon writes above the detail tables, and
+    // on some listings the only place a physical fact appears at all. Every
+    // dimension B01N4OSKWE publishes is in its five bullets and in no table on
+    // the page, which is why issue #92 called the capture of it an empty record.
+    //
+    // **Not a member of the list above, and it could not be.** `rowsFrom`'s two
+    // shapes are a two-cell table row and a bullet with a bold name span; an
+    // About-this-item bullet is neither, so adding this selector there would
+    // read the container and find nothing in it. It needs its own reader.
+    //
+    // The container holds more than the bullets -- see `bulletsRow`.
+    const BULLET_CONTAINER = '#feature-bullets';
+
+    // The row name, matching the heading the listing itself puts on the section.
+    // Folded case-insensitively by both merges, like every other captured name.
+    const BULLET_ROW_NAME = 'About this item';
+
     /** Trim the punctuation Amazon puts between a bullet's name and its value. */
     function tidyName(name) {
         // The bidi marks are literally in the markup: "Date First Available ‏ : ‎".
@@ -264,6 +281,64 @@
     }
 
     /**
+     * The listing's "About this item" bullets as one row, or null (issue #92).
+     *
+     * **Read from the `li` elements, never from the container's own text.**
+     * `#feature-bullets` carries an `<h2>About this item</h2>` heading and, after
+     * the list, a `<div>` holding "See more product details" -- both inside the
+     * container and both outside the `<ul>`. A reader taking the container's
+     * `textContent` captures them: on a real listing it begins "About this item
+     * Country of Manufacture: CHINA...". Scoping to `li` excludes both for free,
+     * and excludes nothing a bullet contains.
+     *
+     * **There is deliberately no visibility test here, and there could not be
+     * one.** Issue #92 expected a hidden "See more product details" list item;
+     * on all three listings read on 2026-08-19 it is a visible sibling `div`
+     * instead, and no bullet was hidden by anything. That is just as well,
+     * because `canonicalDocument()` hands this a `DOMParser` document: detached,
+     * unstyled, without layout. `offsetHeight` is 0 for every element in it and
+     * `getComputedStyle` reports the UA default rather than what Amazon's CSS
+     * would produce, so "is the shopper shown this" cannot be asked on this side
+     * of the fetch at all. Excluding the furniture is structural or it does not
+     * happen.
+     *
+     * Bullets are joined with **one** newline rather than two: they are list
+     * items, not paragraphs, and `proseFrom` already emits paragraph breaks for
+     * the block structure *within* a bullet.
+     *
+     * Returns null rather than a row with an empty value. `_payload_specifications`
+     * would drop such a row on arrival and nobody would ever hear about it.
+     */
+    function bulletsRow(doc) {
+        const container = doc.querySelector(BULLET_CONTAINER);
+        if (!container) {
+            return null;
+        }
+
+        const lines = [];
+        const items = container.querySelectorAll('li');
+        for (let i = 0; i < items.length; i++) {
+            // A nested list belongs to the bullet containing it, not to the
+            // page. `querySelectorAll` returns the outer and inner items both,
+            // and taking both would emit the nested text twice -- once inside
+            // its parent's prose and once on a line of its own.
+            const parent = items[i].parentElement;
+            if (parent && parent.closest('li')) {
+                continue;
+            }
+            const line = proseOf(items[i]);
+            if (line) {
+                lines.push(line);
+            }
+        }
+
+        if (!lines.length) {
+            return null;
+        }
+        return { name: BULLET_ROW_NAME, value: lines.join('\n') };
+    }
+
+    /**
      * Every product-information row, merged across the page's containers.
      *
      * FR-008 and FR-009. Names differing only in case or surrounding whitespace
@@ -282,6 +357,18 @@
     function specificationsFrom(doc) {
         const entries = [];
         const seen = {};
+
+        // The bullets lead, as they do on the page -- and they are seeded into
+        // the fold rather than merely pushed onto the list. A listing naming a
+        // detail-table row "About this item" as well would otherwise yield two
+        // rows of one name, which is the one duplicate neither this fold nor
+        // merge_specifications downstream would catch. Seeding also settles the
+        // collision the right way round: what survives is the bullets.
+        const bullets = bulletsRow(doc);
+        if (bullets) {
+            entries.push(bullets);
+            seen[bullets.name.toLowerCase()] = true;
+        }
 
         for (let i = 0; i < SPECIFICATION_CONTAINERS.length; i++) {
             const container = doc.querySelector(SPECIFICATION_CONTAINERS[i]);

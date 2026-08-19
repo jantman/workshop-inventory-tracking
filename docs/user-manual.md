@@ -908,9 +908,17 @@ Two ways in:
 2. **The bookmarklet.** Drag *Capture to Workshop* to your bookmarks bar once. On
    a listing, click it: a new tab opens on this application's confirmation page,
    already filled in. It now reads the listing itself, not just the address --
-   for an Amazon page that means the price, the brand, the description, every
-   *Product information* row, and every image the page's own data names, which is
-   usually more than the thumbnail strip shows.
+   for an Amazon page that means the price, the brand, the description, the
+   *About this item* bullets, every *Product information* row, and every image
+   the page's own data names, which is usually more than the thumbnail strip
+   shows.
+
+   **The *About this item* bullets arrive as one specification row** of that
+   name, one bullet to a line. Read them: on some listings that section is the
+   only place the dimensions appear at all, and before this the capture skipped
+   it entirely. The row is yours like any other -- edit it, delete it -- and
+   capturing the same listing again neither adds a second copy nor writes over
+   what you changed.
 
    **Manufacturer Part Number is filled from those rows too.** A row named
    *Manufacturer Part Number*, *Mfr Part Number*, *Part Number*, *Model Number*

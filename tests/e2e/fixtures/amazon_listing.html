@@ -14,6 +14,9 @@
     amazon_listing_aplus.html -- no listing carries both;
   * four product-information containers in three different markups, because the
     extractor has to merge across all of them (FR-009).
+  * an "About this item" bullet list carrying the two things the reader must
+    exclude -- the section heading and the "See more product details" link --
+    and three bullets it must drop or clean (020).
 
   `__IMAGE_HOST__` is replaced by the test with the address of the local image
   server, so the application performs a genuine HTTP fetch of genuine bytes.
@@ -67,6 +70,50 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
   return data;
 }); }
 </script>
+
+<!-- "About this item" (020 / issue #92). The shape is what B01N4OSKWE really
+     carried on 2026-08-19, furniture included: an `hr`, an `h2` heading and a
+     trailing "See more product details" `div`, all *inside* #feature-bullets
+     and all *outside* the `<ul>`.
+
+     The furniture is the point. The container's own textContent begins
+     "About this item Country of Manufacture: CHINA..." -- so a reader working
+     from the container's text captures the heading as a product fact, and the
+     "See more" link as another. Only the `li` scoping excludes them, and a
+     fixture without them would not notice a reader that had stopped doing it.
+
+     Issue #92 predicted the "See more" item would be a *hidden li*. It is not,
+     on any listing read for this feature; it is a visible sibling div. Both
+     shapes are excluded by reading `li` inside the list, which is why the
+     reader does not test visibility -- it could not anyway, since the agent
+     parses a detached document with no layout.
+
+     The first two bullets are B01N4OSKWE's own: semicolon-separated physical
+     facts published in no table on that listing, which is the whole reason the
+     issue exists. The three after them are the cases the reader must drop or
+     clean. -->
+<div id="featurebullets_feature_div">
+    <div id="feature-bullets" class="a-section a-spacing-medium a-spacing-top-small">
+        <hr aria-hidden="true" class="a-spacing-base a-divider-normal">
+        <h2 class="a-size-base-plus a-text-bold">About this item</h2>
+        <ul class="a-unordered-list a-vertical a-spacing-mini">
+            <li class="a-spacing-mini"><span class="a-list-item">Country of Manufacture: CHINA; Material: Plastic,Metal; Net Weight: 9g</span></li>
+            <li class="a-spacing-mini"><span class="a-list-item">Main Body Size: 15 x 7 x 7mm/0.59"x0.28"x0.28"(L*W*H); Overall Size: 23 x 16 x 7mm</span></li>
+            <!-- Whitespace only: contributes no line, and no blank one either. -->
+            <li class="a-spacing-mini"><span class="a-list-item">   </span></li>
+            <!-- Decoration with no words. Same rule. -->
+            <li class="a-spacing-mini"><span class="a-list-item"><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""></span></li>
+            <!-- Issue #91's problem on a third surface: a bullet carrying its
+                 own styling and script. Neither may be reported as writing. -->
+            <li class="a-spacing-mini"><span class="a-list-item">
+                <style type="text/css">.a-list-item { color: #0F1111; }</style>
+                Action Type: Latching; Contact Type: DPDT; Terminal Quantity: 6
+                <script type="text/javascript">var bulletsReady = 1;</script>
+            </span></li>
+        </ul>
+        <div class="a-section"><span class="caretnext">&rsaquo;</span> <a class="a-link-normal" href="#prodDetails">See more product details</a></div>
+    </div>
+</div>
 
 <!-- Product information, container 1 of 4: the two-column overview table. -->
 <div id="productOverview_feature_div">
