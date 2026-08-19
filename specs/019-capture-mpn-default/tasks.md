@@ -146,7 +146,7 @@ splitting it out would mean editing one method twice. What is genuinely separate
 - [X] T027 Confirm the working tree is clean after a plain `nox -s tests` and `nox -s e2e` run (Constitution IV: a test session must leave the tree clean) with `git status --short`
 - [X] T028 Walk [quickstart.md](./quickstart.md) sections 1–3 and 5 end to end, and section 6 by hand against `B0CZ72JRHP` and `B0FX4PDW6M` if a TLS-served instance is available. SC-001 is the acceptance: the field arrives filled with zero keystrokes
 - [X] T029 Review the full diff against the file list in [plan.md](./plan.md): `app/models.py`, `app/catalog_service.py`, `app/product/routes.py`, `app/templates/product/capture.html`, `tests/unit/test_capture.py`, `tests/e2e/test_product_page_capture.py`, `tests/e2e/fixtures/amazon_listing.html`, `docs/user-manual.md`, one screenshot, and this spec directory. **Anything else in the diff is a defect**: no migration, no `requirements.txt`, no JavaScript, no `app/database.py`, no `_form_fields.html`
-- [ ] T030 Open the pull request against `main` referencing issue #90, and note in the body the FR-006 scope call — this field's cleared value survives a re-render, `manufacturer` and unit price still do not, and aligning them is deliberately a separate change
+- [X] T030 Open the pull request against `main` referencing issue #90, and note in the body the FR-006 scope call — this field's cleared value survives a re-render, `manufacturer` and unit price still do not, and aligning them is deliberately a separate change
 
 ---
 
