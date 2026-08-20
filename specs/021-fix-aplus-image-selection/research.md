@@ -240,3 +240,42 @@ they are: they are what proves the 300-pixel rule still works after the block se
 | Read description **text** from the corrected block too | §5, §7. Same root cause; splitting them would leave the reported symptom half-fixed. |
 | `knownEdges()`, `MIN_DESCRIPTION_EDGE` and `withoutTransform()` unchanged | §4. Nothing about the size rule is implicated. |
 | No server-side change | The filter runs in the browser by design (007); the payload contract does not change. |
+
+---
+
+## 10. What PR review found (2026-08-20)
+
+Two real defects in the implementation, both in shapes neither the live probe nor the fixture could
+exercise. Recorded here because §6's before/after table reads as complete evidence and, on its own,
+was not.
+
+**The text path did not honor FR-011 for a nested carousel.** `descriptionBlocks()` drops a block
+that *is* inside `#aplusBrandStory_feature_div`; `descriptionImages()` additionally drops a
+cross-sell image nested inside an otherwise-legitimate block. The text path had only the first of
+those, so a carousel nested under the real description walked its prose straight into
+`description_text` — the text half of #94 through a different door. `B0FX4PDW6M` has the sibling
+shape, so nothing observed could have shown this. Fixed with `descriptionProse()`; the new
+`test_a_nested_carousel_reaches_neither_the_images_nor_the_description` fails without it, with the
+description beginning "From the brand".
+
+**`knownEdges()`'s `naturalWidth` fallback measured the placeholder.** §4 concluded that nothing
+about the size rule was implicated, and passing the resolved address in was treated as sufficient.
+The function's *last* branch was left reading the element's own loaded dimensions — which, for a
+deferred-loading image, are the grey placeholder's. On the canonical-fetch path the document is
+detached and reports 0, so the branch is unreachable and the suite cannot see it; on
+`canonicalDocument()`'s live-document fallback (FR-007, a first-class path) it would have returned
+`[1, 1]` and dropped the very image this feature exists to keep. The new fixture image's
+double-underscore token matches neither dimension regex, so it reaches that branch by construction.
+Guarded to fire only when the resolved address is the one the element loaded. **Not covered by a
+test**: Chrome's loopback-address policy blocks the fixture image host from the page's origin, so
+`naturalWidth` is 0 on the live path here too. The condition is named at the call site instead.
+
+**Also tightened**: `PLACEHOLDER_ADDRESS` matched `grey-pixel` as a substring, which would have
+rejected a vendor's photograph of grey pixel art. It now matches the filename with boundaries.
+
+**Not changed**: the `FR-004` in `descriptionBlocks()`'s comment was read in review as 007 FR-004
+(gallery resolution) and flagged as wrong. It is **014** FR-004 — "a description block whose
+remaining text is empty or whitespace-only ... MUST be treated as carrying no description, and
+capture MUST continue to the page's other description blocks" — which is exactly what the
+`textOf(block)` test does. The reference was right and unqualified; it is now qualified, because an
+unqualified one has now been misread once.

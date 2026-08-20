@@ -544,6 +544,55 @@ def test_a_listing_without_a_brand_story_captures_exactly_as_before(
     assert "Extruded 6063-T5 aluminium" in payload["description_text"]
 
 
+def with_brand_story_nested(body):
+    """The carousel moved *inside* the real description block.
+
+    `descriptionBlocks()` handles the sibling shape by dropping a block that is
+    itself inside the carousel. This is the other shape, and it is the one that
+    slips past: the chosen block is legitimately the product's, and the carousel
+    hangs underneath it.
+    """
+    block = re.search(
+        r"<!--BRAND-STORY-START-->.*?<!--BRAND-STORY-END-->", body, re.S
+    ).group(0)
+    body = body.replace(block, "", 1)
+    # Exactly one `id="aplus"` is left once the carousel is lifted out, so this
+    # cannot land in the wrong place.
+    assert body.count('<div id="aplus" class="aplus-v2">') == 1
+    return body.replace(
+        '<div id="aplus" class="aplus-v2">',
+        '<div id="aplus" class="aplus-v2">\n' + block,
+        1,
+    )
+
+
+@pytest.mark.e2e
+def test_a_nested_carousel_reaches_neither_the_images_nor_the_description(
+    page, live_server, image_host
+):
+    """021 FR-011 and FR-004, for the shape #94's listing does not have.
+
+    On `B0FX4PDW6M` the carousel is a *sibling* of the real description, so
+    excluding it at block level is enough. Nest it instead and the chosen block
+    is the product's own -- correctly -- with the carousel hanging underneath.
+    The image path already handled this, per element. The text path did not: the
+    prose walked straight into ``description_text``, which is the text half of
+    #94 reappearing through a different door.
+
+    Found in review of this feature's own PR, which is the honest place to say
+    that the fixture-only evidence had a hole in it.
+    """
+    serve_aplus_variant(page, image_host, with_brand_story_nested)
+    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    payload = payload_of(landed)
+
+    description = payload["description_text"]
+    assert "Extruded 6063-T5 aluminium" in description
+    assert "From the brand" not in description
+    assert "Sheffield" not in description
+    assert not [a for a in payload["images"] if "vendor_other" in a]
+
+
 @pytest.mark.e2e
 def test_images_are_gathered_from_every_region_not_only_the_first(
     page, live_server, image_host

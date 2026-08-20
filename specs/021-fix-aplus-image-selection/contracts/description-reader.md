@@ -51,19 +51,36 @@ test rather than inspected by eye.
   take that address as a parameter instead of reading `src` itself — for a deferred-loading image
   `src` names the grey placeholder, so the rule would have been measuring the wrong picture. The
   rule is unchanged: same two patterns, same threshold, same keep-on-unknown clause. It has one
-  call site.)*
+  call site. A second correction, also from PR review: `knownEdges()`'s final `naturalWidth`
+  fallback still measured whatever the *element* loaded, which for a deferred-loading image is the
+  placeholder. On the live-document path it would have returned `[1, 1]` and dropped the real
+  image. It is now guarded to fire only when the resolved address is the one that loaded.)*
 - **C-13**: Returns addresses with the resolution token stripped by `withoutTransform()`, unchanged.
 - **C-14**: Returns each address at most once even when the same image is reachable from two
   overlapping blocks.
+
+## `descriptionProse(block)` → string
+
+Added after PR review found the text path did not honor FR-011 for one shape.
+
+- **C-20**: Returns the block's prose with any `CROSS_SELL_CONTAINER` subtree removed first. A
+  carousel nested *inside* an otherwise-legitimate description block must contribute nothing to
+  `description_text`.
+- **C-21**: Removes the carousel from a **clone**. `contentClone`/`proseFrom` are shared with
+  `brandFrom`, `priceFrom` and the specification readers, none of which should learn what a brand
+  story is, so the removal lives here rather than in the shared stripping.
 
 ## The call site
 
 - **C-15**: `description_text` is taken from the **first** block `descriptionBlocks` returns, not
   from all of them concatenated. 007 FR-005 stands: whichever form the description takes, and never
   a requirement that both be present.
-- **C-16**: A cross-sell region's prose is never `description_text`. This is C-7 seen from the
-  payload side, and it is what changes `B0FX4PDW6M` from the vendor's company bio to the product's
-  own description.
+- **C-16**: A cross-sell region's prose is never `description_text`, in **either** shape — the
+  carousel as its own block (C-7) or nested inside the chosen one (C-20). It is what changes
+  `B0FX4PDW6M` from the vendor's company bio to the product's own description.
+  *(The nested half was missing from the implementation and was caught in PR review. `B0FX4PDW6M`
+  has the sibling shape, so neither the live probe nor the fixture exercised the other one — the
+  image path had covered it per element since the first commit, the text path had not.)*
 - **C-17**: Images are gathered from **all** returned blocks.
 - **C-18**: When `descriptionBlocks` returns `[]`, the payload carries no `description_text` and no
   description images, and the capture still succeeds with its gallery and specifications intact

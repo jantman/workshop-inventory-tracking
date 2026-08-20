@@ -561,7 +561,7 @@
             // across nested containers would simply duplicate it. Images are the
             // opposite case, and are what the `seen` map above is for
             // (021 C-15, C-17).
-            set('description_text', proseOf(description[0]));
+            set('description_text', descriptionProse(description[0]));
             // The *original* blocks, not clones: `knownEdges()` falls back to
             // `img.naturalWidth`, which is 0 on anything detached.
             addImages(descriptionImages(description));
@@ -635,7 +635,11 @@
     // the real address waits in `data-src` for the module to scroll into view --
     // which never happens here, because `canonicalDocument()` yields a document
     // that is never laid out.
-    const PLACEHOLDER_ADDRESS = /grey-pixel|transparent-pixel/;
+    // Matched as a *filename*, not as a substring: `grey-pixel` anywhere in the
+    // address would also reject a vendor's photograph of grey pixel art, and
+    // silently dropping a content image is the exact class of bug this whole
+    // change exists to fix.
+    const PLACEHOLDER_ADDRESS = /\/(?:grey|transparent)-pixel\.gif(?:[?#]|$)/;
 
     /**
      * The address an image will really load, or ''.
@@ -679,12 +683,39 @@
      * twice. Deduplication is the caller's job, and the caller already has a
      * `seen` map (021 C-9).
      *
-     * The `textOf(block)` test is what earns FR-004, and it does so through the
-     * stripping rather than through any code here: a block whose only text was a
-     * stylesheet and a script now reads as '', fails the test, and is skipped.
-     * It is tested rather than assumed precisely because it is behavior emerging
-     * from a change somewhere else.
+     * The `textOf(block)` test is what earns **014** FR-004 -- a block whose
+     * remaining text is empty after stripping carries no description, and the
+     * reader moves on -- and it does so through the stripping rather than
+     * through any code here: a block whose only text was a stylesheet and a
+     * script now reads as '', fails the test, and is skipped. It is tested
+     * rather than assumed precisely because it is behavior emerging from a
+     * change somewhere else. (The bare `FR-` references in this file are 007's;
+     * this one is not, and has been misread as 007 FR-004, which is about
+     * gallery resolution.)
      */
+    /**
+     * The description block's prose, with any cross-sell region taken out.
+     *
+     * `descriptionBlocks()` drops a block that *is* inside the carousel; this
+     * drops a carousel nested inside a block that is otherwise the real
+     * description. `descriptionImages()` already covers that shape per image,
+     * and without this the text path did not -- so a nested carousel's prose
+     * walked into `description_text` and reproduced the text half of #94
+     * (021 FR-011).
+     *
+     * Its own function rather than a rule inside `contentClone`, which
+     * `brandFrom`, `priceFrom` and the specification readers all share and none
+     * of which should learn what a brand story is.
+     */
+    function descriptionProse(block) {
+        const clone = contentClone(block);
+        const carousels = clone.querySelectorAll(CROSS_SELL_CONTAINER);
+        for (let i = 0; i < carousels.length; i++) {
+            carousels[i].remove();
+        }
+        return proseFrom(clone);
+    }
+
     function descriptionBlocks(doc) {
         const blocks = [];
         for (let i = 0; i < DESCRIPTION_CONTAINERS.length; i++) {
@@ -733,7 +764,16 @@
             return [parseInt(one[1], 10)];
         }
 
-        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        // Only when the address we are deciding about is the one the element
+        // actually loaded. For a deferred-loading image they differ: `src` holds
+        // the grey placeholder and `address` the real picture, so on the live
+        // document -- `canonicalDocument()`'s fallback, a first-class path under
+        // FR-007 -- this would report the placeholder's 1x1 and drop the very
+        // image 021 exists to keep. Detached documents report 0 and never reach
+        // the question, which is why the suite cannot see this: it is not
+        // observable on the canonical-fetch path every test takes.
+        if (source === (img.getAttribute('src') || '') &&
+                img.naturalWidth > 0 && img.naturalHeight > 0) {
             return [img.naturalWidth, img.naturalHeight];
         }
         return [];
