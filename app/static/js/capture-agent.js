@@ -550,13 +550,19 @@
         };
         addImages(galleryFrom(doc));
 
-        const description = descriptionBlock(doc);
-        if (description) {
+        const description = descriptionBlocks(doc);
+        if (description.length) {
             // Uncapped, and sent whole. b1a0c0d10009 widened the column it lands
             // in to 16,777,215 bytes precisely so there is nothing to truncate
             // against and FR-006 holds without an exception.
-            set('description_text', proseOf(description));
-            // The *original* block, not a clone: `knownEdges()` falls back to
+            // Text from the **first** block, images from **all** of them. 007
+            // FR-005 stands for the text -- whichever form the description takes,
+            // never a requirement that both be present -- and merging prose
+            // across nested containers would simply duplicate it. Images are the
+            // opposite case, and are what the `seen` map above is for
+            // (021 C-15, C-17).
+            set('description_text', proseOf(description[0]));
+            // The *original* blocks, not clones: `knownEdges()` falls back to
             // `img.naturalWidth`, which is 0 on anything detached.
             addImages(descriptionImages(description));
         }
@@ -583,27 +589,113 @@
     const MIN_DESCRIPTION_EDGE = 300;
 
     // The plain form and the rich ("A+") form. Issue #57 found three of the six
-    // sampled listings one way and three the other, and **never both** -- so
-    // this reads whichever is present rather than combining them (FR-005).
+    // sampled listings one way and three the other, and **never both** -- so the
+    // *text* is read from whichever is present rather than from both combined
+    // (FR-005). 021 split the two: the **images** are gathered from every
+    // container, because a listing turned out to be able to carry more than one
+    // A+ region and reading only the first dropped the product's own pictures.
+    //
+    // The list itself is unchanged since 007, and that is the point:
+    // `#aplus_feature_div` was always here. It was unreachable, because the
+    // `#aplus` ahead of it matched a *different* element of the same id -- see
+    // `descriptionBlocks()`.
     const DESCRIPTION_CONTAINERS = ['#productDescription', '#aplus', '#aplus_feature_div'];
 
+    // The vendor's *other* products. Amazon renders the "From the brand"
+    // carousel inside this container, and on B0FX4PDW6M that container holds its
+    // own `<div id="aplus">` -- a second element carrying an id the page already
+    // uses, sitting *first* in document order. `querySelector('#aplus')`
+    // therefore returned the brand story, `descriptionBlock()` returned with it,
+    // and `#aplus_feature_div` was never reached. One lookup that captured 126
+    // cross-sell images and dropped the product's own description along with its
+    // specification table. That is the whole of issue #94.
+    //
+    // Excluded by position, never by size. These are large, well-produced
+    // product photographs that clear 300px as comfortably as real content does;
+    // no dimension test can tell you it is the wrong product. 021 FR-005 forbids
+    // moving `MIN_DESCRIPTION_EDGE` to chase them.
+    const CROSS_SELL_CONTAINER = '#aplusBrandStory_feature_div';
+
     /**
-     * Whichever description block the listing carries, or null.
+     * Whether a node belongs to the brand-story carousel.
+     *
+     * Two of the three listings probed on 2026-08-19 carry this container
+     * present but **empty**, which is why the defect stayed invisible: it bites
+     * only when the vendor has actually published a brand story. A page with no
+     * such container must behave exactly like a page carrying an empty one, so a
+     * missing container reads as "nothing here is cross-sell" rather than as an
+     * error -- and this cannot throw for any document (021 C-2, C-19).
+     */
+    function isCrossSell(node) {
+        return !!(node && node.closest && node.closest(CROSS_SELL_CONTAINER));
+    }
+
+    // A deferred-loading placeholder: an address that resolves, to a 1x1 grey
+    // GIF rather than to a picture of anything. Amazon parks this in `src` while
+    // the real address waits in `data-src` for the module to scroll into view --
+    // which never happens here, because `canonicalDocument()` yields a document
+    // that is never laid out.
+    const PLACEHOLDER_ADDRESS = /grey-pixel|transparent-pixel/;
+
+    /**
+     * The address an image will really load, or ''.
+     *
+     * `data-src` in preference to `src`, then nothing at all for a placeholder.
+     *
+     * Reading `data-src` recovers no image *today*: Amazon pairs every lazy
+     * image with a `<noscript>` twin carrying the same address in a plain `src`,
+     * and `DOMParser` parses noscript content into real elements, so the address
+     * is reachable either way. It is here for the day the twins stop being
+     * emitted.
+     *
+     * Rejecting the placeholder is not optional. `/^https?:/` passes on it, it
+     * declares no dimensions, so FR-019's keep-on-unknown rule *kept* it -- and
+     * every A+ listing with a lazy image has been storing a 1x1 grey GIF as a
+     * product photograph since 007 shipped. Nothing downstream catches it:
+     * `.gif` is a legitimate product image type and the server cannot know that
+     * this one is a placeholder. Only the browser can (021 C-4).
+     */
+    function addressOf(img) {
+        const source = img.getAttribute('data-src') || img.getAttribute('src') || '';
+        return PLACEHOLDER_ADDRESS.test(source) ? '' : source;
+    }
+
+    /**
+     * Every description block the listing carries, in container-list order.
+     *
+     * `querySelectorAll`, and **every** match rather than the first: a page may
+     * carry two elements with `id="aplus"`, and the second is invisible to a
+     * single-element lookup. That is not hypothetical -- B0FX4PDW6M does it, and
+     * reading only the first is issue #94 (021 C-6).
+     *
+     * Ordered by `DESCRIPTION_CONTAINERS`, then by document order within each
+     * selector -- deliberately **not** whole-document order. The list's order is
+     * a precedence: 007 put `#productDescription` first so the plain form wins
+     * if a page ever carries both, and sorting by position in the document would
+     * silently hand that precedence to whichever block the page laid out first.
+     *
+     * Blocks may contain one another -- `#aplus` nested inside
+     * `#aplus_feature_div` is the ordinary shape and yields the same element
+     * twice. Deduplication is the caller's job, and the caller already has a
+     * `seen` map (021 C-9).
      *
      * The `textOf(block)` test is what earns FR-004, and it does so through the
      * stripping rather than through any code here: a block whose only text was a
-     * stylesheet and a script now reads as '', fails the test, and the loop goes
-     * on to the next container. It is tested rather than assumed precisely
-     * because it is behavior emerging from a change somewhere else.
+     * stylesheet and a script now reads as '', fails the test, and is skipped.
+     * It is tested rather than assumed precisely because it is behavior emerging
+     * from a change somewhere else.
      */
-    function descriptionBlock(doc) {
+    function descriptionBlocks(doc) {
+        const blocks = [];
         for (let i = 0; i < DESCRIPTION_CONTAINERS.length; i++) {
-            const block = doc.querySelector(DESCRIPTION_CONTAINERS[i]);
-            if (block && textOf(block)) {
-                return block;
+            const found = doc.querySelectorAll(DESCRIPTION_CONTAINERS[i]);
+            for (let j = 0; j < found.length; j++) {
+                if (textOf(found[j]) && !isCrossSell(found[j])) {
+                    blocks.push(found[j]);
+                }
             }
         }
-        return null;
+        return blocks;
     }
 
     /**
@@ -613,15 +705,22 @@
      * width/height attributes, then the dimension token in the address. An empty
      * list means nothing could be established, which FR-019 answers explicitly:
      * keep the image.
+     *
+     * **021 does not change the rule** -- same two patterns, same threshold, same
+     * keep-on-unknown clause. The address is now passed in rather than read from
+     * `src`, because for a deferred-loading image `src` names a grey placeholder
+     * and its token, if it had one, would describe the wrong picture. Measuring
+     * the image you are actually deciding about is the same rule applied to the
+     * right string.
      */
-    function knownEdges(img) {
+    function knownEdges(img, address) {
         const width = parseInt(img.getAttribute('width'), 10);
         const height = parseInt(img.getAttribute('height'), 10);
         if (width > 0 && height > 0) {
             return [width, height];
         }
 
-        const source = img.getAttribute('src') || '';
+        const source = address || '';
         // _SR970,300_ and _CR0,0,970,300_ give both edges.
         const both = source.match(/\._(?:SR|CR[0-9]+,[0-9]+,)([0-9]+),([0-9]+)_\./);
         if (both) {
@@ -658,24 +757,40 @@
      * trusted to honour a distinction it cannot see. There is deliberately no
      * second implementation of this rule on the server side.
      */
-    function descriptionImages(block) {
+    function descriptionImages(blocks) {
         const kept = [];
-        const images = block.querySelectorAll('img');
 
-        for (let i = 0; i < images.length; i++) {
-            const source = images[i].getAttribute('src') || '';
-            if (!/^https?:/.test(source)) {
-                continue;
-            }
-            const edges = knownEdges(images[i]);
-            let tooSmall = false;
-            for (let j = 0; j < edges.length; j++) {
-                if (edges[j] < MIN_DESCRIPTION_EDGE) {
-                    tooSmall = true;
+        for (let b = 0; b < blocks.length; b++) {
+            const images = blocks[b].querySelectorAll('img');
+
+            for (let i = 0; i < images.length; i++) {
+                // Position first, and **before** any size test. A cross-sell
+                // image is a real product photograph that clears 300px on both
+                // edges; the only thing wrong with it is which product it shows,
+                // which no dimension can tell you (021 C-10).
+                //
+                // Not redundant with the block-level exclusion in
+                // `descriptionBlocks()`. That one keeps the carousel's *prose*
+                // out of the description; this one covers a listing that nests
+                // the carousel inside the real description block. They answer
+                // different questions, and 021 FR-006 needs the narrower one.
+                if (isCrossSell(images[i])) {
+                    continue;
                 }
-            }
-            if (!tooSmall) {
-                kept.push(withoutTransform(source));
+                const source = addressOf(images[i]);
+                if (!/^https?:/.test(source)) {
+                    continue;
+                }
+                const edges = knownEdges(images[i], source);
+                let tooSmall = false;
+                for (let j = 0; j < edges.length; j++) {
+                    if (edges[j] < MIN_DESCRIPTION_EDGE) {
+                        tooSmall = true;
+                    }
+                }
+                if (!tooSmall) {
+                    kept.push(withoutTransform(source));
+                }
             }
         }
 

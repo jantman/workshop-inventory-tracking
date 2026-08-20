@@ -24,9 +24,15 @@ test rather than inspected by eye.
 
 ## `descriptionBlocks(doc)` → array of elements
 
-- **C-6**: Returns every element matching `DESCRIPTION_CONTAINERS` that has text, in document order.
-  **Every** match, not the first — `querySelectorAll`, because a page may carry two elements with
-  `id="aplus"` and `querySelector` cannot see the second.
+- **C-6**: Returns every element matching `DESCRIPTION_CONTAINERS` that has text. **Every** match,
+  not the first — `querySelectorAll`, because a page may carry two elements with `id="aplus"` and
+  `querySelector` cannot see the second.
+  *(Corrected during implementation: this originally said "in document order", which is wrong.
+  Ordering is by `DESCRIPTION_CONTAINERS`, then document order within each selector. The list's
+  order is a **precedence** — 007 put `#productDescription` first so the plain form wins if a page
+  ever carries both — and whole-document order would silently hand that precedence to whichever
+  block the page laid out first. The distinction is load-bearing because C-15 takes the text from
+  `blocks[0]`.)*
 - **C-7**: Excludes any block for which `isCrossSell` is true.
 - **C-8**: Returns `[]` rather than null when nothing qualifies. The caller must be able to iterate
   unconditionally.
@@ -41,6 +47,11 @@ test rather than inspected by eye.
 - **C-11**: Skips an image whose `addressOf` is empty or does not match `/^https?:/`.
 - **C-12**: Applies `knownEdges()` and `MIN_DESCRIPTION_EDGE` exactly as today, to the address
   `addressOf` returned. An image with no establishable dimensions is **kept** (007 FR-019).
+  *(Implementation note: honoring "to the address `addressOf` returned" required `knownEdges()` to
+  take that address as a parameter instead of reading `src` itself — for a deferred-loading image
+  `src` names the grey placeholder, so the rule would have been measuring the wrong picture. The
+  rule is unchanged: same two patterns, same threshold, same keep-on-unknown clause. It has one
+  call site.)*
 - **C-13**: Returns addresses with the resolution token stripped by `withoutTransform()`, unchanged.
 - **C-14**: Returns each address at most once even when the same image is reachable from two
   overlapping blocks.

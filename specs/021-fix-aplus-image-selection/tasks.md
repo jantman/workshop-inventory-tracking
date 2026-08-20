@@ -57,12 +57,12 @@ shipped the first time.
 
 - [X] T001 Create and switch to feature branch `issues/94` from `main` (constitution requires a
       feature branch and PR for non-trivial code changes)
-- [ ] T002 Establish the baseline: run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"
+- [X] T002 Establish the baseline: run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"
       venv/bin/nox -s tests` and confirm green before changing anything
-- [ ] T003 Establish the e2e baseline: run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"
+- [X] T003 Establish the e2e baseline: run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"
       venv/bin/nox -s e2e` detached (it runs ~8m15s and exceeds a 10-minute command cap; allow
       ≥15 minutes per Principle IV) and record which tests pass, so a later failure is attributable
-- [ ] T004 Confirm `git status` is clean after T003 — an e2e run that dirties the working tree means
+- [X] T004 Confirm `git status` is clean after T003 — an e2e run that dirties the working tree means
       a screenshot test leaked into the selection, which must be fixed before proceeding
 
 **Checkpoint**: Branch exists, suite is green, and any later red is this feature's doing.
@@ -77,28 +77,28 @@ of every one of them is the 2026-08-19 probe.
 
 **⚠️ Blocks all user stories.**
 
-- [ ] T005 In `tests/e2e/fixtures/amazon_listing_aplus.html`, wrap the existing
+- [X] T005 In `tests/e2e/fixtures/amazon_listing_aplus.html`, wrap the existing
       `<div id="aplus" class="aplus-v2">` in a new `<div id="aplus_feature_div">` — the nesting
       `B09GM8FB3X` and `B0DMNXC4CD` both have. Change nothing inside it.
-- [ ] T006 In the same file, add a `<div id="aplusBrandStory_feature_div">` containing **its own**
+- [X] T006 In the same file, add a `<div id="aplusBrandStory_feature_div">` containing **its own**
       `<div id="aplus" class="aplus-v2">`, placed **before** the block from T005 in document order.
       The duplicate `id` in the earlier position is the defect; a fixture without it tests nothing.
       Give it brand prose ("From the brand …") distinct from the product description so a text
       assertion can tell them apart.
-- [ ] T007 In the same file, give the brand-story block three cross-sell `<img>` elements that
+- [X] T007 In the same file, give the brand-story block three cross-sell `<img>` elements that
       **clear** 300 px on both edges (e.g. `_SR800,600_` tokens) — they must be indistinguishable
       from content by size, or they prove nothing about FR-005.
-- [ ] T008 In the same file, add a deferred-loading image to the real block: `class="a-lazy-loaded"`,
+- [X] T008 In the same file, add a deferred-loading image to the real block: `class="a-lazy-loaded"`,
       `src` pointing at a grey-pixel placeholder address, the real address in `data-src`, plus its
       `<noscript>` twin carrying the same address in a plain `src` — the pairing Amazon actually
       emits (research §2).
-- [ ] T009 In the same file, give at least one content image a real double-underscore transform
+- [X] T009 In the same file, give at least one content image a real double-underscore transform
       token (`.__CR0,0,1464,600_PT0_SX1464_V1___.jpg`) so `withoutTransform()`'s handling of the
       token shape that actually ships is covered rather than assumed (research §4).
-- [ ] T010 Add the image files the new addresses need under `tests/e2e/fixtures/images/` — the
+- [X] T010 Add the image files the new addresses need under `tests/e2e/fixtures/images/` — the
       `image_host` fixture serves real bytes and the application really fetches them, so a missing
       file surfaces as a confusing capture failure rather than a 404.
-- [ ] T011 **Prove the fixture can fail.** With the fixture changed and **no** production change,
+- [X] T011 **Prove the fixture can fail.** With the fixture changed and **no** production change,
       run the A+ tests and confirm `test_the_rich_description_is_kept_and_its_furniture_is_not`
       now **FAILS** — capturing the brand story's images and none of the real block's. Record the
       failing output. If it passes, T006's ordering is wrong and Phases 3–4 would be tested against
@@ -122,29 +122,29 @@ loop fall through to the container it always should have reached.
 
 ### Implementation
 
-- [ ] T012 [US2] Add `CROSS_SELL_CONTAINER = '#aplusBrandStory_feature_div'` and
+- [X] T012 [US2] Add `CROSS_SELL_CONTAINER = '#aplusBrandStory_feature_div'` and
       `isCrossSell(node)` to `app/static/js/capture-agent.js`, per contract C-1 and C-2: true for
       the container and anything inside it at any depth, false (never throwing) when no such
       container exists. Comment it with the observed fact that two of three probed listings carry
       it present-but-empty.
-- [ ] T013 [US2] In `descriptionBlock()` in `app/static/js/capture-agent.js`, skip a matched block
+- [X] T013 [US2] In `descriptionBlock()` in `app/static/js/capture-agent.js`, skip a matched block
       for which `isCrossSell` is true and **continue the loop** rather than returning it (C-7).
       This is the one-line change that carries the MVP.
-- [ ] T014 [US2] In `descriptionImages()` in `app/static/js/capture-agent.js`, skip an image for
+- [X] T014 [US2] In `descriptionImages()` in `app/static/js/capture-agent.js`, skip an image for
       which `isCrossSell` is true **before** any size test (C-10). Not redundant with T013: it
       covers a listing that nests the carousel inside the real description block, and it is what
       makes FR-006 checkable at the image level.
 
 ### Tests
 
-- [ ] T015 [US2] In `tests/e2e/test_product_page_capture.py`, assert no cross-sell address from the
+- [X] T015 [US2] In `tests/e2e/test_product_page_capture.py`, assert no cross-sell address from the
       brand-story block appears in the payload's `images` (FR-004, SC-002)
-- [ ] T016 [US2] In the same file, assert the content images from the real block **are** present in
+- [X] T016 [US2] In the same file, assert the content images from the real block **are** present in
       the same capture — the exclusion removed a region, not the block (FR-006)
-- [ ] T017 [US2] In the same file, assert `description_text` contains the product description's
+- [X] T017 [US2] In the same file, assert `description_text` contains the product description's
       wording and **not** the brand-story prose (FR-011 as amended, C-16). This is the assertion
       that would have caught the company-bio-as-description defect.
-- [ ] T018 [US2] In the same file, assert a capture of a fixture whose brand-story container is
+- [X] T018 [US2] In the same file, assert a capture of a fixture whose brand-story container is
       absent behaves exactly as it did before this feature (C-2, spec US2 scenario 3)
 
 **Checkpoint**: `B0FX4PDW6M`'s reported symptoms are both fixed. Stop here and the feature has
@@ -165,36 +165,36 @@ story *and* the real block — strictly worse than today (note 2).
 
 ### Implementation
 
-- [ ] T019 [US1] Replace `descriptionBlock(doc)` with `descriptionBlocks(doc)` in
+- [X] T019 [US1] Replace `descriptionBlock(doc)` with `descriptionBlocks(doc)` in
       `app/static/js/capture-agent.js`, per contracts C-6 to C-9: `querySelectorAll` over
       `DESCRIPTION_CONTAINERS`, every match with text, document order, cross-sell blocks excluded,
       `[]` rather than null. `DESCRIPTION_CONTAINERS` itself is **unchanged** — `#aplus_feature_div`
       was always in it and was simply unreachable.
-- [ ] T020 [US1] Add `PLACEHOLDER_ADDRESS` and `addressOf(img)` to
+- [X] T020 [US1] Add `PLACEHOLDER_ADDRESS` and `addressOf(img)` to
       `app/static/js/capture-agent.js`, per contracts C-3 to C-5: `data-src` else `src`, then `''`
       for a known deferred-loading placeholder. Comment it with why it matters despite the
       `<noscript>` twins making it redundant today (research §2: the twins may go away).
-- [ ] T021 [US1] In `descriptionImages()` in `app/static/js/capture-agent.js`, take the address
+- [X] T021 [US1] In `descriptionImages()` in `app/static/js/capture-agent.js`, take the address
       from `addressOf(img)` instead of `getAttribute('src')`, and feed that one address to the
       `/^https?:/` test, `knownEdges()` and `withoutTransform()` alike (C-11 to C-13).
       **Do not change `knownEdges()`, `MIN_DESCRIPTION_EDGE` or `withoutTransform()`.**
-- [ ] T022 [US1] Update the call site in `app/static/js/capture-agent.js`: `description_text` from
+- [X] T022 [US1] Update the call site in `app/static/js/capture-agent.js`: `description_text` from
       the **first** block `descriptionBlocks()` returns (C-15, preserving 007 FR-005), images
       gathered from **all** of them (C-17), and the no-blocks case leaving the capture otherwise
       intact (C-18).
 
 ### Tests
 
-- [ ] T023 [US1] In `tests/e2e/test_product_page_capture.py`, assert the image whose address is only
+- [X] T023 [US1] In `tests/e2e/test_product_page_capture.py`, assert the image whose address is only
       in `data-src` is captured at that address (FR-002, spec US1 scenario 2)
-- [ ] T024 [US1] In the same file, assert the grey-pixel placeholder address appears **nowhere** in
+- [X] T024 [US1] In the same file, assert the grey-pixel placeholder address appears **nowhere** in
       the payload and no placeholder attachment is stored (FR-013 as amended, C-4)
-- [ ] T025 [US1] In the same file, assert images from every A+ region are captured — the nested
+- [X] T025 [US1] In the same file, assert images from every A+ region are captured — the nested
       `#aplus`-inside-`#aplus_feature_div` shape and the separate-sibling shape both (FR-003,
       spec US1 scenario 3)
-- [ ] T026 [US1] In the same file, assert an image reachable from two overlapping blocks yields one
+- [X] T026 [US1] In the same file, assert an image reachable from two overlapping blocks yields one
       payload entry and one stored attachment (C-14, FR-008, spec US1 scenario 5)
-- [ ] T027 [US1] In the same file, assert the double-underscore transform token is stripped, so the
+- [X] T027 [US1] In the same file, assert the double-underscore transform token is stripped, so the
       captured address is the full-resolution original (FR-007, C-13)
 
 **Checkpoint**: Both halves fixed, and fixed structurally rather than by luck of selector order.
@@ -208,26 +208,33 @@ that already worked still do.
 
 **Independent test**: The full suite, plus two deliberate reverts that must each turn it red.
 
-- [ ] T028 [US3] In `tests/e2e/test_product_page_capture.py`, confirm the existing furniture
+- [X] T028 [US3] In `tests/e2e/test_product_page_capture.py`, confirm the existing furniture
       exclusions still hold — the 1×1 spacer, the 970×20 rule, the 16×16 bullet and the 150 px mark
       are still absent. The 300-pixel rule must survive the block-selection change untouched
       (FR-005, spec US2 scenario 3).
-- [ ] T029 [US3] In the same file, confirm the four pre-#91 guard assertions are **unchanged**:
+- [X] T029 [US3] In the same file, confirm the four pre-#91 guard assertions are **unchanged**:
       `listing_title`, `brand`, `price` and the exact ordered list of specification names. If these
       need editing, block selection has gone wrong somewhere the image list does not show
       (quickstart §2).
-- [ ] T030 [US3] In the same file, confirm an image with no establishable dimensions is still
+- [X] T030 [US3] In the same file, confirm an image with no establishable dimensions is still
       **kept** — the wider reading must not turn "unknown" into "discard" (007 FR-019, FR-012)
-- [ ] T031 [US3] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` and
+- [X] T031 [US3] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` and
       confirm green (no Python changed; this is a guard against accidental scope creep)
-- [ ] T032 [US3] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e` detached
+- [X] T032 [US3] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e` detached
       (≥15-minute allowance) and confirm every test that passed at T003 still passes
-- [ ] T033 [US3] **SC-006 revert check A**: temporarily remove the `isCrossSell` checks (T013, T014)
+- [X] T033 [US3] **SC-006 revert check A**: temporarily remove the `isCrossSell` checks (T013, T014)
       and confirm a test fails naming the cross-sell images. Restore. A green suite here means the
       over-capture half is untested.
-- [ ] T034 [US3] **SC-006 revert check B**: temporarily restore `descriptionBlock()`'s
+- [X] T034 [US3] **SC-006 revert check B**: temporarily restore `descriptionBlock()`'s
       first-match-wins behavior and confirm a test fails naming the real block's images. Restore. A
       green suite here means the under-capture half is untested.
+      **Ran, and the task's premise was wrong.** With the exclusion (T013) in place, first-match-wins
+      still reaches the real block — `#aplus` matches the brand story, which is now skipped, and the
+      loop falls through to `#aplus_feature_div`. So this revert does *not* reproduce the
+      under-capture on these listings. What it does break is the case `descriptionBlocks()` actually
+      protects: two *legitimate* regions, where reading only the first loses the second. Exactly one
+      test failed — `test_images_are_gathered_from_every_region_not_only_the_first` — which is the
+      precise and correct coverage claim. The check passes; its stated reason did not.
 
 **Checkpoint**: Both halves are covered by tests that actually fail when the fix is removed.
 
@@ -238,15 +245,21 @@ that already worked still do.
 **Goal**: The fixture's fidelity is verified rather than asserted, and its provenance is recorded so
 the next reader knows it was observed and when.
 
-- [ ] T035 [US4] Run quickstart §3's grep over
+- [X] T035 [US4] Run quickstart §3's grep over
       `tests/e2e/fixtures/amazon_listing_aplus.html` and confirm all five shapes are present:
       `aplusBrandStory_feature_div`, two `id="aplus"`, `a-lazy-loaded`, `noscript`, and a
       `__CR0,0` token
-- [ ] T036 [US4] **The ordering check.** Swap the brand-story block after the real block in the
+- [X] T036 [US4] **The ordering check.** *(Run as: unmodified production code from `HEAD`, brand
+      story moved after the real block. Result: the capture takes the real block's four images and
+      **no cross-sells at all** — #94's defect is completely unreproducible. Against the same code
+      with the brand story first, T011 captured only cross-sells and lost the real block entirely.
+      The ordering is load-bearing, demonstrated rather than asserted. It also showed the grey-pixel
+      defect reproduces in both orders, confirming research §2's finding that it is a separate,
+      pre-existing bug.)* Swap the brand-story block after the real block in the
       fixture, re-run the A+ tests, and confirm the new tests still pass while the original defect
       becomes unreproducible. Restore the order. This is what distinguishes a fixture that catches
       the bug from one that merely contains the right elements (quickstart §3).
-- [ ] T037 [US4] Add a comment at the top of the brand-story block in
+- [X] T037 [US4] Add a comment at the top of the brand-story block in
       `tests/e2e/fixtures/amazon_listing_aplus.html` recording that the shape was observed on
       `B0FX4PDW6M` on 2026-08-19, with the counts (126 images / 60 unique in the real one), matching
       how the existing fixture comments cite issue #91 and #57
@@ -257,23 +270,30 @@ the next reader knows it was observed and when.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T038 Update the block comments in `app/static/js/capture-agent.js` around
+- [X] T038 Update the block comments in `app/static/js/capture-agent.js` around
       `DESCRIPTION_CONTAINERS` and `descriptionImages()`: the existing text says the two description
       forms are "never both" (from #57) and that the reader takes whichever is present. That is now
       only true of the *text*; the images are gathered from all. A stale comment here is what the
       next reader will trust.
-- [ ] T039 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_verify`
+- [X] T039 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_verify`
       and confirm it is a no-op. `capture-agent.js` is never loaded by an application template, so
       no screenshot can depend on it — establish that rather than assume it, and measure any diff
       before committing an image
-- [ ] T040 Confirm `git status` is clean after the full test run (Principle IV: a test session must
+- [X] T040 Confirm `git status` is clean after the full test run (Principle IV: a test session must
       leave the working tree clean)
-- [ ] T041 **The manual real-listing check** (quickstart §5) — the one no suite can do. Capture
+- [X] T041 **The manual real-listing check** (quickstart §5) — the one no suite can do.
+      *(Run at algorithm level, by the owner's choice: the shipped functions were extracted verbatim
+      from `capture-agent.js` and replayed in Chrome against the three real fetched documents. No
+      writes to the catalog. Results exactly as predicted — 61→7, 15→14, 3→2, no placeholder in any
+      of them. Driving the full bookmarklet-and-confirm path against the live app remains the
+      owner's to run.)* Capture
       `B0FX4PDW6M`, `B09GM8FB3X` and `B0DMNXC4CD` through the bookmarklet and read the confirmation
       page before confirming. Expect 7 description images (from 61), 14 (from 15) and 2 (from 3);
       each of the latter two loses exactly one image and it must be the grey placeholder
       (SC-003, SC-004)
-- [ ] T042 On `B0FX4PDW6M` specifically, confirm the captured images include the 1464×600
+- [X] T042 *(Verified at algorithm level with T041; all seven captured addresses load at
+      1464×600, the description now opens "Product description …" rather than "From the brand — As a
+      global leader …".)* On `B0FX4PDW6M` specifically, confirm the captured images include the 1464×600
       specification table (SC-001), no picture of another vendor product appears (SC-002), and the
       captured description opens with "Specification of 5.79inch E-Paper HMI Display…" rather than
       "From the brand — As a global leader…" (SC-005). That last one is the amended requirement; if

@@ -129,6 +129,44 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
     </div>
 </div>
 
+<!-- =========================================================================
+     Issue #94's over-capture, in the shape the real listing serves it.
+
+     Observed on B0FX4PDW6M on 2026-08-19: Amazon renders the "From the brand"
+     carousel inside `#aplusBrandStory_feature_div`, and that container holds
+     its own `<div id="aplus">` -- a *second* element carrying an id the page
+     already uses. It comes FIRST in document order, so
+     `doc.querySelector('#aplus')` returned this block and `#aplus_feature_div`
+     below was never reached. On the real listing it holds 126 `<img>`
+     elements, 60 unique, every one of them a different Elecrow product.
+
+     Its images are large, well-produced product photographs -- they clear 300px
+     on both edges as comfortably as the real content does, which is why FR-005
+     forbids reaching for the size filter here. Position is the only thing that
+     separates them.
+
+     **The ordering below is this fixture's whole point.** Move this block after
+     `#aplus_feature_div` and it stops reproducing anything: the loop finds the
+     right block first and the bug becomes untestable. That is precisely how the
+     original suite passed while shipping this defect.
+     ========================================================================= -->
+<!--BRAND-STORY-START-->
+<div id="aplusBrandStory_feature_div" class="celwidget">
+    <div id="aplus" class="aplus-v2">
+        <div class="apm-brand-story-carousel-container">
+            <h2>From the brand</h2>
+            <p>Acme Components has been extruding aluminium in Sheffield since 1974.</p>
+            <div class="apm-brand-story-carousel">
+                <img src="__IMAGE_HOST__/vendor_other_extrusion._SR800,600_.jpg" alt="Acme 40x40 extrusion">
+                <img src="__IMAGE_HOST__/vendor_other_bracket._SR800,600_.jpg" alt="Acme corner bracket">
+                <img src="__IMAGE_HOST__/vendor_other_tnut._SR970,970_.jpg" alt="Acme drop-in T-nuts">
+            </div>
+        </div>
+    </div>
+</div>
+<!--BRAND-STORY-END-->
+
+<div id="aplus_feature_div" class="celwidget">
 <div id="aplus" class="aplus-v2">
     <!-- Issue #91's first half. A real A+ block carries its own stylesheet and
          script inline, and `textContent` reports both as prose -- which is how
@@ -169,10 +207,30 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
             <li><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""> Clear anodised finish</li>
             <li>Sold singly<br>not in packs</li>
         </ul>
+        <!-- #94: the deferred-loading pair, as Amazon serves it. `src` is a 1x1
+             grey placeholder and the real address waits in `data-src` until the
+             module scrolls into view -- which never happens, because the reading
+             is taken from a fetched document that is never laid out. The
+             `<noscript>` twin carries the same address in a plain `src`;
+             DOMParser parses noscript content into real elements, so both are
+             found and both must resolve to one stored image, not two and not a
+             grey pixel. -->
+        <img class="a-lazy-loaded" src="__IMAGE_HOST__/grey-pixel.gif"
+             data-src="__IMAGE_HOST__/spec_sheet_preview.__CR0,0,1464,600_PT0_SX1464_V1___.jpg"
+             alt="specification table">
+        <noscript><img src="__IMAGE_HOST__/spec_sheet_preview.__CR0,0,1464,600_PT0_SX1464_V1___.jpg" alt="specification table"></noscript>
+        <!-- #94: a real double-underscore transform token. `knownEdges()`'s two
+             patterns both expect a single underscore, so this establishes no
+             dimensions and FR-019 keeps the image -- the right outcome, reached
+             by the keep-on-unknown rule rather than by measurement.
+             `withoutTransform()` does match it, and must strip it to the
+             original. -->
+        <img src="__IMAGE_HOST__/aluminum_plate_sample.__CR0,0,1200,900_PT0_SX1200_V1___.jpg" alt="end view">
         <img src="__IMAGE_HOST__/mark._SL150_.jpg" alt="quality mark">
         <img src="__IMAGE_HOST__/steel_plate_sample._SL970_.jpg" alt="the extrusion in use">
         <img src="__IMAGE_HOST__/brass_rod_sample._SR800,600_.jpg" alt="slot cross-section">
     </div>
+</div>
 </div>
 
 </body>
