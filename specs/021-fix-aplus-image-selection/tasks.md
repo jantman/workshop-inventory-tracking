@@ -299,10 +299,11 @@ the next reader knows it was observed and when.
       "From the brand — As a global leader…" (SC-005). That last one is the amended requirement; if
       the description still reads as the company bio, block selection is only half fixed
       (spec FR-011 as amended)
-- [ ] T043 Open the PR against `main` from `issues/94`, referencing issue #94, and say plainly in
+- [X] T043 Open the PR against `main` from `issues/94`, referencing issue #94, and say plainly in
       the body that the cause was a duplicated `id="aplus"` rather than any of the three causes the
       issue proposed — the issue's diagnosis is what the next reader will otherwise believe
-- [ ] T044 Note for the owner, not an agent action: #80 §1b's expected-image-count table and its
+- [X] T044 *(Carried into the PR body as a "Note for the reader" section; the edit to #80 itself
+      remains the owner's.)* Note for the owner, not an agent action: #80 §1b's expected-image-count table and its
       "anything near 57" warning are now stale for `B0FX4PDW6M` (the real number was 61, and the
       size filter was never the problem). Worth a comment on #94 or #80 when this lands
 
