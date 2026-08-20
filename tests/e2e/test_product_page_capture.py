@@ -476,16 +476,183 @@ def test_a_hand_edited_value_survives_a_re_capture(page, live_server, image_host
     )
 
 
+def serve_aplus_variant(page, image_host, transform):
+    """Serve the A+ fixture with ``transform`` applied to its markup.
+
+    021's cases are all "the same listing, one structural thing different", and
+    the thing that differs is markup rather than data -- so it is edited here
+    rather than carried as four near-identical fixture files that would drift
+    apart the first time one of them was updated.
+    """
+    body = transform(
+        (FIXTURES / "amazon_listing_aplus.html")
+        .read_text()
+        .replace("__IMAGE_HOST__", image_host)
+    )
+    page.route(
+        LISTING_ROUTE,
+        lambda route: route.fulfill(status=200, content_type="text/html", body=body),
+    )
+
+
+def without_brand_story(body):
+    """The same listing from a vendor who never published a brand story."""
+    return re.sub(
+        r"<!--BRAND-STORY-START-->.*?<!--BRAND-STORY-END-->", "", body, flags=re.S
+    )
+
+
+@pytest.mark.e2e
+def test_the_brand_story_is_not_read_as_the_product_description(
+    page, live_server, image_host
+):
+    """021 FR-011 / C-16, the half of #94 the issue did not report.
+
+    The captured description came from the carousel, so ``B0FX4PDW6M`` landed in
+    the catalog describing the *vendor* -- "a global leader in advanced display
+    solutions" -- instead of the product. Both halves come from one wrong block,
+    which is why an image-only fix would have left this in place.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_aplus.html"
+    )
+
+    description = payload_of(landed)["description_text"]
+    assert "Extruded 6063-T5 aluminium" in description
+    assert "From the brand" not in description
+    assert "Sheffield" not in description
+
+
+@pytest.mark.e2e
+def test_a_listing_without_a_brand_story_captures_exactly_as_before(
+    page, live_server, image_host
+):
+    """021 C-2: an absent container behaves like the empty one two of three
+    probed listings carry. The exclusion must not need the container to exist.
+    """
+    serve_aplus_variant(page, image_host, without_brand_story)
+    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+
+    payload = payload_of(landed)
+    assert payload["images"] == [
+        f"{image_host}/aluminum_tube_sample.jpg",
+        f"{image_host}/spec_sheet_preview.jpg",
+        f"{image_host}/aluminum_plate_sample.jpg",
+        f"{image_host}/steel_plate_sample.jpg",
+        f"{image_host}/brass_rod_sample.jpg",
+    ]
+    assert "Extruded 6063-T5 aluminium" in payload["description_text"]
+
+
+def with_brand_story_nested(body):
+    """The carousel moved *inside* the real description block.
+
+    `descriptionBlocks()` handles the sibling shape by dropping a block that is
+    itself inside the carousel. This is the other shape, and it is the one that
+    slips past: the chosen block is legitimately the product's, and the carousel
+    hangs underneath it.
+    """
+    block = re.search(
+        r"<!--BRAND-STORY-START-->.*?<!--BRAND-STORY-END-->", body, re.S
+    ).group(0)
+    body = body.replace(block, "", 1)
+    # Exactly one `id="aplus"` is left once the carousel is lifted out, so this
+    # cannot land in the wrong place.
+    assert body.count('<div id="aplus" class="aplus-v2">') == 1
+    return body.replace(
+        '<div id="aplus" class="aplus-v2">',
+        '<div id="aplus" class="aplus-v2">\n' + block,
+        1,
+    )
+
+
+@pytest.mark.e2e
+def test_a_nested_carousel_reaches_neither_the_images_nor_the_description(
+    page, live_server, image_host
+):
+    """021 FR-011 and FR-004, for the shape #94's listing does not have.
+
+    On `B0FX4PDW6M` the carousel is a *sibling* of the real description, so
+    excluding it at block level is enough. Nest it instead and the chosen block
+    is the product's own -- correctly -- with the carousel hanging underneath.
+    The image path already handled this, per element. The text path did not: the
+    prose walked straight into ``description_text``, which is the text half of
+    #94 reappearing through a different door.
+
+    Found in review of this feature's own PR, which is the honest place to say
+    that the fixture-only evidence had a hole in it.
+    """
+    serve_aplus_variant(page, image_host, with_brand_story_nested)
+    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    payload = payload_of(landed)
+
+    description = payload["description_text"]
+    assert "Extruded 6063-T5 aluminium" in description
+    assert "From the brand" not in description
+    assert "Sheffield" not in description
+    assert not [a for a in payload["images"] if "vendor_other" in a]
+
+
+@pytest.mark.e2e
+def test_images_are_gathered_from_every_region_not_only_the_first(
+    page, live_server, image_host
+):
+    """021 FR-003 / FR-009 / C-6, in one case, because they share a cause.
+
+    Renaming the carousel's container is what happens when Amazon moves on. The
+    block stops being recognised as a cross-sell and becomes what it structurally
+    is: a second, legitimate description region carrying a duplicate ``id=aplus``
+    that sorts *first*.
+
+    Two things must follow, and only the second is obvious. The capture must
+    degrade to collecting the carousel again -- unwanted images the operator
+    deletes, never a refused capture and never a dropped content image (FR-009).
+    And every image from the *real* block must still be there, which is the
+    assertion that proves ``descriptionBlocks()`` reads past the first match:
+    the nested shape in the other tests cannot prove it, because there both
+    selectors resolve to the same element.
+    """
+    serve_aplus_variant(
+        page,
+        image_host,
+        lambda body: body.replace(
+            'id="aplusBrandStory_feature_div"', 'id="aplusStoryRenamed_feature_div"'
+        ),
+    )
+    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+
+    images = payload_of(landed)["images"]
+    # Not one content image lost, though the first block matched is now the
+    # renamed one.
+    for content in (
+        "spec_sheet_preview.jpg",
+        "aluminum_plate_sample.jpg",
+        "steel_plate_sample.jpg",
+        "brass_rod_sample.jpg",
+    ):
+        assert f"{image_host}/{content}" in images
+    # And the documented degradation, asserted rather than hoped for: the
+    # carousel comes back, which is the cost of a renamed container and is
+    # strictly better than losing the description.
+    assert f"{image_host}/vendor_other_extrusion.jpg" in images
+
+
 @pytest.mark.e2e
 def test_the_rich_description_is_kept_and_its_furniture_is_not(
     page, live_server, image_host
 ):
     """US4 / FR-005, FR-006, FR-019, against the A+ form of the description.
 
-    The block holds six images and exactly two are content. The other four are a
-    1x1 spacer, a 970x20 rule, a 16x16 bullet and a 150px mark -- the categories
-    that make a captured gallery useless to look through if they are stored.
-    Gallery images are exempt from the filter and are not in this block.
+    The real block holds eight images and exactly four are content. The other
+    four are a 1x1 spacer, a 970x20 rule, a 16x16 bullet and a 150px mark -- the
+    categories that make a captured gallery useless to look through if they are
+    stored. Gallery images are exempt from the filter and are not in this block.
+
+    021 added three more ways to get this wrong, and the exact-list assertion
+    below is what rules out all of them at once: the brand-story carousel's three
+    cross-sells (large enough to clear 300px, and the wrong product), the
+    deferred-loading placeholder, and the second copy of the deferred image that
+    its ``<noscript>`` twin names.
     """
     landed = capture_from_listing(
         page, live_server, image_host, fixture="amazon_listing_aplus.html"
@@ -494,9 +661,20 @@ def test_the_rich_description_is_kept_and_its_furniture_is_not(
     payload = payload_of(landed)
     assert payload["images"] == [
         f"{image_host}/aluminum_tube_sample.jpg",   # the gallery, exempt
+        # 021 C-4/C-13/C-14: named by `data-src` behind a grey-pixel `src`, and
+        # named a second time by the `<noscript>` twin. One entry, at the real
+        # address, with the transform token off.
+        f"{image_host}/spec_sheet_preview.jpg",
+        # 021 C-13: a double-underscore token, the shape Amazon actually serves.
+        # `knownEdges()` establishes nothing from it, so FR-019 keeps the image.
+        f"{image_host}/aluminum_plate_sample.jpg",
         f"{image_host}/steel_plate_sample.jpg",     # 970 on its longest edge
         f"{image_host}/brass_rod_sample.jpg",       # 800x600
     ]
+    # 021 FR-004 and C-4, stated so a failure names the defect rather than an
+    # index. The list above already forbids these; this says why.
+    assert not [a for a in payload["images"] if "vendor_other" in a]
+    assert not [a for a in payload["images"] if "grey-pixel" in a]
     expect(landed.locator("#summary-description")).to_contain_text("kept in full")
 
     # FR-014 / SC-006. Issue #91 changed how text is read, and every one of these
@@ -517,7 +695,7 @@ def test_the_rich_description_is_kept_and_its_furniture_is_not(
     landed.goto(f"{live_server.url}/products")
     landed.click("#product-table tbody tr td a")
 
-    expect(landed.locator("#attachment-list .attachment-row")).to_have_count(3)
+    expect(landed.locator("#attachment-list .attachment-row")).to_have_count(5)
     specifications = landed.locator("#product-specifications")
     expect(specifications).to_contain_text("Description")
     expect(specifications).to_contain_text("Extruded 6063-T5 aluminium")
