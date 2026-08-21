@@ -306,6 +306,16 @@ his signed-in Chrome). Three real captures, panel read before confirming:
 Every address is a `hiRes` original with its token stripped; no 500-pixel twin appears in any payload.
 Three for three, and the non-gallery fields are unmoved.
 
+A fourth listing, `B0G43FCHFX` — the item the owner actually needed to capture — reported **13
+images**: the 7 gallery entries an independent read of its `colorImages.initial` names, plus 6 A+
+description images, with no transform token left on any address and no cross-sells. It is a
+variation family (2.13" / 4.2" / 5.79") whose strip shows 6 and whose gallery names 7, so it is also
+a case where the thumbnail count and the gallery genuinely differ.
+
+**Confirming that capture is blocked by issue #114** — `400 Bad Request: The referrer does not match
+the host`, Flask-WTF's CSRF check against a port-stripped `request.host`. Nothing was written. So
+022 SC-010, which needs a *stored* file measured, waits on #114 rather than on anything here.
+
 **So issue #95's "Captured 7" is now explained as far as it can be.** 7 is what a correct capture of
 `B0CKXJLP4B` reports, and it is what the verifier saw — while §1b demanded 14 for a reason that had
 nothing to do with the gallery. The reported symptom was the checklist being wrong, not the capture.

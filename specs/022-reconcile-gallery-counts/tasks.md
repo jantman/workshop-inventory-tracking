@@ -278,10 +278,17 @@ re-derive it.
       Repeat T030 for `B099F4X4Q9` (expect 7) and `B01N4OSKWE` (expect 3) — the three
       plain-description listings, where the panel count should equal the gallery exactly. The three
       A+ listings are floors, not equalities, because #94's feature contributes description images.
-- [ ] T032 **Still open — needs a write to the live database.** Confirming a capture creates a
-      product and a purchase on the owner's real inventory, so it waits on his say-so rather than
-      being done as a side effect of reading the panel. The payload evidence is already strong:
-      every captured address is a token-stripped `hiRes` original and none is a `large` twin.
+- [ ] T032 **BLOCKED by #114, not by this feature.** Attempted 2026-08-21 on `B0G43FCHFX` with the
+      owner's values. The confirmation panel was correct — **13 images = 7 gallery + 6 A+
+      description**, every address a token-stripped original, matching an independent read of the
+      listing's gallery entries exactly — but pressing Capture returns `400 Bad Request: The
+      referrer does not match the host`. That is Flask-WTF's CSRF referrer check against a
+      `request.host` that ProxyFix has stripped the port from: the same missing `x_port` as #114,
+      which disables **every** CSRF-protected form POST on this deployment. Nothing was written
+      (products list unchanged at 7), so there is no orphan record.
+      The payload evidence for SC-010 is already strong — every captured address is a
+      token-stripped `hiRes` original and none is a `large` twin — but measuring *stored* bytes
+      needs a write, and a write needs #114.
       Confirm SC-010 on a captured product: measure a stored gallery image and get the
       dimensions the listing's data names for that entry, never 500×500. `identify` the file or read
       `Photo.file_size`.
