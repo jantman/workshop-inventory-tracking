@@ -264,20 +264,25 @@ re-derive it.
 
 ## Phase 8: Polish & verification
 
-- [ ] T030 **DEFERRED — needs an environment this branch does not have.** The application runs on
-      another machine under Docker, so a real capture needs either the PR build deployed there or
-      a local dev instance served over HTTPS. Not a blocker for merge: the defect is established
-      on all six listings by the Phase 0 probe and locked by the suite. It stays open, with
-      [research.md](research.md) §8 open alongside it.
+- [X] T030 **Done 2026-08-21** against the deployed `ci-df6080a…` build: `B0CKXJLP4B` reported
+      **7 images** (was 14), 23 rows, 617-character description. [research.md](research.md) §8 is
+      settled with all three listings.
       Run one **real capture** of `B0CKXJLP4B` through the bookmarklet against the running app
       and record the confirmation panel's image count. Expect **7**. This also settles
       [research.md](research.md) §8 — the one thing the probe could not reproduce, issue #95's
       "Captured 7" — as a by-product. Whatever it shows, write the answer into research §8 rather
       than leaving the question open.
-- [ ] T031 [P] **DEFERRED with T030.** Repeat T030 for `B099F4X4Q9` (expect 7) and `B01N4OSKWE` (expect 3) — the three
+- [X] T031 [P] **Done 2026-08-21**: `B099F4X4Q9` **7 images** (was 12), `B01N4OSKWE` **3 images**
+      (was 6). Three for three against prediction; every address a token-stripped `hiRes` original,
+      no 500-pixel twin in any payload.
+      Repeat T030 for `B099F4X4Q9` (expect 7) and `B01N4OSKWE` (expect 3) — the three
       plain-description listings, where the panel count should equal the gallery exactly. The three
       A+ listings are floors, not equalities, because #94's feature contributes description images.
-- [ ] T032 **DEFERRED with T030.** Confirm SC-010 on a captured product: measure a stored gallery image and get the
+- [ ] T032 **Still open — needs a write to the live database.** Confirming a capture creates a
+      product and a purchase on the owner's real inventory, so it waits on his say-so rather than
+      being done as a side effect of reading the panel. The payload evidence is already strong:
+      every captured address is a token-stripped `hiRes` original and none is a `large` twin.
+      Confirm SC-010 on a captured product: measure a stored gallery image and get the
       dimensions the listing's data names for that entry, never 500×500. `identify` the file or read
       `Photo.file_size`.
 - [X] T033 [P] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — expected

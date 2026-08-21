@@ -294,11 +294,25 @@ testing, and all of them cheap once the app is running:
 **This does not block the fix.** The defect established in §1 and §2 is present on all six listings
 today, is independent of which number the verifier read, and is fixed the same way regardless.
 
-**Still open at merge (2026-08-21).** Settling it needs one real capture, and the application runs on
-another machine under Docker — so it waits for either the PR build deployed there or a local instance
-served over HTTPS. Tasks T030–T032 carry it. Everything the suite can establish is established: the
-parse now matches real markup, one address is emitted per entry, and reverting either edit turns the
-suite red.
+**Settled 2026-08-21 against the deployed build** (`ci-df6080a…`, the app on the owner's own server,
+his signed-in Chrome). Three real captures, panel read before confirming:
+
+| ASIN | Panel reported | Predicted | Description chars (recorded) |
+|---|---|---|---|
+| `B0CKXJLP4B` | **7 images**, 23 rows | 7 | 617 (620) |
+| `B099F4X4Q9` | **7 images**, 8 rows | 7 | 1,056 (1,052) |
+| `B01N4OSKWE` | **3 images**, 29 rows | 3 | 231 (229) |
+
+Every address is a `hiRes` original with its token stripped; no 500-pixel twin appears in any payload.
+Three for three, and the non-gallery fields are unmoved.
+
+**So issue #95's "Captured 7" is now explained as far as it can be.** 7 is what a correct capture of
+`B0CKXJLP4B` reports, and it is what the verifier saw — while §1b demanded 14 for a reason that had
+nothing to do with the gallery. The reported symptom was the checklist being wrong, not the capture.
+What the pre-fix code additionally did — emit each photograph twice — was invisible to that
+observation, which is why it took a probe to find and why the count alone never discriminated. The
+one thing still unreproducible is a *pre-fix* capture reporting 7 rather than 14, and it no longer
+can be: that code is gone. Recorded as closed-by-supersession rather than closed-by-explanation.
 
 ---
 
