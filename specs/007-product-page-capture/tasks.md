@@ -188,6 +188,15 @@ Existing Flask app at the repository root: `app/` for source, `app/static/js/` f
 - [X] T049 [P] Update the bookmarklet explanation in `app/templates/product/capture.html` (the card at line 190). Its current text says the bookmarklet "reads the page's URL and title and nothing else -- no page markup, which is not a contract and changes without warning". That is now false, and it is false *deliberately*: say that it reads the page, that the page's markup is not a contract, and that a capture which comes back thin is the signal — which is why the confirmation page tells you what it found before you commit it.
 - [X] T050 Regenerate documentation screenshots (`nox -s screenshots_headless`) and commit them alongside, since `app/templates/product/**` and `app/static/js/**` both changed. Confirm `nox -s screenshots_verify` passes. The diff carries no signal — regeneration is not byte-reproducible, as recorded in feature 006's plan — and the workflow that checks it is informational.
 - [X] T051 Run the full gate: `nox -s tests` and `nox -s e2e` (15-minute tool timeout), both green, working tree clean afterwards.
+> **T052 amended 2026-08-20 (issue #95).** Its "image count matching issue #57's *page data* column
+> rather than its thumbnail column" is wrong on both halves and is the instruction that produced
+> issue #95. #57's column counts the whole document, variation family included; the gallery of the
+> captured item is 7, 7, 3, 7, 8, 7 for the six ASINs in order. And "rather than its thumbnail
+> column" cannot discriminate — on five of the six the two are the same number. Use
+> `specs/022-reconcile-gallery-counts/quickstart.md` §B. The FR-004 figures below are re-measured and
+> correct; name the stem `81flPsAWG-L` when checking, since a product captured before 022 also
+> carries a 500×500 `512DrDtlPkL` copy of the same photograph.
+
 - [ ] T052 Work through [quickstart.md](./quickstart.md#what-no-suite-can-check) sections A and B by hand against real Amazon listings — the bookmarklet reaching the app over TLS with no `securitypolicyviolation`, an edit to `capture-agent.js` taking effect without a re-drag, and the six probed ASINs each reporting an image count matching issue #57's *page data* column rather than its thumbnail column. Verify one stored original is 1601×1601 / 358,055 bytes for `B0CKXJLP4B` rather than the 1446×1500 tokened rendition; the smaller one means T021's token stripping is not working and FR-004 is not met.
 
   **Not done, and not doable from here.** Every part of this task needs something

@@ -419,18 +419,43 @@
      * whose `hiRes` is null still name a usable `large` and a regex sweep for
      * one key at a time cannot pair them up. Returns null when the block is not
      * shaped the way this expects; the caller then sweeps.
+     *
+     * **The array is not always a literal, and until issue #95 this function
+     * required one.** What Amazon serves is
+     *
+     *     'colorImages': { 'initial': A.$.parseJSON('[{"hiRes": ...}]')
+     *
+     * -- the array as a JSON *string*, handed to a function. The marker used to
+     * demand a `[` immediately after `initial':`, so with a call and a quote in
+     * between it matched nothing, on all six listings probed on 2026-08-20 and
+     * therefore, on the evidence, on every capture ever made. `galleryFrom()`
+     * fell through to `sweepImageAddresses()` every time and nothing said so.
+     * See `specs/022-reconcile-gallery-counts/research.md` section 1.
+     *
+     * So the marker stops at the colon and the first `[` after it is the array,
+     * which is true of both shapes. The guard on what may sit in between is
+     * what keeps that honest: without it, an `initial` naming something with no
+     * bracket at all would reach forward to some unrelated `[` later in the
+     * script and parse whatever it found. A call and a quoted string are
+     * allowed through; a brace, a comma or a semicolon is not.
      */
     function initialImageArray(text) {
         const anchor = text.indexOf('colorImages');
         if (anchor === -1) {
             return null;
         }
-        const marker = text.slice(anchor).search(/["']initial["']\s*:\s*\[/);
+        const marker = text.slice(anchor).search(/["']initial["']\s*:/);
         if (marker === -1) {
             return null;
         }
 
         const start = text.indexOf('[', anchor + marker);
+        if (start === -1) {
+            return null;
+        }
+        if (!/^["']initial["']\s*:[\s\w.$()'"]*$/.test(text.slice(anchor + marker, start))) {
+            return null;
+        }
         let depth = 0;
         let quote = null;
         for (let i = start; i < text.length; i++) {
@@ -461,13 +486,39 @@
         return null;
     }
 
-    /** Last resort: pull whatever hi-res addresses the block names, in order. */
+    /**
+     * Last resort: one address per gallery entry, for a block that would not parse.
+     *
+     * **One per entry, not one per key.** This used to match `hiRes` and `large`
+     * alike and push both, which is two addresses for one photograph -- and on a
+     * real listing they are two different asset ids (`81flPsAWG-L` against
+     * `512DrDtlPkL`, 1601x1601 against 500x500), so `withoutTransform()` does not
+     * collapse them and the server's content hash does not either. Every capture
+     * made before issue #95 stored the whole gallery twice, the second copy small.
+     *
+     * `hiRes` wins; `large` is taken only for an entry whose `hiRes` is null,
+     * which is the case the parse above exists for and is why `null` is matched
+     * here rather than skipped. A `large` with no `hiRes` before it at all is
+     * taken too -- that is a block shaped differently again, and one address is
+     * the right answer for it either way.
+     */
     function sweepImageAddresses(text) {
         const found = [];
-        const pattern = /["'](?:hiRes|large)["']\s*:\s*"(https?:[^"]+)"/g;
+        const pattern = /["'](hiRes|large)["']\s*:\s*(?:"(https?:[^"]+)"|null)/g;
         let match;
+        let wantLarge = true;
         while ((match = pattern.exec(text)) !== null) {
-            found.push(match[1]);
+            if (match[1] === 'hiRes') {
+                if (match[2]) {
+                    found.push(match[2]);
+                    wantLarge = false;
+                } else {
+                    wantLarge = true;
+                }
+            } else if (wantLarge && match[2]) {
+                found.push(match[2]);
+                wantLarge = false;
+            }
         }
         return found;
     }
@@ -503,6 +554,16 @@
             }
             if (!addresses.length) {
                 addresses = sweepImageAddresses(text);
+                if (addresses.length) {
+                    // 022 FR-009. The sweep is a guess at a block this could not
+                    // parse, and a guess that says nothing is indistinguishable
+                    // from a reading. That silence is the whole of issue #95: the
+                    // parse matched no real listing for an entire release and the
+                    // sweep answered every capture, plausibly and wrongly.
+                    console.warn('[capture-agent] could not read the gallery data; swept ' +
+                                 addresses.length + ' address(es) instead. The image count ' +
+                                 'may not be what the listing publishes.');
+                }
             }
             if (addresses.length) {
                 return addresses.map(withoutTransform);

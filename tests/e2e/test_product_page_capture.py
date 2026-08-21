@@ -294,6 +294,111 @@ def test_the_transform_token_is_stripped_so_the_original_is_fetched(
 
 
 @pytest.mark.e2e
+def test_one_address_per_gallery_entry_not_one_per_rendition(
+    page, live_server, image_host
+):
+    """022 FR-021. The gallery is six photographs, not six photographs twice.
+
+    Membership, not just the count: a count alone passes against a reading that
+    swapped an original for its small twin. Two of the fixture's entries name a
+    `large` under its own filename stem, as Amazon does -- `81flPsAWG-L` against
+    `512DrDtlPkL`, 1601x1601 against 500x500 -- so a reader emitting both keys
+    stores the same picture twice and the transform strip cannot collapse them.
+    Before this was fixed the payload carried eight addresses; every capture ever
+    made carried the whole gallery twice, the second copy small.
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    assert payload_of(landed)["images"] == [
+        f"{image_host}/steel_rod_sample.jpg",
+        f"{image_host}/steel_plate_sample.jpg",
+        f"{image_host}/brass_rod_sample.jpg",
+        f"{image_host}/aluminum_plate_sample.jpg",
+        f"{image_host}/aluminum_tube_sample.jpg",
+        f"{image_host}/spec_sheet_preview.jpg",
+    ]
+
+
+@pytest.mark.e2e
+def test_an_entry_without_a_hi_res_address_is_captured_by_its_large(
+    page, live_server, image_host
+):
+    """022 FR-021, the half that costs an image rather than duplicating one.
+
+    `initialImageArray()`'s docstring has always said the array is parsed rather
+    than pattern-matched *because* an entry whose `hiRes` is null still names a
+    usable `large`. On the evidence of issue #95 that code had never once run
+    against a real listing, and two of the six probed on 2026-08-20 carry such
+    entries. The sixth fixture entry is one, and it must arrive.
+    """
+    images = payload_of(capture_from_listing(page, live_server, image_host))["images"]
+
+    assert f"{image_host}/spec_sheet_preview.jpg" in images
+
+
+@pytest.mark.e2e
+def test_a_gallery_array_written_as_a_plain_literal_is_still_read(
+    page, live_server, image_host
+):
+    """The reading was widened by 022, not moved.
+
+    Amazon wraps the array in `A.$.parseJSON('...')` and the reader now finds it
+    there. A vendor -- or this fixture, before 022 -- may write the array
+    straight into the object instead, and that must go on working: a fix that
+    swapped one accepted shape for another would be the same defect wearing
+    different clothes.
+    """
+    body = (FIXTURES / "amazon_listing.html").read_text()
+    opening = "A.$.parseJSON('"
+    literal = body[: body.index(opening)] + body[body.index(opening) + len(opening) :]
+    literal = literal.replace("') },", " },", 1).replace("__IMAGE_HOST__", image_host)
+    assert "parseJSON" not in literal.split("colorImages")[1][:200]
+
+    page.route(
+        LISTING_ROUTE,
+        lambda route: route.fulfill(status=200, content_type="text/html", body=literal),
+    )
+    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+
+    assert len(payload_of(landed)["images"]) == GALLERY_IMAGE_COUNT
+
+
+@pytest.mark.e2e
+def test_a_gallery_it_cannot_parse_is_swept_loudly_not_silently(
+    page, live_server, image_host
+):
+    """022 FR-009. A degraded reading must be visible, because this one was not.
+
+    The fixture's payload is present but truncated mid-entry, so the parse fails
+    and the sweep answers -- which is exactly the state every real capture was in
+    before 022, at a plausible-looking count nobody had reason to question.
+
+    Two things are asserted together: that the capture still completes carrying
+    the description and the product-information rows (a structural surprise costs
+    images, never the capture), and that the console says the count came from a
+    sweep. Both are read off the confirmation page's own summary panel --
+    `specification_rows.ROWS` is the *edit* form's repeating editor and is not on
+    this page at all. The warning is emitted while the agent runs on the listing page, so
+    the popup's arrival already implies it was emitted -- there is nothing to
+    wait for beyond the landing the helper waits for.
+    """
+    warnings = []
+    page.on("console", lambda message: warnings.append(message.text))
+
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_unreadable_gallery.html"
+    )
+
+    expect(landed.locator("#summary-description")).to_contain_text("kept in full")
+    expect(landed.locator("#summary-specifications")).not_to_contain_text("0 product")
+    assert [w for w in warnings if "could not read the gallery data" in w]
+
+    # And the sweep still produced a reading rather than nothing: the payload's
+    # truncated entries are readable even though the array is not.
+    assert payload_of(landed)["images"]
+
+
+@pytest.mark.e2e
 def test_confirming_stores_every_gallery_image_on_the_product(
     page, live_server, image_host
 ):

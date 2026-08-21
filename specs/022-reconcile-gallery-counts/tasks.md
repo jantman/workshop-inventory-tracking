@@ -57,7 +57,7 @@ things can run at once. Marking more `[P]` would buy a merge conflict.
 
 - [X] T001 Create and switch to feature branch `issues/95` from `main` (constitution requires a
       feature branch and PR for non-trivial code changes)
-- [ ] T002 Establish the baseline: run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox
+- [X] T002 Establish the baseline: run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox
       -s e2e` **detached** (`nohup … &`, then poll) with a ≥15-minute allowance, and record that it
       is green before anything is touched. It outruns the 10-minute Bash cap; do not run it in the
       foreground.
@@ -72,35 +72,45 @@ against it. Nothing in Phase 4 means anything until T008 has gone red.
 **⚠️ Do not start Phase 4 before T008 fails.** A green T008 means the fixture still cannot reproduce
 the defect and the fix would be validated against a page that cannot exhibit it.
 
-- [ ] T003 [P] Add two low-resolution twin images to `tests/e2e/fixtures/create_sample_images.py`
+- [X] T003 [P] Add two low-resolution twin images to `tests/e2e/fixtures/create_sample_images.py`
       and regenerate into `tests/e2e/fixtures/images/`: `steel_rod_sample_small.jpg` and
-      `steel_plate_sample_small.jpg`, visibly smaller than their originals. They stand for Amazon's
-      separate `large` asset id — see note 3. Commit the generated files alongside the script.
-- [ ] T004 Rewrite the `colorImages` block in `tests/e2e/fixtures/amazon_listing.html` into the form
+      `steel_plate_sample_small.jpg`, visibly smaller than their originals (400×300 against
+      800×600). They stand for Amazon's separate `large` asset id — see note 3.
+      **Done differently, deliberately**: the two JPEGs were generated with
+      `create_sample_images.create_sample_image()` and committed, and `main()` was left alone.
+      That script already covers only 5 of the 9 images in the directory — #94 committed its
+      three the same way — and extending `main()` would mean anyone running it regenerates five
+      unrelated fixtures with fresh bytes.
+- [X] T004 Rewrite the `colorImages` block in `tests/e2e/fixtures/amazon_listing.html` into the form
       the vendor actually serves: `'colorImages': { 'initial': A.$.parseJSON('[…]') }`, the array as
       a JSON string inside single quotes. Keep the six entries, their order, their `variant` values
       and the `"hiRes":null` sixth entry exactly as they are. Add a comment saying this shape was
       read from all six probed ASINs on 2026-08-20 and citing [research.md](research.md) §1, so the
       next person does not "tidy" it back into a literal.
-- [ ] T005 In the same fixture, point the `large` of the first two entries at the T003 twins, so
+- [X] T005 In the same fixture, point the `large` of the first two entries at the T003 twins, so
       those entries name two *different* asset stems the way a real listing does. Leave the other
       entries sharing a stem — a fixture where every entry behaves the same way tests less than one
       where they differ.
-- [ ] T006 [P] Add `tests/e2e/fixtures/amazon_listing_unreadable_gallery.html` — a copy of the
+- [X] T006 [P] Add `tests/e2e/fixtures/amazon_listing_unreadable_gallery.html` — a copy of the
       listing whose `colorImages` payload is present but malformed (truncated JSON), for US5's
       degradation test and for the "a structural surprise costs images, never the capture" rule in
       [contracts/gallery-reading.md](contracts/gallery-reading.md) §5.
-- [ ] T007 Update the fixture's own thumbnail-strip comment in
+- [X] T007 Update the fixture's own thumbnail-strip comment in
       `tests/e2e/fixtures/amazon_listing.html` — it says reading the gallery from the strip "is
       precisely the mistake this fixture exists to catch", which is now only half the story. Record
       that on five of the six real listings the gallery and the strip are the same number, so a
       count alone cannot catch that mistake ([contracts/gallery-reading.md](contracts/gallery-reading.md),
       "checkable consequences").
-- [ ] T008 **RED GATE.** Run `nox -s e2e` (detached, ≥15 min) and confirm
+- [X] T008 **RED GATE.** Run `nox -s e2e` (detached, ≥15 min) and confirm
       `test_the_whole_gallery_comes_across_not_just_the_thumbnails` **fails**, reporting **8** images
       where it expects `GALLERY_IMAGE_COUNT` (6): five distinct `hiRes` stems, plus the two twins
       from T005, plus the sixth entry's `large`. If it passes, stop — the fixture did not reproduce
       the defect and note 3 has been missed. Record the observed number in the PR description.
+      **Observed 2026-08-20: 7 failed, 41 passed.** Four tests `assert 8 == 6`, the duplicate test
+      `assert 9 == 6` (its `?v=2` copy counts separately), and two attachment-count failures at 5
+      and 6. One cause, seven symptoms — the predicted number exactly.
+      Green again after T014/T015: 48 passed, no reruns. Full suite: 575 passed (571 baseline
+      plus this feature's four), 13:04, working tree clean.
 
 **Checkpoint**: The suite is red for the right reason, and the reason is written down.
 
@@ -137,29 +147,29 @@ dead, and the one thing the probe could not settle is recorded as open ([researc
 **Independent test**: Against the T004 fixture, the capture yields six images — the five `hiRes`
 originals and the sixth entry's `large` — and neither twin.
 
-- [ ] T014 [US2] In `app/static/js/capture-agent.js`, make `initialImageArray()` locate the array
+- [X] T014 [US2] In `app/static/js/capture-agent.js`, make `initialImageArray()` locate the array
       when it is the argument of a `parseJSON` call inside a quoted string, as well as when it is a
       bare literal (FR-022). Both forms must work: real listings serve the first, the fixture's
       history and any future change may serve the second. The existing bracket-matching and
       `JSON.parse` are correct and stay — the payload inside the quotes is plain JSON and parses
       cleanly on all six probed listings ([research.md](research.md) §1).
-- [ ] T015 [US2] In the same file, make `sweepImageAddresses()` emit **one** address per entry
+- [X] T015 [US2] In the same file, make `sweepImageAddresses()` emit **one** address per entry
       rather than one per `hiRes`-or-`large` key (FR-021). It is the last resort for a block the
       parser does not understand; a last resort that doubles every gallery is worse than one that
       returns the `hiRes` addresses alone, because a missed `hiRes: null` entry costs one image
       where today's behavior costs a duplicate of every image. Do not delete the function — see
       [research.md](research.md) §6 for why the fallback is kept.
-- [ ] T016 [US2] **GREEN GATE.** Re-run `nox -s e2e` (detached) and confirm T008's test passes again
+- [X] T016 [US2] **GREEN GATE.** Re-run `nox -s e2e` (detached) and confirm T008's test passes again
       at 6, and that the whole suite is green.
-- [ ] T017 [P] [US2] Add an e2e test to `tests/e2e/test_product_page_capture.py` asserting the
+- [X] T017 [P] [US2] Add an e2e test to `tests/e2e/test_product_page_capture.py` asserting the
       payload's `images` for the `parseJSON`-wrapped fixture is **exactly** the five `hiRes`
       originals plus `spec_sheet_preview.jpg`, and that neither `steel_rod_sample_small.jpg` nor
       `steel_plate_sample_small.jpg` appears. Assert membership, not just the count — a count alone
       would pass against a reading that swapped an original for its twin.
-- [ ] T018 [P] [US2] Add an e2e test asserting the `"hiRes":null` entry is captured by way of its
+- [X] T018 [P] [US2] Add an e2e test asserting the `"hiRes":null` entry is captured by way of its
       `large`, and is not skipped. This is the case `initialImageArray()`'s docstring was written for
       and which has never once executed against a real listing.
-- [ ] T019 [P] [US2] Add an e2e test asserting a **bare-literal** gallery array is still read
+- [X] T019 [P] [US2] Add an e2e test asserting a **bare-literal** gallery array is still read
       correctly, so T014 widens the reading rather than moving it. Use a small dedicated fixture or
       a `.replace()` on the existing one, matching the file's existing style.
 
@@ -174,11 +184,14 @@ originals and the sixth entry's `large` — and neither twin.
 **Independent test**: Capture the T006 unreadable fixture and observe the console says so; capture a
 normal listing and observe it says nothing new.
 
-- [ ] T020 [US5] In `galleryFrom()` (`app/static/js/capture-agent.js`), emit one `console.warn`
+- [X] T020 [US5] In `galleryFrom()` (`app/static/js/capture-agent.js`), emit one `console.warn`
       naming the listing when the sweep answered rather than the parse — beside the existing
       `console.warn` in `canonicalDocument()` and in the same voice. One line. Not a counter, not a
       payload field, not a setting; Principle I, and [plan.md](plan.md)'s Constitution Check.
-- [ ] T021 [US5] Add an e2e test capturing `amazon_listing_unreadable_gallery.html` and asserting
+- [X] T021 [US5] *(First attempt asserted on `specification_rows.ROWS`, which lives on the product
+      edit form and not on the confirmation page — it failed at 0 rows. Corrected to the
+      confirmation page's own summary panel. The warning half passed first time.)*
+      Add an e2e test capturing `amazon_listing_unreadable_gallery.html` and asserting
       (a) the capture still completes and still carries the description and the specification rows,
       and (b) the warning was emitted. Wait on observable state — the landing page — never on a
       duration.
@@ -195,11 +208,11 @@ is what changes.
 **Independent test**: Follow #80 §1b B4 as written and reach a verdict without deciding which stored
 image to measure.
 
-- [ ] T022 [P] [US4] Verify — do not rewrite — that `app/static/js/capture-agent.js`'s
+- [X] T022 [P] [US4] Verify — do not rewrite — that `app/static/js/capture-agent.js`'s
       `withoutTransform()` comment still states the right figures (1446×1500 / 345,670 against
       1601×1601 / 358,055). The probe re-measured both on 2026-08-20 and they are unchanged
       ([research.md](research.md) §5). If it matches, change nothing and tick this task.
-- [ ] T023 [US4] Correct #80 §1b's **B4** so it names the image by its filename stem
+- [X] T023 [US4] Correct #80 §1b's **B4** so it names the image by its filename stem
       (`81flPsAWG-L`) rather than saying "check a stored original", and record the 500×500 / 62,467
       figure of the `512DrDtlPkL` twin as a third row, so a verifier measuring a pre-existing
       duplicate recognises what they are looking at instead of reporting a failure.
@@ -216,28 +229,28 @@ compare against and how old it is.
 
 **Do this after Phase 4**, so the "after" numbers are measured rather than predicted.
 
-- [ ] T024 [US3] Rewrite #80 §1b's table with the 2026-08-20 numbers, replacing the single expected
+- [X] T024 [US3] Rewrite #80 §1b's table with the 2026-08-20 numbers, replacing the single expected
       column with **three**: gallery entries, thumbnails on screen, and whole-document `hiRes`
       labelled as *not* the requirement. Say plainly that the old column was the third of those and
       that it is family-wide, not aged (FR-014, FR-015). Include all six ASINs.
-- [ ] T025 [US3] Correct #80 §1b's **B1** instruction. It currently tells a verifier that landing on
+- [X] T025 [US3] Correct #80 §1b's **B1** instruction. It currently tells a verifier that landing on
       the thumbnail number proves a DOM read; on five of six listings the gallery and the strip are
       the same number, so as written it can only be failed by being correct (FR-023,
       [research.md](research.md) §3). Point it at quickstart §B instead.
-- [ ] T026 [US3] Add a note to #80 §1b — or to §6, "expected surprises" — that captures made before
+- [X] T026 [US3] Add a note to #80 §1b — or to §6, "expected surprises" — that captures made before
       this feature carry roughly twice the gallery images they should, half of them ~500-pixel
       copies; that nothing is lost or corrupt; and that removing them is bulk photo deletion (#96),
       pointing at [quickstart.md](quickstart.md) §F. Without this the next pass files the halved
       counts as a regression.
-- [ ] T027 [P] [US3] Amend `specs/007-product-page-capture/quickstart.md` §B — the sentence naming
+- [X] T027 [P] [US3] Amend `specs/007-product-page-capture/quickstart.md` §B — the sentence naming
       "the two listings whose page data names more than twice what the thumbnail strip shows", and
       any expected count that came from #57's column. **Dated amendment beside the original, never an
       overwrite** (FR-016): `specs/` is the frozen record of what was specified at the time.
-- [ ] T028 [P] [US3] Amend `specs/007-product-page-capture/tasks.md` T052 the same way — it requires
+- [X] T028 [P] [US3] Amend `specs/007-product-page-capture/tasks.md` T052 the same way — it requires
       "an image count matching issue #57's *page data* column rather than its thumbnail column",
       which is the instruction that produced this issue. It is still an open task, so it will be read
       again.
-- [ ] T029 [P] [US3] Check `specs/007-product-page-capture/research.md` (the token-stripping
+- [X] T029 [P] [US3] Check `specs/007-product-page-capture/research.md` (the token-stripping
       measurement, ~line 95). The probe re-measured it and it is correct; if so, change nothing and
       tick. Recorded as a task so "did anyone check?" has an answer.
 
@@ -248,25 +261,31 @@ re-derive it.
 
 ## Phase 8: Polish & verification
 
-- [ ] T030 Run one **real capture** of `B0CKXJLP4B` through the bookmarklet against the running app
+- [ ] T030 **DEFERRED — needs an environment this branch does not have.** The application runs on
+      another machine under Docker, so a real capture needs either the PR build deployed there or
+      a local dev instance served over HTTPS. Not a blocker for merge: the defect is established
+      on all six listings by the Phase 0 probe and locked by the suite. It stays open, with
+      [research.md](research.md) §8 open alongside it.
+      Run one **real capture** of `B0CKXJLP4B` through the bookmarklet against the running app
       and record the confirmation panel's image count. Expect **7**. This also settles
       [research.md](research.md) §8 — the one thing the probe could not reproduce, issue #95's
       "Captured 7" — as a by-product. Whatever it shows, write the answer into research §8 rather
       than leaving the question open.
-- [ ] T031 [P] Repeat T030 for `B099F4X4Q9` (expect 7) and `B01N4OSKWE` (expect 3) — the three
+- [ ] T031 [P] **DEFERRED with T030.** Repeat T030 for `B099F4X4Q9` (expect 7) and `B01N4OSKWE` (expect 3) — the three
       plain-description listings, where the panel count should equal the gallery exactly. The three
       A+ listings are floors, not equalities, because #94's feature contributes description images.
-- [ ] T032 Confirm SC-010 on a captured product: measure a stored gallery image and get the
+- [ ] T032 **DEFERRED with T030.** Confirm SC-010 on a captured product: measure a stored gallery image and get the
       dimensions the listing's data names for that entry, never 500×500. `identify` the file or read
       `Photo.file_size`.
-- [ ] T033 [P] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — expected
+- [X] T033 [P] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` — expected
       to be unaffected; this feature changes no Python.
-- [ ] T034 Run the full `nox -s e2e` detached, ≥15 minutes, green, and confirm it left the working
+- [X] T034 Run the full `nox -s e2e` detached, ≥15 minutes, green, and confirm it left the working
       tree **clean** (Principle IV — a test run must not modify tracked files).
-- [ ] T035 [P] Run `nox -s screenshots_verify`. `app/static/js/**` is touched, which triggers the
+- [X] T035 [P] Run `nox -s screenshots_verify`. `app/static/js/**` is touched, which triggers the
       screenshot gate, but `capture-agent.js` is never loaded by an application template so no
       screenshot can depend on it. Establish that rather than assert it, and **measure any diff
       before committing an image** — regeneration is not reproducible (#80 §6).
+      **2026-08-20: 18 screenshots verified, no diff, nothing regenerated.** The prediction held.
 - [ ] T036 Open the pull request from `issues/95`, summarising: the cause (a marker that never
       matched), the doubling it caused, that #80 §1b was never a gallery count, the six before/after
       counts, and the fact that already-captured products keep their duplicates until the operator

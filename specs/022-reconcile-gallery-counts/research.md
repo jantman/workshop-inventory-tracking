@@ -279,9 +279,13 @@ testing, and all of them cheap once the app is running:
    both paths were measured and agree — but not for the day it was observed.
 
 **This does not block the fix.** The defect established in §1 and §2 is present on all six listings
-today, is independent of which number the verifier read, and is fixed the same way regardless. The
-first task of implementation is to run one real capture and record what the panel says, which settles
-this as a by-product.
+today, is independent of which number the verifier read, and is fixed the same way regardless.
+
+**Still open at merge (2026-08-21).** Settling it needs one real capture, and the application runs on
+another machine under Docker — so it waits for either the PR build deployed there or a local instance
+served over HTTPS. Tasks T030–T032 carry it. Everything the suite can establish is established: the
+parse now matches real markup, one address is emitted per entry, and reverting either edit turns the
+suite red.
 
 ---
 
