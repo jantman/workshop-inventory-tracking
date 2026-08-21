@@ -286,7 +286,7 @@ re-derive it.
       screenshot can depend on it. Establish that rather than assert it, and **measure any diff
       before committing an image** — regeneration is not reproducible (#80 §6).
       **2026-08-20: 18 screenshots verified, no diff, nothing regenerated.** The prediction held.
-- [ ] T036 Open the pull request from `issues/95`, summarising: the cause (a marker that never
+- [X] T036 (PR #113) Open the pull request from `issues/95`, summarising: the cause (a marker that never
       matched), the doubling it caused, that #80 §1b was never a gallery count, the six before/after
       counts, and the fact that already-captured products keep their duplicates until the operator
       prunes them.
