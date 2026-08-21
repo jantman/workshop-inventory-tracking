@@ -399,6 +399,33 @@ def test_a_gallery_it_cannot_parse_is_swept_loudly_not_silently(
 
 
 @pytest.mark.e2e
+def test_a_swept_run_of_large_only_entries_is_one_address_each(
+    page, live_server, image_host
+):
+    """022 FR-021, on the shape the first rewrite of the sweep got wrong.
+
+    Amazon's variant-keyed `colorImages` blocks name a `large` and no `hiRes`
+    key at all. Inferring entry boundaries from a regex means deciding when a
+    `large` is this entry's smaller rendition and when it is the next entry's
+    only address, and the first version of this decided "never the latter" --
+    so three entries collapsed to one address. That is the same silent
+    undercount this feature exists to remove, arrived at from the other side.
+
+    Caught in review of PR #113 rather than by this suite, which is the reason
+    the fixture exists: neither of the others has an entry without a `hiRes`.
+    """
+    landed = capture_from_listing(
+        page, live_server, image_host, fixture="amazon_listing_large_only_gallery.html"
+    )
+
+    assert payload_of(landed)["images"] == [
+        f"{image_host}/steel_rod_sample.jpg",
+        f"{image_host}/steel_plate_sample.jpg",
+        f"{image_host}/brass_rod_sample.jpg",
+    ]
+
+
+@pytest.mark.e2e
 def test_confirming_stores_every_gallery_image_on_the_product(
     page, live_server, image_host
 ):

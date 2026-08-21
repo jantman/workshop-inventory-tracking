@@ -210,6 +210,19 @@ entry. Two changes in `app/static/js/capture-agent.js`, both inside the gallery 
   behaviour costs a duplicate on every image. With the parse working, this path stops being reached
   on any known listing anyway.
 
+  **Amended 2026-08-21, from review of PR #113.** "One per entry" is harder than it reads, because a
+  regex cannot see entry boundaries and they have to be inferred. The first attempt let a `hiRes`
+  answer for its entry and treated every later `large` as that entry's rendition, which collapses a
+  *run* of entries naming only a `large` down to one address — the same silent undercount this
+  feature exists to remove, reached from the other side. Amazon's variant-keyed `colorImages` blocks
+  are exactly that shape, so it is a real one even though `colorImages.initial` has never been.
+
+  The rule that holds: one `hiRes` answers for one entry and consumes **at most one** following
+  `large`; after that the entry is closed and the next `large` starts a new one.
+  `tests/e2e/fixtures/amazon_listing_large_only_gallery.html` covers it — neither of the other
+  fixtures has an entry without a `hiRes` key, which is why the suite did not catch this and a
+  reviewer did.
+
 **Expected effect**, from the probe's numbers — every listing loses its low-resolution twins and
 nothing else:
 

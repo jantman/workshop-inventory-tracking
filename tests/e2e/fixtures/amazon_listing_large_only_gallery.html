@@ -1,0 +1,246 @@
+<!-- A gallery whose entries name a `large` and NO `hiRes` key at all, in a
+     payload that will not parse (each entry carries a trailing comma, which
+     invalidates the JSON while leaving the brackets balanced) -- so the sweep
+     answers and this is a test of the sweep.
+
+     Amazon's variant-keyed `colorImages` blocks are exactly this shape. The
+     first version of the rewritten sweep collapsed a run of them to ONE
+     address, because a `large` re-armed nothing: caught in review of PR #113,
+     not by this suite, which is why the fixture now exists. Three entries, so
+     a run is a run rather than a pair. -->
+<!DOCTYPE html>
+<!--
+  A hand-written stand-in for an Amazon listing, not a saved copy of one.
+
+  It carries only the structures issue #57 found across the six sampled ASINs,
+  which is what the extractor reads:
+
+  * an inline gallery data block naming SIX images where the thumbnail strip
+    shows THREE -- the finding that ruled out reading the gallery from the DOM;
+  * every address in that block carrying a transform token, so stripping it is
+    exercised rather than assumed (FR-004);
+  * a `.a-price .a-offscreen` price and a byline brand;
+  * the *plain* description form (`#productDescription`). The rich form lives in
+    amazon_listing_aplus.html -- no listing carries both;
+  * four product-information containers in three different markups, because the
+    extractor has to merge across all of them (FR-009).
+  * an "About this item" bullet list carrying the two things the reader must
+    exclude -- the section heading and the "See more product details" link --
+    and three bullets it must drop or clean (020).
+
+  `__IMAGE_HOST__` is replaced by the test with the address of the local image
+  server, so the application performs a genuine HTTP fetch of genuine bytes.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Acme 12V 3A Power Supply Adapter, 5.5x2.1mm Barrel Plug</title>
+</head>
+<body>
+
+<div id="titleSection">
+    <h1 id="title"><span id="productTitle">Acme 12V 3A Power Supply Adapter</span></h1>
+    <a id="bylineInfo" class="a-link-normal" href="/stores/AcmeComponents">Visit the Acme Components Store</a>
+</div>
+
+<div id="corePrice_feature_div">
+    <span class="a-price" data-a-color="base">
+        <span class="a-offscreen">$24.99</span>
+        <span aria-hidden="true"><span class="a-price-symbol">$</span><span class="a-price-whole">24</span><span class="a-price-fraction">99</span></span>
+    </span>
+</div>
+
+<!-- The thumbnail strip: three of the six. Reading the gallery from here is
+     one of the two mistakes this fixture exists to catch, and the fixture is
+     deliberately unrealistic about it: on five of the six real listings probed
+     on 2026-08-20 the gallery and the strip are the *same* number, so a count
+     alone cannot tell a strip read from a correct one. Three-of-six keeps that
+     check possible here. See specs/022-reconcile-gallery-counts/contracts/
+     gallery-reading.md, "checkable consequences". -->
+<div id="altImages">
+    <ul class="a-unordered-list a-nostyle a-button-list">
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/steel_rod_sample._AC_US40_.jpg" alt=""></li>
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/steel_plate_sample._AC_US40_.jpg" alt=""></li>
+        <li class="imageThumbnail"><img src="__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg" alt=""></li>
+    </ul>
+</div>
+
+<script type="text/javascript">
+// Guarded: the agent reads this block's *text*, never its effect, and an
+// unguarded P.when() throws a page error that has nothing to do with the test.
+if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A){
+  var data = {
+    // The gallery array as Amazon really serves it: a JSON *string* handed to
+    // parseJSON, on one line, inside single quotes. Read from all six of #57's
+    // ASINs on 2026-08-20 -- see specs/022-reconcile-gallery-counts/research.md
+    // section 1. Do NOT "tidy" this back into a bare array literal: the reader
+    // used to require one, no real listing serves one, and the whole of issue
+    // #95 is what that cost.
+    //
+    // Two entries name a `large` with its own filename stem
+    // (steel_rod_sample_small, steel_plate_sample_small) because Amazon gives
+    // each rendition a separate asset id -- 81flPsAWG-L against 512DrDtlPkL.
+    // That is what makes a reader emitting both keys store the same photograph
+    // twice; where the stems match, withoutTransform() hides the bug.
+    'colorImages': { 'initial': A.$.parseJSON('[{"large":"__IMAGE_HOST__/steel_rod_sample._AC_SX679_.jpg","thumb":"__IMAGE_HOST__/steel_rod_sample._AC_US40_.jpg","variant":"MAIN",},{"large":"__IMAGE_HOST__/steel_plate_sample._AC_SX679_.jpg","thumb":"__IMAGE_HOST__/steel_plate_sample._AC_US40_.jpg","variant":"PT01",},{"large":"__IMAGE_HOST__/brass_rod_sample._AC_SX679_.jpg","thumb":"__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg","variant":"PT02",}]') },
+    'colorToAsin': {'initial': {}},
+    'heroImage': {'initial': []}
+  };
+  A.trigger('P.AboveTheFold');
+  return data;
+}); }
+</script>
+
+<!-- "About this item" (020 / issue #92). The shape is what B01N4OSKWE really
+     carried on 2026-08-19, furniture included: an `hr`, an `h2` heading and a
+     trailing "See more product details" `div`, all *inside* #feature-bullets
+     and all *outside* the `<ul>`.
+
+     The furniture is the point. The container's own textContent begins
+     "About this item Country of Manufacture: CHINA..." -- so a reader working
+     from the container's text captures the heading as a product fact, and the
+     "See more" link as another. Only the `li` scoping excludes them, and a
+     fixture without them would not notice a reader that had stopped doing it.
+
+     Issue #92 predicted the "See more" item would be a *hidden li*. It is not,
+     on any listing read for this feature; it is a visible sibling div. Both
+     shapes are excluded by reading `li` inside the list, which is why the
+     reader does not test visibility -- it could not anyway, since the agent
+     parses a detached document with no layout.
+
+     The first two bullets are B01N4OSKWE's own: semicolon-separated physical
+     facts published in no table on that listing, which is the whole reason the
+     issue exists. The three after them are the cases the reader must drop or
+     clean. -->
+<div id="featurebullets_feature_div">
+    <div id="feature-bullets" class="a-section a-spacing-medium a-spacing-top-small">
+        <hr aria-hidden="true" class="a-spacing-base a-divider-normal">
+        <h2 class="a-size-base-plus a-text-bold">About this item</h2>
+        <ul class="a-unordered-list a-vertical a-spacing-mini">
+            <li class="a-spacing-mini"><span class="a-list-item">Country of Manufacture: CHINA; Material: Plastic,Metal; Net Weight: 9g</span></li>
+            <li class="a-spacing-mini"><span class="a-list-item">Main Body Size: 15 x 7 x 7mm/0.59"x0.28"x0.28"(L*W*H); Overall Size: 23 x 16 x 7mm</span></li>
+            <!-- Whitespace only: contributes no line, and no blank one either. -->
+            <li class="a-spacing-mini"><span class="a-list-item">   </span></li>
+            <!-- Decoration with no words. Same rule. -->
+            <li class="a-spacing-mini"><span class="a-list-item"><img src="__IMAGE_HOST__/bullet.png" width="16" height="16" alt=""></span></li>
+            <!-- Issue #91's problem on a third surface: a bullet carrying its
+                 own styling and script. Neither may be reported as writing. -->
+            <li class="a-spacing-mini"><span class="a-list-item">
+                <style type="text/css">.a-list-item { color: #0F1111; }</style>
+                Action Type: Latching; Contact Type: DPDT; Terminal Quantity: 6
+                <script type="text/javascript">var bulletsReady = 1;</script>
+            </span></li>
+        </ul>
+        <div class="a-section"><span class="caretnext">&rsaquo;</span> <a class="a-link-normal" href="#prodDetails">See more product details</a></div>
+    </div>
+</div>
+
+<!-- Product information, container 1 of 4: the two-column overview table. -->
+<div id="productOverview_feature_div">
+    <table class="a-normal a-spacing-micro">
+        <tr>
+            <td class="a-span3"><span class="a-size-base a-text-bold">Brand</span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">Acme Components</span></td>
+        </tr>
+        <tr>
+            <td class="a-span3"><span class="a-size-base a-text-bold">Material</span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">6061 Aluminium</span></td>
+        </tr>
+    </table>
+</div>
+
+<!-- Container 2 of 4: poExpander, the same shape one level down. -->
+<div id="poExpander">
+    <table class="a-normal a-spacing-micro">
+        <tr>
+            <td class="a-span3"><span class="a-size-base a-text-bold">Connector Type</span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">Barrel 5.5x2.1mm</span></td>
+        </tr>
+        <tr>
+            <!-- Same name as the overview table gives, differing only in case
+                 and surrounding space: the agent folds these to one (FR-009). -->
+            <td class="a-span3"><span class="a-size-base a-text-bold">  material </span></td>
+            <td class="a-span9"><span class="a-size-base po-break-word">Steel</span></td>
+        </tr>
+    </table>
+</div>
+
+<!-- Container 3 of 4: the technical-specification table, th/td rather than td/td. -->
+<div id="prodDetails">
+    <table id="productDetails_techSpec_section_1" class="prodDetTable">
+        <tr>
+            <th class="prodDetSectionEntry">Item Length</th>
+            <td class="prodDetAttrValue">300 Millimeters</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Voltage</th>
+            <td class="prodDetAttrValue">12 Volts</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Wattage</th>
+            <td class="prodDetAttrValue">36 Watts</td>
+        </tr>
+        <!-- 016: a real listing publishes the barcode, and this row is what makes
+             the product findable by the one printed on its box. Same constant the
+             wedge-scan suite calls VALID_UPC_A. -->
+        <tr>
+            <th class="prodDetSectionEntry">UPC</th>
+            <td class="prodDetAttrValue">012345678905</td>
+        </tr>
+        <!-- 019 / issue #90: the listings that prompted the issue published the
+             part number in a row exactly like this one, and the confirmation
+             form still came up with the field blank. This is what fills it. -->
+        <!-- 019 FR-003: higher priority than the row below, and deliberately
+             longer than the manufacturer_part_number column holds. It must be
+             passed over rather than end the search, so the pair of rows -- not
+             either one alone -- is what makes the browser path exercise the
+             rule.
+
+             **Over-long rather than empty**, which was the first attempt: the
+             agent drops a row with no value (specificationsFrom, capture-agent.js
+             line 295), so an empty cell never reaches Python and a test built on
+             one proves nothing. The empty and whitespace-only cases are covered
+             where they can be, in the unit tests. -->
+        <tr>
+            <th class="prodDetSectionEntry">Manufacturer Part Number</th>
+            <td class="prodDetAttrValue">NOT-A-PART-NUMBER-BUT-A-WHOLE-SENTENCE-ABOUT-COMPATIBILITY-WITH-EVERY-MODEL-THIS-VENDOR-HAS-EVER-SOLD</td>
+        </tr>
+        <tr>
+            <th class="prodDetSectionEntry">Mfr Part Number</th>
+            <td class="prodDetAttrValue">ACME-7700-B</td>
+        </tr>
+    </table>
+</div>
+
+<!-- Container 4 of 4: detail bullets. Bookkeeping rows live here, and they are
+     captured like everything else -- FR-008 forbids filtering by name. -->
+<div id="detailBullets_feature_div">
+    <ul class="a-unordered-list a-nostyle a-vertical a-spacing-none detail-bullet-list">
+        <li><span class="a-list-item">
+            <span class="a-text-bold">Date First Available &rlm; : &lrm;</span>
+            <span>March 14, 2023</span>
+        </span></li>
+        <li><span class="a-list-item">
+            <span class="a-text-bold">Best Sellers Rank:</span>
+            <span>#4,812 in Tools &amp; Home Improvement</span>
+        </span></li>
+        <li><span class="a-list-item">
+            <span class="a-text-bold">Customer Reviews:</span>
+            <span>4.5 out of 5 stars</span>
+        </span></li>
+    </ul>
+</div>
+
+<!-- The plain description form. This listing has no A+ block, and that is the
+     normal case for three of the six sampled (FR-005). -->
+<div id="productDescription">
+    <h3>Product Description</h3>
+    <p>
+        This power supply provides a regulated 12 volts at up to 3 amps through a
+        5.5x2.1mm centre-positive barrel plug. Short-circuit and over-current
+        protected, with a 1.5 metre lead.
+    </p>
+</div>
+
+</body>
+</html>

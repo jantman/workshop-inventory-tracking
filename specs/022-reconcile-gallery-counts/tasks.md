@@ -153,7 +153,10 @@ originals and the sixth entry's `large` — and neither twin.
       history and any future change may serve the second. The existing bracket-matching and
       `JSON.parse` are correct and stay — the payload inside the quotes is plain JSON and parses
       cleanly on all six probed listings ([research.md](research.md) §1).
-- [X] T015 [US2] In the same file, make `sweepImageAddresses()` emit **one** address per entry
+- [X] T015 [US2] *(Corrected 2026-08-21 after review of PR #113: the first version inferred entry
+      boundaries wrongly and collapsed a run of `large`-only entries to one address. Fixed, and
+      covered by `amazon_listing_large_only_gallery.html` — see [research.md](research.md) §6.)*
+      In the same file, make `sweepImageAddresses()` emit **one** address per entry
       rather than one per `hiRes`-or-`large` key (FR-021). It is the last resort for a block the
       parser does not understand; a last resort that doubles every gallery is worse than one that
       returns the `hiRes` addresses alone, because a missed `hiRes: null` entry costs one image

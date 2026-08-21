@@ -498,26 +498,37 @@
      *
      * `hiRes` wins; `large` is taken only for an entry whose `hiRes` is null,
      * which is the case the parse above exists for and is why `null` is matched
-     * here rather than skipped. A `large` with no `hiRes` before it at all is
-     * taken too -- that is a block shaped differently again, and one address is
-     * the right answer for it either way.
+     * here rather than skipped. A `large` with no `hiRes` anywhere in its entry
+     * is taken too -- that is a block shaped differently again, and one address
+     * is the right answer for it either way.
+     *
+     * **Entry boundaries are inferred, because a regex cannot see them.** The
+     * rule is that one `hiRes` answers for one entry and consumes at most one
+     * following `large` -- the smaller rendition of the same photograph. After
+     * that the entry is finished, so the next `large` can only belong to a new
+     * one. Without that second half, a run of entries naming *only* a `large`
+     * collapses to a single address: exactly the silent-undercount this
+     * function was rewritten to stop, wearing the other hat. Amazon's
+     * variant-keyed blocks are large-only runs, so the shape is real even
+     * though `colorImages.initial` has never been one.
      */
     function sweepImageAddresses(text) {
         const found = [];
         const pattern = /["'](hiRes|large)["']\s*:\s*(?:"(https?:[^"]+)"|null)/g;
         let match;
-        let wantLarge = true;
+        let hiResAnswered = false;
         while ((match = pattern.exec(text)) !== null) {
             if (match[1] === 'hiRes') {
+                hiResAnswered = !!match[2];
                 if (match[2]) {
                     found.push(match[2]);
-                    wantLarge = false;
-                } else {
-                    wantLarge = true;
                 }
-            } else if (wantLarge && match[2]) {
+            } else if (hiResAnswered) {
+                // This entry's own smaller rendition. Skipping it also closes
+                // the entry: whatever comes next starts another.
+                hiResAnswered = false;
+            } else if (match[2]) {
                 found.push(match[2]);
-                wantLarge = false;
             }
         }
         return found;
