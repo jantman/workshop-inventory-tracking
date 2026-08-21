@@ -1,3 +1,13 @@
+<!-- A gallery whose entries name a `large` and NO `hiRes` key at all, in a
+     payload that will not parse (each entry carries a trailing comma, which
+     invalidates the JSON while leaving the brackets balanced) -- so the sweep
+     answers and this is a test of the sweep.
+
+     Amazon's variant-keyed `colorImages` blocks are exactly this shape. The
+     first version of the rewritten sweep collapsed a run of them to ONE
+     address, because a `large` re-armed nothing: caught in review of PR #113,
+     not by this suite, which is why the fixture now exists. Three entries, so
+     a run is a run rather than a pair. -->
 <!DOCTYPE html>
 <!--
   A hand-written stand-in for an Amazon listing, not a saved copy of one.
@@ -72,7 +82,7 @@ if (typeof P !== 'undefined') { P.when('A').register("ImageBlockATF", function(A
     // each rendition a separate asset id -- 81flPsAWG-L against 512DrDtlPkL.
     // That is what makes a reader emitting both keys store the same photograph
     // twice; where the stems match, withoutTransform() hides the bug.
-    'colorImages': { 'initial': A.$.parseJSON('[{"hiRes":"__IMAGE_HOST__/steel_rod_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/steel_rod_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/steel_rod_sample_small._AC_SX679_.jpg","variant":"MAIN"},{"hiRes":"__IMAGE_HOST__/steel_plate_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/steel_plate_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/steel_plate_sample_small._AC_SX679_.jpg","variant":"PT01"},{"hiRes":"__IMAGE_HOST__/brass_rod_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/brass_rod_sample._AC_SX679_.jpg","variant":"PT02"},{"hiRes":"__IMAGE_HOST__/aluminum_plate_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/aluminum_plate_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/aluminum_plate_sample._AC_SX679_.jpg","variant":"PT03"},{"hiRes":"__IMAGE_HOST__/aluminum_tube_sample._AC_SL1500_.jpg","thumb":"__IMAGE_HOST__/aluminum_tube_sample._AC_US40_.jpg","large":"__IMAGE_HOST__/aluminum_tube_sample._AC_SX679_.jpg","variant":"PT04"},{"hiRes":null,"thumb":"__IMAGE_HOST__/spec_sheet_preview._AC_US40_.jpg","large":"__IMAGE_HOST__/spec_sheet_preview._AC_SX679_.jpg","variant":"PT05"}]') },
+    'colorImages': { 'initial': A.$.parseJSON('[{"large":"__IMAGE_HOST__/steel_rod_sample._AC_SX679_.jpg","thumb":"__IMAGE_HOST__/steel_rod_sample._AC_US40_.jpg","variant":"MAIN",},{"large":"__IMAGE_HOST__/steel_plate_sample._AC_SX679_.jpg","thumb":"__IMAGE_HOST__/steel_plate_sample._AC_US40_.jpg","variant":"PT01",},{"large":"__IMAGE_HOST__/brass_rod_sample._AC_SX679_.jpg","thumb":"__IMAGE_HOST__/brass_rod_sample._AC_US40_.jpg","variant":"PT02",}]') },
     'colorToAsin': {'initial': {}},
     'heroImage': {'initial': []}
   };

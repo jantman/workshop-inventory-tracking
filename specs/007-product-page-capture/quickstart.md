@@ -159,6 +159,38 @@ For each, before confirming, the confirmation page's summary must report:
 - **a description** on all six;
 - **specification rows** in the range that issue's table records.
 
+> **Amended 2026-08-20 — the image counts above are wrong, and the sentence about the thumbnail strip
+> is wrong with them.** They are struck rather than deleted because they are what was specified at the
+> time and the reasoning that followed from them is on the record.
+>
+> Issue #57's column counted every distinct `hiRes` address **in the whole document**, which on a
+> listing with variants includes each sibling variant's lead image. `B0CKXJLP4B`'s 14 is 7 gallery
+> images plus 8 pack sizes. The gallery of the item being captured is what FR-003 is about, and on
+> 2026-08-20 all six were re-read in the owner's signed-in browser:
+>
+> | ASIN | Gallery entries | Thumbnails | Whole document (#57's column) |
+> |---|---|---|---|
+> | `B0CKXJLP4B` | **7** | 7 | 14 |
+> | `B0DMNXC4CD` | **7** | 7 | 7 |
+> | `B01N4OSKWE` | **3** | 3 | 3 |
+> | `B099F4X4Q9` | **7** | 7 | 16 |
+> | `B09GM8FB3X` | **8** | 7 | 11 |
+> | `B0FX4PDW6M` | **7** | 6 | 9 |
+>
+> **"Not the thumbnail count" is not a usable test.** On five of the six the gallery and the strip are
+> the same number. Compare the reading against the *entries*, and read them with
+> `specs/022-reconcile-gallery-counts/quickstart.md` §B, which is two minutes in a console.
+>
+> These are gallery figures. On the three A+ listings the panel also carries whichever description
+> images issue #94's feature selects, so treat those three as floors. See
+> [022 research.md](../022-reconcile-gallery-counts/research.md) §3.
+
 Then confirm one and check a stored image is the original: `identify` it, or read `Photo.file_size`. For `B0CKXJLP4B` the original is 1601×1601 at 358,055 bytes, against 1446×1500 at 345,670 for the tokened rendition. Getting the smaller one means the transform token is not being stripped and FR-004 is not met.
+
+> **Re-measured 2026-08-20 and unchanged**, so this check stands exactly as written. Name the file
+> when you run it: the anchor is `B0CKXJLP4B`'s first gallery entry, filename stem **`81flPsAWG-L`**.
+> A product captured before 022 also carries `512DrDtlPkL` — 500×500 at 62,467 bytes, the `large`
+> rendition of the same photograph, stored in error. Measuring that one is not an FR-004 failure; it
+> is the duplicate 022 removes.
 
 Also click it once on an Amazon **order-details** page. The capture must fall back to today's behaviour rather than extracting page furniture. It will still create a product called "Order Details" — that is issue #56 point 4, which this feature does not fix and must not worsen.
