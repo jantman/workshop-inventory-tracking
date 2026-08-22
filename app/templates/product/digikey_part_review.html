@@ -16,7 +16,11 @@
 
         {% if problem == 'not_found' and part_number %}
         <p class="small" id="digikey-part-by-hand">
-            <a href="{{ url_for('product.product_new', identifier_value=part_number, identifier_type='MPN') }}">Add
+            {# identifier / id_type are the names product_new's GET branch reads;
+               identifier_value / identifier_type are what the *form field* is
+               called, and passing those silently opened a blank form. PR #116
+               review. _create_url builds the same URL for the scan flow. #}
+            <a href="{{ url_for('product.product_new', identifier=part_number, id_type='MPN') }}">Add
             it by hand instead</a> &mdash; what you typed goes with you (FR-032).
         </p>
         {% endif %}

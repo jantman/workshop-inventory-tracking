@@ -138,6 +138,34 @@ class TestPartRouteFailures:
         assert b'digikey-part-by-hand' in response.data
         assert b'NOPE' in response.data
 
+    def test_the_by_hand_link_actually_carries_the_part_number(self, app, client):
+        """FR-032, by following the link rather than believing it.
+
+        PR #116 review: this link was built with ``identifier_value`` /
+        ``identifier_type`` -- the names of the *form fields* -- while
+        ``product_new``'s GET branch reads ``identifier`` / ``id_type``. The
+        parameters were silently ignored and the form opened blank, which the
+        assertion above could not see because it only checked the link was
+        there.
+        """
+        import re
+
+        app.config['DIGIKEY_CLIENT'] = BrokenDigiKey(
+            ItemNotFoundError('no such part', item_id='NOT-A-PART')
+        )
+        page = client.post('/products/digikey/part',
+                           data={'part_number': 'NOT-A-PART'}).get_data(as_text=True)
+
+        block = page[page.index('digikey-part-by-hand'):]
+        href = re.search(r'href="([^"]+)"', block).group(1).replace('&amp;', '&')
+
+        followed = client.get(href).get_data(as_text=True)
+        value = re.search(r'id="identifier_value"[^>]*value="([^"]*)"', followed)
+        assert value is not None, 'the create form has no identifier field'
+        assert value.group(1) == 'NOT-A-PART', (
+            f'the link dropped the part number: {href}'
+        )
+
 
 class TestNotConfigured:
     """FR-036, FR-037. Absent DigiKey is an ordinary state, not a broken app."""

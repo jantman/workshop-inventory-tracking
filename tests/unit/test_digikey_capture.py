@@ -540,3 +540,151 @@ class TestFindOrderLines:
             product.id, vendor='Mouser', order_reference='100882558'
         )
         assert len(catalog.find_order_lines('100882558')) == 2
+
+
+# --------------------------------------------------------------------------
+# Through the form, not around it
+#
+# Both bugs found in PR #116's review had passing unit tests. Both tests called
+# capture_digikey_order directly with a decisions dict hand-written to look like
+# what the form sends -- and in one case the form could never send it, because
+# the review deliberately renders no "take this line" checkbox for a line that
+# is already captured.
+#
+# So these tests render the real page, read the inputs off it, and submit those.
+# A decision the template cannot produce cannot be asserted here.
+# --------------------------------------------------------------------------
+
+import re
+
+
+def form_fields(html, part_numbers=()):
+    """Every input the rendered review page would actually submit.
+
+    Checkboxes count only when they are checked, which is what makes the
+    "already captured lines carry no include" property visible to a test rather
+    than something a hand-written dict papers over.
+    """
+    fields = {}
+    for tag in re.findall(r'<input\b[^>]*>', html):
+        name = re.search(r'name="([^"]+)"', tag)
+        if not name:
+            continue
+        is_checkbox = 'type="checkbox"' in tag
+        if is_checkbox and 'checked' not in tag:
+            continue
+        value = re.search(r'value="([^"]*)"', tag)
+        fields[name.group(1)] = value.group(1) if value else 'on'
+    return fields
+
+
+class TestCaptureThroughTheForm:
+    """PR #116 review: the apply_change path was dead through the real UI."""
+
+    @pytest.fixture
+    def captured(self, client, test_storage, order, digikey_fixture_client, app):
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        CatalogService(test_storage).capture_digikey_order(
+            order, include_all(order), FakeDigiKey()
+        )
+        return CatalogService(test_storage)
+
+    def _review_html(self, client):
+        response = client.post('/products/digikey/orders',
+                               data={'sales_order_number': '100882558'})
+        assert response.status_code == 200
+        return response.get_data(as_text=True)
+
+    def test_an_already_captured_line_renders_no_include_checkbox(self, client, captured):
+        """The property the fix has to hold for -- asserted, not assumed."""
+        fields = form_fields(self._review_html(client))
+        assert 'include[1866-3027-ND]' not in fields
+        assert 'include[1866-3032-ND]' not in fields
+
+    def test_recapturing_through_the_form_reports_already_captured(
+            self, client, captured):
+        """Not "skipped". They are different words for different things."""
+        response = client.post(
+            '/products/digikey/orders/capture',
+            data={**form_fields(self._review_html(client)),
+                  'sales_order_number': '100882558'},
+            follow_redirects=True,
+        )
+        body = response.get_data(as_text=True)
+        assert '2 already captured' in body
+        assert 'skipped' not in body
+
+    def test_ticking_update_it_actually_updates(self, client, captured, app,
+                                                digikey_fixture_client, monkeypatch):
+        """FR-014, through the form. This is the one that was dead."""
+        # DigiKey now says a different quantity than what was recorded.
+        real_get_order = digikey_fixture_client.get_order
+
+        def changed_order(number):
+            base = real_get_order(number)
+            line = base.lines[0]
+            return type(base)(
+                sales_order_number=base.sales_order_number,
+                purchase_order=base.purchase_order,
+                order_date=base.order_date,
+                currency=base.currency,
+                lines=(type(line)(**{**line.__dict__, 'quantity': 11}),) + base.lines[1:],
+            )
+
+        monkeypatch.setattr(digikey_fixture_client, 'get_order', changed_order)
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+
+        html = self._review_html(client)
+        fields = form_fields(html)
+        # The page offers the tick-box for the changed line...
+        assert 'apply_change[1866-3027-ND]' in html
+        # ...and it is unticked by default, so tick it the way an operator would.
+        fields['apply_change[1866-3027-ND]'] = 'on'
+
+        client.post('/products/digikey/orders/capture',
+                    data={**fields, 'sales_order_number': '100882558'},
+                    follow_redirects=True)
+
+        product = captured.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert product.purchases[0].quantity == 11
+        assert len(product.purchases) == 1, 'an update, not a second capture'
+
+    def test_not_ticking_it_leaves_the_purchase_alone(self, client, captured, app,
+                                                     digikey_fixture_client, monkeypatch):
+        real_get_order = digikey_fixture_client.get_order
+
+        def changed_order(number):
+            base = real_get_order(number)
+            line = base.lines[0]
+            return type(base)(
+                sales_order_number=base.sales_order_number,
+                order_date=base.order_date,
+                lines=(type(line)(**{**line.__dict__, 'quantity': 11}),) + base.lines[1:],
+            )
+
+        monkeypatch.setattr(digikey_fixture_client, 'get_order', changed_order)
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+
+        client.post('/products/digikey/orders/capture',
+                    data={**form_fields(self._review_html(client)),
+                          'sales_order_number': '100882558'},
+                    follow_redirects=True)
+
+        product = captured.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert product.purchases[0].quantity == 5
+
+    def test_unticking_a_line_still_excludes_it(self, client, test_storage, app,
+                                                digikey_fixture_client):
+        """The include gate still works for lines that are not already captured."""
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        html = self._review_html(client)
+        fields = form_fields(html)
+        assert 'include[1866-3027-ND]' in fields, 'a NEW line offers the checkbox'
+        del fields['include[1866-3027-ND]']
+
+        response = client.post('/products/digikey/orders/capture',
+                               data={**fields, 'sales_order_number': '100882558'},
+                               follow_redirects=True)
+        assert '1 skipped' in response.get_data(as_text=True)
+        catalog = CatalogService(test_storage)
+        assert catalog.find_product_by_identifier('IRM-05-5', id_type='MPN') is None

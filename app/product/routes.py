@@ -1149,7 +1149,13 @@ def _digikey_decisions(form, order):
 
 def _digikey_capture_summary(result) -> str:
     """What just happened, in one sentence the operator can act on."""
-    parts = [f"Captured {len(result.purchase_ids)} line(s)"]
+    # "Captured 0 line(s)" is what a pure re-capture used to say once the
+    # already-captured lines stopped being counted as skipped. Say the true
+    # thing instead.
+    parts = [
+        f"Captured {len(result.purchase_ids)} line(s)" if result.purchase_ids
+        else "Nothing new to capture"
+    ]
     if result.products_created:
         parts.append(f"{result.products_created} new product(s)")
     if result.products_attached:

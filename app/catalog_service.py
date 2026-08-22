@@ -1758,12 +1758,20 @@ class CatalogService:
 
             for line in order.lines:
                 decision = decisions.get(line.digikey_part_number) or {}
-                if not decision.get('include'):
-                    lines_excluded += 1
-                    continue
 
-                part = parts.get(line.digikey_part_number)
-
+                # **Already captured is a fact about the line, not a decision
+                # about it**, so it is settled before the include gate below.
+                #
+                # The ordering is load-bearing and was wrong once: the review
+                # renders no "take this line" checkbox for a line already
+                # captured -- there is nothing to decide -- so ``include`` is
+                # always false for one. Gating here on ``include`` therefore
+                # made the "Update it?" tick-box (FR-014) dead through the form
+                # while passing a unit test that built the decision by hand, and
+                # counted every already-captured line as excluded, so a
+                # re-capture reported "2 skipped" rather than "2 already
+                # captured". PR #116 review.
+                #
                 # Re-checked inside the session rather than trusted from the
                 # review: the review ran against an earlier read.
                 existing = recorded.get(line.digikey_part_number)
@@ -1774,6 +1782,11 @@ class CatalogService:
                         lines_updated += 1
                     continue
 
+                if not decision.get('include'):
+                    lines_excluded += 1
+                    continue
+
+                part = parts.get(line.digikey_part_number)
                 reviewed = self._review_digikey_line(session, line, part, recorded)
                 product, created = self._digikey_product_for(
                     session, reviewed, line, part, decision
