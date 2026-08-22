@@ -132,6 +132,7 @@ does everything FR-021 requires.
 |---|---|---|
 | `DIGIKEY_CLIENT_ID` | unset | Its absence *is* "not configured" (FR-036) |
 | `DIGIKEY_CLIENT_SECRET` | unset | Untracked, `.env` only |
+| `DIGIKEY_ACCOUNT_ID` | unset | The DigiKey account number, sent as `X-DIGIKEY-Account-ID`. **Required** — without it every order call answers `400 Account ID must not be 0` |
 | `DIGIKEY_API_BASE` | `https://api.digikey.com` | Points at the sandbox during development and at the E2E fake during tests ([research §12](../research.md)) |
 
 Read in `config.py` beside the `GOOGLE_*` settings and following their shape. Secrets never

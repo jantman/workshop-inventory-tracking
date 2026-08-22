@@ -18,7 +18,9 @@ the first release. `CatalogService` already maps `1K` to the name `supplier_orde
 (`app/catalog_service.py:1702`) — the value simply had nowhere to go and ended up in a note.
 `app/exceptions.py` already defines an exception for each of the four failure states FR-038
 distinguishes. `app/services/listing_images.py` already establishes the "fast transactional
-write, slow network work afterwards" split that Story 3's datasheet and photo need. And
+write, slow network work afterwards" split that the datasheet and photo need — and the same
+module already argues the case for degrading one item rather than failing the whole capture,
+which is exactly what FR-041 asks for. And
 `app/static/js/scan-capture.js` navigates to whatever `url` the scan API returns without
 inspecting the outcome, so a fourth outcome needs no JavaScript at all.
 
@@ -40,7 +42,7 @@ package.** The `digikey-api` package on PyPI is rejected — it types prices as 
 a captured order is derived from its purchases ([research §6](./research.md)).
 
 **External interface**: DigiKey Product Information V4 and Order Status, 2-legged OAuth
-(`client_credentials`), 120 requests/minute and 1,000/day — orders of magnitude more than a
+(`client_credentials`) plus an `X-DIGIKEY-Account-ID` header, 120 requests/minute and 1,000/day — orders of magnitude more than a
 workshop that orders once a fortnight needs. Full contract in
 [contracts/digikey-api.md](./contracts/digikey-api.md).
 
@@ -54,9 +56,10 @@ Dockerfile.
 
 **Project Type**: Server-rendered Flask web application.
 
-**Performance Goals**: A capture is a request the operator waits a couple of seconds for. One
-API call per capture (two if the order date needs the history endpoint), 10-second timeout,
-no caching, no retries, no async. SC-004's ten-seconds-per-bag is dominated by the operator
+**Performance Goals**: One order call plus one part call per line — a v4 order line carries no
+manufacturer, category, datasheet or parametric detail. For a 24-line order that is ~25 calls
+and roughly ten to fifteen seconds, the same order as the Amazon gallery fetch the user manual
+already sets expectations for. 10-second timeout, no caching, no retries, no async. SC-004's ten-seconds-per-bag is dominated by the operator
 picking up the next bag.
 
 **Constraints**: Prices are `Decimal` end to end — the response body is parsed with
@@ -65,8 +68,12 @@ leave nothing partially recorded, which is why the whole order writes in one ses
 
 **Scale/Scope**: An order of 20–40 lines. A few thousand purchases over the application's life.
 
-**Unresolved**: none blocking. One assumption is *gated* rather than assumed —
-[research §2](./research.md) — see Risks below.
+**Verified**: `T001` ran against the live production API on 2026-08-22 —
+[verification.md](./verification.md). R1 and R3 are closed, R2 materialized and cost one mapping
+table, and one requirement appeared that the plan did not anticipate: `X-DIGIKEY-Account-ID`,
+hence a third setting `DIGIKEY_ACCOUNT_ID`.
+
+**Unresolved**: none.
 
 ## Constitution Check
 
@@ -74,10 +81,10 @@ leave nothing partially recorded, which is why the whole order writes in one ses
 
 | Principle | Pre-design | Post-design |
 |---|---|---|
-| **I. Simplicity First** | Risk: an API integration invites a client library, a token store, a cache and a job runner | **PASS.** No new dependency; no new table; no new exception class; no cache, retry loop, queue or background job. Two config secrets plus a base URL. The one abstraction — a client returning dataclasses — exists because it is the seam that absorbs a v4 schema surprise, not for a second implementation |
+| **I. Simplicity First** | Risk: an API integration invites a client library, a token store, a cache and a job runner | **PASS.** No new dependency; no new table; no new exception class; no cache, retry loop, queue or background job. Two secrets, an account number and a base URL. The one abstraction — a client returning dataclasses — exists because it is the seam that absorbs a v4 schema surprise, not for a second implementation |
 | **II. Layered Architecture** | Risk: routes calling an HTTP client and the ORM in the same breath | **PASS.** `app/services/digikey.py` imports `requests`, the stdlib and `app.models` only — no Flask, no `app.database`. Writes go through `CatalogService`. Routes call the client, call a service, render. Same two-call shape `product_capture` already has |
 | **III. Exact Numerics** | Risk: JSON `1.53` decodes to `float` by default, and every generated DigiKey client types prices as `float` | **PASS.** `json.loads(body, parse_float=Decimal)`; `response.json()` prohibited in this module; the `digikey-api` package rejected for exactly this; a unit assertion on `isinstance(..., Decimal)` is written first |
-| **IV. Test Discipline** | Risk: unit tests run with the network blocked | **PASS.** The client is injected via `app.config['DIGIKEY_CLIENT']`, mirroring `STORAGE_BACKEND`. Fixtures are recorded from the real API in `T001`, redacted. E2E uses a loopback fake — which is why `DIGIKEY_API_BASE` is a present need, not a speculative knob. No new pytest marker. Waiting rules called out in [quickstart §3](./quickstart.md) |
+| **IV. Test Discipline** | Risk: unit tests run with the network blocked | **PASS.** The client is injected via `app.config['DIGIKEY_CLIENT']`, mirroring `STORAGE_BACKEND`. Fixtures were recorded from the real API in `T001` and redacted. E2E uses a loopback fake — which is why `DIGIKEY_API_BASE` is a present need, not a speculative knob. No new pytest marker. Waiting rules called out in [quickstart §3](./quickstart.md) |
 | **V. MariaDB Source of Truth** | Risk: caching DigiKey's answer in a table | **PASS.** One reversible Alembic revision; the downgrade is exercised in [quickstart §1](./quickstart.md); the `create_all`-vs-Alembic drift trap the codebase already warns about is checked explicitly. Nothing from DigiKey is cached — the order is re-fetched at confirmation and the fetched order is the authority |
 | **VI. Item Lifecycle Invariants** | N/A | **PASS.** No route, query or migration in this feature reads or writes `inventory_items`. This is the product catalog |
 | **Threat model** | Risk: SSRF/allow-list reflexes around outbound HTTP | **PASS.** One hard-coded host from configuration, LAN-only app, one trusted operator. No allow-list, no sanitization layer. Secrets live in `.env` and are never committed. CSRF stays on for the new routes; unlike the Amazon bookmarklet they post from this application's own origin, so **no CSRF exemption is added** |
@@ -128,7 +135,7 @@ app/
 │   └── digikey_order.html       # NEW — the captured order, derived
 └── exceptions.py                # unchanged
 
-config.py                        # + DIGIKEY_CLIENT_ID / _SECRET / _API_BASE, beside GOOGLE_*
+config.py                        # + DIGIKEY_CLIENT_ID / _SECRET / _ACCOUNT_ID / _API_BASE
 migrations/versions/<rev>_*.py   # NEW. add_column + create_index; reversible
 
 tests/
@@ -156,11 +163,11 @@ spec's priorities:
 
 | Stage | Delivers | Depends on |
 |---|---|---|
-| **0** | `T001` — verify the API against a real order; record and redact fixtures | Nothing. **Run first** |
+| **0** | ~~`T001` — verify the API against a real order; record and redact fixtures~~ | **DONE 2026-08-22** — [verification.md](./verification.md) |
 | **1** | The column + migration, the client, the dataclasses | Stage 0's fixtures |
 | **2** | **US1** — capture an order (entry, review, confirm, order screen) | Stage 1 |
 | **3** | **US2** — receive by scanning (the fourth outcome, the quantity prefill) | Stage 2 |
-| **4** | **US3** — capture a single part (part lookup, specifications, datasheet, photo) | Stage 1 |
+| **4** | **US3** — capture a single part by number or URL. *Smaller than planned*: the part lookup, specifications merge and attachment handling all land in Stage 2 as US1's enrichment; this stage adds the entry point and the URL parsing | Stage 1 |
 | **5** | **US4** — the four failure messages, and the not-configured path on every entry point | Stages 2–4 |
 
 Stage 2 is a shippable MVP on its own: orders are recorded, the reorder list stops suggesting
@@ -171,9 +178,10 @@ on Stages 2–3 and could be built in parallel.
 
 | # | Risk | Mitigation |
 |---|---|---|
-| **R1** | **The largest.** Order Status may refuse a non-business account, or 2-legged OAuth may not see this account's orders. DigiKey's FAQ requires a Credit account "before API orders can be *placed*" — scoped to the Ordering API, but untested for Order Status | `T001` verifies against the live API **before any code is written**. Two documented outcomes: fall back to 3-legged (one extra module, no other change), or **stop and report** — if this account cannot read its own orders, US1 is not buildable as specified and that is the user's call, not something to route around by scraping |
-| R2 | v4 response field names may differ from the v3 record | The mapping lives in one module behind dataclasses. Fixtures are recorded from the real API, and the mapping is written from the file rather than from memory |
-| R3 | The sales-order response may carry no order date | Two fallbacks, neither structural: the orders-history endpoint, then today's date — which is what `capture_order` already defaults to |
+| ~~R1~~ | ~~Order Status may refuse a non-business account~~ | **CLOSED by `T001`.** 2-legged reads a personal account's orders. It needed `X-DIGIKEY-Account-ID`, which was a missing request field, not a permission |
+| ~~R2~~ | ~~v4 field names may differ from the v3 record~~ | **MATERIALIZED AND RESOLVED.** Most line fields were renamed and `Manufacturer` is absent entirely. Cost one mapping table written from the live response — which is precisely the outcome gating it was meant to buy |
+| ~~R3~~ | ~~The response may carry no order date~~ | **CLOSED.** `DateEntered` is present; the two-step fallback is deleted |
+| **R6** | **New.** Capture now makes one part call per line, so US1's wall-clock grows with order size and a flaky part endpoint touches every capture | FR-041 splits the failure modes: a failed *order* read refuses the capture, a failed *part* read degrades one line. No caching until a measurement justifies it (Principle I) |
 | R4 | A scanner wedge that swallows `GS` separators breaks label parsing | Pre-existing and already documented in the user manual. This feature is the first that fails *visibly* without it, which is an improvement on failing silently |
 | R5 | A DigiKey product URL may not yield a resolvable part number | Read the MPN from the path; anything unresolvable is FR-032 — say so, offer the ordinary form, never guess |
 

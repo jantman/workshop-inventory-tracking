@@ -38,8 +38,9 @@
 - Domain vocabulary the spec uses without defining — `MPN`, `DISTRIBUTOR`, "format-06
   label", outstanding-vs-received — is the catalog's existing, documented vocabulary
   (`docs/user-manual.md`, `specs/001-product-catalog/`), not new implementation detail.
-- Two assumptions are worth revisiting at `/speckit-plan` time because they depend on facts
-  about DigiKey rather than about this application: that order data and part data are
-  separably authorized (FR-035), and that an order is readable back by its sales order
-  number shortly after it is placed. Both are recorded in **Assumptions** with the
-  consequence of being wrong stated.
+- Both DigiKey-dependent assumptions were settled by `T001` on 2026-08-22
+  ([verification.md](../verification.md)): an order *is* readable back by its sales order
+  number, and order access and part access are **not** separately authorized, which makes
+  FR-035 vacuous rather than unmet. A third setting appeared that the spec had not
+  anticipated — the account number — and FR-040/FR-041 were added when capture turned out to
+  need a part lookup per line.

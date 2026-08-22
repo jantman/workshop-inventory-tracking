@@ -53,7 +53,14 @@ caveat is exactly that).
 Token lifetimes, from DigiKey's own flow documentation: 2-legged access token **10 minutes**;
 3-legged access token 30 minutes with a refresh token that **does not expire**.
 
-**This is the plan's single largest unverified assumption**, and it is gated rather than
+> **RESOLVED 2026-08-22 — see [verification.md](./verification.md).** 2-legged works against a
+> personal account. No Credit account, no 3-legged flow, no token file. One thing this section
+> did not anticipate: a 2-legged token carries no user context, so every order endpoint answers
+> `400 Account ID must not be 0` until `X-DIGIKEY-Account-ID` names the account. That is a third
+> setting, `DIGIKEY_ACCOUNT_ID`. The fallbacks below were not needed and are kept as the record
+> of what was considered.
+
+**This was the plan's single largest unverified assumption**, and it was gated rather than
 assumed. `T001` in tasks is a manual verification against the real API with a real sales order
 number, run *before* any capture code is written. Two ways it can come back:
 
@@ -136,8 +143,15 @@ run-together string.
 **Decision**: Parse into our own frozen dataclasses (§7 of `data-model.md`), never pass
 DigiKey's JSON past `app/services/digikey.py`.
 
-**Order Status — confirmed for v3, to be re-confirmed for v4 in `T001`.** The v3 generated
-models give:
+> **SUPERSEDED 2026-08-22.** `T001` ran and v4 renamed most of these. The authority is now
+> [contracts/digikey-api.md](./contracts/digikey-api.md) §3–4, written from the live response.
+> The headline changes: `DigiKeyPartNumber` → `DigiKeyProductNumber`,
+> `ManufacturerPartNumber` → `ManufacturerProductNumber`, `ProductDescription` → `Description`,
+> `Quantity` → `QuantityOrdered`, `PoLineItemNumber` is `null` (use `DetailId`), and **there is
+> no `Manufacturer` on a line at all**. `DateEntered` *is* present, so the date fallback below
+> is unnecessary. The v3 record is kept for the diff.
+
+**Order Status — the v3 record, superseded above.** The v3 generated models give:
 
 *Sales order*: `SalesorderId`, `CustomerId`, `BillingAccount`, `Email`, `PurchaseOrder`,
 `PaymentMethod`, `Supplier`, `ShippingMethod`, `ShipmentType`, `Currency`, `ShippingAddress`,
@@ -338,8 +352,9 @@ as the storage backend (`app.config['STORAGE_BACKEND']`), so a test injects a fa
 
 | # | Risk | Where it bites | Mitigation |
 |---|---|---|---|
-| R1 | Order Status may refuse a non-business account, or 2-legged may not see this account's orders | US1 unbuildable as written | `T001` verifies against the live API before any code; §2 states both fallbacks and the report-back |
-| R2 | v4 response field names differ from the v3 record in §5 | The client's mapping | Fixtures recorded from the real API in `T001`; the mapping is one module |
-| R3 | The sales-order response may carry no order date | FR-008 | Two fallbacks in §5, neither structural |
+| ~~R1~~ | ~~Order Status may refuse a non-business account~~ | — | **CLOSED.** 2-legged works; it needed `X-DIGIKEY-Account-ID` |
+| ~~R2~~ | ~~v4 field names differ from the v3 record~~ | — | **MATERIALIZED AND RESOLVED.** Most were renamed; cost one mapping table. This is what `T001` was for |
+| ~~R3~~ | ~~The sales-order response may carry no order date~~ | — | **CLOSED.** `DateEntered` is present; the fallback is removed |
+| R6 | Capture now makes one part call per line, so a slow or flaky part endpoint stretches a capture | US1 wall-clock | FR-041 — a failed part call degrades that line, never the capture. No caching until there is a measurement (Principle I) |
 | R4 | A wedge that eats `GS` separators breaks label scanning | US2 | Pre-existing and already documented in the user manual; not introduced here |
 | R5 | A DigiKey product URL may not carry a resolvable MPN | US3 | §11 — refuse plainly per FR-032 rather than guess |

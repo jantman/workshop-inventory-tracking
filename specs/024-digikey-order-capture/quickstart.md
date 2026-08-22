@@ -13,9 +13,16 @@ PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests
 
 ---
 
-## 0. The gate — run this first, before any code
+## 0. The gate — DONE
 
-**This is `T001`, and everything downstream depends on its answer** ([research §2](./research.md)).
+**`T001` ran on 2026-08-22 and passed: outcome (a), build as planned.** Findings in
+[verification.md](./verification.md); fixtures recorded and redacted at
+`tests/fixtures/digikey/`. The steps below are kept as the record of what was run, and as the
+recipe for re-recording a fixture or onboarding a second account.
+
+Three things it changed: `X-DIGIKEY-Account-ID` is required (a third setting), the v4 line-item
+field names differ from v3's throughout, and `DateEntered` is present so the order-date fallback
+is gone.
 
 1. Register an application at `developer.digikey.com`, subscribe it to **Product Information**
    and **Order Status**, and put the credentials in `.env`:
@@ -29,6 +36,8 @@ PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests
    confirmation email, or from the `1K` field of a bag label:
 
    ```bash
+   # Every call also needs -H "X-DIGIKEY-Account-ID: $DIGIKEY_ACCOUNT_ID";
+   # without it the order endpoints answer 400 "Account ID must not be 0".
    TOKEN=$(curl -s -X POST https://api.digikey.com/v1/oauth2/token \
      -d "client_id=$DIGIKEY_CLIENT_ID" \
      -d "client_secret=$DIGIKEY_CLIENT_SECRET" \
@@ -40,11 +49,13 @@ PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests
      -H "Accept: application/json" | python3 -m json.tool
    ```
 
-3. Read the answer:
+3. Read the answer. **What happened on 2026-08-22**: `400 Account ID must not be 0` until
+   `X-DIGIKEY-Account-ID` was added, then `200` with both line items.
 
    | Result | What it means |
    |---|---|
-   | The order comes back with its line items | Build as planned |
+   | The order comes back with its line items | Build as planned — what happened |
+   | `400 Account ID must not be 0` | The account was not named. Add `X-DIGIKEY-Account-ID`; this is configuration, not authorization |
    | `401` / `403`, or an empty order | Switch to the 3-legged flow — [research §2](./research.md); one extra module, no other change |
    | A refusal naming the account type | **Stop and report.** User Story 1 may not be buildable for this account; that is a finding for the user, not something to route around |
 
@@ -60,9 +71,10 @@ PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests
    `BillingAccount`, `PaymentMethod`. The client never reads them and no test should carry
    them.
 
-5. Confirm the two field-name questions [research §5](./research.md) leaves open: does the
-   v4 sales-order response carry an order date, and do its line-item field names match the v3
-   record? Whatever the fixtures say is what the client's mapping is written from.
+5. Confirm the field names against the recorded fixture rather than against memory. Both
+   questions [research §5](./research.md) left open are now answered and recorded in
+   [contracts/digikey-api.md](./contracts/digikey-api.md) §3–4: `DateEntered` is present, and
+   the v4 line-item names differ from v3's throughout.
 
 ---
 
@@ -98,7 +110,7 @@ fixtures. What it proves:
 
 | File | Proves |
 |---|---|
-| `tests/unit/test_digikey_client.py` | The recorded JSON becomes the right dataclasses; **prices are `Decimal`, never `float`**; a missing field costs that field and nothing else; each failure state raises the exception [contracts/digikey-api.md](./contracts/digikey-api.md) §5 names |
+| `tests/unit/test_digikey_client.py` | The recorded JSON becomes the right dataclasses; **prices are `Decimal`, never `float`**; a missing field costs that field and nothing else; each failure state raises the exception [contracts/digikey-api.md](./contracts/digikey-api.md) §6 names |
 | `tests/unit/test_digikey_capture.py` | The four `OrderLineState` values are assigned correctly; a re-capture of an unchanged order writes nothing (FR-012, SC-003); an excluded line writes nothing (FR-007); an unresolved conflict refuses the whole capture (FR-015); a line with no MPN still captures (FR-016) |
 | `tests/unit/test_digikey_capture.py` (atomicity) | A failure part-way through a 24-line order leaves the product and purchase counts unchanged (FR-039, SC-009) |
 | `tests/unit/test_scan_resolution.py` | The `receive` outcome for a label matching an outstanding line; the order-line lookup running **before** the MPN lookup; unchanged behaviour when nothing matches (FR-024, FR-025) |
@@ -106,7 +118,8 @@ fixtures. What it proves:
 The price assertion is the one to write first and never delete:
 
 ```python
-assert order.lines[0].unit_price == Decimal('1.53')
+# The real values from tests/fixtures/digikey/salesorder.json.
+assert order.lines[0].unit_price == Decimal('6.5')
 assert isinstance(order.lines[0].unit_price, Decimal)
 ```
 
@@ -130,6 +143,8 @@ fixtures, with `DIGIKEY_API_BASE` pointed at it — the same shape
 | Enter a sales order number → the review lists every line, and the database is untouched | FR-003, FR-004 |
 | Confirm → one outstanding purchase per included line, with the right quantity and price | FR-008, SC-002 |
 | A line whose MPN is already cataloged shows as matched and attaches | FR-005, SC-005 |
+| Every line is enriched — the review shows a manufacturer the order response never sent | FR-040 |
+| A line whose part lookup fails is still captured, marked thin, and does not fail the capture | FR-041 |
 | Exclude a line → no product, no purchase, every other line captured | FR-007 |
 | Re-capture the same order → nothing new is recorded | FR-012, SC-003 |
 | Scan a bag label for an outstanding line → lands on that line's receive screen with the label's quantity | FR-019, FR-020, SC-004 |

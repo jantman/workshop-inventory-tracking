@@ -72,13 +72,13 @@ and is arguably the better behaviour.
 |---|---|---|
 | `product_id` | matched or newly created product | FR-005, FR-008 |
 | `vendor` | literal `'DigiKey'` | matches `_vendor_from_url`'s existing mapping |
-| `vendor_item_id` | line's `DigiKeyPartNumber` | half of the receive-scan key |
-| `supplier_order_reference` | order's `SalesorderId` | the other half; the new column |
+| `vendor_item_id` | line's `DigiKeyProductNumber` | half of the receive-scan key |
+| `supplier_order_reference` | order's `SalesOrderId` | the other half; the new column |
 | `order_reference` | order's `PurchaseOrder` | the customer's own PO, may be blank |
-| `listing_title` | line's `ProductDescription` | DigiKey's words, kept verbatim, as an Amazon listing title is |
+| `listing_title` | line's `Description` | DigiKey's words, kept verbatim, as an Amazon listing title is |
 | `listing_url` | `NULL` | there is no listing; a part page is not what was ordered |
-| `order_date` | order's date (see research §5) | falls back to today, as `capture_order` already does |
-| `quantity` | line's `Quantity` | |
+| `order_date` | order's `DateEntered` | verified present on v4; falls back to today if ever absent |
+| `quantity` | line's `QuantityOrdered` | |
 | `unit_price` | line's `UnitPrice` | `Decimal`, never `float` — research §3 |
 | `received_date` | `NULL` | FR-009: outstanding at capture, whatever the order's shipping state |
 
@@ -86,13 +86,16 @@ And on the product side:
 
 | Identifier | Value | Vendor scope |
 |---|---|---|
-| `MPN` | line's `ManufacturerPartNumber` | none (empty string) |
-| `DISTRIBUTOR` | line's `DigiKeyPartNumber` | `DigiKey` |
+| `MPN` | line's `ManufacturerProductNumber` | none (empty string) |
+| `DISTRIBUTOR` | line's `DigiKeyProductNumber` | `DigiKey` |
 | `INTERNAL` | generated | as for every product |
 
-`products.manufacturer` and `products.manufacturer_part_number` take the line's values;
-`products.description` takes what the operator authored, defaulting to DigiKey's description
-(FR-006).
+`products.manufacturer_part_number` takes the line's value and `products.description` takes
+what the operator authored, defaulting to DigiKey's description (FR-006).
+
+**`products.manufacturer` comes from the enrichment call, not from the order line** — a v4
+order line has no manufacturer name. So does the product's category, its datasheet, its photo
+and its parametric detail. See §3a.
 
 ---
 
@@ -107,16 +110,17 @@ that absorbs a v4 schema surprise (research §5, R2).
 
 | Field | Type | From |
 |---|---|---|
-| `line_number` | `str` | `PoLineItemNumber` |
-| `digikey_part_number` | `str` | `DigiKeyPartNumber` |
-| `manufacturer_part_number` | `str` | `ManufacturerPartNumber` — may be empty (FR-016) |
-| `manufacturer` | `str` | `Manufacturer` |
-| `description` | `str` | `ProductDescription` |
-| `quantity` | `Optional[int]` | `Quantity` |
+| `line_number` | `int` | `DetailId` — **`PoLineItemNumber` is `null` in v4** |
+| `digikey_part_number` | `str` | `DigiKeyProductNumber` |
+| `manufacturer_part_number` | `str` | `ManufacturerProductNumber` — may be empty (FR-016) |
+| `description` | `str` | `Description` |
+| `quantity` | `Optional[int]` | `QuantityOrdered` |
 | `unit_price` | `Optional[Decimal]` | `UnitPrice` |
 | `quantity_shipped` | `Optional[int]` | `QuantityShipped` |
-| `quantity_backorder` | `Optional[int]` | `QuantityBackorder` |
+| `quantity_backorder` | `Optional[int]` | `QuantityBackOrder` |
 | `country_of_origin` | `str` | `CountryOfOrigin` |
+
+There is **no** `manufacturer` field: a v4 order line does not carry one.
 
 `quantity_shipped` and `quantity_backorder` are display-only: they are what lets the review say
 "4 of 10 shipped, 6 on backorder" without inventing a partial-receipt state the model does not
@@ -126,27 +130,30 @@ have.
 
 | Field | Type | From |
 |---|---|---|
-| `sales_order_number` | `str` | `SalesorderId`, as a string — it is a reference, never arithmetic |
+| `sales_order_number` | `str` | `SalesOrderId`, as a string — it is a reference, never arithmetic |
 | `purchase_order` | `str` | `PurchaseOrder` |
-| `order_date` | `Optional[datetime]` | see research §5 and its two fallbacks |
+| `order_date` | `Optional[datetime]` | `DateEntered`, verified present |
 | `currency` | `str` | `Currency`, recorded and displayed, never converted |
 | `lines` | `Tuple[DigiKeyOrderLine, ...]` | `LineItems` |
 
-### `DigiKeyPart` (Story 3)
+### `DigiKeyPart`
 
-| Field | Type |
-|---|---|
-| `digikey_part_number` | `str` |
-| `manufacturer_part_number` | `str` |
-| `manufacturer` | `str` |
-| `description` | `str` |
-| `detailed_description` | `str` |
-| `datasheet_url` | `str` |
-| `photo_url` | `str` |
-| `product_url` | `str` |
-| `category_path` | `str` — DigiKey's category, offered as a suggestion, never imposed |
-| `unit_price` | `Optional[Decimal]` |
-| `parameters` | `Tuple[Tuple[str, str], ...]` — `(ParameterText, ValueText)` pairs, order preserved |
+Used by **both** Story 1 (enrichment, §3a) and Story 3 (capturing one part). Several v4 fields
+are nested objects rather than flat strings:
+
+| Field | Type | v4 path |
+|---|---|---|
+| `digikey_part_number` | `str` | `Product.ProductVariations[]` |
+| `manufacturer_part_number` | `str` | `Product.ManufacturerProductNumber` |
+| `manufacturer` | `str` | `Product.Manufacturer.Name` — **nested** |
+| `description` | `str` | `Product.Description.ProductDescription` — **nested** |
+| `detailed_description` | `str` | `Product.Description.DetailedDescription` — **nested** |
+| `datasheet_url` | `str` | `Product.DatasheetUrl` |
+| `photo_url` | `str` | `Product.PhotoUrl` |
+| `product_url` | `str` | `Product.ProductUrl` |
+| `category_path` | `str` | `Product.Category.Name` — a suggestion, never imposed |
+| `unit_price` | `Optional[Decimal]` | `Product.UnitPrice` |
+| `parameters` | `Tuple[Tuple[str, str], ...]` | `Product.Parameters[]`, order preserved |
 
 `parameters` becomes product specifications (FR-030), through the same merge rule captured
 listings already use: **a specification the operator has edited wins and is not examined.**
@@ -159,6 +166,28 @@ listings already use: **a specification the operator has edited wins and is not 
   a field must cost that field and nothing else — the same rule the capture agent follows.
 - Construction never raises on a well-formed JSON object. A response that is not one is the
   client's problem (research §7), not the dataclass's.
+
+---
+
+## 3a. In-flight: enrichment
+
+A v4 order line carries the two part numbers, a description, a quantity and a price — and
+nothing else. Manufacturer, category, datasheet, photo and parametric detail all come from one
+`DigiKeyPart` per line, fetched separately
+([contracts/digikey-api.md](./contracts/digikey-api.md) §5).
+
+`ReviewedLine` therefore carries an optional `part: Optional[DigiKeyPart]`, and its absence is
+an ordinary state rather than an error:
+
+| `part` | Means | Review shows |
+|---|---|---|
+| Set | The lookup succeeded | Manufacturer, category, parameter count, datasheet present |
+| `None` | The lookup failed or the part is unknown to DigiKey | The line, marked as having come back thin |
+
+**A `None` here never blocks a capture.** The line still becomes a purchase carrying everything
+the order gave. Only a failed *order* fetch fails a capture — the distinction
+[contracts/digikey-api.md](./contracts/digikey-api.md) §5 sets out, and the same one
+`listing_images.py` already makes.
 
 ---
 
@@ -183,6 +212,7 @@ The four are exclusive and tested in that order.
 | Field | Type | Note |
 |---|---|---|
 | `line` | `DigiKeyOrderLine` | |
+| `part` | `Optional[DigiKeyPart]` | The enrichment (§3a). `None` is ordinary, never an error |
 | `state` | `OrderLineState` | |
 | `suggested_description` | `str` | DigiKey's description, trimmed to the 255-character column limit (FR — the "too long" edge case) |
 | `product_id` | `Optional[int]` | Set for `MATCHED`, `CONFLICT`, `CAPTURED` |
@@ -284,7 +314,8 @@ The derived order state follows from its lines and is not stored:
 | A line with no MPN is still capturable | FR-016 | No required-field check on `manufacturer_part_number` |
 | A description over 255 characters is refused, not truncated | Edge case | Route, at the point of entry, with the limit stated |
 | A blank description falls back to DigiKey's | FR-006 | Write method |
-| Prices are `Decimal` | Constitution III | `json.loads(..., parse_float=Decimal)` in the client |
+| Prices are `Decimal` | Constitution III | `json.loads(..., parse_float=Decimal)` in the client — verified on live data |
+| A failed part lookup costs that line's detail only | FR-041 | `ReviewedLine.part is None`; the capture proceeds |
 | A failed capture writes nothing | FR-039 | One `_session()` for the whole order — research §9 |
 | A hand-edited specification is not overwritten | FR-030 | The existing capture merge rule |
 
