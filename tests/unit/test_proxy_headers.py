@@ -247,7 +247,18 @@ class TestAMalformedPortIsRefused:
     """
 
     @pytest.mark.parametrize(
-        'port', ['not-a-port', '15603abc', '-1', '15603 80', ''],
+        'port',
+        [
+            'not-a-port', '15603abc', '-1', '15603 80', '',
+            # Numeric but out of range. `isdigit` alone admits these, and
+            # `get_host` keeps them because its check is character-class based
+            # rather than range based -- so the believed host would carry
+            # `:99999999`, and `same_origin` *raises* `ValueError: Port out of
+            # range 0-65535` rather than returning False. Every secure write
+            # becomes an unhandled 500 instead of a readable 400: reads healthy,
+            # writes failing, which is the exact shape of the bug this fixes.
+            '65536', '99999999',
+        ],
     )
     def test_the_arriving_host_stands(self, believing_client, port):
         response, believed = believing_client(
@@ -259,3 +270,18 @@ class TestAMalformedPortIsRefused:
         assert believed['host'] == 'titan.example.com'
         assert endpoint == 'https://titan.example.com/api/capture'
         assert 'https:///' not in agent
+
+    def test_the_highest_real_port_is_still_honoured(self, believing_client):
+        """The bound must reject what cannot be a port, not what is unusual.
+
+        65535 is a legal port. A guard that turned "reject the absurd" into
+        "reject the unfamiliar" would be a new version of the defect this
+        feature exists to fix -- a deployment that works, refusing to believe
+        its own address.
+        """
+        _, believed = believing_client(
+            '/products/capture',
+            headers={**PROXY_HEADERS, 'X-Forwarded-Port': '65535'},
+        )
+
+        assert believed['host'] == 'titan.example.com:65535'

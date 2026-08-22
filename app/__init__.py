@@ -25,12 +25,22 @@ def _drop_malformed_forwarded_port(wsgi_app):
     falling back to the arriving host restores exactly that. `isascii` because
     `isdigit` alone accepts non-ASCII digits, which are not valid in a host.
 
-    No range check. A well-formed but wrong port produces a visibly wrong
-    address the operator can read and correct, the same as a wrong hostname.
+    Digits are not sufficient on their own. `get_host` checks characters, not
+    range, so `:99999999` survives into request.host -- and Flask-WTF's
+    referrer check compares `urlparse(...).port`, which *raises* `Port out of
+    range 0-65535` rather than returning False. That turns every secure write
+    into an unhandled 500: reads healthy, writes failing, which is the shape of
+    the bug this guard exists alongside. Hence the bound.
+
+    Bounded and no further. A port that is wrong but real -- 9090 when the
+    proxy is on 15603 -- is left alone to produce a visibly wrong address and a
+    readable 400, the same as a wrong hostname would.
     """
     def middleware(environ, start_response):
         port = environ.get('HTTP_X_FORWARDED_PORT')
-        if port is not None and not (port.isascii() and port.isdigit()):
+        if port is not None and not (
+            port.isascii() and port.isdigit() and int(port) <= 65535
+        ):
             del environ['HTTP_X_FORWARDED_PORT']
         return wsgi_app(environ, start_response)
 
