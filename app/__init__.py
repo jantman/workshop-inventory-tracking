@@ -68,6 +68,7 @@ def create_app(config_class=Config, storage_backend=None):
     # with "The referrer does not match the host", because that check compares
     # the referrer against request.host. Reads were unaffected, which is why
     # the deployment looked healthy until someone tried to save something.
+    #
     # The guard wraps ProxyFix rather than the other way round: it has to
     # clear the header before ProxyFix reads it.
     app.wsgi_app = _drop_malformed_forwarded_port(
