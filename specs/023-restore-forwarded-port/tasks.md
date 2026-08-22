@@ -167,10 +167,12 @@ the deployment stays broken, and SC-001, SC-002, SC-003 and SC-007 cannot be che
 - [X] T024 Apply the `X-Forwarded-Port` line from [contracts/proxy-headers.md](contracts/proxy-headers.md) to the deployment's proxy configuration and reload it
 - [X] T025 Verify SC-003 and the contract: `curl -s https://titan.jasonantman.com:15603/products/capture | grep -o 'id="capture-bookmarklet"[^>]*'` — both addresses must read `https://titan.jasonantman.com:15603/...`. If the port is still absent here, the proxy is not sending the header and no further application change will help
 - [X] T026 Verify SC-001 (User Story 1, the criterion that matters most): in a browser over `https` on `:15603`, edit an item and save. The change must be written, and specifically must **not** return `400 Bad Request — The referrer does not match the host`
-- [~] T027 **Partially done** — the agent script at the bookmarklet's address answers 200
-  (`text/javascript`, 45,950 bytes), which is the step this defect broke. The end-to-end
-  journey still needs a signed-in browser and writes a real product. Remaining: verify SC-002 (User Story 2): drag the bookmarklet **fresh** from `/products/capture` — not a previously dragged one, and with no hand-correction of its address, which is how #113's verification worked around this — and click it on an Amazon listing. A tab must open on the confirmation page. This is #80 §1a check A1, which passed before 2026-08-19 and fails today
-- [~] T028 Results recorded in `specs/023-restore-forwarded-port/verification.md`. Remaining: and comment them on issue #114, then close it
+- [X] T027 **Done.** The agent script at the bookmarklet's address answers 200
+  (`text/javascript`, 45,950 bytes), and the owner confirmed the end-to-end journey by hand on
+  2026-08-22 against `B0G43FCHFX` — the listing the defect was found on. SC-002 satisfied.
+  Original text: verify SC-002 (User Story 2): drag the bookmarklet **fresh** from `/products/capture` — not a previously dragged one, and with no hand-correction of its address, which is how #113's verification worked around this — and click it on an Amazon listing. A tab must open on the confirmation page. This is #80 §1a check A1, which passed before 2026-08-19 and fails today
+- [X] T028 Results recorded in `specs/023-restore-forwarded-port/verification.md`; #114 closes via
+  the PR's `Fixes` line. Original text: and comment them on issue #114, then close it
 - [ ] T029 Comment on #113 that its blocked step — confirming a capture and measuring a stored file to show every gallery image is a full-resolution original (022 SC-010 / #80 §1b B4) — is now unblocked. **Do not close it**: T026 proves the write path works, it does not perform that measurement, and the spec puts it explicitly out of scope
 
 ---

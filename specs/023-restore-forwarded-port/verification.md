@@ -45,19 +45,32 @@ is what it compares — it is the defect reproduced deliberately, from the other
 Nothing was written: A's redirect lands on the categories page showing the `required`
 validation error, which is the rollback path, and the page is intact afterwards.
 
-## SC-002 / T027 — the bookmarklet ⚠️ partially verified
+## SC-002 / T027 — the bookmarklet ✅
 
-The load step is confirmed: the agent script at the bookmarklet's own address answers
-`HTTP 200`, `text/javascript`, 45,950 bytes. That is the step this feature broke — the
-address was unreachable, so the script never loaded and clicking did nothing.
+The load step is confirmed by fetch: the agent script at the bookmarklet's own address
+answers `HTTP 200`, `text/javascript`, 45,950 bytes. That is the step this feature broke —
+the address was unreachable, so the script never loaded and clicking did nothing.
 
-What is **not** verified here is the end-to-end journey: dragging the bookmarklet, clicking
-it on a live Amazon listing, and landing on the confirmation page. It needs a signed-in
-browser, and completing it performs a real capture that writes a product. #80 §1a check A1
-is the existing form of it.
+The end-to-end journey was then confirmed by the owner by hand on 2026-08-22, in their own
+signed-in browser, against **`B0G43FCHFX`** — the same listing the defect was found on. A
+freshly dragged bookmarklet loads its agent and lands on the confirmation page. That is
+#80 §1a check A1, which passed before 2026-08-19 and had failed since.
+
+Clicking the bookmarklet writes nothing, so this cost no data: `api_capture` renders the
+confirmation form for a form body and only a JSON body writes. An abandoned capture leaves
+no record to clean up.
 
 ## Out of scope, still
 
 022 SC-010 / #80 §1b B4 — confirming a capture and measuring a stored file to show every
 gallery image is a full-resolution original — belongs to #113. SC-001 above unblocks it. It
 is not done, and this record does not close it.
+
+
+## What the deployment is running
+
+Still the `ci-1534b60e…` image, by choice — the release image is deliberately not being
+deployed yet while other work is in flight. Merging #115 cuts `v0.1.1` and publishes
+`:0.1.1` / `:latest`, which is what should be pinned whenever the deployment is next moved.
+Until then the deployed build is a per-commit CI artifact, which is fine and is exactly the
+code that was verified above, but is not a release.
