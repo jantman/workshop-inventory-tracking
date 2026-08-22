@@ -17,6 +17,7 @@ there the wait is on the order screen's own content, never on the button.
 
 import json
 import threading
+from contextlib import contextmanager
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -79,13 +80,16 @@ class _DigiKeyHandler(BaseHTTPRequestHandler):
             self._send(404, '{}')
 
 
-@pytest.fixture
-def digikey_api(live_server):
+@contextmanager
+def digikey_fake_server(live_server):
     """Stand DigiKey up on loopback and point the running app at it.
 
-    The app is session-scoped, so the previous client is put back afterwards --
-    a test that leaves the application pointing at a dead port would fail every
-    test after it, somewhere unrelated.
+    A context manager rather than only a fixture, because the screenshot suite
+    needs it too and screenshot tests are collected separately.
+
+    The app is session-scoped, so the previous client is put back on the way out
+    -- leaving the application pointing at a dead port would fail every test
+    after it, somewhere unrelated.
     """
     from app.services.digikey import DigiKeyClient
 
@@ -107,6 +111,13 @@ def digikey_api(live_server):
         live_server.app.config['DIGIKEY_CLIENT'] = previous
         server.shutdown()
         server.server_close()
+
+
+@pytest.fixture
+def digikey_api(live_server):
+    """The context manager above, as a fixture."""
+    with digikey_fake_server(live_server) as server:
+        yield server
 
 
 def review_order(page, live_server, number=SALES_ORDER):

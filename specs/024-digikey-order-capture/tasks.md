@@ -213,12 +213,12 @@ application as it was.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T056 [P] Document the feature in `docs/user-manual.md`: capturing a DigiKey order, the order screen, receiving by scanning a bag, capturing a single part, and setting up the connection. Correct the existing claim at `specs/001-product-catalog/data-model.md:70` that `order_reference` is "also filled from ECIA `K` / `1K`" — only `K` ever reached it, and now `1K` has its own column
-- [ ] T057 [P] Update `_bmad-output/project-context.md` with the new configuration settings and the `app/services/digikey.py` module boundary, if the stack summary there is now incomplete
-- [ ] T058 Regenerate documentation screenshots for the three new templates: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_headless`, then `nox -s screenshots_verify`. Screenshots churn on every run — review the diff and commit only what actually changed
-- [ ] T059 Run the full gates: `nox -s tests` and `nox -s e2e` (**15-minute tool timeout**). Confirm `nox -s e2e` leaves the working tree clean
+- [x] T056 [P] Document the feature in `docs/user-manual.md`: capturing a DigiKey order, the order screen, receiving by scanning a bag, capturing a single part, and setting up the connection. Correct the existing claim at `specs/001-product-catalog/data-model.md:70` that `order_reference` is "also filled from ECIA `K` / `1K`" — only `K` ever reached it, and now `1K` has its own column
+- [x] T057 [P] Update `_bmad-output/project-context.md` with the new configuration settings and the `app/services/digikey.py` module boundary, if the stack summary there is now incomplete
+- [x] T058 Regenerate documentation screenshots for the three new templates: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s screenshots_headless`, then `nox -s screenshots_verify`. Screenshots churn on every run — review the diff and commit only what actually changed
+- [x] T059 Run the full gates: `nox -s tests` and `nox -s e2e` (**15-minute tool timeout**). Confirm `nox -s e2e` leaves the working tree clean
 - [ ] T060 Work through [quickstart.md](./quickstart.md) §5 — the checks only reality can make: capture a real order and reconcile it line by line; **receive a real bag with the real wedge** (the only proof the scanner transmits the `GS` separators); a partially shipped order; a re-capture of an order that changed; and revoked credentials. Record the results in `specs/024-digikey-order-capture/verification.md` the way `specs/023-restore-forwarded-port/` did
-- [ ] T061 [P] Confirm `grep -ric "catalogue" README.md docs/ app/ tests/` returns nothing, and that `.env`, `credentials.json` and `token.json` are still untracked
+- [x] T061 [P] Confirm `grep -ric "catalogue" README.md docs/ app/ tests/` returns nothing, and that `.env`, `credentials.json` and `token.json` are still untracked
 
 ---
 

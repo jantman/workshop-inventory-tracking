@@ -27,6 +27,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Testing:** nox + pytest 9.1.1, pytest-flask, pytest-playwright 0.8.0 + Playwright 1.61.0 (e2e), testcontainers[mysql] 4.14.2 (integration)
 - **Other:** PyMuPDF 1.28.0 (PDF), Pillow 12.3.0 (images), pt-p710bt-label-maker (Brother label printing via git dependency)
 - **Config:** python-dotenv 1.2.2 — settings loaded from `.env`; `SQLALCHEMY_DATABASE_URI` read directly
+- **DigiKey API** (feature 024): `app/services/digikey.py`, `requests` + stdlib only. 2-legged OAuth (`client_credentials`) plus an `X-DIGIKEY-Account-ID` header — without that header every order endpoint answers `400 Account ID must not be 0`, which is *configuration*, not authorization. Settings: `DIGIKEY_CLIENT_ID`, `DIGIKEY_CLIENT_SECRET`, `DIGIKEY_ACCOUNT_ID`, `DIGIKEY_API_BASE`. Unset client id = not configured, which is an ordinary state.
 - **Serving/packaging:** gunicorn 26.0.0 behind the `Dockerfile` (python:3.13-slim, `linux/amd64`, non-root, migrations NOT auto-run). Images publish to `ghcr.io/jantman/workshop-inventory-tracking`.
 - **Versioning:** SemVer. `version` in `pyproject.toml` is the single source of truth; `app/version.py` reads it at runtime. `pyproject.toml` is metadata only — the app is never pip-installed as a package.
 
@@ -93,6 +94,10 @@ The e2e suite took 22m 27s until `specs/002-e2e-test-performance/`, over half of
 - **Prefer the legacy `Query` API for consistency** — the codebase runs on SQLAlchemy 2.0.51 but overwhelmingly uses `session.query(...)`. Match the surrounding file; don't refactor working `query()` code to `select()` gratuitously. Always wrap raw SQL strings in `sqlalchemy.text(...)`.
 - **Don't bypass the `Storage`/service layers** by putting raw SQL or ORM queries in routes — go through `MariaDBStorage` + the `*_service.py` layer.
 - **Don't use `float` for measurements** — `Decimal` only (see item dimensions / `ROUND_HALF_UP`).
+- **Never call `response.json()` in `app/services/digikey.py`** — it returns `float` prices. Parse with `json.loads(body, parse_float=Decimal)`. `tests/unit/test_digikey_client.py::TestNoResponseJson` walks the module's AST to enforce this; a text search would fire on the docstring explaining the ban.
+- **`app/services/digikey.py` imports nothing from the app but `models` and `exceptions`** — no Flask, no ORM, no config. The client is built in `create_app()` and stashed as `app.config['DIGIKEY_CLIENT']`, mirroring `STORAGE_BACKEND`; tests inject a fake there.
+- **A captured DigiKey order is derived, not stored.** It *is* the purchases carrying its `supplier_order_reference` (ECIA `1K`), the way the reorder list is derived. Do not add a `digikey_orders` table.
+- **`ScanResolution.outcome` has four members**, not three: `product`, `receive`, `create`, `search`. In the ECIA branch of `resolve_scan`, the order-line lookup **must run before** the `1P` → MPN lookup, or a bag for a part you already own opens the product page instead of its receipt.
 - **Don't treat Google Sheets as live storage** — it's export/legacy only; MariaDB is the source of truth.
 - **Items have history/lifecycle semantics** — JA-ID identifiers, parent-child relationships, and active/inactive shortening history (multi-row). Preserve active-status and history invariants when editing/moving/shortening items; there are dedicated e2e tests for these.
 - **Don't run `pytest` directly or skip the 20-min e2e timeout** — both break the intended test flow.
