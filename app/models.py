@@ -463,16 +463,28 @@ class ScanResolution:
     """The answer to 'which product is it, and what should happen next?'
 
     Produced by CatalogService.resolve_scan(). ``outcome`` is one of 'product',
-    'create' or 'search'; every well-formed scan gets one of the three, so no
-    scan dead-ends (FR-018, SC-008).
+    'create', 'search' or 'receive'.
 
-    ``product`` is typed loosely because app/models.py must not import
-    app/database.py -- the ORM depends on this module, not the other way round.
+    **This docstring used to say "three outcomes and no fourth".** Feature 024
+    added ``receive``: a bag from a captured DigiKey order is neither "here is
+    the product" nor "here is a blank draft", it is the receipt for one line of
+    one order, and encoding that as ``product`` plus a hint would make one
+    outcome mean two things. The requirements the old wording cited (001 FR-018,
+    SC-008) say that *nothing dead-ends*, and a fourth answer does not weaken
+    that -- the free-text rule still always matches.
+
+    ``product`` and ``purchases`` are typed loosely because app/models.py must
+    not import app/database.py -- the ORM depends on this module, not the other
+    way round.
     """
     outcome: str
     classification: 'ScanClassification'
     product: Optional[Any] = None            # Set iff outcome == 'product'
     prefill: Dict[str, str] = field(default_factory=dict)  # For outcome == 'create'
+    # For outcome == 'receive': the purchases the label's 1K and P name. May
+    # include already-received ones, so the route can tell "already received"
+    # apart from "no such line" (024 FR-023).
+    purchases: List[Any] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses"""
@@ -481,6 +493,7 @@ class ScanResolution:
             'classification': self.classification.to_dict(),
             'product': self.product.to_dict() if self.product is not None else None,
             'prefill': dict(self.prefill),
+            'purchases': [purchase.to_dict() for purchase in self.purchases],
         }
 
 

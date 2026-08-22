@@ -881,6 +881,7 @@ class CatalogService:
         quantity: Optional[int] = None,
         unit_price: Optional[Any] = None,
         order_reference: Optional[str] = None,
+        supplier_order_reference: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> Purchase:
         """Record one acquisition of a product (FR-004, FR-005).
@@ -897,7 +898,10 @@ class CatalogService:
             received_date: When it arrived. None means the order is outstanding.
             quantity: How many.
             unit_price: Price per unit, as a Decimal.
-            order_reference: Order number.
+            order_reference: The *customer's* order number -- ECIA ``K``.
+            supplier_order_reference: The *supplier's* order number -- ECIA
+                ``1K``, which for DigiKey is the sales order number. A different
+                number from the one above; both are printed on the same label.
             notes: Free text.
 
         Returns:
@@ -932,6 +936,7 @@ class CatalogService:
                 quantity=quantity,
                 unit_price=price,
                 order_reference=_clean(order_reference),
+                supplier_order_reference=_clean(supplier_order_reference),
                 notes=_clean(notes),
             )
             session.add(purchase)
@@ -1842,6 +1847,38 @@ class CatalogService:
                 .all()
             )
 
+    def find_receivable(
+        self, sales_order_number: str, digikey_part_number: str,
+    ) -> List[Purchase]:
+        """The purchases a scanned bag label names (FR-019).
+
+        A label's ``1K`` and ``P`` together identify one line of one order, so
+        this is normally a list of one. It can be longer when the same part was
+        ordered twice on one order, and the caller must then ask rather than pick
+        (FR-026).
+
+        **Received purchases are included**, deliberately. The caller needs to
+        tell "you already received this" (FR-023) apart from "this order has no
+        such line" (FR-024), and an outstanding-only filter collapses the two.
+        """
+        order_number = (sales_order_number or '').strip()
+        part_number = (digikey_part_number or '').strip()
+        if not order_number or not part_number:
+            return []
+
+        with self._session() as session:
+            return (
+                session.query(Purchase)
+                .options(selectinload(Purchase.product))
+                .filter(
+                    Purchase.vendor == DIGIKEY_VENDOR,
+                    Purchase.supplier_order_reference == order_number,
+                    Purchase.vendor_item_id == part_number,
+                )
+                .order_by(Purchase.id)
+                .all()
+            )
+
     # -- DigiKey internals -------------------------------------------------
 
     def _digikey_part(self, digikey_client, part_number: str):
@@ -2157,16 +2194,23 @@ class CatalogService:
     def resolve_scan(self, classification: ScanClassification) -> ScanResolution:
         """Turn "what kind of thing is this?" into "what should happen next?".
 
-        Three outcomes and no fourth: the scan is a product we hold, an offer to
-        create one with what was scanned already attached, or a search carrying
-        the raw text. A scan that matches nothing is answered, not refused
-        (FR-018, SC-008).
+        Four outcomes: the scan is a product we hold, a line of a captured
+        DigiKey order waiting to be received, an offer to create a product with
+        what was scanned already attached, or a search carrying the raw text. A
+        scan that matches nothing is answered, not refused (FR-018, SC-008).
+
+        **This said "three outcomes and no fourth" until feature 024.** The
+        requirements it cited say that nothing dead-ends, and the fourth answer
+        does not weaken that: the free-text rule below still always matches. What
+        changed is that a bag from a captured order has a better answer than
+        "here is the product" -- see the ECIA branch.
 
         Args:
             classification: The pure classifier's structural answer.
 
         Returns:
-            A ScanResolution with outcome 'product', 'create' or 'search'.
+            A ScanResolution with outcome 'product', 'receive', 'create' or
+            'search'.
         """
         kind = classification.kind
 
@@ -2189,6 +2233,26 @@ class CatalogService:
         if kind is ScanKind.ECIA:
             fields = classification.ecia_fields
             manufacturer_part_number = fields.get('1P', '')
+
+            # A bag from a captured DigiKey order: 1K names the order and P names
+            # the line within it (024 FR-019).
+            #
+            # **This runs before the MPN lookup below, and the order is
+            # load-bearing.** Capturing an order creates products carrying these
+            # part numbers, so the MPN lookup would match happily -- and a bag
+            # for a part you have bought before would open the product page
+            # instead of its receipt. That would satisfy FR-019 only for parts
+            # you have never bought, which is exactly backwards.
+            #
+            # Nothing matching falls through to the behaviour below unchanged
+            # (FR-024, FR-025).
+            receivable = self.find_receivable(
+                fields.get('1K', ''), fields.get('P', '')
+            )
+            if receivable:
+                return ScanResolution(
+                    'receive', classification, purchases=receivable
+                )
 
             if manufacturer_part_number:
                 product = self.find_product_by_identifier(

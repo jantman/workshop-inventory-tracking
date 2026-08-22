@@ -13,9 +13,14 @@ becomes the value rule 4 judges; (4) a check-digit-valid trade item number;
 anything else. Rules 3 and 4 share **one** arm on purpose -- see below.
 
 Classification is **structural only**. It takes text and returns a kind; it
-performs no database lookup. Turning a kind into a product -- including the one
-rule that genuinely needs a lookup, a vendor item id such as an ASIN, which has
-no distinguishing shape -- is CatalogService.resolve_scan()'s job.
+performs no database lookup. Turning a kind into a product -- including the two
+rules that genuinely need a lookup: a vendor item id such as an ASIN, which has
+no distinguishing shape, and a distributor label that names a line of an order
+this catalog has captured -- is CatalogService.resolve_scan()'s job.
+
+That second one is why resolution now has four outcomes rather than three. It
+changes nothing here: a format-06 envelope is classified ECIA either way, and
+what differs is only what resolution does with it.
 
 Every rule delegates its grammar to a sibling parser; this module owns the
 precedence and nothing else. Two of those siblings strip their own padding

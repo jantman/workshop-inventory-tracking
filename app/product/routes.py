@@ -364,6 +364,7 @@ def purchase_new(product_id):
                 quantity=request.form.get('quantity'),
                 unit_price=request.form.get('unit_price'),
                 order_reference=request.form.get('order_reference'),
+                supplier_order_reference=request.form.get('supplier_order_reference'),
                 notes=request.form.get('notes'),
             )
         except ValidationError as e:
@@ -831,6 +832,10 @@ def purchase_receive(purchase_id):
                 product=product,
                 # What they submitted, not what is stored -- a refused
                 # description they spent time on should still be on the page.
+                # The quantity goes the same way: a scanned bag's count, or a
+                # hand-typed correction, must survive a refusal about some other
+                # field.
+                scanned_quantity=request.form.get('quantity', ''),
                 form_data=request.form,
             )
 
@@ -839,6 +844,10 @@ def purchase_receive(purchase_id):
 
     return render_template(
         'product/receive.html',
+        # FR-020: a scanned bag's label says what is in *this* bag, which is not
+        # always what was ordered. Editable, and absent it behaves as it always
+        # has.
+        scanned_quantity=request.args.get('quantity', ''),
         title='Receive a Purchase',
         purchase=purchase,
         product=product,
@@ -1290,7 +1299,9 @@ def api_scan():
 
     payload = resolution.to_dict()
     payload['success'] = True
-    if resolution.outcome == 'product':
+    if resolution.outcome == 'receive':
+        payload['url'] = _receive_url(resolution)
+    elif resolution.outcome == 'product':
         # from_scan is what makes FR-019 work: arriving at a known product from a
         # scan offers "add a purchase to this one", because during receiving that
         # is what the operator is holding the thing to do.
@@ -1303,6 +1314,49 @@ def api_scan():
         payload['url'] = url_for('product.product_search', q=resolution.classification.raw)
 
     return jsonify(payload)
+
+
+def _receive_url(resolution) -> str:
+    """Where a bag from a captured DigiKey order should land (024 FR-019).
+
+    Three cases, and the difference between them is what the operator needs to
+    be told:
+
+    * one outstanding line -- straight to its receipt, with the label's own
+      quantity pre-filled, because the label describes what is in the bag rather
+      than what was ordered (FR-020);
+    * several -- the order screen with the candidates marked. The catalog does
+      not pick one (FR-026);
+    * none outstanding but some received -- the order screen, saying so. Nothing
+      is received twice (FR-023).
+
+    ``app/static/js/scan-capture.js`` navigates to whatever this returns without
+    inspecting the outcome, which is why the fourth outcome needed no JavaScript.
+    """
+    purchases = resolution.purchases
+    outstanding = [purchase for purchase in purchases if purchase.is_outstanding]
+    fields = resolution.classification.ecia_fields
+    sales_order_number = fields.get('1K', '')
+
+    if len(outstanding) == 1:
+        params = {'purchase_id': outstanding[0].id}
+        if fields.get('Q'):
+            # Uncoerced, as every value off a distributor label is: a cut-tape
+            # quantity may be a length, and the field stays editable either way.
+            params['quantity'] = fields['Q']
+        return url_for('product.purchase_receive', **params)
+
+    if not outstanding:
+        flash(
+            f"That line of DigiKey order {sales_order_number} is already received.",
+            'info',
+        )
+
+    return url_for(
+        'product.digikey_order_detail',
+        sales_order_number=sales_order_number,
+        highlight=fields.get('P', ''),
+    )
 
 
 def _create_url(resolution) -> str:
