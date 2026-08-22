@@ -21,6 +21,17 @@ class Config:
     GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE') or os.path.join(basedir, 'credentials', 'credentials.json')
     GOOGLE_TOKEN_FILE = os.environ.get('GOOGLE_TOKEN_FILE') or os.path.join(basedir, 'credentials', 'token.json')
     GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
+
+    # DigiKey API Configuration (order capture and part lookup, feature 024)
+    # 2-legged OAuth: the client id/secret identify the *application*, so
+    # DIGIKEY_ACCOUNT_ID names the customer account separately -- without it
+    # the order endpoints answer 400 "Account ID must not be 0".
+    DIGIKEY_CLIENT_ID = os.environ.get('DIGIKEY_CLIENT_ID')
+    DIGIKEY_CLIENT_SECRET = os.environ.get('DIGIKEY_CLIENT_SECRET')
+    DIGIKEY_ACCOUNT_ID = os.environ.get('DIGIKEY_ACCOUNT_ID')
+    # Overridden to a loopback fake by the E2E suite, and to
+    # https://sandbox-api.digikey.com during development.
+    DIGIKEY_API_BASE = os.environ.get('DIGIKEY_API_BASE') or 'https://api.digikey.com'
     
     # Application Configuration
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ['true', '1', 'yes']
@@ -58,6 +69,17 @@ class TestConfig(Config):
     GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE') or os.path.join(basedir, 'credentials', 'credentials.json')
     GOOGLE_TOKEN_FILE = os.environ.get('GOOGLE_TOKEN_FILE') or os.path.join(basedir, 'credentials', 'token.json')
     GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
+
+    # DigiKey API Configuration (order capture and part lookup, feature 024)
+    # 2-legged OAuth: the client id/secret identify the *application*, so
+    # DIGIKEY_ACCOUNT_ID names the customer account separately -- without it
+    # the order endpoints answer 400 "Account ID must not be 0".
+    DIGIKEY_CLIENT_ID = os.environ.get('DIGIKEY_CLIENT_ID')
+    DIGIKEY_CLIENT_SECRET = os.environ.get('DIGIKEY_CLIENT_SECRET')
+    DIGIKEY_ACCOUNT_ID = os.environ.get('DIGIKEY_ACCOUNT_ID')
+    # Overridden to a loopback fake by the E2E suite, and to
+    # https://sandbox-api.digikey.com during development.
+    DIGIKEY_API_BASE = os.environ.get('DIGIKEY_API_BASE') or 'https://api.digikey.com'
     
     # Application Configuration
     DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() in ['true', '1', 'yes']

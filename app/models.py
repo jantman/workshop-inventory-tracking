@@ -809,3 +809,372 @@ def _payload_images(value: Any) -> List[str]:
             address.startswith('http://') or address.startswith('https://')
         )
     ]
+
+
+# ---------------------------------------------------------------------------
+# DigiKey order capture (feature 024)
+#
+# What DigiKey's Order Status and Product Information APIs said, and what a
+# review of an order concluded. None of it is persisted: an order becomes
+# purchases, and a captured order is derived back from them.
+#
+# These are the seam. `app/services/digikey.py` builds them and nothing else
+# does, so a DigiKey JSON field name appears nowhere past this module -- which
+# is what let feature 024 absorb v4 renaming most of its fields between the plan
+# and the implementation at the cost of one mapping table.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DigiKeyOrderLine:
+    """One line of a DigiKey sales order.
+
+    **There is no manufacturer here**, and its absence is not an oversight: a v4
+    order line carries the manufacturer's *part number* but never the
+    manufacturer's *name*. That, and the category, datasheet, photograph and
+    parametric detail, come from a separate part lookup -- which is why capture
+    enriches every line (FR-040) rather than taking the order response as the
+    whole story.
+
+    ``quantity_shipped`` and ``quantity_backorder`` are display-only. They let
+    the review say "4 of 10 shipped, 6 on backorder" without inventing a
+    partial-receipt state that ``Purchase`` does not have and this feature does
+    not add.
+    """
+    digikey_part_number: str
+    manufacturer_part_number: str = ''
+    description: str = ''
+    quantity: Optional[int] = None
+    unit_price: Optional[Decimal] = None
+    quantity_shipped: Optional[int] = None
+    quantity_backorder: Optional[int] = None
+    country_of_origin: str = ''
+    line_number: Optional[int] = None
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['DigiKeyOrderLine']:
+        """Build from one element of the response's ``LineItems``.
+
+        Returns None for anything that is not an object naming a DigiKey part
+        number -- there is no line without one, since it is half the key a
+        scanned bag is matched on.
+
+        **Never raises on a JSON value.** A field DigiKey stops sending costs
+        that field and nothing else; the same rule the capture agent follows for
+        a vendor's markup.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        digikey_part_number = _digikey_string(data.get('DigiKeyProductNumber'))
+        if not digikey_part_number:
+            return None
+
+        return cls(
+            digikey_part_number=digikey_part_number,
+            manufacturer_part_number=_digikey_string(data.get('ManufacturerProductNumber')),
+            description=_digikey_string(data.get('Description')),
+            quantity=_digikey_int(data.get('QuantityOrdered')),
+            unit_price=_digikey_decimal(data.get('UnitPrice')),
+            quantity_shipped=_digikey_int(data.get('QuantityShipped')),
+            quantity_backorder=_digikey_int(data.get('QuantityBackOrder')),
+            country_of_origin=_digikey_string(data.get('CountryOfOrigin')),
+            # PoLineItemNumber is null on every v4 response observed; DetailId is
+            # the 1-based index that actually identifies the line.
+            line_number=_digikey_int(data.get('DetailId')),
+        )
+
+
+@dataclass(frozen=True)
+class DigiKeyOrder:
+    """One DigiKey sales order, as DigiKey reports it.
+
+    ``sales_order_number`` is a string even though DigiKey sends an integer: it
+    is a reference that gets compared and stored, never arithmetic.
+
+    Deliberately absent: the shipping address, the contact and the customer id.
+    They are personal details the catalog has no use for, so they are not read
+    rather than being read and discarded.
+    """
+    sales_order_number: str
+    purchase_order: str = ''
+    order_date: Optional[datetime] = None
+    currency: str = ''
+    lines: tuple = ()
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['DigiKeyOrder']:
+        """Build from a ``salesorder`` response body.
+
+        Returns None when the body is not an object or names no sales order --
+        which is how a 200 carrying nothing useful becomes "not found" rather
+        than an empty order the operator would be invited to capture.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        sales_order_number = _digikey_string(data.get('SalesOrderId'), numbers_ok=True)
+        if not sales_order_number:
+            return None
+
+        lines = tuple(
+            line for line in (
+                DigiKeyOrderLine.from_payload(entry)
+                for entry in (data.get('LineItems') or [])
+            )
+            if line is not None
+        )
+
+        return cls(
+            sales_order_number=sales_order_number,
+            purchase_order=_digikey_string(data.get('PurchaseOrder')),
+            order_date=_digikey_datetime(data.get('DateEntered')),
+            currency=_digikey_string(data.get('Currency')),
+            lines=lines,
+        )
+
+
+@dataclass(frozen=True)
+class DigiKeyPart:
+    """DigiKey's own detail for one part.
+
+    Used twice: to enrich every line of an order at capture (FR-040), and to
+    catalog a single part on its own (FR-027).
+
+    Several of these are nested in the v4 response rather than being the flat
+    strings the older shape suggested -- ``Manufacturer.Name``,
+    ``Description.ProductDescription``, ``Category.Name``. The nesting is
+    absorbed here so that nothing downstream knows about it.
+    """
+    digikey_part_number: str = ''
+    manufacturer_part_number: str = ''
+    manufacturer: str = ''
+    description: str = ''
+    detailed_description: str = ''
+    datasheet_url: str = ''
+    photo_url: str = ''
+    product_url: str = ''
+    category_path: str = ''
+    unit_price: Optional[Decimal] = None
+    parameters: tuple = ()
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['DigiKeyPart']:
+        """Build from a ``productdetails`` response body.
+
+        Returns None when the body names no product. Every *field* is optional:
+        a part with no datasheet is a part with no datasheet, never a failed
+        lookup.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        product = data.get('Product')
+        if not isinstance(product, dict):
+            return None
+
+        description = product.get('Description')
+        description = description if isinstance(description, dict) else {}
+        manufacturer = product.get('Manufacturer')
+        manufacturer = manufacturer if isinstance(manufacturer, dict) else {}
+        category = product.get('Category')
+        category = category if isinstance(category, dict) else {}
+
+        parameters = tuple(
+            (name, value) for name, value in (
+                (
+                    _digikey_string(entry.get('ParameterText')),
+                    _digikey_string(entry.get('ValueText'), numbers_ok=True),
+                )
+                for entry in (product.get('Parameters') or [])
+                if isinstance(entry, dict)
+            )
+            if name and value
+        )
+
+        return cls(
+            digikey_part_number=_digikey_variation_number(product.get('ProductVariations')),
+            manufacturer_part_number=_digikey_string(product.get('ManufacturerProductNumber')),
+            manufacturer=_digikey_string(manufacturer.get('Name')),
+            description=_digikey_string(description.get('ProductDescription')),
+            detailed_description=_digikey_string(description.get('DetailedDescription')),
+            datasheet_url=_digikey_string(product.get('DatasheetUrl')),
+            photo_url=_digikey_string(product.get('PhotoUrl')),
+            product_url=_digikey_string(product.get('ProductUrl')),
+            category_path=_digikey_string(category.get('Name')),
+            unit_price=_digikey_decimal(product.get('UnitPrice')),
+            parameters=parameters,
+        )
+
+
+def _digikey_string(value: Any, numbers_ok: bool = False) -> str:
+    """A trimmed string, or '' for anything that is not usable as one.
+
+    ``numbers_ok`` is for the two fields DigiKey sends as JSON numbers that are
+    really identifiers -- ``SalesOrderId``, and the occasional numeric parameter
+    value. It is off by default so that a price arriving where a string was
+    expected is dropped rather than being stringified out of a float.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if numbers_ok and isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if numbers_ok and isinstance(value, Decimal):
+        return str(value)
+    return ''
+
+
+def _digikey_int(value: Any) -> Optional[int]:
+    """An int, or None. A bool is not an int here, whatever Python thinks."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, Decimal):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _digikey_decimal(value: Any) -> Optional[Decimal]:
+    """A Decimal, or None -- and never by way of a float (Constitution III).
+
+    The client parses with ``json.loads(..., parse_float=Decimal)``, so a price
+    arrives here already exact and this is a pass-through. The float branch is
+    the guard for a caller that did not: refusing is right, because by then the
+    damage is done and a silent ``Decimal(6.9000000000000004)`` is worse than a
+    missing price.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, str):
+        try:
+            return Decimal(value.strip())
+        except (InvalidOperation, ValueError):
+            return None
+    if isinstance(value, float):
+        logger.warning(
+            "DigiKey value arrived as a float, which means json.loads was called "
+            "without parse_float=Decimal. Dropping it rather than recording an "
+            "inexact price."
+        )
+    return None
+
+
+def _digikey_datetime(value: Any) -> Optional[datetime]:
+    """DigiKey's ISO 8601 timestamp, or None.
+
+    Their offsets are real ones ('2026-08-07T17:34:04.332-05:00'), and a 'Z'
+    turns up on shipment dates, which ``fromisoformat`` handles from 3.11.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def _digikey_variation_number(value: Any) -> str:
+    """The DigiKey part number off the product variations, or ''.
+
+    A part has several variations -- cut tape, tape and reel, digi-reel -- each
+    with its own number. The first is taken because this is only a fallback: on
+    an order capture the line already carries the number that was actually
+    bought, and that one wins.
+    """
+    if not isinstance(value, list):
+        return ''
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        number = _digikey_string(entry.get('DigiKeyProductNumber'))
+        if number:
+            return number
+    return ''
+
+
+class OrderLineState(Enum):
+    """What a review concluded about one line of a DigiKey order.
+
+    Exclusive and exhaustive, and tested in this order -- CAPTURED first,
+    because a line already recorded is not a line to decide anything about.
+    """
+    CAPTURED = "CAPTURED"    # A purchase already exists for this order and part
+    CONFLICT = "CONFLICT"    # The DigiKey part number names a product whose MPN contradicts this line
+    MATCHED = "MATCHED"      # A product carries this MPN or DigiKey part number, corroborated
+    NEW = "NEW"              # Nothing in the catalog matches
+
+
+@dataclass(frozen=True)
+class ReviewedLine:
+    """One line of an order, with what the catalog knows about it.
+
+    Display-only, and a plain value object rather than an ORM row for the reason
+    :class:`CaptureAssessment` already documents: a relationship that was not
+    eagerly loaded does not survive its session closing, and a thing a template
+    renders has no business carrying that hazard.
+
+    ``part`` being None is an ordinary state, not an error. It means DigiKey
+    would not answer for this part, and the line is still capturable on
+    everything the order gave (FR-041).
+    """
+    line: 'DigiKeyOrderLine'
+    state: 'OrderLineState'
+    part: Optional['DigiKeyPart'] = None
+    suggested_description: str = ''
+    product_id: Optional[int] = None
+    product_description: Optional[str] = None
+    product_manufacturer_part_number: Optional[str] = None
+    purchase_id: Optional[int] = None
+    recorded_quantity: Optional[int] = None
+    recorded_unit_price: Optional[Decimal] = None
+
+    @property
+    def is_enriched(self) -> bool:
+        """Whether DigiKey's part detail was available for this line"""
+        return self.part is not None
+
+    @property
+    def has_change(self) -> bool:
+        """Whether a captured line's quantity or price differs from what is recorded (FR-014)"""
+        if self.state is not OrderLineState.CAPTURED:
+            return False
+        return (
+            (self.recorded_quantity != self.line.quantity)
+            or (self.recorded_unit_price != self.line.unit_price)
+        )
+
+
+@dataclass(frozen=True)
+class OrderCaptureReview:
+    """A whole order, reviewed against the catalog, with nothing written yet.
+
+    ``orphaned`` is the other direction of FR-013: purchases recorded against
+    this sales order whose part the fetched order no longer contains. They are
+    **reported and never deleted** -- a purchase the operator can see and cancel
+    is better than one that vanishes.
+    """
+    order: 'DigiKeyOrder'
+    lines: tuple = ()
+    orphaned: tuple = ()
+
+    @property
+    def capturable(self) -> tuple:
+        """The lines a confirmation could act on -- everything not already captured"""
+        return tuple(
+            line for line in self.lines
+            if line.state is not OrderLineState.CAPTURED
+        )
+
+    @property
+    def unenriched(self) -> tuple:
+        """The lines DigiKey would not give part detail for (FR-041)"""
+        return tuple(line for line in self.lines if not line.is_enriched)

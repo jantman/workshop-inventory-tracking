@@ -573,3 +573,51 @@ class TestInventoryItemBackwardCompatibility:
         assert 'ja_id' in result
         assert 'item_type' in result
         assert 'material' in result
+
+class TestPurchaseSupplierOrderReference:
+    """purchases.supplier_order_reference -- the whole schema change for 024.
+
+    The supplier's order number (ECIA 1K, DigiKey's sales order number), which
+    had nowhere to go before this and ended up as prose in a note.
+    """
+
+    def test_round_trips_both_order_references(self, test_storage):
+        """They are different numbers off the same label and must not share a column."""
+        from app.database import Product, Purchase
+
+        session = test_storage._get_session()
+        try:
+            product = Product(description='12V PSU')
+            session.add(product)
+            session.flush()
+            session.add(Purchase(
+                product_id=product.id,
+                vendor='DigiKey',
+                order_reference='my-po-42',
+                supplier_order_reference='100882558',
+            ))
+            session.commit()
+
+            purchase = session.query(Purchase).one()
+            assert purchase.order_reference == 'my-po-42'
+            assert purchase.supplier_order_reference == '100882558'
+            assert purchase.to_dict()['supplier_order_reference'] == '100882558'
+        finally:
+            session.close()
+
+    def test_is_nullable_for_every_purchase_that_predates_it(self, test_storage):
+        from app.database import Product, Purchase
+
+        session = test_storage._get_session()
+        try:
+            product = Product(description='Bar stock')
+            session.add(product)
+            session.flush()
+            session.add(Purchase(product_id=product.id, vendor='Amazon'))
+            session.commit()
+
+            purchase = session.query(Purchase).one()
+            assert purchase.supplier_order_reference is None
+            assert purchase.to_dict()['supplier_order_reference'] is None
+        finally:
+            session.close()

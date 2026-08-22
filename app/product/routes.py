@@ -39,6 +39,15 @@ def _get_catalog_service() -> CatalogService:
     return CatalogService(_get_storage_backend())
 
 
+def _get_digikey_client():
+    """This app's DigiKey client, or None when it is not configured.
+
+    None is an ordinary state and every DigiKey route handles it by saying so
+    (024 FR-036). A test injects a fake by setting ``app.config['DIGIKEY_CLIENT']``.
+    """
+    return current_app.config.get('DIGIKEY_CLIENT')
+
+
 def _product_or_404(service: CatalogService, product_id: int):
     """Load a product or raise the project's not-found exception"""
     product = service.get_product(product_id)
