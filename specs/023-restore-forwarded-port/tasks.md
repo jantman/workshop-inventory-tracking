@@ -158,12 +158,14 @@ ordinary merge deliberately does nothing. Without the bump the fix is merged, no
 the deployment stays broken, and SC-001, SC-002, SC-003 and SC-007 cannot be checked at all.
 
 - [X] T021 Bump `version` in `pyproject.toml` from `0.1.0` to `0.1.1` — PATCH, per the deployment guide's own rule for a bug fix plus documentation. No other file needs touching: `app/version.py` reads `pyproject.toml` as the single source of truth
-- [ ] T022 Open a pull request from `issues/114` referencing issue #114, and note in the description that it also unblocks #113's remaining write-path task
+- [X] T022 Opened as PR #115; merged 2026-08-22, which closed #114. Original text: open a pull request from `issues/114` referencing issue #114, and note in the description that it also unblocks #113's remaining write-path task
 - [~] T023 **Superseded during execution** — the deployment runs PR #115's CI image
   (`:ci-1534b60e…`), which `test.yml`'s `docker-build` job pushes on every PR. That made
   verification possible *before* merge instead of after, which is the better order: a
   problem gets fixed on the branch rather than in a follow-up release. Still to do after
-  merge — confirm the `Release` workflow published `v0.1.1` and the `:0.1.1` / `:latest` images, then deploy that image to `titan.jasonantman.com:15603`
+  merge — confirm the `Release` workflow published `v0.1.1` and the `:0.1.1` / `:latest` images.
+  **Deploying that image is deliberately deferred**: the owner is keeping the deployment on the
+  verified CI build while other work is in flight. The release exists to be pinned later
 - [X] T024 Apply the `X-Forwarded-Port` line from [contracts/proxy-headers.md](contracts/proxy-headers.md) to the deployment's proxy configuration and reload it
 - [X] T025 Verify SC-003 and the contract: `curl -s https://titan.jasonantman.com:15603/products/capture | grep -o 'id="capture-bookmarklet"[^>]*'` — both addresses must read `https://titan.jasonantman.com:15603/...`. If the port is still absent here, the proxy is not sending the header and no further application change will help
 - [X] T026 Verify SC-001 (User Story 1, the criterion that matters most): in a browser over `https` on `:15603`, edit an item and save. The change must be written, and specifically must **not** return `400 Bad Request — The referrer does not match the host`
@@ -173,7 +175,7 @@ the deployment stays broken, and SC-001, SC-002, SC-003 and SC-007 cannot be che
   Original text: verify SC-002 (User Story 2): drag the bookmarklet **fresh** from `/products/capture` — not a previously dragged one, and with no hand-correction of its address, which is how #113's verification worked around this — and click it on an Amazon listing. A tab must open on the confirmation page. This is #80 §1a check A1, which passed before 2026-08-19 and fails today
 - [X] T028 Results recorded in `specs/023-restore-forwarded-port/verification.md`; #114 closes via
   the PR's `Fixes` line. Original text: and comment them on issue #114, then close it
-- [ ] T029 Comment on #113 that its blocked step — confirming a capture and measuring a stored file to show every gallery image is a full-resolution original (022 SC-010 / #80 §1b B4) — is now unblocked. **Do not close it**: T026 proves the write path works, it does not perform that measurement, and the spec puts it explicitly out of scope
+- [X] T029 Commented on #113 on 2026-08-22, explicitly *not* closing it. Original text: comment on #113 that its blocked step — confirming a capture and measuring a stored file to show every gallery image is a full-resolution original (022 SC-010 / #80 §1b B4) — is now unblocked. **Do not close it**: T026 proves the write path works, it does not perform that measurement, and the spec puts it explicitly out of scope
 
 ---
 
