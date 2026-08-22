@@ -53,7 +53,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 ### Testing Rules
 
 - **Run tests via `nox`, never bare `pytest`.** Sessions: `nox -s tests` (unit), `nox -s e2e`, `nox -s coverage`, `nox -s lint`.
-- **The `e2e` session needs a 15-minute timeout** on the tool/agent running it (it installs Playwright browsers and uses `--reruns=3`). This is a harness-level timeout, not a CLI flag. The suite itself runs in well under 10 minutes warm; the margin covers a cold start.
+- **The `e2e` session needs a 15-minute timeout** on the tool/agent running it (it installs Playwright browsers and uses `--reruns=3`). This is a harness-level timeout, not a CLI flag. The suite runs in **about 13m 45s warm** (602 tests, measured 2026-08-22) — it no longer fits inside the 10-minute cap most agent bash tools impose, so run it detached and poll. Budget 20 minutes cold.
 - **The `e2e` session excludes screenshot tests** (`-m "e2e and not screenshot"`). Screenshot generation belongs to `nox -s screenshots`/`screenshots_headless`; those tests write into `docs/images/screenshots/`, so running them in the e2e gate made the test suite dirty the working tree. An e2e run must leave the tree clean.
 - **Markers gate scope** (`pytest.ini`): `unit`, `integration`, `e2e`, `slow`, `database`, `screenshot`. `--strict-markers` is on — register any new marker before using it. The `tests` session runs `-m "not e2e and not integration"`.
 - **Unit tests block the network** via `--blockage` (pytest-blockage). Don't write unit tests that make real HTTP/API calls — mock them.
