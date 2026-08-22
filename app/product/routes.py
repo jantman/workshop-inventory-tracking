@@ -595,6 +595,15 @@ def _capture_bookmarklet() -> str:
     ``create_app``. Without it the page renders over https and hands out http
     addresses, which is issue #89.
 
+    Their **port** comes the same way, from ``X-Forwarded-Port``, and is the
+    part that is easy to forget because it is invisible on any deployment
+    sitting on 80 or 443. On a non-default port a proxy that does not declare
+    it hands out a bookmarklet addressed to a port nothing listens on, so the
+    agent never loads and clicking it does nothing at all -- issue #114. These
+    two addresses are the only ones in the application that have to survive
+    being read from another origin; everything else is relative and would not
+    have noticed.
+
     The agent still submits a **form into a new tab** rather than issuing a
     fetch: the vendor page is HTTPS and this app is plain HTTP on the LAN, so a
     fetch is refused as mixed content before CSRF, CORS or the page's CSP are

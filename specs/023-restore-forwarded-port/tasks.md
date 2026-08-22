@@ -120,8 +120,8 @@ clicking it on a vendor listing loads the agent instead of hanging on a port not
 spec says: the bookmarklet is the visible symptom of the same missing port. What is left here is the
 comment that stops the next reader re-deriving it.
 
-- [ ] T014 [US2] Confirm T005 passes and record both address values it asserts (SC-003 at the unit level)
-- [ ] T015 [US2] Extend the `_capture_bookmarklet` docstring in `app/product/routes.py` (around line 577) so its existing paragraph about `request.scheme` and the TLS caveat also names the port: these addresses carry whatever port the proxy declares, and a deployment on a non-default port that does not declare one hands out a bookmarklet that cannot load (issue #114). This is the one place a reader meets `_external=True` in this codebase
+- [X] T014 [US2] Confirm T005 passes and record both address values it asserts (SC-003 at the unit level)
+- [X] T015 [US2] Extend the `_capture_bookmarklet` docstring in `app/product/routes.py` (around line 577) so its existing paragraph about `request.scheme` and the TLS caveat also names the port: these addresses carry whatever port the proxy declares, and a deployment on a non-default port that does not declare one hands out a bookmarklet that cannot load (issue #114). This is the one place a reader meets `_external=True` in this codebase
 
 **Checkpoint**: Both stories' automated evidence is green. Nothing is deployed yet.
 
@@ -136,11 +136,12 @@ in the configuration they are copying rather than in prose they may skim.
 **Independent Test**: An operator can follow the deployment guide's reverse-proxy section end to end
 on a non-default port and get a working deployment without reading this spec or the source (SC-007).
 
-- [ ] T016 [P] [US3] In `docs/deployment-guide.md`, "Serving Behind a TLS Reverse Proxy": add `proxy_set_header X-Forwarded-Port $server_port;` to the nginx block, and extend the prose to state that the port travels in its own header and what breaks without it — refused form submissions and a dead bookmarklet, not just a cosmetic address. Note that `$host` deliberately excludes the port. Use [contracts/proxy-headers.md](contracts/proxy-headers.md) as the source (FR-011)
-- [ ] T017 [P] [US3] In `docs/troubleshooting-guide.md`, "Common Nginx Issues": add a sixth entry for a missing `X-Forwarded-Port` beside the existing fifth entry for a missing `X-Forwarded-Proto`, naming both symptoms — `400 Bad Request — The referrer does not match the host` on any form, and a bookmarklet that does nothing when clicked — and linking to the deployment guide section (FR-012)
-- [ ] T018 [US3] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s lint` and fix anything flake8, black or isort reports in `app/__init__.py`, `app/product/routes.py` and `tests/unit/test_proxy_headers.py`
+- [X] T016 [P] [US3] In `docs/deployment-guide.md`, "Serving Behind a TLS Reverse Proxy": add `proxy_set_header X-Forwarded-Port $server_port;` to the nginx block, and extend the prose to state that the port travels in its own header and what breaks without it — refused form submissions and a dead bookmarklet, not just a cosmetic address. Note that `$host` deliberately excludes the port. Use [contracts/proxy-headers.md](contracts/proxy-headers.md) as the source (FR-011)
+- [X] T017 [P] [US3] In `docs/troubleshooting-guide.md`, "Common Nginx Issues": add a sixth entry for a missing `X-Forwarded-Port` beside the existing fifth entry for a missing `X-Forwarded-Proto`, naming both symptoms — `400 Bad Request — The referrer does not match the host` on any form, and a bookmarklet that does nothing when clicked — and linking to the deployment guide section (FR-012)
+- [X] T018 [US3] Confirm this feature adds **no new** lint violations to `app/__init__.py`, `app/product/routes.py` and `tests/unit/test_proxy_headers.py`, by counting flake8 output against each file's pre-feature content
+  - **Revised during implementation, and the original wording was not achievable.** `nox -s lint` does not pass on `main` and never has: it reports **7,269** violations across `app/` and `tests/` (3,726 E501, 2,610 W293, …), of which **121** are in the three files this feature touches. The noxfile itself calls the session a "future enhancement". Fixing "anything reported" in those files would mean reformatting 107 unrelated lines of `app/product/routes.py` inside a port fix — a large unrelated diff, and outside this feature's stated scope. Measured result: `app/__init__.py` 8 → **7** (a blank line fixed a pre-existing E302), `app/product/routes.py` 107 → **107**, `tests/unit/test_proxy_headers.py` 6 → **6**. **Delta: −1.** Repository-wide lint remains red for reasons that predate this branch
 - [ ] T019 [US3] Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e` **detached with polling** — it runs about 8m 15s warm, longer than a 10-minute foreground command allows, and needs at least a 15-minute allowance. Expect it to be entirely unaffected: it runs over plain HTTP on a default-port origin, so `request.is_secure` is false and the referrer check is never reached. Afterwards confirm `git status` is clean — a test run must not modify tracked files
-- [ ] T020 [US3] Confirm `grep -ric "catalogue" README.md docs/ app/ tests/` still returns nothing after the documentation edits
+- [X] T020 [US3] Confirm `grep -ric "catalogue" README.md docs/ app/ tests/` still returns nothing after the documentation edits
 
 **Checkpoint**: Everything that can be verified without a deployment is verified.
 

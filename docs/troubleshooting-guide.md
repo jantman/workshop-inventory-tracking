@@ -399,6 +399,20 @@ sudo systemctl status nginx
    "Not from this page" warning on `/products/capture` at an `https` address
    bar, and a bookmarklet that points at `http`. See
    [Serving Behind a TLS Reverse Proxy](deployment-guide.md#serving-behind-a-tls-reverse-proxy).
+6. **Missing `X-Forwarded-Port` on a non-default port** -- the app then believes
+   it is on the scheme's default port. Two symptoms, and the second is the one
+   that matters:
+   - **Every form that saves returns `400 Bad Request: The referrer does not
+     match the host`.** The CSRF referrer check compares where the form came
+     from against where the app thinks it lives, and a port is part of that.
+     Reads keep working, so the site looks healthy until you try to write.
+   - **A freshly dragged bookmarklet does nothing when clicked**, because its
+     baked-in addresses name a port nothing is listening on.
+
+   Check it by loading `/products/capture` over `https` and reading the
+   bookmarklet's `href`: both addresses in it must carry your port. If they do
+   not, the proxy is not sending the header. See
+   [Serving Behind a TLS Reverse Proxy](deployment-guide.md#serving-behind-a-tls-reverse-proxy).
 
 #### Nginx Logs
 ```bash
