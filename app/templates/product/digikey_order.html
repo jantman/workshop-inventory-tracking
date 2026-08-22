@@ -1,0 +1,98 @@
+{# A captured DigiKey order.
+
+   Derived, never stored: this order *is* the purchases carrying its sales order
+   number, the way the reorder list is derived rather than kept. So it cannot
+   drift out of step with the purchases -- it has nothing of its own to drift. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-seam{% endblock %}
+{% block page_heading %}DigiKey Order {{ sales_order_number }}{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.digikey_order_capture') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-box-arrow-in-down"></i> Capture Another
+</a>
+{% endblock %}
+
+{% block product_content %}
+{% if not lines %}
+<div class="alert alert-info" id="not-captured">
+    <h6 class="alert-heading"><i class="bi bi-inbox"></i> Nothing captured under this number</h6>
+    <p class="mb-0">
+        No purchase is recorded against sales order <code>{{ sales_order_number }}</code>.
+        <a href="{{ url_for('product.digikey_order_capture') }}">Capture it</a> and its
+        lines will show here.
+    </p>
+</div>
+{% else %}
+
+<div class="alert {% if outstanding %}alert-warning{% else %}alert-success{% endif %}" id="order-progress">
+    {% if outstanding %}
+    <i class="bi bi-hourglass-split"></i>
+    <strong>{{ outstanding | length }} of {{ lines | length }} still outstanding.</strong>
+    Scan a bag's label to receive its line.
+    {% else %}
+    <i class="bi bi-check-circle"></i>
+    <strong>All {{ lines | length }} line(s) received.</strong>
+    {% endif %}
+</div>
+
+<div class="table-responsive">
+    <table class="table align-middle" id="order-lines">
+        <thead>
+            <tr>
+                <th>Part</th>
+                <th>Product</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Unit</th>
+                <th>State</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for purchase in lines %}
+            <tr class="order-line{% if highlight and purchase.vendor_item_id == highlight %} table-active{% endif %}"
+                data-part="{{ purchase.vendor_item_id }}"
+                data-outstanding="{{ 'true' if purchase.is_outstanding else 'false' }}">
+                <td><code>{{ purchase.vendor_item_id }}</code></td>
+                <td>
+                    {% if purchase.product %}
+                    <a href="{{ url_for('product.product_detail', product_id=purchase.product_id) }}">
+                        {{ purchase.product.description }}
+                    </a>
+                    {% else %}
+                    <span class="text-body-secondary">product deleted</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
+                <td class="text-end">{{ purchase.unit_price if purchase.unit_price is not none else '—' }}</td>
+                <td>
+                    {% if purchase.is_outstanding %}
+                    <span class="badge text-bg-warning">outstanding</span>
+                    {% else %}
+                    <span class="badge text-bg-success">received</span>
+                    <div class="small text-body-secondary">
+                        {{ purchase.received_date.strftime('%-d %b %Y') }}
+                    </div>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    {% if purchase.is_outstanding %}
+                    <a class="btn btn-sm btn-primary receive-line"
+                       href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}">
+                        <i class="bi bi-box-arrow-in-down"></i> Receive
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="small text-body-secondary mb-0">
+    This page is worked out from the purchases each time you open it — nothing
+    about the order is stored separately, so it cannot fall out of step with them.
+</p>
+{% endif %}
+{% endblock %}

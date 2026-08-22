@@ -16,7 +16,9 @@ from flask import current_app, flash, jsonify, redirect, render_template, reques
 from app import csrf
 from app.catalog_service import CatalogService
 from app.exceptions import (
-    CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
+    AuthenticationError, CaptureDecisionRequired, ConfigurationError,
+    DuplicateItemError, ItemNotFoundError, RateLimitError, TemporaryError,
+    ValidationError, WorkshopInventoryError,
 )
 from app.models import CapturedBarcode, IdentifierType, ListingCapture
 from app.photo_service import PhotoService
@@ -889,6 +891,205 @@ def relative_age(age, unknown: str = 'never counted') -> str:
 
     years = days // 365
     return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+# ---------------------------------------------------------------------------
+# DigiKey orders (feature 024)
+#
+# Every one of these renders a message on a working page rather than an error
+# page when DigiKey cannot be reached: the operator's next action is to retype
+# or retry, and an error page is a dead end (FR-036, FR-038).
+# ---------------------------------------------------------------------------
+
+# What each exception the DigiKey client raises means to the operator. The four
+# states FR-038 requires be distinguishable, plus throttling. No new exception
+# class was needed; every one of these already existed.
+_DIGIKEY_MESSAGES = (
+    (ConfigurationError, 'not_configured'),
+    (AuthenticationError, 'unauthorized'),
+    (ItemNotFoundError, 'not_found'),
+    (RateLimitError, 'throttled'),
+    (TemporaryError, 'unavailable'),
+)
+
+
+def _digikey_problem(error) -> str:
+    """Which of the five failure states this is, for the template to render."""
+    for exception_type, state in _DIGIKEY_MESSAGES:
+        if isinstance(error, exception_type):
+            return state
+    return 'unavailable'
+
+
+def _digikey_entry(problem=None, message=None, sales_order_number='', status=200):
+    """The sales order number form, optionally carrying a problem to explain."""
+    return render_template(
+        'product/digikey_order_entry.html',
+        title='Capture a DigiKey Order',
+        sales_order_number=sales_order_number,
+        problem=problem,
+        message=message,
+        configured=_get_digikey_client() is not None,
+    ), status
+
+
+@bp.route('/products/digikey/orders', methods=['GET', 'POST'])
+def digikey_order_capture():
+    """Enter a sales order number; get a review of what capturing it would do.
+
+    **Writes nothing** (FR-004). The review is a read of DigiKey plus a read of
+    the catalog, and the operator can close the tab with no trace left.
+    """
+    client = _get_digikey_client()
+
+    if request.method == 'GET':
+        # FR-036: say it before they type an order number, not after.
+        return _digikey_entry(
+            problem=None if client is not None else 'not_configured'
+        )[0]
+
+    sales_order_number = (request.form.get('sales_order_number') or '').strip()
+    if not sales_order_number:
+        return _digikey_entry(
+            problem='blank',
+            message='Enter the sales order number from your DigiKey order '
+                    'confirmation, or scan a bag label.',
+        )[0]
+
+    if client is None:
+        return _digikey_entry(
+            problem='not_configured', sales_order_number=sales_order_number
+        )[0]
+
+    try:
+        order = client.get_order(sales_order_number)
+    except WorkshopInventoryError as e:
+        return _digikey_entry(
+            problem=_digikey_problem(e),
+            message=e.message,
+            sales_order_number=sales_order_number,
+        )[0]
+
+    service = _get_catalog_service()
+    review = service.review_digikey_order(order, client)
+
+    return render_template(
+        'product/digikey_order_review.html',
+        title=f'DigiKey Order {order.sales_order_number}',
+        review=review,
+        order=order,
+        form_data={},
+    )
+
+
+@bp.route('/products/digikey/orders/capture', methods=['POST'])
+def digikey_order_confirm():
+    """Confirm a reviewed order and write it.
+
+    The order is **re-read from DigiKey** rather than rebuilt from the form: the
+    fetched order is the authority on what was bought, and a form is a thing the
+    operator was looking at some seconds ago.
+    """
+    client = _get_digikey_client()
+    sales_order_number = (request.form.get('sales_order_number') or '').strip()
+
+    if client is None:
+        return _digikey_entry(
+            problem='not_configured', sales_order_number=sales_order_number
+        )[0]
+
+    try:
+        order = client.get_order(sales_order_number)
+    except WorkshopInventoryError as e:
+        return _digikey_entry(
+            problem=_digikey_problem(e),
+            message=e.message,
+            sales_order_number=sales_order_number,
+        )[0]
+
+    decisions = _digikey_decisions(request.form, order)
+    service = _get_catalog_service()
+
+    try:
+        result = service.capture_digikey_order(order, decisions, client)
+    except ValidationError as e:
+        # Re-render the review carrying what was submitted, so a description the
+        # operator spent time on is not lost. The same thing purchase_receive
+        # already does for a refused description.
+        review = service.review_digikey_order(order, client)
+        flash(e.message, 'error')
+        return render_template(
+            'product/digikey_order_review.html',
+            title=f'DigiKey Order {order.sales_order_number}',
+            review=review,
+            order=order,
+            form_data=request.form,
+        )
+
+    flash(_digikey_capture_summary(result), 'success')
+    return redirect(url_for(
+        'product.digikey_order_detail',
+        sales_order_number=order.sales_order_number,
+    ))
+
+
+def _digikey_decisions(form, order):
+    """The per-line decisions the form carries, keyed by DigiKey part number.
+
+    Built by walking the *order*, not the form: a decision submitted for a line
+    the order no longer contains is ignored rather than acted on.
+    """
+    decisions = {}
+    for line in order.lines:
+        key = line.digikey_part_number
+        decisions[key] = {
+            'include': form.get(f'include[{key}]') is not None,
+            'description': form.get(f'description[{key}]') or '',
+            'resolution': form.get(f'resolution[{key}]') or '',
+            'apply_change': form.get(f'apply_change[{key}]') is not None,
+        }
+    return decisions
+
+
+def _digikey_capture_summary(result) -> str:
+    """What just happened, in one sentence the operator can act on."""
+    parts = [f"Captured {len(result.purchase_ids)} line(s)"]
+    if result.products_created:
+        parts.append(f"{result.products_created} new product(s)")
+    if result.products_attached:
+        parts.append(f"{result.products_attached} attached to products you already had")
+    if result.lines_already_captured:
+        parts.append(f"{result.lines_already_captured} already captured")
+    if result.lines_excluded:
+        parts.append(f"{result.lines_excluded} skipped")
+    if result.lines_unenriched:
+        # Named rather than counted: the operator is told which came back thin
+        # so they know which products to look over (FR-041).
+        parts.append(
+            "DigiKey had no detail for " + ", ".join(result.lines_unenriched)
+        )
+    return ". ".join(parts) + "."
+
+
+@bp.route('/products/digikey/orders/<sales_order_number>')
+def digikey_order_detail(sales_order_number):
+    """A captured DigiKey order (FR-017, FR-018).
+
+    Derived, never stored: the order *is* the purchases carrying its number. A
+    sales order number nothing was captured against renders "not captured" with
+    a link to capture it -- not a 404. Nothing dead-ends.
+    """
+    service = _get_catalog_service()
+    lines = service.find_order_lines(sales_order_number)
+
+    return render_template(
+        'product/digikey_order.html',
+        title=f'DigiKey Order {sales_order_number}',
+        sales_order_number=sales_order_number,
+        lines=lines,
+        outstanding=[line for line in lines if line.is_outstanding],
+        highlight=request.args.get('highlight', ''),
+    )
 
 
 @bp.route('/products/reorder')

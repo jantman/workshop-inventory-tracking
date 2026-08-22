@@ -38,8 +38,13 @@ from .mariadb_storage import MariaDBStorage
 from .models import (
     CaptureAssessment,
     CapturedBarcode,
+    DigiKeyCaptureResult,
+    DigiKeyOrder,
     IdentifierType,
     ListingCapture,
+    OrderCaptureReview,
+    OrderLineState,
+    ReviewedLine,
     ScanClassification,
     ScanKind,
     ScanResolution,
@@ -68,6 +73,12 @@ VENDOR_SCOPED_TYPES = (IdentifierType.VENDOR, IdentifierType.DISTRIBUTOR)
 # identifier; see _promote_barcode_rows. The list is closed and short, and adding
 # to it is a one-line change -- which is why it is a constant and not a setting.
 BARCODE_ROW_NAMES = frozenset({'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A'})
+
+# The vendor name a DigiKey capture files purchases under. Matches what
+# ``_vendor_from_url`` already derives from a digikey.com address, so a capture
+# and a hand-typed purchase land in the same place. Existing rows spelled
+# 'Digi-Key' are left as they are; this feature does not rewrite history.
+DIGIKEY_VENDOR = 'DigiKey'
 
 
 class CatalogService:
@@ -1630,6 +1641,505 @@ class CatalogService:
                 "A purchase cannot be received before it was ordered",
                 field='received_date'
             )
+
+
+    # -- DigiKey orders ----------------------------------------------------
+    #
+    # An order is not stored. It *is* the purchases carrying its sales order
+    # number, the way the reorder list is derived rather than kept. What lives
+    # here is the pair the capture flow needs: a read that decides and writes
+    # nothing, and a write that does the whole order or none of it.
+
+    def review_digikey_order(
+        self,
+        order: DigiKeyOrder,
+        digikey_client=None,
+    ) -> OrderCaptureReview:
+        """Decide what capturing this order would do, without doing any of it.
+
+        **Writes nothing** (FR-004). An operator who closes the tab leaves no
+        product, no purchase and no trace -- there was never a record, only a
+        page.
+
+        Args:
+            order: What DigiKey said, already parsed.
+            digikey_client: Used to enrich each line with the part detail an
+                order line does not carry (FR-040). None means no enrichment,
+                which is an ordinary state and not an error.
+
+        Returns:
+            An OrderCaptureReview: one ReviewedLine per line of the order, plus
+            any purchase recorded against this sales order whose part the order
+            no longer contains (FR-013).
+        """
+        with self._session() as session:
+            recorded = self._recorded_digikey_lines(session, order.sales_order_number)
+
+            reviewed = []
+            for line in order.lines:
+                part = self._digikey_part(digikey_client, line.digikey_part_number)
+                reviewed.append(
+                    self._review_digikey_line(session, line, part, recorded)
+                )
+
+            fetched = {line.digikey_part_number for line in order.lines}
+            orphaned = tuple(
+                purchase.id
+                for part_number, purchase in recorded.items()
+                if part_number not in fetched
+            )
+
+        return OrderCaptureReview(
+            order=order,
+            lines=tuple(reviewed),
+            orphaned=orphaned,
+        )
+
+    def capture_digikey_order(
+        self,
+        order: DigiKeyOrder,
+        decisions: Dict[str, Dict[str, Any]],
+        digikey_client=None,
+    ) -> DigiKeyCaptureResult:
+        """Record a reviewed order: one outstanding purchase per included line.
+
+        **The whole order writes in one session, or none of it does** (FR-039).
+        That is the reason this lives on CatalogService rather than in a service
+        of its own: every method here opens its own session, so building a
+        24-line order from outside would be forty-eight transactions and a
+        half-written order when line thirteen fails.
+
+        ``capture_order`` is deliberately not called. It encodes Amazon's
+        decision model -- a same-day vendor+item duplicate heuristic, a listing
+        title fallback, pack pricing, captured-barcode promotion. A sales order
+        number is an *exact* idempotency key, so that heuristic is not merely
+        unnecessary here, it is wrong: two lines of one order are two purchases
+        and it would query one of them.
+
+        Args:
+            order: What DigiKey said, re-read at confirmation time -- the fetched
+                order is the authority, not the form.
+            decisions: Keyed by DigiKey part number. ``include`` absent or false
+                excludes the line (FR-007); ``description`` overrides DigiKey's
+                (FR-006); ``resolution`` is 'attach' or 'separate' and is
+                required on a conflicted line (FR-015); ``apply_change`` applies
+                a changed quantity or price to an already-captured line (FR-014).
+            digikey_client: For enrichment, as above.
+
+        Returns:
+            A DigiKeyCaptureResult describing what happened.
+
+        Raises:
+            ValidationError: A conflicted line with no resolution, or a refused
+                description. Either way nothing is written.
+        """
+        # Enrichment happens before the session opens: it is network I/O, and
+        # holding a transaction open across twenty-five HTTP calls would be a
+        # long-lived lock in exchange for nothing.
+        parts = {
+            line.digikey_part_number: self._digikey_part(
+                digikey_client, line.digikey_part_number
+            )
+            for line in order.lines
+            if (decisions.get(line.digikey_part_number) or {}).get('include')
+        }
+
+        purchase_ids = []
+        products_created = products_attached = 0
+        lines_excluded = lines_already_captured = lines_updated = 0
+
+        with self._session() as session:
+            recorded = self._recorded_digikey_lines(session, order.sales_order_number)
+
+            for line in order.lines:
+                decision = decisions.get(line.digikey_part_number) or {}
+                if not decision.get('include'):
+                    lines_excluded += 1
+                    continue
+
+                part = parts.get(line.digikey_part_number)
+
+                # Re-checked inside the session rather than trusted from the
+                # review: the review ran against an earlier read.
+                existing = recorded.get(line.digikey_part_number)
+                if existing is not None:
+                    lines_already_captured += 1
+                    if decision.get('apply_change'):
+                        self._apply_digikey_change(existing, line)
+                        lines_updated += 1
+                    continue
+
+                reviewed = self._review_digikey_line(session, line, part, recorded)
+                product, created = self._digikey_product_for(
+                    session, reviewed, line, part, decision
+                )
+                if created:
+                    products_created += 1
+                else:
+                    products_attached += 1
+
+                purchase = Purchase(
+                    product_id=product.id,
+                    vendor=DIGIKEY_VENDOR,
+                    vendor_item_id=line.digikey_part_number,
+                    supplier_order_reference=order.sales_order_number,
+                    order_reference=order.purchase_order or None,
+                    # DigiKey's own words, kept as an Amazon listing title is.
+                    listing_title=line.description or None,
+                    order_date=order.order_date or datetime.now(),
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    # FR-009: outstanding at capture whatever DigiKey says about
+                    # shipping. Shipped is their state; received is the
+                    # operator's, and only they can say it.
+                    received_date=None,
+                )
+                session.add(purchase)
+                session.flush()
+                purchase_ids.append(purchase.id)
+
+        result = DigiKeyCaptureResult(
+            purchase_ids=tuple(purchase_ids),
+            products_created=products_created,
+            products_attached=products_attached,
+            lines_excluded=lines_excluded,
+            lines_already_captured=lines_already_captured,
+            lines_updated=lines_updated,
+            lines_unenriched=tuple(
+                number for number, part in parts.items() if part is None
+            ),
+        )
+        logger.info(
+            f"Captured DigiKey order {order.sales_order_number}: "
+            f"{len(purchase_ids)} purchase(s), {products_created} product(s) created"
+        )
+        return result
+
+    def find_order_lines(self, sales_order_number: str) -> List[Purchase]:
+        """The purchases that make up one DigiKey order (FR-017).
+
+        This is the whole of "open a captured order": there is no order record
+        to load, only the purchases carrying its number.
+
+        Returns:
+            The purchases, oldest first, each with its product loaded. Empty for
+            a sales order number nothing was captured against -- which the route
+            renders as "not captured", never as a 404.
+        """
+        cleaned = (sales_order_number or '').strip()
+        if not cleaned:
+            return []
+
+        with self._session() as session:
+            return (
+                session.query(Purchase)
+                .options(selectinload(Purchase.product))
+                .filter(
+                    Purchase.vendor == DIGIKEY_VENDOR,
+                    Purchase.supplier_order_reference == cleaned,
+                )
+                .order_by(Purchase.id)
+                .all()
+            )
+
+    # -- DigiKey internals -------------------------------------------------
+
+    def _digikey_part(self, digikey_client, part_number: str):
+        """DigiKey's detail for one part, or None.
+
+        **None is an ordinary state** (FR-041). A part DigiKey will not answer
+        for costs that line its manufacturer, category and parametric detail,
+        and nothing else: the line still captures on everything the order gave.
+        Only a failed *order* read refuses a capture.
+
+        This is the same split ``store_listing_images`` already makes for an
+        unreachable image host, and for the same reason.
+        """
+        if digikey_client is None or not part_number:
+            return None
+        try:
+            return digikey_client.get_part(part_number)
+        except Exception as e:
+            # Deliberately broad. Anything the client can raise -- not found,
+            # throttled, unreachable -- means the same thing here: this line has
+            # no extra detail, and that must not cost the operator the capture.
+            logger.info(f"No DigiKey detail for {part_number}: {e}")
+            return None
+
+    def _recorded_digikey_lines(self, session, sales_order_number: str) -> Dict[str, Purchase]:
+        """The purchases already recorded for this sales order, by part number.
+
+        The key FR-012 turns on. It is exact -- a sales order number and a
+        DigiKey part number name one line -- which is why this feature needs
+        none of the same-day guessing an Amazon capture has to do.
+        """
+        cleaned = (sales_order_number or '').strip()
+        if not cleaned:
+            return {}
+
+        rows = (
+            session.query(Purchase)
+            .filter(
+                Purchase.vendor == DIGIKEY_VENDOR,
+                Purchase.supplier_order_reference == cleaned,
+            )
+            .order_by(Purchase.id)
+            .all()
+        )
+        recorded: Dict[str, Purchase] = {}
+        for row in rows:
+            if row.vendor_item_id:
+                recorded.setdefault(row.vendor_item_id, row)
+        return recorded
+
+    def _review_digikey_line(self, session, line, part, recorded) -> ReviewedLine:
+        """Decide one line's state. Reads only.
+
+        The four states are exclusive and tested in this order: already
+        captured, then a recycled identifier, then an ordinary match, then new.
+        CAPTURED comes first because a line already recorded is not a line to
+        decide anything else about.
+        """
+        suggested = ((part.description if part else '') or line.description or '')[
+            :MAX_DESCRIPTION_LENGTH
+        ]
+
+        existing = recorded.get(line.digikey_part_number)
+        if existing is not None:
+            return ReviewedLine(
+                line=line,
+                state=OrderLineState.CAPTURED,
+                part=part,
+                suggested_description=suggested,
+                product_id=existing.product_id,
+                product_description=(
+                    existing.product.description if existing.product else None
+                ),
+                purchase_id=existing.id,
+                recorded_quantity=existing.quantity,
+                recorded_unit_price=existing.unit_price,
+            )
+
+        product = self._digikey_product_by_identifier(
+            session, IdentifierType.DISTRIBUTOR, line.digikey_part_number,
+            vendor=DIGIKEY_VENDOR,
+        )
+        if product is not None:
+            # A distributor recycling a part number for a different part is the
+            # failure this catches, and it is the most damaging one in the
+            # feature because nothing looks wrong afterwards -- the price history
+            # of one product quietly becomes the history of two.
+            contradicted = (
+                line.manufacturer_part_number
+                and product.manufacturer_part_number
+                and line.manufacturer_part_number != product.manufacturer_part_number
+            )
+            return ReviewedLine(
+                line=line,
+                state=(OrderLineState.CONFLICT if contradicted
+                       else OrderLineState.MATCHED),
+                part=part,
+                suggested_description=suggested,
+                product_id=product.id,
+                product_description=product.description,
+                product_manufacturer_part_number=product.manufacturer_part_number,
+            )
+
+        if line.manufacturer_part_number:
+            product = self._digikey_product_by_identifier(
+                session, IdentifierType.MPN, line.manufacturer_part_number,
+            )
+            if product is not None:
+                return ReviewedLine(
+                    line=line,
+                    state=OrderLineState.MATCHED,
+                    part=part,
+                    suggested_description=suggested,
+                    product_id=product.id,
+                    product_description=product.description,
+                    product_manufacturer_part_number=product.manufacturer_part_number,
+                )
+
+        return ReviewedLine(
+            line=line,
+            state=OrderLineState.NEW,
+            part=part,
+            suggested_description=suggested,
+        )
+
+    def _digikey_product_by_identifier(
+        self, session, id_type: IdentifierType, value: str, vendor: str = '',
+    ) -> Optional[Product]:
+        """Find a product by one identifier, inside a session already open.
+
+        ``find_product_by_identifier`` opens its own session, which is no use
+        from inside a transaction that has to stay open across the whole order.
+        """
+        if not value:
+            return None
+        row = (
+            session.query(ProductIdentifier)
+            .filter(
+                ProductIdentifier.id_type == id_type.value,
+                ProductIdentifier.value == value.strip(),
+                ProductIdentifier.vendor == vendor,
+            )
+            .first()
+        )
+        return row.product if row is not None else None
+
+    def _digikey_product_for(self, session, reviewed, line, part, decision):
+        """The product this line's purchase attaches to, creating one if needed.
+
+        Returns:
+            ``(product, created)``.
+
+        Raises:
+            ValidationError: A conflicted line with no resolution. Raised inside
+                the session, so the whole capture rolls back rather than this
+                one line being skipped -- the operator answered a question about
+                an order, not about a line, and half an order is worse than none.
+        """
+        if reviewed.state is OrderLineState.CONFLICT:
+            resolution = (decision.get('resolution') or '').strip().lower()
+            if resolution not in ('attach', 'separate'):
+                raise ValidationError(
+                    f"{line.digikey_part_number} already names "
+                    f"{reviewed.product_description!r}, whose part number is "
+                    f"{reviewed.product_manufacturer_part_number!r} rather than "
+                    f"{line.manufacturer_part_number!r}. Say whether to attach to "
+                    f"that product or create a separate one.",
+                    field=f'resolution[{line.digikey_part_number}]',
+                )
+            if resolution == 'attach':
+                return session.get(Product, reviewed.product_id), False
+            # 'separate': a new product, and the existing one is left entirely
+            # alone -- including its identifiers. The contested DigiKey part
+            # number stays where it is; the new product records it on the
+            # purchase instead, via vendor_item_id.
+            return self._create_digikey_product(
+                session, line, part, decision, claim_distributor=False
+            ), True
+
+        if reviewed.state is OrderLineState.MATCHED:
+            product = session.get(Product, reviewed.product_id)
+            self._enrich_digikey_product(session, product, part)
+            return product, False
+
+        return self._create_digikey_product(session, line, part, decision), True
+
+    def _create_digikey_product(
+        self, session, line, part, decision, claim_distributor: bool = True,
+    ) -> Product:
+        """Create the product one order line names, inside the open session.
+
+        Deliberately not ``create_product``: that opens its own session, and the
+        whole point of this path is that the order writes as one transaction.
+        """
+        description = self._validate_description(
+            (decision.get('description') or '').strip()
+            or (part.description if part else '')
+            or line.description
+        )
+
+        product = Product(
+            description=description,
+            # The order response has no manufacturer name; this is the only
+            # place it can come from (FR-040).
+            manufacturer=_clean(part.manufacturer) if part else None,
+            manufacturer_part_number=_clean(line.manufacturer_part_number),
+            # DigiKey's category is a suggestion about their catalog, not a
+            # statement about this workshop's shelves. It is offered because a
+            # blank is worse, and the operator can change it like any other.
+            category_path=self._validate_category_path(
+                part.category_path if part else None
+            ),
+        )
+        session.add(product)
+        session.flush()
+
+        session.add(ProductIdentifier(
+            product_id=product.id,
+            id_type=IdentifierType.INTERNAL.value,
+            value=self._unique_internal_code(session),
+            vendor='',
+            validation_overridden=False,
+        ))
+
+        if line.manufacturer_part_number:
+            self._add_digikey_identifier(
+                session, product.id, IdentifierType.MPN,
+                line.manufacturer_part_number,
+            )
+        if claim_distributor:
+            self._add_digikey_identifier(
+                session, product.id, IdentifierType.DISTRIBUTOR,
+                line.digikey_part_number, vendor=DIGIKEY_VENDOR,
+            )
+
+        self._enrich_digikey_product(session, product, part)
+        return product
+
+    def _add_digikey_identifier(self, session, product_id, id_type, value, vendor=''):
+        """Add one identifier, tolerating a value another product already holds.
+
+        FR-008: a product's identity is its own row. A vendor that reuses an
+        identifier must not merge two products or mutate the first, so a clash
+        leaves the identifier off and says so -- the same thing
+        ``create_product`` does.
+        """
+        try:
+            self._add_identifier(
+                session, product_id, id_type.value, value, vendor=vendor,
+            )
+        except DuplicateItemError as clash:
+            logger.warning(
+                f"Identifier {value!r} already belongs to product {clash.item_id}; "
+                f"product {product_id} was created without it"
+            )
+
+    def _enrich_digikey_product(self, session, product, part) -> None:
+        """Write DigiKey's part detail onto a product, filling gaps only.
+
+        **A value the operator has already set wins.** Enrichment fills what is
+        blank; it does not overwrite a manufacturer someone corrected or a
+        category someone filed. The same rule a captured listing's
+        specifications already follow.
+        """
+        if product is None or part is None:
+            return
+
+        if part.manufacturer and not product.manufacturer:
+            product.manufacturer = part.manufacturer
+        if part.category_path and not product.category_path:
+            product.category_path = self._validate_category_path(part.category_path)
+
+        if not part.parameters:
+            return
+
+        existing = {
+            normalized_row_name(row.name)
+            for row in session.query(ProductSpecification)
+            .filter(ProductSpecification.product_id == product.id)
+            .all()
+        }
+        order = len(existing)
+        for name, value in part.parameters:
+            if normalized_row_name(name) in existing:
+                # The operator's row wins and is not examined (FR-030).
+                continue
+            session.add(ProductSpecification(
+                product_id=product.id, name=name, value=value, display_order=order,
+            ))
+            existing.add(normalized_row_name(name))
+            order += 1
+
+    def _apply_digikey_change(self, purchase: Purchase, line) -> None:
+        """Bring a recorded purchase into line with what the order now says (FR-014)."""
+        if line.quantity is not None:
+            purchase.quantity = line.quantity
+        if line.unit_price is not None:
+            purchase.unit_price = line.unit_price
 
     # -- Scanning ----------------------------------------------------------
 

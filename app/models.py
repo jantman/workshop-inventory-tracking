@@ -1178,3 +1178,23 @@ class OrderCaptureReview:
     def unenriched(self) -> tuple:
         """The lines DigiKey would not give part detail for (FR-041)"""
         return tuple(line for line in self.lines if not line.is_enriched)
+
+
+@dataclass(frozen=True)
+class DigiKeyCaptureResult:
+    """What one confirmed DigiKey order capture did.
+
+    Counts rather than objects, plus the purchase ids, because the route needs
+    to say what happened and then redirect -- not to render the rows it just
+    wrote. The order screen reads them back from the database, which is also the
+    proof they landed.
+    """
+    purchase_ids: tuple = ()
+    products_created: int = 0
+    products_attached: int = 0
+    lines_excluded: int = 0
+    lines_already_captured: int = 0
+    lines_updated: int = 0
+    # DigiKey part numbers whose part lookup failed (FR-041). Named rather than
+    # counted: the operator is told which lines came back thin.
+    lines_unenriched: tuple = ()

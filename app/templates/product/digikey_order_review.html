@@ -1,0 +1,158 @@
+{# Review a DigiKey order before anything is written.
+
+   Nothing on this page has been recorded (FR-004). Closing the tab leaves no
+   product and no purchase -- there was never a record, only a page. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-arrow-in-down{% endblock %}
+{% block page_heading %}DigiKey Order {{ order.sales_order_number }}{% endblock %}
+
+{% block product_content %}
+<form method="POST" action="{{ url_for('product.digikey_order_confirm') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <input type="hidden" name="sales_order_number" value="{{ order.sales_order_number }}"/>
+
+    <div class="alert alert-info" id="review-banner">
+        <strong>Nothing has been recorded yet.</strong>
+        {{ review.lines | length }} line(s) ordered
+        {%- if order.order_date %} on {{ order.order_date.strftime('%-d %b %Y') }}{% endif %}.
+        Prices are as DigiKey reported them, in {{ order.currency or 'the account currency' }} —
+        they are not converted.
+    </div>
+
+    {% if review.unenriched %}
+    <div class="alert alert-warning" id="unenriched-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        DigiKey had no part detail for
+        {% for line in review.unenriched %}<code>{{ line.line.digikey_part_number }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+        Those lines still capture with everything the order gave — they just
+        arrive without a manufacturer, category or specifications.
+    </div>
+    {% endif %}
+
+    {% if review.orphaned %}
+    <div class="alert alert-warning" id="orphaned-warning">
+        <i class="bi bi-question-circle"></i>
+        {{ review.orphaned | length }} purchase(s) recorded against this order are
+        for parts the order no longer contains. They have <strong>not</strong> been
+        deleted — open the order to look at them.
+    </div>
+    {% endif %}
+
+    <div class="table-responsive">
+        <table class="table align-middle" id="order-lines">
+            <thead>
+                <tr>
+                    <th style="width:3rem">Take</th>
+                    <th>Part</th>
+                    <th>Description &amp; label</th>
+                    <th class="text-end">Qty</th>
+                    <th class="text-end">Unit</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for reviewed in review.lines %}
+                {% set line = reviewed.line %}
+                {% set key = line.digikey_part_number %}
+                <tr class="order-line" data-part="{{ key }}" data-state="{{ reviewed.state.value }}">
+                    <td>
+                        {% if reviewed.state.value == 'CAPTURED' %}
+                        <i class="bi bi-check-circle-fill text-success" title="Already captured"></i>
+                        {% else %}
+                        <input class="form-check-input include-line" type="checkbox"
+                               id="include-{{ key }}" name="include[{{ key }}]"
+                               {% if form_data.get('include[' ~ key ~ ']') or not form_data %}checked{% endif %}>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <div><code>{{ key }}</code></div>
+                        {% if line.manufacturer_part_number %}
+                        <div class="small text-body-secondary">{{ line.manufacturer_part_number }}</div>
+                        {% endif %}
+                        {% if reviewed.part and reviewed.part.manufacturer %}
+                        <div class="small text-body-secondary">{{ reviewed.part.manufacturer }}</div>
+                        {% endif %}
+                        {% if not reviewed.is_enriched %}
+                        <span class="badge text-bg-warning">no detail</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if reviewed.state.value == 'NEW' %}
+                        <input type="text" class="form-control form-control-sm line-description"
+                               name="description[{{ key }}]" maxlength="255"
+                               value="{{ form_data.get('description[' ~ key ~ ']') or reviewed.suggested_description }}">
+                        <div class="form-text">
+                            What goes on the label and what you will search for. DigiKey's
+                            words are the default.
+                        </div>
+
+                        {% elif reviewed.state.value == 'MATCHED' %}
+                        <span class="badge text-bg-secondary">already in the catalog</span>
+                        <div>{{ reviewed.product_description }}</div>
+                        <div class="form-text">The purchase attaches to this product.</div>
+
+                        {% elif reviewed.state.value == 'CAPTURED' %}
+                        <span class="badge text-bg-success">already captured</span>
+                        <div>{{ reviewed.product_description }}</div>
+                        {% if reviewed.has_change %}
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="checkbox"
+                                   id="apply-{{ key }}" name="apply_change[{{ key }}]">
+                            <label class="form-check-label small" for="apply-{{ key }}">
+                                DigiKey now says {{ line.quantity }} at {{ line.unit_price }};
+                                you have {{ reviewed.recorded_quantity }} at
+                                {{ reviewed.recorded_unit_price }}. Update it?
+                            </label>
+                        </div>
+                        {% endif %}
+
+                        {% elif reviewed.state.value == 'CONFLICT' %}
+                        <div class="alert alert-warning py-2 px-2 mb-1 conflict">
+                            <strong>{{ key }} already names something else.</strong>
+                            <div class="small">
+                                It is on <em>{{ reviewed.product_description }}</em>, whose part
+                                number is <code>{{ reviewed.product_manufacturer_part_number }}</code>,
+                                not <code>{{ line.manufacturer_part_number }}</code>.
+                            </div>
+                            <div class="mt-1">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" required
+                                           id="attach-{{ key }}" name="resolution[{{ key }}]" value="attach">
+                                    <label class="form-check-label small" for="attach-{{ key }}">Same thing — attach</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" required
+                                           id="separate-{{ key }}" name="resolution[{{ key }}]" value="separate">
+                                    <label class="form-check-label small" for="separate-{{ key }}">Different — new product</label>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="text" class="form-control form-control-sm line-description"
+                               name="description[{{ key }}]" maxlength="255"
+                               value="{{ form_data.get('description[' ~ key ~ ']') or reviewed.suggested_description }}">
+                        {% endif %}
+                    </td>
+
+                    <td class="text-end">
+                        {{ line.quantity if line.quantity is not none else '—' }}
+                        {% if line.quantity_backorder %}
+                        <div class="small text-warning-emphasis">{{ line.quantity_backorder }} on backorder</div>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">{{ line.unit_price if line.unit_price is not none else '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary" id="confirm-capture">
+            <i class="bi bi-download"></i> Capture These Lines
+        </button>
+        <a href="{{ url_for('product.digikey_order_capture') }}" class="btn btn-outline-secondary">Start Over</a>
+    </div>
+</form>
+{% endblock %}

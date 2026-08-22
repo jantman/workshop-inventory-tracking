@@ -1,0 +1,101 @@
+{# Enter a DigiKey sales order number.
+
+   Also the page every DigiKey failure lands back on, because the operator's
+   next action is always to retype or retry -- an error page would be a dead
+   end (FR-036, FR-038). #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-arrow-in-down{% endblock %}
+{% block page_heading %}Capture a DigiKey Order{% endblock %}
+
+{% block product_content %}
+<div class="row">
+    <div class="col-lg-7">
+
+        {% if problem == 'not_configured' %}
+        <div class="alert alert-warning" id="digikey-not-configured">
+            <h6 class="alert-heading"><i class="bi bi-plug"></i> DigiKey is not set up yet</h6>
+            <p class="mb-2">
+                This page reads your orders straight from DigiKey, which needs an
+                application registered on their developer portal.
+            </p>
+            <p class="mb-0 small">
+                Set <code>DIGIKEY_CLIENT_ID</code>, <code>DIGIKEY_CLIENT_SECRET</code>
+                and <code>DIGIKEY_ACCOUNT_ID</code> in <code>.env</code> and restart.
+                <code>.env.example</code> has the steps. Everything else in the
+                catalog works without it.
+            </p>
+        </div>
+        {% elif problem == 'unauthorized' %}
+        <div class="alert alert-danger" id="digikey-unauthorized">
+            <h6 class="alert-heading"><i class="bi bi-shield-exclamation"></i> DigiKey refused the request</h6>
+            <p class="mb-0">
+                {{ message or 'Check the credentials, and that the application is still subscribed to the Order Status API.' }}
+            </p>
+        </div>
+        {% elif problem == 'not_found' %}
+        <div class="alert alert-warning" id="digikey-not-found">
+            <h6 class="alert-heading"><i class="bi bi-search"></i> No such order on this account</h6>
+            <p class="mb-0">
+                {{ message or 'DigiKey has nothing under that number.' }}
+                An order placed in the last few minutes may not be visible yet —
+                if you have just ordered, try again shortly.
+            </p>
+        </div>
+        {% elif problem == 'throttled' %}
+        <div class="alert alert-warning" id="digikey-throttled">
+            <h6 class="alert-heading"><i class="bi bi-hourglass-split"></i> DigiKey is throttling requests</h6>
+            <p class="mb-0">{{ message }}</p>
+        </div>
+        {% elif problem == 'unavailable' %}
+        <div class="alert alert-danger" id="digikey-unavailable">
+            <h6 class="alert-heading"><i class="bi bi-cloud-slash"></i> Could not reach DigiKey</h6>
+            <p class="mb-0">{{ message or 'Try again in a moment.' }} Nothing was recorded.</p>
+        </div>
+        {% elif problem == 'blank' %}
+        <div class="alert alert-warning" id="digikey-blank">{{ message }}</div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('product.digikey_order_capture') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="mb-3">
+                <label for="sales_order_number" class="form-label">Sales Order Number</label>
+                <input type="text" class="form-control form-control-lg" id="sales_order_number"
+                       name="sales_order_number" maxlength="200" autofocus
+                       inputmode="numeric"
+                       value="{{ sales_order_number or '' }}"
+                       placeholder="100882558">
+                <div class="form-text">
+                    From your DigiKey order confirmation, or the <code>1K</code> field
+                    of a bag label. Nothing is recorded until you have looked at the
+                    lines and confirmed them.
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="review-order">
+                <i class="bi bi-search"></i> Look Up Order
+            </button>
+            <a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">Cancel</a>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card bg-body-tertiary">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-info-circle"></i> How this works</h6>
+                <ol class="small mb-0 ps-3">
+                    <li>Capture the order when you place it. Every line becomes an
+                        outstanding purchase, so the reorder list knows what is on
+                        the way.</li>
+                    <li>When the box arrives, scan each bag's 2D label. It carries
+                        the sales order number and the DigiKey part number, which is
+                        exactly enough to find the line it belongs to.</li>
+                    <li>What is still outstanding when the box is empty is what
+                        DigiKey did not ship.</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
