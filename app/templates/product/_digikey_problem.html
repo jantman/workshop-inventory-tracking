@@ -1,0 +1,66 @@
+{# The five states a DigiKey call can fail in, and what to do about each.
+
+   FR-038 requires these be distinguishable, and the reason is practical rather
+   than tidy: the operator's next action differs completely. "Not configured"
+   means go and edit .env; "refused" means go and look at the developer portal;
+   "not found" means retype the number or wait a minute; "throttled" means come
+   back later; "unreachable" means try again now. Collapsing them into "DigiKey
+   didn't work" turns a five-second fix into an afternoon.
+
+   Every one of these renders on a working page with the form still on it,
+   because in all five cases the next thing the operator wants is to try again.
+
+   Takes: problem, message. Both may be absent, in which case this renders
+   nothing. #}
+
+{% if problem == 'not_configured' %}
+<div class="alert alert-warning" id="digikey-not-configured">
+    <h6 class="alert-heading"><i class="bi bi-plug"></i> DigiKey is not set up yet</h6>
+    <p class="mb-2">
+        These pages read your orders and part detail straight from DigiKey, which
+        needs an application registered on their developer portal.
+    </p>
+    <p class="mb-0 small">
+        Set <code>DIGIKEY_CLIENT_ID</code>, <code>DIGIKEY_CLIENT_SECRET</code> and
+        <code>DIGIKEY_ACCOUNT_ID</code> in <code>.env</code> and restart —
+        <code>.env.example</code> has the steps. Everything else in the catalog
+        works without it, including
+        <a href="{{ url_for('product.product_new') }}">adding a product by hand</a>.
+    </p>
+</div>
+
+{% elif problem == 'unauthorized' %}
+<div class="alert alert-danger" id="digikey-unauthorized">
+    <h6 class="alert-heading"><i class="bi bi-shield-exclamation"></i> DigiKey refused the request</h6>
+    <p class="mb-0">
+        {{ message or 'The credentials were not accepted.' }}
+    </p>
+    <p class="mb-0 small">
+        Check the client id and secret, and that the application is still
+        subscribed to the Order Status and Product Information APIs.
+    </p>
+</div>
+
+{% elif problem == 'not_found' %}
+<div class="alert alert-warning" id="digikey-not-found">
+    <h6 class="alert-heading"><i class="bi bi-search"></i> DigiKey has nothing under that number</h6>
+    <p class="mb-0">
+        {{ message or 'Nothing found for this account.' }}
+    </p>
+</div>
+
+{% elif problem == 'throttled' %}
+<div class="alert alert-warning" id="digikey-throttled">
+    <h6 class="alert-heading"><i class="bi bi-hourglass-split"></i> DigiKey is throttling requests</h6>
+    <p class="mb-0">{{ message or 'Try again shortly.' }} Nothing was recorded.</p>
+</div>
+
+{% elif problem == 'unavailable' %}
+<div class="alert alert-danger" id="digikey-unavailable">
+    <h6 class="alert-heading"><i class="bi bi-cloud-slash"></i> Could not reach DigiKey</h6>
+    <p class="mb-0">{{ message or 'Try again in a moment.' }} Nothing was recorded.</p>
+</div>
+
+{% elif problem == 'blank' %}
+<div class="alert alert-warning" id="digikey-blank">{{ message }}</div>
+{% endif %}

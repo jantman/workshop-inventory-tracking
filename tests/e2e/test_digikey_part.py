@@ -94,7 +94,10 @@ def test_an_unknown_part_number_offers_the_ordinary_form(page, live_server, digi
     """FR-032. A plain statement and a way forward, never an error page."""
     look_up(page, live_server, 'NOT-A-REAL-PART')
 
-    expect(page.locator('#digikey-part-not-found')).to_be_visible()
+    # The shared problem partial says which of the five states this is...
+    expect(page.locator('#digikey-not-found')).to_be_visible()
+    # ...and the part page adds the way forward FR-032 asks for.
+    expect(page.locator('#digikey-part-by-hand')).to_be_visible()
     # And what they typed is still there to correct.
     expect(page.locator('#part_number')).to_have_value('NOT-A-REAL-PART')
 
@@ -134,5 +137,50 @@ def test_without_digikey_the_part_page_says_so(page, live_server):
     try:
         page.goto(f"{live_server.url}/products/digikey/part")
         expect(page.locator('#digikey-not-configured')).to_be_visible()
+    finally:
+        live_server.app.config['DIGIKEY_CLIENT'] = previous
+
+
+@pytest.mark.e2e
+def test_without_digikey_the_rest_of_the_catalog_is_untouched(page, live_server):
+    """FR-037, SC-008.
+
+    The point of this one is negative: nothing outside the DigiKey screens may
+    notice that DigiKey is absent. Every page below existed before feature 024
+    and must behave exactly as it did.
+    """
+    previous = live_server.app.config.get('DIGIKEY_CLIENT')
+    live_server.app.config['DIGIKEY_CLIENT'] = None
+    try:
+        for path, marker in (
+            ('/products', 'Products'),
+            ('/products/new', 'Add Product'),
+            ('/products/capture', 'Capture an Order'),   # the Amazon flow
+            ('/products/reorder', 'Reorder'),
+            ('/products/categories', 'Categories'),
+        ):
+            page.goto(f"{live_server.url}{path}")
+            expect(page.locator('h2')).to_contain_text(marker)
+
+        # And the scan box still answers. A label for a part nothing holds is a
+        # draft, exactly as it was before 024 -- just without DigiKey's extras.
+        label = (
+            "[)>" + RS + "06" + GS + "P296-1234-5-ND" + GS + "1PLM358N"
+            + GS + "Q100" + RS + EOT
+        )
+        result = page.evaluate(
+            """async (scan) => {
+                const r = await fetch('/api/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scan: scan })
+                });
+                return await r.json();
+            }""",
+            label,
+        )
+        assert result['outcome'] == 'create'
+        page.goto(f"{live_server.url}{result['url']}")
+        expect(page.locator('#identifier_value')).to_have_value('LM358N')
     finally:
         live_server.app.config['DIGIKEY_CLIENT'] = previous

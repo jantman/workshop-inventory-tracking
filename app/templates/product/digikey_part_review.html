@@ -12,32 +12,13 @@
 <div class="row">
     <div class="col-lg-6">
 
-        {% if problem == 'not_configured' %}
-        <div class="alert alert-warning" id="digikey-not-configured">
-            <h6 class="alert-heading"><i class="bi bi-plug"></i> DigiKey is not set up yet</h6>
-            <p class="mb-0 small">
-                Set <code>DIGIKEY_CLIENT_ID</code>, <code>DIGIKEY_CLIENT_SECRET</code>
-                and <code>DIGIKEY_ACCOUNT_ID</code> in <code>.env</code> and restart.
-                You can still
-                <a href="{{ url_for('product.product_new') }}">add a product by hand</a>.
-            </p>
-        </div>
-        {% elif problem == 'not_found' %}
-        <div class="alert alert-warning" id="digikey-part-not-found">
-            <h6 class="alert-heading"><i class="bi bi-search"></i> DigiKey does not know that part number</h6>
-            <p class="mb-0">
-                {{ message }}
-                Check it, or
-                <a href="{{ url_for('product.product_new', identifier_value=part_number, identifier_type='MPN') }}">add
-                the product by hand</a> — what you typed goes with you.
-            </p>
-        </div>
-        {% elif problem == 'blank' %}
-        <div class="alert alert-warning" id="digikey-part-blank">{{ message }}</div>
-        {% elif problem %}
-        <div class="alert alert-danger" id="digikey-part-unavailable">
-            <p class="mb-0">{{ message or 'Could not reach DigiKey. Try again in a moment.' }}</p>
-        </div>
+        {% include "product/_digikey_problem.html" %}
+
+        {% if problem == 'not_found' and part_number %}
+        <p class="small" id="digikey-part-by-hand">
+            <a href="{{ url_for('product.product_new', identifier_value=part_number, identifier_type='MPN') }}">Add
+            it by hand instead</a> &mdash; what you typed goes with you (FR-032).
+        </p>
         {% endif %}
 
         <form method="POST" action="{{ url_for('product.digikey_part_capture') }}" class="mb-4">

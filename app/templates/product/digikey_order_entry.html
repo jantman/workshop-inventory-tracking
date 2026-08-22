@@ -12,49 +12,7 @@
 <div class="row">
     <div class="col-lg-7">
 
-        {% if problem == 'not_configured' %}
-        <div class="alert alert-warning" id="digikey-not-configured">
-            <h6 class="alert-heading"><i class="bi bi-plug"></i> DigiKey is not set up yet</h6>
-            <p class="mb-2">
-                This page reads your orders straight from DigiKey, which needs an
-                application registered on their developer portal.
-            </p>
-            <p class="mb-0 small">
-                Set <code>DIGIKEY_CLIENT_ID</code>, <code>DIGIKEY_CLIENT_SECRET</code>
-                and <code>DIGIKEY_ACCOUNT_ID</code> in <code>.env</code> and restart.
-                <code>.env.example</code> has the steps. Everything else in the
-                catalog works without it.
-            </p>
-        </div>
-        {% elif problem == 'unauthorized' %}
-        <div class="alert alert-danger" id="digikey-unauthorized">
-            <h6 class="alert-heading"><i class="bi bi-shield-exclamation"></i> DigiKey refused the request</h6>
-            <p class="mb-0">
-                {{ message or 'Check the credentials, and that the application is still subscribed to the Order Status API.' }}
-            </p>
-        </div>
-        {% elif problem == 'not_found' %}
-        <div class="alert alert-warning" id="digikey-not-found">
-            <h6 class="alert-heading"><i class="bi bi-search"></i> No such order on this account</h6>
-            <p class="mb-0">
-                {{ message or 'DigiKey has nothing under that number.' }}
-                An order placed in the last few minutes may not be visible yet —
-                if you have just ordered, try again shortly.
-            </p>
-        </div>
-        {% elif problem == 'throttled' %}
-        <div class="alert alert-warning" id="digikey-throttled">
-            <h6 class="alert-heading"><i class="bi bi-hourglass-split"></i> DigiKey is throttling requests</h6>
-            <p class="mb-0">{{ message }}</p>
-        </div>
-        {% elif problem == 'unavailable' %}
-        <div class="alert alert-danger" id="digikey-unavailable">
-            <h6 class="alert-heading"><i class="bi bi-cloud-slash"></i> Could not reach DigiKey</h6>
-            <p class="mb-0">{{ message or 'Try again in a moment.' }} Nothing was recorded.</p>
-        </div>
-        {% elif problem == 'blank' %}
-        <div class="alert alert-warning" id="digikey-blank">{{ message }}</div>
-        {% endif %}
+        {% include "product/_digikey_problem.html" %}
 
         <form method="POST" action="{{ url_for('product.digikey_order_capture') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
