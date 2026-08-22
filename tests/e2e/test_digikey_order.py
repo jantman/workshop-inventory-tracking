@@ -27,6 +27,10 @@ from playwright.sync_api import expect
 FIXTURES = Path(__file__).resolve().parents[1] / 'fixtures' / 'digikey'
 SALES_ORDER = '100882558'
 
+# The parts the recorded order contains, in both their spellings. Anything else
+# the fake answers 404 for, so FR-032 is testable.
+KNOWN_PARTS = ('1866-3027-ND', '1866-3032-ND', 'IRM-05-5', 'IRM-10-5')
+
 
 class _DigiKeyHandler(BaseHTTPRequestHandler):
     """Three routes: a token, an order, a part.
@@ -64,7 +68,13 @@ class _DigiKeyHandler(BaseHTTPRequestHandler):
             else:
                 self._send(404, '{"detail": "no such order"}')
         elif '/productdetails' in self.path:
-            self._send(200, (FIXTURES / 'productdetails.json').read_text())
+            # Only the parts this order actually contains. Serving the fixture
+            # for any path at all would make it impossible to test what happens
+            # when DigiKey does not know a part number (FR-032).
+            if any(known in self.path for known in KNOWN_PARTS):
+                self._send(200, (FIXTURES / 'productdetails.json').read_text())
+            else:
+                self._send(404, '{"detail": "no such product"}')
         else:
             self._send(404, '{}')
 

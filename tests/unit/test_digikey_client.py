@@ -356,3 +356,52 @@ class TestNoResponseJson:
             and node.func.attr == 'json'
         ]
         assert offenders == [1]
+
+
+class TestPartEdgeCases:
+    """US3's paths, which US1's enrichment does not exercise"""
+
+    def _part(self, body):
+        client = _client()
+        with patch('app.services.digikey.requests.post', return_value=_token_response()), \
+                patch('app.services.digikey.requests.get',
+                      return_value=_response(200, body)):
+            return client.get_part('1866-3027-ND')
+
+    def test_an_unknown_part_number_is_not_found(self):
+        client = _client()
+        with patch('app.services.digikey.requests.post', return_value=_token_response()), \
+                patch('app.services.digikey.requests.get',
+                      return_value=_response(404, '{"detail": "not found"}')):
+            with pytest.raises(ItemNotFoundError):
+                client.get_part('NOT-A-REAL-PART')
+
+    def test_a_product_with_no_parameters_is_not_an_error(self):
+        body = json.loads(_fixture('productdetails.json'))
+        body['Product']['Parameters'] = []
+        assert self._part(json.dumps(body)).parameters == ()
+
+    def test_a_parameter_missing_its_value_is_dropped_not_kept_blank(self):
+        body = json.loads(_fixture('productdetails.json'))
+        body['Product']['Parameters'][0]['ValueText'] = ''
+        part = self._part(json.dumps(body))
+        assert len(part.parameters) == 16
+
+    def test_a_numeric_parameter_value_survives(self):
+        """DigiKey sends some as JSON numbers; they are identifiers, not maths."""
+        body = json.loads(_fixture('productdetails.json'))
+        body['Product']['Parameters'][0]['ValueText'] = 12
+        part = self._part(json.dumps(body))
+        assert ('Type', '12') in part.parameters
+
+    def test_a_missing_datasheet_costs_the_datasheet_only(self):
+        body = json.loads(_fixture('productdetails.json'))
+        body['Product']['DatasheetUrl'] = ''
+        part = self._part(json.dumps(body))
+        assert part.datasheet_url == ''
+        assert part.photo_url.startswith('https://')
+        assert part.manufacturer == 'MEAN WELL USA Inc.'
+
+    def test_the_digikey_part_number_comes_off_the_variations(self):
+        part = self._part(_fixture('productdetails.json'))
+        assert part.digikey_part_number

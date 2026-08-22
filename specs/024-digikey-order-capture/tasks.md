@@ -169,21 +169,21 @@ with nothing typed, and that confirming creates the product with those values.
 
 ### Tests for User Story 3
 
-- [ ] T040 [P] [US3] Extend `tests/unit/test_digikey_client.py` against `tests/fixtures/digikey/productdetails.json` for the paths US1's enrichment does not exercise: a part number DigiKey does not recognize raises `ItemNotFoundError`; a `Product` object missing `Manufacturer`, `Category` or `Parameters` yields empty values rather than a `KeyError`
-- [ ] T041 [P] [US3] Add URL-parsing tests to `tests/unit/test_capture.py` beside the existing `_asin_from_url` cases: a DigiKey product address yields the manufacturer part number from its second-to-last path segment; a numeric product id is **not** mistaken for a part number; an unrecognized address yields nothing rather than a guess
+- [x] T040 [P] [US3] Extend `tests/unit/test_digikey_client.py` against `tests/fixtures/digikey/productdetails.json` for the paths US1's enrichment does not exercise: a part number DigiKey does not recognize raises `ItemNotFoundError`; a `Product` object missing `Manufacturer`, `Category` or `Parameters` yields empty values rather than a `KeyError`
+- [x] T041 [P] [US3] Add URL-parsing tests to `tests/unit/test_capture.py` beside the existing `_asin_from_url` cases: a DigiKey product address yields the manufacturer part number from its second-to-last path segment; a numeric product id is **not** mistaken for a part number; an unrecognized address yields nothing rather than a guess
 
 ### Implementation for User Story 3
 
 > `DigiKeyPart` and `get_part()` moved to US1 (T019b) — enrichment needs them. So did the
 > specifications merge and the attachment handling. What is left here is the entry point.
 
-- [ ] T044 [P] [US3] Add a `_digikey_part_from_url()` helper to `app/product/routes.py` per [research §11](./research.md): read the manufacturer part number from the path, never the trailing numeric product id. Anything unrecognized returns empty for FR-032 to handle
-- [ ] T045 [US3] Add `GET`/`POST /products/digikey/part` to `app/product/routes.py` per [contracts/routes.md](./contracts/routes.md). `POST` renders a review and writes nothing; confirmation posts to the existing product-create path so there is one product-creation surface. An unrecognized part number renders a plain statement plus the ordinary product form carrying what was entered (FR-032)
-- [ ] T046 [US3] Create `app/templates/product/digikey_part_review.html`, following the shape of `app/templates/product/capture.html`: the operator's description over DigiKey's (FR-029), the parameters as specifications, the datasheet and photo shown as what will be attached
-- [ ] T047 [US3] Record `parameters` as product specifications through the existing merge rule — **a specification the operator has edited wins and is not examined** (FR-030) — in `app/catalog_service.py`, reusing the captured-listing merge rather than writing a second one
-- [ ] T048 [US3] Attach the photo and datasheet via `store_listing_images` in `app/services/listing_images.py`, **after** the transactional write, per [research §10](./research.md). `.pdf` is already in its `_KNOWN_EXTENSIONS`; a datasheet DigiKey cannot serve must cost the datasheet and nothing else
-- [ ] T049 [US3] Enrich the ECIA create-draft path in `app/catalog_service.py` / `app/product/routes.py` so a scanned bag for an uncataloged part with no captured order is filled in from DigiKey's data for that part number, not only from the label's own values (FR-033). When DigiKey is unavailable, fall back silently to today's label-only draft
-- [ ] T050 [US3] Extend `tests/e2e/test_digikey_order.py` or add `tests/e2e/test_digikey_part.py`: capture a part by number and by product URL; confirm the product carries the manufacturer, part numbers, description and specifications; an unrecognized part number offers the ordinary form
+- [x] T044 [P] [US3] Add a `_digikey_part_from_url()` helper to `app/product/routes.py` per [research §11](./research.md): read the manufacturer part number from the path, never the trailing numeric product id. Anything unrecognized returns empty for FR-032 to handle
+- [x] T045 [US3] Add `GET`/`POST /products/digikey/part` to `app/product/routes.py` per [contracts/routes.md](./contracts/routes.md). `POST` renders a review and writes nothing; confirmation posts to the existing product-create path so there is one product-creation surface. An unrecognized part number renders a plain statement plus the ordinary product form carrying what was entered (FR-032)
+- [x] T046 [US3] Create `app/templates/product/digikey_part_review.html`, following the shape of `app/templates/product/capture.html`: the operator's description over DigiKey's (FR-029), the parameters as specifications, the datasheet and photo shown as what will be attached
+- [x] T047 [US3] Record `parameters` as product specifications through the existing merge rule — **a specification the operator has edited wins and is not examined** (FR-030) — in `app/catalog_service.py`, reusing the captured-listing merge rather than writing a second one
+- [x] T048 [US3] Attach the photo and datasheet via `store_listing_images` in `app/services/listing_images.py`, **after** the transactional write, per [research §10](./research.md). `.pdf` is already in its `_KNOWN_EXTENSIONS`; a datasheet DigiKey cannot serve must cost the datasheet and nothing else
+- [x] T049 [US3] Enrich the ECIA create-draft path in `app/catalog_service.py` / `app/product/routes.py` so a scanned bag for an uncataloged part with no captured order is filled in from DigiKey's data for that part number, not only from the label's own values (FR-033). When DigiKey is unavailable, fall back silently to today's label-only draft
+- [x] T050 [US3] Extend `tests/e2e/test_digikey_order.py` or add `tests/e2e/test_digikey_part.py`: capture a part by number and by product URL; confirm the product carries the manufacturer, part numbers, description and specifications; an unrecognized part number offers the ordinary form
 
 **Checkpoint**: All three capture paths work. US3 also makes the pre-existing bag-scan draft
 substantially richer.

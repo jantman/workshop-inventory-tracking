@@ -9,12 +9,12 @@ rather than any new error machinery.
 
 import re
 from typing import List
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from app import csrf
-from app.catalog_service import CatalogService
+from app.catalog_service import DIGIKEY_VENDOR, CatalogService
 from app.exceptions import (
     AuthenticationError, CaptureDecisionRequired, ConfigurationError,
     DuplicateItemError, ItemNotFoundError, RateLimitError, TemporaryError,
@@ -203,6 +203,16 @@ def product_new():
                 'override': request.form.get('identifier_override') == 'on',
             })
 
+        # A DigiKey part capture posts its DigiKey part number alongside the
+        # manufacturer's, so the product scans back from either (024 FR-028).
+        digikey_part_number = (request.form.get('digikey_part_number') or '').strip()
+        if digikey_part_number:
+            identifiers.append({
+                'id_type': IdentifierType.DISTRIBUTOR.value,
+                'value': digikey_part_number,
+                'vendor': DIGIKEY_VENDOR,
+            })
+
         label_note = _ecia_note(request.form)
         if label_note:
             fields['notes'] = '\n\n'.join(
@@ -224,6 +234,24 @@ def product_new():
                 prefill={},
             )
 
+        # The slow, partially-failing half, after the transaction has already
+        # committed (024 FR-041). A datasheet DigiKey cannot serve must cost the
+        # datasheet and never the product -- the same split store_listing_images
+        # was written for.
+        documents = [
+            url for url in (
+                request.form.get('digikey_photo_url'),
+                request.form.get('digikey_datasheet_url'),
+            )
+            if (url or '').startswith(('http://', 'https://'))
+        ]
+        if documents:
+            outcome = store_listing_images(
+                product.id, documents, _get_storage_backend()
+            )
+            if getattr(outcome, 'stored', 0):
+                flash(f'Attached {outcome.stored} file(s) from DigiKey.', 'info')
+
         flash(f'Created "{product.description}".', 'success')
         return redirect(url_for('product.product_detail', product_id=product.id))
 
@@ -243,6 +271,34 @@ def product_new():
         'raw_scan': request.args.get('raw_scan', ''),
         'ecia_fields': ecia_fields,
     }
+
+    # 024 FR-033: a scanned bag whose part this catalog does not hold, from an
+    # order it did not capture, used to arrive as the four or five values the
+    # label itself carries. If DigiKey is configured, fill in what they know
+    # about the part as well.
+    #
+    # Silent when it fails, deliberately: the operator is looking at a draft, not
+    # at a DigiKey screen, and the pre-024 draft is still a perfectly good one.
+    distributor_part_number = ecia_fields.get('distributor_part_number')
+    client = _get_digikey_client()
+    if client is not None and distributor_part_number and not prefill['description']:
+        try:
+            part = client.get_part(distributor_part_number)
+        except WorkshopInventoryError:
+            part = None
+        if part is not None:
+            prefill.update({
+                'description': part.description,
+                'manufacturer': part.manufacturer,
+                'manufacturer_part_number': part.manufacturer_part_number,
+                'category_path': part.category_path,
+                'digikey_part_number': part.digikey_part_number or distributor_part_number,
+                'digikey_datasheet_url': part.datasheet_url,
+                'digikey_photo_url': part.photo_url,
+                'specifications': [
+                    {'name': name, 'value': value} for name, value in part.parameters
+                ],
+            })
     return render_template(
         'product/add.html',
         title='Add Product',
@@ -930,6 +986,37 @@ def _digikey_problem(error) -> str:
     return 'unavailable'
 
 
+def _digikey_part_from_url(value: str) -> str:
+    """Pull a part number out of a DigiKey product address, or return it as given.
+
+    A DigiKey product page is
+    ``digikey.com/en/products/detail/<manufacturer-slug>/<mpn-slug>/<product-id>``.
+    **The trailing segment is DigiKey's internal product id, not a part number**
+    -- which is why ``_asin_from_url`` correctly yields nothing for a DigiKey
+    address, and why deriving a part number from it would be wrong. The
+    second-to-last segment is the manufacturer part number, and ProductDetails
+    resolves one of those as happily as a DigiKey part number.
+
+    Anything that is not a DigiKey product address is returned untouched, so a
+    typed part number passes straight through.
+    """
+    text = (value or '').strip()
+    if 'digikey.' not in text.lower() or '/products/detail/' not in text.lower():
+        return text
+
+    path = urlparse(text).path.rstrip('/')
+    segments = [segment for segment in path.split('/') if segment]
+    try:
+        marker = segments.index('detail')
+    except ValueError:
+        return text
+
+    # detail / manufacturer / mpn / product-id
+    if len(segments) < marker + 4:
+        return text
+    return unquote(segments[marker + 2])
+
+
 def _digikey_entry(problem=None, message=None, sales_order_number='', status=200):
     """The sales order number form, optionally carrying a problem to explain."""
     return render_template(
@@ -1098,6 +1185,77 @@ def digikey_order_detail(sales_order_number):
         lines=lines,
         outstanding=[line for line in lines if line.is_outstanding],
         highlight=request.args.get('highlight', ''),
+    )
+
+
+@bp.route('/products/digikey/part', methods=['GET', 'POST'])
+def digikey_part_capture():
+    """Catalog one DigiKey part on its own (FR-027).
+
+    Accepts a DigiKey part number, a manufacturer part number, or a DigiKey
+    product-page address. **Writes nothing**: it renders a review whose form
+    posts to the ordinary product-create route, so there is one place products
+    are created rather than two.
+    """
+    client = _get_digikey_client()
+
+    if request.method == 'GET':
+        return render_template(
+            'product/digikey_part_review.html',
+            title='Capture a DigiKey Part',
+            part=None,
+            existing=None,
+            part_number=request.args.get('part_number', ''),
+            problem=None if client is not None else 'not_configured',
+            message=None,
+        )
+
+    entered = (request.form.get('part_number') or '').strip()
+    part_number = _digikey_part_from_url(entered)
+
+    def _refuse(problem, message=None):
+        return render_template(
+            'product/digikey_part_review.html',
+            title='Capture a DigiKey Part',
+            part=None,
+            existing=None,
+            part_number=entered,
+            problem=problem,
+            message=message,
+        )
+
+    if not part_number:
+        return _refuse('blank', 'Enter a DigiKey part number, a manufacturer '
+                                'part number, or a DigiKey product page address.')
+    if client is None:
+        return _refuse('not_configured')
+
+    try:
+        part = client.get_part(part_number)
+    except WorkshopInventoryError as e:
+        # FR-032: say so plainly and offer the ordinary form carrying what they
+        # typed. Never an error page, never a silent empty draft.
+        return _refuse(_digikey_problem(e), e.message)
+
+    # FR-031: if the catalog already holds it, name that product rather than
+    # inviting a second one.
+    service = _get_catalog_service()
+    existing = service.find_product_by_identifier(
+        part.manufacturer_part_number, id_type=IdentifierType.MPN.value
+    ) or service.find_product_by_identifier(
+        part.digikey_part_number or part_number,
+        id_type=IdentifierType.DISTRIBUTOR.value,
+        vendor=DIGIKEY_VENDOR,
+    )
+
+    return render_template(
+        'product/digikey_part_review.html',
+        title=f'Capture {part.manufacturer_part_number or part_number}',
+        part=part,
+        existing=existing,
+        part_number=part_number,
+        problem=None,
+        message=None,
     )
 
 
