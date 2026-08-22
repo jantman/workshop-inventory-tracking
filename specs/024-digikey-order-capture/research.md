@@ -63,6 +63,14 @@ number, run *before* any capture code is written. Two ways it can come back:
   `credentials/digikey_token.json` alongside the Google `token.json`, refreshed on demand.
   This adds one small module and one route; it changes no other decision in this plan.
 
+  **The registered callback URL is `https://localhost`**, which is what DigiKey's own OAuth FAQ
+  recommends when there is no infrastructure to receive the redirect. It must be HTTPS — an
+  `http://` value is refused with `400 Invalid redirection uri` — and the `redirect_uri` sent on
+  the token exchange must match the registered value byte for byte, trailing slash included.
+  Nothing needs to listen there: DigiKey redirects the browser to `https://localhost/?code=...`,
+  the page fails to connect, and the code is read out of the address bar. It expires in one
+  minute; the refresh token it buys does not expire at all.
+
 **A third possibility must be reported, not worked around**: DigiKey's API FAQ says "We
 require customers to have a DigiKey Credit Account before API orders can be *placed*" — which
 is scoped to the Ordering API, not to Order Status. If Order Status nevertheless refuses a

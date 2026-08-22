@@ -55,7 +55,12 @@ seconds of expiring. **Not written to disk** — there is nothing worth persisti
 
 If `T001` shows 2-legged cannot read this account's orders, this section is replaced by the
 3-legged flow (authorization code, non-expiring refresh token in an untracked
-`credentials/digikey_token.json`). Nothing else in this contract changes.
+`credentials/digikey_token.json`), against the registered callback `https://localhost`. Nothing
+else in this contract changes.
+
+The callback plays no part in the 2-legged flow and is registered only because the portal
+requires one. It must be HTTPS, and the `redirect_uri` on a token exchange must match the
+registered value exactly.
 
 ---
 
