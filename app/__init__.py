@@ -8,6 +8,45 @@ from app.version import __version__
 
 csrf = CSRFProtect()
 
+
+def _drop_malformed_forwarded_port(wsgi_app):
+    """Ignore X-Forwarded-Port unless it is a plain decimal number.
+
+    ProxyFix appends whatever it is handed to the host, and
+    `werkzeug.sansio.utils.get_host` returns the *empty string* for a host
+    containing characters a host cannot contain. So one malformed header
+    turns every address the app builds into `https:///...` and refuses every
+    secure form -- with no error, no log line, and a site whose every link is
+    malformed.
+
+    This is not input hardening; the single trusted hop needs none. It is
+    there because without it trusting the port at all would be worse than not
+    trusting it: before issue #114 the same header was simply ignored, and
+    falling back to the arriving host restores exactly that. `isascii` because
+    `isdigit` alone accepts non-ASCII digits, which are not valid in a host.
+
+    Digits are not sufficient on their own. `get_host` checks characters, not
+    range, so `:99999999` survives into request.host -- and Flask-WTF's
+    referrer check compares `urlparse(...).port`, which *raises* `Port out of
+    range 0-65535` rather than returning False. That turns every secure write
+    into an unhandled 500: reads healthy, writes failing, which is the shape of
+    the bug this guard exists alongside. Hence the bound.
+
+    Bounded and no further. A port that is wrong but real -- 9090 when the
+    proxy is on 15603 -- is left alone to produce a visibly wrong address and a
+    readable 400, the same as a wrong hostname would.
+    """
+    def middleware(environ, start_response):
+        port = environ.get('HTTP_X_FORWARDED_PORT')
+        if port is not None and not (
+            port.isascii() and port.isdigit() and int(port) <= 65535
+        ):
+            del environ['HTTP_X_FORWARDED_PORT']
+        return wsgi_app(environ, start_response)
+
+    return middleware
+
+
 def create_app(config_class=Config, storage_backend=None):
     """
     Create Flask application factory with optional storage backend injection.
@@ -29,7 +68,22 @@ def create_app(config_class=Config, storage_backend=None):
     # trusted user, so there is no header-spoofing concern -- but it does mean
     # the proxy has to actually set the headers, which the deployment guide
     # says.
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    #
+    # The port is trusted for the same reason and was learned the harder way
+    # (issue #114). x_host=1 believes an X-Forwarded-Host that carries no port,
+    # overwriting an HTTP_HOST that did, so on a non-default port the app ends
+    # up believing it lives where the browser never was. The bookmarklet was
+    # the visible symptom -- addresses on 443, where nothing listens. The
+    # disabling one was that every CSRF-protected form over https was refused
+    # with "The referrer does not match the host", because that check compares
+    # the referrer against request.host. Reads were unaffected, which is why
+    # the deployment looked healthy until someone tried to save something.
+    #
+    # The guard wraps ProxyFix rather than the other way round: it has to
+    # clear the header before ProxyFix reads it.
+    app.wsgi_app = _drop_malformed_forwarded_port(
+        ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+    )
 
     # Store the storage backend in app config for access by routes
     if storage_backend:

@@ -711,7 +711,7 @@ unchanged, the workflow does nothing, so ordinary merges to `main` are safe.
 ## Serving Behind a TLS Reverse Proxy
 
 If you terminate TLS in front of the application -- nginx, Caddy, Traefik -- the
-proxy must pass the original scheme and host through:
+proxy must pass the original scheme, host **and port** through:
 
 ```nginx
 location / {
@@ -719,9 +719,16 @@ location / {
     proxy_set_header Host              $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-Port  $server_port;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 }
 ```
+
+All five lines are required. `$host` deliberately excludes the port, so the port
+travels in its own header -- `$server_port` is the port the proxy is listening
+on, which is the port the browser connected to. Send it unconditionally: on a
+deployment that does sit on 443 or 80 the application omits a standard port from
+the addresses it builds, so declaring it costs nothing.
 
 The application trusts exactly one hop of those headers
 (`werkzeug.middleware.proxy_fix.ProxyFix` in `app/__init__.py`). It has to,
@@ -736,6 +743,18 @@ and fails against a server that does not answer TLS on that port. The page shows
 a warning box whenever it believes it is being served over `http`, so if you are
 looking at an `https` address bar and still see that box, the proxy is not
 sending `X-Forwarded-Proto`.
+
+**If you are serving on a non-default port, `X-Forwarded-Port` is not optional
+and its absence is not cosmetic.** Without it the application believes it is on
+the scheme's default port, and two things follow. The bookmarklet points at that
+default port, where nothing is listening, so clicking it does nothing at all.
+More seriously, every form that writes -- capture confirmation, add and edit
+item, add and edit product, move, shorten, receive -- is refused with
+`400 Bad Request: The referrer does not match the host`, because the CSRF
+referrer check compares the address the form came from against the address the
+application thinks it lives at, and a port is part of an address. Reads are
+unaffected, so the deployment looks entirely healthy until you try to save
+something. That was issue #114.
 
 Nothing here is a security control. On a LAN-only single-user application there
 is no one to spoof the headers; the trust is there so the URLs come out right.
