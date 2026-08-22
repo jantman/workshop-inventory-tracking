@@ -405,3 +405,50 @@ class TestPartEdgeCases:
     def test_the_digikey_part_number_comes_off_the_variations(self):
         part = self._part(_fixture('productdetails.json'))
         assert part.digikey_part_number
+
+
+class TestFixturesCarryNoRealIdentifiers:
+    """The check that was missing when a real account number reached a public repo.
+
+    PR #116 review. ``T003`` redacted the sales-order fixture's names and email
+    and never looked at the product-details one at all, where DigiKey echoes the
+    account back as ``AccountIdUsed`` / ``CustomerIdUsed``. A grep for names
+    finds names; it does not find a number.
+
+    So this asserts the shape of the thing instead: every account-ish field in
+    every committed fixture must hold the documented placeholder. A future
+    fixture recorded from a real call fails here rather than in public.
+    """
+
+    PLACEHOLDER = 99999999
+    ACCOUNT_KEYS = frozenset({
+        'AccountIdUsed', 'CustomerIdUsed', 'CustomerId', 'BillingAccount',
+    })
+
+    def _walk(self, node, path=''):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield from self._walk(value, f'{path}.{key}')
+                if key in self.ACCOUNT_KEYS:
+                    yield f'{path}.{key}', value
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                yield from self._walk(value, f'{path}[{i}]')
+
+    @pytest.mark.parametrize('name', ['salesorder.json', 'productdetails.json'])
+    def test_every_account_field_is_the_placeholder(self, name):
+        found = list(self._walk(json.loads(_fixture(name))))
+        assert found, f'{name} has no account field -- has the schema changed?'
+        for where, value in found:
+            assert value == self.PLACEHOLDER, (
+                f'{name}{where} is {value!r}, not the {self.PLACEHOLDER} placeholder. '
+                f'This repository is public; scrub it before committing.'
+            )
+
+    @pytest.mark.parametrize('name', ['salesorder.json', 'productdetails.json'])
+    def test_no_personal_details_survive(self, name):
+        raw = _fixture(name)
+        for marker in ('@', 'Phone"', 'FirstName": "', 'LastName": "'):
+            if marker in raw:
+                # Present is fine as long as the value was replaced.
+                assert 'REDACTED' in raw, f'{name} still carries {marker!r} unredacted'

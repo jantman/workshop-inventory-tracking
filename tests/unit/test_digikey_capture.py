@@ -735,3 +735,73 @@ class TestCaptureThroughTheForm:
         assert '1 skipped' in response.get_data(as_text=True)
         catalog = CatalogService(test_storage)
         assert catalog.find_product_by_identifier('IRM-05-5', id_type='MPN') is None
+
+
+class TestNoNetworkInsideTheTransaction:
+    """PR #116 review: the review held a session open across per-line HTTP calls.
+
+    ``capture_digikey_order`` already documented why that is wrong -- ten seconds
+    a call, twenty-five calls, a long-lived lock in exchange for nothing -- and
+    the review did the opposite of its own sibling's comment. Worse, in fact: a
+    review enriches every line where a capture enriches only the included ones.
+    """
+
+    def test_every_part_is_fetched_before_the_session_opens(self, catalog, order):
+        opened = []
+
+        class WatchfulDigiKey(FakeDigiKey):
+            def get_part(self, part_number):
+                opened.append(('fetch', part_number))
+                return super().get_part(part_number)
+
+        real_session = type(catalog)._session
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def watched(self):
+            opened.append(('session-open', None))
+            with real_session(self) as session:
+                yield session
+            opened.append(('session-close', None))
+
+        type(catalog)._session = watched
+        try:
+            catalog.review_digikey_order(order, WatchfulDigiKey())
+        finally:
+            type(catalog)._session = real_session
+
+        kinds = [kind for kind, _ in opened]
+        assert kinds.count('fetch') == 2, kinds
+        first_open = kinds.index('session-open')
+        assert all(i < first_open for i, k in enumerate(kinds) if k == 'fetch'), (
+            f'a DigiKey call happened inside an open transaction: {kinds}'
+        )
+
+    def test_capture_still_fetches_before_its_session_too(self, catalog, order):
+        """The sibling that was already right, pinned so it stays that way."""
+        opened = []
+
+        class WatchfulDigiKey(FakeDigiKey):
+            def get_part(self, part_number):
+                opened.append(('fetch', part_number))
+                return super().get_part(part_number)
+
+        real_session = type(catalog)._session
+        from contextlib import contextmanager
+
+        @contextmanager
+        def watched(self):
+            opened.append(('session-open', None))
+            with real_session(self) as session:
+                yield session
+
+        type(catalog)._session = watched
+        try:
+            catalog.capture_digikey_order(order, include_all(order), WatchfulDigiKey())
+        finally:
+            type(catalog)._session = real_session
+
+        kinds = [kind for kind, _ in opened]
+        first_open = kinds.index('session-open')
+        assert all(i < first_open for i, k in enumerate(kinds) if k == 'fetch'), kinds

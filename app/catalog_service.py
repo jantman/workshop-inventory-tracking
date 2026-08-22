@@ -1677,15 +1677,31 @@ class CatalogService:
             any purchase recorded against this sales order whose part the order
             no longer contains (FR-013).
         """
+        # Enrichment happens **before** the session opens, for the reason
+        # capture_digikey_order gives: this is network I/O at ten seconds a call,
+        # and holding a transaction open across twenty-five of them is a
+        # long-lived lock in exchange for nothing.
+        #
+        # The exposure here is worse than capture's, not better -- a review
+        # enriches every line, where a capture enriches only the included ones.
+        # This read used to sit inside the session, which contradicted the
+        # comment on its sibling forty lines below. PR #116 review.
+        parts = {
+            line.digikey_part_number: self._digikey_part(
+                digikey_client, line.digikey_part_number
+            )
+            for line in order.lines
+        }
+
         with self._session() as session:
             recorded = self._recorded_digikey_lines(session, order.sales_order_number)
 
-            reviewed = []
-            for line in order.lines:
-                part = self._digikey_part(digikey_client, line.digikey_part_number)
-                reviewed.append(
-                    self._review_digikey_line(session, line, part, recorded)
+            reviewed = [
+                self._review_digikey_line(
+                    session, line, parts.get(line.digikey_part_number), recorded
                 )
+                for line in order.lines
+            ]
 
             fetched = {line.digikey_part_number for line in order.lines}
             orphaned = tuple(
