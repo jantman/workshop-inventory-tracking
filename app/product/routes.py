@@ -1148,14 +1148,24 @@ def _digikey_decisions(form, order):
 
 
 def _digikey_capture_summary(result) -> str:
-    """What just happened, in one sentence the operator can act on."""
-    # "Captured 0 line(s)" is what a pure re-capture used to say once the
-    # already-captured lines stopped being counted as skipped. Say the true
-    # thing instead.
-    parts = [
-        f"Captured {len(result.purchase_ids)} line(s)" if result.purchase_ids
-        else "Nothing new to capture"
-    ]
+    """What just happened, in one sentence the operator can act on.
+
+    **Every outcome that changed the database has to appear here.** A capture
+    that only applies a quantity change writes no purchase, so leading on the
+    purchase count alone would report "Nothing new to capture" over the top of
+    an update that genuinely landed -- which is the same silent-write problem
+    the apply_change fix exists to close, moved from the service to the flash.
+    PR #116 review.
+    """
+    parts = []
+    if result.purchase_ids:
+        parts.append(f"Captured {len(result.purchase_ids)} line(s)")
+    if result.lines_updated:
+        parts.append(f"{result.lines_updated} line(s) updated")
+    if not parts:
+        # Nothing was written at all. Say so plainly rather than "Captured 0".
+        parts.append("Nothing new to capture")
+
     if result.products_created:
         parts.append(f"{result.products_created} new product(s)")
     if result.products_attached:

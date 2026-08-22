@@ -649,6 +649,53 @@ class TestCaptureThroughTheForm:
         assert product.purchases[0].quantity == 11
         assert len(product.purchases) == 1, 'an update, not a second capture'
 
+    def test_an_update_only_capture_says_it_updated_something(
+            self, client, captured, app, digikey_fixture_client, monkeypatch):
+        """PR #116 review: the write landed but the flash said nothing happened.
+
+        An update-only capture writes no purchase, so a summary that leads on
+        the purchase count reports "Nothing new to capture" over the top of a
+        change that is now in the database. Same silent-write problem as the bug
+        this class was written for, one layer out.
+        """
+        real_get_order = digikey_fixture_client.get_order
+
+        def changed_order(number):
+            base = real_get_order(number)
+            line = base.lines[0]
+            return type(base)(
+                sales_order_number=base.sales_order_number,
+                order_date=base.order_date,
+                lines=(type(line)(**{**line.__dict__, 'quantity': 11}),) + base.lines[1:],
+            )
+
+        monkeypatch.setattr(digikey_fixture_client, 'get_order', changed_order)
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+
+        fields = form_fields(self._review_html(client))
+        fields['apply_change[1866-3027-ND]'] = 'on'
+        response = client.post('/products/digikey/orders/capture',
+                               data={**fields, 'sales_order_number': '100882558'},
+                               follow_redirects=True)
+
+        body = response.get_data(as_text=True)
+        assert '1 line(s) updated' in body
+        assert 'Nothing new to capture' not in body
+        # And the change really is in the database, not just in the message.
+        product = captured.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert product.purchases[0].quantity == 11
+
+    def test_a_capture_that_changed_nothing_still_says_so(
+            self, client, captured, app, digikey_fixture_client):
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        response = client.post(
+            '/products/digikey/orders/capture',
+            data={**form_fields(self._review_html(client)),
+                  'sales_order_number': '100882558'},
+            follow_redirects=True,
+        )
+        assert 'Nothing new to capture' in response.get_data(as_text=True)
+
     def test_not_ticking_it_leaves_the_purchase_alone(self, client, captured, app,
                                                      digikey_fixture_client, monkeypatch):
         real_get_order = digikey_fixture_client.get_order
