@@ -2502,3 +2502,57 @@ class TestTheMessageTheOperatorReads:
         message = self.tally(self.note(outcome='unusable'))
 
         assert f'"{BAD_CHECK_DIGIT}"' in message
+
+
+class TestDigiKeyPartFromUrl:
+    """Reading a part number off a DigiKey product address (024 FR-027).
+
+    The trap is the trailing path segment: it looks like an identifier and is
+    DigiKey's internal product id. ``_asin_from_url`` already refuses to read a
+    DigiKey address for the same reason.
+    """
+
+    def test_reads_the_manufacturer_part_number_from_the_path(self):
+        from app.product.routes import _digikey_part_from_url
+        assert _digikey_part_from_url(
+            'https://www.digikey.com/en/products/detail/mean-well-usa-inc/IRM-05-5/7704652'
+        ) == 'IRM-05-5'
+
+    def test_does_not_mistake_the_product_id_for_a_part_number(self):
+        from app.product.routes import _digikey_part_from_url
+        assert _digikey_part_from_url(
+            'https://www.digikey.com/en/products/detail/mean-well-usa-inc/IRM-05-5/7704652'
+        ) != '7704652'
+
+    def test_tolerates_a_trailing_slash_and_a_query(self):
+        from app.product.routes import _digikey_part_from_url
+        assert _digikey_part_from_url(
+            'https://www.digikey.com/en/products/detail/tdk/C1005X5R1A105K050BC/2672776/?s=abc'
+        ) == 'C1005X5R1A105K050BC'
+
+    def test_url_encoded_part_numbers_are_decoded(self):
+        from app.product.routes import _digikey_part_from_url
+        assert _digikey_part_from_url(
+            'https://www.digikey.com/en/products/detail/vendor/ABC%2F123/999'
+        ) == 'ABC/123'
+
+    def test_a_typed_part_number_passes_straight_through(self):
+        from app.product.routes import _digikey_part_from_url
+        assert _digikey_part_from_url('1866-3027-ND') == '1866-3027-ND'
+        assert _digikey_part_from_url('  IRM-05-5  ') == 'IRM-05-5'
+
+    def test_an_unrecognized_digikey_address_is_left_alone(self):
+        """FR-032 handles it downstream: say so, never guess."""
+        from app.product.routes import _digikey_part_from_url
+        value = 'https://www.digikey.com/en/products/filter/something'
+        assert _digikey_part_from_url(value) == value
+
+    def test_a_short_detail_path_is_left_alone(self):
+        from app.product.routes import _digikey_part_from_url
+        value = 'https://www.digikey.com/en/products/detail/only-one'
+        assert _digikey_part_from_url(value) == value
+
+    def test_an_amazon_url_is_not_touched(self):
+        from app.product.routes import _digikey_part_from_url
+        value = 'https://www.amazon.com/dp/B0ABCDEFGH'
+        assert _digikey_part_from_url(value) == value

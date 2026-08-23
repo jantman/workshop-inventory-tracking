@@ -62,6 +62,17 @@
                                name="order_reference" maxlength="200"
                                value="{{ form_data.get('order_reference') or '' }}">
                     </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="supplier_order_reference" class="form-label">Supplier Order Reference</label>
+                        <input type="text" class="form-control" id="supplier_order_reference"
+                               name="supplier_order_reference" maxlength="200"
+                               value="{{ form_data.get('supplier_order_reference') or '' }}">
+                        <div class="form-text">
+                            The vendor's own order number &mdash; a DigiKey sales order
+                            number, for instance. Scanning a bag from an order recorded
+                            with one takes you straight to its receipt.
+                        </div>
+                    </div>
                 </div>
             </div>
 

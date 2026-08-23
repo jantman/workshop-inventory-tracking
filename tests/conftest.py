@@ -278,3 +278,33 @@ def pytest_runtest_makereport(item, call):
             print(f"⚠️ Error during debug capture: {e}")
             import traceback
             traceback.print_exc()
+
+@pytest.fixture
+def digikey_fixture_client():
+    """A DigiKey client serving the recorded fixtures, for route-level tests.
+
+    Not a ``DigiKeyClient`` pointed at anything: the unit session blocks the
+    network, and the client's own HTTP behaviour is covered by
+    ``tests/unit/test_digikey_client.py``. What routes need is something that
+    answers ``get_order`` and ``get_part``.
+    """
+    import json
+    from decimal import Decimal
+    from pathlib import Path
+
+    from app.models import DigiKeyOrder, DigiKeyPart
+
+    fixtures = Path(__file__).parent / 'fixtures' / 'digikey'
+
+    class _FixtureDigiKey:
+        def get_order(self, sales_order_number):
+            return DigiKeyOrder.from_payload(json.loads(
+                (fixtures / 'salesorder.json').read_text(), parse_float=Decimal
+            ))
+
+        def get_part(self, part_number):
+            return DigiKeyPart.from_payload(json.loads(
+                (fixtures / 'productdetails.json').read_text(), parse_float=Decimal
+            ))
+
+    return _FixtureDigiKey()

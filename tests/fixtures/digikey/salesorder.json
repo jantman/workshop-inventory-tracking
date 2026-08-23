@@ -1,0 +1,90 @@
+{
+  "CustomerId": 99999999,
+  "SalesOrderId": 100882558,
+  "Status": {
+    "SalesOrderStatus": "Shipped",
+    "ShortDescription": "Shipped",
+    "LongDescription": "All products in this order have been shipped. Invoice and tracking information is available."
+  },
+  "PurchaseOrder": "",
+  "TotalPrice": 67.0,
+  "DateEntered": "2026-08-07T17:34:04.332-05:00",
+  "OrderNumber": 9910000375186108,
+  "ShipMethod": "UPS Ground",
+  "Currency": "USD",
+  "ShippingAddress": {
+    "FirstName": "REDACTED",
+    "LastName": "REDACTED",
+    "CompanyName": "REDACTED",
+    "AddressLine1": "REDACTED",
+    "AddressLine2": "REDACTED",
+    "AddressLine3": "REDACTED",
+    "City": "REDACTED",
+    "State": "REDACTED",
+    "County": "REDACTED",
+    "ZipCode": "REDACTED",
+    "IsoCode": "REDACTED",
+    "Phone": "REDACTED",
+    "InvoiceId": 130599231
+  },
+  "LineItems": [
+    {
+      "SalesOrderId": 100882558,
+      "DetailId": 1,
+      "TotalPrice": 32.5,
+      "PurchaseOrder": "",
+      "CustomerReference": "",
+      "CountryOfOrigin": "CN",
+      "DigiKeyProductNumber": "1866-3027-ND",
+      "ManufacturerProductNumber": "IRM-05-5",
+      "Description": "AC/DC CONVERTER 5V 5W",
+      "PackType": "Box",
+      "QuantityInitialRequested": 5,
+      "QuantityOrdered": 5,
+      "QuantityShipped": 5,
+      "QuantityReserved": 0,
+      "QuantityBackOrder": 0,
+      "UnitPrice": 6.5,
+      "PoLineItemNumber": null,
+      "ItemShipments": [
+        {
+          "QuantityShipped": 5,
+          "InvoiceId": 130599231,
+          "ShippedDate": "2026-08-08T02:49:29.764Z",
+          "TrackingNumber": "1Z5674320304765807",
+          "ExpectedDeliveryDate": "2026-08-14"
+        }
+      ],
+      "Schedules": []
+    },
+    {
+      "SalesOrderId": 100882558,
+      "DetailId": 2,
+      "TotalPrice": 34.5,
+      "PurchaseOrder": "",
+      "CustomerReference": "",
+      "CountryOfOrigin": "CN",
+      "DigiKeyProductNumber": "1866-3032-ND",
+      "ManufacturerProductNumber": "IRM-10-5",
+      "Description": "AC/DC CONVERTER 5V 10W",
+      "PackType": "Box",
+      "QuantityInitialRequested": 5,
+      "QuantityOrdered": 5,
+      "QuantityShipped": 5,
+      "QuantityReserved": 0,
+      "QuantityBackOrder": 0,
+      "UnitPrice": 6.9,
+      "PoLineItemNumber": null,
+      "ItemShipments": [
+        {
+          "QuantityShipped": 5,
+          "InvoiceId": 130599231,
+          "ShippedDate": "2026-08-08T02:49:29.764Z",
+          "TrackingNumber": "1Z5674320304765807",
+          "ExpectedDeliveryDate": "2026-08-14"
+        }
+      ],
+      "Schedules": []
+    }
+  ]
+}

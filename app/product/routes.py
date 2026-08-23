@@ -9,14 +9,16 @@ rather than any new error machinery.
 
 import re
 from typing import List
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from app import csrf
-from app.catalog_service import CatalogService
+from app.catalog_service import DIGIKEY_VENDOR, CatalogService
 from app.exceptions import (
-    CaptureDecisionRequired, DuplicateItemError, ItemNotFoundError, ValidationError
+    AuthenticationError, CaptureDecisionRequired, ConfigurationError,
+    DuplicateItemError, ItemNotFoundError, RateLimitError, TemporaryError,
+    ValidationError, WorkshopInventoryError,
 )
 from app.models import CapturedBarcode, IdentifierType, ListingCapture
 from app.photo_service import PhotoService
@@ -37,6 +39,15 @@ def _get_storage_backend():
 def _get_catalog_service() -> CatalogService:
     """Get the catalog service bound to this app's storage backend"""
     return CatalogService(_get_storage_backend())
+
+
+def _get_digikey_client():
+    """This app's DigiKey client, or None when it is not configured.
+
+    None is an ordinary state and every DigiKey route handles it by saying so
+    (024 FR-036). A test injects a fake by setting ``app.config['DIGIKEY_CLIENT']``.
+    """
+    return current_app.config.get('DIGIKEY_CLIENT')
 
 
 def _product_or_404(service: CatalogService, product_id: int):
@@ -192,6 +203,16 @@ def product_new():
                 'override': request.form.get('identifier_override') == 'on',
             })
 
+        # A DigiKey part capture posts its DigiKey part number alongside the
+        # manufacturer's, so the product scans back from either (024 FR-028).
+        digikey_part_number = (request.form.get('digikey_part_number') or '').strip()
+        if digikey_part_number:
+            identifiers.append({
+                'id_type': IdentifierType.DISTRIBUTOR.value,
+                'value': digikey_part_number,
+                'vendor': DIGIKEY_VENDOR,
+            })
+
         label_note = _ecia_note(request.form)
         if label_note:
             fields['notes'] = '\n\n'.join(
@@ -213,6 +234,24 @@ def product_new():
                 prefill={},
             )
 
+        # The slow, partially-failing half, after the transaction has already
+        # committed (024 FR-041). A datasheet DigiKey cannot serve must cost the
+        # datasheet and never the product -- the same split store_listing_images
+        # was written for.
+        documents = [
+            url for url in (
+                request.form.get('digikey_photo_url'),
+                request.form.get('digikey_datasheet_url'),
+            )
+            if (url or '').startswith(('http://', 'https://'))
+        ]
+        if documents:
+            outcome = store_listing_images(
+                product.id, documents, _get_storage_backend()
+            )
+            if getattr(outcome, 'stored', 0):
+                flash(f'Attached {outcome.stored} file(s) from DigiKey.', 'info')
+
         flash(f'Created "{product.description}".', 'success')
         return redirect(url_for('product.product_detail', product_id=product.id))
 
@@ -232,6 +271,34 @@ def product_new():
         'raw_scan': request.args.get('raw_scan', ''),
         'ecia_fields': ecia_fields,
     }
+
+    # 024 FR-033: a scanned bag whose part this catalog does not hold, from an
+    # order it did not capture, used to arrive as the four or five values the
+    # label itself carries. If DigiKey is configured, fill in what they know
+    # about the part as well.
+    #
+    # Silent when it fails, deliberately: the operator is looking at a draft, not
+    # at a DigiKey screen, and the pre-024 draft is still a perfectly good one.
+    distributor_part_number = ecia_fields.get('distributor_part_number')
+    client = _get_digikey_client()
+    if client is not None and distributor_part_number and not prefill['description']:
+        try:
+            part = client.get_part(distributor_part_number)
+        except WorkshopInventoryError:
+            part = None
+        if part is not None:
+            prefill.update({
+                'description': part.description,
+                'manufacturer': part.manufacturer,
+                'manufacturer_part_number': part.manufacturer_part_number,
+                'category_path': part.category_path,
+                'digikey_part_number': part.digikey_part_number or distributor_part_number,
+                'digikey_datasheet_url': part.datasheet_url,
+                'digikey_photo_url': part.photo_url,
+                'specifications': [
+                    {'name': name, 'value': value} for name, value in part.parameters
+                ],
+            })
     return render_template(
         'product/add.html',
         title='Add Product',
@@ -353,6 +420,7 @@ def purchase_new(product_id):
                 quantity=request.form.get('quantity'),
                 unit_price=request.form.get('unit_price'),
                 order_reference=request.form.get('order_reference'),
+                supplier_order_reference=request.form.get('supplier_order_reference'),
                 notes=request.form.get('notes'),
             )
         except ValidationError as e:
@@ -820,6 +888,10 @@ def purchase_receive(purchase_id):
                 product=product,
                 # What they submitted, not what is stored -- a refused
                 # description they spent time on should still be on the page.
+                # The quantity goes the same way: a scanned bag's count, or a
+                # hand-typed correction, must survive a refusal about some other
+                # field.
+                scanned_quantity=request.form.get('quantity', ''),
                 form_data=request.form,
             )
 
@@ -828,6 +900,10 @@ def purchase_receive(purchase_id):
 
     return render_template(
         'product/receive.html',
+        # FR-020: a scanned bag's label says what is in *this* bag, which is not
+        # always what was ordered. Editable, and absent it behaves as it always
+        # has.
+        scanned_quantity=request.args.get('quantity', ''),
         title='Receive a Purchase',
         purchase=purchase,
         product=product,
@@ -880,6 +956,325 @@ def relative_age(age, unknown: str = 'never counted') -> str:
 
     years = days // 365
     return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+# ---------------------------------------------------------------------------
+# DigiKey orders (feature 024)
+#
+# Every one of these renders a message on a working page rather than an error
+# page when DigiKey cannot be reached: the operator's next action is to retype
+# or retry, and an error page is a dead end (FR-036, FR-038).
+# ---------------------------------------------------------------------------
+
+# What each exception the DigiKey client raises means to the operator. The four
+# states FR-038 requires be distinguishable, plus throttling. No new exception
+# class was needed; every one of these already existed.
+_DIGIKEY_MESSAGES = (
+    (ConfigurationError, 'not_configured'),
+    (AuthenticationError, 'unauthorized'),
+    (ItemNotFoundError, 'not_found'),
+    (RateLimitError, 'throttled'),
+    (TemporaryError, 'unavailable'),
+)
+
+
+def _digikey_problem(error) -> str:
+    """Which of the five failure states this is, for the template to render."""
+    for exception_type, state in _DIGIKEY_MESSAGES:
+        if isinstance(error, exception_type):
+            return state
+    return 'unavailable'
+
+
+def _digikey_part_from_url(value: str) -> str:
+    """Pull a part number out of a DigiKey product address, or return it as given.
+
+    A DigiKey product page is
+    ``digikey.com/en/products/detail/<manufacturer-slug>/<mpn-slug>/<product-id>``.
+    **The trailing segment is DigiKey's internal product id, not a part number**
+    -- which is why ``_asin_from_url`` correctly yields nothing for a DigiKey
+    address, and why deriving a part number from it would be wrong. The
+    second-to-last segment is the manufacturer part number, and ProductDetails
+    resolves one of those as happily as a DigiKey part number.
+
+    Anything that is not a DigiKey product address is returned untouched, so a
+    typed part number passes straight through.
+    """
+    text = (value or '').strip()
+    if 'digikey.' not in text.lower() or '/products/detail/' not in text.lower():
+        return text
+
+    path = urlparse(text).path.rstrip('/')
+    segments = [segment for segment in path.split('/') if segment]
+    try:
+        marker = segments.index('detail')
+    except ValueError:
+        return text
+
+    # detail / manufacturer / mpn / product-id
+    if len(segments) < marker + 4:
+        return text
+    return unquote(segments[marker + 2])
+
+
+def _digikey_entry(problem=None, message=None, sales_order_number='', status=200):
+    """The sales order number form, optionally carrying a problem to explain."""
+    return render_template(
+        'product/digikey_order_entry.html',
+        title='Capture a DigiKey Order',
+        sales_order_number=sales_order_number,
+        problem=problem,
+        message=message,
+        configured=_get_digikey_client() is not None,
+    ), status
+
+
+@bp.route('/products/digikey/orders', methods=['GET', 'POST'])
+def digikey_order_capture():
+    """Enter a sales order number; get a review of what capturing it would do.
+
+    **Writes nothing** (FR-004). The review is a read of DigiKey plus a read of
+    the catalog, and the operator can close the tab with no trace left.
+    """
+    client = _get_digikey_client()
+
+    if request.method == 'GET':
+        # FR-036: say it before they type an order number, not after.
+        return _digikey_entry(
+            problem=None if client is not None else 'not_configured'
+        )[0]
+
+    sales_order_number = (request.form.get('sales_order_number') or '').strip()
+    if not sales_order_number:
+        return _digikey_entry(
+            problem='blank',
+            message='Enter the sales order number from your DigiKey order '
+                    'confirmation, or scan a bag label.',
+        )[0]
+
+    if client is None:
+        return _digikey_entry(
+            problem='not_configured', sales_order_number=sales_order_number
+        )[0]
+
+    try:
+        order = client.get_order(sales_order_number)
+    except WorkshopInventoryError as e:
+        return _digikey_entry(
+            problem=_digikey_problem(e),
+            message=e.message,
+            sales_order_number=sales_order_number,
+        )[0]
+
+    service = _get_catalog_service()
+    review = service.review_digikey_order(order, client)
+
+    return render_template(
+        'product/digikey_order_review.html',
+        title=f'DigiKey Order {order.sales_order_number}',
+        review=review,
+        order=order,
+        form_data={},
+    )
+
+
+@bp.route('/products/digikey/orders/capture', methods=['POST'])
+def digikey_order_confirm():
+    """Confirm a reviewed order and write it.
+
+    The order is **re-read from DigiKey** rather than rebuilt from the form: the
+    fetched order is the authority on what was bought, and a form is a thing the
+    operator was looking at some seconds ago.
+    """
+    client = _get_digikey_client()
+    sales_order_number = (request.form.get('sales_order_number') or '').strip()
+
+    if client is None:
+        return _digikey_entry(
+            problem='not_configured', sales_order_number=sales_order_number
+        )[0]
+
+    try:
+        order = client.get_order(sales_order_number)
+    except WorkshopInventoryError as e:
+        return _digikey_entry(
+            problem=_digikey_problem(e),
+            message=e.message,
+            sales_order_number=sales_order_number,
+        )[0]
+
+    decisions = _digikey_decisions(request.form, order)
+    service = _get_catalog_service()
+
+    try:
+        result = service.capture_digikey_order(order, decisions, client)
+    except ValidationError as e:
+        # Re-render the review carrying what was submitted, so a description the
+        # operator spent time on is not lost. The same thing purchase_receive
+        # already does for a refused description.
+        review = service.review_digikey_order(order, client)
+        flash(e.message, 'error')
+        return render_template(
+            'product/digikey_order_review.html',
+            title=f'DigiKey Order {order.sales_order_number}',
+            review=review,
+            order=order,
+            form_data=request.form,
+        )
+
+    flash(_digikey_capture_summary(result), 'success')
+    return redirect(url_for(
+        'product.digikey_order_detail',
+        sales_order_number=order.sales_order_number,
+    ))
+
+
+def _digikey_decisions(form, order):
+    """The per-line decisions the form carries, keyed by DigiKey part number.
+
+    Built by walking the *order*, not the form: a decision submitted for a line
+    the order no longer contains is ignored rather than acted on.
+    """
+    decisions = {}
+    for line in order.lines:
+        # form_key, not the part number: an order can carry the same part on two
+        # lines, and keying by part number gave them one shared set of fields.
+        key = line.form_key
+        decisions[key] = {
+            'include': form.get(f'include[{key}]') is not None,
+            'description': form.get(f'description[{key}]') or '',
+            'resolution': form.get(f'resolution[{key}]') or '',
+            'apply_change': form.get(f'apply_change[{key}]') is not None,
+        }
+    return decisions
+
+
+def _digikey_capture_summary(result) -> str:
+    """What just happened, in one sentence the operator can act on.
+
+    **Every outcome that changed the database has to appear here.** A capture
+    that only applies a quantity change writes no purchase, so leading on the
+    purchase count alone would report "Nothing new to capture" over the top of
+    an update that genuinely landed -- which is the same silent-write problem
+    the apply_change fix exists to close, moved from the service to the flash.
+    PR #116 review.
+    """
+    parts = []
+    if result.purchase_ids:
+        parts.append(f"Captured {len(result.purchase_ids)} line(s)")
+    if result.lines_updated:
+        parts.append(f"{result.lines_updated} line(s) updated")
+    if not parts:
+        # Nothing was written at all. Say so plainly rather than "Captured 0".
+        parts.append("Nothing new to capture")
+
+    if result.products_created:
+        parts.append(f"{result.products_created} new product(s)")
+    if result.products_attached:
+        parts.append(f"{result.products_attached} attached to products you already had")
+    if result.lines_already_captured:
+        parts.append(f"{result.lines_already_captured} already captured")
+    if result.lines_excluded:
+        parts.append(f"{result.lines_excluded} skipped")
+    if result.lines_unenriched:
+        # Named rather than counted: the operator is told which came back thin
+        # so they know which products to look over (FR-041).
+        parts.append(
+            "DigiKey had no detail for " + ", ".join(result.lines_unenriched)
+        )
+    return ". ".join(parts) + "."
+
+
+@bp.route('/products/digikey/orders/<sales_order_number>')
+def digikey_order_detail(sales_order_number):
+    """A captured DigiKey order (FR-017, FR-018).
+
+    Derived, never stored: the order *is* the purchases carrying its number. A
+    sales order number nothing was captured against renders "not captured" with
+    a link to capture it -- not a 404. Nothing dead-ends.
+    """
+    service = _get_catalog_service()
+    lines = service.find_order_lines(sales_order_number)
+
+    return render_template(
+        'product/digikey_order.html',
+        title=f'DigiKey Order {sales_order_number}',
+        sales_order_number=sales_order_number,
+        lines=lines,
+        outstanding=[line for line in lines if line.is_outstanding],
+        highlight=request.args.get('highlight', ''),
+    )
+
+
+@bp.route('/products/digikey/part', methods=['GET', 'POST'])
+def digikey_part_capture():
+    """Catalog one DigiKey part on its own (FR-027).
+
+    Accepts a DigiKey part number, a manufacturer part number, or a DigiKey
+    product-page address. **Writes nothing**: it renders a review whose form
+    posts to the ordinary product-create route, so there is one place products
+    are created rather than two.
+    """
+    client = _get_digikey_client()
+
+    if request.method == 'GET':
+        return render_template(
+            'product/digikey_part_review.html',
+            title='Capture a DigiKey Part',
+            part=None,
+            existing=None,
+            part_number=request.args.get('part_number', ''),
+            problem=None if client is not None else 'not_configured',
+            message=None,
+        )
+
+    entered = (request.form.get('part_number') or '').strip()
+    part_number = _digikey_part_from_url(entered)
+
+    def _refuse(problem, message=None):
+        return render_template(
+            'product/digikey_part_review.html',
+            title='Capture a DigiKey Part',
+            part=None,
+            existing=None,
+            part_number=entered,
+            problem=problem,
+            message=message,
+        )
+
+    if not part_number:
+        return _refuse('blank', 'Enter a DigiKey part number, a manufacturer '
+                                'part number, or a DigiKey product page address.')
+    if client is None:
+        return _refuse('not_configured')
+
+    try:
+        part = client.get_part(part_number)
+    except WorkshopInventoryError as e:
+        # FR-032: say so plainly and offer the ordinary form carrying what they
+        # typed. Never an error page, never a silent empty draft.
+        return _refuse(_digikey_problem(e), e.message)
+
+    # FR-031: if the catalog already holds it, name that product rather than
+    # inviting a second one.
+    service = _get_catalog_service()
+    existing = service.find_product_by_identifier(
+        part.manufacturer_part_number, id_type=IdentifierType.MPN.value
+    ) or service.find_product_by_identifier(
+        part.digikey_part_number or part_number,
+        id_type=IdentifierType.DISTRIBUTOR.value,
+        vendor=DIGIKEY_VENDOR,
+    )
+
+    return render_template(
+        'product/digikey_part_review.html',
+        title=f'Capture {part.manufacturer_part_number or part_number}',
+        part=part,
+        existing=existing,
+        part_number=part_number,
+        problem=None,
+        message=None,
+    )
 
 
 @bp.route('/products/reorder')
@@ -1080,7 +1475,9 @@ def api_scan():
 
     payload = resolution.to_dict()
     payload['success'] = True
-    if resolution.outcome == 'product':
+    if resolution.outcome == 'receive':
+        payload['url'] = _receive_url(resolution)
+    elif resolution.outcome == 'product':
         # from_scan is what makes FR-019 work: arriving at a known product from a
         # scan offers "add a purchase to this one", because during receiving that
         # is what the operator is holding the thing to do.
@@ -1093,6 +1490,49 @@ def api_scan():
         payload['url'] = url_for('product.product_search', q=resolution.classification.raw)
 
     return jsonify(payload)
+
+
+def _receive_url(resolution) -> str:
+    """Where a bag from a captured DigiKey order should land (024 FR-019).
+
+    Three cases, and the difference between them is what the operator needs to
+    be told:
+
+    * one outstanding line -- straight to its receipt, with the label's own
+      quantity pre-filled, because the label describes what is in the bag rather
+      than what was ordered (FR-020);
+    * several -- the order screen with the candidates marked. The catalog does
+      not pick one (FR-026);
+    * none outstanding but some received -- the order screen, saying so. Nothing
+      is received twice (FR-023).
+
+    ``app/static/js/scan-capture.js`` navigates to whatever this returns without
+    inspecting the outcome, which is why the fourth outcome needed no JavaScript.
+    """
+    purchases = resolution.purchases
+    outstanding = [purchase for purchase in purchases if purchase.is_outstanding]
+    fields = resolution.classification.ecia_fields
+    sales_order_number = fields.get('1K', '')
+
+    if len(outstanding) == 1:
+        params = {'purchase_id': outstanding[0].id}
+        if fields.get('Q'):
+            # Uncoerced, as every value off a distributor label is: a cut-tape
+            # quantity may be a length, and the field stays editable either way.
+            params['quantity'] = fields['Q']
+        return url_for('product.purchase_receive', **params)
+
+    if not outstanding:
+        flash(
+            f"That line of DigiKey order {sales_order_number} is already received.",
+            'info',
+        )
+
+    return url_for(
+        'product.digikey_order_detail',
+        sales_order_number=sales_order_number,
+        highlight=fields.get('P', ''),
+    )
 
 
 def _create_url(resolution) -> str:

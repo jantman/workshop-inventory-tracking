@@ -91,7 +91,7 @@
                             <label for="quantity" class="form-label">Quantity</label>
                             <input type="number" class="form-control" id="quantity" name="quantity"
                                    min="1" step="1"
-                                   value="{{ purchase.quantity if purchase.quantity is not none else '' }}">
+                                   value="{{ scanned_quantity or (purchase.quantity if purchase.quantity is not none else '') }}">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label for="unit_price" class="form-label">Unit Price</label>

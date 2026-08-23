@@ -1,0 +1,244 @@
+{
+  "SearchLocaleUsed": {
+    "Site": "US",
+    "Language": "en",
+    "Currency": "USD"
+  },
+  "Product": {
+    "Description": {
+      "ProductDescription": "AC/DC CONVERTER 5V 5W",
+      "DetailedDescription": "Enclosed AC DC Converters 1 Output 5V 1A 85 ~ 305 VAC, 120 ~ 430 VDC Input"
+    },
+    "Manufacturer": {
+      "Id": 1866,
+      "Name": "MEAN WELL USA Inc."
+    },
+    "ManufacturerProductNumber": "IRM-05-5",
+    "UnitPrice": 6.8,
+    "ProductUrl": "https://www.digikey.com/en/products/detail/mean-well-usa-inc/IRM-05-5/7704652",
+    "DatasheetUrl": "https://www.meanwellusa.com/upload/pdf/IRM-05/IRM-05-spec.pdf",
+    "PhotoUrl": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/2162/MFG_IRM-05.jpg",
+    "ProductVariations": [
+      {
+        "DigiKeyProductNumber": "1866-3027-ND",
+        "PackageType": {
+          "Id": 61,
+          "Name": "Box"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1,
+            "UnitPrice": 6.8,
+            "TotalPrice": 6.8
+          },
+          {
+            "BreakQuantity": 5,
+            "UnitPrice": 6.5,
+            "TotalPrice": 32.5
+          },
+          {
+            "BreakQuantity": 10,
+            "UnitPrice": 6.2,
+            "TotalPrice": 62.0
+          },
+          {
+            "BreakQuantity": 25,
+            "UnitPrice": 6.0,
+            "TotalPrice": 150.0
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": true,
+        "Supplier": {
+          "Id": 1866,
+          "Name": "MEAN WELL USA Inc."
+        },
+        "QuantityAvailableforPackageType": 10342,
+        "MaxQuantityForDistribution": 0,
+        "MinimumOrderQuantity": 1,
+        "StandardPackage": 0,
+        "DigiReelFee": 0.0
+      }
+    ],
+    "QuantityAvailable": 10342,
+    "ProductStatus": {
+      "Id": 0,
+      "Status": "Active"
+    },
+    "BackOrderNotAllowed": false,
+    "NormallyStocking": true,
+    "Discontinued": false,
+    "EndOfLife": false,
+    "Ncnr": false,
+    "PrimaryVideoUrl": "",
+    "Parameters": [
+      {
+        "ParameterId": 183,
+        "ParameterText": "Type",
+        "ParameterType": "String",
+        "ValueId": "344214",
+        "ValueText": "Enclosed"
+      },
+      {
+        "ParameterId": 2211,
+        "ParameterText": "Number of Outputs",
+        "ParameterType": "Double",
+        "ValueId": "1",
+        "ValueText": "1"
+      },
+      {
+        "ParameterId": 127,
+        "ParameterText": "Voltage - Input",
+        "ParameterType": "String",
+        "ValueId": "290473",
+        "ValueText": "85 ~ 305 VAC, 120 ~ 430 VDC"
+      },
+      {
+        "ParameterId": 1525,
+        "ParameterText": "Voltage - Output 1",
+        "ParameterType": "String",
+        "ValueId": "249171",
+        "ValueText": "5V"
+      },
+      {
+        "ParameterId": 1526,
+        "ParameterText": "Voltage - Output 2",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 1527,
+        "ParameterText": "Voltage - Output 3",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 1534,
+        "ParameterText": "Voltage - Output 4",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 1120,
+        "ParameterText": "Current - Output (Max)",
+        "ParameterType": "String",
+        "ValueId": "119750",
+        "ValueText": "1A"
+      },
+      {
+        "ParameterId": 2187,
+        "ParameterText": "Power (Watts)",
+        "ParameterType": "UnitOfMeasure",
+        "ValueId": "5 W",
+        "ValueText": "5 W"
+      },
+      {
+        "ParameterId": 405,
+        "ParameterText": "Applications",
+        "ParameterType": "String",
+        "ValueId": "361697",
+        "ValueText": "ITE (Commercial)"
+      },
+      {
+        "ParameterId": 5,
+        "ParameterText": "Features",
+        "ParameterType": "String",
+        "ValueId": "417824",
+        "ValueText": "Universal Input"
+      },
+      {
+        "ParameterId": 252,
+        "ParameterText": "Operating Temperature",
+        "ParameterType": "String",
+        "ValueId": "181564",
+        "ValueText": "-30\u00b0C ~ 70\u00b0C (With Derating)"
+      },
+      {
+        "ParameterId": 977,
+        "ParameterText": "Efficiency",
+        "ParameterType": "String",
+        "ValueId": "274158",
+        "ValueText": "71%"
+      },
+      {
+        "ParameterId": 69,
+        "ParameterText": "Mounting Type",
+        "ParameterType": "String",
+        "ValueId": "411897",
+        "ValueText": "Through Hole"
+      },
+      {
+        "ParameterId": 16,
+        "ParameterText": "Package / Case",
+        "ParameterType": "String",
+        "ValueId": "227473",
+        "ValueText": "4-DIP Module"
+      },
+      {
+        "ParameterId": 46,
+        "ParameterText": "Size / Dimension",
+        "ParameterType": "String",
+        "ValueId": "59725",
+        "ValueText": "1.80\" L x 1.00\" W x 0.85\" H (45.7mm x 25.4mm x 21.5mm)"
+      },
+      {
+        "ParameterId": 660,
+        "ParameterText": "Approval Agency",
+        "ParameterType": "String",
+        "ValueId": "327354",
+        "ValueText": "CB, CE, cURus, EAC, TUV"
+      }
+    ],
+    "BaseProductNumber": {
+      "Id": 451180,
+      "Name": "IRM-05"
+    },
+    "Category": {
+      "CategoryId": 43,
+      "ParentId": 0,
+      "Name": "Power Supplies - Board Mount",
+      "ProductCount": 0,
+      "NewProductCount": 0,
+      "ImageUrl": "https://www.digikey.com//mm.digikey.com/Volume0/opasdata/d220001/derivates/3/300/371/722/MFG_MEZD7120xA-x_back_tmb.jpg",
+      "SeoDescription": "Board mount power supplies are devices used to convert electrical power from some source into a format suitable for powering some desired load, and which are designed to be physically and mechanically connected within an application by means of attachment to a printed circuit board. Further distinctions within the category are made according to the general nature of the transformation performed.",
+      "ChildCategories": [
+        {
+          "CategoryId": 923,
+          "ParentId": 43,
+          "Name": "AC DC Converters",
+          "ProductCount": 0,
+          "NewProductCount": 0,
+          "ImageUrl": "https://www.digikey.com//mm.digikey.com/Volume0/opasdata/d220001/derivates/3/002/453/822/MFG_EML30-P_tmb%2864x64%29.jpg",
+          "SeoDescription": "An device that converts an alternating current voltage input to a direct current voltage level output.",
+          "ChildCategories": []
+        }
+      ]
+    },
+    "DateLastBuyChance": null,
+    "ManufacturerLeadWeeks": "17",
+    "ManufacturerPublicQuantity": 0,
+    "Series": {
+      "Id": 60090,
+      "Name": "IRM-05 (5W)"
+    },
+    "ShippingInfo": null,
+    "Classifications": {
+      "ReachStatus": "REACH Unaffected",
+      "RohsStatus": "ROHS3 Compliant",
+      "MoistureSensitivityLevel": "1  (Unlimited)",
+      "ExportControlClassNumber": "EAR99",
+      "HtsusCode": "8504.40.9510"
+    },
+    "OtherNames": [
+      "1866-3027",
+      "IRM-05-5-ND",
+      "5896-IRM-05-5"
+    ]
+  },
+  "AccountIdUsed": 99999999,
+  "CustomerIdUsed": 99999999
+}

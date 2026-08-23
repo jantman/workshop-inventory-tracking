@@ -1030,6 +1030,158 @@ When the parcel arrives, open the purchase and **Mark Received**. The captured
 details are already there; amend the quantity or the price if what turned up
 differed from what you ordered, which it sometimes does.
 
+## DigiKey Orders
+
+A DigiKey order is not the shape the Amazon capture was built for. It is thirty
+lines placed in one checkout, and it arrives weeks later as thirty anonymous bags
+in one box. So DigiKey has its own path, and the unit of capture is the **order**
+rather than the listing.
+
+It reads your orders straight from DigiKey rather than off a web page, so nothing
+here breaks when they redesign their site. Setting that up is a one-time job; see
+**Setting up the DigiKey connection** at the end of this section.
+
+### Capturing an order
+
+**Products → Capture a DigiKey Order.** Type the sales order number from your
+order confirmation — or read it off the `1K` field of a bag label — and press
+**Look Up Order**.
+
+You get every line of the order: the DigiKey part number, the manufacturer and
+part number, the description, the quantity and what each cost. Alongside each
+line, whether the catalog already holds it.
+
+![Reviewing a DigiKey order](images/screenshots/user-manual/digikey_order_review.png)
+*Reviewing a DigiKey order before anything is written. Each line shows what the
+order said and what DigiKey's part data added.*
+
+**Nothing is recorded until you press Capture.** Close the tab and there is no
+product and no purchase — there was never a record, only a page.
+
+For each line you can:
+
+- **Write the description.** For a line that will create a new product, this is
+  what goes on the label and what you will search for. DigiKey's own words are
+  the default; type over them.
+- **Leave it out.** Untick a line and it produces nothing — a tool, a consumable,
+  something you do not want cataloged.
+- **Answer a question.** If a DigiKey part number already names a product whose
+  manufacturer part number contradicts this line, you are asked whether it is the
+  same thing. Nothing is written until you say. This is the rarest case and the
+  most damaging one to get wrong, because nothing looks wrong afterwards — a
+  product's price history quietly becomes the history of two different things.
+
+Capturing records **one outstanding purchase per line**, so the reorder list stops
+suggesting things that are already on the way.
+
+**Each line is filled in from DigiKey's own part data** — the manufacturer, the
+category and the full parametric detail as specification rows. A DigiKey order
+line carries the manufacturer's part *number* but not their *name*, so that is
+looked up separately for every line. A 24-line order therefore takes ten or
+fifteen seconds to read, which is expected. If DigiKey will not answer for one
+part, that line still captures with everything the order gave and the page says
+which lines came back thin.
+
+**Capturing the same order twice records nothing new.** A sales order number is
+exact, so there is no guessing involved — unlike the Amazon capture, which has to
+work out whether two clicks on the same day were one order or two.
+
+**Re-capture an order that changed.** DigiKey splits a backorder or adjusts a
+quantity; look the order up again and any new line is offered, a changed quantity
+or price is shown against what you have with the option to apply it, and a line
+the order no longer contains is reported rather than deleted.
+
+### Receiving the box
+
+The bags each carry a 2D label. Scan one in the header scan box and you land
+**directly on the receipt for that line of that order** — the right product, the
+right purchase, and the quantity the label says is in the bag rather than the
+quantity that was ordered. Confirm, and it is received: the count goes up and any
+manual low flag clears, exactly as receiving has always worked.
+
+The label carries the sales order number and the DigiKey part number, which
+together name exactly one line. Nothing has to be searched for.
+
+- Scanning a bag whose line you have **already received** says so and receives
+  nothing twice.
+- Where the same part was ordered **twice on one order**, you are shown both and
+  choose. The catalog does not pick one for you.
+- A bag from an order you **never captured** behaves exactly as it did before:
+  the product opens if you hold it, and a filled-in draft is offered if you do
+  not.
+- A label that **will not read** is no problem — open the order and receive that
+  line by hand.
+
+**Products → Capture a DigiKey Order** and then the order number, or any link
+from a captured purchase, opens the order screen: every line, its state, and how
+many are still outstanding. When the box is empty, what is still outstanding is
+what DigiKey did not ship.
+
+![A captured DigiKey order](images/screenshots/user-manual/digikey_order.png)
+*A captured order part-way through unpacking: one line received, one still
+outstanding.*
+
+That screen is worked out from the purchases each time you open it. Nothing about
+the order is stored separately, so it cannot fall out of step with them.
+
+### Cataloging a single part
+
+**Products → Capture a DigiKey Part.** Give it a DigiKey part number, a
+manufacturer part number, or the address of a DigiKey product page, and you get a
+filled-in product: manufacturer, both part numbers, the description, the
+datasheet, the photograph, DigiKey's category and the part's full parametric
+detail as specification rows.
+
+Useful for cataloging something already on the shelf, and for anything you want
+in the catalog before you order it. Write your own description over DigiKey's —
+theirs is a default, not a decision, and it is kept in the specification rows
+either way.
+
+If you already hold the part, the page says which product it is rather than
+inviting a second one. If DigiKey does not recognize the part number, it says so
+plainly and offers the ordinary product form carrying what you typed.
+
+**This also makes a scanned bag much richer.** A label for a part you do not hold,
+from an order you did not capture, used to produce a draft carrying only the four
+or five values printed on the label. It now brings DigiKey's description,
+manufacturer, category and specifications too.
+
+### Setting up the DigiKey connection
+
+One-time, and done outside the application:
+
+1. Sign in at `developer.digikey.com` and create a **Production App**.
+2. Subscribe it to **Product Information** and **Order Status**. Do *not*
+   subscribe to **Ordering** — this application never places orders, and that is
+   the product that requires a DigiKey Credit account.
+3. The portal asks for an OAuth callback URL. Use `https://localhost`. It must be
+   `https://`, and it is never actually used.
+4. Put the client id and secret in `.env`, along with your DigiKey **account
+   number** — the one printed on any order confirmation or invoice:
+
+   ```
+   DIGIKEY_CLIENT_ID=...
+   DIGIKEY_CLIENT_SECRET=...
+   DIGIKEY_ACCOUNT_ID=...
+   ```
+
+   The account number is not a secret, but it is required. DigiKey's credentials
+   identify the *application* rather than you, so the account has to be named
+   separately — without it every order lookup fails.
+
+5. Restart.
+
+**Leaving it unset is fine.** The DigiKey screens say the connection is not set
+up and point at this; everything else in the catalog works exactly as it does
+now.
+
+When something goes wrong, the page tells you which of five things it is —
+not set up, credentials refused, no such order on this account, DigiKey
+throttling requests, or DigiKey unreachable. They are worth distinguishing
+because what you do about each is completely different. Nothing is ever
+half-recorded: a capture that fails leaves the catalog exactly as it was, and you
+can simply try again once the cause is fixed.
+
 ## Printing Product Labels
 
 These are the catalog's labels, carrying a product's internal code. For the

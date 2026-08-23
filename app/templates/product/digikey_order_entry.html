@@ -1,0 +1,59 @@
+{# Enter a DigiKey sales order number.
+
+   Also the page every DigiKey failure lands back on, because the operator's
+   next action is always to retype or retry -- an error page would be a dead
+   end (FR-036, FR-038). #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-arrow-in-down{% endblock %}
+{% block page_heading %}Capture a DigiKey Order{% endblock %}
+
+{% block product_content %}
+<div class="row">
+    <div class="col-lg-7">
+
+        {% include "product/_digikey_problem.html" %}
+
+        <form method="POST" action="{{ url_for('product.digikey_order_capture') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="mb-3">
+                <label for="sales_order_number" class="form-label">Sales Order Number</label>
+                <input type="text" class="form-control form-control-lg" id="sales_order_number"
+                       name="sales_order_number" maxlength="200" autofocus
+                       inputmode="numeric"
+                       value="{{ sales_order_number or '' }}"
+                       placeholder="100882558">
+                <div class="form-text">
+                    From your DigiKey order confirmation, or the <code>1K</code> field
+                    of a bag label. Nothing is recorded until you have looked at the
+                    lines and confirmed them.
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="review-order">
+                <i class="bi bi-search"></i> Look Up Order
+            </button>
+            <a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">Cancel</a>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card bg-body-tertiary">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-info-circle"></i> How this works</h6>
+                <ol class="small mb-0 ps-3">
+                    <li>Capture the order when you place it. Every line becomes an
+                        outstanding purchase, so the reorder list knows what is on
+                        the way.</li>
+                    <li>When the box arrives, scan each bag's 2D label. It carries
+                        the sales order number and the DigiKey part number, which is
+                        exactly enough to find the line it belongs to.</li>
+                    <li>What is still outstanding when the box is empty is what
+                        DigiKey did not ship.</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

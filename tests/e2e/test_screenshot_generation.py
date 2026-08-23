@@ -996,6 +996,65 @@ class TestDocumentationScreenshots:
 
     @pytest.mark.screenshot
     @pytest.mark.e2e
+    def test_screenshot_digikey_order_review(self, page, live_server):
+        """Generate the DigiKey order review screenshot (feature 024).
+
+        DigiKey is the same loopback fake the DigiKey e2e tests use, so the
+        picture is of the real page reading a real recorded response.
+        """
+        from tests.e2e.test_digikey_order import (
+            SALES_ORDER, _DigiKeyHandler, digikey_fake_server,
+        )
+
+        with digikey_fake_server(live_server):
+            page.goto(f"{live_server.url}/products/digikey/orders")
+            page.fill("#sales_order_number", SALES_ORDER)
+            page.click("#review-order")
+            expect(page.locator(".order-line")).to_have_count(2)
+
+            self.screenshot.capture_viewport(
+                "user-manual/digikey_order_review.png",
+                viewport_size=(1920, 1080),
+                wait_for_selector="#order-lines",
+                hide_selectors=[".toast-container"],
+                full_page=True
+            )
+
+        print("✓ Generated screenshot: user-manual/digikey_order_review.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_digikey_order(self, page, live_server):
+        """Generate the captured DigiKey order screenshot, part-way received."""
+        from tests.e2e.test_digikey_order import SALES_ORDER, digikey_fake_server
+
+        with digikey_fake_server(live_server):
+            page.goto(f"{live_server.url}/products/digikey/orders")
+            page.fill("#sales_order_number", SALES_ORDER)
+            page.click("#review-order")
+            expect(page.locator(".order-line")).to_have_count(2)
+            page.click("#confirm-capture")
+            expect(page.locator("#order-progress")).to_contain_text("2 of 2")
+
+            # One received, so the picture shows both states rather than a
+            # column of identical rows.
+            page.locator('.order-line[data-part="1866-3027-ND"] .receive-line').click()
+            page.click('button[type="submit"]')
+            page.goto(f"{live_server.url}/products/digikey/orders/{SALES_ORDER}")
+            expect(page.locator("#order-progress")).to_contain_text("1 of 2")
+
+            self.screenshot.capture_viewport(
+                "user-manual/digikey_order.png",
+                viewport_size=(1920, 1080),
+                wait_for_selector="#order-lines",
+                hide_selectors=[".toast-container"],
+                full_page=True
+            )
+
+        print("✓ Generated screenshot: user-manual/digikey_order.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
     def test_screenshot_reorder_list(self, page, live_server):
         """Generate the reorder list screenshot"""
         self._seed_catalog(live_server)

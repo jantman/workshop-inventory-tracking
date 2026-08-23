@@ -47,6 +47,33 @@ def _drop_malformed_forwarded_port(wsgi_app):
     return middleware
 
 
+def _build_digikey_client(config):
+    """Build the DigiKey client from config, or None when it is not configured.
+
+    Absent credentials are not an error. The catalog worked without DigiKey
+    before feature 024 and still does; only the DigiKey screens change, and they
+    say why (024 FR-036, FR-037).
+
+    The import is local because ``app/services/digikey.py`` pulls in ``requests``
+    and this factory is imported by ``manage.py`` and the migration environment,
+    neither of which has any use for an HTTP client.
+    """
+    if not config.get('DIGIKEY_CLIENT_ID') or not config.get('DIGIKEY_CLIENT_SECRET'):
+        return None
+
+    from app.services.digikey import DigiKeyClient
+
+    return DigiKeyClient(
+        client_id=config['DIGIKEY_CLIENT_ID'],
+        client_secret=config['DIGIKEY_CLIENT_SECRET'],
+        # May be empty. The client raises ConfigurationError naming this
+        # setting on first use, which is a better message than refusing to
+        # build here and reporting the whole integration as absent.
+        account_id=config.get('DIGIKEY_ACCOUNT_ID') or '',
+        base_url=config.get('DIGIKEY_API_BASE') or 'https://api.digikey.com',
+    )
+
+
 def create_app(config_class=Config, storage_backend=None):
     """
     Create Flask application factory with optional storage backend injection.
@@ -88,7 +115,17 @@ def create_app(config_class=Config, storage_backend=None):
     # Store the storage backend in app config for access by routes
     if storage_backend:
         app.config['STORAGE_BACKEND'] = storage_backend
-    
+
+    # DigiKey client, in the same shape as the storage backend above so that a
+    # test can inject a fake by setting app.config['DIGIKEY_CLIENT'].
+    #
+    # None means "not configured", and that is an ordinary state: the DigiKey
+    # screens say so and every other part of the application is unaffected
+    # (024 FR-036, FR-037). Building it here rather than per request keeps one
+    # cached access token for the process instead of one per page view.
+    app.config['DIGIKEY_CLIENT'] = _build_digikey_client(app.config)
+
+
     # Setup CSRF protection
     csrf.init_app(app)
     

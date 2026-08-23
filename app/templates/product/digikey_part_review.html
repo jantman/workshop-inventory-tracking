@@ -1,0 +1,135 @@
+{# Catalog one DigiKey part on its own.
+
+   Nothing is written here. The form posts to product_new, the ordinary create
+   route, so there is one place products are made rather than two -- this page
+   only fills it in. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-cpu{% endblock %}
+{% block page_heading %}Capture a DigiKey Part{% endblock %}
+
+{% block product_content %}
+<div class="row">
+    <div class="col-lg-6">
+
+        {% include "product/_digikey_problem.html" %}
+
+        {% if problem == 'not_found' and part_number %}
+        <p class="small" id="digikey-part-by-hand">
+            {# identifier / id_type are the names product_new's GET branch reads;
+               identifier_value / identifier_type are what the *form field* is
+               called, and passing those silently opened a blank form. PR #116
+               review. _create_url builds the same URL for the scan flow. #}
+            <a href="{{ url_for('product.product_new', identifier=part_number, id_type='MPN') }}">Add
+            it by hand instead</a> &mdash; what you typed goes with you (FR-032).
+        </p>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('product.digikey_part_capture') }}" class="mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div class="mb-3">
+                <label for="part_number" class="form-label">Part Number or Product Page</label>
+                <input type="text" class="form-control" id="part_number" name="part_number"
+                       maxlength="500" autofocus value="{{ part_number or '' }}"
+                       placeholder="1866-3027-ND">
+                <div class="form-text">
+                    A DigiKey part number, a manufacturer part number, or the address
+                    of a DigiKey product page.
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="look-up-part">
+                <i class="bi bi-search"></i> Look Up Part
+            </button>
+        </form>
+    </div>
+
+    {% if part %}
+    <div class="col-lg-6">
+        {% if existing %}
+        <div class="alert alert-info" id="part-already-cataloged">
+            <h6 class="alert-heading"><i class="bi bi-check-circle"></i> You already have this</h6>
+            <p class="mb-0">
+                <a href="{{ url_for('product.product_detail', product_id=existing.id) }}">{{ existing.description }}</a>
+                already carries this part number. Open it rather than making a second one.
+            </p>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">What DigiKey says</h6>
+                <dl class="row mb-0 small" id="part-detail">
+                    <dt class="col-5">Manufacturer</dt>
+                    <dd class="col-7" id="part-manufacturer">{{ part.manufacturer or '—' }}</dd>
+                    <dt class="col-5">Manufacturer Part No.</dt>
+                    <dd class="col-7" id="part-mpn">{{ part.manufacturer_part_number or '—' }}</dd>
+                    <dt class="col-5">DigiKey Part No.</dt>
+                    <dd class="col-7" id="part-dkpn">{{ part.digikey_part_number or part_number }}</dd>
+                    <dt class="col-5">Category</dt>
+                    <dd class="col-7">{{ part.category_path or '—' }}</dd>
+                    <dt class="col-5">Specifications</dt>
+                    <dd class="col-7">{{ part.parameters | length }} row(s)</dd>
+                    <dt class="col-5">Datasheet</dt>
+                    <dd class="col-7">
+                        {% if part.datasheet_url %}
+                        <a href="{{ part.datasheet_url }}" target="_blank" rel="noopener">yes</a>
+                        {% else %}—{% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 mt-4">
+        {# Posts to the ordinary create route. The description is editable here
+           because it is the label text and the operator's own words beat
+           DigiKey's (FR-029); DigiKey's stays in the specification rows either
+           way. #}
+        <form id="part-capture-form" method="POST" action="{{ url_for('product.product_new') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="manufacturer" value="{{ part.manufacturer }}"/>
+            <input type="hidden" name="manufacturer_part_number" value="{{ part.manufacturer_part_number }}"/>
+            <input type="hidden" name="category_path" value="{{ part.category_path }}"/>
+            <input type="hidden" name="identifier_type" value="MPN"/>
+            <input type="hidden" name="identifier_value" value="{{ part.manufacturer_part_number }}"/>
+            <input type="hidden" name="digikey_part_number" value="{{ part.digikey_part_number or part_number }}"/>
+            <input type="hidden" name="digikey_datasheet_url" value="{{ part.datasheet_url }}"/>
+            <input type="hidden" name="digikey_photo_url" value="{{ part.photo_url }}"/>
+            {% for name, value in part.parameters %}
+            <input type="hidden" name="spec_name" value="{{ name }}"/>
+            <input type="hidden" name="spec_value" value="{{ value }}"/>
+            {% endfor %}
+            {% if part.detailed_description %}
+            <input type="hidden" name="spec_name" value="DigiKey Description"/>
+            <input type="hidden" name="spec_value" value="{{ part.detailed_description }}"/>
+            {% endif %}
+
+            <div class="mb-3">
+                <label for="description" class="form-label">Description</label>
+                <input type="text" class="form-control" id="description" name="description"
+                       maxlength="255" required value="{{ part.description }}">
+                <div class="form-text">
+                    What goes on the label and what you will search for. DigiKey's
+                    words are the default — write your own over them.
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="location" class="form-label">Storage Location</label>
+                    <input type="text" class="form-control" id="location" name="location" maxlength="100">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="sub_location" class="form-label">Sub-Location</label>
+                    <input type="text" class="form-control" id="sub_location" name="sub_location" maxlength="100">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="create-part">
+                <i class="bi bi-plus-lg"></i> Create Product
+            </button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

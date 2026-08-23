@@ -1066,8 +1066,40 @@ class Purchase(Base):
     # Decimal, never float (Constitution III).
     unit_price = Column(Numeric(10, 2), nullable=True)
 
-    # Order number; also filled from ECIA K / 1K.
+    # The *customer's* order number -- ECIA K. Filled by hand, or from a scan.
     order_reference = Column(String(200), nullable=True)
+    # The *supplier's* order number -- ECIA 1K, which for DigiKey is the sales
+    # order number. A different number from order_reference above, so it needs a
+    # column of its own rather than sharing one.
+    #
+    # Indexed because it is half the key every receiving scan looks up by: a bag
+    # label's 1K and P together name one line of one order (024 FR-019). The
+    # other half, vendor_item_id, is already indexed.
+    #
+    # This column is also what makes a DigiKey order a thing you can open
+    # without storing one: an order *is* the purchases carrying its number, the
+    # way the reorder list is derived rather than kept (024 research.md §6).
+    #
+    # Must match migration f3d21c9a4e10 exactly: the unit suite builds its schema
+    # with create_all and never runs Alembic, so drift between the two passes
+    # `nox -s tests` and fails on the real database.
+    supplier_order_reference = Column(String(200), nullable=True, index=True)
+    # Which line of that supplier order this purchase came from -- DigiKey's
+    # DetailId. NULL for every purchase not captured from a DigiKey order,
+    # including hand-recorded ones that name a sales order.
+    #
+    # **A part number does not identify a line**: an order can carry the same
+    # part twice. Feature 024 first tried to pair lines to purchases positionally
+    # and it corrupted data as soon as a duplicated part was captured in two
+    # goes -- one line claimed the other's purchase, and applying a quantity
+    # change wrote it to the wrong row. There is no heuristic that recovers the
+    # pairing, because the information genuinely is not there; so it is stored.
+    # PR #116 review.
+    #
+    # Not indexed: the lookup is already narrowed to one order by
+    # supplier_order_reference above, which leaves a handful of rows to match in
+    # Python. Must match migration a7c4e1b0f221.
+    digikey_line_number = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
 
     date_added = Column(DateTime, nullable=False, default=func.now())
@@ -1114,6 +1146,8 @@ class Purchase(Base):
             # binary floating point.
             'unit_price': str(self.unit_price) if self.unit_price is not None else None,
             'order_reference': self.order_reference,
+            'supplier_order_reference': self.supplier_order_reference,
+            'digikey_line_number': self.digikey_line_number,
             'notes': self.notes,
             'date_added': self.date_added.isoformat() if self.date_added else None,
             'last_modified': self.last_modified.isoformat() if self.last_modified else None,
