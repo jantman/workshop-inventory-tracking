@@ -176,6 +176,29 @@ LEDs sit under `displays & indicators` rather than `components`: they are looked
 soldered into a circuit as a value. NeoPixels and panel-mount indicators go there with them.
 DIN rail, terminal blocks and bus bars sit under `power` as distribution, not under control.
 
+## Specification keys
+
+The dimensions kept out of the path are recorded as specifications, which the application
+already filters on by exact name and partial value, autocompletes on both halves, and links
+from every value on the product page — so clicking `1/4-20` on any screw returns every 1/4-20
+fastener across all head types, which is the view a thread-first tree would have given.
+
+The catch is that the application offers a rename for categories and for tags and **none for a
+specification name**. `Thread` beside `Thread Size` is unfixable in bulk. So the keys are
+pinned here, up front, per branch family, and vendor-supplied names are normalized onto them
+on capture rather than accepted as they arrive.
+
+| Branch family | Expected keys |
+|---|---|
+| `fasteners/machine screws & bolts/*` | `Thread`, `Length`, `Drive`, `Material` |
+| `fasteners/wood & construction screws/*` | `Size`, `Length`, `Drive`, `Material` |
+| `fasteners/nuts`, `fasteners/washers` | `Thread`, `Material` |
+
+Vendor normalization, first cases: DigiKey `Thread Size` and Amazon `Thread Size` → `Thread`;
+`Screw Length` → `Length`; `Head Style` is not a key, it is the branch.
+
+The rest of the table is produced during the coverage pass, alongside the branch definitions.
+
 ## Tags, not branches
 
 `consumable`, `surplus`, a project name, `stainless`. Each is an axis that would otherwise

@@ -257,6 +257,20 @@ those paths appears in the written record.
   on and say so explicitly, rather than leaving the branch definition wide enough to swallow
   it by accident.
 
+**What the branches expect of the product**
+
+- **FR-023**: The record MUST name, for each branch or family of branches, the specification
+  keys products filed there are expected to carry — the exact key as it is to be typed, not a
+  description of it. `fasteners/machine screws & bolts/*` expects `Thread`, `Length`, `Drive`
+  and `Material`; it does not expect "something recording the thread".
+- **FR-024**: The record MUST state how a vendor-supplied specification name is normalized to
+  the key the record names. A captured listing arrives carrying the vendor's vocabulary —
+  `Thread Size` where the record says `Thread` — and nothing reconciles the two afterwards.
+- **FR-025**: The specification keys MUST carry the dimensions that were deliberately kept out
+  of the path. Thread system, size, length, voltage, material and finish are attributes of the
+  product, and the record MUST say under which key each is recorded rather than leaving it to
+  whoever files the product.
+
 ### Key Entities
 
 - **Category path**: A `/`-separated path of at most three segments held on the product
@@ -266,6 +280,10 @@ those paths appears in the written record.
   branches are, what belongs in each, and how they are named. New.
 - **Tag**: A free-form label already available on products, cutting across categories. Where
   the cross-cutting axes go.
+- **Specification key**: The name half of a named value already recorded on products. Already
+  exists, is already filterable and already autocompletes — but unlike a category or a tag it
+  has no rename, so its vocabulary has to be settled in advance rather than corrected later.
+  This is where the dimensions kept out of the path live.
 - **Product**: What is filed. Carries at most one category path, any number of tags, and a
   location that is not part of the taxonomy.
 
@@ -299,6 +317,13 @@ those paths appears in the written record.
 - **SC-009**: Every branch in the record is selectable on the filing screen before any
   product occupies it — the count of agreed branches that cannot be chosen without typing
   them out is zero.
+- **SC-010**: Across the specification names in use in the catalog, the count of near-duplicate
+  keys recording the same attribute — `Thread` beside `Thread Size`, `Length` beside `Screw
+  Length` — is zero. The application offers no rename for a specification name, so this is
+  measured as prevention, not as cleanup.
+- **SC-011**: Given a filed fastener, every dimension a person would filter on — thread, length,
+  drive, material — is recoverable by a specification filter rather than by reading the
+  description, for at least nine of any ten products filed after the record exists.
 
 ---
 
