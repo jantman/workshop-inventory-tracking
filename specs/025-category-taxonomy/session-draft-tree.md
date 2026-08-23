@@ -1,7 +1,9 @@
 # Draft tree — v2, after the first session pass
 
-**Status: DRAFT.** Per issue #98 and FR-001 this is a working document, not the taxonomy
-record. It becomes the record once the coverage pass against `shop-inventory.txt` is done.
+**Status: SUPERSEDED.** The session concluded and the taxonomy record is
+`docs/category-taxonomy.md`. This file is kept as the trail of how the tree was arrived at —
+the seam rule was argued here, and the coverage pass in `coverage-pass.md` is what turned it
+into the record. Do not file products from this document; it predates the gap resolutions.
 
 Scope: electronics, electrical, fasteners. Machining and general DIY are deferred (FR-021),
 and so is 3D printing.
