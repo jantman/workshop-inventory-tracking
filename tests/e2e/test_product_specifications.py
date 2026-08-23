@@ -369,18 +369,25 @@ def datalist_options(page, selector):
 
 @pytest.mark.e2e
 def test_a_name_recorded_elsewhere_is_offered(page, live_server):
+    """025 changed the shape of this list but not what this test is about.
+
+    The names are recorded on another product and must be offered here. They
+    are deliberately names the taxonomy does *not* pin: with `Voltage` and
+    `Output Current` -- which it does -- the assertion would hold against a
+    catalog with no products in it at all, and prove nothing.
+    """
     live_server.add_test_products([{
         'description': 'Buck converter',
         'specifications': [
-            {'name': 'Voltage', 'value': '12 V'},
-            {'name': 'Output current', 'value': '3 A'},
+            {'name': 'Dielectric', 'value': 'X7R'},
+            {'name': 'Footprint', 'value': 'SOT-23'},
         ],
     }])
 
     page.goto(f"{live_server.url}/products/new")
     names = "#specification-name-suggestions"
-    expect(page.locator(f"{names} option")).to_have_count(2)
-    assert datalist_options(page, names) == ["Output current", "Voltage"]
+    expect(page.locator(f'{names} option[value="Dielectric"]')).to_have_count(1)
+    expect(page.locator(f'{names} option[value="Footprint"]')).to_have_count(1)
 
 
 @pytest.mark.e2e
@@ -390,14 +397,18 @@ def test_one_name_recorded_in_two_cases_yields_one_suggestion(page, live_server)
     the dedup runs in Python."""
     live_server.add_test_products([
         {'description': 'first',
-         'specifications': [{'name': 'Voltage', 'value': '12 V'}]},
+         'specifications': [{'name': 'Dielectric', 'value': 'X7R'}]},
         {'description': 'second',
-         'specifications': [{'name': 'voltage', 'value': '5 V'}]},
+         'specifications': [{'name': 'dielectric', 'value': 'C0G'}]},
     ])
 
     page.goto(f"{live_server.url}/products/new")
     names = "#specification-name-suggestions"
-    expect(page.locator(f"{names} option")).to_have_count(1)
+    # Not `Voltage`: 025 pins that key, so one suggestion would appear whether
+    # or not the fold worked, and the collation is the whole point here.
+    expect(page.locator(f'{names} option[value="Dielectric"]')).to_have_count(1)
+    offered = [n for n in datalist_options(page, names) if n.lower() == "dielectric"]
+    assert offered == ["Dielectric"]
 
 
 @pytest.mark.e2e
@@ -448,12 +459,13 @@ def test_the_filter_offers_the_same_names(page, live_server):
     live_server.add_test_products([{
         'description': 'Buck converter',
         'specifications': [
-            {'name': 'Voltage', 'value': '12 V'},
-            {'name': 'Output current', 'value': '3 A'},
+            {'name': 'Dielectric', 'value': 'X7R'},
+            {'name': 'Footprint', 'value': 'SOT-23'},
         ],
     }])
 
     page.goto(f"{live_server.url}/products")
     names = "#specification-name-suggestions"
-    expect(page.locator(f"{names} option")).to_have_count(2)
-    assert datalist_options(page, names) == ["Output current", "Voltage"]
+    # Unpinned names again, for the same reason as the form's test.
+    expect(page.locator(f'{names} option[value="Dielectric"]')).to_have_count(1)
+    expect(page.locator(f'{names} option[value="Footprint"]')).to_have_count(1)
