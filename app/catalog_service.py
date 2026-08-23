@@ -55,7 +55,7 @@ from .models import (
 from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
-from .utils.catalog_taxonomy import CATEGORY_PATHS
+from .utils.catalog_taxonomy import CATEGORY_PATHS, SPECIFICATION_KEYS
 from .utils.scan_router import classify
 from .utils.sql import escape_like as _escape_like
 from config import Config
@@ -2570,7 +2570,19 @@ class CatalogService:
     # -- Specification vocabulary -------------------------------------------
 
     def list_specification_names(self, prefix: Optional[str] = None) -> List[str]:
-        """Every specification name in use, for the name datalists (FR-019).
+        """Every specification name in use, plus the keys the taxonomy pins.
+
+        For the name datalists (FR-019). The keys are offered before any product
+        carries them (025 SC-010) for a sharper reason than categories are:
+        ``rename_category`` and ``rename_tag`` exist and there is no
+        ``rename_specification``, so ``Thread`` beside ``Thread Size`` cannot be
+        repaired in bulk once both are in use. Prevention at the point of typing
+        is the only mechanism there is.
+
+        The prefix is applied in Python because half the candidates are not
+        rows. ``_dedupe_fold_case`` then keeps one spelling per folded name,
+        and its sort makes that the record's spelling rather than a lowercase
+        variant somebody typed -- which is the one worth keeping.
 
         Args:
             prefix: Optionally narrow to names starting with this,
@@ -2579,7 +2591,18 @@ class CatalogService:
         Returns:
             The distinct names, sorted case-insensitively.
         """
-        return self._distinct_specification_column(ProductSpecification.name, prefix)
+        candidates = list(
+            self._distinct_specification_column(ProductSpecification.name, None)
+        ) + list(SPECIFICATION_KEYS)
+
+        cleaned = _clean(prefix)
+        if cleaned:
+            lowered = cleaned.lower()
+            candidates = [
+                name for name in candidates if name.lower().startswith(lowered)
+            ]
+
+        return _dedupe_fold_case(candidates)
 
     def list_specification_values(
         self, name: str, prefix: Optional[str] = None

@@ -45,3 +45,18 @@ Both open questions were resolved by the workshop owner on 2026-08-23:
 
 Deliberately absent, and not a gap: the tree itself. FR-001 forbids deriving it unattended,
 and this spec specifies the session, not its output.
+
+## Delivery status (2026-08-23)
+
+- **US1 (P1)** — delivered. `docs/category-taxonomy.md` is the record; `coverage-pass.md` is
+  the evidence for FR-008 and SC-004.
+- **US2 (P2)** — delivered. The taxonomy is reference data the application reads, unioned into
+  the category and specification-name vocabularies, with the browse page reporting all three
+  states a branch can be in.
+- **US3 (P3)** — **skipped by decision.** Filing the already-captured products is operator
+  work and the feature's goal was an initial seed taxonomy. SC-006 and part of SC-011 are
+  therefore unverified: the tree has been checked against ~250 bin labels and not yet against
+  a product in hand.
+- **FR-024's normalization is stated, not applied.** The record says how a vendor's
+  specification name maps onto a pinned key; nothing rewrites names on capture. That was
+  deliberate in the plan and remains so.

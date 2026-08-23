@@ -34,7 +34,7 @@ for tests, `docs/` for operator-facing material. Commands run against `venv/` pe
 
 **Purpose**: establish a clean baseline before touching anything.
 
-- [ ] T001 Confirm the working tree is clean on branch `issues/98` and record a green baseline by running `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` from the repository root
+- [X] T001 Confirm the working tree is clean on branch `issues/98` and record a green baseline by running `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` from the repository root
 
 ---
 
@@ -44,10 +44,10 @@ for tests, `docs/` for operator-facing material. Commands run against `venv/` pe
 
 **⚠️ CRITICAL**: T002 and T003 block all of User Story 2.
 
-- [ ] T002 Create `app/utils/catalog_taxonomy.py` exporting `CATEGORY_PATHS: tuple[str, ...]` — all 142 branches from `docs/category-taxonomy.md` including roots and intermediate parents, each already in canonical form (lowercase, `/`-joined), sorted, no duplicates. Standard library only: no Flask, no database, no file I/O, matching `app/utils/category.py` in kind. Module docstring states that `docs/category-taxonomy.md` is the authority and that `tests/unit/test_catalog_taxonomy.py` enforces the agreement
-- [ ] T003 Add `SPECIFICATION_KEYS: tuple[str, ...]` to `app/utils/catalog_taxonomy.py` — the distinct keys from the record's specification-key registry, trimmed, sorted, no case-folded duplicates, none over 100 characters
-- [ ] T004 Create `tests/unit/test_catalog_taxonomy.py` asserting the `CATEGORY_PATHS` invariants from [data-model.md](./data-model.md): every element equals `category.canonical(element)`, at most 3 segments (FR-004), at most 512 characters, every non-root element's parent also present, no duplicates, sorted, and no parent with more than 20 direct children (SC-003)
-- [ ] T005 Add to `tests/unit/test_catalog_taxonomy.py` a test that parses the branch tables of `docs/category-taxonomy.md` and asserts the paths it names equal `CATEGORY_PATHS` exactly, and that the registry's keys equal `SPECIFICATION_KEYS` — this is what makes FR-019's record-versus-reference-data obligation a red gate instead of a hope
+- [X] T002 Create `app/utils/catalog_taxonomy.py` exporting `CATEGORY_PATHS: tuple[str, ...]` — all 142 branches from `docs/category-taxonomy.md` including roots and intermediate parents, each already in canonical form (lowercase, `/`-joined), sorted, no duplicates. Standard library only: no Flask, no database, no file I/O, matching `app/utils/category.py` in kind. Module docstring states that `docs/category-taxonomy.md` is the authority and that `tests/unit/test_catalog_taxonomy.py` enforces the agreement
+- [X] T003 Add `SPECIFICATION_KEYS: tuple[str, ...]` to `app/utils/catalog_taxonomy.py` — the distinct keys from the record's specification-key registry, trimmed, sorted, no case-folded duplicates, none over 100 characters
+- [X] T004 Create `tests/unit/test_catalog_taxonomy.py` asserting the `CATEGORY_PATHS` invariants from [data-model.md](./data-model.md): every element equals `category.canonical(element)`, at most 3 segments (FR-004), at most 512 characters, every non-root element's parent also present, no duplicates, sorted, and no parent with more than 20 direct children (SC-003)
+- [X] T005 Add to `tests/unit/test_catalog_taxonomy.py` a test that parses the branch tables of `docs/category-taxonomy.md` and asserts the paths it names equal `CATEGORY_PATHS` exactly, and that the registry's keys equal `SPECIFICATION_KEYS` — this is what makes FR-019's record-versus-reference-data obligation a red gate instead of a hope
 
 **Checkpoint**: the taxonomy is importable and provably matches the record.
 
@@ -81,21 +81,33 @@ it, and choosing one stores the record's path exactly.
 open the add-product form, select that branch from the suggestions without typing it out, save,
 and confirm the stored path is that string character for character.
 
-- [ ] T009 [US2] Union `CATEGORY_PATHS` into `CatalogService.list_categories` in `app/catalog_service.py` — deduplicate on the canonical path, apply the existing `prefix` filter to the union rather than to the in-use half only, keep the sorted `list[str]` return shape (FR-012, FR-013, FR-017, FR-018)
-- [ ] T010 [US2] Union `CATEGORY_PATHS` into `CatalogService.category_tree` in `app/catalog_service.py` — an unoccupied branch yields `count: 0`, every entry gains `in_taxonomy: bool`, and an in-use path the taxonomy does not name is never dropped (FR-017, FR-018, and the state table in [data-model.md](./data-model.md))
-- [ ] T011 [US2] Add tests to `tests/unit/test_catalog_service.py` covering both unions: all 142 branches returned from an empty catalog (FR-012, SC-009); an in-use path absent from the taxonomy still returned (FR-015, FR-017); a path both offered and in use appearing exactly once (FR-018); `prefix` filtering the union; and each of the three reachable `in_taxonomy`/`count` states from [data-model.md](./data-model.md)
-- [ ] T012 [P] [US2] Add a regression test to `tests/unit/test_category_rename.py` asserting `rename_category` still raises `ValidationError` for a taxonomy branch that no product occupies — the browse page now surfaces those rows, and this behavior is what the template gating in T014 depends on (research D4)
-- [ ] T013 [US2] Rewrite the explanatory paragraph in `app/templates/product/categories.html`, which currently asserts "A category exists because a product is in it … There is nothing here to set up" — now false. Say what is true: the branches come from `docs/category-taxonomy.md`, a branch with no products is on offer rather than in use, and a branch the record does not name is one somebody typed
-- [ ] T014 [US2] In `app/templates/product/categories.html`, render the Rename button only when the row's `count` is greater than zero, and mark rows where `in_taxonomy` is false. An unoccupied branch is renamed by editing the record and `app/utils/catalog_taxonomy.py`, because there is nothing in the database to rewrite (research D4, FR-019)
-- [ ] T015 [US2] Create `tests/e2e/test_category_taxonomy.py` covering the four scenarios in [quickstart.md](./quickstart.md): filing into an unoccupied branch; a branch both offered and occupied appearing once on the browse page; the Rename control present on an occupied branch and absent on an unoccupied one; and a path outside the tree still saving. Seed with `live_server.add_test_data`, wait on observable state only — no `wait_for_timeout`, no `networkidle` — and establish the list region with `expect(...)` before any `count()`, since the "appears once" assertion is the kind that passes for the wrong reason against a region that has not settled (Constitution IV)
-- [ ] T016 [US2] Regenerate documentation screenshots for the changed template with `venv/bin/nox -s screenshots_headless`, verify with `venv/bin/nox -s screenshots_verify`, and commit **only** the images this change actually altered — the session churns images unrelated to the change, and committing the churn destroys review signal
+- [X] T009 [US2] Union `CATEGORY_PATHS` into `CatalogService.list_categories` in `app/catalog_service.py` — deduplicate on the canonical path, apply the existing `prefix` filter to the union rather than to the in-use half only, keep the sorted `list[str]` return shape (FR-012, FR-013, FR-017, FR-018)
+- [X] T010 [US2] Union `CATEGORY_PATHS` into `CatalogService.category_tree` in `app/catalog_service.py` — an unoccupied branch yields `count: 0`, every entry gains `in_taxonomy: bool`, and an in-use path the taxonomy does not name is never dropped (FR-017, FR-018, and the state table in [data-model.md](./data-model.md))
+- [X] T011 [US2] Add tests to `tests/unit/test_catalog_service.py` covering both unions: all 142 branches returned from an empty catalog (FR-012, SC-009); an in-use path absent from the taxonomy still returned (FR-015, FR-017); a path both offered and in use appearing exactly once (FR-018); `prefix` filtering the union; and each of the three reachable `in_taxonomy`/`count` states from [data-model.md](./data-model.md)
+- [X] T012 [P] [US2] Add a regression test to `tests/unit/test_category_rename.py` asserting `rename_category` still raises `ValidationError` for a taxonomy branch that no product occupies — the browse page now surfaces those rows, and this behavior is what the template gating in T014 depends on (research D4)
+- [X] T013 [US2] Rewrite the explanatory paragraph in `app/templates/product/categories.html`, which currently asserts "A category exists because a product is in it … There is nothing here to set up" — now false. Say what is true: the branches come from `docs/category-taxonomy.md`, a branch with no products is on offer rather than in use, and a branch the record does not name is one somebody typed
+- [X] T014 [US2] In `app/templates/product/categories.html`, render the Rename button only when the row's `count` is greater than zero, and mark rows where `in_taxonomy` is false. An unoccupied branch is renamed by editing the record and `app/utils/catalog_taxonomy.py`, because there is nothing in the database to rewrite (research D4, FR-019)
+- [X] T015 [US2] Create `tests/e2e/test_category_taxonomy.py` covering the four scenarios in [quickstart.md](./quickstart.md): filing into an unoccupied branch; a branch both offered and occupied appearing once on the browse page; the Rename control present on an occupied branch and absent on an unoccupied one; and a path outside the tree still saving. Seed with `live_server.add_test_data`, wait on observable state only — no `wait_for_timeout`, no `networkidle` — and establish the list region with `expect(...)` before any `count()`, since the "appears once" assertion is the kind that passes for the wrong reason against a region that has not settled (Constitution IV)
+- [X] T016 [US2] Regenerate documentation screenshots for the changed template with `venv/bin/nox -s screenshots_headless`, verify with `venv/bin/nox -s screenshots_verify`, and commit **only** the images this change actually altered — the session churns images unrelated to the change, and committing the churn destroys review signal
 
 **Checkpoint**: SC-008 and SC-009 hold — every branch of the record is selectable while filing,
 with nothing else open.
 
 ---
 
-## Phase 5: User Story 3 — File the products already in the catalog (Priority: P3)
+## Phase 5: User Story 3 — File the products already in the catalog (Priority: P3) ⏭️ SKIPPED
+
+**Skipped by decision on 2026-08-23**: the goal of this feature was an initial
+seed taxonomy, and it exists. Filing the handful of products captured during the
+issue #80 verification is ordinary operator work that can happen whenever, and
+nothing in Phase 6 depends on it.
+
+**What that leaves unverified**: SC-006 (no category path in the catalog absent
+from the record) and the part of SC-011 that wanted ten filed fasteners. Both are
+about the tree meeting real products, which has not happened yet. The tree has
+been checked against roughly 250 bin labels in `coverage-pass.md`; it has not
+been checked against a product in hand, and the first branch to be renamed will
+probably be found that way.
 
 **Goal**: the products captured during the issue #80 verification get categories, which is the
 first exercise of the tree against things rather than bin labels.
@@ -103,20 +115,21 @@ first exercise of the tree against things rather than bin labels.
 **Independent Test**: every product in the catalog either carries a path the record names, or is
 deliberately uncategorized because it falls in a deferred area.
 
-- [ ] T017 [US3] File each existing product into a branch through the product edit screen, leaving anything from the deferred areas (machining, general DIY, 3D printing, hand tools, automotive) uncategorized rather than forcing it into a branch (FR-014, FR-021)
-- [ ] T018 [US3] Verify SC-006 by checking that no category path in the catalog is absent from `docs/category-taxonomy.md`, except paths that predate the tree; where filing revealed a branch that does not work, rename it and update `docs/category-taxonomy.md` and `app/utils/catalog_taxonomy.py` in the same change (FR-019)
+- [ ] ~~T017~~ [US3] File each existing product into a branch through the product edit screen, leaving anything from the deferred areas (machining, general DIY, 3D printing, hand tools, automotive) uncategorized rather than forcing it into a branch (FR-014, FR-021)
+- [ ] ~~T018~~ [US3] Verify SC-006 by checking that no category path in the catalog is absent from `docs/category-taxonomy.md`, except paths that predate the tree; where filing revealed a branch that does not work, rename it and update `docs/category-taxonomy.md` and `app/utils/catalog_taxonomy.py` in the same change (FR-019)
 
-**Checkpoint**: the tree has survived contact with real products.
+**Checkpoint**: ~~the tree has survived contact with real products.~~ Not reached
+— see the skip note above.
 
 ---
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 Union `SPECIFICATION_KEYS` into `CatalogService.list_specification_names` in `app/catalog_service.py`, feeding the existing `specification-name-suggestions` datalist. **This is the declared judgment call from [plan.md](./plan.md) and is cleanly droppable**: no functional requirement demands it, but SC-010 has no other mechanism and specification names are the one vocabulary in the application with no rename to repair drift (research D6)
-- [ ] T020 Add a test to `tests/unit/test_catalog_service.py` asserting `list_specification_names` returns the record's keys from an empty catalog and still returns an in-use name the record does not list (SC-010). Skip if T019 is dropped
-- [ ] T021 [P] Link `docs/category-taxonomy.md` from `docs/user-manual.md` where categories are described, so the record is reachable from the operator documentation rather than only from this feature directory
-- [ ] T022 Run the full gates: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests`, then `nox -s e2e` **detached** (`nohup … &` and poll) because it runs about 14 minutes warm and outlasts a 10-minute tool timeout — budget 20 minutes cold
-- [ ] T023 Confirm the E2E run left the working tree clean, per Constitution IV. A dirty tree after `nox -s e2e` means screenshot tests leaked into the session, which is a bug in the run and not in this feature
+- [X] T019 Union `SPECIFICATION_KEYS` into `CatalogService.list_specification_names` in `app/catalog_service.py`, feeding the existing `specification-name-suggestions` datalist. **This is the declared judgment call from [plan.md](./plan.md) and is cleanly droppable**: no functional requirement demands it, but SC-010 has no other mechanism and specification names are the one vocabulary in the application with no rename to repair drift (research D6)
+- [X] T020 Add a test to `tests/unit/test_catalog_service.py` asserting `list_specification_names` returns the record's keys from an empty catalog and still returns an in-use name the record does not list (SC-010). Skip if T019 is dropped
+- [X] T021 [P] Link `docs/category-taxonomy.md` from `docs/user-manual.md` where categories are described, so the record is reachable from the operator documentation rather than only from this feature directory
+- [X] T022 Run the full gates: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests`, then `nox -s e2e` **detached** (`nohup … &` and poll) because it runs about 14 minutes warm and outlasts a 10-minute tool timeout — budget 20 minutes cold
+- [X] T023 Confirm the E2E run left the working tree clean, per Constitution IV. A dirty tree after `nox -s e2e` means screenshot tests leaked into the session, which is a bug in the run and not in this feature
 - [ ] T024 Update `specs/025-category-taxonomy/checklists/requirements.md` notes to record that the software half shipped, and open the pull request for `issues/98` against `main`
 
 ---

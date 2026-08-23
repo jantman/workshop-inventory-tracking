@@ -11,7 +11,7 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import ValidationError
-from app.utils.catalog_taxonomy import CATEGORY_PATHS
+from app.utils.catalog_taxonomy import CATEGORY_PATHS, SPECIFICATION_KEYS
 
 
 @pytest.fixture
@@ -382,6 +382,38 @@ class TestCategoryListing:
         return next(e for e in catalog.category_tree() if e['path'] == path)
 
 
+class TestSpecificationNameVocabulary:
+    """025 SC-010: the one vocabulary with no rename to repair it afterwards."""
+
+    def test_offers_the_pinned_keys_before_any_product_carries_them(self, service):
+        assert set(SPECIFICATION_KEYS) <= set(service.list_specification_names())
+
+    def test_still_offers_a_name_in_use_that_the_record_does_not_pin(self, catalog):
+        """The record is a default, not a whitelist -- here as much as anywhere"""
+        names = catalog.list_specification_names()
+        assert 'Dielectric' not in SPECIFICATION_KEYS
+        assert 'Dielectric' in names
+
+    def test_a_pinned_key_and_a_typed_variant_collapse_to_one(self, service):
+        """And the surviving spelling is the record's, not the typed one"""
+        service.create_product(
+            description='resistor',
+            specifications=[{'name': 'material', 'value': 'carbon film'}],
+        )
+        names = service.list_specification_names()
+
+        assert [n for n in names if n.lower() == 'material'] == ['Material']
+
+    def test_a_prefix_narrows_the_union_not_just_the_names_in_use(self, service):
+        names = service.list_specification_names(prefix='thr')
+        assert 'Thread' in names
+        assert all(name.lower().startswith('thr') for name in names)
+
+    def test_each_name_appears_once(self, catalog):
+        names = catalog.list_specification_names()
+        assert len(names) == len(set(names))
+
+
 class TestTags:
     def test_a_category_typed_during_creation_needs_no_setup_step(self, service):
         """Story 7 scenario 4, and the same is true of tags"""
@@ -580,10 +612,20 @@ class TestSpecificationVocabulary:
     """FR-019, FR-020. The case-folding dedup is e2e's to prove, not SQLite's."""
 
     def test_names_in_use_are_listed(self, converters):
-        assert converters.list_specification_names() == ['Output current', 'Voltage']
+        """Folded, because 025 lets the record's spelling win.
 
-    def test_names_are_empty_when_nothing_is_recorded(self, service):
-        assert service.list_specification_names() == []
+        The fixture records "Output current"; the record pins "Output Current".
+        Those are one name to every filter, and the listing keeps the record's
+        capitalization -- which is the point, not an accident. See
+        TestSpecificationNameVocabulary for that behaviour on its own.
+        """
+        listed = {name.lower() for name in converters.list_specification_names()}
+        assert {'output current', 'voltage'} <= listed
+
+    def test_only_the_pinned_keys_remain_when_nothing_is_recorded(self, service):
+        """025: with no products there are no names in use, so the keys are all
+        that is left. Previously this was the empty list."""
+        assert set(service.list_specification_names()) == set(SPECIFICATION_KEYS)
 
     def test_a_prefix_narrows_the_names(self, converters):
         assert converters.list_specification_names(prefix='Vol') == ['Voltage']
