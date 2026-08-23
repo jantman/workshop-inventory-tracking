@@ -1,0 +1,536 @@
+SHOP INVENTORY — identified from photos in /tmp/jantman
+Photos: 27 JPEGs, 20260815_173127 .. 20260815_173416
+(All photos were EXIF-rotated 180 deg; read after auto-orienting.)
+
+Entries are bin/box labels as printed, plus loose items visible in the
+photo. Items marked [?] are partially obscured or my best reading.
+
+
+================================================================
+AREA 1 — GENERAL DIY: "PLUMBING, HARDWARE & MISC" steel shelving
+photos 173127, 173131, 173136, 173140
+================================================================
+
+Top of unit / loose:
+  - Cat6 UTP cable, 1000 ft box, Dripstone brand, 23AWG CCA — marked "111'"
+  - Cat6 UTP cable, 1000 ft box, SatMaximum — marked "975'"
+  - Cat6 UTP cable, 1000 ft box, SatMaximum — marked with tally of lengths
+  - "CAUTION: BURIED ELECTRIC" underground warning tape, roll
+  - Roll of black textured rubber matting/belting
+  - Aluminum sheaves / pulleys (2)
+  - Air hose reel w/ brass fittings, red bungee, misc
+
+Shelf labels (shelf-edge, not bins):
+  - PLUMBING, HARDWARE & MISC   (unit label)
+  - Monitor Arms/Mounts         (monitor arms, gas-spring arm, VESA plates)
+  - Gas Struts & Linear Actuators
+  - Pipe Adapters Sorted as LARGEST Size   (advisory note)
+
+Unlabeled shelf w/ loose items:
+  - Large pressure gauge
+  - Air pressure regulator (aluminum body)
+  - Brass solenoid valves (2)
+  - Green-bodied solenoid valve w/ red cap
+  - Air quick-coupler
+  - Box: "Unistrut 45 deg, 220 lbs"
+
+Bins:
+  Trim Clips
+  1" Square Tube End Caps
+  Razor & Utility Blades
+  Safety Wire
+  Chalk
+  Lockout & Safety
+  Welding / Brazing
+  Velcro & Similar
+  Hinges
+  Mending Plates
+  Brackets
+  Handles & Latches
+  Window Coverings
+  Shims                        (wood shims stacked alongside)
+  Hose Clamps                  (incl. a boxed hose-clamp kit)
+  Air Fittings
+  1/2 NPT + 1/4 Flow Air Quick Connects
+  3/8" Air Quick Connects
+  Valve Parts
+  Garden Hose
+  1/2" Copper                  (copper sweat fittings)
+  3/4" Copper
+  1/8 NPT Fittings
+  1/4 NPT Fittings
+  3/8 NPT Fittings
+  1/2 NPT Fittings
+  Misc. Pipe Fittings
+  Rubber Bands
+  Furniture Parts
+  Marking / Flagging
+  Magnets
+  Wood Putty / Filler
+  Hog Rings
+  Screen
+  Wire Rope, Turnbuckles, etc.
+  Tie-Downs & Anchor Points
+  Clothes Pins
+  Chain
+  Sharpening
+  1-2" Screws                  (handwritten, small bin)
+  Bearings
+  Pillow Blocks
+  Adjustable Machine & Bench Feet
+  Small Mounting Feet & Isolators
+  Large Mounting Feet & Isolators
+  <3" Casters
+  3" Casters
+  4" Casters
+  (loose) Ironton 4-pk 3 in. and 4 in. rubber casters, boxed
+
+
+================================================================
+AREA 2 — "ELECTRICAL" steel shelving
+photos 173150, 173155, 173159, 173203
+================================================================
+
+Top of unit / loose:
+  - fastCat Security Alarm Cable, 18/4 STR CMR CL3 FT4 White, 500 ft — marked "457'"
+  - Wiremold (bin)
+  - IEC PDU, part 13806864 / X999-646 — three boxes
+  - 60A unfused disconnect (handwritten blue tape)
+  - Elegrp 15A Decora Switches
+  - Wire Lugs (bin)
+  - Southwire indoor enclosure / screw-cover junction / pull box, 6"x6"x4", NEMA 1
+  - Small Wiremold
+  - Metal box w/ green pushbutton
+
+Bins:
+  AC Splitters
+  Extension Cord Parts & Ends         (incl. yellow twist-lock ends)
+  Fuses / Holders / Small Breakers
+  Dielectric Grease
+  Waterproof Junctions
+  Outlets                              (incl. Leviton tamper-resistant 15A-125V)
+  Outlet Covers
+  Switches
+  Switch Plates & Covers
+  Box & Plate Screws
+  Blank Covers
+  Low Voltage Splice Connectors
+  Wago
+  Ideal In-Sure Connectors
+  Ground Crimp Sleeves
+  Heavy Wire Splices
+  Grounding Pigtails
+  Scotchlok Connectors
+  Wire Nuts
+  Decora Covers
+  Cat 5/6 1-3'                         (patch cables)
+  Cat 5/6 5-7'
+  Cat 5/6 10'
+  Cat 5/6 15'
+  Coax
+  RJ-45
+  Keystone
+  Thermostats
+  Motor Capacitors                     (incl. 40/5 x 370/440 run capacitor)
+  Heat Shrink Kit                      (pink case)
+  Heat Shrink
+  Night Lights
+  Lights & Lampholders                 (sockets, pull chains, cord)
+  Strain Reliefs & Cord Grips
+  IEC C5                               (note: "C13 On Opposite Shelf")
+  IEC C7
+  Cable Glands
+  Grommets
+  Machine Switches                     (red/black OFF machine switches)
+  Cable Boss Staples                   (Gardner Bender)
+  Wire Tie Bases
+  Wire Ties
+  Conduit Nuts
+  Knockout & Box Plugs
+  Screw-in Cable Clamps
+  Nail-in Cable Clips & Staples
+  ENT Fittings
+  3/4" PVC
+  Liquid-Tight (LFMC)
+  FMT (Flex) & BX Fittings
+  NM Box Fittings
+  1/2" EMT                             (incl. 1/2" EMT one-hole straps, 100 qty)
+  3/4" EMT
+  EMT Straps
+  1"+ EMT
+  Nail Guards
+  Sticky note: "Bag of liquid-tight 1/2" NPT cable entries, 0.318"-0.568",
+               in industrial electrical bin"
+
+Loose / hanging nearby:
+  - Blue coiled pneumatic air hoses (3)
+  - Roll of white/tan tape
+  - Red bins (adjacent unit): "...-Line Breakers", "Outdoor / Liquid Tight"
+
+
+================================================================
+AREA 3 — "FASTENERS" steel shelving
+photos 173207, 173211, 173215
+================================================================
+
+Top shelf (small parts boxes):
+  Imperial Standoffs
+  M2/3/4/5/6/8 Grub Screws
+  M3/4/5 Hex Bolts
+  M3/4/5/6 Hex Bolts
+  Nylock Nuts M2-M12
+  M3-M12 Washers
+  M2/3/4 SHCS
+  M3/4/5/6 Claw Nuts
+  Small Metric: Standoffs / Inserts / Brass / Plastic / etc.
+  GRK R4 Multi-Purpose Screws, #10 x 4"
+
+Metric bins:
+  M2, M2.5, M3, M4, M5, M6, M8, > M8
+
+Imperial small screws (group label: "#4 - #12"):
+  #4 & Smaller
+  #6
+  #8
+  (plus two more bins in the group)
+
+Assortments (group label: "Assortments"):
+  Stainless Self-Tapping TEK Screws
+  #6/8/10 Flat Head Phillips, 304 Stainless, 1/2" - 1-1/4"
+  #4/6/8/10 & 1/4-20 Grub Screws
+
+1/4-20 by head type (group label: "-> 1/4-20"):
+  1/4-20 Countersunk Hex Socket, 1/4" - 1-1/2"
+  1/4-20 SHCS, 1/2" - 2"
+  1/4-20 Hex Socket Button Head
+  1/4-20 Countersunk Hex Socket Screws, 1/4" - 1"
+  1/4-20 Button Head Hex Socket, 1/2" - 2"
+  1/4-20 Nuts
+  1/4-20 Washers
+  1/4-20 Thumb Screws
+
+1/4-20 by length (group label: "1/4-20"):
+  1/2", 5/8", 3/4", 1", 1.5", 2" - <3", 3", > 3"
+  (loose in bins: carriage bolts 1/4 x 3, A307 grade A hex tap bolts)
+
+Other thread sizes:
+  1/4-28
+  5/16"                                (socket head cap screws, 5/16-24 x 1-1/2 etc.)
+  3/8"
+  1/2"                                 (incl. 1/2-13 x 4 full-thread bolts)
+  7/16"
+  9/16"
+  5/8"
+  Thread Inserts & Helicoil
+
+Other fastener bins:
+  Pins - Cotter, Hitch, PTO
+  Hairpin / Hitch / R clips
+  Staples                              (Arrow)
+  Plier Staplers
+  Self-Tapping Screws                  (ELCO)
+  Hooks & Eyes
+  Picture & Mirror Hooks & Hangers
+  Lag Screws
+  Wood Screws
+  Misc Wood Screws
+  Garden Staples
+  U-Bolts
+  Structural Screws
+  <1" Construction Screws              (SPAX)
+  1-2" Construction Screws             (SPAX)
+  >2" Construction Screws              (SPAX)
+  Drywall Screws
+  Masonry Anchors
+  Drywall Anchors
+  Trim Screws
+  Cabinet Screws
+  Deckmate 2-1/2"
+  Deck Screws
+  Thumb Tacks
+  Specialty Nails
+  Common Nails
+  Security Screws
+  Rivets
+  Simpson Fasteners                    (incl. LUS28-2 hangers)
+  LedgerLOK structural screws, 5"
+  12" Spikes
+  Air Fasteners
+  Collated framing nails, 21 deg, plastic strip, 2-3/8" x .113" ring shank
+  FastenStrong hot-dipped galvanized framing nails, 21 deg, 3" x 0.120", 2500 qty
+  Group label: "Screws & Anchors"
+
+Loose:
+  - Hanging thread/tap identification gauge (M5x0.8, M7x1.0, etc. samples)
+  - Fastener reference charts (paper, hanging)
+
+
+================================================================
+AREA 4 — MACHINING (chrome wire rack)
+photos 173225, 173233, 173244
+================================================================
+
+  Tool Box Parts
+  Cutting Tool Boxes
+  Hones
+  Bijur Oiler
+  Oil Wick
+  2" Chip Brushes
+  3" Chip Brushes
+  Tote: "Syringes, Steppers, Pipettes, Petri Dishes, Funnels, Straws,
+         Dispenser Bottles"
+  Chuck Wedges & Drift Keys
+  Chucks & Keys
+  Broken Screw, Bolt & Tap Extractors
+  Springs
+  Oil & Grease Fittings
+  Clamping
+  Adhesive / Thread-Lock / Anti-Seize
+  Music Wire — Precision Brand, .024", .031", .037", .047"
+  Reamers
+  Broaches
+  Key Stock & Keys
+  Pulleys
+  Gears & Rollers
+  Retaining Rings
+  Shaft Collars
+  Bushings & Spacers
+  Instrument Parts
+  Flextures                            [? label reads "Flextures"]
+  String, Twine, Twist Ties, Baling Wire
+  #1 Paper Tags, 2-3/4" x 1-3/8"
+  Paper Tags (second size)
+  Small Storage Bottles & Containers
+  Plastic bags / sheeting / bubble wrap (bulk, unlabeled)
+  Labware
+  Steel Brushes
+  Steel Wool
+  Right-angle Nylon Brushes
+  Nylon Brushes
+  Brass Brushes
+  Q-Tips & Applicators
+  Chip Brushes
+  Acid Brushes
+  Popsicle Sticks
+  1" Foam Brushes
+  O-Rings & Gaskets
+  Cork sheet roll, rubber sheet roll, black plastic tube (loose)
+  Machine Handles & Similar
+  Random Arbors
+  Centers
+  Taper Adapters
+  5C Collets (red bin) — labeled sizes: 3/16", 25/64", 43/64", 21/32",
+              3/4" (x2), 13/16", 7/8", 1", 5/8" Round, 3mm
+  R8 Fly Cutter
+  R8 Collets
+  1/2" Steel Balls
+  1/4" Steel Balls
+  Bearing Balls
+  Roll Pins
+  Taper Pins
+  Dowel Pins & Balls
+  Dowel Pins
+  Bottom shelf: sticky note "Misc./Unknown"; small glass jars, wire spools,
+                stakes/tags (largely obscured)
+
+
+================================================================
+AREA 5 — ELECTRONICS STAGING / TOTES + bookshelf
+photos 173258, 173302, 173308, 173316, 173326, 173329
+================================================================
+
+Totes / boxes:
+  Machine Access Control                (cables, M12 8-pin A-code female
+                                         right-angle shielded connectors)
+  Raspberry Pi
+  PC Parts
+  Misc. Electronics
+  HDMI / DVI / VGA
+  Audio — RCA / TRS / Optical / etc.
+  USB — Hubs, Extensions, Misc.
+  5C Collet Boxes x66                   (shipping carton)
+  Empty flip-top totes (spares)
+  "JANTMAN HDMI WIRELESS RX + TX" (boxed)
+
+3D printing:
+  CR-10S Parts
+  CR-10S Consumables
+  Creality original plain glass plate
+  CR10S glass plate
+  3D Printer Webcams
+  Filament: Hatchbox TPU; Hatchbox ABS; Overture Black Nylon
+            (noted "E 250-270, Bed 25-50"); PLA+ Black 1kg;
+            1.75mm PLA white; SunPLA+ Black
+            (one box noted "E 240-280, Bed 60")
+  Creality shipping box
+
+Crimping / termination (on bookshelf):
+  Heat Shrink Butt Crimps
+  Right Angle Spade Connectors
+  Heat Shrink Bullet Connectors
+  Spade Terminals 1/4"
+  Heat Shrink Terminals
+  Heat Shrink End Caps
+  Heat Shrink Solder Splices
+  3M Scotchlok T-tap disconnect terminals, 22-18 AWG, tab 0.250 (jar)
+  Crimper (cased)
+  Bag of pink/red nylon terminals
+
+Dev boards / misc:
+  Seeed SenseCap
+  Arduino
+  Raspberry Pi 7" Touchscreen Display  (marked "bed pi")
+  Raspberry Pi PoE HAT
+  Pumps
+  PoE
+  ESP32/8266 Enclosures                 (note: "use #6-32 screws, #4-35 clearance" [?])
+  RFID
+  Label Tape                            (Brother TZe cassettes, assorted colors)
+  Wanptek DPS3010U DC bench power supply
+  Digital Loggers 8-channel Ethernet Relay ("Internal Web Server")
+  Unlocked 4G LTE USB modem (T-Mobile)
+  Breadboard + ESP dev board + jumpers (project in progress, loose on shelf)
+  Three red enclosures w/ cords (foot switches or similar)
+  Batteries (bin, adjacent shelf)
+
+Reference material (bookshelf):
+  Machinery's Handbook, Setting Up Shop, Metalworking: Doing It Better,
+  "The Making, Shaping and Treating of Steel" (USS), Modern Welding,
+  Starrett catalogs/manuals, Grizzly Industrial catalogs (2025, 2026),
+  ULINE catalogs, American Welding Society titles, Popular Mechanics
+  Welding Handbook, Duct Tape book, machine manuals/prints (loose folders)
+
+
+================================================================
+AREA 6 — ELECTRONIC COMPONENTS: cardboard bin wall (3 shelf banks)
+photos 173343, 173349, 173356, 173404, 173409, 173413, 173416
+Wayfinding labels seen: "eBench Top", "eBench Right", "Shop Shelf1"
+================================================================
+
+--- Power / batteries bank (173343, 173349) ---
+  Old Batteries (tote)
+  Rechargeable Batteries
+  Batteries                             (AA alkaline, Tenergy, CR1632 3V lithium)
+  Adjustable/Universal Power Supplies
+  24 VDC Pwr Supply                     (two boxed)
+  24 Volt Plug-In Transformer
+  Misc. Power Supplies
+  12VDC Power Supplies
+  5VDC Power Supplies
+  Buck/Boost Converters
+  Voltmeters                            (Fultron panel meters, model 15-100)
+  Wood Bits                             [? faded label behind Voltmeters]
+  Ultrasonic Sensors
+  Weather                               (La Crosse weather station gear)
+  Ribbon Cable
+  Goosenecks
+  Counters
+  Misc. Small Tools
+  Anti-Static / ESD
+  Electro-Magnets
+  Heating / Cooling
+  Current Clamps
+  Pin Extractors
+  Bus Bars, Terminal Blocks, etc.
+  Hard Drive Docks/Adapters
+  SATA / eSATA
+  Buzzers / Speakers
+  Ethernet Switches/Hubs
+  Sensors
+  IR Proximity Sensors
+  Proximity & Alarm Sensors
+  Timers
+  DIN Rail
+  (loose above) Alligator/test lead sets hanging; safety signs
+
+--- Component cabinet (173356) ---
+  Hookup Wire
+  Limit Switches
+  Displays
+  LEDs & Bulbs
+  Small Capacitors
+  Diodes
+  Resistors
+  ESP-32/8266 Breakout
+  ESP32/8266
+  USB Flash Drives
+  SD/CF Cards
+  Board Headers
+  Misc. Components
+  USB OTG
+  Mini USB
+  ICs
+  Transistors
+  Level Converters
+  Panel Mount LEDs & Indicators
+  Proto Board
+  Micro USB
+  USB Power Supplies
+  USB Breakout, Pigtails & Terminals
+  Mini Female
+  Breadboard Wires
+  Switches
+  USB-C
+  (nearby) Govee temp/humidity display, multimeter leads, solder spool (Anotek)
+
+--- Relay / connector / motor bank (173404, 173409, 173413, 173416) ---
+  Multi-Relay Boards
+  Misc Relays
+  Smart Relays
+  3v and 5v Relays
+  Solid State Relays
+  Contactors
+  Water Sensors
+  Fans
+  G24692 Shaded Pole Fridge Fans & Motors
+  Buttons
+  Motors
+  Solenoids
+  Misc Connectors / Adapters
+  Binding Post / Banana / etc.
+  NeoPixels
+  UPS Cables
+  Power / EMI Filters & Ferrites
+  Electric Locks & Strikes
+  Negative Ion Generators
+  DuPont, JST & Similar
+  DuPont Jumpers M/M
+  DuPont Jumpers M/F
+  DuPont Jumpers F/F
+  Misc. Terminals
+  Temperature Sensors
+  Thermocouples
+  Test Leads & Probes
+  Waterproof Connectors
+  3.5mm Barrel
+  5.5/2.1mm Barrel
+  GX Aviation Connectors
+  M12 Locking Connectors
+  Knobs / Dials / Rotary Things
+  Serial / DB
+  Soldering
+  Scrap Wire
+  Wire Ferrules
+  OBD
+  WattsUp & OBD
+  O-Scope, Power Supply, etc.
+  Motor Drives / Controls
+  Battery Holders
+  Keyboard
+  Vinyl for Cameo                       (Silhouette Cameo vinyl rolls)
+  (loose nearby) T-handle hex key sets (Pittsburgh), vintage Navy test set
+  marked "NAVCOMMSTA SICILY PLANT PROPERTY N 68893-005141"
+
+
+================================================================
+NOTES
+================================================================
+- Bin counts: roughly 300 distinct labeled bins/boxes are legible across
+  the 27 photos.
+- Several bins are only partially visible at photo edges and were skipped
+  where the label could not be read at all.
+- The two "Misc./Unknown" and "Misc. Components"/"Misc. Terminals" bins
+  are catch-alls; contents not itemized.
+- Group/section labels (e.g. "FASTENERS", "ELECTRICAL", "Screws & Anchors",
+  "1/4-20", "Assortments", "eBench Top") are shelf-edge wayfinding labels
+  rather than bins, and are noted as such above.
