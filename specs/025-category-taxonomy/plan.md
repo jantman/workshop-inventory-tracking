@@ -83,7 +83,21 @@ outside the taxonomy remain acceptable (FR-015).
 ### The one declared exception
 
 Principle I prohibits "any configuration knob added for a future that has not arrived". The
-override is a configuration knob. The justification, and its bounds:
+override is a configuration knob.
+
+**Where the decision came from.** Not from this plan. The repository owner raised it in review
+of PR #117, having read the first implementation:
+
+> these categories and specification keys are mine, but this application should be usable by
+> anyone. I think we need a facility to override these defaults with something passed in at
+> runtime, e.g. a JSON or YAML file. That code path should only be used if the appropriate
+> environment variables are set, pointing to the file(s).
+
+That matters for how this section should be read. The constitution's compliance review makes
+every pull request the place where a principle is adjudicated, and the person adjudicating is
+the one whose workshop, application and constitution these are. This section records a decision
+already taken; it is not the argument that persuaded anyone. The shape below — two variables,
+JSON, opt-in — follows that instruction rather than reinterpreting it.
 
 **Why it is warranted.** The alternative is not "no knob" — it is that every deployment of this
 application carries one particular workshop's category list in `app/utils/`, and cannot change

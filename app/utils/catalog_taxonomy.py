@@ -17,9 +17,14 @@ taxonomy that refuses the thing in your hand is worse than none.
 **The defaults below are one workshop's.**  They came out of a session held for this
 shop and documented in ``docs/category-taxonomy.md``, and there is nothing universal
 about deciding that heat-shrink tubing is electrical while heat-shrink terminals are
-electronics.  Another shop points ``CATEGORY_TAXONOMY_FILE`` and
-``SPECIFICATION_KEYS_FILE`` at its own JSON and gets its own vocabulary; set neither
-and nothing is read from disk at all.
+electronics.
+
+They were originally the only option, and the repository owner asked in review that a
+deployment be able to replace them without editing source -- so
+``CATEGORY_TAXONOMY_FILE`` and ``SPECIFICATION_KEYS_FILE`` do that.  The reason is not
+a second workshop somebody imagines; it is that this file currently holds one person's
+data and the application is published for anyone to run.  Set neither variable and
+nothing is read from disk at all.
 
 An override **replaces**, it does not merge.  Merging would leave
 ``fasteners/machine screws & bolts/carriage bolts`` in a shop that has never owned a

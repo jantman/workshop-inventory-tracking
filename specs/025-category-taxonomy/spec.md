@@ -273,6 +273,10 @@ those paths appears in the written record.
 
 **Whose taxonomy it is**
 
+*Added after the record shipped, at the repository owner's request in review of PR #117: "these
+categories and specification keys are mine, but this application should be usable by anyone."
+These requirements are that instruction written down, not an anticipated need.*
+
 - **FR-026**: The shipped taxonomy and specification keys MUST be replaceable at runtime by
   the deployment, without editing the application's source. They are one workshop's answers,
   and the application is not this workshop's alone.
