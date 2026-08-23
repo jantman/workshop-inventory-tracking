@@ -837,6 +837,31 @@ def _payload_images(value: Any) -> List[str]:
 # and the implementation at the cost of one mapping table.
 # ---------------------------------------------------------------------------
 
+# Purchase.unit_price is Numeric(10, 2) and MariaDB rounds silently on write --
+# even under STRICT_TRANS_TABLES, which downgrades it to a Note rather than an
+# error. So a price has to be rounded deliberately, here, where it is visible.
+#
+# This is not a DigiKey quirk: feature 017 already established that this catalog
+# records prices to the cent and says so on screen when a pack price does not
+# divide evenly. What is new is that DigiKey routinely *quotes* sub-cent unit
+# prices -- 0.0126 for a passive at volume is ordinary -- so what used to be an
+# edge case is now the common one. PR #116 review.
+PRICE_EXPONENT = Decimal('0.01')
+
+
+def price_to_cents(value: Optional[Decimal]) -> Optional[Decimal]:
+    """Round a price to the cent, ROUND_HALF_UP (Constitution III).
+
+    Deliberate and lossy: 0.0126 becomes 0.01, which is 20% low on that line.
+    The loss is the column's, not this function's -- but doing it here means the
+    stored value is one this code chose rather than one the database silently
+    imposed, and it means a value read back compares equal to the value written.
+    """
+    if value is None:
+        return None
+    return value.quantize(PRICE_EXPONENT, rounding=ROUND_HALF_UP)
+
+
 @dataclass(frozen=True)
 class DigiKeyOrderLine:
     """One line of a DigiKey sales order.
@@ -862,6 +887,24 @@ class DigiKeyOrderLine:
     quantity_backorder: Optional[int] = None
     country_of_origin: str = ''
     line_number: Optional[int] = None
+
+    @property
+    def form_key(self) -> str:
+        """What names this line in a form, and what a decision is keyed by.
+
+        ``DetailId`` where DigiKey gave one, because **a part number does not
+        identify a line**: an order can carry the same part twice, which this
+        feature's own spec accounts for. Keying the form by part number gave two
+        such lines one shared ``include[]`` / ``description[]`` /
+        ``resolution[]``, so neither could be controlled on its own. PR #116
+        review.
+
+        Falls back to the part number when there is no DetailId, which restores
+        exactly the old behaviour for a response that carries none.
+        """
+        if self.line_number is not None:
+            return str(self.line_number)
+        return self.digikey_part_number
 
     @classmethod
     def from_payload(cls, data: Any) -> Optional['DigiKeyOrderLine']:
@@ -1156,13 +1199,37 @@ class ReviewedLine:
         return self.part is not None
 
     @property
+    def price_rounds(self) -> bool:
+        """Whether recording this line's price loses precision to the cent.
+
+        Shown on the review for the same reason feature 017 shows it for a pack
+        price that does not divide evenly: the operator should learn that the
+        stored number differs from the quoted one now, not during a
+        reconciliation months later.
+        """
+        price = self.line.unit_price
+        return price is not None and price_to_cents(price) != price
+
+    @property
+    def unit_price_as_recorded(self) -> Optional[Decimal]:
+        """What will actually be stored for this line."""
+        return price_to_cents(self.line.unit_price)
+
+    @property
     def has_change(self) -> bool:
         """Whether a captured line's quantity or price differs from what is recorded (FR-014)"""
         if self.state is not OrderLineState.CAPTURED:
             return False
+        # Both sides rounded, because the recorded one has been through a
+        # Numeric(10, 2) column and the line's has not. Comparing the raw
+        # 0.0126 against the stored 0.01 made "Update it?" reappear on every
+        # single review of a sub-cent line, with no way to clear it -- applying
+        # the change just rewrote a value that rounded identically. PR #116
+        # review.
         return (
             (self.recorded_quantity != self.line.quantity)
-            or (self.recorded_unit_price != self.line.unit_price)
+            or (price_to_cents(self.recorded_unit_price)
+                != price_to_cents(self.line.unit_price))
         )
 
 

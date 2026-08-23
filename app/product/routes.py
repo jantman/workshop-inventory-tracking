@@ -1137,7 +1137,9 @@ def _digikey_decisions(form, order):
     """
     decisions = {}
     for line in order.lines:
-        key = line.digikey_part_number
+        # form_key, not the part number: an order can carry the same part on two
+        # lines, and keying by part number gave them one shared set of fields.
+        key = line.form_key
         decisions[key] = {
             'include': form.get(f'include[{key}]') is not None,
             'description': form.get(f'description[{key}]') or '',

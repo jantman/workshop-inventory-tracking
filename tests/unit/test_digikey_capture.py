@@ -89,14 +89,24 @@ def digikey():
 
 
 def include_all(order, **overrides):
-    """Decisions that capture every line, with per-line overrides."""
-    decisions = {
-        line.digikey_part_number: {'include': True}
-        for line in order.lines
-    }
-    for part_number, extra in overrides.items():
-        decisions.setdefault(part_number, {}).update(extra)
+    """Decisions that capture every line, with per-line overrides.
+
+    Keyed by ``form_key`` -- the DetailId -- because that is what the product
+    keys by and what the form emits. It used to key by part number, which a
+    single-part-per-line order made look correct. PR #116 review.
+    """
+    decisions = {line.form_key: {'include': True} for line in order.lines}
+    for key, extra in overrides.items():
+        decisions.setdefault(key, {}).update(extra)
     return decisions
+
+
+def key_of(order, part_number):
+    """The form key of the (first) line carrying a part number."""
+    for line in order.lines:
+        if line.digikey_part_number == part_number:
+            return line.form_key
+    raise AssertionError(f'no line for {part_number}')
 
 
 def counts(catalog):
@@ -309,7 +319,7 @@ class TestCapture:
 
     def test_the_operators_description_wins(self, catalog, order, digikey):
         decisions = include_all(order)
-        decisions['1866-3027-ND']['description'] = '5V 5W brick, enclosed'
+        decisions[key_of(order, '1866-3027-ND')]['description'] = '5V 5W brick, enclosed'
         catalog.capture_digikey_order(order, decisions, digikey)
         product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
         assert product.description == '5V 5W brick, enclosed'
@@ -319,7 +329,7 @@ class TestCapture:
     def test_a_blank_description_falls_back_to_digikeys(self, catalog, order, digikey):
         """FR-006."""
         decisions = include_all(order)
-        decisions['1866-3027-ND']['description'] = '   '
+        decisions[key_of(order, '1866-3027-ND')]['description'] = '   '
         catalog.capture_digikey_order(order, decisions, digikey)
         product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
         assert product.description == 'AC/DC CONVERTER 5V 5W'
@@ -327,7 +337,7 @@ class TestCapture:
     def test_an_excluded_line_writes_nothing(self, catalog, order, digikey):
         """FR-007."""
         decisions = include_all(order)
-        decisions['1866-3027-ND']['include'] = False
+        decisions[key_of(order, '1866-3027-ND')]['include'] = False
         result = catalog.capture_digikey_order(order, decisions, digikey)
         assert len(result.purchase_ids) == 1
         assert result.lines_excluded == 1
@@ -407,7 +417,7 @@ class TestCapture:
             ],
         )
         decisions = include_all(order)
-        decisions['1866-3027-ND']['resolution'] = 'attach'
+        decisions[key_of(order, '1866-3027-ND')]['resolution'] = 'attach'
         catalog.capture_digikey_order(order, decisions, digikey)
         product = catalog.get_product(existing.id)
         assert len(product.purchases) == 1
@@ -424,7 +434,7 @@ class TestCapture:
             ],
         )
         decisions = include_all(order)
-        decisions['1866-3027-ND']['resolution'] = 'separate'
+        decisions[key_of(order, '1866-3027-ND')]['resolution'] = 'separate'
         catalog.capture_digikey_order(order, decisions, digikey)
 
         untouched = catalog.get_product(existing.id)
@@ -444,7 +454,7 @@ class TestCapture:
             order_date=order.order_date,
             lines=(type(line)(**{**line.__dict__, 'quantity': 11}),),
         )
-        decisions = {line.digikey_part_number: {'include': True, 'apply_change': True}}
+        decisions = {line.form_key: {'include': True, 'apply_change': True}}
         result = catalog.capture_digikey_order(changed, decisions, digikey)
         assert result.lines_updated == 1
 
@@ -465,7 +475,7 @@ class TestCapture:
             lines=(type(line)(**{**line.__dict__, 'quantity': 11}),),
         )
         catalog.capture_digikey_order(
-            changed, {line.digikey_part_number: {'include': True}}, digikey
+            changed, {line.form_key: {'include': True}}, digikey
         )
         product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
         assert product.purchases[0].quantity == 5
@@ -501,7 +511,7 @@ class TestAtomicity:
     def test_a_refused_description_writes_nothing(self, catalog, order, digikey):
         before = counts(catalog)
         decisions = include_all(order)
-        decisions['1866-3032-ND']['description'] = 'x' * 500
+        decisions[key_of(order, '1866-3032-ND')]['description'] = 'x' * 500
         with pytest.raises(ValidationError):
             catalog.capture_digikey_order(order, decisions, digikey)
         assert counts(catalog) == before
@@ -598,8 +608,8 @@ class TestCaptureThroughTheForm:
     def test_an_already_captured_line_renders_no_include_checkbox(self, client, captured):
         """The property the fix has to hold for -- asserted, not assumed."""
         fields = form_fields(self._review_html(client))
-        assert 'include[1866-3027-ND]' not in fields
-        assert 'include[1866-3032-ND]' not in fields
+        assert 'include[1]' not in fields
+        assert 'include[2]' not in fields
 
     def test_recapturing_through_the_form_reports_already_captured(
             self, client, captured):
@@ -637,9 +647,9 @@ class TestCaptureThroughTheForm:
         html = self._review_html(client)
         fields = form_fields(html)
         # The page offers the tick-box for the changed line...
-        assert 'apply_change[1866-3027-ND]' in html
+        assert 'apply_change[1]' in html
         # ...and it is unticked by default, so tick it the way an operator would.
-        fields['apply_change[1866-3027-ND]'] = 'on'
+        fields['apply_change[1]'] = 'on'
 
         client.post('/products/digikey/orders/capture',
                     data={**fields, 'sales_order_number': '100882558'},
@@ -673,7 +683,7 @@ class TestCaptureThroughTheForm:
         app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
 
         fields = form_fields(self._review_html(client))
-        fields['apply_change[1866-3027-ND]'] = 'on'
+        fields['apply_change[1]'] = 'on'
         response = client.post('/products/digikey/orders/capture',
                                data={**fields, 'sales_order_number': '100882558'},
                                follow_redirects=True)
@@ -726,8 +736,8 @@ class TestCaptureThroughTheForm:
         app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
         html = self._review_html(client)
         fields = form_fields(html)
-        assert 'include[1866-3027-ND]' in fields, 'a NEW line offers the checkbox'
-        del fields['include[1866-3027-ND]']
+        assert 'include[1]' in fields, 'a NEW line offers the checkbox'
+        del fields['include[1]']
 
         response = client.post('/products/digikey/orders/capture',
                                data={**fields, 'sales_order_number': '100882558'},
@@ -805,3 +815,148 @@ class TestNoNetworkInsideTheTransaction:
         kinds = [kind for kind, _ in opened]
         first_open = kinds.index('session-open')
         assert all(i < first_open for i, k in enumerate(kinds) if k == 'fetch'), kinds
+
+
+# --------------------------------------------------------------------------
+# PR #116 review, third round
+# --------------------------------------------------------------------------
+
+def duplicate_part_order(order):
+    """An order carrying the same DigiKey part on two lines.
+
+    No order on the developer's account has one, so this is built from the real
+    fixture and labelled as such. The feature's own spec accounts for the case
+    ("two lines of one order are the same part... they become two purchases
+    against one product, which is what they are"), so it is specified behaviour
+    rather than a hypothetical.
+    """
+    first = order.lines[0]
+    second = type(first)(**{**first.__dict__, 'line_number': 2, 'quantity': 7})
+    return type(order)(
+        sales_order_number=order.sales_order_number,
+        purchase_order=order.purchase_order,
+        order_date=order.order_date,
+        currency=order.currency,
+        lines=(first, second),
+    )
+
+
+class TestDuplicatePartOnOneOrder:
+    """A part number does not identify a line; DetailId does."""
+
+    def test_the_two_lines_have_different_form_keys(self, order):
+        duplicated = duplicate_part_order(order)
+        keys = [line.form_key for line in duplicated.lines]
+        assert keys == ['1', '2'], keys
+        assert len(set(keys)) == 2, 'the two lines shared one set of form fields'
+
+    def test_both_lines_capture_as_separate_purchases(self, catalog, order, digikey):
+        duplicated = duplicate_part_order(order)
+        result = catalog.capture_digikey_order(
+            duplicated, include_all(duplicated), digikey
+        )
+        assert len(result.purchase_ids) == 2
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert len(product.purchases) == 2
+        assert sorted(p.quantity for p in product.purchases) == [5, 7]
+
+    def test_one_of_two_duplicate_lines_can_be_excluded(self, catalog, order, digikey):
+        """Impossible while both shared an include[] field."""
+        duplicated = duplicate_part_order(order)
+        decisions = include_all(duplicated)
+        decisions['2']['include'] = False
+        result = catalog.capture_digikey_order(duplicated, decisions, digikey)
+        assert len(result.purchase_ids) == 1
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert [p.quantity for p in product.purchases] == [5]
+
+    def test_a_recapture_sees_both_as_captured(self, catalog, order, digikey):
+        """The second purchase used to be invisible to the review."""
+        duplicated = duplicate_part_order(order)
+        catalog.capture_digikey_order(duplicated, include_all(duplicated), digikey)
+        review = catalog.review_digikey_order(duplicated, digikey)
+        assert [line.state for line in review.lines] == [
+            OrderLineState.CAPTURED, OrderLineState.CAPTURED
+        ]
+        # Each line looks at its *own* purchase.
+        assert len({line.purchase_id for line in review.lines}) == 2
+
+    def test_applying_a_change_hits_the_right_purchase(self, catalog, order, digikey):
+        """It used to write to the first purchase twice, clobbering itself."""
+        duplicated = duplicate_part_order(order)
+        catalog.capture_digikey_order(duplicated, include_all(duplicated), digikey)
+
+        second = duplicated.lines[1]
+        changed = type(duplicated)(
+            sales_order_number=duplicated.sales_order_number,
+            order_date=duplicated.order_date,
+            lines=(duplicated.lines[0],
+                   type(second)(**{**second.__dict__, 'quantity': 99})),
+        )
+        catalog.capture_digikey_order(
+            changed, {'1': {'include': True}, '2': {'include': True,
+                                                    'apply_change': True}}, digikey
+        )
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert sorted(p.quantity for p in product.purchases) == [5, 99], (
+            'the change landed on the wrong purchase'
+        )
+
+    def test_a_vanished_duplicate_line_is_orphaned(self, catalog, order, digikey):
+        duplicated = duplicate_part_order(order)
+        catalog.capture_digikey_order(duplicated, include_all(duplicated), digikey)
+        # DigiKey now reports only one line for that part.
+        shrunk = type(order)(
+            sales_order_number=order.sales_order_number,
+            order_date=order.order_date,
+            lines=(duplicated.lines[0],),
+        )
+        review = catalog.review_digikey_order(shrunk, digikey)
+        assert len(review.orphaned) == 1
+
+
+class TestSubCentPrices:
+    """Numeric(10, 2) rounds silently; this catalog rounds deliberately."""
+
+    def _order_at(self, order, price):
+        line = order.lines[0]
+        return type(order)(
+            sales_order_number=order.sales_order_number,
+            order_date=order.order_date,
+            lines=(type(line)(**{**line.__dict__, 'unit_price': Decimal(price)}),),
+        )
+
+    def test_a_sub_cent_price_is_rounded_deliberately(self, catalog, order, digikey):
+        cheap = self._order_at(order, '0.0126')
+        catalog.capture_digikey_order(cheap, include_all(cheap), digikey)
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert product.purchases[0].unit_price == Decimal('0.01')
+
+    def test_update_it_does_not_reappear_forever(self, catalog, order, digikey):
+        """The loop: raw 0.0126 never equals stored 0.01, so the prompt never cleared."""
+        cheap = self._order_at(order, '0.0126')
+        catalog.capture_digikey_order(cheap, include_all(cheap), digikey)
+
+        review = catalog.review_digikey_order(cheap, digikey)
+        line = review.lines[0]
+        assert line.state is OrderLineState.CAPTURED
+        assert line.has_change is False, (
+            'a sub-cent line reports a change against itself on every review'
+        )
+
+    def test_a_real_change_is_still_seen_on_a_sub_cent_line(self, catalog, order, digikey):
+        cheap = self._order_at(order, '0.0126')
+        catalog.capture_digikey_order(cheap, include_all(cheap), digikey)
+        dearer = self._order_at(order, '0.05')
+        assert catalog.review_digikey_order(dearer, digikey).lines[0].has_change
+
+    def test_the_review_says_what_will_be_stored(self, catalog, order, digikey):
+        """017's precedent: tell them about the rounding now, not in a reconciliation."""
+        cheap = self._order_at(order, '0.0126')
+        line = catalog.review_digikey_order(cheap, digikey).lines[0]
+        assert line.price_rounds is True
+        assert line.unit_price_as_recorded == Decimal('0.01')
+
+    def test_an_exact_price_reports_no_rounding(self, catalog, order, digikey):
+        line = catalog.review_digikey_order(order, digikey).lines[0]
+        assert line.price_rounds is False

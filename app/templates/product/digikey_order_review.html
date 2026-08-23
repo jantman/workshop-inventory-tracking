@@ -53,8 +53,10 @@
             <tbody>
             {% for reviewed in review.lines %}
                 {% set line = reviewed.line %}
-                {% set key = line.digikey_part_number %}
-                <tr class="order-line" data-part="{{ key }}" data-state="{{ reviewed.state.value }}">
+                {# form_key, not the part number -- two lines can share a part. #}
+                {% set key = line.form_key %}
+                {% set part_number = line.digikey_part_number %}
+                <tr class="order-line" data-part="{{ part_number }}" data-state="{{ reviewed.state.value }}">
                     <td>
                         {% if reviewed.state.value == 'CAPTURED' %}
                         <i class="bi bi-check-circle-fill text-success" title="Already captured"></i>
@@ -66,7 +68,7 @@
                     </td>
 
                     <td>
-                        <div><code>{{ key }}</code></div>
+                        <div><code>{{ part_number }}</code></div>
                         {% if line.manufacturer_part_number %}
                         <div class="small text-body-secondary">{{ line.manufacturer_part_number }}</div>
                         {% endif %}
@@ -110,7 +112,7 @@
 
                         {% elif reviewed.state.value == 'CONFLICT' %}
                         <div class="alert alert-warning py-2 px-2 mb-1 conflict">
-                            <strong>{{ key }} already names something else.</strong>
+                            <strong>{{ part_number }} already names something else.</strong>
                             <div class="small">
                                 It is on <em>{{ reviewed.product_description }}</em>, whose part
                                 number is <code>{{ reviewed.product_manufacturer_part_number }}</code>,
@@ -118,12 +120,12 @@
                             </div>
                             <div class="mt-1">
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" required
+                                    <input class="form-check-input" type="radio"
                                            id="attach-{{ key }}" name="resolution[{{ key }}]" value="attach">
                                     <label class="form-check-label small" for="attach-{{ key }}">Same thing — attach</label>
                                 </div>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" required
+                                    <input class="form-check-input" type="radio"
                                            id="separate-{{ key }}" name="resolution[{{ key }}]" value="separate">
                                     <label class="form-check-label small" for="separate-{{ key }}">Different — new product</label>
                                 </div>
@@ -141,7 +143,19 @@
                         <div class="small text-warning-emphasis">{{ line.quantity_backorder }} on backorder</div>
                         {% endif %}
                     </td>
-                    <td class="text-end">{{ line.unit_price if line.unit_price is not none else '—' }}</td>
+                    <td class="text-end">
+                        {{ line.unit_price if line.unit_price is not none else '—' }}
+                        {% if reviewed.price_rounds %}
+                        {# Feature 017 already does this for a pack price that
+                           does not divide evenly. DigiKey quotes sub-cent unit
+                           prices routinely, so say it here too rather than
+                           letting the operator discover it in a
+                           reconciliation. #}
+                        <div class="small text-warning-emphasis price-rounded">
+                            recorded as {{ reviewed.unit_price_as_recorded }}
+                        </div>
+                        {% endif %}
+                    </td>
                 </tr>
             {% endfor %}
             </tbody>

@@ -191,7 +191,9 @@ def test_an_excluded_line_writes_nothing(page, live_server, digikey_api):
     """FR-007."""
     review_order(page, live_server)
     expect(page.locator('.order-line')).to_have_count(2)
-    page.uncheck('#include-1866-3027-ND')
+    # The checkbox is named for the line's DetailId, not its part number -- a
+    # part number never identified a line. PR #116 review.
+    page.uncheck('#include-1')
     page.click('#confirm-capture')
 
     expect(page.locator('#order-progress')).to_contain_text('1 of 1 still outstanding')
@@ -273,3 +275,80 @@ def test_without_digikey_configured_the_page_says_so(page, live_server):
         expect(page.locator('h2')).to_contain_text('Products')
     finally:
         live_server.app.config['DIGIKEY_CLIENT'] = previous
+
+
+@pytest.mark.e2e
+def test_a_conflicted_line_can_be_excluded_without_answering(page, live_server, digikey_api):
+    """PR #116 review: `required` on the resolution radios blocked this.
+
+    Both radios were unconditionally `required` and neither was ever checked, so
+    the browser refused to submit the whole form until one was picked — even for
+    a line the operator had unticked, whose resolution the server never reads.
+    The UI was stricter than the logic it rendered.
+    """
+    from app.catalog_service import CatalogService
+
+    CatalogService(live_server.storage).create_product(
+        description='Something else entirely',
+        manufacturer_part_number='WIDGET-99',
+        identifiers=[
+            {'id_type': 'DISTRIBUTOR', 'value': '1866-3027-ND', 'vendor': 'DigiKey'},
+            {'id_type': 'MPN', 'value': 'WIDGET-99'},
+        ],
+    )
+
+    review_order(page, live_server)
+    expect(page.locator('.order-line[data-state="CONFLICT"]')).to_have_count(1)
+
+    # Untick the conflicted line and submit without answering its question.
+    page.uncheck('#include-1')
+    page.click('#confirm-capture')
+
+    # Reaching the order screen at all is the assertion: a native validation
+    # bubble would have kept us on the review with nothing submitted.
+    expect(page.locator('#order-progress')).to_contain_text('1 of 1 still outstanding')
+    expect(page.locator('.order-line[data-part="1866-3027-ND"]')).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_conflicted_line_that_is_kept_must_still_be_answered(page, live_server, digikey_api):
+    """Dropping `required` must not drop the requirement -- the server holds it."""
+    from app.catalog_service import CatalogService
+
+    CatalogService(live_server.storage).create_product(
+        description='Something else entirely',
+        manufacturer_part_number='WIDGET-99',
+        identifiers=[
+            {'id_type': 'DISTRIBUTOR', 'value': '1866-3027-ND', 'vendor': 'DigiKey'},
+            {'id_type': 'MPN', 'value': 'WIDGET-99'},
+        ],
+    )
+
+    review_order(page, live_server)
+    expect(page.locator('.order-line[data-state="CONFLICT"]')).to_have_count(1)
+
+    # Leave it included and unanswered. The whole capture is refused (FR-015).
+    page.click('#confirm-capture')
+    expect(page.locator('.order-line')).to_have_count(2)
+    expect(page.locator('body')).to_contain_text('already names')
+
+
+@pytest.mark.e2e
+def test_answering_the_conflict_captures_it(page, live_server, digikey_api):
+    from app.catalog_service import CatalogService
+
+    CatalogService(live_server.storage).create_product(
+        description='Something else entirely',
+        manufacturer_part_number='WIDGET-99',
+        identifiers=[
+            {'id_type': 'DISTRIBUTOR', 'value': '1866-3027-ND', 'vendor': 'DigiKey'},
+            {'id_type': 'MPN', 'value': 'WIDGET-99'},
+        ],
+    )
+
+    review_order(page, live_server)
+    expect(page.locator('.order-line[data-state="CONFLICT"]')).to_have_count(1)
+    page.check('#separate-1')
+    page.click('#confirm-capture')
+
+    expect(page.locator('#order-progress')).to_contain_text('2 of 2 still outstanding')

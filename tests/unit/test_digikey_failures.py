@@ -110,10 +110,12 @@ class TestOrderRouteFailures:
         assert counts(test_storage) == (0, 0)
 
         app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        # Keyed by DetailId, which is what the review renders -- a part number
+        # never identified a line. PR #116 review.
         response = client.post('/products/digikey/orders/capture', data={
             'sales_order_number': '100882558',
-            'include[1866-3027-ND]': 'on',
-            'include[1866-3032-ND]': 'on',
+            'include[1]': 'on',
+            'include[2]': 'on',
         }, follow_redirects=True)
         assert response.status_code == 200
         assert counts(test_storage) == (2, 2)

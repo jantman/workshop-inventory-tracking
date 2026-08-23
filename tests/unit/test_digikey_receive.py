@@ -63,7 +63,7 @@ def order():
 @pytest.fixture
 def captured(catalog, order):
     """An order already captured, with two outstanding lines."""
-    decisions = {line.digikey_part_number: {'include': True} for line in order.lines}
+    decisions = {line.form_key: {'include': True} for line in order.lines}
     catalog.capture_digikey_order(order, decisions, FakeDigiKey())
     return order
 
@@ -196,7 +196,7 @@ class TestScanApiUrl:
     @pytest.fixture
     def client_with_order(self, app, client, test_storage, order):
         catalog = CatalogService(test_storage)
-        decisions = {line.digikey_part_number: {'include': True} for line in order.lines}
+        decisions = {line.form_key: {'include': True} for line in order.lines}
         catalog.capture_digikey_order(order, decisions, FakeDigiKey())
         return client, catalog
 
