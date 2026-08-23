@@ -55,6 +55,7 @@ from .models import (
 from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
+from .utils.catalog_taxonomy import CATEGORY_PATHS
 from .utils.scan_router import classify
 from .utils.sql import escape_like as _escape_like
 from config import Config
@@ -2638,12 +2639,23 @@ class CatalogService:
     # -- Categories --------------------------------------------------------
 
     def list_categories(self, prefix: Optional[str] = None) -> List[str]:
-        """Every category path in use.
+        """Every category path in use, plus every branch the taxonomy names.
 
-        There is no categories table: a category is a string on a product, so
-        this is the distinct set of those strings. The consequence, stated
-        plainly, is that an empty category cannot exist -- which for this
-        workshop is the correct behaviour.
+        There is still no categories table: a category is a string on a product,
+        so an occupied category is the distinct set of those strings. What the
+        taxonomy adds is the branches nobody has filed into yet (025 FR-012) --
+        otherwise the first product into each of them gets typed by hand, which
+        is where two spellings of one category come from.
+
+        Listing a branch creates nothing, and a path in use that the taxonomy
+        does not name is never dropped (025 FR-017). A path that is both offered
+        and occupied appears once, because the union is a set (025 FR-018).
+
+        The subtree filter is applied in Python rather than as a LIKE. Half the
+        candidates are not rows, and ``is_descendant`` is the same
+        segment-boundary rule the SQL encodes -- without the collation's
+        case and accent folding, which ``rename_category`` documents as a source
+        of false matches.
 
         Args:
             prefix: Optionally narrow to a subtree.
@@ -2652,30 +2664,44 @@ class CatalogService:
             Distinct category paths, alphabetically.
         """
         with self._session() as session:
-            query = session.query(Product.category_path).filter(
+            rows = session.query(Product.category_path).filter(
                 Product.category_path.isnot(None)
-            ).distinct()
+            ).distinct().all()
 
-            ancestor = category_utils.canonical(prefix)
-            if ancestor is not None:
-                query = query.filter(or_(
-                    Product.category_path == ancestor,
-                    Product.category_path.like(
-                        category_utils.descendant_like_pattern(ancestor), escape='\\'
-                    ),
-                ))
+        paths = {row[0] for row in rows} | set(CATEGORY_PATHS)
 
-            return sorted(row[0] for row in query.all())
+        ancestor = category_utils.canonical(prefix)
+        if ancestor is not None:
+            paths = {
+                path for path in paths
+                if category_utils.is_descendant(path, ancestor)
+            }
+
+        return sorted(paths)
 
     def category_tree(self) -> List[Dict[str, Any]]:
-        """The categories in use, with how many products sit directly in each.
+        """Every category, with how many products sit directly in each.
+
+        The union of the paths products carry and the branches the taxonomy
+        names, so the page shows the tree rather than the subset of it that
+        happens to be occupied.
+
+        ``count`` is 0 for a branch on offer that nobody has filed into, which
+        was previously an entry that could not exist. ``in_taxonomy`` is False
+        for a path somebody typed that the record does not name -- legitimate
+        (025 FR-015), and the only thing that makes that divergence visible
+        (025 FR-019).
+
+        A caller rendering a rename control must gate it on ``count``:
+        ``rename_category`` refuses a category no product carries, because a
+        rename is a rewrite across rows and there are none.
 
         Args:
             None.
 
         Returns:
-            One entry per category path: its path, its depth, and its direct
-            product count.
+            One entry per category path: its path, its depth, its name, its
+            direct product count, and whether the taxonomy names it.
         """
         with self._session() as session:
             rows = session.query(
@@ -2684,14 +2710,18 @@ class CatalogService:
                 Product.category_path.isnot(None)
             ).group_by(Product.category_path).all()
 
+        counts = {path: count for path, count in rows}
+        taxonomy = set(CATEGORY_PATHS)
+
         return [
             {
                 'path': path,
                 'depth': len(category_utils.segments(path)),
                 'name': category_utils.segments(path)[-1],
-                'count': count,
+                'count': counts.get(path, 0),
+                'in_taxonomy': path in taxonomy,
             }
-            for path, count in sorted(rows)
+            for path in sorted(set(counts) | taxonomy)
         ]
 
     def _subtree_clause(self, path: str):

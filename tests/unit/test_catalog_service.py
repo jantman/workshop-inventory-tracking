@@ -14,6 +14,7 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
+from app.utils.catalog_taxonomy import CATEGORY_PATHS
 
 
 @pytest.fixture
@@ -408,6 +409,24 @@ class TestRenameCategoryRefusals:
             'child': 'electronics/passives',
             'other': 'hardware',
         }
+
+    def test_a_taxonomy_branch_no_product_occupies_is_refused(self, tree):
+        """025 research D4: this refusal is why the browse page gates the control.
+
+        The taxonomy puts unoccupied branches on the page. A rename is a prefix
+        rewrite across rows and there are none, so the control must not be
+        offered on those rows -- renaming them means editing the record and
+        app/utils/catalog_taxonomy.py. If this behaviour ever changes, the
+        template's gating becomes wrong rather than merely redundant.
+        """
+        branch = 'electronics/dev boards/arduino'
+        assert branch in CATEGORY_PATHS
+        assert branch in [entry['path'] for entry in tree.category_tree()]
+
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category(branch, 'electronics/dev boards/uno')
+        assert 'no category' in str(excinfo.value.message).lower()
+        assert _paths(tree) == self._unchanged(tree)
 
     def test_blank_source_is_refused(self, tree):
         with pytest.raises(ValidationError) as excinfo:

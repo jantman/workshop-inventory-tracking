@@ -11,6 +11,7 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import ValidationError
+from app.utils.catalog_taxonomy import CATEGORY_PATHS
 
 
 @pytest.fixture
@@ -254,30 +255,77 @@ class TestStockFilter:
 
 
 class TestCategoryListing:
+    """The listing is the union of what is in use and what the taxonomy names.
+
+    These assertions became containment rather than equality when 025 added the
+    taxonomy: the list now carries every branch of docs/category-taxonomy.md
+    whether or not a product occupies it. What each test is actually about --
+    in-use paths surviving, the subtree boundary, and a category vanishing with
+    its last product -- is unchanged, so each is expressed against the paths it
+    is about rather than against the whole list.
+    """
+
+    IN_USE = [
+        'electronics-surplus',
+        'electronics/active',
+        'electronics/passives/capacitors',
+        'electronics/passives/resistors',
+        'hardware/fasteners',
+        'workshop/salvage',
+    ]
+
     def test_lists_the_categories_in_use(self, catalog):
-        assert catalog.list_categories() == [
-            'electronics-surplus',
-            'electronics/active',
-            'electronics/passives/capacitors',
-            'electronics/passives/resistors',
-            'hardware/fasteners',
-            'workshop/salvage',
-        ]
+        listed = catalog.list_categories()
+        assert set(self.IN_USE) <= set(listed)
+        assert listed == sorted(listed)
+
+    def test_lists_taxonomy_branches_no_product_occupies(self, catalog):
+        """025 FR-012: the branch has to be offered before anything is in it"""
+        listed = catalog.list_categories()
+        assert set(CATEGORY_PATHS) <= set(listed)
+
+    def test_each_path_appears_once(self, catalog):
+        """025 FR-018: offered and occupied are one branch, not two"""
+        listed = catalog.list_categories()
+        assert len(listed) == len(set(listed))
 
     def test_a_prefix_narrows_to_a_subtree(self, catalog):
-        assert catalog.list_categories(prefix='electronics') == [
+        """The boundary is the separator, not the character count.
+
+        ``electronics-surplus`` is a different category that merely starts with
+        the same letters, and it is the reason this test exists.
+        """
+        listed = catalog.list_categories(prefix='electronics')
+
+        assert {
             'electronics/active',
             'electronics/passives/capacitors',
             'electronics/passives/resistors',
-        ]
+        } <= set(listed)
+        assert 'electronics-surplus' not in listed
+        assert 'hardware/fasteners' not in listed
+        assert 'workshop/salvage' not in listed
+        assert all(
+            path == 'electronics' or path.startswith('electronics/')
+            for path in listed
+        )
 
-    def test_an_empty_category_cannot_exist(self, service):
-        """There is no categories table, so nothing can be in one and empty"""
+    def test_a_category_the_taxonomy_does_not_name_exists_only_while_occupied(
+        self, service
+    ):
+        """Still no categories table: such a category dies with its last product.
+
+        The taxonomy did not change this. It named 142 branches that are offered
+        regardless, and left everything else exactly as it was -- a string on a
+        product and nothing more.
+        """
+        assert 'temporary' not in CATEGORY_PATHS
+
         product = service.create_product(description='x', category_path='temporary')
-        assert service.list_categories() == ['temporary']
+        assert 'temporary' in service.list_categories()
 
         service.update_product(product.id, category_path=None)
-        assert service.list_categories() == []
+        assert 'temporary' not in service.list_categories()
 
     def test_the_tree_carries_direct_counts(self, catalog):
         tree = {entry['path']: entry['count'] for entry in catalog.category_tree()}
@@ -291,6 +339,47 @@ class TestCategoryListing:
         )
         assert entry['depth'] == 3
         assert entry['name'] == 'resistors'
+
+    def test_the_tree_offers_taxonomy_branches_at_a_count_of_zero(self, catalog):
+        """An entry that could not previously exist: on offer, unoccupied.
+
+        Anything rendering a rename control has to gate on this count --
+        rename_category refuses a category no product carries.
+        """
+        entry = self._entry(catalog, 'fasteners/machine screws & bolts/socket head cap')
+        assert entry['count'] == 0
+        assert entry['in_taxonomy'] is True
+
+    def test_the_tree_flags_a_path_the_taxonomy_does_not_name(self, catalog):
+        """025 FR-019: the only thing that makes that divergence visible"""
+        entry = self._entry(catalog, 'electronics/passives/resistors')
+        assert entry['count'] == 1
+        assert entry['in_taxonomy'] is False
+
+    def test_the_tree_flags_an_occupied_taxonomy_branch_as_both(self, service):
+        branch = 'electronics/dev boards/arduino'
+        service.create_product(description='Uno', category_path=branch)
+
+        entry = self._entry(service, branch)
+        assert entry['count'] == 1
+        assert entry['in_taxonomy'] is True
+
+    def test_the_tree_lists_each_path_once(self, service):
+        """025 FR-018, at the other consumer of the union"""
+        service.create_product(
+            description='Uno', category_path='electronics/dev boards/arduino'
+        )
+        paths = [entry['path'] for entry in service.category_tree()]
+        assert len(paths) == len(set(paths))
+
+    def test_the_tree_never_drops_an_occupied_path(self, catalog):
+        """025 FR-017: the taxonomy adds branches, it does not prune the catalog"""
+        paths = {entry['path'] for entry in catalog.category_tree()}
+        assert set(self.IN_USE) <= paths
+
+    @staticmethod
+    def _entry(catalog, path):
+        return next(e for e in catalog.category_tree() if e['path'] == path)
 
 
 class TestTags:

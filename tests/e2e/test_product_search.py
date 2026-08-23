@@ -119,9 +119,16 @@ def test_the_category_page_links_into_a_filtered_list(page, live_server):
     seed(page, live_server.url)
 
     page.goto(f"{live_server.url}/products/categories")
-    page.click("text=fasteners")
+    # 025 put a `fasteners` root on this page, so `text=fasteners` now matches
+    # the taxonomy root before the seeded `hardware/fasteners` row and filters
+    # to a category with nothing in it. Click the row, not the word.
+    page.locator('.category-row[data-rename-value="hardware/fasteners"] a').click()
     page.wait_for_load_state("domcontentloaded")
 
+    # listed() reads with count(), which does not wait. Establish the table
+    # first or an unsettled page reads as "no products" and the assertion
+    # fails for a reason that has nothing to do with the filter.
+    expect(page.locator("#product-table tbody tr")).to_have_count(1)
     assert listed(page) == ["M4 hex bolt"]
 
 
@@ -142,7 +149,14 @@ def test_an_empty_category_cannot_exist(page, live_server):
     page.wait_for_load_state("domcontentloaded")
 
     page.goto(f"{live_server.url}/products/categories")
-    expect(page.locator("#no-categories")).to_be_visible()
+    tree = page.locator("#category-tree")
+    # The tree is never empty now -- 025 puts every taxonomy branch on it -- so
+    # establish that it rendered before reading the absence of one row, which
+    # would otherwise pass just as well against a page that had not loaded.
+    expect(tree.locator('.category-row[data-rename-value="fasteners"]')).to_have_count(1)
+    expect(
+        tree.locator('.category-row[data-rename-value="temporary/category"]')
+    ).to_have_count(0)
 
 
 @pytest.mark.e2e
