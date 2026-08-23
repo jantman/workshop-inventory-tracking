@@ -180,3 +180,62 @@ def test_the_dialog_still_warns_about_a_real_collision(page, live_server):
 
     expect(impact).to_contain_text("1 product")
     expect(warning).to_contain_text("already exists")
+
+
+@pytest.mark.e2e
+def test_the_rename_control_follows_the_subtree_not_the_direct_count(page, live_server):
+    """The parent of an occupied leaf holds nothing itself and still renames.
+
+    `rename_category` rewrites everything at or under the path, so hiding the
+    control here would remove a working capability -- and it is the common
+    case, because the taxonomy encourages filing at the leaves.
+    """
+    live_server.add_test_products([
+        {'description': 'Arduino Uno R3', 'category_path': OCCUPIED},
+    ])
+
+    tree = open_categories(page, live_server.url)
+
+    for parent in ('electronics', 'electronics/dev boards'):
+        expect(row(tree, parent)).to_contain_text("0")
+        expect(row(tree, parent).locator(".rename-btn")).to_have_count(1)
+
+    # And a branch with nothing beneath it still has no control.
+    expect(row(tree, UNOCCUPIED).locator(".rename-btn")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_renaming_a_parent_that_holds_nothing_directly_carries_its_child(
+    page, live_server
+):
+    """End to end: the control is offered and the rename actually works."""
+    live_server.add_test_products([
+        {'description': 'Arduino Uno R3', 'category_path': OCCUPIED},
+    ])
+
+    open_categories(page, live_server.url)
+    page.locator('.rename-btn[data-rename-value="electronics/dev boards"]').click()
+
+    impact = page.locator("#rename-impact")
+    expect(impact).to_be_visible()
+    expect(impact).to_contain_text("1 product")
+
+    page.locator("#rename-new-value").fill("electronics/sbc")
+    page.locator("#rename-submit").click()
+
+    tree = page.locator("#category-tree")
+
+    # The product moved, and its new home is outside the record -- which is
+    # what the mark is for.
+    moved = row(tree, "electronics/sbc/arduino")
+    expect(moved).to_have_count(1)
+    expect(moved.locator(".untaxonomied")).to_have_count(1)
+    expect(moved.locator(".rename-btn")).to_have_count(1)
+
+    # The old path does NOT disappear: the taxonomy still names it, so it stays
+    # on offer, now unoccupied and with nothing to rename. This is the drift a
+    # rename creates between the record and what products carry, and the page
+    # showing both halves of it is the point.
+    vacated = row(tree, OCCUPIED)
+    expect(vacated).to_have_count(1)
+    expect(vacated.locator(".rename-btn")).to_have_count(0)

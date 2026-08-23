@@ -1325,10 +1325,14 @@ taxonomy is one workshop's and a deployment can replace it with its own -- see t
 [deployment guide](deployment-guide.md#1-environment-variables) -- so the branches
 you see may not be the ones documented there.
 
-A branch showing a count of **0** is on offer rather than in use. It exists in
-the taxonomy record and nowhere else -- there is no row behind it -- so it is
-renamed by editing `docs/category-taxonomy.md`, not from this page, and that is
-why those rows carry no **Rename** button. A row marked *not in the record* is
+A branch showing a count of **0** holds nothing *directly*. It may still have
+products further down: the count on each row is that row's own, so a parent
+whose children hold everything reads 0 and is entirely normal.
+
+A branch with nothing beneath it either carries no **Rename** button. There is no
+row anywhere to rewrite, so such a branch exists only in the taxonomy record and
+is renamed by editing `docs/category-taxonomy.md`. A parent with occupied
+children keeps its button and renames like any other. A row marked *not in the record* is
 one somebody typed on a product; it is perfectly legitimate, and the mark is
 there so the divergence between the record and what your products actually carry
 is visible rather than silent.

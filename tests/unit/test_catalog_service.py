@@ -428,6 +428,23 @@ class TestRenameCategoryRefusals:
         assert 'no category' in str(excinfo.value.message).lower()
         assert _paths(tree) == self._unchanged(tree)
 
+    def test_a_parent_holding_nothing_directly_still_renames(self, service):
+        """025: the case the browse page's gate originally got wrong.
+
+        ``rename_category`` rewrites every product at or under the path and
+        refuses only when that whole set is empty. A parent with an occupied
+        child holds nothing itself and renames perfectly well -- which is most
+        of the parents a taxonomy adds, because filing happens at the leaves.
+        """
+        service.create_product(
+            description='Uno', category_path='electronics/dev boards/arduino'
+        )
+
+        report = service.rename_category('electronics/dev boards', 'electronics/sbc')
+
+        assert report['products'] == 1
+        assert _paths(service) == {'Uno': 'electronics/sbc/arduino'}
+
     def test_blank_source_is_refused(self, tree):
         with pytest.raises(ValidationError) as excinfo:
             tree.rename_category('  ', 'electronics')

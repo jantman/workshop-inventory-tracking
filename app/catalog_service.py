@@ -2715,16 +2715,21 @@ class CatalogService:
         (025 FR-015), and the only thing that makes that divergence visible
         (025 FR-019).
 
-        A caller rendering a rename control must gate it on ``count``:
-        ``rename_category`` refuses a category no product carries, because a
-        rename is a rewrite across rows and there are none.
+        ``subtree_count`` is what a caller must gate a rename control on, and
+        it is deliberately not ``count``. ``rename_category`` rewrites every
+        product at *or under* the path and refuses only when that whole set is
+        empty -- so a parent branch holding nothing directly, with an occupied
+        child, renames perfectly well and carries the child with it. Gating on
+        ``count`` would hide the control for most of the parents a taxonomy
+        adds, because filing happens at the leaves.
 
         Args:
             None.
 
         Returns:
             One entry per category path: its path, its depth, its name, its
-            direct product count, and whether the taxonomy names it.
+            direct product count, the count at or under it, and whether the
+            taxonomy names it.
         """
         with self._session() as session:
             rows = session.query(
@@ -2736,12 +2741,20 @@ class CatalogService:
         counts = {path: count for path, count in rows}
         taxonomy = set(catalog_taxonomy.category_paths())
 
+        def subtree_total(path: str) -> int:
+            """Products at or under ``path`` -- the set a rename would move."""
+            return sum(
+                occupants for occupied, occupants in counts.items()
+                if category_utils.is_descendant(occupied, path)
+            )
+
         return [
             {
                 'path': path,
                 'depth': len(category_utils.segments(path)),
                 'name': category_utils.segments(path)[-1],
                 'count': counts.get(path, 0),
+                'subtree_count': subtree_total(path),
                 'in_taxonomy': path in taxonomy,
             }
             for path in sorted(set(counts) | taxonomy)

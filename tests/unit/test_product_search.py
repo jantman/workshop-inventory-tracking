@@ -380,6 +380,45 @@ class TestCategoryListing:
         paths = {entry['path'] for entry in catalog.category_tree()}
         assert set(self.IN_USE) <= paths
 
+    def test_the_tree_carries_the_subtree_count_a_rename_would_move(self, service):
+        """025: `count` is this row's own; `subtree_count` is what renames.
+
+        The browse page gates its Rename control on the second, because the
+        first is 0 for a parent whose children hold everything -- and gating on
+        that hid the control for most of the parents the taxonomy adds.
+        """
+        service.create_product(
+            description='Uno', category_path='electronics/dev boards/arduino'
+        )
+
+        parent = self._entry(service, 'electronics/dev boards')
+        root = self._entry(service, 'electronics')
+        leaf = self._entry(service, 'electronics/dev boards/arduino')
+
+        assert (parent['count'], parent['subtree_count']) == (0, 1)
+        assert (root['count'], root['subtree_count']) == (0, 1)
+        assert (leaf['count'], leaf['subtree_count']) == (1, 1)
+
+    def test_an_empty_branch_has_an_empty_subtree(self, service):
+        """Nothing anywhere beneath it: no row to rewrite, no rename."""
+        entry = self._entry(service, 'fasteners/rivets')
+
+        assert (entry['count'], entry['subtree_count']) == (0, 0)
+
+    def test_the_subtree_count_respects_the_separator_boundary(self, service):
+        """`electronics-surplus` is a different category, not a descendant."""
+        service.create_product(description='x', category_path='electronics-surplus')
+
+        assert self._entry(service, 'electronics')['subtree_count'] == 0
+
+    def test_the_subtree_count_includes_paths_the_taxonomy_does_not_name(self, service):
+        """A typed child still makes its parent renameable."""
+        service.create_product(
+            description='x', category_path='electronics/dev boards/homebrew'
+        )
+
+        assert self._entry(service, 'electronics/dev boards')['subtree_count'] == 1
+
     @staticmethod
     def _entry(catalog, path):
         return next(e for e in catalog.category_tree() if e['path'] == path)

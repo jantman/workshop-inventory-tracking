@@ -63,16 +63,23 @@ field:
 | `depth` | `int` | Number of segments, 1–3. | — |
 | `name` | `str` | Last segment. | — |
 | `count` | `int` | Products filed **directly** in this path. | Now `0` for a branch on offer that nobody occupies. Previously an entry could not exist with a count of 0. |
-| `in_taxonomy` | `bool` | Whether `path` is in `CATEGORY_PATHS`. | **New.** |
+| `subtree_count` | `int` | Products at **or under** this path — the set a rename would move. | **New.** |
+| `in_taxonomy` | `bool` | Whether `path` is in the deployment's vocabulary. | **New.** |
 
-The four states an entry can be in, and what each means:
+The states an entry can be in, and what each means:
 
-| `in_taxonomy` | `count` | Meaning |
-|---|---|---|
-| `true` | `> 0` | A branch of the record, in use. The ordinary case. |
-| `true` | `0` | A branch of the record, on offer, nothing filed there yet. Renamed by editing the record, not through the UI — `rename_category` refuses when no product carries the path. |
-| `false` | `> 0` | A path somebody typed that the record does not name. Legitimate (FR-015), and the visible signal for the drift FR-019 is about. |
-| `false` | `0` | Cannot occur. An entry exists because the record names it or a product carries it. |
+| `in_taxonomy` | `count` | `subtree_count` | Meaning |
+|---|---|---|---|
+| `true` | `> 0` | `> 0` | A branch of the record, in use. The ordinary case. |
+| `true` | `0` | `> 0` | A parent of the record holding nothing itself, with occupied children. **Renames normally** and carries them. Common, because filing happens at the leaves. |
+| `true` | `0` | `0` | A branch of the record with nothing anywhere beneath it. No row to rewrite, so it is renamed by editing the record rather than through the UI. |
+| `false` | `> 0` | `> 0` | A path somebody typed that the record does not name. Legitimate (FR-015), and the visible signal for the drift FR-019 is about. |
+| `false` | `0` | `> 0` | A parent implied by a typed descendant — only when the record names it, otherwise no entry exists for it at all. |
+| `false` | `0` | `0` | Cannot occur. An entry exists because the vocabulary names it or a product carries it. |
+
+**A rename control must be gated on `subtree_count`, never on `count`.** `rename_category`
+rewrites every product at or under the path and refuses only when that whole set is empty, so
+gating on the direct count hides the control for most of the parents a taxonomy adds.
 
 ## Unchanged shapes
 

@@ -16,10 +16,11 @@
 <p class="text-muted">
     The branches of the taxonomy record, plus any category a product carries that the
     record does not name &mdash; those are marked <em>not in the record</em>. A branch
-    showing <span class="badge text-bg-light border">0</span> is on offer rather than in
-    use: it exists in the record and nowhere else, so it is renamed by editing
-    <code>docs/category-taxonomy.md</code> and not from this page. Renaming a branch that
-    has products carries its sub-categories and every product beneath them.
+    showing <span class="badge text-bg-light border">0</span> holds nothing itself. If
+    nothing sits beneath it either, there is no row to rewrite and no <strong>Rename</strong>
+    button &mdash; a branch like that exists only in the record, and is renamed by editing
+    <code>docs/category-taxonomy.md</code>. A parent whose children hold products still
+    renames, and carries its sub-categories and every product beneath them.
 </p>
 
 <div class="card">
@@ -41,9 +42,11 @@
                 </span>
                 {% endif %}
                 <span class="badge {{ 'text-bg-secondary' if category.count else 'text-bg-light border' }} rounded-pill">{{ category.count }}</span>
-                {# rename_category rewrites rows, and a branch nobody occupies has none:
-                   offering the control there would be an action that cannot succeed. #}
-                {% if category.count %}
+                {# Gated on the subtree, not the direct count. rename_category
+                   rewrites every product at or under the path, so a parent
+                   holding nothing itself still renames and carries its children.
+                   Only a branch with an empty subtree has nothing to rewrite. #}
+                {% if category.subtree_count %}
                 <button type="button" class="btn btn-sm btn-outline-secondary rename-btn"
                         data-rename-value="{{ category.path }}"
                         data-rename-count="{{ category.count }}"
