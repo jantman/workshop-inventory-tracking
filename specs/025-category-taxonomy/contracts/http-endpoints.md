@@ -20,7 +20,7 @@ Feeds the `category-suggestions` datalist on the product add/edit form
 ```
 
 **What changes**: the list is now the union of the distinct `category_path` values in use and
-`CATEGORY_PATHS`, deduplicated on the canonical path and sorted. A branch nobody occupies is
+`category_paths()`, deduplicated on the canonical path and sorted. A branch nobody occupies is
 returned; a path in use that the taxonomy does not name is still returned. `prefix` filters the
 union, not just the in-use half.
 
@@ -44,8 +44,8 @@ Feeds the `specification-name-suggestions` datalist on the product form
 { "specification_names": ["Drive", "Length", "Material", "Thread"] }
 ```
 
-**What changes**: the union with `SPECIFICATION_KEYS`, so a key the record names is offered
-before any product carries it.
+**What changes**: the union with `specification_keys()`, so a key the vocabulary names is
+offered before any product carries it.
 
 **Contract obligation** — SC-010: near-duplicate keys are prevented at the point of typing,
 because there is no `rename_specification` to repair them afterwards.
@@ -75,6 +75,13 @@ The browse page.
 subtree-carrying behavior. No service code behind it is touched.
 
 ---
+
+## Whose vocabulary these serve
+
+Both endpoints return whatever the deployment's vocabulary is. With nothing configured that is
+the shipped default documented in `docs/category-taxonomy.md`; with `CATEGORY_TAXONOMY_FILE` or
+`SPECIFICATION_KEYS_FILE` set it is that file's contents instead. The response **shape** is the
+same either way, so no consumer can tell the difference — which is the point.
 
 ## Not part of this contract
 

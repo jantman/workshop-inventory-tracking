@@ -23,11 +23,33 @@ A pure module — standard library only, no Flask, no database, no I/O — match
 
 | Name | Type | Content | Invariants |
 |---|---|---|---|
-| `CATEGORY_PATHS` | `tuple[str, ...]` | The 142 branches of `docs/category-taxonomy.md`: roots, intermediate parents and leaves. | Every element equals `category.canonical(element)` — already lowercase, `/`-joined, no blank segments. At most 3 segments. No element exceeds 512 characters. Every non-root element's parent is also present. No duplicates. Sorted. |
-| `SPECIFICATION_KEYS` | `tuple[str, ...]` | The distinct keys named in the record's specification-key registry. | Non-empty, trimmed, no duplicates under case folding, at most 100 characters (the column width). Sorted. |
+| `DEFAULT_CATEGORY_PATHS` | `tuple[str, ...]` | The 142 branches of `docs/category-taxonomy.md`: roots, intermediate parents and leaves. | Every element equals `category.canonical(element)` — already lowercase, `/`-joined, no blank segments. At most 3 segments. No element exceeds 512 characters. Every non-root element's parent is also present. No duplicates. Sorted. |
+| `DEFAULT_SPECIFICATION_KEYS` | `tuple[str, ...]` | The distinct keys named in the record's specification-key registry. | Non-empty, trimmed, no duplicates under case folding, at most 100 characters (the column width). Sorted. |
 
-Both are derived from `docs/category-taxonomy.md`, which stays the authority. The unit suite
-enforces the derivation rather than a build step regenerating it (research D5).
+Both are derived from `docs/category-taxonomy.md`, which stays the authority **for the
+defaults**. The unit suite enforces the derivation rather than a build step regenerating it
+(research D5).
+
+### What callers read
+
+`category_paths()` and `specification_keys()` return the defaults unless the deployment names
+a replacement:
+
+| Environment variable | Supplies | Shape |
+|---|---|---|
+| `CATEGORY_TAXONOMY_FILE` | The branches offered | JSON array of strings |
+| `SPECIFICATION_KEYS_FILE` | The specification keys offered | JSON array of strings |
+
+A replacement **replaces**; the two are independent; an empty array is valid and means "offer
+nothing"; parents are derived, so a file lists only the branches its author cares about. The
+loader enforces only what the database imposes — 512 characters for a path, 100 for a key —
+and deliberately **not** the three-level depth the shipped record chose for itself.
+
+Unusable input raises `TaxonomyFileError` rather than falling back. `create_app` calls both
+loaders at boot so the failure is a refusal to start, naming the file.
+
+None of this is persistent state: replacing a vocabulary changes what is *offered*, never what
+any product carries.
 
 ## Changed shape: `CatalogService.category_tree()` entries
 

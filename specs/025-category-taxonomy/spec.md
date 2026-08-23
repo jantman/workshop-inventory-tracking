@@ -271,6 +271,22 @@ those paths appears in the written record.
   product, and the record MUST say under which key each is recorded rather than leaving it to
   whoever files the product.
 
+**Whose taxonomy it is**
+
+- **FR-026**: The shipped taxonomy and specification keys MUST be replaceable at runtime by
+  the deployment, without editing the application's source. They are one workshop's answers,
+  and the application is not this workshop's alone.
+- **FR-027**: The replacement MUST be opt-in: with nothing configured the application MUST
+  behave exactly as it does with the built-in defaults, and MUST NOT read anything from disk.
+- **FR-028**: A replacement MUST replace rather than merge. Adding to the built-in list would
+  leave one workshop's branches in every other workshop's catalog, which is the whole
+  objection.
+- **FR-029**: A replacement that is configured but unusable MUST stop the application at
+  startup, naming the file and the problem. It MUST NOT fall back to the defaults: an operator
+  who asked for their own vocabulary and silently got somebody else's has no way to notice.
+- **FR-030**: The constraints the record chose for itself — three levels, in particular — MUST
+  NOT be imposed on a replacement. Only the limits the application genuinely has apply.
+
 ### Key Entities
 
 - **Category path**: A `/`-separated path of at most three segments held on the product
@@ -280,6 +296,9 @@ those paths appears in the written record.
   branches are, what belongs in each, and how they are named. New.
 - **Tag**: A free-form label already available on products, cutting across categories. Where
   the cross-cutting axes go.
+- **Vocabulary source**: Where a deployment's branches and specification keys come from —
+  the built-in defaults, or a JSON file the deployment names. New. It supplies suggestions and
+  owns no rows: replacing it changes what is offered, never what any product carries.
 - **Specification key**: The name half of a named value already recorded on products. Already
   exists, is already filterable and already autocompletes — but unlike a category or a tag it
   has no rename, so its vocabulary has to be settled in advance rather than corrected later.
@@ -324,6 +343,12 @@ those paths appears in the written record.
 - **SC-011**: Given a filed fastener, every dimension a person would filter on — thread, length,
   drive, material — is recoverable by a specification filter rather than by reading the
   description, for at least nine of any ten products filed after the record exists.
+- **SC-012**: A second workshop can replace both vocabularies with its own by writing two
+  files and setting two environment variables, touching no application source, and sees zero
+  branches from the shipped taxonomy afterwards.
+- **SC-013**: With nothing configured, the number of files the application reads from disk for
+  its vocabularies is zero, and the suggestions offered are byte-identical to the built-in
+  defaults.
 
 ---
 

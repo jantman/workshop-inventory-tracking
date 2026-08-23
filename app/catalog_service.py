@@ -55,7 +55,7 @@ from .models import (
 from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
-from .utils.catalog_taxonomy import CATEGORY_PATHS, SPECIFICATION_KEYS
+from .utils import catalog_taxonomy
 from .utils.scan_router import classify
 from .utils.sql import escape_like as _escape_like
 from config import Config
@@ -2593,7 +2593,7 @@ class CatalogService:
         """
         candidates = list(
             self._distinct_specification_column(ProductSpecification.name, None)
-        ) + list(SPECIFICATION_KEYS)
+        ) + list(catalog_taxonomy.specification_keys())
 
         cleaned = _clean(prefix)
         if cleaned:
@@ -2691,7 +2691,7 @@ class CatalogService:
                 Product.category_path.isnot(None)
             ).distinct().all()
 
-        paths = {row[0] for row in rows} | set(CATEGORY_PATHS)
+        paths = {row[0] for row in rows} | set(catalog_taxonomy.category_paths())
 
         ancestor = category_utils.canonical(prefix)
         if ancestor is not None:
@@ -2734,7 +2734,7 @@ class CatalogService:
             ).group_by(Product.category_path).all()
 
         counts = {path: count for path, count in rows}
-        taxonomy = set(CATEGORY_PATHS)
+        taxonomy = set(catalog_taxonomy.category_paths())
 
         return [
             {

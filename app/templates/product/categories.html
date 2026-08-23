@@ -53,6 +53,12 @@
                 {% endif %}
             </span>
         </li>
+        {% else %}
+        {# Reachable again once CATEGORY_TAXONOMY_FILE can be an empty array:
+           an operator who wants no suggestions and has filed nothing yet. #}
+        <li class="list-group-item text-center text-muted py-4" id="no-categories">
+            Nothing is categorized yet, and the taxonomy offers no branches.
+        </li>
         {% endfor %}
     </ul>
 </div>

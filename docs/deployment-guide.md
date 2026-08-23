@@ -203,6 +203,46 @@ CACHE_TTL=300
 BATCH_SIZE=100
 ```
 
+#### Category taxonomy and specification vocabulary (optional)
+
+The application ships with one workshop's category taxonomy -- the branches
+documented in [category-taxonomy.md](category-taxonomy.md) -- and the
+specification keys that go with it. They are offered as suggestions when filing a
+product, so a branch nobody has filed into yet can be picked rather than typed
+from memory.
+
+**Those branches are somebody else's shop.** Point these at your own to replace
+them:
+
+```bash
+CATEGORY_TAXONOMY_FILE=/etc/workshop-inventory/categories.json
+SPECIFICATION_KEYS_FILE=/etc/workshop-inventory/specification-keys.json
+```
+
+Each file is a JSON array of strings and nothing else:
+
+```json
+["electronics", "electronics/sensors", "fasteners/nuts"]
+```
+
+```json
+["Thread", "Length", "Voltage"]
+```
+
+- Parent branches are filled in for you: listing `a/b/c` also offers `a` and `a/b`.
+- Paths are lowercased, and may nest as deep as you like -- the three-level limit
+  in the shipped taxonomy was that workshop's decision, not the application's.
+- An override **replaces** the built-in list rather than adding to it, and the two
+  variables are independent: set one and the other keeps its default.
+- Neither is required. With both unset nothing is read from disk.
+- Suggestions are never a whitelist. A category outside the list can still be
+  typed on a product, and an empty array is a valid way to say "offer nothing".
+
+If a variable is set but the file cannot be read, parsed or validated, **the
+application refuses to start** and the error names the file and the problem.
+Falling back to the built-in list would quietly file your products under another
+shop's branches.
+
 ### 2. Secret Key Generation
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"

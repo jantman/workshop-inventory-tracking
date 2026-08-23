@@ -2,7 +2,19 @@
 
 The product catalog's category tree, and the rules that decide what goes where.
 
-This is the authority. When a branch is renamed or added in the application, it is renamed or
+> **This is one workshop's taxonomy, and it ships as the default.** It came out of
+> a working session held for this shop, and there is nothing universal about
+> deciding that heat-shrink tubing is electrical while heat-shrink terminals are
+> electronics. Another deployment replaces the whole thing by pointing
+> `CATEGORY_TAXONOMY_FILE` and `SPECIFICATION_KEYS_FILE` at its own JSON --
+> see the [deployment guide](deployment-guide.md#1-environment-variables).
+>
+> Read on if you want this shop's answers, or a worked example of what a taxonomy
+> has to settle before it is useful: where the hard cases go, what earns a branch
+> against what earns a tag, and which dimensions stay out of the path entirely.
+> The reasoning transfers even where the branches do not.
+
+This is the authority for the shipped default. When a branch is renamed or added in the application, it is renamed or
 added here in the same change — the branch name lives in three places (this document, the
 reference data the application reads, and the paths products carry) and they must not drift
 apart.

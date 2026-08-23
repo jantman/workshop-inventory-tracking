@@ -1320,7 +1320,10 @@ To browse the category and tag trees rather than search across them, see
 
 **Products → Categories** browses the tree with a count against each. The rows
 come from two places: the branches of the [category taxonomy](category-taxonomy.md),
-and any category a product carries that the taxonomy does not name.
+and any category a product carries that the taxonomy does not name. The shipped
+taxonomy is one workshop's and a deployment can replace it with its own -- see the
+[deployment guide](deployment-guide.md#1-environment-variables) -- so the branches
+you see may not be the ones documented there.
 
 A branch showing a count of **0** is on offer rather than in use. It exists in
 the taxonomy record and nowhere else -- there is no row behind it -- so it is

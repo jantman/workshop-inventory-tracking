@@ -71,7 +71,7 @@ outside the taxonomy remain acceptable (FR-015).
 
 | Principle | Assessment |
 |---|---|
-| **I. Simplicity First** | **Pass.** A tuple of strings in a pure module is the smallest thing that satisfies FR-016. No categories table (FR-016 forbids it), no placeholder products (likewise), no seed command, no config knob, no new dependency, no caching. The two additions above are one boolean and one union; both are named and justified rather than assumed. |
+| **I. Simplicity First** | **Pass, with one declared exception.** A tuple of strings in a pure module is the smallest thing that satisfies FR-016: no categories table (FR-016 forbids it), no placeholder products (likewise), no seed command, no new dependency, no caching. **The exception is the runtime override (FR-026..FR-030), which is a configuration knob and therefore squarely what Principle I prohibits.** It is taken deliberately, and the constitution's own escape is the written justification below rather than an amendment. |
 | **II. Layered Architecture** | **Pass.** The union happens in `CatalogService`, so every consumer — form datalist, search filter, browse page — sees one answer (FR-018). Routes stay thin and templates stay presentational. The data module sits in `app/utils/` alongside `category.py`, per the module-placement rule. |
 | **III. Exact Numerics** | **Not applicable.** No measured quantity is touched. |
 | **IV. Test Discipline** | **Pass.** Unit tests for the union and for record↔module agreement; E2E for filing into an unoccupied branch. E2E waits on observable state, seeds through `live_server.add_test_data`, and no new pytest marker is introduced. |
@@ -80,19 +80,49 @@ outside the taxonomy remain acceptable (FR-015).
 | **Operating context / threat model** | **Pass.** No auth, no sanitization layer, no hardening. The reference data is trusted repository content. |
 | **Workflow gates** | Work is on `issues/98` and merges by PR. `categories.html` changes, so `nox -s screenshots` must be regenerated and the churn reviewed before committing. |
 
-**No violations. Complexity Tracking is therefore omitted.**
+### The one declared exception
+
+Principle I prohibits "any configuration knob added for a future that has not arrived". The
+override is a configuration knob. The justification, and its bounds:
+
+**Why it is warranted.** The alternative is not "no knob" — it is that every deployment of this
+application carries one particular workshop's category list in `app/utils/`, and cannot change
+it without editing source. The future has already arrived: the moment feature 025 put 142
+personal branches into the application, the data stopped being universal. The knob does not
+anticipate a need, it repairs one this feature created.
+
+**What bounds it.** Two environment variables, each naming a JSON array of strings. No format
+negotiation, no merge semantics, no partial overrides, no schema, no new dependency, and no
+code path at all when neither variable is set. It configures *what is suggested* and nothing
+else: it cannot change how a category is stored, validated, renamed or searched.
+
+**What would have been worse.** A settings table, a UI for editing the taxonomy, a plugin
+point, or per-user vocabularies — each of which is the scale machinery Principle I actually
+exists to prevent.
+
+**No other violations. Complexity Tracking is therefore omitted.**
 
 ## Design
 
 ### The reference data
 
-`app/utils/catalog_taxonomy.py` — pure, standard library only, no Flask, no database:
+`app/utils/catalog_taxonomy.py` — standard library only, no Flask, no database:
 
-- `CATEGORY_PATHS: tuple[str, ...]` — all 142 branches from the record, roots and intermediate
-  parents included, already in canonical form. Parents are included deliberately: the browse
-  page renders depth from the path, and today a product at `a/b/c` produces no `a` or `a/b`
-  row at all, so the tree it draws has holes. The taxonomy fills them.
-- `SPECIFICATION_KEYS: tuple[str, ...]` — the distinct keys from the record's registry.
+- `DEFAULT_CATEGORY_PATHS: tuple[str, ...]` — all 142 branches from the record, roots and
+  intermediate parents included, already in canonical form. Parents are included deliberately:
+  the browse page renders depth from the path, and today a product at `a/b/c` produces no `a`
+  or `a/b` row at all, so the tree it draws has holes. The taxonomy fills them.
+- `DEFAULT_SPECIFICATION_KEYS: tuple[str, ...]` — the distinct keys from the record's registry.
+- `category_paths()` / `specification_keys()` — what callers actually use. They return the
+  defaults unless `CATEGORY_TAXONOMY_FILE` / `SPECIFICATION_KEYS_FILE` names a JSON array, in
+  which case that array replaces the default entirely (FR-026..FR-030). With neither set,
+  nothing is read from disk.
+
+Read per call rather than cached: the file is a few kilobytes on a single-user LAN
+application, and Principle I requires a measured problem before optimizing one away. A bad
+file raises `TaxonomyFileError`, and `create_app` calls both loaders once at boot so that
+failure lands at startup with the file named, rather than as a 500 on the first page that asks
+for suggestions.
 
 ### The merge
 

@@ -14,7 +14,7 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
-from app.utils.catalog_taxonomy import CATEGORY_PATHS
+from app.utils.catalog_taxonomy import DEFAULT_CATEGORY_PATHS
 
 
 @pytest.fixture
@@ -420,7 +420,7 @@ class TestRenameCategoryRefusals:
         template's gating becomes wrong rather than merely redundant.
         """
         branch = 'electronics/dev boards/arduino'
-        assert branch in CATEGORY_PATHS
+        assert branch in DEFAULT_CATEGORY_PATHS
         assert branch in [entry['path'] for entry in tree.category_tree()]
 
         with pytest.raises(ValidationError) as excinfo:

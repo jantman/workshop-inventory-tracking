@@ -134,6 +134,20 @@ deliberately uncategorized because it falls in a deferred area.
 
 ---
 
+## Phase 7: Runtime Override (raised in review of PR #117)
+
+**Purpose**: the shipped taxonomy is one workshop's. A deployment must be able to
+replace it without editing source (FR-026..FR-030).
+
+- [X] T025 Add `category_paths()` and `specification_keys()` to `app/utils/catalog_taxonomy.py`, reading `CATEGORY_TAXONOMY_FILE` and `SPECIFICATION_KEYS_FILE`; rename the constants to `DEFAULT_*`. Replace rather than merge, derive parents, canonicalize, enforce only the limits the database imposes — **not** the shipped record's three-level depth
+- [X] T026 Raise `TaxonomyFileError` for a named file that cannot be read, parsed or validated, and call both loaders from `create_app` in `app/__init__.py` so the failure is a refusal to start rather than a 500 on the first page that asks
+- [X] T027 Point `CatalogService` at the loaders instead of the constants in `app/catalog_service.py`
+- [X] T028 Restore the empty state in `app/templates/product/categories.html` — it was removed because the built-in list could not be empty, and an override can be
+- [X] T029 Document the variables in `.env.example`, `docs/deployment-guide.md`, `docs/category-taxonomy.md` (which now says whose taxonomy it is) and `docs/user-manual.md`; note in `config.py` why they are not mirrored there
+- [X] T030 Cover the loaders in `tests/unit/test_catalog_taxonomy.py`: replacement, derived parents, deeper nesting, canonicalization, empty array, independence, every refusal, **the environment variables themselves**, and `create_app` refusing a broken file
+
+---
+
 ## Dependencies
 
 ```text

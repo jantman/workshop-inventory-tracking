@@ -1,5 +1,5 @@
 """
-The workshop's category taxonomy and specification vocabulary.
+The category taxonomy and specification vocabulary a deployment offers.
 
 A category is a materialized path on the product and there is no categories table,
 so a branch nobody has filed into has no row anywhere -- which means it cannot be
@@ -7,34 +7,66 @@ offered while filing, and the first product into every branch would be typed by
 hand.  That is precisely where ``electronics/microcontrollers`` on Monday and
 ``electronic components/dev boards`` on Thursday come from.
 
-These constants are what the application offers *in addition to* the paths products
-already carry.  They create nothing: a branch listed here and occupied by no product
-still has no row, and a path in use that is absent from here is still returned by
-every query.  The list is a set of suggestions with the weight of a decision behind
+What this module supplies is what the application offers *in addition to* the paths
+products already carry.  It creates nothing: a branch listed here and occupied by no
+product still has no row, and a path in use that is absent from here is still
+returned by every query.  A set of suggestions with the weight of a decision behind
 it, not a whitelist -- ``CatalogService`` accepts a path from outside it, because a
 taxonomy that refuses the thing in your hand is worse than none.
 
-``docs/category-taxonomy.md`` is the authority.  It carries the one-line definition
-of every branch, the rules that decide the hard cases, and the reasoning; this module
-carries only the strings.  ``tests/unit/test_catalog_taxonomy.py`` asserts the two
-agree, which is what makes a change to one without the other a failing test rather
-than a slow divergence.  Renaming a branch means editing both, and the products that
-carry the old path, in the same change.
+**The defaults below are one workshop's.**  They came out of a session held for this
+shop and documented in ``docs/category-taxonomy.md``, and there is nothing universal
+about deciding that heat-shrink tubing is electrical while heat-shrink terminals are
+electronics.  Another shop points ``CATEGORY_TAXONOMY_FILE`` and
+``SPECIFICATION_KEYS_FILE`` at its own JSON and gets its own vocabulary; set neither
+and nothing is read from disk at all.
 
-Specification keys are pinned for a sharper reason: ``rename_category`` and
-``rename_tag`` exist and there is no ``rename_specification``, so ``Thread`` beside
-``Thread Size`` cannot be repaired in bulk once both are in use.  Prevention is the
-only mechanism available.
+An override **replaces**, it does not merge.  Merging would leave
+``fasteners/machine screws & bolts/carriage bolts`` in a shop that has never owned a
+carriage bolt, which is the whole objection to a built-in list.
 
-Pure module: standard library only.  No Flask, no database, no file I/O.
+The defaults are also more constrained than the loader is, deliberately.  This shop
+chose three levels; the application has never required that, so an override may nest
+as deep as it likes.  The only limits enforced on a loaded file are the ones the
+database actually imposes.
+
+``docs/category-taxonomy.md`` remains the authority *for the defaults*, and
+``tests/unit/test_catalog_taxonomy.py`` asserts the two agree -- which makes a change
+to one without the other a failing test rather than a slow divergence.
+
+Specification keys are pinned for a sharper reason than categories: ``rename_category``
+and ``rename_tag`` exist and there is no ``rename_specification``, so ``Thread``
+beside ``Thread Size`` cannot be repaired in bulk once both are in use.  Prevention is
+the only mechanism available.
+
+Standard library only.  No Flask, no database.  File I/O happens only when one of the
+environment variables is set, and the file is read on each call rather than cached:
+it is a few kilobytes on a single-user LAN application, and there is no measured
+problem to optimise away.
 """
+
+import json
+import os
+from typing import List, Optional, Tuple
+
+from . import category as category_utils
+
+#: Points at a JSON array of category paths.  Unset means "use the defaults".
+CATEGORY_TAXONOMY_ENV = 'CATEGORY_TAXONOMY_FILE'
+#: Points at a JSON array of specification key names.
+SPECIFICATION_KEYS_ENV = 'SPECIFICATION_KEYS_FILE'
+
+# app/database.py: Product.category_path is String(512).
+MAX_CATEGORY_PATH_LENGTH = 512
+# app/database.py: ProductSpecification.name is String(100).
+MAX_SPECIFICATION_NAME_LENGTH = 100
 
 # Every branch of the record: roots, intermediate parents and leaves.  Parents are
 # included deliberately.  They are legitimate filing targets when the leaf is not yet
 # known, and ``category_tree`` derives one entry per distinct path -- so without them
 # a catalog whose only product sits three levels deep renders a tree with holes above
 # it.
-CATEGORY_PATHS: tuple[str, ...] = (
+DEFAULT_CATEGORY_PATHS: Tuple[str, ...] = (
     "electrical",
     "electrical/boxes & enclosures",
     "electrical/cable management",
@@ -181,7 +213,7 @@ CATEGORY_PATHS: tuple[str, ...] = (
 
 # The specification keys the record expects, across every branch family.  A key is
 # added here when the record adds it, never while filing a product.
-SPECIFICATION_KEYS: tuple[str, ...] = (
+DEFAULT_SPECIFICATION_KEYS: Tuple[str, ...] = (
     "Amperage",
     "Capacity",
     "Category",
@@ -222,3 +254,138 @@ SPECIFICATION_KEYS: tuple[str, ...] = (
     "Value",
     "Voltage",
 )
+
+
+class TaxonomyFileError(Exception):
+    """A taxonomy override file was named but could not be used.
+
+    Deliberately fatal rather than a fallback.  Falling back to the built-in
+    defaults would silently file another shop's products under this shop's
+    branches, and the operator who set the variable would have no way to tell.
+    """
+
+
+def _load_json_list(path: str, variable: str) -> List[str]:
+    """Read a JSON array of strings, or say precisely what is wrong with it."""
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            content = json.load(handle)
+    except OSError as exc:
+        raise TaxonomyFileError(
+            f"{variable} points at {path!r}, which cannot be read: {exc}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise TaxonomyFileError(
+            f"{variable} points at {path!r}, which is not valid JSON: {exc}"
+        ) from exc
+
+    if not isinstance(content, list):
+        raise TaxonomyFileError(
+            f"{variable} points at {path!r}, which must contain a JSON array of "
+            f"strings; found {type(content).__name__}"
+        )
+
+    for entry in content:
+        if not isinstance(entry, str):
+            raise TaxonomyFileError(
+                f"{variable} points at {path!r}, whose entries must all be strings; "
+                f"found {type(entry).__name__} ({entry!r})"
+            )
+
+    return content
+
+
+def _with_ancestors(paths: List[str]) -> List[str]:
+    """Add every intermediate parent of every path.
+
+    An override file lists the branches its author cares about.  Parents are
+    filing targets in their own right, and ``category_tree`` renders one row per
+    distinct path -- so without them a tree indents under rows that do not exist.
+    """
+    filled = set()
+    for path in paths:
+        segments = path.split(category_utils.SEPARATOR)
+        for depth in range(1, len(segments) + 1):
+            filled.add(category_utils.SEPARATOR.join(segments[:depth]))
+    return sorted(filled)
+
+
+def category_paths(source: Optional[str] = None) -> Tuple[str, ...]:
+    """The category branches this deployment offers.
+
+    Args:
+        source: A file to read instead of consulting the environment. For tests
+            and for ``create_app``'s startup check; ordinary callers pass nothing.
+
+    Returns:
+        The canonical branches, parents included, sorted. The built-in defaults
+        when no override is configured.
+
+    Raises:
+        TaxonomyFileError: If a file is named and cannot be read, parsed, or
+            validated. Never falls back to the defaults.
+    """
+    path = source or os.environ.get(CATEGORY_TAXONOMY_ENV)
+    if not path:
+        return DEFAULT_CATEGORY_PATHS
+
+    raw = _load_json_list(path, CATEGORY_TAXONOMY_ENV)
+
+    canonical_paths = []
+    for entry in raw:
+        canonical = category_utils.canonical(entry)
+        if canonical is None:
+            raise TaxonomyFileError(
+                f"{CATEGORY_TAXONOMY_ENV} points at {path!r}, which contains an "
+                f"entry that is not a category: {entry!r}"
+            )
+        if len(canonical) > MAX_CATEGORY_PATH_LENGTH:
+            raise TaxonomyFileError(
+                f"{CATEGORY_TAXONOMY_ENV} points at {path!r}, which contains a path "
+                f"longer than {MAX_CATEGORY_PATH_LENGTH} characters: {canonical!r}"
+            )
+        canonical_paths.append(canonical)
+
+    # No depth limit. Three levels was this shop's decision, recorded in
+    # docs/category-taxonomy.md; the application has never required it, and
+    # imposing it here would push one workshop's judgement onto every other.
+    return tuple(_with_ancestors(canonical_paths))
+
+
+def specification_keys(source: Optional[str] = None) -> Tuple[str, ...]:
+    """The specification key names this deployment offers.
+
+    Args:
+        source: A file to read instead of consulting the environment.
+
+    Returns:
+        The keys, trimmed and sorted, one spelling per case-folded name. The
+        built-in defaults when no override is configured.
+
+    Raises:
+        TaxonomyFileError: If a file is named and cannot be read, parsed, or
+            validated.
+    """
+    path = source or os.environ.get(SPECIFICATION_KEYS_ENV)
+    if not path:
+        return DEFAULT_SPECIFICATION_KEYS
+
+    raw = _load_json_list(path, SPECIFICATION_KEYS_ENV)
+
+    kept = {}
+    for entry in raw:
+        name = entry.strip()
+        if not name:
+            raise TaxonomyFileError(
+                f"{SPECIFICATION_KEYS_ENV} points at {path!r}, which contains a "
+                f"blank key"
+            )
+        if len(name) > MAX_SPECIFICATION_NAME_LENGTH:
+            raise TaxonomyFileError(
+                f"{SPECIFICATION_KEYS_ENV} points at {path!r}, which contains a key "
+                f"longer than {MAX_SPECIFICATION_NAME_LENGTH} characters: {name!r}"
+            )
+        # One spelling per folded name, matching how the datalist dedupes them.
+        kept.setdefault(name.lower(), name)
+
+    return tuple(sorted(kept.values()))

@@ -5,6 +5,7 @@ from config import Config
 from app.logging_config import setup_logging
 from app.error_handlers import create_error_handlers
 from app.version import __version__
+from app.utils import catalog_taxonomy
 
 csrf = CSRFProtect()
 
@@ -124,6 +125,15 @@ def create_app(config_class=Config, storage_backend=None):
     # (024 FR-036, FR-037). Building it here rather than per request keeps one
     # cached access token for the process instead of one per page view.
     app.config['DIGIKEY_CLIENT'] = _build_digikey_client(app.config)
+
+    # Read the taxonomy overrides once at boot so a broken file stops the
+    # application here, with a message naming the file and what is wrong with
+    # it, rather than 500-ing the first page that asks for suggestions. The
+    # values are discarded: the loaders are cheap and read per call, and this
+    # is the check, not a cache. With neither variable set nothing is read and
+    # the built-in defaults are used.
+    catalog_taxonomy.category_paths()
+    catalog_taxonomy.specification_keys()
 
 
     # Setup CSRF protection

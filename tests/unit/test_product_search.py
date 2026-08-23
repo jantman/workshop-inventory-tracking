@@ -11,7 +11,10 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import ValidationError
-from app.utils.catalog_taxonomy import CATEGORY_PATHS, SPECIFICATION_KEYS
+from app.utils.catalog_taxonomy import (
+    DEFAULT_CATEGORY_PATHS,
+    DEFAULT_SPECIFICATION_KEYS,
+)
 
 
 @pytest.fixture
@@ -282,7 +285,7 @@ class TestCategoryListing:
     def test_lists_taxonomy_branches_no_product_occupies(self, catalog):
         """025 FR-012: the branch has to be offered before anything is in it"""
         listed = catalog.list_categories()
-        assert set(CATEGORY_PATHS) <= set(listed)
+        assert set(DEFAULT_CATEGORY_PATHS) <= set(listed)
 
     def test_each_path_appears_once(self, catalog):
         """025 FR-018: offered and occupied are one branch, not two"""
@@ -319,7 +322,7 @@ class TestCategoryListing:
         regardless, and left everything else exactly as it was -- a string on a
         product and nothing more.
         """
-        assert 'temporary' not in CATEGORY_PATHS
+        assert 'temporary' not in DEFAULT_CATEGORY_PATHS
 
         product = service.create_product(description='x', category_path='temporary')
         assert 'temporary' in service.list_categories()
@@ -386,12 +389,12 @@ class TestSpecificationNameVocabulary:
     """025 SC-010: the one vocabulary with no rename to repair it afterwards."""
 
     def test_offers_the_pinned_keys_before_any_product_carries_them(self, service):
-        assert set(SPECIFICATION_KEYS) <= set(service.list_specification_names())
+        assert set(DEFAULT_SPECIFICATION_KEYS) <= set(service.list_specification_names())
 
     def test_still_offers_a_name_in_use_that_the_record_does_not_pin(self, catalog):
         """The record is a default, not a whitelist -- here as much as anywhere"""
         names = catalog.list_specification_names()
-        assert 'Dielectric' not in SPECIFICATION_KEYS
+        assert 'Dielectric' not in DEFAULT_SPECIFICATION_KEYS
         assert 'Dielectric' in names
 
     def test_a_pinned_key_and_a_typed_variant_collapse_to_one(self, service):
@@ -625,7 +628,7 @@ class TestSpecificationVocabulary:
     def test_only_the_pinned_keys_remain_when_nothing_is_recorded(self, service):
         """025: with no products there are no names in use, so the keys are all
         that is left. Previously this was the empty list."""
-        assert set(service.list_specification_names()) == set(SPECIFICATION_KEYS)
+        assert set(service.list_specification_names()) == set(DEFAULT_SPECIFICATION_KEYS)
 
     def test_a_prefix_narrows_the_names(self, converters):
         assert converters.list_specification_names(prefix='Vol') == ['Voltage']
