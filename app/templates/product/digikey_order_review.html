@@ -100,8 +100,14 @@
                         <div>{{ reviewed.product_description }}</div>
                         {% if reviewed.has_change %}
                         <div class="form-check mt-1">
+                            {# Restored on a re-render, like include[] and
+                               description[] above. A dropped tick is the worst
+                               of the three to lose: the resubmission succeeds
+                               while silently skipping the update the operator
+                               asked for. PR #116 review. #}
                             <input class="form-check-input" type="checkbox"
-                                   id="apply-{{ key }}" name="apply_change[{{ key }}]">
+                                   id="apply-{{ key }}" name="apply_change[{{ key }}]"
+                                   {% if form_data.get('apply_change[' ~ key ~ ']') %}checked{% endif %}>
                             <label class="form-check-label small" for="apply-{{ key }}">
                                 DigiKey now says {{ line.quantity }} at {{ line.unit_price }};
                                 you have {{ reviewed.recorded_quantity }} at
@@ -120,13 +126,19 @@
                             </div>
                             <div class="mt-1">
                                 <div class="form-check form-check-inline">
+                                    {# An unanswered conflict is refused server-side, and
+                                       that refusal re-renders this form -- so an answer
+                                       already given to a *different* conflicted line has to
+                                       survive it. PR #116 review. #}
                                     <input class="form-check-input" type="radio"
-                                           id="attach-{{ key }}" name="resolution[{{ key }}]" value="attach">
+                                           id="attach-{{ key }}" name="resolution[{{ key }}]" value="attach"
+                                           {% if form_data.get('resolution[' ~ key ~ ']') == 'attach' %}checked{% endif %}>
                                     <label class="form-check-label small" for="attach-{{ key }}">Same thing — attach</label>
                                 </div>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="radio"
-                                           id="separate-{{ key }}" name="resolution[{{ key }}]" value="separate">
+                                           id="separate-{{ key }}" name="resolution[{{ key }}]" value="separate"
+                                           {% if form_data.get('resolution[' ~ key ~ ']') == 'separate' %}checked{% endif %}>
                                     <label class="form-check-label small" for="separate-{{ key }}">Different — new product</label>
                                 </div>
                             </div>

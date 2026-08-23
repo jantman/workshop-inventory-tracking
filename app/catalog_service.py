@@ -1698,27 +1698,15 @@ class CatalogService:
         }
 
         with self._session() as session:
-            recorded = self._recorded_digikey_lines(session, order.sales_order_number)
+            recorded = self._recorded_digikey_lines(session, order)
 
-            reviewed = []
-            seen = {}
-            for line in order.lines:
-                occurrence = seen.get(line.digikey_part_number, 0)
-                seen[line.digikey_part_number] = occurrence + 1
-                reviewed.append(self._review_digikey_line(
-                    session, line, parts.get(line.digikey_part_number),
-                    recorded, occurrence,
-                ))
-
-            # A purchase is orphaned when the order no longer has a line for it
-            # -- which now includes the case where the order once had two lines
-            # for a part and now has one.
-            orphaned = tuple(
-                purchase.id
-                for part_number, purchases in recorded.items()
-                for index, purchase in enumerate(purchases)
-                if index >= seen.get(part_number, 0)
-            )
+            reviewed = [
+                self._review_digikey_line(
+                    session, line, parts.get(line.digikey_part_number), recorded
+                )
+                for line in order.lines
+            ]
+            orphaned = self._orphaned_digikey_purchases(session, order, recorded)
 
         return OrderCaptureReview(
             order=order,
@@ -1780,13 +1768,10 @@ class CatalogService:
         lines_excluded = lines_already_captured = lines_updated = 0
 
         with self._session() as session:
-            recorded = self._recorded_digikey_lines(session, order.sales_order_number)
+            recorded = self._recorded_digikey_lines(session, order)
 
-            seen = {}
             for line in order.lines:
                 decision = decisions.get(line.form_key) or {}
-                occurrence = seen.get(line.digikey_part_number, 0)
-                seen[line.digikey_part_number] = occurrence + 1
 
                 # **Already captured is a fact about the line, not a decision
                 # about it**, so it is settled before the include gate below.
@@ -1803,9 +1788,7 @@ class CatalogService:
                 #
                 # Re-checked inside the session rather than trusted from the
                 # review: the review ran against an earlier read.
-                existing = self._take_recorded(
-                    recorded, line.digikey_part_number, occurrence
-                )
+                existing = recorded.get(line.form_key)
                 if existing is not None:
                     lines_already_captured += 1
                     if decision.get('apply_change'):
@@ -1818,9 +1801,7 @@ class CatalogService:
                     continue
 
                 part = parts.get(line.digikey_part_number)
-                reviewed = self._review_digikey_line(
-                    session, line, part, recorded, occurrence
-                )
+                reviewed = self._review_digikey_line(session, line, part, recorded)
                 product, created = self._digikey_product_for(
                     session, reviewed, line, part, decision
                 )
@@ -1834,6 +1815,9 @@ class CatalogService:
                     vendor=DIGIKEY_VENDOR,
                     vendor_item_id=line.digikey_part_number,
                     supplier_order_reference=order.sales_order_number,
+                    # Which line, so a re-review pairs them exactly rather than
+                    # guessing from the part number. PR #116 review.
+                    digikey_line_number=line.line_number,
                     order_reference=order.purchase_order or None,
                     # DigiKey's own words, kept as an Amazon listing title is.
                     listing_title=line.description or None,
@@ -1951,29 +1935,32 @@ class CatalogService:
             logger.info(f"No DigiKey detail for {part_number}: {e}")
             return None
 
-    def _recorded_digikey_lines(
-        self, session, sales_order_number: str
-    ) -> Dict[str, List[Purchase]]:
-        """The purchases already recorded for this sales order, by part number.
+    def _recorded_digikey_lines(self, session, order) -> Dict[str, Purchase]:
+        """Pair this order's lines to the purchases already recorded for it.
 
-        The key FR-012 turns on. A sales order number plus a DigiKey part number
-        is exact enough that this feature needs none of the same-day guessing an
-        Amazon capture has to do.
+        Returns a mapping of ``line.form_key`` to its Purchase, so a caller can
+        ask about a *line* rather than about a part number.
 
-        **A list per part, not one purchase.** An order can carry the same part
-        on two lines, and this used to keep only the first: the second purchase
-        was unreachable from the review, and an applied change was written to
-        the first one twice. Purchases come back oldest-first and are matched to
-        the order's lines in the order DigiKey returns them. PR #116 review.
+        **A part number does not identify a line**, and this used to pretend it
+        did -- first by keeping one purchase per part, then by pairing them
+        positionally. Both corrupt data on a duplicated part: capture one of two
+        such lines, re-open the order, and the other line claims its purchase,
+        reads as captured with the wrong quantity, and applying a change writes
+        to the wrong row. The information needed to pair them is not derivable,
+        so ``purchases.digikey_line_number`` stores it. PR #116 review.
 
-        That positional match is a heuristic, and honestly so: nothing on a
-        purchase records *which* line of the order it came from. Tying them
-        properly needs a column, which is a design decision rather than a
-        review fix -- flagged on the PR. It is right whenever the lines and the
-        purchases correspond one-to-one, which is every order that was captured
-        whole, and it is strictly better than dropping one on the floor.
+        Two passes, and the order matters:
+
+        1. **By line number.** Exact, and the only pass that runs for anything
+           this feature captured.
+        2. **By part number, for purchases carrying no line number** -- a
+           purchase recorded by hand against a sales order, or captured before
+           this column existed. Each is claimed once, by the first line that
+           wants it, and never by a line that already matched exactly.
+
+        A purchase no line claims is orphaned, which the caller reports (FR-013).
         """
-        cleaned = (sales_order_number or '').strip()
+        cleaned = (order.sales_order_number or '').strip()
         if not cleaned:
             return {}
 
@@ -1986,26 +1973,58 @@ class CatalogService:
             .order_by(Purchase.id)
             .all()
         )
-        recorded: Dict[str, List[Purchase]] = {}
-        for row in rows:
-            if row.vendor_item_id:
-                recorded.setdefault(row.vendor_item_id, []).append(row)
-        return recorded
 
-    @staticmethod
-    def _take_recorded(recorded, part_number: str, occurrence: int):
-        """The ``occurrence``-th recorded purchase for a part, or None.
+        by_line_number = {
+            row.digikey_line_number: row
+            for row in rows
+            if row.digikey_line_number is not None
+        }
 
-        ``occurrence`` counts this line's position among the order's lines for
-        that same part, so the second line of a duplicated part looks at the
-        second purchase rather than the first.
-        """
-        rows = recorded.get(part_number) or []
-        return rows[occurrence] if occurrence < len(rows) else None
+        paired: Dict[str, Purchase] = {}
+        claimed = set()
+        for line in order.lines:
+            row = by_line_number.get(line.line_number)
+            if row is not None and id(row) not in claimed:
+                paired[line.form_key] = row
+                claimed.add(id(row))
 
-    def _review_digikey_line(
-        self, session, line, part, recorded, occurrence: int = 0
-    ) -> ReviewedLine:
+        # Pass two: the ones with no line number to pair on.
+        unclaimed = [
+            row for row in rows
+            if row.digikey_line_number is None and id(row) not in claimed
+        ]
+        for line in order.lines:
+            if line.form_key in paired or not unclaimed:
+                continue
+            for row in unclaimed:
+                if row.vendor_item_id == line.digikey_part_number:
+                    paired[line.form_key] = row
+                    claimed.add(id(row))
+                    unclaimed.remove(row)
+                    break
+
+        return paired
+
+    def _orphaned_digikey_purchases(self, session, order, paired) -> tuple:
+        """Purchases recorded against this order that no line of it claims (FR-013)."""
+        cleaned = (order.sales_order_number or '').strip()
+        if not cleaned:
+            return ()
+
+        claimed = {purchase.id for purchase in paired.values()}
+        return tuple(
+            row.id
+            for row in session.query(Purchase)
+            .filter(
+                Purchase.vendor == DIGIKEY_VENDOR,
+                Purchase.supplier_order_reference == cleaned,
+            )
+            .order_by(Purchase.id)
+            .all()
+            if row.id not in claimed
+        )
+
+    def _review_digikey_line(self, session, line, part, recorded) -> ReviewedLine:
         """Decide one line's state. Reads only.
 
         The four states are exclusive and tested in this order: already
@@ -2017,7 +2036,7 @@ class CatalogService:
             :MAX_DESCRIPTION_LENGTH
         ]
 
-        existing = self._take_recorded(recorded, line.digikey_part_number, occurrence)
+        existing = recorded.get(line.form_key)
         if existing is not None:
             return ReviewedLine(
                 line=line,

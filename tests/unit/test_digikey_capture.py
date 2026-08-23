@@ -960,3 +960,185 @@ class TestSubCentPrices:
     def test_an_exact_price_reports_no_rounding(self, catalog, order, digikey):
         line = catalog.review_digikey_order(order, digikey).lines[0]
         assert line.price_rounds is False
+
+
+class TestPartialCaptureOfADuplicatedPart:
+    """PR #116 review, round four: positional pairing corrupted data here.
+
+    The direction the earlier tests missed. They excluded the *second* of two
+    duplicated lines, which happens to keep occurrence indices aligned;
+    excluding the *first* is where counting occurrences and counting purchases
+    stop agreeing.
+    """
+
+    def _capture_only_line_two(self, catalog, order, digikey):
+        duplicated = duplicate_part_order(order)
+        catalog.capture_digikey_order(
+            duplicated, {'1': {'include': False}, '2': {'include': True}}, digikey
+        )
+        return duplicated
+
+    def test_the_captured_line_is_the_one_that_reads_as_captured(
+            self, catalog, order, digikey):
+        duplicated = self._capture_only_line_two(catalog, order, digikey)
+        review = catalog.review_digikey_order(duplicated, digikey)
+
+        assert review.lines[0].state is not OrderLineState.CAPTURED, (
+            "line 1 was excluded but claims line 2's purchase"
+        )
+        assert review.lines[1].state is OrderLineState.CAPTURED
+        assert review.lines[1].recorded_quantity == 7
+
+    def test_capturing_the_skipped_line_adds_rather_than_duplicates(
+            self, catalog, order, digikey):
+        duplicated = self._capture_only_line_two(catalog, order, digikey)
+        catalog.capture_digikey_order(duplicated, include_all(duplicated), digikey)
+
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert sorted(p.quantity for p in product.purchases) == [5, 7], (
+            'line 2 was captured a second time, or line 1 overwrote it'
+        )
+
+    def test_applying_a_change_cannot_land_on_the_other_line(
+            self, catalog, order, digikey):
+        """The corruption: line 1's data written over line 2's purchase."""
+        duplicated = self._capture_only_line_two(catalog, order, digikey)
+        catalog.capture_digikey_order(
+            duplicated,
+            {'1': {'include': True, 'apply_change': True},
+             '2': {'include': True, 'apply_change': True}},
+            digikey,
+        )
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert sorted(p.quantity for p in product.purchases) == [5, 7]
+
+    def test_the_line_number_is_recorded(self, catalog, order, digikey):
+        duplicated = duplicate_part_order(order)
+        catalog.capture_digikey_order(duplicated, include_all(duplicated), digikey)
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert sorted(p.digikey_line_number for p in product.purchases) == [1, 2]
+
+    def test_a_hand_recorded_purchase_with_no_line_number_still_pairs(
+            self, catalog, order, digikey):
+        """Pass two. The Add Purchase form sets no line number."""
+        product = catalog.create_product(
+            description='Bought by hand',
+            identifiers=[{'id_type': 'MPN', 'value': 'IRM-05-5'}],
+        )
+        catalog.record_purchase(
+            product.id, vendor='DigiKey', vendor_item_id='1866-3027-ND',
+            supplier_order_reference='100882558', quantity=5,
+        )
+        review = catalog.review_digikey_order(order, digikey)
+        assert review.lines[0].state is OrderLineState.CAPTURED
+        assert review.orphaned == ()
+
+    def test_a_purchase_no_line_claims_is_orphaned(self, catalog, order, digikey):
+        catalog.capture_digikey_order(order, include_all(order), digikey)
+        shrunk = type(order)(
+            sales_order_number=order.sales_order_number,
+            order_date=order.order_date,
+            lines=(order.lines[0],),
+        )
+        assert len(catalog.review_digikey_order(shrunk, digikey).orphaned) == 1
+
+
+class TestAnswersSurviveARefusal:
+    """PR #116 review: a refused capture re-rendered the form blank."""
+
+    @pytest.fixture
+    def conflicted(self, catalog, app, digikey_fixture_client):
+        """**Both** lines conflicted.
+
+        One is not enough to test this: answering the only conflict makes the
+        capture succeed, so nothing re-renders. The bug needs a refusal while an
+        answer has already been given -- which is exactly the case the reviewer
+        described, and exactly what an operator hits with a multi-conflict order.
+        """
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        for part_number, widget in (('1866-3027-ND', 'WIDGET-99'),
+                                    ('1866-3032-ND', 'WIDGET-98')):
+            catalog.create_product(
+                description=f'Something else entirely ({widget})',
+                manufacturer_part_number=widget,
+                identifiers=[
+                    {'id_type': 'DISTRIBUTOR', 'value': part_number,
+                     'vendor': 'DigiKey'},
+                    {'id_type': 'MPN', 'value': widget},
+                ],
+            )
+        return catalog
+
+    def test_a_resolution_already_given_survives_the_refusal(self, client, conflicted):
+        """Answer one conflict, miss another, and the first answer must persist."""
+        response = client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[1]': 'on', 'include[2]': 'on',
+            'resolution[1]': 'separate',
+            # Line 2 is conflicted too and unanswered, so the whole capture is
+            # refused and the form comes back.
+        })
+        body = response.get_data(as_text=True)
+        assert 'already names' in body, 'expected the refusal, not a success'
+
+        answered = body[body.index('id="separate-1"'):][:300]
+        assert 'checked' in answered, 'the answer already given was discarded'
+
+        # And the one they have not answered is still blank, as it should be.
+        unanswered = body[body.index('id="separate-2"'):][:300]
+        assert 'checked' not in unanswered
+
+    def test_a_typed_description_still_survives_too(self, client, conflicted):
+        response = client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[1]': 'on', 'include[2]': 'on',
+            'description[2]': 'typed by hand',
+        })
+        assert 'typed by hand' in response.get_data(as_text=True)
+
+    def test_an_apply_change_tick_survives_the_refusal(
+            self, client, catalog, app, digikey_fixture_client, monkeypatch):
+        """The worst of the three to lose: the resubmission succeeds and skips it.
+
+        Needs a genuinely mixed order -- one line already captured and changed,
+        so the tick renders, and one conflicted and unanswered, so the whole
+        thing is refused.
+        """
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        base = digikey_fixture_client.get_order('100882558')
+
+        # Line 1 already captured.
+        catalog.capture_digikey_order(base, {'1': {'include': True}}, FakeDigiKey())
+        # Line 2 conflicted, so an unanswered submission is refused.
+        catalog.create_product(
+            description='Something else entirely',
+            manufacturer_part_number='WIDGET-98',
+            identifiers=[
+                {'id_type': 'DISTRIBUTOR', 'value': '1866-3032-ND', 'vendor': 'DigiKey'},
+                {'id_type': 'MPN', 'value': 'WIDGET-98'},
+            ],
+        )
+        # And DigiKey now reports a different quantity on line 1.
+        first = base.lines[0]
+        monkeypatch.setattr(digikey_fixture_client, 'get_order', lambda n: type(base)(
+            sales_order_number=base.sales_order_number,
+            order_date=base.order_date,
+            lines=(type(first)(**{**first.__dict__, 'quantity': 11}),) + base.lines[1:],
+        ))
+
+        response = client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[2]': 'on',
+            'apply_change[1]': 'on',
+        })
+        body = response.get_data(as_text=True)
+        assert 'already names' in body, 'expected the refusal, not a success'
+
+        tick = body[body.index('id="apply-1"'):][:300]
+        assert 'checked' in tick, (
+            'the "Update it?" tick was dropped -- resubmitting would silently '
+            'skip the update the operator asked for'
+        )
+        # And nothing was written, since the capture was refused.
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        assert product.purchases[0].quantity == 5
