@@ -18,7 +18,7 @@ _JA_ID = re.compile(r"^JA[0-9]+$")
 _LOCATION = re.compile(r"^(M[0-9]+.*|T-?[0-9]+.*|Other)$")
 
 
-def scan_on_move_page(page: Page, value: str) -> None:
+def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
     """Type a barcode on the move page and wait for that scan to finish.
 
     There is no single condition that covers every scan, which is what defeated
@@ -47,10 +47,33 @@ def scan_on_move_page(page: Page, value: str) -> None:
     handleDoneCode() also returns early without setting it when the queue ends up
     empty, and #queue-count is the one condition that holds for every path
     through the handler.
+
+    Feature 026 added three more transitions, and none of them is covered by the
+    signals above:
+
+      location, from `bulk_location`   the whole preselected group is queued at
+                                       once, so #queue-count reaches
+                                       queued + pending rather than queued + 1
+      sub-location, after a group      the sub-location is written onto rows that
+                                       are already queued, so #queue-count does
+                                       not move at all; the state reset to
+                                       `Ready for JA ID` is what happens last
+      anything rejected                nothing on the page changes except an
+                                       alert being appended
+
+    That last one is why a rejected scan is waited on by counting `#form-alerts
+    .alert` rather than by matching its wording: showAlert() now accumulates
+    (issue #107 -- fourteen failed scans used to render as one message), so the
+    count is a structural signal that does not couple this file to phrasing.
     """
     before = page.evaluate(
         "() => ({ state: window.moveManager.currentExpectedInput,"
-        "         queued: window.moveManager.moveQueue.length })"
+        "         queued: window.moveManager.moveQueue.length,"
+        "         pending: window.moveManager.pendingMoves.length,"
+        "         grouped: window.moveManager.bulkGroupJaIds.length,"
+        "         inProgress: window.moveManager.currentJaId !== null,"
+        "         alerts: document.querySelectorAll('#form-alerts .alert').length"
+        "       })"
     )
     state, queued = before["state"], before["queued"]
 
@@ -58,27 +81,74 @@ def scan_on_move_page(page: Page, value: str) -> None:
     barcode_input.fill("")
     barcode_input.focus()
     barcode_input.type(value)
-    barcode_input.press("Enter")
+    if press_enter:
+        barcode_input.press("Enter")
+    # Otherwise nothing terminates the scan and handleBarcodeInput()'s 100ms
+    # fallback timer is what runs processInput(). Every wait below is on
+    # observable state, so the timer expiring needs no wait of its own -- which
+    # is the point of FR-021: that path is reachable without a fixed delay, and
+    # was untested only because every existing scan pressed Enter and cancelled
+    # it.
 
     scanner_status = page.locator("#scanner-status")
     queue_count = page.locator("#queue-count")
+    status_text = page.locator("#status-text")
+
+    def _rejected():
+        expect(page.locator("#form-alerts .alert")).to_have_count(before["alerts"] + 1)
 
     if value == ">>DONE<<":
-        # Only the ja_id_or_sub_location branch finalises anything; from the
-        # other two states the queue is already whatever it is going to be.
-        expected = queued + 1 if state == "ja_id_or_sub_location" else queued
-        expect(queue_count).to_have_text(_queue_text(expected))
+        if state == "bulk_location":
+            # Nothing is queued: the group still has no destination. The page
+            # says why, and saying so is the only thing that changes.
+            _rejected()
+            return
+        # Only the ja_id_or_sub_location branch with a move in progress
+        # finalises anything; otherwise the queue is already what it will be.
+        finalises = state == "ja_id_or_sub_location" and before["inProgress"]
+        expect(queue_count).to_have_text(_queue_text(queued + 1 if finalises else queued))
         return
 
     if _JA_ID.match(value):
-        if state == "ja_id_or_sub_location":
+        if state == "bulk_location":
+            # A JA ID is not a destination. Refused, with an explanation.
+            _rejected()
+            return
+        if state == "location":
+            # The wedge fix: this unambiguously means the previous item's
+            # location was missed, so the machine resolves onto the new item.
+            # #scanner-status already reads `Waiting for Location` and so proves
+            # nothing here; #status-text names the item that is now in progress.
+            expect(status_text).to_contain_text(value)
+            return
+        if state == "ja_id_or_sub_location" and before["inProgress"]:
             # One action, two completions. Waiting on either alone races.
             expect(queue_count).to_have_text(_queue_text(queued + 1))
         expect(scanner_status).to_have_text("Waiting for Location")
         return
 
     if _LOCATION.match(value):
+        if state == "bulk_location":
+            # The destination for the whole preselected group, queued at once.
+            expect(queue_count).to_have_text(_queue_text(queued + before["pending"]))
+            return
+        if state in ("ja_id", "ja_id_or_sub_location"):
+            # Two locations in a row, or one where a JA ID was expected.
+            _rejected()
+            return
         expect(scanner_status).to_have_text("Waiting for JA ID or Sub-Location")
+        return
+
+    # A sub-location. Only `ja_id_or_sub_location` accepts one; from anywhere
+    # else it is refused, and the appended alert is all that changes.
+    if state != "ja_id_or_sub_location":
+        _rejected()
+        return
+
+    if before["grouped"]:
+        # Applied to every row of the group, all of them already queued, so
+        # #queue-count cannot move. The state reset is what happens last.
+        expect(scanner_status).to_have_text("Ready for JA ID")
         return
 
     # Sub-location: finalises the current move behind a fetch. #scanner-status

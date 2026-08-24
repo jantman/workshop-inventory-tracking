@@ -655,6 +655,48 @@ This hierarchical search makes it easy to find all items of a general material t
 
 The Move Items feature allows you to efficiently relocate multiple inventory items in a single batch operation. The system supports moving items to both primary locations and optional sub-locations.
 
+There are two ways in: scan items on the Move Items page one at a time, or pick
+them from a list first and let the page start with them already loaded.
+
+#### Moving a Group of Selected Items
+
+When a batch of items is all going to the same place — a shelf being cleared, a
+bin being consolidated — pick them from a list and give the destination once
+instead of scanning every item.
+
+1. **Select the items**: On the Inventory List or the Advanced Search results,
+   tick the checkbox on each item you want to move. "Select All" in the Options
+   dropdown selects everything currently shown, so filtering or searching first
+   is usually the quickest way to get the set you want.
+2. **Options → Bulk Move Selected**: The Move Items page opens with those items
+   already listed, showing each one's current location, and tells you how many
+   are waiting for a destination.
+3. **Scan the destination once**: Scan or type one location, and every selected
+   item is queued for it. Nothing else is asked for.
+4. **Sub-location (optional)**: Scan or type a sub-location next and it applies
+   to **all** of the items you selected, not just the last one.
+5. **Validate and execute**: Exactly as for scanned items — the two are the same
+   thing once queued.
+
+A few things worth knowing:
+
+- **You can keep scanning.** After the group is queued the page returns to its
+  normal behavior, so you can add more items by hand and move the whole batch
+  together.
+- **The destination is asked for first.** Until you give one, a JA ID or a
+  sub-location is refused with an explanation — there is nothing yet for them to
+  attach to.
+- **Nothing is dropped silently.** If an item you selected has since been
+  deleted, or is no longer the active row for its JA ID, it is named on screen
+  with the reason and the rest of the selection proceeds without it.
+- **Clearing the queue starts over.** The selection cannot be re-fetched by
+  scanning another location, so clearing the queue returns the page to ordinary
+  scanning.
+
+An item's own row also has **Move** and **Shorten** actions in its dropdown
+menu, which open the matching page with just that item already loaded. A single
+item works exactly like a group of one.
+
 #### Move Workflow
 
 1. **Navigate**: Click "Move Items" in the main menu

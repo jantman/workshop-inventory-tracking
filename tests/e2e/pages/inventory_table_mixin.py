@@ -180,6 +180,43 @@ class InventoryTableMixin:
         checked_boxes = self.page.locator("input[type='checkbox'].item-checkbox:checked")
         return checked_boxes.count()
 
+    # The row actions that live behind the split dropdown rather than on the
+    # button group itself. Clicking one of these means opening the menu first --
+    # Bootstrap keeps it display:none until then, so a click on the link would
+    # otherwise wait out its full timeout against an element nobody can see.
+    _ROW_DROPDOWN_ACTIONS = ("move", "shorten", "duplicate")
+
+    def _row_for(self, ja_id: str):
+        """Return the table row showing `ja_id`.
+
+        The table is rendered by JavaScript, so the region is established with
+        `wait_for_table_ready()` before any row is read -- otherwise "no such
+        row" is indistinguishable from "the table has not loaded yet".
+        """
+        if not hasattr(self, 'page'):
+            raise AttributeError("Mixin requires 'page' attribute")
+
+        self.wait_for_table_ready()
+        rows = self.page.locator(self.TABLE_ROWS_SELECTOR)
+        for i in range(rows.count()):
+            row = rows.nth(i)
+            if ja_id in (row.text_content() or ""):
+                return row
+
+        raise ValueError(f"Item {ja_id} not found in the table")
+
+    def open_row_actions(self, ja_id: str):
+        """Open a row's split-button dropdown and wait for the menu to be usable.
+
+        Bootstrap animates the menu open, so the caller's next click needs the
+        menu itself to be visible rather than merely present.
+        """
+        row = self._row_for(ja_id)
+        row.locator(".dropdown-toggle-split").first.click()
+        menu = row.locator(".dropdown-menu")
+        expect(menu.first).to_be_visible()
+        return row
+
     def click_item_action(self, ja_id: str, action: str):
         """
         Click an action button for a specific item
@@ -188,44 +225,40 @@ class InventoryTableMixin:
             ja_id: The JA ID of the item
             action: Action name (e.g., "edit", "view", "history", "move", "duplicate")
         """
-        if not hasattr(self, 'page'):
-            raise AttributeError("Mixin requires 'page' attribute")
+        # Find action button within this row
+        action_selectors = {
+            "edit": "a[title='Edit'], .btn-outline-primary",
+            "view": "button[title='View Details'], .btn-outline-info",
+            "history": "button[title='View History'], .btn-outline-warning",
+            "move": "a[href*='/inventory/move']",
+            "duplicate": "a[href*='/inventory/duplicate']",
+            "shorten": "a[href*='/inventory/shorten']",
+        }
 
-        # Find the row with this JA ID
-        rows = self.page.locator(self.TABLE_ROWS_SELECTOR)
-        count = rows.count()
+        if action not in action_selectors:
+            raise ValueError(f"Unknown row action '{action}'")
 
-        for i in range(count):
-            row = rows.nth(i)
-            if ja_id in (row.text_content() or ""):
-                # Find action button within this row
-                action_selectors = {
-                    "edit": "a[title='Edit'], .btn-outline-primary",
-                    "view": "button[title='View Details'], .btn-outline-info",
-                    "history": "button[title='View History'], .btn-outline-warning",
-                    "move": "a[href*='/inventory/move']",
-                    "duplicate": "a[href*='/inventory/duplicate']",
-                    "shorten": "a[href*='/inventory/shorten']",
-                }
+        if action in self._ROW_DROPDOWN_ACTIONS:
+            row = self.open_row_actions(ja_id)
+        else:
+            row = self._row_for(ja_id)
 
-                if action in action_selectors:
-                    button = row.locator(action_selectors[action])
-                    if button.count() > 0:
-                        # 'edit', 'move', 'duplicate' and 'shorten' are links and
-                        # navigate; 'view' and 'history' are buttons that open a
-                        # modal. Wait for whichever this one does.
-                        navigates = action in ("edit", "move", "duplicate", "shorten")
-                        before = self.page.url
-                        button.first.click()
-                        if navigates:
-                            self.page.wait_for_function(
-                                "url => window.location.href !== url", arg=before
-                            )
-                        else:
-                            expect(self.page.locator(".modal.show")).to_be_visible()
-                        return
+        button = row.locator(action_selectors[action])
+        if button.count() == 0:
+            raise ValueError(f"Action '{action}' not found for item {ja_id}")
 
-        raise ValueError(f"Action '{action}' not found for item {ja_id}")
+        # 'edit', 'move', 'duplicate' and 'shorten' are links and navigate;
+        # 'view' and 'history' are buttons that open a modal. Wait for whichever
+        # this one does.
+        navigates = action in ("edit", "move", "duplicate", "shorten")
+        before = self.page.url
+        button.first.click()
+        if navigates:
+            self.page.wait_for_function(
+                "url => window.location.href !== url", arg=before
+            )
+        else:
+            expect(self.page.locator(".modal.show")).to_be_visible()
 
     def assert_table_sorted(self, column: str, direction: str = "asc"):
         """

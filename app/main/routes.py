@@ -13,6 +13,7 @@ from app.database import InventoryItem
 from app.error_handlers import with_error_handling, ErrorHandler
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
+from app.utils.handoff import resolve_handoff
 from decimal import Decimal, InvalidOperation
 import traceback
 from config import Config
@@ -987,8 +988,11 @@ def inventory_search():
 def inventory_move():
     """Batch move items interface"""
     if request.method == 'GET':
-        return render_template('inventory/move.html', title='Move Items')
-    
+        handoff = resolve_handoff(request.args.get('ja_id'), _get_inventory_service())
+        return render_template('inventory/move.html', title='Move Items',
+                               preselected_items=handoff.preselected_items,
+                               rejected_items=handoff.rejected_items)
+
     # Handle POST request would go here (currently handled by API)
     return redirect(url_for('main.inventory_move'))
 
@@ -996,8 +1000,13 @@ def inventory_move():
 def inventory_shorten():
     """Shorten items interface"""
     if request.method == 'GET':
-        return render_template('inventory/shorten.html', title='Shorten Items')
-    
+        # The Shorten page handles one item, and its row action only ever sends
+        # one, so a longer list is not an error -- it takes the first accepted.
+        handoff = resolve_handoff(request.args.get('ja_id'), _get_inventory_service())
+        return render_template('inventory/shorten.html', title='Shorten Items',
+                               preselected_ja_id=handoff.first_accepted,
+                               rejected_items=handoff.rejected_items)
+
     # Handle POST request for shortening operation
     try:
         # Get form data
