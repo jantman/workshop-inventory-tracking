@@ -13,6 +13,7 @@ from decimal import Decimal
 from app.mariadb_inventory_service import InventoryService
 from app.database import InventoryItem
 from app.models import ItemType, ItemShape, Dimensions
+from app.utils.fit import RequestedPiece
 # Note: Tests now work with InventoryItem directly instead of Item dataclass
 
 
@@ -828,3 +829,236 @@ class TestGetMaxJaIdNumber:
         self._add_bypassing_check(test_storage, 'JA1234567')  # 9 chars
         self._add_bypassing_check(test_storage, 'JA00001')    # 7 chars
         assert service.get_max_ja_id_number() == 5
+
+class TestFindStock:
+    """`InventoryService.find_stock` -- the query, the counters and the order.
+
+    Goes through the real `Storage` ABC on SQLite rather than through mocks:
+    what is under test here is which rows the query returns and in what order,
+    and a mocked query chain would assert only that the test agrees with itself.
+    """
+
+    @pytest.fixture
+    def service(self, test_storage):
+        return InventoryService(test_storage)
+
+    def seed(self, service, rows):
+        """Insert inventory rows directly.
+
+        `add_item` refuses a second active row per JA ID and always writes an
+        active one, and these tests need an inactive row and control over every
+        column, so they write through the session the service already owns.
+        """
+        session = service.Session()
+        try:
+            for row in rows:
+                session.add(InventoryItem(**row))
+            session.commit()
+        finally:
+            session.close()
+
+    def seed_materials(self, service, rows):
+        """Insert material taxonomy rows, for the hierarchical matching test."""
+        from app.database import MaterialTaxonomy
+
+        session = service.Session()
+        try:
+            for row in rows:
+                session.add(MaterialTaxonomy(**row))
+            session.commit()
+        finally:
+            session.close()
+
+    def bar(self, ja_id, length, width, thickness=None, material='Steel',
+            active=True, item_type='Bar', shape='Rectangular',
+            wall_thickness=None):
+        return {
+            'ja_id': ja_id,
+            'item_type': item_type,
+            'shape': shape,
+            'material': material,
+            'length': None if length is None else Decimal(str(length)),
+            'width': None if width is None else Decimal(str(width)),
+            'thickness': None if thickness is None else Decimal(str(thickness)),
+            'wall_thickness': (None if wall_thickness is None
+                               else Decimal(str(wall_thickness))),
+            'active': active,
+        }
+
+    def rectangular(self, length, width, thickness, tolerances=None):
+        return RequestedPiece(
+            ItemShape.RECTANGULAR,
+            {'length': Decimal(str(length)), 'width': Decimal(str(width)),
+             'thickness': Decimal(str(thickness))},
+            {name: Decimal(str(value)) for name, value in (tolerances or {}).items()},
+        )
+
+    def round_piece(self, diameter, length, tolerances=None):
+        return RequestedPiece(
+            ItemShape.ROUND,
+            {'diameter': Decimal(str(diameter)), 'length': Decimal(str(length))},
+            {name: Decimal(str(value)) for name, value in (tolerances or {}).items()},
+        )
+
+    # -- what the query selects --------------------------------------------
+
+    def test_material_matches_hierarchically(self, service):
+        """FR-003: asking for Aluminum returns items recorded under descendants."""
+        self.seed_materials(service, [
+            {'name': 'Aluminum', 'level': 1, 'parent': None},
+            {'name': '6000 Series Aluminum', 'level': 2, 'parent': 'Aluminum'},
+            {'name': '6061-T6', 'level': 3, 'parent': '6000 Series Aluminum'},
+        ])
+        self.seed(service, [
+            self.bar('JA000001', 12, 3, 1, material='Aluminum'),
+            self.bar('JA000002', 12, 3, 1, material='6000 Series Aluminum'),
+            self.bar('JA000003', 12, 3, 1, material='6061-T6'),
+            self.bar('JA000004', 12, 3, 1, material='Steel'),
+        ])
+
+        result = service.find_stock('Aluminum', self.rectangular(4, 3, '0.5'))
+
+        assert [item.ja_id for item, _ in result.items] == [
+            'JA000001', 'JA000002', 'JA000003'
+        ]
+        assert result.considered == 3
+
+    def test_an_inactive_row_of_the_right_size_is_absent(self, service):
+        """D15: an inactive row cannot be cut into a part today."""
+        self.seed(service, [
+            self.bar('JA000001', 12, 3, 1),
+            self.bar('JA000002', 12, 3, 1, active=False),
+        ])
+
+        result = service.find_stock('Steel', self.rectangular(4, 3, '0.5'))
+
+        assert [item.ja_id for item, _ in result.items] == ['JA000001']
+        assert result.considered == 1
+
+    # -- the three counters -------------------------------------------------
+
+    def test_the_counters_account_for_every_row_the_search_looked_at(self, service):
+        """SC-006: an empty result must be distinguishable from an unsearched one."""
+        self.seed(service, [
+            self.bar('JA000001', 12, 3, 1),
+            self.bar('JA000002', 12, 3, None),
+            self.bar('JA000003', 12, 3, None, shape='Round',
+                     item_type='Tube', wall_thickness='0.065'),
+            self.bar('JA000004', 1, 1, 1),
+            self.bar('JA000005', 12, 3, 1, material='Aluminum'),
+        ])
+
+        result = service.find_stock('Steel', self.rectangular(4, 3, '0.5'))
+
+        assert result.considered == 4
+        assert result.skipped_incomplete == 1
+        assert result.skipped_hollow == 1
+        assert [item.ja_id for item, _ in result.items] == ['JA000001']
+
+    def test_a_material_with_no_rows_reports_nothing_considered(self, service):
+        """"You have none of this material", told apart from "all too small"."""
+        self.seed(service, [self.bar('JA000001', 12, 3, 1)])
+
+        result = service.find_stock('Brass', self.rectangular(4, 3, '0.5'))
+
+        assert result.items == []
+        assert result.considered == 0
+        assert result.skipped_incomplete == 0
+        assert result.skipped_hollow == 0
+
+    # -- the ordering -------------------------------------------------------
+
+    def test_an_exact_match_sorts_first(self, service):
+        """Story 3 scenario 4."""
+        self.seed(service, [
+            self.bar('JA000001', 12, 6, 2),
+            self.bar('JA000002', 4, 3, '0.5'),
+            self.bar('JA000003', 12, 4, 1),
+        ])
+
+        result = service.find_stock('Steel', self.rectangular(4, 3, '0.5'))
+
+        assert [item.ja_id for item, _ in result.items][0] == 'JA000002'
+        assert result.items[0][1].removed_area == Decimal(0)
+
+    def test_a_long_bar_of_the_right_diameter_beats_a_short_fat_one(self, service):
+        """D6 -- this assertion pins the interpretation of FR-019.
+
+        Read literally ("how little material is left over"), a 12" length of 2"
+        bar scores terribly for a 2" job and a 2.5" two-inch stub scores well,
+        so the search would recommend turning 0.25" off the stub rather than
+        cutting 2" off a bar of exactly the right diameter. That is backwards:
+        cutting to length is a bandsaw operation and the remainder goes back on
+        the shelf unconsumed. What is actually lost is what becomes chips, which
+        is the cross-section -- so the bar of the right diameter wins whatever
+        its length. Changing this assertion changes the feature.
+        """
+        self.seed(service, [
+            self.bar('JA000001', 2, '2.5', shape='Round'),
+            self.bar('JA000002', 12, 2, shape='Round'),
+        ])
+
+        result = service.find_stock('Steel', self.round_piece(2, 2))
+
+        assert [item.ja_id for item, _ in result.items] == ['JA000002', 'JA000001']
+
+    def test_a_shorter_piece_breaks_a_tie_on_removed_area(self, service):
+        """Use up a drop before cutting into a full-length bar."""
+        self.seed(service, [
+            self.bar('JA000001', 36, 2, shape='Round'),
+            self.bar('JA000002', 4, 2, shape='Round'),
+        ])
+
+        result = service.find_stock('Steel', self.round_piece(2, 2))
+
+        assert [item.ja_id for item, _ in result.items] == ['JA000002', 'JA000001']
+
+    def test_items_tying_on_every_other_term_come_back_in_ja_id_order(self, service):
+        """FR-020, and the reason `ja_id` is the last term at all."""
+        self.seed(service, [
+            self.bar('JA000003', 12, 2, shape='Round'),
+            self.bar('JA000001', 12, 2, shape='Round'),
+            self.bar('JA000002', 12, 2, shape='Round'),
+        ])
+
+        result = service.find_stock('Steel', self.round_piece(2, 2))
+
+        assert [item.ja_id for item, _ in result.items] == [
+            'JA000001', 'JA000002', 'JA000003'
+        ]
+
+    def test_the_same_search_twice_produces_the_same_order(self, service):
+        """FR-020."""
+        self.seed(service, [
+            self.bar('JA000001', 12, 6, 2),
+            self.bar('JA000002', 4, 3, '0.5'),
+            self.bar('JA000003', 12, 4, 1),
+            self.bar('JA000004', 24, 12, 3),
+        ])
+
+        first = service.find_stock('Steel', self.rectangular(4, 3, '0.5'))
+        second = service.find_stock('Steel', self.rectangular(4, 3, '0.5'))
+
+        assert ([item.ja_id for item, _ in first.items]
+                == [item.ja_id for item, _ in second.items])
+
+    def test_an_exact_fit_outranks_a_tolerance_only_fit_that_removes_less(self, service):
+        """D7 -- term 1 of the sort key exists for exactly this case.
+
+        The 1.95" bar fits only once the diameter's tolerance is allowed, and
+        against the *relaxed* request it removes almost nothing -- far less than
+        the 3" square bar that fits outright. Term 2 alone would therefore put
+        the undersized bar first, and the operator asked for 2".
+        """
+        self.seed(service, [
+            self.bar('JA000001', 12, '1.95', shape='Round'),
+            self.bar('JA000002', 12, 3, shape='Square'),
+        ])
+
+        result = service.find_stock(
+            'Steel', self.round_piece(2, 2, {'diameter': '0.1'}))
+
+        assert [item.ja_id for item, _ in result.items] == ['JA000002', 'JA000001']
+        assert result.items[0][1].within_tolerance is False
+        assert result.items[1][1].within_tolerance is True
+        assert result.items[1][1].removed_area < result.items[0][1].removed_area

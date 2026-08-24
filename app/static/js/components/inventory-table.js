@@ -23,6 +23,9 @@ export class InventoryTable {
      * @param {boolean} config.enableSelection - Show checkboxes for item selection
      * @param {boolean} config.enableSorting - Enable column sorting
      * @param {boolean} config.showSubLocation - Show sub-location column
+     * @param {boolean} config.showFitColumn - Show the Fit column, rendered from
+     *     item.fit. Off by default, so the inventory list and the advanced
+     *     search render exactly as they did before (FR-028).
      * @param {number} config.itemsPerPage - Number of items per page (default: 25)
      * @param {Function} config.onSelectionChange - Callback when selection changes
      * @param {Function} config.onActionClick - Callback when action button clicked
@@ -34,6 +37,7 @@ export class InventoryTable {
             enableSelection: config.enableSelection || false,
             enableSorting: config.enableSorting || false,
             showSubLocation: config.showSubLocation !== undefined ? config.showSubLocation : true,
+            showFitColumn: config.showFitColumn || false,
             itemsPerPage: config.itemsPerPage || 25,
             onSelectionChange: config.onSelectionChange || (() => {}),
             onActionClick: config.onActionClick || (() => {}),
@@ -168,6 +172,12 @@ export class InventoryTable {
             case 'dimensions':
                 // Sort by length for dimensions column
                 return item.dimensions?.length || 0;
+            case 'fit':
+                // The second term of the server's sort key: the cross-sectional
+                // area that becomes chips. It is a ranking figure, never shown
+                // (fit-rules section 6), and Number() is used so the column
+                // orders numerically rather than lexically.
+                return item.fit ? Number(item.fit.removed_area) : 0;
             default:
                 return item[field];
         }
@@ -415,6 +425,11 @@ export class InventoryTable {
             </td>
         `;
 
+        // Fit column - only on the fit search, which passes showFitColumn
+        if (this.config.showFitColumn) {
+            html += this.renderFit(item.fit);
+        }
+
         // Actions column
         html += this.renderActions(item);
 
@@ -438,6 +453,48 @@ export class InventoryTable {
         }
 
         return row;
+    }
+
+    /**
+     * Render the Fit column HTML
+     *
+     * How this item compares to the requested piece (FR-022): the stock's
+     * cross-section in the orientation that fits, the part's, and the exact
+     * difference between them. No area figure appears here -- the area exists
+     * to order the list, and an approximation of it in front of a machinist
+     * would buy nothing (fit-rules section 6).
+     *
+     * @param {Object} fit - The fit object from the API, or undefined
+     * @returns {string} HTML for the fit column
+     */
+    renderFit(fit) {
+        if (!fit) {
+            return '<td></td>';
+        }
+
+        let html = '<td class="small">';
+        html += `<div>Stock <strong>${escapeHtml(fit.item_cross_section)}</strong></div>`;
+        html += `<div>Part ${escapeHtml(fit.requested_cross_section)}</div>`;
+
+        if (fit.excess && fit.excess.length > 0) {
+            html += `<div class="text-muted">Excess ${fit.excess.map(escapeHtml).join(', ')}</div>`;
+        }
+
+        if (fit.orientation) {
+            html += `<div class="text-muted">${escapeHtml(fit.orientation)}</div>`;
+        }
+
+        // A match that only qualifies because a tolerance was allowed must be
+        // distinguishable at a glance, and the dimensions that used their
+        // tolerance named (FR-018).
+        if (fit.within_tolerance) {
+            const named = (fit.tolerance_dimensions || []).map(escapeHtml).join(', ');
+            const suffix = named ? `: ${named}` : '';
+            html += `<span class="badge bg-warning text-dark">Within tolerance${suffix}</span>`;
+        }
+
+        html += '</td>';
+        return html;
     }
 
     /**

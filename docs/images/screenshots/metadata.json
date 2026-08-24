@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-08-23T17:29:47.403988",
+  "generated_at": "2026-08-24T18:20:16.251890",
   "screenshots": [
     {
       "filename": "readme/inventory_list.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:20.863213",
+      "timestamp": "2026-08-24T18:19:51.157082",
       "details": {
         "viewport_size": [
           1920,
@@ -20,7 +20,7 @@
     {
       "filename": "user-manual/add_item_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:23.438990",
+      "timestamp": "2026-08-24T18:19:54.355559",
       "details": {
         "viewport_size": [
           1920,
@@ -36,7 +36,7 @@
     {
       "filename": "user-manual/batch_operations_menu.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:36.987029",
+      "timestamp": "2026-08-24T18:20:09.068765",
       "details": {
         "viewport_size": [
           1920,
@@ -52,7 +52,7 @@
     {
       "filename": "user-manual/bulk_creation_preview.png",
       "capture_type": "element",
-      "timestamp": "2026-08-22T17:34:24.125601",
+      "timestamp": "2026-08-24T18:19:54.949619",
       "details": {
         "selector": "#quantity_to_create",
         "padding": 40,
@@ -67,7 +67,7 @@
     {
       "filename": "user-manual/category_tree.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-23T17:29:48.741309",
+      "timestamp": "2026-08-24T18:20:17.731914",
       "details": {
         "viewport_size": [
           1920,
@@ -83,7 +83,7 @@
     {
       "filename": "user-manual/digikey_order.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:45.126510",
+      "timestamp": "2026-08-24T18:20:15.229179",
       "details": {
         "viewport_size": [
           1920,
@@ -99,7 +99,7 @@
     {
       "filename": "user-manual/digikey_order_review.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:43.383570",
+      "timestamp": "2026-08-24T18:20:14.035016",
       "details": {
         "viewport_size": [
           1920,
@@ -115,7 +115,7 @@
     {
       "filename": "user-manual/edit_item_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:25.002239",
+      "timestamp": "2026-08-24T18:19:55.797074",
       "details": {
         "viewport_size": [
           1920,
@@ -129,9 +129,25 @@
       }
     },
     {
+      "filename": "user-manual/find_stock_form.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-08-24T18:19:52.653242",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#find-stock-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
       "filename": "user-manual/history_view.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:36.171337",
+      "timestamp": "2026-08-24T18:20:08.293358",
       "details": {
         "viewport_size": [
           1920,
@@ -147,7 +163,7 @@
     {
       "filename": "user-manual/move_items.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:30.867255",
+      "timestamp": "2026-08-24T18:20:01.840784",
       "details": {
         "viewport_size": [
           1920,
@@ -163,7 +179,7 @@
     {
       "filename": "user-manual/order_capture.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:42.667538",
+      "timestamp": "2026-08-24T18:20:13.465968",
       "details": {
         "viewport_size": [
           1920,
@@ -179,7 +195,7 @@
     {
       "filename": "user-manual/photo_gallery.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:27.290260",
+      "timestamp": "2026-08-24T18:19:58.262187",
       "details": {
         "viewport_size": [
           1920,
@@ -195,7 +211,7 @@
     {
       "filename": "user-manual/photo_upload.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:25.742559",
+      "timestamp": "2026-08-24T18:19:56.540252",
       "details": {
         "viewport_size": [
           1920,
@@ -211,7 +227,7 @@
     {
       "filename": "user-manual/product_add_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:41.898840",
+      "timestamp": "2026-08-24T18:20:12.837565",
       "details": {
         "viewport_size": [
           1920,
@@ -227,7 +243,7 @@
     {
       "filename": "user-manual/product_detail.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:40.679106",
+      "timestamp": "2026-08-24T18:20:11.722979",
       "details": {
         "viewport_size": [
           1920,
@@ -243,7 +259,7 @@
     {
       "filename": "user-manual/product_search.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:38.354728",
+      "timestamp": "2026-08-24T18:20:10.303483",
       "details": {
         "viewport_size": [
           1920,
@@ -259,7 +275,7 @@
     {
       "filename": "user-manual/reorder_list.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:46.675973",
+      "timestamp": "2026-08-24T18:20:16.225110",
       "details": {
         "viewport_size": [
           1920,
@@ -275,7 +291,7 @@
     {
       "filename": "user-manual/search_form.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:21.538565",
+      "timestamp": "2026-08-24T18:19:51.877356",
       "details": {
         "viewport_size": [
           1920,
@@ -291,7 +307,7 @@
     {
       "filename": "user-manual/search_results.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:22.433538",
+      "timestamp": "2026-08-24T18:19:53.403231",
       "details": {
         "viewport_size": [
           1920,
@@ -307,7 +323,7 @@
     {
       "filename": "user-manual/shorten_items.png",
       "capture_type": "viewport",
-      "timestamp": "2026-08-22T17:34:31.494649",
+      "timestamp": "2026-08-24T18:20:03.389553",
       "details": {
         "viewport_size": [
           1920,

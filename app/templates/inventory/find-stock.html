@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% from 'inventory/_item_table.html' import render_inventory_table %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-rulers"></i> Find Stock for a Part</h2>
+    <div class="btn-group">
+        <a href="{{ url_for('main.inventory_search') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-search"></i> Advanced Search
+        </a>
+        <button type="button" class="btn btn-outline-secondary" id="clear-find-stock-btn">
+            <i class="bi bi-x-circle"></i> Clear
+        </button>
+    </div>
+</div>
+
+<div class="alert alert-light border" role="alert">
+    <i class="bi bi-info-circle"></i>
+    Describe the piece you need. This finds every active item of that material the
+    piece can be cut or machined out of, whatever shape it is and whichever way
+    round its dimensions were recorded, closest fit first. To look items up by
+    their recorded measurements instead, use the
+    <a href="{{ url_for('main.inventory_search') }}">Advanced Search</a>.
+</div>
+
+<!-- Request Form -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-box"></i> The Piece You Need</h5>
+    </div>
+    <div class="card-body">
+        <form id="find-stock-form">
+            <div class="row mb-4">
+                <div class="col-md-8 mb-3 position-relative">
+                    <label for="material" class="form-label">Material *</label>
+                    <input type="text" class="form-control" id="material" name="material"
+                           placeholder="e.g., Aluminum, 6000 Series Aluminum, 6061-T6" required>
+                    <div class="form-text">Automatically includes sub-materials in the hierarchy</div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="piece_shape" class="form-label">Shape *</label>
+                    <select class="form-select" id="piece_shape" name="shape">
+                        <option value="Rectangular" selected>Rectangular</option>
+                        <option value="Round">Round</option>
+                    </select>
+                    <div class="form-text">The shape of the piece you need, not of the stock</div>
+                </div>
+            </div>
+
+            <div class="row mb-2">
+                <div class="col-12">
+                    <h6 class="text-muted border-bottom pb-2">Dimensions (inches)</h6>
+                    <p class="form-text mt-0">
+                        A tolerance is how far <em>under</em> the stated size a piece of stock
+                        may be and still be offered. Leave one blank to hold that dimension
+                        exactly.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Rectangular dimensions -->
+            <div class="row mb-4" id="rectangular-dimensions">
+                {% for field, label in [('length', 'Length'), ('width', 'Width'), ('thickness', 'Thickness')] %}
+                <div class="col-md-4 mb-3">
+                    <label for="{{ field }}" class="form-label">{{ label }} *</label>
+                    <input type="number" class="form-control" id="{{ field }}" name="{{ field }}"
+                           step="0.0001" min="0" placeholder="0.0000">
+                    <div class="input-group mt-2">
+                        <span class="input-group-text">± under</span>
+                        <input type="number" class="form-control" id="{{ field }}_tolerance"
+                               name="{{ field }}_tolerance" step="0.0001" min="0"
+                               placeholder="exact">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Round dimensions -->
+            <div class="row mb-4 d-none" id="round-dimensions">
+                {% for field, label in [('diameter', 'Diameter'), ('round_length', 'Length')] %}
+                <div class="col-md-4 mb-3">
+                    <label for="{{ field }}" class="form-label">{{ label }} *</label>
+                    <input type="number" class="form-control" id="{{ field }}" name="{{ field }}"
+                           step="0.0001" min="0" placeholder="0.0000">
+                    <div class="input-group mt-2">
+                        <span class="input-group-text">± under</span>
+                        <input type="number" class="form-control" id="{{ field }}_tolerance"
+                               name="{{ field }}_tolerance" step="0.0001" min="0"
+                               placeholder="exact">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="row">
+                <div class="col-12 d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary btn-lg" id="find-stock-btn">
+                        <i class="bi bi-search"></i> Find Stock
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results -->
+<div id="find-stock-results-section" class="d-none">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-list-task"></i> What Can Make It</h5>
+            <small class="text-muted" id="find-stock-counters"></small>
+        </div>
+        <div class="card-body p-0">
+            <!-- Loading State -->
+            <div id="find-stock-loading" class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Searching...</span>
+                </div>
+                <p class="mt-3 text-muted">Searching inventory...</p>
+            </div>
+
+            <!-- Refused request -->
+            <div id="find-stock-error" class="alert alert-warning m-3 d-none" role="alert"></div>
+
+            <!-- Nothing fits -->
+            <div id="find-stock-no-results" class="text-center py-5 d-none">
+                <div class="display-1 text-muted mb-4">
+                    <i class="bi bi-slash-circle"></i>
+                </div>
+                <h4>Nothing on the shelf can make it</h4>
+                <p class="text-muted mb-0">
+                    No active item of that material can yield the piece you described.
+                </p>
+            </div>
+
+            <!-- Results Table -->
+            <div id="find-stock-table-container" class="d-none">
+                {{ render_inventory_table({
+                    'show_selection_column': true,
+                    'enable_sorting': true,
+                    'show_sub_location': true,
+                    'show_fit_column': true,
+                    'table_id': 'find-stock-table',
+                    'table_body_id': 'find-stock-table-body'
+                }) }}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Make valid materials available globally for material selector
+window.validMaterials = {{ valid_materials | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/material-validation.js') }}"></script>
+<script src="{{ url_for('static', filename='js/material-selector.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/inventory-find-stock.js') }}"></script>
+<script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>
+{% endblock %}

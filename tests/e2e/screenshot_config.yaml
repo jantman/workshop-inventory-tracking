@@ -175,6 +175,18 @@ screenshots:
         section: "## Advanced Search"
         caption: "Figure 12: Advanced search form with range queries and filters"
 
+  - name: "find_stock_form"
+    description: "Fit search form: the piece the operator needs"
+    test: "test_screenshot_find_stock_form"
+    output: "user-manual/find_stock_form.png"
+    viewport: [1920, 1080]
+    full_page: true
+    wait_for: "#find-stock-form"
+    documentation_files:
+      - file: "docs/user-manual.md"
+        section: "### Find Stock for a Part"
+        caption: "Figure 12a: Describing a needed piece by material, shape, dimensions and tolerance"
+
   - name: "search_results"
     description: "Search results table with filtered items"
     test: "test_screenshot_search_results"

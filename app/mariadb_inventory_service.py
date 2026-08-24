@@ -9,8 +9,9 @@ import logging
 import warnings
 # Suppress SQLAlchemy warnings about Decimal support in SQLite (used in tests)
 warnings.filterwarnings("ignore", message=".*does.*not.*support Decimal objects natively.*")
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_, desc, asc, func
@@ -18,6 +19,7 @@ from sqlalchemy import create_engine, and_, desc, asc, func
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
 from .models import ItemType, ItemShape
+from .utils.fit import Fit, RequestedPiece, SkipReason, envelope_for, evaluate, sort_key
 # Using enhanced InventoryItem directly instead of separate Item dataclass
 from .storage import StorageResult
 from config import Config
@@ -122,6 +124,22 @@ class SearchFilter:
     def notes_contain(self, text: str) -> 'SearchFilter':
         """Filter by notes containing text"""
         return self.add_text_search('notes', text, exact=False)
+
+
+@dataclass
+class FindStockResult:
+    """What `find_stock` hands the route.
+
+    The three counters are what make an empty result trustworthy (SC-006):
+    "you have none of this material" reads as `considered == 0`, "yours are all
+    too small" as a non-zero `considered` with no items, and "yours are recorded
+    incompletely" as a non-zero `skipped_incomplete`.
+    """
+
+    items: List[Tuple[InventoryItem, Fit]]
+    considered: int
+    skipped_incomplete: int
+    skipped_hollow: int
 
 
 class InventoryService:
@@ -408,7 +426,72 @@ class InventoryService:
         finally:
             if 'session' in locals():
                 session.close()
-    
+
+    def find_stock(self, material: str, piece: RequestedPiece) -> FindStockResult:
+        """Every active item of `material` the requested piece can be cut from.
+
+        One query -- active rows whose material is in the requested hierarchy --
+        and the fit test in Python (D5). No dimension predicate goes into SQL:
+        the rules are orientation-free across two solid kinds, there is no
+        column-to-column comparison that expresses them, and a SQL pre-filter
+        would be a second place where the fit rules are stated.
+
+        Active-only, with no toggle: an inactive row is a superseded shortening
+        history row or a piece that has left the shelf, and neither can be cut
+        into a part today (D15).
+
+        `material` is a separate argument rather than a field of
+        `RequestedPiece` because `app/utils/fit.py` is pure geometry and a
+        material is not a measurement.
+        """
+        try:
+            session = self.Session()
+
+            materials = self.get_material_descendants(material)
+
+            candidates = session.query(InventoryItem).filter(
+                InventoryItem.active == True,
+                InventoryItem.material.in_(materials)
+            ).all()
+
+            matches = []
+            skipped_incomplete = 0
+            skipped_hollow = 0
+
+            for candidate in candidates:
+                envelope = envelope_for(candidate)
+
+                if envelope is SkipReason.HOLLOW:
+                    skipped_hollow += 1
+                    continue
+                if envelope is SkipReason.INCOMPLETE:
+                    skipped_incomplete += 1
+                    continue
+
+                fit = evaluate(envelope, piece)
+                if fit is not None:
+                    matches.append((candidate, fit))
+
+            # Ordered in Python, not in SQL: the key is derived from the fit,
+            # which SQL never saw (D5). fit-rules section 4 states the terms.
+            matches.sort(key=lambda match: sort_key(match[0].ja_id, match[1]))
+
+            logger.debug(
+                f"Fit search over {len(candidates)} {material} items found "
+                f"{len(matches)} matches"
+            )
+
+            return FindStockResult(
+                items=matches,
+                considered=len(candidates),
+                skipped_incomplete=skipped_incomplete,
+                skipped_hollow=skipped_hollow,
+            )
+
+        finally:
+            if 'session' in locals():
+                session.close()
+
     def ja_id_exists(self, ja_id: str, only_active: bool = True) -> bool:
         """
         Check if a JA ID exists in the database
