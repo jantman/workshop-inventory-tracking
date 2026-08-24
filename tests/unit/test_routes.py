@@ -1120,7 +1120,13 @@ class TestEditPageActions:
         assert 'Deactivate' in inner
         assert 'Activate' not in inner
         assert 'id="shorten-item-btn"' in body
+        # The one hand-off convention (contracts/handoff.md section 1), not the
+        # retired `items=` spelling. Asserting the link is *present* is not
+        # enough on its own -- it passed for as long as the Shorten page ignored
+        # what it was handed. TestHandoffRoutes below covers the link's effect,
+        # which is what FR-022 requires of an assertion like this one.
         assert '/inventory/shorten?ja_id=JA600001' in body
+        assert '/inventory/shorten?items=' not in body
 
     def test_edit_page_inactive_item_shows_activate(self, client, setup_items):
         response = client.get('/inventory/edit/JA600002')
@@ -2075,3 +2081,89 @@ class TestFieldSuggestionsRoute:
         body = response.get_json()
         assert body['success'] is False
         assert 'error' in body
+
+class TestHandoffRoutes:
+    """The item hand-off, at the route level.
+
+    ``TestEditPageActions`` above asserts that a Shorten hand-off *link* is
+    rendered, and that assertion held a dead link in place for as long as the
+    link existed -- the page it pointed at never read what it was handed. FR-022
+    requires that shape of test be extended to cover the link's effect, so these
+    exercise what each receiving route does with the parameter those links
+    carry. See specs/026-fix-bulk-move-handoff/contracts/handoff.md.
+    """
+
+    @pytest.fixture
+    def items(self, client, test_storage):
+        from app.mariadb_inventory_service import InventoryService
+        from app.database import InventoryItem
+        from app.models import ItemType, ItemShape
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        for ja_id, active in (("JA700001", True), ("JA700002", True), ("JA700003", False)):
+            service.add_item(InventoryItem(
+                ja_id=ja_id,
+                item_type=ItemType.BAR.value,
+                shape=ItemShape.ROUND.value,
+                material="Carbon Steel",
+                length=Decimal("12.0"),
+                width=Decimal("0.5"),
+                location="Storage A",
+                active=active,
+            ))
+        return service
+
+    def test_move_page_without_a_parameter_is_unchanged(self, client, items):
+        """FR-004: this is how the page is reached in normal scanning use."""
+        body = client.get('/inventory/move').get_data(as_text=True)
+        assert 'id="preselected-section"' not in body
+
+    def test_move_page_names_every_handed_off_item(self, client, items):
+        body = client.get(
+            '/inventory/move?ja_id=JA700001,JA700002'
+        ).get_data(as_text=True)
+        assert 'id="preselected-section"' in body
+        assert 'JA700001' in body
+        assert 'JA700002' in body
+
+    def test_move_page_ignores_the_retired_items_convention(self, client, items):
+        """One convention, not two. `items=` is what the inventory list used to
+        emit, against a page that read neither name."""
+        body = client.get('/inventory/move?items=JA700001').get_data(as_text=True)
+        assert 'id="preselected-section"' not in body
+
+    def test_move_page_names_a_rejected_item_with_its_reason(self, client, items):
+        """FR-005: never silently dropped."""
+        body = client.get(
+            '/inventory/move?ja_id=JA700001,JA700003,JA700999'
+        ).get_data(as_text=True)
+        assert 'id="rejected-items"' in body
+        assert 'JA700003' in body   # exists, but is not the active row
+        assert 'JA700999' in body   # no such JA ID
+
+    def test_move_page_with_everything_rejected_says_so(self, client, items):
+        """Edge case: it must not look like a normal empty arrival."""
+        body = client.get('/inventory/move?ja_id=JA700999').get_data(as_text=True)
+        assert 'id="preselected-none"' in body
+        assert 'id="rejected-items"' in body
+
+    def test_shorten_page_prefills_the_handed_off_item(self, client, items):
+        """FR-003, and the effect of the link TestEditPageActions asserts on."""
+        import re
+        body = client.get('/inventory/shorten?ja_id=JA700001').get_data(as_text=True)
+        field = re.search(r'<input[^>]*id="source-ja-id"[^>]*>', body)
+        assert field is not None
+        assert 'value="JA700001"' in field.group(0)
+
+    def test_shorten_page_without_a_parameter_leaves_the_field_empty(self, client, items):
+        import re
+        body = client.get('/inventory/shorten').get_data(as_text=True)
+        field = re.search(r'<input[^>]*id="source-ja-id"[^>]*>', body)
+        assert field is not None
+        assert 'value=' not in field.group(0)
+
+    def test_shorten_page_names_a_rejected_item(self, client, items):
+        body = client.get('/inventory/shorten?ja_id=JA700003').get_data(as_text=True)
+        assert 'id="handoff-rejected"' in body
+        assert 'JA700003' in body

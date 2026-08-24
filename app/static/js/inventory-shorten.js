@@ -15,7 +15,8 @@ class InventoryShortenManager {
         this.initializeElements();
         this.bindEvents();
         this.setDefaultDate();
-        
+        this.loadPrefilledItem();
+
         console.log('InventoryShortenManager initialized');
     }
     
@@ -83,6 +84,20 @@ class InventoryShortenManager {
         this.sourceJaIdInput.focus();
     }
     
+    /**
+     * Continue from an item handed over by a row's Shorten action.
+     *
+     * The route prefills #source-ja-id, and this carries on from there exactly
+     * as if the user had typed it: a prefill, not a mode. The page has no
+     * separate hand-off behavior, which is the point -- there is one workflow
+     * and the hand-off simply saves the first step of it.
+     */
+    loadPrefilledItem() {
+        if (this.sourceJaIdInput.value.trim()) {
+            this.loadItem();
+        }
+    }
+
     setDefaultDate() {
         // Set cut date to today by default
         const today = new Date().toISOString().split('T')[0];

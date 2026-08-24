@@ -504,8 +504,11 @@ class InventoryListManager {
         const selectedIds = this.table.getSelectedItems();
         if (selectedIds.length === 0) return;
 
+        // One hand-off convention, `ja_id`, shared by all four entry points and
+        // both receiving pages. This call site used to spell it `items`, which
+        // nothing read -- see specs/026-fix-bulk-move-handoff/contracts/handoff.md.
         const url = new URL('/inventory/move', window.location.origin);
-        url.searchParams.set('items', selectedIds.join(','));
+        url.searchParams.set('ja_id', selectedIds.join(','));
         window.location.href = url.toString();
     }
 

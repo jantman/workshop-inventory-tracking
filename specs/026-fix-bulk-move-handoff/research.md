@@ -184,3 +184,38 @@ after the hand-off is server-rendered, so the preselected-item region must be es
 per-scan cost of the existing move tests this adds well under a minute to a suite already at
 ~13m 45s against a 15-minute gate. If it measurably threatens the gate, the pair count is the
 thing to reduce — not the wait discipline, which has none left to remove.
+
+---
+
+## R3 addendum — the reproduction, and which candidate it was
+
+Added during implementation (task T003). The full trace is in
+[verification.md](./verification.md); this is the conclusion it reached.
+
+**Candidate B, feeding Candidate A.** Fourteen clean pairs do *not* reproduce the
+report — neither with a trailing newline nor without one — exactly as this
+section predicted. What reproduces it is a single missed location: a JA ID
+arriving in state `location` is refused **without a state change**, so
+`currentExpectedInput` stays `location` and `currentJaId` stays pinned to the
+first item. Every later scan bounces off it, nothing is ever queued, and
+`>>DONE<<` then takes Candidate A's early return because the queue is empty.
+
+Two masking effects were confirmed at the same time, and they are why the user
+could not see what had happened:
+
+- Each refusal *replaced* the previous one, because `showAlert()` assigns
+  `formAlerts.innerHTML`. Three refusals rendered as one.
+- The scanner's Enter reached `processInput()` after `handleBarcodeInput()` had
+  consumed `>>DONE<<` and emptied the field, so **`Please enter a value`**
+  overwrote `No items in move queue` — destroying the only message that
+  explained anything. This is FR-016's spurious warning, observed rather than
+  assumed.
+
+Candidate C's *fragmentation* variant is not implicated: the 100 ms fallback
+timer fires once, after the last character, and `processInput()` sees the whole
+barcode. What was true of that path is only that no test had ever executed it,
+which FR-021 now closes.
+
+All four numbered items of the fix strategy above stand, and none of them grew:
+no state-machine rewrite, no configurable `scannerDelay`, and the buttons are
+still not enabled merely because the queue is non-empty.

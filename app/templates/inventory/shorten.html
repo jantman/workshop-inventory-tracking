@@ -32,7 +32,28 @@
     
     <!-- Alert for messages -->
     <div id="form-alerts"></div>
-    
+
+    {# FR-005: an item handed over that cannot be shortened is named here rather
+       than dropped, so the page never opens as though nothing was handed to it. #}
+    {% if rejected_items %}
+    <div class="alert alert-warning" id="handoff-rejected">
+        <i class="bi bi-exclamation-triangle"></i>
+        These items were not carried over:
+        <ul class="mb-0 mt-2">
+            {% for rejected in rejected_items %}
+            <li data-ja-id="{{ rejected.ja_id }}">
+                <strong>{{ rejected.ja_id }}</strong> &mdash;
+                {% if rejected.reason == 'inactive' %}
+                no longer the active item, so it cannot be shortened
+                {% else %}
+                not found in the inventory
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
     <div class="row">
         <div class="col-lg-8">
             <!-- Item Selection -->
@@ -48,8 +69,11 @@
                         <div class="col-md-8 mb-3">
                             <label for="source-ja-id" class="form-label">Source JA ID *</label>
                             <div class="input-group">
-                                <input type="text" class="form-control form-control-lg" id="source-ja-id" name="source_ja_id" 
+                                {# Prefilled from a row's Shorten action, and empty
+                                   otherwise -- a prefill, not a mode. #}
+                                <input type="text" class="form-control form-control-lg" id="source-ja-id" name="source_ja_id"
                                        pattern="JA\d{6}" required
+                                       {% if preselected_ja_id %}value="{{ preselected_ja_id }}"{% endif %}
                                        title="Format: JA followed by 6 digits">
                                 <button type="button" class="btn btn-outline-secondary" id="scan-ja-id-btn" title="Focus for barcode scan">
                                     <i class="bi bi-upc-scan"></i>

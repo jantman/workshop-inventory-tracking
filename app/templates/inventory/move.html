@@ -32,7 +32,85 @@
     
     <!-- Alert for messages -->
     <div id="form-alerts"></div>
-    
+
+    {# Items handed over from a list page's Bulk Move Selected, or from a row's
+       Move action. Rendered server-side so the page controller can read them on
+       load; absent entirely when the page was reached by scanning, which is how
+       it is reached in normal use (FR-004). #}
+    {% if preselected_items or rejected_items %}
+    {# The JSON list is quoted with apostrophes deliberately: `tojson` escapes
+       `'`, `<`, `>` and `&` but not `"`, so a double-quoted attribute would be
+       terminated by the first key's own quote. #}
+    <div class="card mb-4" id="preselected-section"
+         data-ja-ids='{{ preselected_items|tojson }}'>
+        <div class="card-header">
+            <h5 class="mb-0">
+                <i class="bi bi-check2-square"></i> Items From Your Selection
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if preselected_items %}
+            <p id="preselected-prompt" class="mb-3">
+                {% if preselected_items|length == 1 %}
+                <strong>1 item is awaiting a destination.</strong>
+                Scan or enter the location it is going to.
+                {% else %}
+                <strong>{{ preselected_items|length }} items are awaiting a destination.</strong>
+                Scan or enter the location all {{ preselected_items|length }} are going to.
+                {% endif %}
+            </p>
+            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm" id="pending-moves">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>Item</th>
+                            <th>Current Location</th>
+                            <th>Current Sub-Location</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ja_id in preselected_items %}
+                        <tr data-ja-id="{{ ja_id }}">
+                            <td><strong>{{ ja_id }}</strong></td>
+                            <td class="pending-current-location text-muted">&hellip;</td>
+                            <td class="pending-current-sub-location text-muted">&hellip;</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p id="preselected-none" class="mb-0">
+                <strong>None of the items you selected can be moved.</strong>
+                They are listed below with the reason. You can still scan items
+                to move in the usual way.
+            </p>
+            {% endif %}
+
+            {# FR-005: never silently dropped. A hand-off that quietly loses an
+               item is the bug this feature exists to fix, in miniature. #}
+            {% if rejected_items %}
+            <div class="alert alert-warning mt-3 mb-0" id="rejected-items">
+                <i class="bi bi-exclamation-triangle"></i>
+                These items were not carried over:
+                <ul class="mb-0 mt-2">
+                    {% for rejected in rejected_items %}
+                    <li data-ja-id="{{ rejected.ja_id }}">
+                        <strong>{{ rejected.ja_id }}</strong> &mdash;
+                        {% if rejected.reason == 'inactive' %}
+                        no longer the active item, so it cannot be moved
+                        {% else %}
+                        not found in the inventory
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="row">
         <div class="col-lg-6">
             <!-- Barcode Input Section -->
@@ -151,8 +229,13 @@
                                 <i class="bi bi-info-circle"></i>
                                 Scan <code>>>DONE&lt;&lt;</code> or click "Validate & Preview" to review moves before executing
                             </small>
+                            {# FR-018: when validation is unavailable because an
+                               item is half-entered, say which item and why.
+                               Disabled-with-no-reason is what made issue #107
+                               impossible for the user to act on. #}
+                            <div><small class="text-warning" id="validate-hint"></small></div>
                         </div>
-                        
+
                         <div class="btn-group">
                             <button type="button" class="btn btn-outline-primary" id="validate-btn" disabled>
                                 <i class="bi bi-check-square"></i> Validate & Preview

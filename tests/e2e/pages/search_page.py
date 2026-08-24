@@ -35,6 +35,8 @@ class SearchPage(InventoryTableMixin, BasePage):
     WALL_THICKNESS_MAX = "#wall_thickness_max"
 
     # Search controls
+    OPTIONS_MENU = 'button:has-text("Options")'
+    BULK_MOVE_ITEM = "#search-bulk-move-btn"
     SEARCH_BUTTON = "button[type='submit']"
     CLEAR_BUTTON = "#clear-form-btn"
     ADVANCED_SEARCH_TOGGLE = "#advanced-search-toggle"  # This doesn't exist in HTML
@@ -57,6 +59,24 @@ class SearchPage(InventoryTableMixin, BasePage):
         """Navigate to search page"""
         self.navigate_to("/inventory/search")
     
+    def open_options_menu(self):
+        """Open the results Options dropdown and wait for it to be usable."""
+        self.page.locator(self.OPTIONS_MENU).first.click()
+        expect(self.page.locator(self.BULK_MOVE_ITEM)).to_be_visible()
+
+    def click_bulk_move_selected(self):
+        """Operate the real Bulk Move Selected control on the Search page.
+
+        The list page's twin, deliberately: the two producers spelled the
+        parameter differently, and the only test that catches them drifting
+        apart again is one that drives both controls rather than a URL
+        (FR-019). handleBulkMove() assigns window.location.href, so the URL
+        changing is what proves the hand-off was emitted.
+        """
+        self.open_options_menu()
+        self.page.locator(self.BULK_MOVE_ITEM).click()
+        self.page.wait_for_url("**/inventory/move**")
+
     def fill_material(self, material: str) -> None:
         """Type into the material field and dismiss its autocomplete.
 

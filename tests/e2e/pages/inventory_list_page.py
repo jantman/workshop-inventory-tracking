@@ -18,6 +18,8 @@ class InventoryListPage(InventoryTableMixin, BasePage):
     TABLE_ROWS = "tbody tr"
     TABLE_BODY_SELECTOR = "#inventory-table-body"  # Override mixin selector
     TABLE_ROWS_SELECTOR = "#inventory-table-body tr"  # Override mixin selector
+    OPTIONS_MENU = 'button:has-text("Options")'
+    BULK_MOVE_ITEM = "#bulk-move-btn"
     SEARCH_INPUT = "#search-filter"
     FILTER_MATERIAL = "#material-filter"
     FILTER_LOCATION = "#location-filter"  # Note: this doesn't exist in the template
@@ -60,6 +62,32 @@ class InventoryListPage(InventoryTableMixin, BasePage):
                 f"{(error_state.text_content() or '').strip()}"
             )
     
+    def open_options_menu(self):
+        """Open the Options dropdown and wait for it to be usable.
+
+        Bootstrap animates the menu open, so the entries are present before they
+        are clickable; waiting for the entry itself is what makes the next click
+        land rather than wait out its timeout.
+        """
+        self.page.locator(self.OPTIONS_MENU).first.click()
+        expect(self.page.locator(self.BULK_MOVE_ITEM)).to_be_visible()
+
+    def click_bulk_move_selected(self):
+        """Operate the real Bulk Move Selected control and land on the Move page.
+
+        FR-019 requires the hand-off be exercised through the control the user
+        operates. Building `/inventory/move?ja_id=...` in the test and calling
+        goto() would assert the receiving half against a URL the test author
+        wrote -- which is exactly how the `items=` / `ja_id=` split survived.
+
+        bulkMoveSelected() assigns window.location.href, so the click has not
+        finished when it returns; the URL changing is what proves the hand-off
+        was emitted.
+        """
+        self.open_options_menu()
+        self.page.locator(self.BULK_MOVE_ITEM).click()
+        self.page.wait_for_url("**/inventory/move**")
+
     def get_inventory_items(self) -> List[Dict[str, str]]:
         """Get list of inventory items from the table (wrapper for get_table_items)"""
         self.wait_for_element(self.INVENTORY_TABLE)
