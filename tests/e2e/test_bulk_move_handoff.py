@@ -320,7 +320,7 @@ def test_a_sub_location_scanned_first_is_refused_with_an_explanation(page, live_
 
     scan_on_move_page(page, "Drawer 3")
     expect(page.locator("#queue-count")).to_have_text("0 items")
-    expect(page.locator("#form-alerts .alert")).to_contain_text("location")
+    expect(page.locator("#form-alerts .alert").last).to_contain_text("location")
     # Still awaiting the destination, and a valid one still works.
     expect(_pending_rows(page)).to_have_count(1)
     scan_on_move_page(page, DESTINATION)
@@ -337,7 +337,7 @@ def test_done_with_no_destination_queues_nothing_and_says_why(page, live_server)
     scan_on_move_page(page, ">>DONE<<")
     expect(page.locator("#queue-count")).to_have_text("0 items")
     expect(page.locator("#validate-btn")).to_be_disabled()
-    expect(page.locator("#form-alerts .alert")).to_contain_text("destination")
+    expect(page.locator("#form-alerts .alert").last).to_contain_text("destination")
     # And the destination can still be given afterwards.
     scan_on_move_page(page, DESTINATION)
     expect(page.locator("#queue-count")).to_have_text("1 item")
@@ -377,3 +377,67 @@ def test_the_hand_off_url_uses_the_one_convention(page, live_server):
     _hand_off_from_search(page, live_server, ["JA000101", "JA000102"])
     assert re.search(r"[?&]ja_id=JA000101(,|%2C)JA000102", page.url), page.url
     assert "items=" not in page.url, page.url
+
+
+@pytest.mark.e2e
+def test_removing_a_queued_row_does_not_misplace_the_group_sub_location(page, live_server):
+    """The group's sub-location must follow the items, not their positions.
+
+    The queue's per-row Remove button splices `moveQueue`, so every row after
+    the removed one shifts down. A group remembered by queue position would then
+    write its sub-location onto whichever item slid into the vacated index --
+    and, for the last index, onto nothing at all, throwing before the state
+    machine could reset and leaving the page wedged with no way forward. That is
+    the failure class this feature exists to close (#107), reached by a
+    different route.
+    """
+    _seed(live_server)
+    _hand_off_from_list(page, live_server, [i["ja_id"] for i in ITEMS])
+
+    scan_on_move_page(page, DESTINATION)
+    expect(_queue_rows(page)).to_have_count(3)
+
+    # Remove the *first* row, so every remaining row's index shifts.
+    _queue_row(page, "JA000101").locator("button").click()
+    expect(_queue_rows(page)).to_have_count(2)
+
+    scan_on_move_page(page, "Drawer 3")
+
+    # Both survivors carry the sub-location, and the page is still usable.
+    for spec in ITEMS[1:]:
+        expect(_queue_row(page, spec["ja_id"])).to_contain_text("Drawer 3")
+    expect(page.locator("#scanner-status")).to_have_text("Ready for JA ID")
+    expect(page.locator("#validate-btn")).to_be_enabled()
+
+    scan_on_move_page(page, "JA000101")
+    scan_on_move_page(page, DESTINATION)
+    scan_on_move_page(page, ">>DONE<<")
+    expect(page.locator("#queue-count")).to_have_text("3 items")
+
+
+@pytest.mark.e2e
+def test_a_group_whose_rows_were_all_removed_leaves_the_page_usable(page, live_server):
+    """The same hazard at its limit: nothing is left for the sub-location to
+    attach to, and the page must say so rather than wedge."""
+    _seed(live_server)
+    _hand_off_from_list(page, live_server, [i["ja_id"] for i in ITEMS])
+
+    scan_on_move_page(page, DESTINATION)
+    expect(_queue_rows(page)).to_have_count(3)
+
+    # The badge, not the row count: updateQueueDisplay() only re-renders the
+    # rows while the queue is non-empty, so the last one lingers in the table
+    # after it is hidden. The badge is written on every update.
+    for remaining in ("2 items", "1 item", "0 items"):
+        _queue_rows(page).first.locator("button").click()
+        expect(page.locator("#queue-count")).to_have_text(remaining)
+
+    scan_on_move_page(page, "Drawer 3")
+    expect(page.locator("#form-alerts .alert").last).to_contain_text("no longer in the queue")
+
+    # Still usable: an ordinary scan works from here.
+    scan_on_move_page(page, "JA000101")
+    scan_on_move_page(page, DESTINATION)
+    scan_on_move_page(page, ">>DONE<<")
+    expect(page.locator("#queue-count")).to_have_text("1 item")
+    expect(page.locator("#validate-btn")).to_be_enabled()

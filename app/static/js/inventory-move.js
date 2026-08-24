@@ -28,10 +28,17 @@ class InventoryMoveManager {
         this.pendingMoves = [];
         // Resolves once every pending move's current location is established.
         this.pendingMovesReady = Promise.resolve();
-        // Indexes into moveQueue of the group most recently queued together, so
-        // a sub-location scanned afterwards applies to all of them (FR-009)
+        // The JA IDs of the group most recently queued together, so a
+        // sub-location scanned afterwards applies to all of them (FR-009)
         // rather than only to the last.
-        this.bulkGroupIndexes = [];
+        //
+        // Identity, not queue position. Positions go stale the moment anything
+        // is removed from the queue -- the per-row Remove button splices
+        // moveQueue and shifts every row after it -- and an index kept across
+        // that either writes the sub-location onto the wrong item or onto
+        // nothing at all. Keying by JA ID cannot go stale: a removed row simply
+        // stops matching.
+        this.bulkGroupJaIds = [];
         // Set when handleBarcodeInput() consumed >>DONE<< and emptied the field.
         // The scanner's Enter is still on its way and would otherwise reach
         // processInput() with nothing to process (FR-016).
@@ -418,7 +425,7 @@ class InventoryMoveManager {
 
         // Scanning a new item ends any preselected group: a sub-location from
         // here belongs to this item, not to the group that came before it.
-        this.bulkGroupIndexes = [];
+        this.bulkGroupJaIds = [];
 
         // Store the JA ID and wait for location
         this.currentJaId = jaId;
@@ -446,7 +453,6 @@ class InventoryMoveManager {
         // whose location is perfectly well known (FR-010).
         await this.pendingMovesReady;
 
-        const startIndex = this.moveQueue.length;
         const timestamp = new Date().toISOString();
         this.pendingMoves.forEach(pending => {
             this.moveQueue.push({
@@ -461,7 +467,7 @@ class InventoryMoveManager {
         });
 
         const count = this.pendingMoves.length;
-        this.bulkGroupIndexes = this.pendingMoves.map((_, offset) => startIndex + offset);
+        this.bulkGroupJaIds = this.pendingMoves.map(pending => pending.jaId);
         this.pendingMoves = [];
 
         this.discardPreselectedSection();
@@ -499,7 +505,7 @@ class InventoryMoveManager {
     }
 
     handleSubLocationInput(subLocation) {
-        if (this.bulkGroupIndexes.length > 0) {
+        if (this.bulkGroupJaIds.length > 0) {
             // FR-009: the sub-location belongs to the group that was just
             // queued, not to whichever of its rows happens to be last.
             this.applySubLocationToGroup(subLocation);
@@ -518,20 +524,45 @@ class InventoryMoveManager {
      * These rows are already in the queue, so nothing is added and the queue
      * count does not move -- the state reset below is what happens last, and is
      * therefore what a test can wait on.
+     *
+     * Rows are matched by JA ID rather than by remembered position, because the
+     * queue can have shrunk since the group was queued: removeFromQueue()
+     * splices moveQueue and shifts everything after the removed row. Matching by
+     * identity means a removed row simply is not found, instead of the write
+     * landing on whichever item slid into its index.
+     *
+     * The state is reset whatever is found, including nothing. Leaving the
+     * machine in a state no input can move it out of is the failure class this
+     * feature exists to close (#107), and an emptied group is not a reason to
+     * reintroduce it.
      */
     applySubLocationToGroup(subLocation) {
-        const count = this.bulkGroupIndexes.length;
-        this.bulkGroupIndexes.forEach(index => {
-            this.moveQueue[index].newSubLocation = subLocation;
+        const group = new Set(this.bulkGroupJaIds);
+        this.bulkGroupJaIds = [];
+
+        const applied = this.moveQueue.filter(item => group.has(item.jaId));
+        applied.forEach(item => {
+            item.newSubLocation = subLocation;
         });
-        this.bulkGroupIndexes = [];
 
         this.currentJaId = null;
         this.currentLocation = null;
         this.currentExpectedInput = 'ja_id';
-        this.updateStatus(
-            `Sub-location ${subLocation} applied to ${count} item${count !== 1 ? 's' : ''}. ` +
-            'Ready to scan the next JA ID.');
+
+        if (applied.length === 0) {
+            // Every row the group put in the queue has since been removed, so
+            // there is nothing for this sub-location to attach to.
+            this.showAlert(
+                `Sub-location ${subLocation} was not applied: the items it belonged to ` +
+                'are no longer in the queue.',
+                'warning');
+            this.updateStatus('Ready to scan the next JA ID.');
+        } else {
+            this.updateStatus(
+                `Sub-location ${subLocation} applied to ${applied.length} ` +
+                `item${applied.length !== 1 ? 's' : ''}. Ready to scan the next JA ID.`);
+        }
+
         this.updateScannerStatus('Ready for JA ID');
         this.updateUI();
     }
@@ -650,7 +681,7 @@ class InventoryMoveManager {
             // so there is no half-entered move to finalize -- the rows are
             // already in the queue. Just close the group off so a later
             // sub-location cannot reopen it.
-            this.bulkGroupIndexes = [];
+            this.bulkGroupJaIds = [];
             this.currentLocation = null;
             this.currentExpectedInput = 'ja_id';
         }
@@ -695,7 +726,7 @@ class InventoryMoveManager {
         // The group's rows are gone, so the indexes that pointed at them are
         // stale -- a sub-location scanned afterwards would write into a queue
         // that no longer has those positions.
-        this.bulkGroupIndexes = [];
+        this.bulkGroupJaIds = [];
 
         // A preselected group cannot be re-fetched by scanning a location
         // again, so having cleared it the page must fall back to ordinary

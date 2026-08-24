@@ -103,7 +103,7 @@ def test_a_ja_id_while_a_location_is_expected_resolves_the_machine(page, live_se
     # abandoned one is named rather than lost silently.
     assert page.evaluate("() => window.moveManager.currentJaId") == "JA200002"
     assert page.evaluate("() => window.moveManager.currentExpectedInput") == "location"
-    expect(page.locator("#form-alerts .alert")).to_contain_text("JA200001")
+    expect(page.locator("#form-alerts .alert").last).to_contain_text("JA200001")
 
     # And the session continues normally from there.
     scan_on_move_page(page, "M2-A")

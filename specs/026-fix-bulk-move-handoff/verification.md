@@ -129,11 +129,12 @@ the buttons are still **not** enabled merely because the queue is non-empty —
 | `nox -s tests`, baseline | 1683 passed | 30.39s |
 | `nox -s tests`, after | **1713 passed** (+30) | 27.10s |
 | `nox -s e2e`, baseline | 615 passed | 770.29s (12:50) |
-| `nox -s e2e`, after | **637 passed** (+22), 0 reruns | **819.81s (13:39)** |
+| `nox -s e2e`, after | **639 passed** (+24), 0 reruns | **800.61s (13:20)** |
 
-**+22 tests, +49.5s.** Roughly 2.25s per added test, which is the suite's own
+**+24 tests, +30.3s.** Roughly 1.3s per added test, at or below the suite's own
 average — the added tests are not slow, there are simply more of them. That
-leaves about 80 seconds of margin against the 15-minute figure in `CLAUDE.md`,
+leaves about a hundred seconds of margin against the 15-minute figure in
+`CLAUDE.md`,
 so T025's fourteen-pair count did not need reducing. It is the thing to reduce
 first if that margin is ever threatened; the wait discipline is not, because
 there is none left to remove.
@@ -209,3 +210,43 @@ the receiving page's rejection reporting, a state no sequence of clicks can
 produce, and the convention itself is pinned separately by
 `test_the_hand_off_url_uses_the_one_convention`, which drives both bulk
 producers and asserts on the URL each one emits.
+
+
+---
+
+## Post-review — the group's sub-location must follow items, not positions
+
+Raised in review on PR #120 and fixed in a follow-up commit.
+
+`bulkGroupIndexes` remembered the group by *queue position*. The queue's per-row
+Remove button calls `removeFromQueue()`, which splices `moveQueue` and shifts
+every row after the removed one, and it never updated those indexes. Two things
+followed, and the second is the worse one:
+
+1. Removing the last row of a group left an index pointing past the end, so
+   `applySubLocationToGroup()` threw `TypeError: Cannot set properties of
+   undefined (setting 'newSubLocation')` — **before** the state reset at the
+   bottom of the method. `currentExpectedInput` stayed `ja_id_or_sub_location`,
+   the stale indexes stayed, and `clearInput()` never ran. That is the
+   silent-wedge failure class this feature exists to close (#107), reached
+   through a different door.
+2. Removing any *earlier* row shifted the survivors, so the sub-location was
+   written onto whichever item slid into the vacated index. No error, wrong
+   data.
+
+The group is now keyed by JA ID (`bulkGroupJaIds`) and matched against the queue
+by identity, so a removed row simply stops matching and nothing can be written
+to the wrong item. The state resets whatever is found, including nothing: an
+emptied group says so and returns the page to `ja_id` rather than reintroducing
+the wedge.
+
+Two regression tests were added, and both were confirmed to fail against the
+reviewed code with exactly the reported `TypeError` before the fix was restored:
+
+| Test | Covers |
+|---|---|
+| `test_removing_a_queued_row_does_not_misplace_the_group_sub_location` | the shifted-position case, and that the page stays usable afterwards |
+| `test_a_group_whose_rows_were_all_removed_leaves_the_page_usable` | the limit case: nothing left to apply to |
+
+`nox -s tests`: 1713 passed. `nox -s e2e`: **639 passed** (+2), 800.61s (13:20),
+0 reruns.

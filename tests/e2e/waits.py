@@ -70,7 +70,7 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
         "() => ({ state: window.moveManager.currentExpectedInput,"
         "         queued: window.moveManager.moveQueue.length,"
         "         pending: window.moveManager.pendingMoves.length,"
-        "         grouped: window.moveManager.bulkGroupIndexes.length,"
+        "         grouped: window.moveManager.bulkGroupJaIds.length,"
         "         inProgress: window.moveManager.currentJaId !== null,"
         "         alerts: document.querySelectorAll('#form-alerts .alert').length"
         "       })"
