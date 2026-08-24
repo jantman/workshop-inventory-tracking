@@ -105,10 +105,21 @@
         }
 
         describeCategory(source, target) {
+            // Only occupied rows. A category exists solely as a path on a
+            // product, so a row at count 0 is a branch the taxonomy offers and
+            // nothing more -- `rename_category` rewrites product rows and
+            // cannot see it. Counting those would promise moves that will not
+            // happen and warn about collisions the server will not raise.
+            //
+            // Filtered here rather than in readRows() because tags are the
+            // opposite: a tag row with no products is a real row, and
+            // describeTag needs it to detect a merge into an empty tag.
+            const occupied = this.rows.filter((row) => row.count > 0);
+
             // The subtree is the source row plus every descendant row. The
             // boundary is the separator, not the character count, so
             // "elctronics-surplus" is a different category and is not counted.
-            const subtree = this.rows.filter(
+            const subtree = occupied.filter(
                 (row) => isDescendant(row.value, source)
             );
             const products = subtree.reduce((sum, row) => sum + row.count, 0);
@@ -137,7 +148,7 @@
             // A collision is a row at or under the target that is not itself
             // part of the subtree being moved -- renaming "a" to "b" when "a/b"
             // exists is fine, because "a/b" is coming along and becomes "b/b".
-            const collision = this.rows.find(
+            const collision = occupied.find(
                 (row) => isDescendant(row.value, target)
                     && !isDescendant(row.value, source)
             );

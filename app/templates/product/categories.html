@@ -14,9 +14,13 @@
 
 {% block product_content %}
 <p class="text-muted">
-    A category exists because a product is in it. Type a new one on a product and it is
-    created; move the last product out and it is gone. There is nothing here to set up.
-    Renaming one carries its sub-categories and every product beneath them.
+    The branches of the taxonomy record, plus any category a product carries that the
+    record does not name &mdash; those are marked <em>not in the record</em>. A branch
+    showing <span class="badge text-bg-light border">0</span> holds nothing itself. If
+    nothing sits beneath it either, there is no row to rewrite and no <strong>Rename</strong>
+    button &mdash; a branch like that exists only in the record, and is renamed by editing
+    <code>docs/category-taxonomy.md</code>. A parent whose children hold products still
+    renames, and carries its sub-categories and every product beneath them.
 </p>
 
 <div class="card">
@@ -31,18 +35,32 @@
                 <span class="text-muted small ms-2">{{ category.path }}</span>
             </a>
             <span class="d-flex align-items-center gap-2">
-                <span class="badge text-bg-secondary rounded-pill">{{ category.count }}</span>
+                {% if not category.in_taxonomy %}
+                <span class="badge text-bg-light border fw-normal untaxonomied"
+                      title="Typed on a product; docs/category-taxonomy.md does not name it">
+                    not in the record
+                </span>
+                {% endif %}
+                <span class="badge {{ 'text-bg-secondary' if category.count else 'text-bg-light border' }} rounded-pill">{{ category.count }}</span>
+                {# Gated on the subtree, not the direct count. rename_category
+                   rewrites every product at or under the path, so a parent
+                   holding nothing itself still renames and carries its children.
+                   Only a branch with an empty subtree has nothing to rewrite. #}
+                {% if category.subtree_count %}
                 <button type="button" class="btn btn-sm btn-outline-secondary rename-btn"
                         data-rename-value="{{ category.path }}"
                         data-rename-count="{{ category.count }}"
                         aria-label="Rename {{ category.path }}">
                     <i class="bi bi-pencil"></i> Rename
                 </button>
+                {% endif %}
             </span>
         </li>
         {% else %}
+        {# Reachable again once CATEGORY_TAXONOMY_FILE can be an empty array:
+           an operator who wants no suggestions and has filed nothing yet. #}
         <li class="list-group-item text-center text-muted py-4" id="no-categories">
-            Nothing is categorized yet.
+            Nothing is categorized yet, and the taxonomy offers no branches.
         </li>
         {% endfor %}
     </ul>

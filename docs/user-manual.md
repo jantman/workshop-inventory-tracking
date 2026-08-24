@@ -784,8 +784,12 @@ bin up. Write it the way you would say it out loud.
 - **Manufacturer / Manufacturer Part Number** -- optional.
 - **Specifications** -- free-form. Voltage, thread pitch, tolerance; whatever you
   will want to know later. Nothing generates this for you.
-- **Category** -- slash-separated and any depth: `electronics/passives/resistors`.
-  Typing a new one creates it. There is no setup step and no admin screen.
+- **Category** -- slash-separated: `electronics/dev boards/esp32 & esp8266`. The
+  suggestions are the branches of the [category taxonomy](category-taxonomy.md),
+  offered whether or not anything is filed in them yet, so you pick a branch
+  rather than retyping one from memory. They are suggestions and not a
+  whitelist: typing something the taxonomy does not name still works, and still
+  creates it.
 - **Tags** -- comma-separated, and they cut across categories.
 - **Storage Location** -- optional, and free text. As you type, it suggests
   locations already recorded *anywhere* in the application -- on metal stock as
@@ -985,8 +989,9 @@ vendor's page can say what kind of thing this is to *you*, or where it goes in
 here is what saves opening the product afterwards to file it.
 
 All three are optional and independent, and leaving them blank is an ordinary
-outcome rather than an omission to come back to. A category you type does not
-have to exist first -- typing it is how it is created.
+outcome rather than an omission to come back to. The category suggestions are the
+[taxonomy](category-taxonomy.md)'s branches, and a category you type does not
+have to be among them -- or to exist first. Typing it is how it is created.
 
 **On a capture that attaches to a product you already own**, a value you type
 here *replaces* the one the product had: you are holding the thing and saying
@@ -1313,19 +1318,39 @@ To browse the category and tag trees rather than search across them, see
 
 ## Categories and Tags
 
-**Products → Categories** browses the tree with a count against each. A category
-exists because something is in it: type a new one on a product to create it, and
-move the last product out to remove it. There are no empty categories to tidy up.
+**Products → Categories** browses the tree with a count against each. The rows
+come from two places: the branches of the [category taxonomy](category-taxonomy.md),
+and any category a product carries that the taxonomy does not name. The shipped
+taxonomy is one workshop's and a deployment can replace it with its own -- see the
+[deployment guide](deployment-guide.md#1-environment-variables) -- so the branches
+you see may not be the ones documented there.
+
+A branch showing a count of **0** holds nothing *directly*. It may still have
+products further down: the count on each row is that row's own, so a parent
+whose children hold everything reads 0 and is entirely normal.
+
+A branch with nothing beneath it either carries no **Rename** button. There is no
+row anywhere to rewrite, so such a branch exists only in the taxonomy record and
+is renamed by editing `docs/category-taxonomy.md`. A parent with occupied
+children keeps its button and renames like any other. A row marked *not in the record* is
+one somebody typed on a product; it is perfectly legitimate, and the mark is
+there so the divergence between the record and what your products actually carry
+is visible rather than silent.
+
+Categories the taxonomy does not name still work the old way: such a category
+exists because something is in it, and moving the last product out removes it.
 
 ![Category Tree](images/screenshots/user-manual/category_tree.png)
-*The category tree, with a count and a Rename control on every row*
+*The category tree: branches on offer at a count of zero, and a typed category
+marked "not in the record"*
 
 **Products → Tags** is the same view for tags: every tag in use, with how many
 products carry it. Unlike categories, a tag with nothing on it survives, and it
 is shown here with a count of zero -- that is the debris the page exists to
 reveal.
 
-Both pages have a **Rename** button on every row.
+The tags page has a **Rename** button on every row. The categories page has one
+on every row with products in it, for the reason above.
 
 **Renaming a category carries everything beneath it.** Renaming `elctronics` to
 `electronics` moves `elctronics/passives` and

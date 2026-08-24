@@ -55,6 +55,7 @@ from .models import (
 from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
+from .utils import catalog_taxonomy
 from .utils.scan_router import classify
 from .utils.sql import escape_like as _escape_like
 from config import Config
@@ -2569,7 +2570,19 @@ class CatalogService:
     # -- Specification vocabulary -------------------------------------------
 
     def list_specification_names(self, prefix: Optional[str] = None) -> List[str]:
-        """Every specification name in use, for the name datalists (FR-019).
+        """Every specification name in use, plus the keys the taxonomy pins.
+
+        For the name datalists (FR-019). The keys are offered before any product
+        carries them (025 SC-010) for a sharper reason than categories are:
+        ``rename_category`` and ``rename_tag`` exist and there is no
+        ``rename_specification``, so ``Thread`` beside ``Thread Size`` cannot be
+        repaired in bulk once both are in use. Prevention at the point of typing
+        is the only mechanism there is.
+
+        The prefix is applied in Python because half the candidates are not
+        rows. ``_dedupe_fold_case`` then keeps one spelling per folded name,
+        and its sort makes that the record's spelling rather than a lowercase
+        variant somebody typed -- which is the one worth keeping.
 
         Args:
             prefix: Optionally narrow to names starting with this,
@@ -2578,7 +2591,18 @@ class CatalogService:
         Returns:
             The distinct names, sorted case-insensitively.
         """
-        return self._distinct_specification_column(ProductSpecification.name, prefix)
+        candidates = list(
+            self._distinct_specification_column(ProductSpecification.name, None)
+        ) + list(catalog_taxonomy.specification_keys())
+
+        cleaned = _clean(prefix)
+        if cleaned:
+            lowered = cleaned.lower()
+            candidates = [
+                name for name in candidates if name.lower().startswith(lowered)
+            ]
+
+        return _dedupe_fold_case(candidates)
 
     def list_specification_values(
         self, name: str, prefix: Optional[str] = None
@@ -2638,12 +2662,23 @@ class CatalogService:
     # -- Categories --------------------------------------------------------
 
     def list_categories(self, prefix: Optional[str] = None) -> List[str]:
-        """Every category path in use.
+        """Every category path in use, plus every branch the taxonomy names.
 
-        There is no categories table: a category is a string on a product, so
-        this is the distinct set of those strings. The consequence, stated
-        plainly, is that an empty category cannot exist -- which for this
-        workshop is the correct behaviour.
+        There is still no categories table: a category is a string on a product,
+        so an occupied category is the distinct set of those strings. What the
+        taxonomy adds is the branches nobody has filed into yet (025 FR-012) --
+        otherwise the first product into each of them gets typed by hand, which
+        is where two spellings of one category come from.
+
+        Listing a branch creates nothing, and a path in use that the taxonomy
+        does not name is never dropped (025 FR-017). A path that is both offered
+        and occupied appears once, because the union is a set (025 FR-018).
+
+        The subtree filter is applied in Python rather than as a LIKE. Half the
+        candidates are not rows, and ``is_descendant`` is the same
+        segment-boundary rule the SQL encodes -- without the collation's
+        case and accent folding, which ``rename_category`` documents as a source
+        of false matches.
 
         Args:
             prefix: Optionally narrow to a subtree.
@@ -2652,30 +2687,49 @@ class CatalogService:
             Distinct category paths, alphabetically.
         """
         with self._session() as session:
-            query = session.query(Product.category_path).filter(
+            rows = session.query(Product.category_path).filter(
                 Product.category_path.isnot(None)
-            ).distinct()
+            ).distinct().all()
 
-            ancestor = category_utils.canonical(prefix)
-            if ancestor is not None:
-                query = query.filter(or_(
-                    Product.category_path == ancestor,
-                    Product.category_path.like(
-                        category_utils.descendant_like_pattern(ancestor), escape='\\'
-                    ),
-                ))
+        paths = {row[0] for row in rows} | set(catalog_taxonomy.category_paths())
 
-            return sorted(row[0] for row in query.all())
+        ancestor = category_utils.canonical(prefix)
+        if ancestor is not None:
+            paths = {
+                path for path in paths
+                if category_utils.is_descendant(path, ancestor)
+            }
+
+        return sorted(paths)
 
     def category_tree(self) -> List[Dict[str, Any]]:
-        """The categories in use, with how many products sit directly in each.
+        """Every category, with how many products sit directly in each.
+
+        The union of the paths products carry and the branches the taxonomy
+        names, so the page shows the tree rather than the subset of it that
+        happens to be occupied.
+
+        ``count`` is 0 for a branch on offer that nobody has filed into, which
+        was previously an entry that could not exist. ``in_taxonomy`` is False
+        for a path somebody typed that the record does not name -- legitimate
+        (025 FR-015), and the only thing that makes that divergence visible
+        (025 FR-019).
+
+        ``subtree_count`` is what a caller must gate a rename control on, and
+        it is deliberately not ``count``. ``rename_category`` rewrites every
+        product at *or under* the path and refuses only when that whole set is
+        empty -- so a parent branch holding nothing directly, with an occupied
+        child, renames perfectly well and carries the child with it. Gating on
+        ``count`` would hide the control for most of the parents a taxonomy
+        adds, because filing happens at the leaves.
 
         Args:
             None.
 
         Returns:
-            One entry per category path: its path, its depth, and its direct
-            product count.
+            One entry per category path: its path, its depth, its name, its
+            direct product count, the count at or under it, and whether the
+            taxonomy names it.
         """
         with self._session() as session:
             rows = session.query(
@@ -2684,14 +2738,26 @@ class CatalogService:
                 Product.category_path.isnot(None)
             ).group_by(Product.category_path).all()
 
+        counts = {path: count for path, count in rows}
+        taxonomy = set(catalog_taxonomy.category_paths())
+
+        def subtree_total(path: str) -> int:
+            """Products at or under ``path`` -- the set a rename would move."""
+            return sum(
+                occupants for occupied, occupants in counts.items()
+                if category_utils.is_descendant(occupied, path)
+            )
+
         return [
             {
                 'path': path,
                 'depth': len(category_utils.segments(path)),
                 'name': category_utils.segments(path)[-1],
-                'count': count,
+                'count': counts.get(path, 0),
+                'subtree_count': subtree_total(path),
+                'in_taxonomy': path in taxonomy,
             }
-            for path, count in sorted(rows)
+            for path in sorted(set(counts) | taxonomy)
         ]
 
     def _subtree_clause(self, path: str):

@@ -1088,12 +1088,17 @@ class TestDocumentationScreenshots:
         page.goto(f"{live_server.url}/products/categories")
         expect(page.locator("#category-tree")).to_be_visible()
 
+        # Viewport, not full page. 025 put every branch of the taxonomy record
+        # on this page whether or not a product occupies it, so a full-page
+        # capture is 142 rows tall -- a megabyte, double the 500KB limit
+        # screenshots_verify enforces, and unreadable at any size a manual
+        # renders it. The top of the tree is what illustrates the page.
         self.screenshot.capture_viewport(
             "user-manual/category_tree.png",
             viewport_size=(1920, 1080),
             wait_for_selector="#category-tree",
             hide_selectors=[".toast-container"],
-            full_page=True
+            full_page=False
         )
 
         print("✓ Generated screenshot: user-manual/category_tree.png")

@@ -37,6 +37,12 @@ class Config:
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ['true', '1', 'yes']
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 
+    # CATEGORY_TAXONOMY_FILE and SPECIFICATION_KEYS_FILE are deliberately absent
+    # here. app/utils/catalog_taxonomy.py reads them from the environment itself,
+    # because it is a pure module with no Flask import and is used by tests that
+    # never build an app. Mirroring them into a setting nothing reads would be a
+    # knob that looks live and is not. See .env.example for what they do.
+
 
 class TestConfig(Config):
     """Test configuration using MariaDB test database"""

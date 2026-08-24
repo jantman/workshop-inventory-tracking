@@ -11,6 +11,10 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import ValidationError
+from app.utils.catalog_taxonomy import (
+    DEFAULT_CATEGORY_PATHS,
+    DEFAULT_SPECIFICATION_KEYS,
+)
 
 
 @pytest.fixture
@@ -254,30 +258,77 @@ class TestStockFilter:
 
 
 class TestCategoryListing:
+    """The listing is the union of what is in use and what the taxonomy names.
+
+    These assertions became containment rather than equality when 025 added the
+    taxonomy: the list now carries every branch of docs/category-taxonomy.md
+    whether or not a product occupies it. What each test is actually about --
+    in-use paths surviving, the subtree boundary, and a category vanishing with
+    its last product -- is unchanged, so each is expressed against the paths it
+    is about rather than against the whole list.
+    """
+
+    IN_USE = [
+        'electronics-surplus',
+        'electronics/active',
+        'electronics/passives/capacitors',
+        'electronics/passives/resistors',
+        'hardware/fasteners',
+        'workshop/salvage',
+    ]
+
     def test_lists_the_categories_in_use(self, catalog):
-        assert catalog.list_categories() == [
-            'electronics-surplus',
-            'electronics/active',
-            'electronics/passives/capacitors',
-            'electronics/passives/resistors',
-            'hardware/fasteners',
-            'workshop/salvage',
-        ]
+        listed = catalog.list_categories()
+        assert set(self.IN_USE) <= set(listed)
+        assert listed == sorted(listed)
+
+    def test_lists_taxonomy_branches_no_product_occupies(self, catalog):
+        """025 FR-012: the branch has to be offered before anything is in it"""
+        listed = catalog.list_categories()
+        assert set(DEFAULT_CATEGORY_PATHS) <= set(listed)
+
+    def test_each_path_appears_once(self, catalog):
+        """025 FR-018: offered and occupied are one branch, not two"""
+        listed = catalog.list_categories()
+        assert len(listed) == len(set(listed))
 
     def test_a_prefix_narrows_to_a_subtree(self, catalog):
-        assert catalog.list_categories(prefix='electronics') == [
+        """The boundary is the separator, not the character count.
+
+        ``electronics-surplus`` is a different category that merely starts with
+        the same letters, and it is the reason this test exists.
+        """
+        listed = catalog.list_categories(prefix='electronics')
+
+        assert {
             'electronics/active',
             'electronics/passives/capacitors',
             'electronics/passives/resistors',
-        ]
+        } <= set(listed)
+        assert 'electronics-surplus' not in listed
+        assert 'hardware/fasteners' not in listed
+        assert 'workshop/salvage' not in listed
+        assert all(
+            path == 'electronics' or path.startswith('electronics/')
+            for path in listed
+        )
 
-    def test_an_empty_category_cannot_exist(self, service):
-        """There is no categories table, so nothing can be in one and empty"""
+    def test_a_category_the_taxonomy_does_not_name_exists_only_while_occupied(
+        self, service
+    ):
+        """Still no categories table: such a category dies with its last product.
+
+        The taxonomy did not change this. It named 142 branches that are offered
+        regardless, and left everything else exactly as it was -- a string on a
+        product and nothing more.
+        """
+        assert 'temporary' not in DEFAULT_CATEGORY_PATHS
+
         product = service.create_product(description='x', category_path='temporary')
-        assert service.list_categories() == ['temporary']
+        assert 'temporary' in service.list_categories()
 
         service.update_product(product.id, category_path=None)
-        assert service.list_categories() == []
+        assert 'temporary' not in service.list_categories()
 
     def test_the_tree_carries_direct_counts(self, catalog):
         tree = {entry['path']: entry['count'] for entry in catalog.category_tree()}
@@ -291,6 +342,118 @@ class TestCategoryListing:
         )
         assert entry['depth'] == 3
         assert entry['name'] == 'resistors'
+
+    def test_the_tree_offers_taxonomy_branches_at_a_count_of_zero(self, catalog):
+        """An entry that could not previously exist: on offer, unoccupied.
+
+        Anything rendering a rename control has to gate on this count --
+        rename_category refuses a category no product carries.
+        """
+        entry = self._entry(catalog, 'fasteners/machine screws & bolts/socket head cap')
+        assert entry['count'] == 0
+        assert entry['in_taxonomy'] is True
+
+    def test_the_tree_flags_a_path_the_taxonomy_does_not_name(self, catalog):
+        """025 FR-019: the only thing that makes that divergence visible"""
+        entry = self._entry(catalog, 'electronics/passives/resistors')
+        assert entry['count'] == 1
+        assert entry['in_taxonomy'] is False
+
+    def test_the_tree_flags_an_occupied_taxonomy_branch_as_both(self, service):
+        branch = 'electronics/dev boards/arduino'
+        service.create_product(description='Uno', category_path=branch)
+
+        entry = self._entry(service, branch)
+        assert entry['count'] == 1
+        assert entry['in_taxonomy'] is True
+
+    def test_the_tree_lists_each_path_once(self, service):
+        """025 FR-018, at the other consumer of the union"""
+        service.create_product(
+            description='Uno', category_path='electronics/dev boards/arduino'
+        )
+        paths = [entry['path'] for entry in service.category_tree()]
+        assert len(paths) == len(set(paths))
+
+    def test_the_tree_never_drops_an_occupied_path(self, catalog):
+        """025 FR-017: the taxonomy adds branches, it does not prune the catalog"""
+        paths = {entry['path'] for entry in catalog.category_tree()}
+        assert set(self.IN_USE) <= paths
+
+    def test_the_tree_carries_the_subtree_count_a_rename_would_move(self, service):
+        """025: `count` is this row's own; `subtree_count` is what renames.
+
+        The browse page gates its Rename control on the second, because the
+        first is 0 for a parent whose children hold everything -- and gating on
+        that hid the control for most of the parents the taxonomy adds.
+        """
+        service.create_product(
+            description='Uno', category_path='electronics/dev boards/arduino'
+        )
+
+        parent = self._entry(service, 'electronics/dev boards')
+        root = self._entry(service, 'electronics')
+        leaf = self._entry(service, 'electronics/dev boards/arduino')
+
+        assert (parent['count'], parent['subtree_count']) == (0, 1)
+        assert (root['count'], root['subtree_count']) == (0, 1)
+        assert (leaf['count'], leaf['subtree_count']) == (1, 1)
+
+    def test_an_empty_branch_has_an_empty_subtree(self, service):
+        """Nothing anywhere beneath it: no row to rewrite, no rename."""
+        entry = self._entry(service, 'fasteners/rivets')
+
+        assert (entry['count'], entry['subtree_count']) == (0, 0)
+
+    def test_the_subtree_count_respects_the_separator_boundary(self, service):
+        """`electronics-surplus` is a different category, not a descendant."""
+        service.create_product(description='x', category_path='electronics-surplus')
+
+        assert self._entry(service, 'electronics')['subtree_count'] == 0
+
+    def test_the_subtree_count_includes_paths_the_taxonomy_does_not_name(self, service):
+        """A typed child still makes its parent renameable."""
+        service.create_product(
+            description='x', category_path='electronics/dev boards/homebrew'
+        )
+
+        assert self._entry(service, 'electronics/dev boards')['subtree_count'] == 1
+
+    @staticmethod
+    def _entry(catalog, path):
+        return next(e for e in catalog.category_tree() if e['path'] == path)
+
+
+class TestSpecificationNameVocabulary:
+    """025 SC-010: the one vocabulary with no rename to repair it afterwards."""
+
+    def test_offers_the_pinned_keys_before_any_product_carries_them(self, service):
+        assert set(DEFAULT_SPECIFICATION_KEYS) <= set(service.list_specification_names())
+
+    def test_still_offers_a_name_in_use_that_the_record_does_not_pin(self, catalog):
+        """The record is a default, not a whitelist -- here as much as anywhere"""
+        names = catalog.list_specification_names()
+        assert 'Dielectric' not in DEFAULT_SPECIFICATION_KEYS
+        assert 'Dielectric' in names
+
+    def test_a_pinned_key_and_a_typed_variant_collapse_to_one(self, service):
+        """And the surviving spelling is the record's, not the typed one"""
+        service.create_product(
+            description='resistor',
+            specifications=[{'name': 'material', 'value': 'carbon film'}],
+        )
+        names = service.list_specification_names()
+
+        assert [n for n in names if n.lower() == 'material'] == ['Material']
+
+    def test_a_prefix_narrows_the_union_not_just_the_names_in_use(self, service):
+        names = service.list_specification_names(prefix='thr')
+        assert 'Thread' in names
+        assert all(name.lower().startswith('thr') for name in names)
+
+    def test_each_name_appears_once(self, catalog):
+        names = catalog.list_specification_names()
+        assert len(names) == len(set(names))
 
 
 class TestTags:
@@ -491,10 +654,20 @@ class TestSpecificationVocabulary:
     """FR-019, FR-020. The case-folding dedup is e2e's to prove, not SQLite's."""
 
     def test_names_in_use_are_listed(self, converters):
-        assert converters.list_specification_names() == ['Output current', 'Voltage']
+        """Folded, because 025 lets the record's spelling win.
 
-    def test_names_are_empty_when_nothing_is_recorded(self, service):
-        assert service.list_specification_names() == []
+        The fixture records "Output current"; the record pins "Output Current".
+        Those are one name to every filter, and the listing keeps the record's
+        capitalization -- which is the point, not an accident. See
+        TestSpecificationNameVocabulary for that behaviour on its own.
+        """
+        listed = {name.lower() for name in converters.list_specification_names()}
+        assert {'output current', 'voltage'} <= listed
+
+    def test_only_the_pinned_keys_remain_when_nothing_is_recorded(self, service):
+        """025: with no products there are no names in use, so the keys are all
+        that is left. Previously this was the empty list."""
+        assert set(service.list_specification_names()) == set(DEFAULT_SPECIFICATION_KEYS)
 
     def test_a_prefix_narrows_the_names(self, converters):
         assert converters.list_specification_names(prefix='Vol') == ['Voltage']

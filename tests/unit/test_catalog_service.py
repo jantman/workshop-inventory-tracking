@@ -14,6 +14,7 @@ import pytest
 
 from app.catalog_service import CatalogService
 from app.exceptions import DuplicateItemError, ItemNotFoundError, ValidationError
+from app.utils.catalog_taxonomy import DEFAULT_CATEGORY_PATHS
 
 
 @pytest.fixture
@@ -408,6 +409,41 @@ class TestRenameCategoryRefusals:
             'child': 'electronics/passives',
             'other': 'hardware',
         }
+
+    def test_a_taxonomy_branch_no_product_occupies_is_refused(self, tree):
+        """025 research D4: this refusal is why the browse page gates the control.
+
+        The taxonomy puts unoccupied branches on the page. A rename is a prefix
+        rewrite across rows and there are none, so the control must not be
+        offered on those rows -- renaming them means editing the record and
+        app/utils/catalog_taxonomy.py. If this behaviour ever changes, the
+        template's gating becomes wrong rather than merely redundant.
+        """
+        branch = 'electronics/dev boards/arduino'
+        assert branch in DEFAULT_CATEGORY_PATHS
+        assert branch in [entry['path'] for entry in tree.category_tree()]
+
+        with pytest.raises(ValidationError) as excinfo:
+            tree.rename_category(branch, 'electronics/dev boards/uno')
+        assert 'no category' in str(excinfo.value.message).lower()
+        assert _paths(tree) == self._unchanged(tree)
+
+    def test_a_parent_holding_nothing_directly_still_renames(self, service):
+        """025: the case the browse page's gate originally got wrong.
+
+        ``rename_category`` rewrites every product at or under the path and
+        refuses only when that whole set is empty. A parent with an occupied
+        child holds nothing itself and renames perfectly well -- which is most
+        of the parents a taxonomy adds, because filing happens at the leaves.
+        """
+        service.create_product(
+            description='Uno', category_path='electronics/dev boards/arduino'
+        )
+
+        report = service.rename_category('electronics/dev boards', 'electronics/sbc')
+
+        assert report['products'] == 1
+        assert _paths(service) == {'Uno': 'electronics/sbc/arduino'}
 
     def test_blank_source_is_refused(self, tree):
         with pytest.raises(ValidationError) as excinfo:
