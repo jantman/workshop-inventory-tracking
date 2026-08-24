@@ -14,6 +14,7 @@
 5. [Managing Existing Inventory](#managing-existing-inventory)
    - [Photo Management](#photo-management)
 6. [Advanced Search](#advanced-search)
+   - [Find Stock for a Part](#find-stock-for-a-part)
 7. [Batch Operations](#batch-operations)
 
 **Product Catalog — what you bought, what it cost, where it came from**
@@ -642,6 +643,80 @@ This hierarchical search makes it easy to find all items of a general material t
 - **Hierarchical Materials**: Search broad categories to find all variants
 - **Export Results**: Download search results as CSV
 - **Bookmark Searches**: Save frequently used search URLs
+
+### Find Stock for a Part
+
+![Find Stock Form](images/screenshots/user-manual/find_stock_form.png)
+*Describing the piece you need: material, shape, dimensions and an optional tolerance on each*
+
+Access via **Inventory → Find Stock for a Part**.
+
+The Advanced Search above answers *which records carry these measurements*. This
+one answers a different question: **I need a piece of this material this big —
+what on the shelves can give me one?**
+
+That difference matters more than it sounds. Length, Width and Thickness are
+three separate labelled fields, and the Advanced Search compares each one against
+its own namesake — so a bar recorded as 0.5 × 4 × 3 does not answer a search for
+0.5 × 3 × 4, though it is the same bar and would be turned the same way in the
+vise. Find Stock ignores the labels. It works out what solid each item's record
+describes, and asks whether the piece you need can be cut out of it, in any
+orientation and whatever shape the stock happens to be.
+
+#### Describing the piece
+
+- **Material** — matched hierarchically, exactly as it is in the Advanced
+  Search: asking for Aluminum finds 6061-T6.
+- **Shape** — the shape of the piece **you need**, not of the stock. Rectangular
+  takes a length, a width and a thickness; Round takes a diameter and a length.
+- **Dimensions** — the smallest block the finished part will fit inside.
+- **Tolerance** — beside each dimension, how far *under* the stated size a piece
+  of stock may be and still be offered. Leave one blank and that dimension is
+  held exactly. Tolerance is per dimension on purpose: a length is usually
+  forgiving where a finished thickness is not, and one number for the whole
+  request would buy slack on the length at the price of returning stock that is
+  too thin.
+
+#### What comes back
+
+Every active item of that material the piece can be made from, **closest fit
+first** — measured as the cross-section you would have to machine away, so an
+item of exactly the right size is always at the top and a piece of the right
+diameter beats a fatter, shorter one whatever its length. Cutting to length is a
+bandsaw operation and the remainder goes back on the shelf; what is actually lost
+is what becomes chips.
+
+Results use the same table as the inventory list and the Advanced Search, with
+the same row actions and the same checkboxes for bulk operations, plus one extra
+column:
+
+- **Fit** — the stock's cross-section in the orientation that works, the part's,
+  and the exact difference between them. A result that only qualifies because a
+  tolerance was allowed is marked *Within tolerance* and names the dimensions
+  that used theirs.
+
+Every search reports what it looked at, above the results:
+
+- **considered** — how many active items of that material were examined.
+- **skipped for a missing dimension** — records that do not carry a measurement
+  the fit test needs, so they could not be judged. A channel that records nothing
+  dimensional, or a threaded rod with no diameter, lands here.
+- **skipped as hollow** — anything with a wall thickness. A 3" square tube cannot
+  yield a 2" solid round: its outside dimensions describe a shell.
+
+Those counts are what make an empty result trustworthy. "Nothing fits" with 40
+items considered means your stock is all too small; with 0 considered it means
+you have none of that material; and a large "skipped for a missing dimension"
+count means the answer is only as good as the records.
+
+#### What it does not do
+
+- **Hollow stock is never offered**, and the piece you ask for is always solid.
+  To find a length of tube by its recorded measurements, use the Advanced Search.
+- **Inactive items are never offered** — they are not on the shelf.
+- **Nothing is reserved.** This finds material; it does not lay claim to it.
+- **Kerf and clean-up are yours.** The only allowance applied is the tolerance
+  you set.
 
 ## Batch Operations
 

@@ -984,6 +984,13 @@ def inventory_search():
                          ItemType=ItemType, ItemShape=ItemShape, ThreadSeries=ThreadSeries,
                          valid_materials=valid_materials)
 
+@bp.route('/inventory/find-stock')
+def inventory_find_stock():
+    """Fit search interface -- what on the shelves can yield this part?"""
+    valid_materials = _get_valid_materials()
+    return render_template('inventory/find-stock.html', title='Find Stock',
+                           valid_materials=valid_materials)
+
 @bp.route('/inventory/move', methods=['GET', 'POST'])
 def inventory_move():
     """Batch move items interface"""
@@ -2175,6 +2182,156 @@ def api_advanced_search():
 
     except Exception as e:
         current_app.logger.error(f'Advanced search error: {e}\n{traceback.format_exc()}')
+        return jsonify({
+            'success': False,
+            'message': 'Search operation failed',
+            'error': str(e),
+            'items': [],
+            'total_count': 0
+        }), 500
+
+def _find_stock_error(message):
+    """The 400 body `api_advanced_search` uses, so the two read alike."""
+    return jsonify({
+        'success': False,
+        'message': message,
+        'items': [],
+        'total_count': 0
+    }), 400
+
+
+def _parse_requested_piece(data):
+    """Turn the request payload into a RequestedPiece.
+
+    Returns `(piece, None)` or `(None, message)`. Every message names the
+    offending dimension as the operator sees it on the form (FR-004, FR-005,
+    FR-017); the arithmetic rules themselves live in `RequestedPiece`, which
+    raises with the same naming.
+    """
+    from app.utils.fit import REQUIRED_DIMENSIONS, RequestedPiece, dimension_label
+
+    shape_value = str(data.get('shape') or '').strip()
+    try:
+        shape = ItemShape(shape_value)
+    except ValueError:
+        shape = None
+    if shape is None or shape not in REQUIRED_DIMENSIONS:
+        return None, f'A requested piece must be Rectangular or Round, not "{shape_value}"'
+
+    dimensions = {}
+    tolerances = {}
+
+    for name in REQUIRED_DIMENSIONS[shape]:
+        raw = data.get(name)
+        if raw is None or str(raw).strip() == '':
+            return None, f'{dimension_label(name)} is required for a {shape.value} piece'
+        try:
+            dimensions[name] = Decimal(str(raw).strip())
+        except (ValueError, InvalidOperation):
+            return None, f'{dimension_label(name)} is not a number: "{raw}"'
+
+        # A blank tolerance means the dimension is exact, so it is sent as
+        # nothing rather than as a zero-ish string (FR-015).
+        raw_tolerance = data.get(f'{name}_tolerance')
+        if raw_tolerance is None or str(raw_tolerance).strip() == '':
+            continue
+        try:
+            tolerances[name] = Decimal(str(raw_tolerance).strip())
+        except (ValueError, InvalidOperation):
+            return None, (f'The tolerance on {dimension_label(name)} is not a '
+                          f'number: "{raw_tolerance}"')
+
+    try:
+        return RequestedPiece(shape, dimensions, tolerances), None
+    except ValueError as e:
+        return None, str(e)
+
+
+def _fit_to_dict(fit):
+    """The one key the fit search adds to a shared-table row.
+
+    Exact decimal strings throughout for everything the operator reads: no area
+    figure and no PI-derived number is put in front of them (fit-rules section
+    6). `removed_area` is the exception, and it is never rendered -- it is the
+    second term of the server's sort key, carried so the shared table's Fit
+    column can re-sort on the same figure the server ordered by.
+    """
+    return {
+        'within_tolerance': fit.within_tolerance,
+        'tolerance_dimensions': list(fit.tolerance_dimensions),
+        'orientation': fit.orientation,
+        'item_cross_section': ' × '.join(str(v) for v in fit.item_cross_section),
+        'requested_cross_section': ' × '.join(str(v) for v in fit.requested_cross_section),
+        'excess': [str(v) for v in fit.excess],
+        'removed_area': str(fit.removed_area),
+    }
+
+
+@bp.route('/api/inventory/find-stock', methods=['POST'])
+@csrf.exempt
+def api_find_stock():
+    """Fit search API endpoint -- what can this part be made from?
+
+    There is no `active` parameter: this search asks what can be cut today, and
+    an inactive row cannot be (D15).
+    """
+    try:
+        data = request.get_json() or {}
+
+        material = str(data.get('material') or '').strip()
+        if not material:
+            return _find_stock_error('Material is required')
+
+        piece, message = _parse_requested_piece(data)
+        if piece is None:
+            return _find_stock_error(message)
+
+        service = _get_inventory_service()
+        result = service.find_stock(material, piece)
+
+        from app.photo_service import PhotoService
+        with PhotoService(_get_storage_backend()) as photo_service:
+            ja_ids = [item.ja_id for item, _ in result.items]
+            photo_counts = photo_service.get_photo_counts_bulk(ja_ids)
+
+        items_data = []
+        for item, fit in result.items:
+            items_data.append({
+                'ja_id': item.ja_id,
+                'display_name': item.display_name,
+                'item_type': item.item_type,
+                'shape': item.shape,
+                'material': item.material,
+                'dimensions': item.dimensions.to_dict() if item.dimensions else None,
+                'thread': item.thread.to_dict() if item.thread else None,
+                'location': item.location,
+                'sub_location': item.sub_location,
+                'purchase_date': item.purchase_date.isoformat() if item.purchase_date else None,
+                'purchase_price': str(item.purchase_price) if item.purchase_price else None,
+                'purchase_location': item.purchase_location,
+                'vendor': item.vendor,
+                'vendor_part_number': item.vendor_part,
+                'notes': item.notes,
+                'precision': item.precision,
+                'active': item.active,
+                'date_added': item.date_added.isoformat() if item.date_added else None,
+                'last_modified': item.last_modified.isoformat() if item.last_modified else None,
+                'photo_count': photo_counts.get(item.ja_id, 0),
+                'fit': _fit_to_dict(fit),
+            })
+
+        return jsonify({
+            'success': True,
+            'items': items_data,
+            'total_count': len(items_data),
+            'considered': result.considered,
+            'skipped_incomplete': result.skipped_incomplete,
+            'skipped_hollow': result.skipped_hollow,
+            'search_criteria': data
+        })
+
+    except Exception as e:
+        current_app.logger.error(f'Fit search error: {e}\n{traceback.format_exc()}')
         return jsonify({
             'success': False,
             'message': 'Search operation failed',

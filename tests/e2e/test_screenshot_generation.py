@@ -24,6 +24,7 @@ from tests.e2e.fixtures.screenshot_data import (
 from tests.e2e.pages.inventory_list_page import InventoryListPage
 from tests.e2e.pages.add_item_page import AddItemPage
 from tests.e2e.pages.search_page import SearchPage
+from tests.e2e.pages.find_stock_page import FindStockPage
 from tests.e2e.waits import dismiss_material_suggestions, wait_for_modal_shown
 from app.database import InventoryItem
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
@@ -173,6 +174,34 @@ class TestDocumentationScreenshots:
         )
 
         print(f"✓ Generated screenshot: user-manual/search_form.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_find_stock_form(self, page, live_server):
+        """Generate the fit search form screenshot"""
+        items = get_inventory_items(count=5)
+        self._load_inventory_data(live_server, items)
+
+        find_stock_page = FindStockPage(page, live_server.url)
+        find_stock_page.navigate()
+
+        # Fill in an example request, without submitting it: the form is what
+        # this figure documents.
+        find_stock_page.fill_material("Aluminum")
+        page.fill("#length", "4")
+        page.fill("#width", "3")
+        page.fill("#thickness", "0.5")
+        page.fill("#length_tolerance", "0.02")
+
+        self.screenshot.capture_viewport(
+            "user-manual/find_stock_form.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#find-stock-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print(f"✓ Generated screenshot: user-manual/find_stock_form.png")
 
     @pytest.mark.screenshot
     @pytest.mark.e2e

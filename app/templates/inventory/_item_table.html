@@ -9,6 +9,11 @@
       - show_selection_column (bool): Whether to show checkbox column for bulk selection
       - enable_sorting (bool): Whether columns should be sortable with click
       - show_sub_location (bool): Whether to show sub-location column
+      - show_fit_column (bool): Whether to show the Fit column, which reports how
+        an item compares to a requested piece. Absent by default: the inventory
+        list and the advanced search pass nothing and render exactly as before
+        (FR-028). The column sits after Status so the column indices every other
+        reader of this table uses are unmoved.
       - table_id (str): Unique ID for the table element
       - table_body_id (str): Unique ID for the tbody element
 #}
@@ -54,6 +59,11 @@
                 <th class="sortable text-center" data-sort="active">
                     Status <i class="bi bi-chevron-expand sort-icon"></i>
                 </th>
+                {% if config.show_fit_column %}
+                <th class="sortable" data-sort="fit">
+                    Fit <i class="bi bi-chevron-expand sort-icon"></i>
+                </th>
+                {% endif %}
                 {% else %}
                 {# Non-sortable headers #}
                 <th {% if config.show_selection_column %}class="border-end"{% endif %}>JA ID</th>
@@ -67,6 +77,9 @@
                 <th>Sub-Location</th>
                 {% endif %}
                 <th class="text-center">Status</th>
+                {% if config.show_fit_column %}
+                <th>Fit</th>
+                {% endif %}
                 {% endif %}
 
                 <th class="text-center">Actions</th>

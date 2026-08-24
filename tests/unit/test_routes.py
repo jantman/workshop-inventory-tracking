@@ -9,6 +9,10 @@ from unittest.mock import Mock, patch, MagicMock
 from app.models import ItemType, ItemShape
 from app.main.routes import _parse_item_from_form
 
+# A sentinel for "leave this key out of the payload entirely", which is a
+# different request from sending it empty.
+_OMIT = object()
+
 
 class TestParseItemFromForm:
     """Tests for _parse_item_from_form function"""
@@ -2167,3 +2171,222 @@ class TestHandoffRoutes:
         body = client.get('/inventory/shorten?ja_id=JA700003').get_data(as_text=True)
         assert 'id="handoff-rejected"' in body
         assert 'JA700003' in body
+
+
+class TestFindStockAPI:
+    """`POST /api/inventory/find-stock` -- request parsing and the payload shape.
+
+    The geometry is proved in `tests/unit/test_fit.py` and the query and
+    ordering in `tests/unit/test_mariadb_inventory_service.py`. What is under
+    test here is the route's own job: refusing an unusable request with a
+    message that names what is wrong, and handing the shared table every key it
+    reads.
+    """
+
+    @pytest.fixture
+    def app(self, test_storage):
+        from app import create_app
+        from tests.test_config import TestConfig
+        app = create_app(TestConfig, storage_backend=test_storage)
+        with app.app_context():
+            yield app
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    @pytest.fixture
+    def seeded(self, app, test_storage):
+        """One 4 x 3 x 0.5 steel bar -- an exact match for the request below."""
+        from app.database import InventoryItem
+        from app.mariadb_inventory_service import InventoryService
+        from decimal import Decimal
+
+        service = InventoryService(test_storage)
+        session = service.Session()
+        try:
+            session.add(InventoryItem(
+                ja_id='JA000101',
+                item_type='Bar',
+                shape='Rectangular',
+                material='Steel',
+                length=Decimal('4'),
+                width=Decimal('3'),
+                thickness=Decimal('0.5'),
+                location='Shop A',
+                sub_location='Rack 3',
+                active=True,
+            ))
+            session.commit()
+        finally:
+            session.close()
+        return test_storage
+
+    VALID = {
+        'material': 'Steel',
+        'shape': 'Rectangular',
+        'length': '4',
+        'width': '3',
+        'thickness': '0.5',
+    }
+
+    def post(self, client, **overrides):
+        payload = dict(self.VALID)
+        payload.update(overrides)
+        payload = {k: v for k, v in payload.items() if v is not _OMIT}
+        return client.post('/api/inventory/find-stock', json=payload)
+
+    # -- the six 400 cases --------------------------------------------------
+
+    def test_a_request_with_no_material_is_refused(self, client):
+        """FR-004."""
+        response = self.post(client, material='')
+
+        assert response.status_code == 400
+        assert 'Material' in response.get_json()['message']
+
+    def test_a_shape_that_is_not_rectangular_or_round_is_refused(self, client):
+        """FR-002: the offending value is named."""
+        response = self.post(client, shape='Hex')
+
+        assert response.status_code == 400
+        assert 'Hex' in response.get_json()['message']
+
+    def test_a_missing_dimension_is_refused_naming_it(self, client):
+        """FR-004."""
+        response = self.post(client, thickness=_OMIT)
+
+        assert response.status_code == 400
+        assert 'Thickness' in response.get_json()['message']
+
+    @pytest.mark.parametrize('value', ['0', '-1'])
+    def test_a_dimension_that_is_not_positive_is_refused_naming_it(self, client, value):
+        """FR-005."""
+        response = self.post(client, width=value)
+
+        assert response.status_code == 400
+        assert 'Width' in response.get_json()['message']
+
+    def test_an_unparseable_dimension_is_refused_naming_it(self, client):
+        """FR-005 -- "half an inch" is not a number."""
+        response = self.post(client, length='half an inch')
+
+        assert response.status_code == 400
+        assert 'Length' in response.get_json()['message']
+
+    def test_a_negative_tolerance_is_refused_naming_the_dimension(self, client):
+        """FR-017, Story 4 scenario 6."""
+        response = self.post(client, length_tolerance='-0.02')
+
+        assert response.status_code == 400
+        assert 'Length' in response.get_json()['message']
+
+    def test_a_tolerance_as_large_as_its_dimension_is_refused(self, client):
+        """FR-017: it would make the dimension meaningless."""
+        response = self.post(client, thickness_tolerance='0.5')
+
+        assert response.status_code == 400
+        assert 'Thickness' in response.get_json()['message']
+
+    def test_a_refusal_carries_the_same_body_shape_as_the_advanced_search(self, client):
+        body = self.post(client, material='').get_json()
+
+        assert body['success'] is False
+        assert body['items'] == []
+        assert body['total_count'] == 0
+
+    # -- the success payload -------------------------------------------------
+
+    def test_a_round_request_is_accepted(self, client):
+        """FR-002: a diameter and a length, rather than three dimensions."""
+        response = client.post('/api/inventory/find-stock', json={
+            'material': 'Steel', 'shape': 'Round',
+            'diameter': '2', 'length': '2',
+        })
+
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+
+    def test_the_payload_carries_every_key_the_shared_table_reads(self, client, seeded):
+        response = client.post('/api/inventory/find-stock', json=self.VALID)
+
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['total_count'] == 1
+
+        item = body['items'][0]
+        for key in ('ja_id', 'display_name', 'item_type', 'shape', 'material',
+                    'dimensions', 'thread', 'location', 'sub_location',
+                    'purchase_date', 'purchase_price', 'purchase_location',
+                    'vendor', 'vendor_part_number', 'notes', 'precision',
+                    'active', 'date_added', 'last_modified', 'photo_count'):
+            assert key in item, f'the shared table reads {key}'
+
+    def test_the_payload_carries_the_one_key_the_fit_search_adds(self, client, seeded):
+        """FR-021, FR-022: exact figures, and no area (fit-rules section 6)."""
+        response = client.post('/api/inventory/find-stock', json=self.VALID)
+
+        fit = response.get_json()['items'][0]['fit']
+
+        assert fit['within_tolerance'] is False
+        assert fit['tolerance_dimensions'] == []
+        assert fit['orientation']
+        assert fit['item_cross_section'] == '3.0000 × 0.5000'
+        assert fit['requested_cross_section'] == '3 × 0.5'
+        assert fit['excess'] == ['0.0000', '0.0000']
+
+    def test_the_counters_come_back_with_every_search(self, client, seeded):
+        """SC-006."""
+        body = client.post('/api/inventory/find-stock', json=self.VALID).get_json()
+
+        assert body['considered'] == 1
+        assert body['skipped_incomplete'] == 0
+        assert body['skipped_hollow'] == 0
+
+    def test_there_is_no_active_parameter(self, client, seeded):
+        """D15: an `active` key in the payload changes nothing."""
+        with_flag = client.post('/api/inventory/find-stock',
+                                json=dict(self.VALID, active='')).get_json()
+        without = client.post('/api/inventory/find-stock',
+                              json=self.VALID).get_json()
+
+        assert with_flag['total_count'] == without['total_count'] == 1
+
+
+class TestFindStockPage:
+    """`GET /inventory/find-stock` and the shared table it renders."""
+
+    @pytest.fixture
+    def app(self, test_storage):
+        from app import create_app
+        from tests.test_config import TestConfig
+        app = create_app(TestConfig, storage_backend=test_storage)
+        with app.app_context():
+            yield app
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    def test_the_page_renders_the_form_and_the_table_with_a_fit_column(self, client):
+        response = client.get('/inventory/find-stock')
+
+        assert response.status_code == 200
+        assert b'find-stock-form' in response.data
+        assert b'data-sort="fit"' in response.data
+
+    def test_the_advanced_search_still_renders_without_a_fit_column(self, client):
+        """FR-028: the shared table must not change on the pages already using it."""
+        response = client.get('/inventory/search')
+
+        assert response.status_code == 200
+        assert b'data-sort="fit"' not in response.data
+        assert b'>Fit <' not in response.data
+
+    def test_the_inventory_list_still_renders_without_a_fit_column(self, client):
+        """FR-028."""
+        response = client.get('/inventory')
+
+        assert response.status_code == 200
+        assert b'data-sort="fit"' not in response.data
+        assert b'>Fit <' not in response.data
