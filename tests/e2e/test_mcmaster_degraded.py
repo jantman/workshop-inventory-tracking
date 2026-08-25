@@ -127,7 +127,8 @@ def test_the_post_confirm_flash_names_the_lines_that_came_back_thin(
     expect(review.locator("tr.order-line")).to_have_count(LINE_COUNT)
     confirm(review)
 
-    expect(review.locator(".alert")).to_contain_text(
+    # `.alert` alone matches the order screen's own progress banner too.
+    expect(review.locator(".alert-success")).to_contain_text(
         "The page did not give up every field for"
     )
 

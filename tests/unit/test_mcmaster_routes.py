@@ -295,7 +295,7 @@ class TestProductCaptureIdentifiers:
     requires it to behave identically after this feature.
 
     What genuinely had to be fixed is the other side: the order review looks up
-    **both** types, so an order capture recognizes a part already catalogued
+    **both** types, so an order capture recognizes a part already cataloged
     from its product page instead of creating a second product for it.
     """
 
@@ -353,7 +353,7 @@ class TestProductCaptureIdentifiers:
             if i.id_type == IdentifierType.MPN.value
         ]
 
-    def test_an_order_capture_finds_a_part_catalogued_from_its_product_page(
+    def test_an_order_capture_finds_a_part_cataloged_from_its_product_page(
             self, client, app):
         """The defect this guards. Looking up only DISTRIBUTOR would read this
         line as NEW and create a second product for a part already held."""
@@ -390,3 +390,67 @@ class TestProductCaptureIdentifiers:
             f'{len(holders)} products now carry 91290A115; the order capture '
             f'created a duplicate'
         )
+
+
+class TestCaptureSummary:
+    """FR-037's flash. Every outcome that changed the database appears, and
+    the thin lines are named without becoming a wall of text."""
+
+    def test_a_few_thin_lines_are_all_named(self):
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        summary = _mcmaster_capture_summary(McMasterCaptureResult(
+            purchase_ids=(1, 2), lines_incomplete=('Pilot', 'Rivets'),
+        ))
+
+        assert 'Pilot, Rivets' in summary
+        assert 'more' not in summary
+
+    def test_many_thin_lines_are_capped_with_a_count(self):
+        """A selector that stops matching costs the same field on every line.
+        Listing fifteen McMaster descriptions produces a flash nobody reads,
+        which loses the warning as surely as not showing it."""
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        summary = _mcmaster_capture_summary(McMasterCaptureResult(
+            purchase_ids=tuple(range(11)),
+            lines_incomplete=tuple(f'Line {n}' for n in range(11)),
+        ))
+
+        assert 'Line 0, Line 1, Line 2 and 8 more' in summary
+        assert 'Line 9' not in summary
+
+    def test_a_bare_change_application_is_not_reported_as_nothing(self):
+        """Leading on the purchase count alone would say "Nothing new to
+        capture" over the top of an update that landed."""
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        summary = _mcmaster_capture_summary(
+            McMasterCaptureResult(lines_updated=1))
+
+        assert 'Nothing new to capture' not in summary
+        assert '1 line(s) updated' in summary
+
+    def test_a_capture_that_did_nothing_says_so_plainly(self):
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        summary = _mcmaster_capture_summary(
+            McMasterCaptureResult(lines_excluded=3))
+
+        assert 'Nothing new to capture' in summary
+        assert '3 skipped' in summary
+
+    def test_orphaned_purchases_are_reported_and_said_to_be_left_alone(self):
+        """FR-016: reported, never deleted."""
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        summary = _mcmaster_capture_summary(
+            McMasterCaptureResult(purchase_ids=(1,), orphaned=(7, 8)))
+
+        assert '2 recorded purchase(s) this order no longer lists' in summary
+        assert 'left alone' in summary

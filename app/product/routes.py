@@ -1425,10 +1425,19 @@ def _mcmaster_capture_summary(result) -> str:
     if result.lines_incomplete:
         # FR-037, carried past the review so the record of which lines came back
         # thin survives leaving that page.
-        parts.append(
-            "The page did not give up every field for "
-            + ", ".join(result.lines_incomplete)
-        )
+        #
+        # **Named, but not all of them.** DigiKey names every unenriched part
+        # because a handful is the usual case; here a selector that stops
+        # matching costs the same field on *every* line, and listing fifteen
+        # McMaster descriptions produces a flash nobody reads -- which loses
+        # the warning as surely as not showing it. The first few plus a count
+        # says the same thing and stays legible.
+        named = list(result.lines_incomplete[:3])
+        rest = len(result.lines_incomplete) - len(named)
+        thin = ", ".join(named)
+        if rest:
+            thin += f" and {rest} more"
+        parts.append("The page did not give up every field for " + thin)
     return ". ".join(parts) + "."
 
 

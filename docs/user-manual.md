@@ -26,6 +26,8 @@
     - [Distributor Labels](#distributor-labels)
 12. [Recording Purchases](#recording-purchases)
 13. [Capturing an Order When You Place It](#capturing-an-order-when-you-place-it)
+    - [DigiKey Orders](#digikey-orders)
+    - [McMaster-Carr Orders](#mcmaster-carr-orders)
 14. [Printing Product Labels](#printing-product-labels)
 15. [Stock Levels and Reordering](#stock-levels-and-reordering)
 16. [Product Attachments](#product-attachments)
@@ -1303,6 +1305,115 @@ throttling requests, or DigiKey unreachable. They are worth distinguishing
 because what you do about each is completely different. Nothing is ever
 half-recorded: a capture that fails leaves the catalog exactly as it was, and you
 can simply try again once the cause is fixed.
+
+## McMaster-Carr Orders
+
+A McMaster order has the same shape problem a DigiKey one does — a dozen or two
+lines placed in one checkout, arriving as a box of anonymous bags — but the
+opposite premise. **There is no API to read it from.** McMaster's requires an
+application review a one-person workshop will not pass, so the order is read off
+the page you are looking at, by the same capture bookmarklet you use on Amazon.
+
+**Nothing needs setting up.** Unlike DigiKey, there is no account to register, no
+key to paste and no connection to configure. The bookmarklet carries your own
+signed-in session, which is why it can see an order page at all.
+
+### Capturing an order
+
+Open one order from **Order History** on McMaster's site, so that order's own
+address is showing, and click the capture bookmarklet. A tab opens here with
+every line of the order in it.
+
+Each line shows what McMaster said — the part number, their description, how many
+packs, what a pack holds and what a pack cost — and, next to it, what this
+catalog will actually record: **units and a unit price**. Both of those are
+editable. Individual screws are what you consume and what a low-stock flag has to
+mean, so a line reading "2 packs of 100 at $6.00" is recorded as 200 at $0.03.
+
+Alongside each line, whether the catalog already holds it:
+
+- **Nothing matches.** Write the label description you want — what goes on the
+  label and what you will search for. McMaster's words are the default.
+- **Already in the catalog.** The purchase attaches to the product you already
+  have.
+- **Already captured.** This line was recorded by an earlier capture of the same
+  order. Nothing is written again. If the quantity or price has changed since,
+  you are shown both and asked whether to update it.
+
+Untick any line you do not want. An excluded line becomes nothing at all — no
+product, no purchase, and no record that you skipped it.
+
+**Nothing is written until you press Capture These Lines.** Close the tab and
+there is no trace, because there was never a record — only a page.
+
+### What you get
+
+One outstanding purchase per line you took, each carrying the McMaster part
+number, the order, which line of it, the quantity in units, the unit price and
+the date. Each new product carries its McMaster part number as a distributor
+identifier, so scanning or searching that number finds it.
+
+**No manufacturer part number is invented.** McMaster sells to its own
+specification and names no manufacturer on most of what they sell, so that field
+is left empty rather than filled with a guess.
+
+### Which order is which
+
+**McMaster does not show an order number.** What identifies an order is the
+**Purchase Order** name — the one you type at checkout, or the one they generate
+from the date and your surname if you do not. That name is what this catalog
+files the order under, and what you type to find it again.
+
+That name is editable on McMaster's site. Renaming it there does not rename what
+is already recorded here, so an order you captured will still be under its old
+name. Captures are matched to each other by McMaster's own internal order id as
+well, so re-capturing a renamed order still recognizes what it already has.
+
+### Seeing an order, and receiving the box
+
+Open **Products → McMaster-Carr Order** and type the Purchase Order name, or
+follow the link after a capture. You get every line, its product, what you paid
+and whether it has arrived, plus a count of how many are still outstanding.
+
+When the box turns up, **scan the part number off a bag**. You land on that
+line's receipt with the quantity already filled in — amend it if what arrived is
+short — and confirming marks the line received, raises the counted quantity and
+clears any low-stock flag.
+
+Where the same part is outstanding on **two** orders, nothing about the bag says
+which one it is, so you are asked to pick. The two can have been placed weeks
+apart, so there is no single order screen that could show you both.
+
+Scanning a part number with no outstanding line does what it has always done: it
+opens the product. Nothing is ever received twice by scanning it twice.
+
+### Capturing a single part
+
+The same bookmarklet works on a McMaster **product** page. The confirmation form
+arrives carrying the part number, McMaster's description, the price, what a pack
+holds, the specification table and the product image, with nothing typed. Write
+your own label description over McMaster's — theirs is kept alongside — and
+capture it.
+
+Pasting a McMaster product address into **Products → Capture** does the same
+thing without the bookmarklet, reading the part number out of the address.
+
+### When the page does not give it up
+
+McMaster's markup is not a contract, and this reads their markup. When they
+change it, a capture loses fields rather than failing — and **it tells you which
+ones**.
+
+- A line whose price could not be read shows the price blank, editable, and
+  marked as unread. The rest of the line still captures.
+- If fewer lines could be read than were on the page, the review says so
+  plainly: "Only 3 of the 14 line(s) on that page could be read." Those lines are
+  not captured, and you are told to check the order and add anything missing.
+- If no line could be read at all, you get a plain statement saying so rather
+  than an empty review that would look like an order with no lines.
+
+The flash after a capture repeats which lines came back thin, so the record of it
+survives leaving the review page.
 
 ## Printing Product Labels
 

@@ -2306,7 +2306,7 @@ class CatalogService:
         (FR-012), but the product-page capture goes through ``capture_order``,
         which writes `VENDOR` for every vendor it has ever handled. Looking for
         only one of them would mean an order capture failed to recognize a part
-        the operator had already catalogued from its product page, and would
+        the operator had already cataloged from its product page, and would
         create a second product for it -- the duplicate FR-007 exists to
         prevent.
 
