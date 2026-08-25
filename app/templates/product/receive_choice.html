@@ -1,0 +1,114 @@
+{# Which outstanding line did this bag come from? (FR-032a)
+
+   A McMaster bag carries a bare part number and nothing else -- no order, no
+   line. Where that part number is outstanding on more than one order, the
+   catalog cannot know which bag this is, and **must not pick**. Those orders
+   can have been placed weeks apart, which is why this is its own page rather
+   than DigiKey's answer: DigiKey's candidates are two lines of one order, so
+   its order screen shows them both, and no single order screen shows these. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-question-circle{% endblock %}
+{% block page_heading %}Which Line Did This Come From?{% endblock %}
+
+{% block product_content %}
+
+{% if not candidates %}
+{# Received in another tab between the scan and this page loading. Never an
+   empty list, and never a 404. #}
+<div class="alert alert-info" id="nothing-outstanding">
+    <h6 class="alert-heading"><i class="bi bi-inbox"></i> Nothing outstanding for this part</h6>
+    <p class="mb-2">
+        No McMaster line is still outstanding for
+        <code>{{ scan }}</code>. It may have been received already.
+    </p>
+    {% if product %}
+    <p class="mb-0">
+        <a href="{{ url_for('product.product_detail', product_id=product.id) }}">
+            Open {{ product.description }}
+        </a>
+    </p>
+    {% else %}
+    <p class="mb-0">
+        Nothing in the catalog carries that part number either.
+        <a href="{{ url_for('product.product_search', q=scan) }}">Search for it</a>.
+    </p>
+    {% endif %}
+</div>
+
+{% else %}
+<div class="alert alert-warning" id="choose-line">
+    <i class="bi bi-exclamation-triangle"></i>
+    <strong><code>{{ scan }}</code> is outstanding on {{ candidates | length }} lines.</strong>
+    Nothing about the bag says which one it is, so pick the order it came from.
+</div>
+
+<div class="table-responsive">
+    <table class="table align-middle" id="receive-candidates">
+        <thead>
+            <tr>
+                <th>Order</th>
+                <th>Ordered</th>
+                <th>Product</th>
+                <th class="text-end">Units</th>
+                <th class="text-end">Unit price</th>
+                <th class="text-end">Receive</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for purchase in candidates %}
+            <tr class="receive-candidate"
+                data-purchase="{{ purchase.id }}"
+                data-order="{{ purchase.supplier_order_reference or '' }}">
+                <td>
+                    {% if purchase.supplier_order_reference %}
+                    <a href="{{ url_for('product.mcmaster_order_detail',
+                                        order_number=purchase.supplier_order_reference,
+                                        highlight=purchase.vendor_item_id or '') }}">
+                        {{ purchase.supplier_order_reference }}
+                    </a>
+                    {% else %}
+                    <span class="text-body-secondary">no order</span>
+                    {% endif %}
+                    {% if purchase.order_line_number %}
+                    <div class="small text-body-secondary">line {{ purchase.order_line_number }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if purchase.order_date %}
+                    {{ purchase.order_date.strftime('%-d %b %Y') }}
+                    {% else %}
+                    <span class="text-body-secondary">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if purchase.product %}
+                    <a href="{{ url_for('product.product_detail', product_id=purchase.product_id) }}">
+                        {{ purchase.product.description }}
+                    </a>
+                    {% else %}
+                    <span class="text-body-secondary">product deleted</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
+                <td class="text-end">{{ purchase.unit_price if purchase.unit_price is not none else '—' }}</td>
+                <td class="text-end">
+                    {# Each links to its own receipt -- the one that already
+                       exists. Receiving itself is untouched. #}
+                    <a class="btn btn-sm btn-primary receive-candidate-link"
+                       href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}">
+                        <i class="bi bi-box-arrow-in-down"></i> This one
+                    </a>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="small text-body-secondary mb-0">
+    Nothing has been received yet. Picking a line opens its receipt, where the
+    quantity can still be amended before it is confirmed.
+</p>
+{% endif %}
+{% endblock %}

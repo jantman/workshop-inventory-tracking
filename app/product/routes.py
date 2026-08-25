@@ -17,7 +17,12 @@ from urllib.parse import unquote, urlparse
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from app import csrf
-from app.catalog_service import DIGIKEY_VENDOR, CatalogService
+from app.catalog_service import (
+    DIGIKEY_VENDOR,
+    MCMASTER_VENDOR,
+    VENDOR_SCOPED_TYPES,
+    CatalogService,
+)
 from app.exceptions import (
     AuthenticationError, CaptureDecisionRequired, ConfigurationError,
     DuplicateItemError, ItemNotFoundError, RateLimitError, TemporaryError,
@@ -896,6 +901,15 @@ def _mcmaster_part_from_url(url: str) -> str:
     Anything it cannot find is blank for the operator to fill in, never an
     error.
 
+    **Matched on the path, never the host**, exactly as ``_asin_from_url`` is
+    and for the same two reasons: a path is a contract in a way a host lookup
+    table is not, and the e2e harness serves vendor fixtures from this
+    application's own origin, so a host gate would leave this with no end-to-end
+    coverage at all (research.md §3). The cost is the one the Amazon reader
+    already accepts -- some other vendor's ``/12345A1/`` would prefill a part
+    number -- and it is a prefill on a form whose whole purpose is to be checked
+    before it is submitted.
+
     Two other shapes reach a McMaster part and neither is a product page:
     ``/catalog/<part>`` redirects to ``/products/<part-lowercased>/``, which is
     a filterable family *table* naming many part numbers. Neither yields a part
@@ -904,9 +918,8 @@ def _mcmaster_part_from_url(url: str) -> str:
     if not url:
         return ''
 
-    match = re.search(
-        r'^https?://[^/]*mcmaster\.com/(\d{1,5}[A-Z][0-9A-Z]{0,6})/?$', url
-    )
+    path = urlparse(url).path if '//' in url else url
+    match = re.match(r'^/(\d{1,5}[A-Z][0-9A-Z]{0,6})/?$', path)
     return match.group(1) if match else ''
 
 
@@ -1419,6 +1432,47 @@ def _mcmaster_capture_summary(result) -> str:
     return ". ".join(parts) + "."
 
 
+@bp.route('/products/purchases/receive-choice')
+def purchase_receive_choice():
+    """Which outstanding line did this bag come from? (FR-032a)
+
+    Reached when a scanned McMaster part number names more than one outstanding
+    line. **The catalog does not pick one**, and it cannot: the same part can be
+    outstanding on two orders placed weeks apart, and nothing about the bag says
+    which.
+
+    Its own page rather than DigiKey's answer, because DigiKey's candidates are
+    two lines of *one* order and the order screen shows them both. McMaster's
+    are not, and no single order screen shows them (research.md §11). DigiKey's
+    path is left exactly as it was -- this is an additional landing, not a
+    replacement.
+
+    Zero candidates by the time it loads -- received in another tab -- renders
+    "nothing outstanding for this part" and offers the product. Never an empty
+    list, and never a 404.
+    """
+    service = _get_catalog_service()
+    scan = (request.args.get('scan') or '').strip()
+    candidates = service.find_mcmaster_receivable(scan)
+
+    product = None
+    if not candidates and scan:
+        for id_type in VENDOR_SCOPED_TYPES:
+            product = service.find_product_by_identifier(
+                scan, id_type=id_type.value, vendor=MCMASTER_VENDOR
+            )
+            if product is not None:
+                break
+
+    return render_template(
+        'product/receive_choice.html',
+        title='Which Line Did This Come From?',
+        scan=scan,
+        candidates=candidates,
+        product=product,
+    )
+
+
 @bp.route('/products/mcmaster/orders/<order_number>')
 def mcmaster_order_detail(order_number):
     """A captured McMaster order (FR-027, FR-028).
@@ -1730,26 +1784,36 @@ def api_scan():
 
 
 def _receive_url(resolution) -> str:
-    """Where a bag from a captured DigiKey order should land (024 FR-019).
+    """Where a scanned bag should land (024 FR-019, 028 FR-032).
 
     Three cases, and the difference between them is what the operator needs to
     be told:
 
     * one outstanding line -- straight to its receipt, with the label's own
-      quantity pre-filled, because the label describes what is in the bag rather
-      than what was ordered (FR-020);
-    * several -- the order screen with the candidates marked. The catalog does
-      not pick one (FR-026);
-    * none outstanding but some received -- the order screen, saying so. Nothing
-      is received twice (FR-023).
+      quantity pre-filled where the label carried one, because the label
+      describes what is in the bag rather than what was ordered (FR-020);
+    * several -- the operator chooses. The catalog does not pick one;
+    * none outstanding but some received -- said plainly. Nothing is received
+      twice (FR-023).
+
+    **The vendor and the order number come off the matched purchases, not off
+    the scan.** They used to be read from ``classification.ecia_fields``, which
+    a distributor label populates and a **free-text scan leaves empty** -- so a
+    McMaster match would have built an order URL with a blank order number. The
+    purchases carry both either way, and they are the record rather than the
+    scan, which makes this strictly better for the DigiKey case too.
 
     ``app/static/js/scan-capture.js`` navigates to whatever this returns without
-    inspecting the outcome, which is why the fourth outcome needed no JavaScript.
+    inspecting the outcome, so it needs no change.
     """
     purchases = resolution.purchases
     outstanding = [purchase for purchase in purchases if purchase.is_outstanding]
     fields = resolution.classification.ecia_fields
-    sales_order_number = fields.get('1K', '')
+
+    # Off the purchases. A free-text scan has no ecia_fields at all.
+    matched = outstanding or purchases
+    vendor = matched[0].vendor if matched else ''
+    order_number = matched[0].supplier_order_reference if matched else ''
 
     if len(outstanding) == 1:
         params = {'purchase_id': outstanding[0].id}
@@ -1759,15 +1823,23 @@ def _receive_url(resolution) -> str:
             params['quantity'] = fields['Q']
         return url_for('product.purchase_receive', **params)
 
+    if vendor == MCMASTER_VENDOR:
+        # Several outstanding lines for one part number, and they can be on
+        # orders placed weeks apart -- so unlike DigiKey's case there is no
+        # single order screen that shows them all (research.md §11).
+        return url_for(
+            'product.purchase_receive_choice', scan=resolution.classification.value
+        )
+
     if not outstanding:
         flash(
-            f"That line of DigiKey order {sales_order_number} is already received.",
+            f"That line of DigiKey order {order_number} is already received.",
             'info',
         )
 
     return url_for(
         'product.digikey_order_detail',
-        sales_order_number=sales_order_number,
+        sales_order_number=order_number,
         highlight=fields.get('P', ''),
     )
 

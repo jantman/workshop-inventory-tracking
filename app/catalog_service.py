@@ -2522,6 +2522,42 @@ class CatalogService:
                 .all()
             )
 
+    def find_mcmaster_receivable(self, part_number: str) -> List[Purchase]:
+        """The outstanding McMaster lines a scanned part number names (FR-032).
+
+        **Outstanding only** -- and that is the one place this deliberately
+        differs from ``find_receivable`` next door, which includes received
+        rows on purpose so it can tell "you already received this" apart from
+        "this order has no such line" for a label that names an order.
+
+        A bare part number names no order, so there is no such distinction to
+        draw. An already-received part is simply a part the catalog holds, and
+        falling through to today's behaviour is the right answer for it
+        (FR-032b).
+
+        Returns:
+            The outstanding purchases, oldest first, each with its product
+            loaded. Normally a list of one; longer when the same part is
+            outstanding on two orders, and the caller must then ask rather than
+            pick (FR-032a).
+        """
+        cleaned = (part_number or '').strip()
+        if not cleaned:
+            return []
+
+        with self._session() as session:
+            return (
+                session.query(Purchase)
+                .options(selectinload(Purchase.product))
+                .filter(
+                    Purchase.vendor == MCMASTER_VENDOR,
+                    Purchase.vendor_item_id == cleaned,
+                    Purchase.received_date.is_(None),
+                )
+                .order_by(Purchase.id)
+                .all()
+            )
+
     def find_receivable(
         self, sales_order_number: str, digikey_part_number: str,
     ) -> List[Purchase]:
@@ -3020,7 +3056,22 @@ class CatalogService:
 
             return ScanResolution('create', classification, prefill=prefill)
 
-        # FREE_TEXT. Rule 4 lives here rather than in the classifier: a vendor
+        # FREE_TEXT.
+        #
+        # **This lookup comes first, and the precedence is load-bearing.** A
+        # McMaster bag carries a bare part number and nothing else, and
+        # capturing an order creates products carrying those part numbers as
+        # vendor-scoped identifiers -- so the lookup below would match happily
+        # and open the *product page* for a part you have bought before, while
+        # working correctly only for parts you never had. That is exactly
+        # backwards, and it is the trap the ECIA branch above already documents.
+        receivable = self.find_mcmaster_receivable(classification.value)
+        if receivable:
+            return ScanResolution(
+                'receive', classification, purchases=receivable
+            )
+
+        # Rule 4 lives here rather than in the classifier: a vendor
         # item id such as an ASIN has no distinguishing shape, so the only way to
         # recognize one is to look it up.
         for id_type in VENDOR_SCOPED_TYPES:

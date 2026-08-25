@@ -237,6 +237,10 @@ class TestPartNumberFromUrl:
         ('https://www.mcmaster.com/2652N1/', '2652N1'),
         ('https://www.mcmaster.com/27465A236/', '27465A236'),
         ('https://www.mcmaster.com/3103A2/', '3103A2'),
+        # Matched on the path, never the host -- as _asin_from_url is, and for
+        # the same reason: the e2e harness serves the fixture from this app's
+        # own origin, so a host gate would leave it with no coverage.
+        ('http://127.0.0.1:8080/91290A115/', '91290A115'),
     ])
     def test_a_product_page_yields_its_part_number(self, url, expected):
         from app.product.routes import _mcmaster_part_from_url

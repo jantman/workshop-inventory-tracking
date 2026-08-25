@@ -1015,8 +1015,15 @@
         if (!text) {
             return null;
         }
-        const digits = text.replace(/[^0-9.,]/g, '').replace(/,/g, '');
-        return /^[0-9]+(\.[0-9]+)?$/.test(digits) ? digits : null;
+        // **The first monetary token, not every digit on the line.** The
+        // product page states the price and the pack in one string --
+        // "$13.23 per pack of 100" -- so stripping non-digits and keeping what
+        // is left yields "13.23100", a price a hundred thousand times too
+        // large that still parses as a Decimal and would be recorded without
+        // complaint. The order page's cells hold a price and nothing else, so
+        // the first match is the whole cell there.
+        const match = text.replace(/,/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
+        return match ? match[0] : null;
     }
 
     /**
