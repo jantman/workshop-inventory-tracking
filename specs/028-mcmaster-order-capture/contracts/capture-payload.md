@@ -25,7 +25,9 @@ coverage at all).
 |---|---|---|
 | `/dp/<ASIN>`, `/gp/product/<ASIN>`, `/product/<ASIN>` | Amazon listing | today's fields, **unchanged** |
 | `/<part-number>/` — digits, a letter, then alphanumerics (e.g. `/91290A115/`) | McMaster product | today's fields **plus** `vendor` |
-| McMaster's order-history order path — *shape TBD from the fixture, research.md §5* | McMaster order | `url`, `vendor`, `order` |
+| `/products/<part>/` — the family table `/catalog/<part>` redirects to | *not* dispatched | it lists many part numbers, not one product (research.md §5) |
+| `/order-history/` — the order list | *not* dispatched | it names many orders |
+| `/order-history/order/<24 hex>` — resolved from the live site, research.md §5 | McMaster order | `url`, `vendor`, `order` |
 | anything else | unrecognized | today's behaviour, **unchanged** |
 
 Amazon's row is the one that matters most: it is not "also handled", it is *not touched*. No

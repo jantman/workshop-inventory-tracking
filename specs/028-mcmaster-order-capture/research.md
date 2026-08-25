@@ -140,6 +140,101 @@ reader reads *that* page. FR-036 (a lost field costs that field alone) and FR-00
 how many lines were read, and what came back thin) are the whole of the mitigation, and they
 are containment, not prevention.
 
+### What the fixtures showed — the TBD, closed (2026-08-25)
+
+Read off the live site in the operator's own logged-in browser, since a
+server-side fetch cannot reach either page: **every** `/order-history/order/<id>`
+URL returns the same 152,129-byte client-rendered shell containing no order data
+at all, which is exactly why the fixtures had to come from the rendered DOM.
+
+**The order-page path shape** — the dispatch's one open question:
+
+```
+/order-history/order/<24 lowercase hex characters>
+```
+
+e.g. `/order-history/order/6a5ffba81f17e12ac4fb7d70`. The id is opaque and has
+no relationship to anything the page displays. The order-history *list* is at
+`/order-history/`, and it must not dispatch: it names many orders.
+
+**The product path is confirmed as `/<part-number>/`**, and two other shapes
+reach a part without being that page. `/catalog/<part>` redirects to
+`/products/<part-lowercased>/`, which is a filterable *family table* listing many
+part numbers rather than one product — order lines link there, so an operator can
+easily arrive at one. Neither shape dispatches, and `/products/` deliberately so:
+there is no single part on it to capture.
+
+**Two pages, two markup conventions.** This is the finding with the most
+consequence for the readers, and they differ because the pages do:
+
+| | Order page (card view) | Product page |
+|---|---|---|
+| Class names | plain, unhashed — `dtl-row`, `dtl-row-specs` | CSS-module hashed — `_price_1y02s_5` |
+| Selector rule | match the class | match the readable stem, `[class*="_price_"]` |
+
+The hash suffix is a build artifact and changes without warning; the stem does
+not. A product selector written against a whole class name is a selector with a
+deadline.
+
+**The per-line structure the order reader walks** — `div.dtl-row`, inside
+`div.dtl-rows-cntnr` inside `div.dtl-group`:
+
+| Value | Where |
+|---|---|
+| Line number | `div.dtl-row-nbr` (also repeated in the row checkbox's `detailCheckbox-<n>` class; the div is the better source) |
+| Description | `a.dtl-row-lnk > p` that is not `.dtl-row-specs` |
+| Part number | `p.dtl-row-specs` — surrounded by whitespace, needs trimming |
+| Packs | `div.dtl-row-qu > div.dtl-row-quantity` |
+| Pack size | `div.dtl-row-qu > div.dtl-row-unit` |
+| Pack price | `div.dtl-row-ppu > div.dtl-row-priceper` |
+| Extended | `div.dtl-row-pricetot` |
+
+**Four traps, all of them found by reading and all of them cheap to avoid:**
+
+1. **`div.dtl-row-unit` occurs twice per row** — once under `.dtl-row-qu` naming
+   the pack ("Packs of 100"), once under `.dtl-row-ppu` naming what the price is
+   per ("Pack"). Unscoped, the selector reads whichever comes first.
+2. **The currency symbol is on the first line only.** Line 1 reads `$10.23`;
+   every line below it reads `9.47`. A parser requiring `$` reads one line of
+   fifteen — precisely the FR-004 failure that must be *stated* rather than
+   silent.
+3. **The description interleaves text nodes with `<span class="Wrd">`** around
+   tokens carrying punctuation. `textContent` reassembles it; reading the spans
+   alone yields `0.6" 1.1" Snap-Together`.
+4. **The order date has no year when the order is from the current year**
+   ("July 21"), and has one when it is not ("November 16, 2025"). Lenient
+   parsing was already the decision; this is what it has to be lenient about.
+
+**Units observed**: `Each`, `Pack of 100`, `Packs of 25`, `Packs of 1`, and
+**`Pairs`**. `Pairs` is the case FR-037 exists for — plainly not one unit, and
+the page states no count anywhere, so no pack size is derivable and the operator
+must be told rather than shown a silent quantity.
+
+**Shipping is not a line.** It sits in the right-hand summary panel with the tax
+and the total, outside `dtl-rows-cntnr` entirely. No line without a part number
+was observed on any sampled order, so FR-019's case is covered by unit tests
+rather than invented into the e2e fixture.
+
+**There is no order number, and this changes FR-013.** McMaster shows the
+customer's *Purchase Order* string and nothing else — carried as the `value` of
+`input.order-dtl-po`, not as element text. Confirmed by the operator: it is
+either given at order time or auto-generated as MMDD+SURNAME (`1118JANTMAN`).
+It is **editable in place** on that page, and nothing guarantees it is unique.
+The consequences for re-capture are worked through in §14.
+
+**The product page**, for the record: part number in
+`div[class*="_partNumber_"]`; description split across
+`h1[class*="_productDetailHeaderPrimary_"]` and
+`h3[class*="_productDetailHeaderSecondary_"]`, joined with `", "`; price and pack
+size together in `div[class*="_price_"]` as `"$13.23 per pack of 100"`, with the
+pack repeated in `span[class*="_unitOfMeasure_"]`; specifications in
+`table[class*="spec-table"]`, label in `[class*="spec-row-label"] > span` and
+value in `[class*="spec-row-value"] > p`, with group rows carrying an empty value
+and `-row-indented_` rows beneath them. Product images are under
+`/mvD/Contents/gfx/ImageCache/` and `/mvD/Library/CAD2/`; roughly forty
+catalog-navigation icons under `/init/gfx/` are chrome and must not be captured.
+**No manufacturer is named** — which is the fact FR-012 was written around.
+
 ---
 
 ## 6. The live document, not a canonical re-fetch
@@ -320,3 +415,49 @@ cannot be exercised locally for the reasons `test_product_page_capture.py` docum
 a manual check in `quickstart.md`, as it is for Amazon.
 
 **No new pytest markers** are needed, so nothing is added to `pytest.ini` (`--strict-markers`).
+
+---
+
+## 14. What identifies a McMaster order — and what that costs re-capture
+
+**Added 2026-08-25, after reading the live pages.** §5 records the finding; this
+records what follows from it, because the plan was written assuming an order
+number exists and it does not.
+
+**What the page gives.** Two candidates, and neither is what FR-013 assumed:
+
+| Candidate | Stable? | Unique? | Meaningful to the operator? |
+|---|---|---|---|
+| The **Purchase Order** string (`input.order-dtl-po`) | **No** — editable in place, on that page, behind a pencil button | **Not guaranteed** — auto-generated ones are MMDD+SURNAME, so two orders on one day collide | Yes. It is the only thing a human would call this order. |
+| The **URL id** (24 hex, `6a5ffba81f17e12ac4fb7d70`) | Yes | Yes | No. It appears nowhere on the page. |
+
+**The decision**: the Purchase Order string is what `supplier_order_reference`
+records, and it is what `/products/mcmaster/orders/<order_number>` is keyed by.
+It is the only identifier the operator can recognize, look up, or type, and an
+order screen keyed by an opaque hex id would be a screen nobody could find.
+
+**What that costs, stated rather than discovered later.** Re-capture pairs a
+freshly-read order to what is recorded *by order number* before it pairs lines
+by `order_line_number` (§8, data-model §5). So:
+
+* **Rename the Purchase Order on McMaster, and a re-capture no longer recognizes
+  the order.** Every line reads as new, and confirming the review writes a second
+  purchase for every line. FR-015 and SC-003 both fail, and they fail by writing
+  duplicate rows rather than by erroring.
+* **Two orders sharing an auto-generated name** merge into one on the order
+  screen and reconcile against each other's lines.
+
+Neither is hypothetical: the first needs one click of a pencil icon, and the
+second needs two orders on one day.
+
+**Why this is not being pre-solved.** The fix is to record the URL id alongside
+the PO string and reconcile on the id — one more nullable column, and pairing
+that survives a rename. That is a schema change and a change to FR-013, so it is
+the operator's call and not one to make inside an implementation task. It is
+raised as an open question against the spec rather than answered here.
+
+**Until it is answered**, the capture records the Purchase Order string and the
+duplicate-on-rename hazard stands. It is worth noting the hazard is *visible*
+when it happens — the review shows every line as `NEW` for an order the operator
+knows they have already captured, which is exactly the signal FR-015 was meant
+to give and is not silent corruption.
