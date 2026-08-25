@@ -49,6 +49,18 @@ def post_capture(client, order=None, **extra):
     return client.post('/api/capture', data=data)
 
 
+def rendered_value(html, field_id):
+    """The `value` the form actually rendered for one input.
+
+    Tests that post a value they chose themselves cannot tell whether the form
+    filled the field in -- they pass either way. This reads back what the page
+    would hand a browser.
+    """
+    tag = html.split(f'id="{field_id}"', 1)[1].split('>', 1)[0]
+    match = re.search(r'value="([^"]*)"', tag)
+    return match.group(1).strip() if match else ''
+
+
 def carried_payload(html):
     """The payload the review is carrying, unescaped."""
     match = re.search(r'name="order" id="order-payload" value="([^"]*)"', html)
@@ -454,3 +466,103 @@ class TestCaptureSummary:
 
         assert '2 recorded purchase(s) this order no longer lists' in summary
         assert 'left alone' in summary
+
+
+class TestPackPricedUnitPrice:
+    """A pack-priced capture must reach the form with a unit price in it.
+
+    `pack_price` and `pack_size` are UI-only and recorded nowhere; what gets
+    stored is `#unit_price`. For every pack-priced McMaster product the vendor
+    states no unit price of its own, so without a derivation that field renders
+    empty and the purchase records NULL -- on a page plainly showing
+    "$13.23 per pack of 100".
+
+    `pack-unit-price.js` does not fill the gap and must not be made to: it
+    writes the price field only after the operator types in a pack field,
+    because writing on load would discard a price they had typed over the
+    derived one before a re-render brought the form back. PR #123 review.
+    """
+
+    def test_the_unit_price_is_derived_from_the_pack_fields(self):
+        from app.models import ListingCapture
+
+        listing = ListingCapture(
+            source_url='https://www.mcmaster.com/91290A115/',
+            pack_price='13.23', pack_size='100',
+        )
+
+        assert listing.unit_price_from_pack == '0.13'
+
+    def test_the_derivation_is_exact_and_never_through_a_float(self):
+        """Constitution III. 6.66 across 100 is 0.0666, stored as 0.07."""
+        from decimal import Decimal
+        from app.models import ListingCapture
+
+        listing = ListingCapture(
+            source_url='u', pack_price='6.66', pack_size='100')
+
+        assert listing.unit_price_from_pack == '0.07'
+        assert Decimal(listing.unit_price_from_pack) == Decimal('0.07')
+
+    @pytest.mark.parametrize('pack_price, pack_size', [
+        (None, '100'), ('13.23', None), ('13.23', '0'), ('13.23', '-4'),
+        ('abc', '100'), ('13.23', 'x'), ('-1.00', '100'),
+    ])
+    def test_anything_unusable_derives_nothing(self, pack_price, pack_size):
+        from app.models import ListingCapture
+
+        listing = ListingCapture(
+            source_url='u', pack_price=pack_price, pack_size=pack_size)
+
+        assert listing.unit_price_from_pack is None
+
+    def test_a_pack_priced_capture_records_the_unit_price(self, client, app):
+        """End to end through the form, which is where it went wrong: the
+        operator submits without touching the pack fields."""
+        from decimal import Decimal
+        from app.catalog_service import CatalogService, MCMASTER_VENDOR
+
+        listing = json.dumps({
+            'version': 1,
+            'source_url': 'https://www.mcmaster.com/91290A115/',
+            'vendor_item_id': '91290A115',
+            'listing_title': 'Socket Head Screw',
+            'pack_price': '13.23',
+            'pack_size': '100',
+        })
+
+        # What the bookmarklet's landing page renders.
+        html = client.post('/api/capture', data={
+            'url': 'https://www.mcmaster.com/91290A115/',
+            'vendor': MCMASTER_VENDOR,
+            'listing_title': 'Socket Head Screw',
+            'listing': listing,
+        }).get_data(as_text=True)
+
+        assert 'id="unit_price"' in html
+        rendered = rendered_value(html, 'unit_price')
+        assert rendered == '0.13', (
+            f'#unit_price rendered as {rendered!r} rather than a derived price'
+        )
+
+        # Submit **what the form actually rendered**, which is what an operator
+        # who never touches the pack fields sends. Hard-coding the price here
+        # would make this pass whether or not the form filled it in.
+        client.post('/products/capture', data={
+            'url': 'https://www.mcmaster.com/91290A115/',
+            'vendor': MCMASTER_VENDOR,
+            'listing': listing,
+            'description': 'Socket head screw, M3 x 10',
+            'quantity': '100',
+            'pack_price': rendered_value(html, 'pack_price'),
+            'pack_size': rendered_value(html, 'pack_size'),
+            'unit_price': rendered,
+        }, follow_redirects=True)
+
+        catalog = CatalogService(app.config['STORAGE_BACKEND'])
+        product = catalog.find_product_by_identifier(
+            '91290A115', id_type='VENDOR', vendor=MCMASTER_VENDOR)
+        assert product is not None
+        assert product.purchases[0].unit_price == Decimal('0.13'), (
+            'a pack-priced capture recorded a NULL or wrong unit price'
+        )

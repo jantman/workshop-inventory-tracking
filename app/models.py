@@ -701,6 +701,39 @@ class ListingCapture:
     pack_price: Optional[str] = None
     pack_size: Optional[str] = None
 
+    @property
+    def unit_price_from_pack(self) -> Optional[str]:
+        """The unit price the pack fields imply, or None.
+
+        The confirmation form's ``#unit_price`` is what actually gets recorded,
+        and it falls back to this when a vendor priced by the pack and gave no
+        unit price of its own -- which is every pack-priced McMaster product.
+
+        **Without it that field renders empty and the purchase records a NULL
+        price**, on a page that is plainly showing "$13.23 per pack of 100".
+        `pack-unit-price.js` does not fill the gap: it deliberately writes the
+        price field only once the operator has *typed* in a pack field, because
+        writing on load would discard a price they had typed over the derived
+        one before a re-render brought the form back. That guard is right and is
+        left alone; this supplies the initial value instead.
+
+        Derived here rather than in the agent because the arithmetic is a
+        division: doing it in JavaScript would put a price through a binary
+        float before it ever reached Python, and Constitution III has no
+        exemption for a value in transit. `Decimal` throughout, quantized by the
+        same `price_to_cents` every other price on this path goes through.
+        """
+        if not self.pack_price or not self.pack_size:
+            return None
+        try:
+            paid = Decimal(self.pack_price)
+            size = int(self.pack_size)
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+        if size <= 0 or paid < 0:
+            return None
+        return str(price_to_cents(paid / size))
+
     def manufacturer_part_number(self) -> Optional[str]:
         """The part number this listing's own rows name, or None (019).
 

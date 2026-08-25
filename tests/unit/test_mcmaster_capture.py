@@ -430,6 +430,38 @@ class TestRecapture:
             'could never clear'
         )
 
+    def test_a_fresh_capture_reports_nothing_as_orphaned(self, catalog, order):
+        """The lines a capture just wrote are not stale lines.
+
+        `_orphaned_mcmaster_purchases` re-queries inside the open session, so
+        the rows the loop has flushed come back from that query -- while the
+        pairing it subtracts was built before the loop and cannot name them.
+        Left uncorrected, every line of a brand-new order was reported as
+        orphaned by the capture that created it, and the flash told the
+        operator the lines they had just captured no longer belonged to the
+        order. PR #123 review.
+        """
+        result = catalog.capture_mcmaster_order(order, include_all(order))
+
+        assert len(result.purchase_ids) == 2
+        assert result.orphaned == (), (
+            'the capture reported its own new purchases as orphaned'
+        )
+
+    def test_a_genuine_orphan_is_still_reported_by_a_capture(self, catalog):
+        """The other half: the fix must not silence a real one."""
+        order = build_order()
+        catalog.capture_mcmaster_order(order, include_all(order))
+        shrunk = build_order(lines=[
+            {'line_number': 1, 'part_number': '3103A21',
+             'description': 'Steel Pilot', 'packs': 1, 'pack_price': '10.23'},
+        ])
+
+        result = catalog.capture_mcmaster_order(shrunk, include_all(shrunk))
+
+        assert len(result.orphaned) == 1
+        assert len(catalog.find_mcmaster_order_lines('MISC-AND-GRINDER')) == 2
+
     def test_a_purchase_no_line_claims_is_reported_and_not_deleted(
             self, catalog, order):
         """FR-016."""

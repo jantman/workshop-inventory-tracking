@@ -31,6 +31,8 @@ TITLE = ("Black-Oxide Alloy Steel Socket Head Screw, "
          "M3 x 0.5 mm Thread Size, 10 mm Long")
 PACK_PRICE = "13.23"
 PACK_SIZE = "100"
+# What 13.23 across a pack of 100 comes to, and what gets recorded.
+UNIT_PRICE = "0.13"
 
 
 def serve_product(page, image_host, fixture="mcmaster_product.html"):
@@ -94,6 +96,12 @@ def test_the_pack_price_and_pack_size_fill_the_017_fields(
 
     expect(landed.locator("#pack_price")).to_have_value(PACK_PRICE)
     expect(landed.locator("#pack_size")).to_have_value(PACK_SIZE)
+    # **And the field that actually gets recorded.** The pack fields are
+    # UI-only; `#unit_price` is what is stored, and McMaster states no unit
+    # price of its own. Asserting only the two pack fields let a capture record
+    # a NULL price on a page plainly showing "$13.23 per pack of 100".
+    # PR #123 review.
+    expect(landed.locator("#unit_price")).to_have_value(UNIT_PRICE)
 
 
 @pytest.mark.e2e
@@ -174,6 +182,8 @@ def test_confirming_creates_the_product_with_the_scoped_identifier(
     expect(landed.locator("#description")).to_have_value(
         "Socket head screw, M3 x 10, black oxide"
     )
+    # The price the pack fields implied is what was recorded, not NULL.
+    expect(landed.locator("#unit_price")).to_have_value(UNIT_PRICE)
     expect(landed.locator("#receive-vendor")).to_have_text("McMaster-Carr")
     expect(landed.locator("#receive-vendor-item")).to_have_text(PART_NUMBER)
     # McMaster's own wording is kept alongside the operator's (FR-023).

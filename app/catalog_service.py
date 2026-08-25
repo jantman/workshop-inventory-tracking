@@ -2028,7 +2028,12 @@ class CatalogService:
                         line.description or line.part_number or line.form_key
                     )
 
-            orphaned = self._orphaned_mcmaster_purchases(session, order, recorded)
+            # The ids just written are passed in: they are flushed, so the
+            # re-query inside this session returns them, and `recorded` was
+            # built before the loop and cannot account for them.
+            orphaned = self._orphaned_mcmaster_purchases(
+                session, order, recorded, also_claimed=purchase_ids
+            )
 
         result = McMasterCaptureResult(
             purchase_ids=tuple(purchase_ids),
@@ -2200,15 +2205,28 @@ class CatalogService:
 
         return paired
 
-    def _orphaned_mcmaster_purchases(self, session, order, paired) -> tuple:
+    def _orphaned_mcmaster_purchases(
+        self, session, order, paired, also_claimed=(),
+    ) -> tuple:
         """Purchases recorded for this order that no line of it claims (FR-016).
 
         **Reported and never deleted.** A purchase the operator can see and
         cancel is better than one that vanishes, and a line missing from a
         re-read page is at least as likely to be a selector that stopped
         matching as an order that changed.
+
+        ``also_claimed`` is the ids written by the caller's own capture, and it
+        is not optional decoration. This re-queries inside the open session, so
+        rows the capture loop has just added and flushed come back from that
+        query -- while ``paired`` was built *before* the loop and cannot name
+        them. Without them, every line of a brand-new order is reported as
+        orphaned by the capture that created it, and the flash tells the
+        operator the lines they just captured are stale. Its read-only sibling
+        needs none of this, because nothing writes between its query and its
+        pairing.
         """
         claimed = {purchase.id for purchase in paired.values()}
+        claimed.update(also_claimed)
         return tuple(
             row.id
             for row in self._mcmaster_order_purchases(session, order)

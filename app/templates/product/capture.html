@@ -250,7 +250,8 @@
                             <input type="text" class="form-control" id="unit_price"
                                    name="unit_price" inputmode="decimal"
                                    value="{{ form_data.get('unit_price')
-                                             or (listing.price if listing else '') or '' }}">
+                                             or (listing.price if listing else '')
+                                             or (listing.unit_price_from_pack if listing else '') or '' }}">
                             {# Worked out from the two fields to the left, and
                                yours to overrule -- this is the value that gets
                                recorded, whoever arrived at it. #}
