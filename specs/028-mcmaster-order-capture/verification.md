@@ -59,7 +59,7 @@ the real database.
 | Gate | Result |
 |---|---|
 | `nox -s tests` | **1979 passed** |
-| `nox -s e2e` | _(recorded on completion of the full run)_ |
+| `nox -s e2e` | **691 passed, 0 failed**, 13m 29s. Run detached, per `CLAUDE.md` — it outlasts a ten-minute tool timeout. The working tree was clean afterwards |
 | `nox -s lint` | Fails at baseline with ~7,565 findings, overwhelmingly `E501` at 79 columns against a codebase written to ~80. **Not a gate that passes in this repository today.** What was checked instead: `flake8 --select=E9,F` over every file this feature touched reports **nothing**. Every remaining finding is pre-existing elsewhere |
 | `grep -ric "catalogue" README.md docs/ app/ tests/` | Clean (two of my own were caught and fixed) |
 | `.env`, `credentials.json`, `token.json` untracked | Confirmed |
@@ -81,6 +81,28 @@ the real database.
 
 No new pytest markers, and no `wait_for_timeout` or `time.sleep` added — the
 suite still executes zero.
+
+### A4b. The SC-010 regression set (T061)
+
+Read as this feature's own, from within the full run above:
+
+| Suite | Result | Proves |
+|---|---|---|
+| `test_product_page_capture.py` | 53 passed | the Amazon bookmarklet path is untouched |
+| `test_order_capture.py` | 36 passed | the paste-a-URL path and vendor derivation |
+| `test_digikey_order.py` | 13 passed | the DigiKey order path, through the column rename |
+| `test_digikey_part.py` | 9 passed | the DigiKey part path |
+| `test_digikey_receive.py` | 7 passed | DigiKey receiving, through the `_receive_url` change |
+| `test_ecia_scan.py` | 6 passed | ECIA scanning, unchanged by the new free-text branch |
+| `tests/unit/test_digikey_capture.py` | passed within the unit run | line-to-purchase pairing survives the rename |
+
+The DigiKey and ECIA suites are the ones that matter most here, because this
+feature changed two things they run through: the column they pair lines on, and
+`_receive_url`, which stopped reading `ecia_fields`. A unit test additionally
+clears `ecia_fields` outright and asserts the DigiKey URL is unchanged.
+
+**Still outstanding for SC-010**: confirming by hand that scanning an Amazon
+ASIN opens its product page — B6 below.
 
 ### A5. A defect the fixtures caught
 
