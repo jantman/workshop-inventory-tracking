@@ -48,9 +48,20 @@ PAIRS_LINE_KEY = "7"         # 2 "Pairs" -- no pack size is derivable
 PAIRS_LINE_PART = "4556T34"
 
 
-def serve_order(page, image_host, fixture="mcmaster_order.html"):
-    """Fulfil the order path with the fixture, wherever it is asked for."""
+def serve_order(page, image_host, fixture="mcmaster_order.html",
+                order_number=None):
+    """Fulfil the order path with the fixture, wherever it is asked for.
+
+    ``order_number`` rewrites the Purchase Order string in the markup, which is
+    how a *second* order carrying the same parts is staged -- McMaster shows no
+    order number, so that string plus the id in the path is all that
+    distinguishes two orders.
+    """
     body = (FIXTURES / fixture).read_text().replace("__IMAGE_HOST__", image_host)
+    if order_number is not None:
+        body = body.replace(
+            f'value="{ORDER_NUMBER}"', f'value="{order_number}"'
+        )
     page.route(
         ORDER_ROUTE,
         lambda route: route.fulfill(
@@ -59,13 +70,14 @@ def serve_order(page, image_host, fixture="mcmaster_order.html"):
     )
 
 
-def capture_order(page, live_server, image_host, fixture="mcmaster_order.html"):
+def capture_order(page, live_server, image_host, fixture="mcmaster_order.html",
+                  order_id=ORDER_ID, order_number=None):
     """Serve the fixture order and click the real bookmarklet on it."""
-    serve_order(page, image_host, fixture)
+    serve_order(page, image_host, fixture, order_number=order_number)
     return run_bookmarklet(
         page,
         live_server,
-        f"{live_server.url}/order-history/order/{ORDER_ID}",
+        f"{live_server.url}/order-history/order/{order_id}",
         landing="#order-lines",
     )
 
@@ -81,11 +93,17 @@ def line(review, key):
 
 
 def confirm(review):
-    """Submit the review, and wait for the order screen it lands on."""
+    """Submit the review, and wait for the order screen it lands on.
+
+    Either marker will do: an order that captured something renders
+    ``#order-progress``, and one that captured nothing -- every line excluded,
+    or no line readable -- renders ``#not-captured``. Waiting only on the first
+    would hang on exactly the FR-038 case.
+    """
     review.click("#confirm-capture")
-    # A full navigation, so the order screen's own table is the completion
+    # A full navigation, so the landing page's own marker is the completion
     # signal (pattern C). Reading a count before it lands would read zero.
-    expect(review.locator("#order-progress")).to_be_visible()
+    expect(review.locator("#order-progress, #not-captured")).to_be_visible()
     return review
 
 
