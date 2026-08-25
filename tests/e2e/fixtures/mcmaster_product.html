@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<!--
+  A hand-written stand-in for a McMaster-Carr product detail page, transcribed
+  from https://www.mcmaster.com/91290A115/ on 2026-08-25. Same convention as
+  amazon_listing.html and mcmaster_order.html.
+
+  A product page carries no personal data, so the scrubbing that shaped the
+  order fixture does not apply here. What shaped this one is the opposite
+  problem from the order page:
+
+  * **Every class name here is CSS-module hashed** -- `_price_1y02s_5`,
+    `_partNumber_rhz5b_5`, `_unitOfMeasure_hsst6_7`. The trailing hash is a
+    build artifact and will change without warning; the readable stem will not.
+    So the product reader matches on the stem (`[class*="_partNumber_"]`) and
+    never on the whole class. The hashes below are the real ones as of the
+    transcription date, kept so the fixture exercises substring matching rather
+    than assuming it.
+
+    This is the reverse of the order page, whose card view uses plain unhashed
+    names. The two readers key on different things because the two pages *are*
+    different, not through inconsistency.
+
+  * **The price and the pack size are one string**: `_price_` reads
+    "$13.23 per pack of 100". `_unitOfMeasure_` states the pack again as
+    "Pack of 100". Either can yield the pack size; the price only comes from
+    the first.
+
+  * The description is split across two headers -- `h1._productDetailHeaderPrimary_`
+    ("Black-Oxide Alloy Steel Socket Head Screw") and
+    `h3._productDetailHeaderSecondary_` ("M3 x 0.5 mm Thread Size, 10 mm Long").
+    Joined with ", " they reproduce `document.title` minus the " | McMaster-Carr"
+    suffix, which is what the listing title should be.
+
+  * **No manufacturer is named anywhere on the page.** McMaster sells to its own
+    specification. `brand` comes back empty and that is a fact about the vendor,
+    not a missed selector -- which is why FR-012 writes an MPN only where a page
+    actually states one, and this page does not.
+
+  * The specification table nests: a group row ("Thread") carries an empty value
+    and is followed by `-row-indented_` rows for its members ("Size", "Spacing",
+    "Pitch"). Label text is in `_..-spec-row-label_ > span`; value text is in
+    `_..-spec-row-value_ > p._Prsnttn_ValCell_Paragraph_`. An explanation-icon
+    div sits inside some labels and must not become part of the label text.
+
+  * Product images live under two paths -- `/mvD/Contents/gfx/ImageCache/...` for
+    photographs and `/mvD/Library/CAD2/...` for line drawings -- and carry the
+    part number in the filename. The page also holds ~40 catalog-navigation
+    icons under `/init/gfx/`, which are chrome and must not be captured as
+    product images. `__IMAGE_HOST__` is replaced by the test with the local
+    image server, as it is in the Amazon fixtures.
+
+  Note the path this is served at: `/91290A115/`. Two other McMaster URL shapes
+  reach a part and neither is this page -- `/catalog/<part>` redirects to
+  `/products/<part-lowercased>/`, which is a filterable *family table* listing
+  many part numbers rather than one product. The dispatch matches this shape
+  only, deliberately. research.md §5.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Black-Oxide Alloy Steel Socket Head Screw, M3 x 0.5 mm Thread Size, 10 mm Long | McMaster-Carr</title>
+</head>
+<body>
+
+<div class="_productDetailHeaders_1ma51_1">
+    <h1 class="_productDetailHeaderPrimary_1ma51_19">Black-Oxide Alloy Steel Socket Head Screw</h1>
+    <h3 class="_productDetailHeaderSecondary_1ma51_33">M3 x 0.5 mm Thread Size, 10 mm Long</h3>
+</div>
+
+<div class="_subColumn_1cgou_39">
+    <div class="bk _partNumber_rhz5b_5 _productDetailPartNumber_1cgou_129"> 91290A115 </div>
+</div>
+
+<!-- The pack price and the pack size in one string. -->
+<div class="_price_1y02s_5 _hideOnPrint_1cgou_265"> $13.23 per pack of 100 </div>
+
+<div class="_inputSubColumn_1cgou_67">
+    <span class="_unitOfMeasure_hsst6_7">Pack of 100</span>
+</div>
+
+<div class="_imageColumn_1cgou_21">
+    <img class="_printProductImage_8r35q_141" src="__IMAGE_HOST__/steel_rod_sample.jpg" alt="">
+    <img class="_thumbnailImg_zomor_85" src="__IMAGE_HOST__/steel_plate_sample.jpg" alt="">
+    <img class="_thumbnailImg_zomor_85" src="__IMAGE_HOST__/brass_rod_sample.jpg" alt="">
+</div>
+
+<!-- Catalog navigation chrome. Real pages carry about forty of these. They are
+     under /init/gfx/ rather than /mvD/, they are not product images, and a
+     reader that takes every <img> on the page captures the whole browse menu. -->
+<img src="__IMAGE_HOST__/init/gfx/MastheadLogo.svg" alt="">
+<img src="__IMAGE_HOST__/init/gfx/home/BrowseCatalogCategoryImages/1x/Fastening-and-Joining-Catalog.png" alt="">
+
+<table class="_product-detail-spec-table_1k2ch_1">
+    <tbody class="_product-detail-spec-table-body_1k2ch_27">
+
+        <!-- A group row: a label with no value of its own. The three indented
+             rows under it are its members. -->
+        <tr class="_product-detail-spec-table-row_mhn7k_1">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87">
+                    <span>Thread</span>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131"></p>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="_product-detail-spec-table-row-indented_mhn7k_19">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87 _product-detail-spec-row-label-indented_mhn7k_87">
+                    <span>Size</span>
+                    <!-- Not part of the label text. -->
+                    <div class="_product-detail-spec-row-industrial-info-padding_mhn7k_71">
+                        <div class="_explanationIcon_q8hpp_1 _selectedExplanationIcon_q8hpp_31"></div>
+                    </div>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131">M3</p>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="_product-detail-spec-table-row-indented_mhn7k_19">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87 _product-detail-spec-row-label-indented_mhn7k_87">
+                    <span>Spacing</span>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131">Coarse</p>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="_product-detail-spec-table-row-indented_mhn7k_19">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87 _product-detail-spec-row-label-indented_mhn7k_87">
+                    <span>Pitch</span>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131">0.5 mm</p>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="_product-detail-spec-table-row_mhn7k_1">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87">
+                    <span>Fastener Head Type</span>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131">Socket</p>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="_product-detail-spec-table-row_mhn7k_1">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87">
+                    <span>Material</span>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131">Alloy Steel</p>
+                </div>
+            </td>
+        </tr>
+
+        <tr class="_product-detail-spec-table-row_mhn7k_1">
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-label_mhn7k_87">
+                    <span>Length</span>
+                </div>
+            </td>
+            <td class="_tableCell_mhn7k_39">
+                <div class="_product-detail-spec-row_mhn7k_55 _product-detail-spec-row-value_mhn7k_121">
+                    <p class="_Prsnttn_ValCell_Paragraph_mhn7k_131">10 mm</p>
+                </div>
+            </td>
+        </tr>
+
+    </tbody>
+</table>
+
+</body>
+</html>

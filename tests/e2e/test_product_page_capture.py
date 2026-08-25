@@ -38,9 +38,6 @@ listing over TLS.
 
 import json
 import re
-import threading
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -63,39 +60,6 @@ GALLERY_IMAGE_COUNT = 6
 LISTING_ROUTE = re.compile(r"/dp/[A-Z0-9]{10}")
 
 
-class _QuietHandler(SimpleHTTPRequestHandler):
-    """SimpleHTTPRequestHandler without a line of stderr per request"""
-
-    def log_message(self, fmt, *args):
-        # Named `fmt` rather than the stdlib's `format`, which shadows the
-        # builtin. BaseHTTPRequestHandler calls this positionally, so the
-        # override still matches.
-        pass
-
-
-@pytest.fixture
-def image_host():
-    """An origin the *application* can really fetch image bytes from.
-
-    Threaded, and deliberately so. Chromium opens speculative connections and
-    leaves them idle; a single-threaded HTTPServer blocks inside one of those
-    reading a request that never arrives, and ``shutdown()`` then waits forever
-    for a loop that cannot come back round. The suite hangs rather than fails,
-    which is the worst failure mode a fixture has.
-    """
-    handler = partial(_QuietHandler, directory=str(FIXTURES / "images"))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    server.daemon_threads = True
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    yield f"http://127.0.0.1:{server.server_port}"
-
-    server.shutdown()
-    server.server_close()
-    thread.join(timeout=5)
-
-
 def serve_listing(page, image_host, fixture="amazon_listing.html"):
     """Fulfil /dp/<ASIN> with the fixture, wherever it is asked for."""
     body = (FIXTURES / fixture).read_text().replace("__IMAGE_HOST__", image_host)
@@ -105,7 +69,7 @@ def serve_listing(page, image_host, fixture="amazon_listing.html"):
     )
 
 
-def run_bookmarklet(page, live_server, tab_url):
+def run_bookmarklet(page, live_server, tab_url, landing="#capture-form"):
     """Click the real bookmarklet on whatever page is being served; return the tab.
 
     The bookmarklet is read off this application's own page rather than
@@ -115,6 +79,12 @@ def run_bookmarklet(page, live_server, tab_url):
     It is *clicked* rather than evaluated because a form submission into a new
     tab needs a user activation to escape the popup blocker -- which is exactly
     what the operator's click on a real bookmark provides.
+
+    ``landing`` names what proves the new tab has rendered. It defaults to the
+    ordinary confirmation form; a McMaster order lands on the review instead,
+    which is a different page with a different form on it. Feature 028 reuses
+    this function from tests/e2e/test_mcmaster_order.py rather than copying it,
+    so the loader stays under test on both paths.
     """
     page.goto(f"{live_server.url}/products/capture")
     expect(page.locator("#capture-bookmarklet")).to_be_visible()
@@ -138,7 +108,7 @@ def run_bookmarklet(page, live_server, tab_url):
     landed = popup.value
     # The landing is a full navigation, so the form's presence is the completion
     # signal and a field read before it lands would read empty (pattern C).
-    expect(landed.locator("#capture-form")).to_be_visible()
+    expect(landed.locator(landing)).to_be_visible()
     return landed
 
 

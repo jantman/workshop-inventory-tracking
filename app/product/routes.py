@@ -7,24 +7,40 @@ Everything delegates to CatalogService. Server-rendered pages return HTML,
 rather than any new error machinery.
 """
 
+import json
+import logging
 import re
+from decimal import Decimal
 from typing import List
 from urllib.parse import unquote, urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from app import csrf
-from app.catalog_service import DIGIKEY_VENDOR, CatalogService
+from app.catalog_service import (
+    DIGIKEY_VENDOR,
+    MCMASTER_VENDOR,
+    VENDOR_SCOPED_TYPES,
+    CatalogService,
+)
 from app.exceptions import (
     AuthenticationError, CaptureDecisionRequired, ConfigurationError,
     DuplicateItemError, ItemNotFoundError, RateLimitError, TemporaryError,
     ValidationError, WorkshopInventoryError,
 )
-from app.models import CapturedBarcode, IdentifierType, ListingCapture
+from app.models import (
+    CapturedBarcode,
+    IdentifierType,
+    ListingCapture,
+    McMasterOrder,
+)
 from app.photo_service import PhotoService
 from app.product import bp
 from app.services.listing_images import store_listing_images
 from app.utils import internal_id
+
+
+logger = logging.getLogger(__name__)
 
 
 def _get_storage_backend():
@@ -466,7 +482,11 @@ def product_capture():
     if request.method == 'POST':
         url = request.form.get('url', '').strip()
         vendor = request.form.get('vendor', '') or _vendor_from_url(url)
-        vendor_item_id = request.form.get('vendor_item_id', '') or _asin_from_url(url)
+        vendor_item_id = (
+            request.form.get('vendor_item_id', '')
+            or _asin_from_url(url)
+            or _mcmaster_part_from_url(url)
+        )
         listing = ListingCapture.from_json(request.form.get('listing'))
 
         # The listing fills the blanks and never overwrites: the operator was
@@ -751,7 +771,23 @@ def api_capture():
 
     url = (data.get('url') or '').strip()
     vendor = data.get('vendor') or _vendor_from_url(url)
-    vendor_item_id = data.get('vendor_item_id') or _asin_from_url(url)
+    vendor_item_id = (
+        data.get('vendor_item_id')
+        or _asin_from_url(url)
+        or _mcmaster_part_from_url(url)
+    )
+
+    # A McMaster order rides the same endpoint as one extra form field, because
+    # the bookmarklet's text cannot change without the operator re-dragging it
+    # (FR-034, research.md §2). **This still writes nothing** -- it is a read of
+    # the payload plus a read of the catalog, and the operator can close the tab
+    # with no trace left (FR-005).
+    #
+    # A request carrying no `order` field takes a path identical to today's,
+    # which is what the existing capture tests assert and what makes SC-010
+    # checkable by running them unchanged.
+    if not request.is_json and data.get('order'):
+        return _mcmaster_order_review(service, data.get('order'))
 
     if not request.is_json:
         # The bookmarklet's new tab lands here. Show the operator what the URL
@@ -849,6 +885,41 @@ def _asin_from_url(url: str) -> str:
         return ''
 
     match = re.search(r'/(?:dp|gp/product|product)/([A-Z0-9]{10})(?:[/?]|$)', url)
+    return match.group(1) if match else ''
+
+
+def _mcmaster_part_from_url(url: str) -> str:
+    """Pull a McMaster part number out of a URL path.
+
+    The same shape ``capture-agent.js`` dispatches on, and **deliberately
+    duplicated** rather than shared: the two live on opposite sides of a machine
+    boundary, the agent's copy decides which reader runs, and this one is what
+    the paste-a-URL form uses with no agent involved at all (FR-025). The Amazon
+    pair carries the same note.
+
+    ``/91290A115/`` -- digits, an upper-case letter, then alphanumerics.
+    Anything it cannot find is blank for the operator to fill in, never an
+    error.
+
+    **Matched on the path, never the host**, exactly as ``_asin_from_url`` is
+    and for the same two reasons: a path is a contract in a way a host lookup
+    table is not, and the e2e harness serves vendor fixtures from this
+    application's own origin, so a host gate would leave this with no end-to-end
+    coverage at all (research.md §3). The cost is the one the Amazon reader
+    already accepts -- some other vendor's ``/12345A1/`` would prefill a part
+    number -- and it is a prefill on a form whose whole purpose is to be checked
+    before it is submitted.
+
+    Two other shapes reach a McMaster part and neither is a product page:
+    ``/catalog/<part>`` redirects to ``/products/<part-lowercased>/``, which is
+    a filterable family *table* naming many part numbers. Neither yields a part
+    here, because neither names one thing (research.md §5).
+    """
+    if not url:
+        return ''
+
+    path = urlparse(url).path if '//' in url else url
+    match = re.match(r'^/(\d{1,5}[A-Z][0-9A-Z]{0,6})/?$', path)
     return match.group(1) if match else ''
 
 
@@ -1206,6 +1277,252 @@ def digikey_order_detail(sales_order_number):
     )
 
 
+# -- McMaster-Carr orders ---------------------------------------------------
+
+
+def _mcmaster_order(raw):
+    """Parse the hidden ``order`` field, or None.
+
+    ``None`` is the ordinary answer for a payload this server cannot read --
+    an unknown version, another vendor, no order number -- and never an error.
+    That is what makes a stale cached agent harmless.
+    """
+    if not raw:
+        return None
+    try:
+        body = json.loads(raw, parse_float=Decimal)
+    except (TypeError, ValueError):
+        logger.info('A capture payload carried an unreadable order field')
+        return None
+    return McMasterOrder.from_payload(body)
+
+
+def _mcmaster_order_review(service, raw, form_data=None):
+    """Render the review for a payload the agent just read. Writes nothing.
+
+    A payload naming no order -- unreadable, or naming no Purchase Order string
+    -- renders the "this page yielded no order" statement with the hand-entry
+    way forward, rather than an error page (FR-038).
+    """
+    order = _mcmaster_order(raw)
+    if order is None:
+        return render_template(
+            'product/mcmaster_order_review.html',
+            title='Capture a McMaster-Carr Order',
+            review=None,
+            order=None,
+            payload=raw or '',
+            form_data=form_data or {},
+        )
+
+    review = service.review_mcmaster_order(order)
+    return render_template(
+        'product/mcmaster_order_review.html',
+        title=f'McMaster-Carr Order {order.order_number}',
+        review=review,
+        order=order,
+        # **Carried through verbatim.** This is the FR-006 mechanism: there is
+        # nothing to re-read at confirmation, so the payload the review was
+        # built from has to survive the round trip or the capture is lost.
+        payload=raw,
+        form_data=form_data or {},
+    )
+
+
+@bp.route('/products/mcmaster/orders/capture', methods=['POST'])
+def mcmaster_order_confirm():
+    """Confirm a reviewed McMaster order and write it.
+
+    **The payload is the authority**, and it is re-parsed here rather than
+    trusted from the review's rendering. DigiKey's equivalent re-reads the order
+    from DigiKey; there is nothing to re-read from a page the operator has since
+    navigated away from, so what the review displayed is what this writes
+    (FR-006).
+
+    Same-origin, so CSRF-protected like every other form in the application --
+    unlike ``/api/capture``, which posts from the vendor's origin and cannot be.
+    """
+    service = _get_catalog_service()
+    raw = request.form.get('order') or ''
+    order = _mcmaster_order(raw)
+
+    if order is None:
+        return _mcmaster_order_review(service, raw, form_data=request.form)
+
+    decisions = _mcmaster_decisions(request.form, order)
+
+    try:
+        result = service.capture_mcmaster_order(order, decisions)
+    except ValidationError as e:
+        # Re-render the review carrying what was submitted, so a description the
+        # operator spent time on is not lost.
+        flash(e.message, 'error')
+        return _mcmaster_order_review(service, raw, form_data=request.form)
+
+    flash(_mcmaster_capture_summary(result), 'success')
+    return redirect(url_for(
+        'product.mcmaster_order_detail',
+        order_number=order.order_number,
+    ))
+
+
+def _mcmaster_decisions(form, order):
+    """The per-line decisions the form carries, keyed by ``line.form_key``.
+
+    Built by walking the **payload's** lines, not the form: a decision submitted
+    for a line the payload does not carry is ignored rather than acted on. The
+    rule ``_digikey_decisions`` already follows.
+    """
+    decisions = {}
+    for line in order.lines:
+        # form_key, not the part number: an order can carry the same part on two
+        # lines, and keying by part number gave them one shared set of fields.
+        key = line.form_key
+        decisions[key] = {
+            'include': form.get(f'include[{key}]') is not None,
+            'description': form.get(f'description[{key}]') or '',
+            'quantity': form.get(f'quantity[{key}]') or '',
+            'unit_price': form.get(f'unit_price[{key}]') or '',
+            'resolution': form.get(f'resolution[{key}]') or '',
+            'apply_change': form.get(f'apply_change[{key}]') is not None,
+        }
+    return decisions
+
+
+def _mcmaster_capture_summary(result) -> str:
+    """What just happened, in one sentence the operator can act on.
+
+    **Every outcome that changed the database has to appear here.** A capture
+    that only applies a quantity change writes no purchase, so leading on the
+    purchase count alone would report "Nothing new to capture" over the top of
+    an update that genuinely landed. PR #116 review, and the same trap is
+    reachable here.
+
+    **Every such outcome therefore goes in the block below, above the
+    fallback.** Appending one after it produced exactly the contradiction the
+    rule exists to prevent: a rename-only re-capture led with "Nothing new to
+    capture" and then said it had refiled the order (PR #123 review). Keeping
+    them together makes the fallback mean "none of the above happened" by
+    construction rather than by a condition that has to be remembered.
+    ``McMasterCaptureResult.wrote_anything`` answers the same question, and
+    ``test_the_fallback_agrees_with_wrote_anything`` holds the two in step.
+    """
+    parts = []
+    if result.purchase_ids:
+        parts.append(f"Captured {len(result.purchase_ids)} line(s)")
+    if result.lines_updated:
+        parts.append(f"{result.lines_updated} line(s) updated")
+    if result.renamed_from:
+        # A write, and one the operator did not ask for line by line -- so it
+        # is named rather than left silent (FR-016's principle, applied to the
+        # order's own label).
+        parts.append(
+            f"Refiled from {result.renamed_from!r}, which this order was "
+            f"renamed from on McMaster"
+        )
+    if not parts:
+        parts.append("Nothing new to capture")
+
+    if result.products_created:
+        parts.append(f"{result.products_created} new product(s)")
+    if result.products_attached:
+        parts.append(
+            f"{result.products_attached} attached to products you already had"
+        )
+    if result.lines_already_captured:
+        parts.append(f"{result.lines_already_captured} already captured")
+    if result.lines_excluded:
+        parts.append(f"{result.lines_excluded} skipped")
+    if result.orphaned:
+        # Reported, never deleted (FR-016).
+        parts.append(
+            f"{len(result.orphaned)} recorded purchase(s) this order no longer "
+            f"lists, left alone"
+        )
+    if result.lines_incomplete:
+        # FR-037, carried past the review so the record of which lines came back
+        # thin survives leaving that page.
+        #
+        # **Named, but not all of them.** DigiKey names every unenriched part
+        # because a handful is the usual case; here a selector that stops
+        # matching costs the same field on *every* line, and listing fifteen
+        # McMaster descriptions produces a flash nobody reads -- which loses
+        # the warning as surely as not showing it. The first few plus a count
+        # says the same thing and stays legible.
+        named = list(result.lines_incomplete[:3])
+        rest = len(result.lines_incomplete) - len(named)
+        thin = ", ".join(named)
+        if rest:
+            thin += f" and {rest} more"
+        parts.append("The page did not give up every field for " + thin)
+    return ". ".join(parts) + "."
+
+
+@bp.route('/products/purchases/receive-choice')
+def purchase_receive_choice():
+    """Which outstanding line did this bag come from? (FR-032a)
+
+    Reached when a scanned McMaster part number names more than one outstanding
+    line. **The catalog does not pick one**, and it cannot: the same part can be
+    outstanding on two orders placed weeks apart, and nothing about the bag says
+    which.
+
+    Its own page rather than DigiKey's answer, because DigiKey's candidates are
+    two lines of *one* order and the order screen shows them both. McMaster's
+    are not, and no single order screen shows them (research.md §11). DigiKey's
+    path is left exactly as it was -- this is an additional landing, not a
+    replacement.
+
+    Zero candidates by the time it loads -- received in another tab -- renders
+    "nothing outstanding for this part" and offers the product. Never an empty
+    list, and never a 404.
+    """
+    service = _get_catalog_service()
+    scan = (request.args.get('scan') or '').strip()
+    candidates = service.find_mcmaster_receivable(scan)
+
+    product = None
+    if not candidates and scan:
+        for id_type in VENDOR_SCOPED_TYPES:
+            product = service.find_product_by_identifier(
+                scan, id_type=id_type.value, vendor=MCMASTER_VENDOR
+            )
+            if product is not None:
+                break
+
+    return render_template(
+        'product/receive_choice.html',
+        title='Which Line Did This Come From?',
+        scan=scan,
+        candidates=candidates,
+        product=product,
+    )
+
+
+@bp.route('/products/mcmaster/orders/<order_number>')
+def mcmaster_order_detail(order_number):
+    """A captured McMaster order (FR-027, FR-028).
+
+    Derived, never stored: the order *is* the purchases carrying its number --
+    the customer's Purchase Order string, since McMaster shows no order number
+    and that is the only identifier the operator can recognize.
+
+    An order number nothing was captured against renders "not captured" with a
+    way forward, not a 404 (FR-031). Nothing dead-ends.
+    """
+    service = _get_catalog_service()
+    lines = service.find_mcmaster_order_lines(order_number)
+
+    return render_template(
+        'product/mcmaster_order.html',
+        title=f'McMaster-Carr Order {order_number}',
+        order_number=order_number,
+        lines=lines,
+        outstanding=[line for line in lines if line.is_outstanding],
+        highlight=request.args.get('highlight', ''),
+    )
+
+
 @bp.route('/products/digikey/part', methods=['GET', 'POST'])
 def digikey_part_capture():
     """Catalog one DigiKey part on its own (FR-027).
@@ -1493,26 +1810,36 @@ def api_scan():
 
 
 def _receive_url(resolution) -> str:
-    """Where a bag from a captured DigiKey order should land (024 FR-019).
+    """Where a scanned bag should land (024 FR-019, 028 FR-032).
 
     Three cases, and the difference between them is what the operator needs to
     be told:
 
     * one outstanding line -- straight to its receipt, with the label's own
-      quantity pre-filled, because the label describes what is in the bag rather
-      than what was ordered (FR-020);
-    * several -- the order screen with the candidates marked. The catalog does
-      not pick one (FR-026);
-    * none outstanding but some received -- the order screen, saying so. Nothing
-      is received twice (FR-023).
+      quantity pre-filled where the label carried one, because the label
+      describes what is in the bag rather than what was ordered (FR-020);
+    * several -- the operator chooses. The catalog does not pick one;
+    * none outstanding but some received -- said plainly. Nothing is received
+      twice (FR-023).
+
+    **The vendor and the order number come off the matched purchases, not off
+    the scan.** They used to be read from ``classification.ecia_fields``, which
+    a distributor label populates and a **free-text scan leaves empty** -- so a
+    McMaster match would have built an order URL with a blank order number. The
+    purchases carry both either way, and they are the record rather than the
+    scan, which makes this strictly better for the DigiKey case too.
 
     ``app/static/js/scan-capture.js`` navigates to whatever this returns without
-    inspecting the outcome, which is why the fourth outcome needed no JavaScript.
+    inspecting the outcome, so it needs no change.
     """
     purchases = resolution.purchases
     outstanding = [purchase for purchase in purchases if purchase.is_outstanding]
     fields = resolution.classification.ecia_fields
-    sales_order_number = fields.get('1K', '')
+
+    # Off the purchases. A free-text scan has no ecia_fields at all.
+    matched = outstanding or purchases
+    vendor = matched[0].vendor if matched else ''
+    order_number = matched[0].supplier_order_reference if matched else ''
 
     if len(outstanding) == 1:
         params = {'purchase_id': outstanding[0].id}
@@ -1522,15 +1849,23 @@ def _receive_url(resolution) -> str:
             params['quantity'] = fields['Q']
         return url_for('product.purchase_receive', **params)
 
+    if vendor == MCMASTER_VENDOR:
+        # Several outstanding lines for one part number, and they can be on
+        # orders placed weeks apart -- so unlike DigiKey's case there is no
+        # single order screen that shows them all (research.md §11).
+        return url_for(
+            'product.purchase_receive_choice', scan=resolution.classification.value
+        )
+
     if not outstanding:
         flash(
-            f"That line of DigiKey order {sales_order_number} is already received.",
+            f"That line of DigiKey order {order_number} is already received.",
             'info',
         )
 
     return url_for(
         'product.digikey_order_detail',
-        sales_order_number=sales_order_number,
+        sales_order_number=order_number,
         highlight=fields.get('P', ''),
     )
 

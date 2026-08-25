@@ -1084,8 +1084,8 @@ class Purchase(Base):
     # with create_all and never runs Alembic, so drift between the two passes
     # `nox -s tests` and fails on the real database.
     supplier_order_reference = Column(String(200), nullable=True, index=True)
-    # Which line of that supplier order this purchase came from -- DigiKey's
-    # DetailId. NULL for every purchase not captured from a DigiKey order,
+    # Which line of that supplier order this purchase came from, whoever the
+    # supplier is. NULL for every purchase not captured from an order,
     # including hand-recorded ones that name a sales order.
     #
     # **A part number does not identify a line**: an order can carry the same
@@ -1098,8 +1098,22 @@ class Purchase(Base):
     #
     # Not indexed: the lookup is already narrowed to one order by
     # supplier_order_reference above, which leaves a handful of rows to match in
-    # Python. Must match migration a7c4e1b0f221.
-    digikey_line_number = Column(Integer, nullable=True)
+    # Python. Must match migration c9e2a4d70318.
+    order_line_number = Column(Integer, nullable=True)
+    # The vendor's own opaque id for the order, where it has one that is not the
+    # order number the operator sees. NULL for DigiKey and for everything
+    # recorded by hand.
+    #
+    # McMaster shows *no* order number -- only the customer's Purchase Order
+    # string, which is editable in place and auto-generates as MMDD+SURNAME. So
+    # that string is what supplier_order_reference holds and what the order
+    # screen is keyed by, and this holds the stable id out of the order's URL.
+    # Re-capture pairs on this first and falls back to the order number, which
+    # is what stops a renamed Purchase Order from duplicating every line.
+    #
+    # Not indexed, for the same reason as above. Must match migration
+    # d0817b3ea45c.
+    vendor_order_id = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
 
     date_added = Column(DateTime, nullable=False, default=func.now())
@@ -1147,7 +1161,8 @@ class Purchase(Base):
             'unit_price': str(self.unit_price) if self.unit_price is not None else None,
             'order_reference': self.order_reference,
             'supplier_order_reference': self.supplier_order_reference,
-            'digikey_line_number': self.digikey_line_number,
+            'order_line_number': self.order_line_number,
+            'vendor_order_id': self.vendor_order_id,
             'notes': self.notes,
             'date_added': self.date_added.isoformat() if self.date_added else None,
             'last_modified': self.last_modified.isoformat() if self.last_modified else None,

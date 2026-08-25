@@ -37,6 +37,57 @@
     // on opposite sides of a machine boundary.
     const ASIN_PATTERN = /\/(?:dp|gp\/product|product)\/([A-Z0-9]{10})(?:[/?]|$)/;
 
+    // A McMaster product detail page: `/91290A115/`. Digits, an upper-case
+    // letter, then alphanumerics. Real part numbers seen across sampled orders
+    // range from `2652N1` to `27465A236` (research.md §5).
+    //
+    // The upper-case letter is load-bearing, not decoration. `/catalog/<part>`
+    // redirects to `/products/<part-lowercased>/`, which is a filterable family
+    // *table* naming many part numbers rather than one product -- order lines
+    // link there, so the operator can easily be standing on one. The
+    // `/products/` prefix already excludes it; the case requirement is the
+    // second lock.
+    const MCMASTER_PRODUCT_PATTERN = /^\/(\d{1,5}[A-Z][0-9A-Z]{0,6})\/$/;
+
+    // A McMaster order-history order: `/order-history/order/6a5ffba81f17e12ac4fb7d70`.
+    // The id is opaque and relates to nothing the page displays -- in
+    // particular it is *not* the order number, because McMaster shows none
+    // (research.md §5, §14).
+    //
+    // `/order-history/` itself must not match: it lists many orders.
+    const MCMASTER_ORDER_PATTERN = /^\/order-history\/order\/([0-9a-f]{24})\/?$/;
+
+    // What the server files a McMaster capture under. Must equal
+    // catalog_service.MCMASTER_VENDOR and what `_vendor_from_url` derives from
+    // mcmaster.com -- these are compared, and a mismatch makes a captured order
+    // unfindable. Sent because under the e2e harness the fixture is served from
+    // 127.0.0.1 and the derived vendor would be the loopback host
+    // (research.md §4).
+    const MCMASTER_VENDOR = 'McMaster-Carr';
+
+    /**
+     * Which kind of page the agent is standing on, from the path alone.
+     *
+     * Never the hostname: the e2e harness serves vendor fixtures from the
+     * application's own origin, so a host gate would leave the McMaster readers
+     * with no end-to-end coverage at all (research.md §3).
+     *
+     * @param {string} pathname - `location.pathname`.
+     * @returns {string} 'mcmaster-order', 'mcmaster-product', or 'other'.
+     */
+    function pageKind(pathname) {
+        if (MCMASTER_ORDER_PATTERN.test(pathname)) {
+            return 'mcmaster-order';
+        }
+        if (MCMASTER_PRODUCT_PATTERN.test(pathname)) {
+            return 'mcmaster-product';
+        }
+        // Amazon, and everything else. Untouched: this is the path the existing
+        // suite asserts on, and not editing it is what makes SC-010 checkable
+        // by running that suite unchanged.
+        return 'other';
+    }
+
     // ---------------------------------------------------------------
     // Reading the page
     // ---------------------------------------------------------------
@@ -910,6 +961,400 @@
     }
 
     // ---------------------------------------------------------------
+    // McMaster-Carr: reading an order off the order-history page
+    // ---------------------------------------------------------------
+    //
+    // The selectors below are plain, unhashed class names, and that is not an
+    // accident of transcription: McMaster's order card view uses them, while
+    // their *product* pages use CSS-module names with a build hash on the end
+    // (`_price_1y02s_5`). The two readers key on different things because the
+    // two pages genuinely differ. research.md §5.
+    //
+    // **Every step here is independent and optional** (FR-036). A selector that
+    // stops matching costs that field on that line, and nothing below may
+    // throw. What bounds the damage beyond that is `lines_read`: every row
+    // element seen is counted, including ones nothing could be read from, so
+    // the review can say "three of your fifteen" rather than "three".
+
+    // One line of the order. The container the reader walks.
+    const MCMASTER_LINE = 'div.dtl-row';
+
+    /**
+     * "Pack of 200" and "Packs of 100" both mean 100-or-200 to a pack.
+     *
+     * Anything else -- "Each", and also **"Pairs"** -- yields null, meaning the
+     * page stated no pack and one unit is one unit. "Pairs" is plainly not one
+     * item, but McMaster states no count for it anywhere on the page, so there
+     * is nothing to derive; recording a silent 2 would be inventing data.
+     * FR-037 says show it as unread and let the operator decide.
+     */
+    function mcmasterPackSize(text) {
+        if (!text) {
+            return null;
+        }
+        const match = text.match(/packs?\s+of\s+([0-9,]+)/i);
+        if (!match) {
+            return null;
+        }
+        const size = parseInt(match[1].replace(/,/g, ''), 10);
+        return (isFinite(size) && size > 0) ? size : null;
+    }
+
+    /**
+     * A price as a string of digits, or null.
+     *
+     * **It stays a string**, for the reason `priceFrom` above states: JSON's
+     * only number type is an IEEE double.
+     *
+     * McMaster puts the currency symbol on the **first line only** -- line one
+     * reads "$10.23" and every line under it reads "9.47" -- so a reader that
+     * requires a `$` gets one line of fifteen. Stripping rather than requiring
+     * is what makes that a non-event.
+     */
+    function mcmasterPrice(text) {
+        if (!text) {
+            return null;
+        }
+        // **The first monetary token, not every digit on the line.** The
+        // product page states the price and the pack in one string --
+        // "$13.23 per pack of 100" -- so stripping non-digits and keeping what
+        // is left yields "13.23100", a price a hundred thousand times too
+        // large that still parses as a Decimal and would be recorded without
+        // complaint. The order page's cells hold a price and nothing else, so
+        // the first match is the whole cell there.
+        const match = text.replace(/,/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
+        return match ? match[0] : null;
+    }
+
+    /**
+     * A whole number from a field that should hold a count, or null.
+     */
+    function mcmasterCount(text) {
+        if (!text) {
+            return null;
+        }
+        const digits = text.replace(/[^0-9]/g, '');
+        if (!digits) {
+            return null;
+        }
+        const value = parseInt(digits, 10);
+        return (isFinite(value) && value > 0) ? value : null;
+    }
+
+    /**
+     * McMaster's description for a line.
+     *
+     * The description `<p>` interleaves bare text nodes with
+     * `<span class="Wrd">` around tokens carrying punctuation, so reading the
+     * spans alone yields '0.6" 1.1" Snap-Together'. `textContent` -- which
+     * `textOf` uses -- reassembles the whole thing.
+     *
+     * The part number lives in a sibling `p.dtl-row-specs` inside the same
+     * anchor, which is why the selector excludes it rather than taking the
+     * anchor's text.
+     */
+    function mcmasterLineDescription(row) {
+        const paragraphs = row.querySelectorAll('a.dtl-row-lnk p');
+        for (let i = 0; i < paragraphs.length; i++) {
+            if (!paragraphs[i].classList.contains('dtl-row-specs')) {
+                const text = textOf(paragraphs[i]);
+                if (text) {
+                    return text;
+                }
+            }
+        }
+        return '';
+    }
+
+    /**
+     * One line of the order, or null if nothing could be read from the row.
+     *
+     * A row yielding neither a part number nor a description is not a line the
+     * operator can decide anything about, so it is dropped -- but it still
+     * counts toward `lines_read`, which is the whole point of that field.
+     */
+    function mcmasterLine(row, index) {
+        // **`.dtl-row-unit` occurs twice in every row** -- once under
+        // `.dtl-row-qu` naming the pack ("Packs of 100"), and once under
+        // `.dtl-row-ppu` naming what the price is per ("Pack"). An unscoped
+        // selector reads whichever comes first, which is the pack for a
+        // quantity and the wrong one for everything else. Both are scoped.
+        const packText = textOf(row.querySelector('.dtl-row-qu .dtl-row-unit'));
+
+        const line = {
+            // McMaster's own line number, which is what pairs a re-capture to
+            // what is already recorded. The row's position is the fallback,
+            // and is 1-based to match what the page displays.
+            line_number: mcmasterCount(textOf(row.querySelector('.dtl-row-nbr')))
+                || (index + 1),
+            part_number: textOf(row.querySelector('p.dtl-row-specs')),
+            description: mcmasterLineDescription(row)
+        };
+
+        const packs = mcmasterCount(
+            textOf(row.querySelector('.dtl-row-qu .dtl-row-quantity'))
+        );
+        if (packs !== null) {
+            line.packs = packs;
+        }
+
+        const packSize = mcmasterPackSize(packText);
+        if (packSize !== null) {
+            line.pack_size = packSize;
+        }
+
+        const price = mcmasterPrice(
+            textOf(row.querySelector('.dtl-row-ppu .dtl-row-priceper'))
+        );
+        if (price !== null) {
+            line.pack_price = price;
+        }
+
+        if (!line.part_number && !line.description) {
+            return null;
+        }
+        return line;
+    }
+
+    /**
+     * The whole order, as the payload the server reads.
+     *
+     * @param {Document} doc - the live document; McMaster renders client-side,
+     *        so there is nothing else worth reading (research.md §6).
+     * @param {string} sourceUrl - the order page's address.
+     * @param {string} orderId - the opaque id out of the path.
+     * @returns {object} the `order` field's contents.
+     */
+    function mcmasterOrder(doc, sourceUrl, orderId) {
+        const rows = doc.querySelectorAll(MCMASTER_LINE);
+        const lines = [];
+        for (let i = 0; i < rows.length; i++) {
+            const line = mcmasterLine(rows[i], i);
+            if (line !== null) {
+                lines.push(line);
+            }
+        }
+
+        // **The order number is an input's `value`, not element text.**
+        // McMaster shows no order number at all; what identifies an order to a
+        // human is the customer's Purchase Order string, which sits in an
+        // editable field (research.md §5, §14).
+        const poField = doc.querySelector('input.order-dtl-po');
+        const orderNumber = poField ? (poField.value || '').trim() : '';
+
+        return {
+            version: PAYLOAD_VERSION,
+            vendor: MCMASTER_VENDOR,
+            source_url: sourceUrl,
+            order_number: orderNumber,
+            order_id: orderId || '',
+            order_date: textOf(doc.querySelector('div.order-dtl-date')),
+            // Every row element seen, including the ones nothing could be read
+            // from. This is what makes "I could only read three of your
+            // fifteen lines" sayable, and collapsing it to lines.length would
+            // erase exactly the discrepancy FR-004 exists to report.
+            lines_read: rows.length,
+            lines: lines
+        };
+    }
+
+    // ---------------------------------------------------------------
+    // McMaster-Carr: reading one product page
+    // ---------------------------------------------------------------
+    //
+    // **Every class name on this page is CSS-module hashed** --
+    // `_price_1y02s_5`, `_partNumber_rhz5b_5`. The trailing hash is a build
+    // artifact and will change without warning; the readable stem will not. So
+    // every selector below matches the stem with `[class*="..."]` and never a
+    // whole class name. A selector written against the whole thing is a
+    // selector with a deadline.
+    //
+    // This is the reverse of the order page, whose card view uses plain
+    // unhashed names. The two readers differ because the two pages do.
+    // research.md §5.
+
+    /**
+     * The first element matching any of `selectors`, or null.
+     */
+    function firstMatch(doc, selectors) {
+        for (let i = 0; i < selectors.length; i++) {
+            const found = doc.querySelector(selectors[i]);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * McMaster's description, which the page splits across two headers.
+     *
+     * "Black-Oxide Alloy Steel Socket Head Screw" and "M3 x 0.5 mm Thread Size,
+     * 10 mm Long" are a primary and a secondary header; joined with ", " they
+     * reproduce `document.title` minus its " | McMaster-Carr" suffix, which is
+     * what the listing title should be.
+     */
+    function mcmasterTitle(doc) {
+        const primary = textOf(
+            doc.querySelector('[class*="_productDetailHeaderPrimary_"]')
+        );
+        const secondary = textOf(
+            doc.querySelector('[class*="_productDetailHeaderSecondary_"]')
+        );
+        if (primary && secondary) {
+            return primary + ', ' + secondary;
+        }
+        return primary || secondary || (doc.title || '').replace(
+            /\s*\|\s*McMaster-Carr\s*$/, ''
+        ) || null;
+    }
+
+    /**
+     * The pack price and the pack size, which McMaster states as one string.
+     *
+     * `_price_` reads "$13.23 per pack of 100". `_unitOfMeasure_` states the
+     * pack again as "Pack of 100", and is the fallback for the size when the
+     * price could not be read.
+     *
+     * @returns {{price: ?string, packSize: ?number}}
+     */
+    function mcmasterPricing(doc) {
+        const priceText = textOf(doc.querySelector('[class*="_price_"]'));
+        const uomText = textOf(doc.querySelector('[class*="_unitOfMeasure_"]'));
+
+        return {
+            price: mcmasterPrice(priceText),
+            packSize: mcmasterPackSize(priceText) || mcmasterPackSize(uomText)
+        };
+    }
+
+    /**
+     * The specification table, as name/value rows.
+     *
+     * The table nests: a group row ("Thread") carries an empty value and is
+     * followed by indented rows for its members ("Size", "Spacing", "Pitch").
+     * A row with no value is skipped rather than emitted as an empty
+     * specification -- the group's name is a heading, not a fact about the
+     * part.
+     *
+     * An explanation-icon div sits inside some labels. Reading the label's
+     * `span` rather than the label itself is what keeps it out of the name.
+     */
+    function mcmasterSpecifications(doc) {
+        const entries = [];
+        const seen = {};
+        const rows = doc.querySelectorAll(
+            '[class*="_product-detail-spec-table-row"]'
+        );
+
+        for (let i = 0; i < rows.length; i++) {
+            const labelEl = rows[i].querySelector(
+                '[class*="_product-detail-spec-row-label_"] span'
+            );
+            const valueEl = rows[i].querySelector(
+                '[class*="_product-detail-spec-row-value_"] p'
+            );
+            const name = textOf(labelEl);
+            const value = textOf(valueEl);
+            if (!name || !value) {
+                continue;
+            }
+            const key = name.toLowerCase();
+            if (seen[key]) {
+                continue;
+            }
+            seen[key] = true;
+            entries.push({ name: name, value: value });
+        }
+        return entries;
+    }
+
+    // Product photographs and line drawings. The page also carries about forty
+    // catalog-navigation icons under /init/gfx/, which are chrome: a reader
+    // that takes every <img> captures the whole browse menu as product
+    // pictures.
+    const MCMASTER_IMAGE_SELECTORS = [
+        'img[class*="_printProductImage_"]',
+        'img[class*="_thumbnailImg_"]'
+    ];
+
+    /**
+     * Absolute addresses for the product's own images.
+     */
+    function mcmasterImages(doc) {
+        const found = [];
+        const seen = {};
+        for (let i = 0; i < MCMASTER_IMAGE_SELECTORS.length; i++) {
+            const images = doc.querySelectorAll(MCMASTER_IMAGE_SELECTORS[i]);
+            for (let j = 0; j < images.length; j++) {
+                const source = images[j].currentSrc || images[j].src || '';
+                if (!/^https?:/i.test(source) || seen[source]) {
+                    continue;
+                }
+                seen[source] = true;
+                found.push(source);
+            }
+        }
+        return found;
+    }
+
+    /**
+     * One McMaster product page, as the `listing` payload.
+     *
+     * Fills the `ListingCapture` shape that already exists, so the server needs
+     * no change to parse it. Every step is independent and optional: a selector
+     * that stops matching costs that field alone (FR-036).
+     *
+     * **`brand` is left empty deliberately.** McMaster sells to its own
+     * specification and names no manufacturer on the great majority of its
+     * goods; that is a fact about the vendor, not a missed selector, and it is
+     * why FR-012 writes an MPN identifier only where a page states one.
+     */
+    function mcmasterListing(doc, sourceUrl, partNumber) {
+        const listing = {
+            version: PAYLOAD_VERSION,
+            source_url: sourceUrl
+        };
+
+        const set = function (key, value) {
+            if (value) {
+                listing[key] = value;
+            }
+        };
+
+        set('vendor_item_id', partNumber);
+        set('listing_title', mcmasterTitle(doc));
+
+        const pricing = mcmasterPricing(doc);
+        if (pricing.packSize && pricing.packSize > 1 && pricing.price) {
+            // The confirmation form's own pack fields, which feature 017 put
+            // there. **UI-only and recorded nowhere**: what is stored is a unit
+            // price, and these exist so the operator can check the arithmetic
+            // against the page.
+            listing.pack_price = pricing.price;
+            // A string, like every other value on this payload.
+            // `_payload_string` refuses a JSON number outright -- which is the
+            // point for `price`, and is why this one matches rather than being
+            // the single field that arrives as a number.
+            listing.pack_size = String(pricing.packSize);
+        } else {
+            set('price', pricing.price);
+        }
+
+        const images = mcmasterImages(doc);
+        if (images.length) {
+            listing.images = images;
+        }
+
+        const specifications = mcmasterSpecifications(doc);
+        if (specifications.length) {
+            listing.specifications = specifications;
+        }
+
+        return listing;
+    }
+
+    // ---------------------------------------------------------------
     // Reading the canonical listing rather than the open tab
     // ---------------------------------------------------------------
 
@@ -966,8 +1411,12 @@
      *
      * @param {string} endpoint - this application's /api/capture, absolute.
      * @param {object} listing - the payload, serialized into the hidden field.
+     * @param {string} [vendor] - declared only when a McMaster page was
+     *        recognized. An Amazon capture must send no `vendor` field at all
+     *        and be byte-identical to what it sent before this existed.
+     * @param {object} [order] - a McMaster order payload, for an order page.
      */
-    function submitCapture(endpoint, listing) {
+    function submitCapture(endpoint, listing, vendor, order) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = endpoint;
@@ -984,6 +1433,20 @@
         add('url', listing.source_url);
         add('listing_title', listing.listing_title || document.title);
         add('listing', JSON.stringify(listing));
+        if (order) {
+            // One hidden field holding JSON, present only for a McMaster order
+            // page. The server branches on it; a server that did not read it
+            // would render the ordinary confirmation form, which is the
+            // documented fall-through rather than a failure.
+            add('order', JSON.stringify(order));
+        }
+        if (vendor) {
+            // `product_capture()` already prefers a submitted vendor over the
+            // one it derives from the URL (app/product/routes.py), so this is
+            // the agent filling a field that already exists rather than the
+            // server growing anything.
+            add('vendor', vendor);
+        }
 
         document.body.appendChild(form);
         form.submit();
@@ -996,6 +1459,40 @@
         // Without an endpoint there is nowhere to send it, and guessing this
         // application's address from a vendor's page is not possible.
         console.error('[capture-agent] no data-endpoint on the script element');
+        return;
+    }
+
+    // The dispatch. It *wraps* the existing path rather than editing it: the
+    // 'other' branch below is what ran before this existed, unchanged, and an
+    // Amazon capture posts exactly the fields it posted yesterday.
+    const kind = pageKind(location.pathname);
+
+    if (kind === 'mcmaster-product') {
+        const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];
+        // Read against the live document, and no canonical re-fetch. That is
+        // right on the merits rather than by omission: McMaster renders
+        // client-side, so a re-fetch returns an unrendered shell -- strictly
+        // worse than the document the operator is looking at (research.md §6).
+        submitCapture(
+            endpoint,
+            mcmasterListing(document, location.href, part),
+            MCMASTER_VENDOR
+        );
+        return;
+    }
+
+    if (kind === 'mcmaster-order') {
+        const orderId = location.pathname.match(MCMASTER_ORDER_PATTERN)[1];
+        // `listing` still rides along and is still read the same way. A server
+        // that did not know about `order` would render the ordinary
+        // confirmation form from it, which is the documented fall-through
+        // (contracts/capture-payload.md §6) rather than a failure.
+        submitCapture(
+            endpoint,
+            extract(document, location.href, null),
+            MCMASTER_VENDOR,
+            mcmasterOrder(document, location.href, orderId)
+        );
         return;
     }
 

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<!--
+  mcmaster_order.html with the line markup renamed out from under the reader,
+  so that **no line is recognizable at all** while the order itself still is.
+
+  Generated from mcmaster_order.html; regenerate it from there rather than
+  editing it in place.
+
+  A hand-written stand-in for a McMaster-Carr order-history order page, not a
+  saved copy of one -- the same convention amazon_listing.html follows, and for
+  a second reason here: a real save of this page carries the ship-to name and
+  street address, the confirmation email address, the last four digits of a
+  card and a carrier tracking number, none of which this feature reads and none
+  of which belongs in the repository (research.md §5, T002).
+
+  What it *does* carry is the real markup, transcribed from a live order on
+  2026-08-25. Every class name, every nesting level and every text shape below
+  was read off the rendered page. The findings are written up in research.md §5;
+  the ones the reader depends on:
+
+  * The order-detail card view uses **plain, unhashed class names** -- `dtl-row`,
+    `dtl-row-specs`, `dtl-row-quantity`. This is the one part of McMaster's
+    markup that is not CSS-module hashed, which is why the order reader keys on
+    it. The product page is the opposite; see mcmaster_product.html.
+
+  * **There is no order number.** McMaster shows the customer's *Purchase Order*
+    string and nothing else -- here in `input.order-dtl-po`, as an editable
+    input `value`, not as element text. Confirmed by the operator: a PO string
+    is either given at order time or auto-generated as MMDD+SURNAME.
+
+  * **`div.dtl-row-unit` appears twice in every row** -- once under
+    `.dtl-row-qu` naming the pack ("Packs of 100") and once under `.dtl-row-ppu`
+    naming what the price is per ("Pack"). An unscoped `.dtl-row-unit` selector
+    reads whichever comes first. Scope to the parent.
+
+  * **The currency symbol appears on the first line only.** Line 1 reads
+    "$10.23"; every line under it reads "9.47". A price parser that requires a
+    `$` reads one line of eleven.
+
+  * `div.dtl-row-nbr` carries the line number McMaster itself displays, which is
+    what `order_line_number` records (FR-014). The row checkbox repeats it in a
+    class, `detailCheckbox-7`; the div is the better source.
+
+  * The description `<p>` interleaves bare text nodes with `<span class="Wrd">`
+    around tokens carrying punctuation. `textContent` reassembles it correctly;
+    reading only the spans yields '0.6" 1.1" Snap-Together'.
+
+  * Units seen across the sampled orders: "Each", "Pack of 100", "Packs of 25",
+    "Packs of 1" and **"Pairs"**. "Pairs" is the case FR-037 exists for: it is
+    plainly not one unit, and McMaster states no count, so no pack size can be
+    derived from it and the operator has to be told so rather than shown a
+    silent 2.
+
+  * **Shipping is not a line.** It appears in the right-hand summary panel with
+    the tax and the total, not in `dtl-rows-cntnr`. FR-019's line-with-no-part-
+    number was not observed on any sampled order; it is covered by unit tests
+    rather than invented here, so that this fixture keeps saying what the page
+    says.
+
+  The summary panel (`div.order-dtl-panel`, five `order-dtl-subpanel` children)
+  held the delivery address, the emails and the card. It is omitted entirely
+  rather than emptied: nothing in this feature reads it.
+
+  The eleven lines below are the first eleven of a real fifteen-line order, with
+  their real part numbers, quantities, units and prices. The four lines dropped
+  are dropped only because their descriptions were not transcribed.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>McMaster-Carr</title>
+</head>
+<body>
+
+<div class="order-dtl-cntnr">
+  <div class="order-dtl">
+
+    <div class="order-dtl-hdr">
+      <div class="order-dtl-main-info">
+        <!-- The only thing identifying this order. An input value, not text,
+             and editable in place through the button below it. -->
+        <input class="order-dtl-po" value="MISC-AND-GRINDER">
+        <label class="placed-order-po-placeholder placed-order-po-placeholder-float">Purchase Order</label>
+        <button class="po-edit-btn"></button>
+        <div class="po-change-container"></div>
+        <div class="order-dtl-status-cntnr"></div>
+        <!-- An order from a previous year carries the year; one placed this
+             year reads "July 21" with no year at all. -->
+        <div class="order-dtl-date">November 16, 2025</div>
+      </div>
+      <div class="order-dtl-scndry-hdr">
+        <span class="order-dtl-status"></span>
+      </div>
+      <div class="toggle-spacer">
+        <a class="toggle-all">Clear</a>
+      </div>
+    </div>
+
+    <div class="order-dtl-body">
+      <div class="dtl-group-cntnr">
+        <div>
+          <div class="dtl-group">
+            <div class="dtl-rows-cntnr">
+              <!-- McMaster changed the line markup. The order is still
+                   identifiable -- the Purchase Order string and the date are
+                   where they always were -- but nothing here reads as a line.
+                   FR-038: a plain statement and the hand-entry way forward,
+                   never an empty review that reads like an order with no
+                   lines, and never an error page. -->
+              <div class="renamed-row">
+                <div class="renamed-cell">Steel Pilot For Changeable-Pilot Counterbores</div>
+                <div class="renamed-cell">3103A21</div>
+                <div class="renamed-cell">1</div>
+                <div class="renamed-cell">$10.23</div>
+              </div>
+              <div class="renamed-row">
+                <div class="renamed-cell">Stainless Steel Domed Head Solid Rivets</div>
+                <div class="renamed-cell">97387A173</div>
+                <div class="renamed-cell">1</div>
+                <div class="renamed-cell">6.66</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

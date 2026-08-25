@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<!--
+  mcmaster_order.html with the price markup removed and the lines otherwise
+  untouched -- the FR-037 case: a selector that stops matching costs that
+  field, on every line, and the review has to *say so* rather than showing
+  fifteen silently blank prices.
+
+  Only the `dtl-row-ppu` block is gone from each line. Part numbers,
+  descriptions, quantities and pack sizes are exactly as they are in the
+  original, because what this fixture has to prove is that they still capture.
+
+  Generated from mcmaster_order.html; regenerate it from there rather than
+  editing it in place.
+
+  A hand-written stand-in for a McMaster-Carr order-history order page, not a
+  saved copy of one -- the same convention amazon_listing.html follows, and for
+  a second reason here: a real save of this page carries the ship-to name and
+  street address, the confirmation email address, the last four digits of a
+  card and a carrier tracking number, none of which this feature reads and none
+  of which belongs in the repository (research.md §5, T002).
+
+  What it *does* carry is the real markup, transcribed from a live order on
+  2026-08-25. Every class name, every nesting level and every text shape below
+  was read off the rendered page. The findings are written up in research.md §5;
+  the ones the reader depends on:
+
+  * The order-detail card view uses **plain, unhashed class names** -- `dtl-row`,
+    `dtl-row-specs`, `dtl-row-quantity`. This is the one part of McMaster's
+    markup that is not CSS-module hashed, which is why the order reader keys on
+    it. The product page is the opposite; see mcmaster_product.html.
+
+  * **There is no order number.** McMaster shows the customer's *Purchase Order*
+    string and nothing else -- here in `input.order-dtl-po`, as an editable
+    input `value`, not as element text. Confirmed by the operator: a PO string
+    is either given at order time or auto-generated as MMDD+SURNAME.
+
+  * **`div.dtl-row-unit` appears twice in every row** -- once under
+    `.dtl-row-qu` naming the pack ("Packs of 100") and once under `.dtl-row-ppu`
+    naming what the price is per ("Pack"). An unscoped `.dtl-row-unit` selector
+    reads whichever comes first. Scope to the parent.
+
+  * **The currency symbol appears on the first line only.** Line 1 reads
+    "$10.23"; every line under it reads "9.47". A price parser that requires a
+    `$` reads one line of eleven.
+
+  * `div.dtl-row-nbr` carries the line number McMaster itself displays, which is
+    what `order_line_number` records (FR-014). The row checkbox repeats it in a
+    class, `detailCheckbox-7`; the div is the better source.
+
+  * The description `<p>` interleaves bare text nodes with `<span class="Wrd">`
+    around tokens carrying punctuation. `textContent` reassembles it correctly;
+    reading only the spans yields '0.6" 1.1" Snap-Together'.
+
+  * Units seen across the sampled orders: "Each", "Pack of 100", "Packs of 25",
+    "Packs of 1" and **"Pairs"**. "Pairs" is the case FR-037 exists for: it is
+    plainly not one unit, and McMaster states no count, so no pack size can be
+    derived from it and the operator has to be told so rather than shown a
+    silent 2.
+
+  * **Shipping is not a line.** It appears in the right-hand summary panel with
+    the tax and the total, not in `dtl-rows-cntnr`. FR-019's line-with-no-part-
+    number was not observed on any sampled order; it is covered by unit tests
+    rather than invented here, so that this fixture keeps saying what the page
+    says.
+
+  The summary panel (`div.order-dtl-panel`, five `order-dtl-subpanel` children)
+  held the delivery address, the emails and the card. It is omitted entirely
+  rather than emptied: nothing in this feature reads it.
+
+  The eleven lines below are the first eleven of a real fifteen-line order, with
+  their real part numbers, quantities, units and prices. The four lines dropped
+  are dropped only because their descriptions were not transcribed.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>McMaster-Carr</title>
+</head>
+<body>
+
+<div class="order-dtl-cntnr">
+  <div class="order-dtl">
+
+    <div class="order-dtl-hdr">
+      <div class="order-dtl-main-info">
+        <!-- The only thing identifying this order. An input value, not text,
+             and editable in place through the button below it. -->
+        <input class="order-dtl-po" value="MISC-AND-GRINDER">
+        <label class="placed-order-po-placeholder placed-order-po-placeholder-float">Purchase Order</label>
+        <button class="po-edit-btn"></button>
+        <div class="po-change-container"></div>
+        <div class="order-dtl-status-cntnr"></div>
+        <!-- An order from a previous year carries the year; one placed this
+             year reads "July 21" with no year at all. -->
+        <div class="order-dtl-date">November 16, 2025</div>
+      </div>
+      <div class="order-dtl-scndry-hdr">
+        <span class="order-dtl-status"></span>
+      </div>
+      <div class="toggle-spacer">
+        <a class="toggle-all">Clear</a>
+      </div>
+    </div>
+
+    <div class="order-dtl-body">
+      <div class="dtl-group-cntnr">
+        <div>
+          <div class="dtl-group">
+            <div class="dtl-rows-cntnr">
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-1 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">1</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/3103A21">
+                      <p>Steel Pilot For Changeable-Pilot Counterbores, <span class="Wrd">1/8"</span> Shank Diameter With <span class="Wrd">5/16"</span> Pilot Head</p>
+                      <p class="dtl-row-specs">
+                            3103A21
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-2 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">2</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_plate_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/3103A2">
+                      <p>Steel Pilot For Changeable-Pilot Counterbores, <span class="Wrd">1/8"</span> Shank Diameter With <span class="Wrd">1/4"</span> Pilot Head</p>
+                      <p class="dtl-row-specs">
+                            3103A2
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-3 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">3</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/brass_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/3103A1">
+                      <p>Steel Pilot For Changeable-Pilot Counterbores, <span class="Wrd">3/32"</span> Shank Diameter With <span class="Wrd">3/32"</span> Pilot Head</p>
+                      <p class="dtl-row-specs">
+                            3103A1
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-4 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">4</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/3103A11">
+                      <p>Steel Pilot For Changeable-Pilot Counterbores, <span class="Wrd">3/32"</span> Shank Diameter With <span class="Wrd">1/8"</span> Pilot Head</p>
+                      <p class="dtl-row-specs">
+                            3103A11
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <!-- Pack-priced, singular "Pack of": 1 pack of 100 = 100 units at
+                   6.66/100 = 0.0666, which does not divide to the cent. FR-020a
+                   and price_rounds exist for this line. -->
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-5 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">5</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/brass_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/97387A173">
+                      <p><span class="Wrd">18-8</span> Stainless Steel Domed Head Solid Rivets, <span class="Wrd">1/8"</span> Diameter, For <span class="Wrd">0.188"</span> Maximum Material Thickness</p>
+                      <p class="dtl-row-specs">
+                            97387A173
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Pack of 100</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-6 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">6</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_plate_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/6104A54">
+                      <p><span class="Wrd">1/8"</span> Diameter Round Domed Head Rivet Setter For <span class="Wrd">Air-Powered</span> Hammer For Solid Rivets</p>
+                      <p class="dtl-row-specs">
+                            6104A54
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <!-- "Pairs". Not one unit, and no count stated anywhere on the
+                   page, so no pack size is derivable. FR-037: say so, leave the
+                   field blank and editable, and do not quietly record 2. -->
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-7 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">7</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/4556T34">
+                      <p>Mounting Brackets For <span class="Wrd">0.6"</span> High x <span class="Wrd">1.1"</span> Wide Open <span class="Wrd">Snap-Together</span> Cable And Hose Carrier</p>
+                      <p class="dtl-row-specs">
+                            4556T34
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">2</div>
+                  <div class="dtl-row-unit">Pairs</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-8 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">8</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_plate_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/4516T47">
+                      <p><span class="Wrd">Snap-Together</span> Cable And Hose Carrier For <span class="Wrd">0.3"</span> Maximum Cable <span class="Wrd">Od/0.6"</span> Total Cable Width, Open, <span class="Wrd">6'</span> Long</p>
+                      <p class="dtl-row-specs">
+                            4516T47
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-9 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">9</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/brass_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/27465A236">
+                      <p>Drill Bit For Plastic, Size x</p>
+                      <p class="dtl-row-specs">
+                            27465A236
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-10 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">10</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_rod_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/2652N1">
+                      <p>Masonry Drill Bit For Anchor Installation, <span class="Wrd">1/4"</span> Size, <span class="Wrd">4-7/8"</span> Overall Length</p>
+                      <p class="dtl-row-specs">
+                            2652N1
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">1</div>
+                  <div class="dtl-row-unit">Each</div>
+                </div>
+              </div>
+
+              <!-- "Packs of 1": pack-priced wording, pack size 1. Four packs are
+                   four units at 6.17 each, and the arithmetic must not turn that
+                   into four of something else. -->
+              <div class="dtl-row">
+                <div class="dtl-row-info">
+                  <div class="checkbox-orderUI--wrapper">
+                    <input class="checkbox-orderUI detailCheckbox-11 ">
+                    <label class=""></label>
+                  </div>
+                  <div class="dtl-row-nbr">11</div>
+                  <a class="title-dtl-link">
+                    <div class="dtl-img-cntnr ">
+                      <img class="dtl-img" src="__IMAGE_HOST__/steel_plate_sample.jpg" alt="">
+                    </div>
+                  </a>
+                  <div class="dtl-row-copy">
+                    <a class="dtl-row-lnk" href="https://www.mcmaster.com/catalog/90519A871">
+                      <p><span class="Wrd">Left-Hand-Thread</span> Hex Nut, <span class="Wrd">Thin-Profile,</span> <span class="Wrd">Low-Strength</span> <span class="Wrd">Black-Oxide</span> Steel, <span class="Wrd">1/2"-13</span> Thread Size</p>
+                      <p class="dtl-row-specs">
+                            90519A871
+                      </p>
+                    </a>
+                  </div>
+                </div>
+                <div class="dtl-row-qu">
+                  <div class="dtl-row-quantity">4</div>
+                  <div class="dtl-row-unit">Packs of 1</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- div.order-dtl-panel omitted: it held the delivery name and address, the
+         confirmation and receipt email addresses, the card's last four digits
+         and the carrier tracking number. Nothing here reads any of it. -->
+
+  </div>
+</div>
+
+</body>
+</html>
