@@ -566,3 +566,50 @@ class TestPackPricedUnitPrice:
         assert product.purchases[0].unit_price == Decimal('0.13'), (
             'a pack-priced capture recorded a NULL or wrong unit price'
         )
+
+    def test_a_rename_only_recapture_does_not_say_nothing_happened(self):
+        """A refile is a write. Leading with "Nothing new to capture" and then
+        saying the order was refiled contradicts itself, and contradicts this
+        function's own documented rule. PR #123 review."""
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        summary = _mcmaster_capture_summary(McMasterCaptureResult(
+            lines_already_captured=3, renamed_from='MISC-AND-GRINDER',
+        ))
+
+        assert 'Nothing new to capture' not in summary
+        assert "Refiled from 'MISC-AND-GRINDER'" in summary
+
+    @pytest.mark.parametrize('result_kwargs', [
+        {},
+        {'lines_excluded': 2},
+        {'lines_already_captured': 3},
+        {'purchase_ids': (1,)},
+        {'lines_updated': 1},
+        {'renamed_from': 'OLD-NAME'},
+        {'purchase_ids': (1,), 'renamed_from': 'OLD-NAME'},
+        {'lines_updated': 1, 'lines_already_captured': 2},
+        {'orphaned': (7,)},
+        {'lines_incomplete': ('Pilot',)},
+        {'lines_already_captured': 3, 'orphaned': (7,)},
+    ])
+    def test_the_fallback_agrees_with_wrote_anything(self, result_kwargs):
+        """The two answer the same question and must never disagree.
+
+        `wrote_anything` gates nothing the operator sees directly, so a new
+        kind of write added to one and not the other would drift silently --
+        which is exactly how the rename-only contradiction got in. This is the
+        assertion that catches the next one.
+        """
+        from app.product.routes import _mcmaster_capture_summary
+        from app.models import McMasterCaptureResult
+
+        result = McMasterCaptureResult(**result_kwargs)
+        summary = _mcmaster_capture_summary(result)
+
+        said_nothing = 'Nothing new to capture' in summary
+        assert said_nothing != result.wrote_anything, (
+            f'flash and wrote_anything disagree for {result_kwargs}: '
+            f'wrote_anything={result.wrote_anything}, summary={summary!r}'
+        )

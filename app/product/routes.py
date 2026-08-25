@@ -1397,12 +1397,29 @@ def _mcmaster_capture_summary(result) -> str:
     purchase count alone would report "Nothing new to capture" over the top of
     an update that genuinely landed. PR #116 review, and the same trap is
     reachable here.
+
+    **Every such outcome therefore goes in the block below, above the
+    fallback.** Appending one after it produced exactly the contradiction the
+    rule exists to prevent: a rename-only re-capture led with "Nothing new to
+    capture" and then said it had refiled the order (PR #123 review). Keeping
+    them together makes the fallback mean "none of the above happened" by
+    construction rather than by a condition that has to be remembered.
+    ``McMasterCaptureResult.wrote_anything`` answers the same question, and
+    ``test_the_fallback_agrees_with_wrote_anything`` holds the two in step.
     """
     parts = []
     if result.purchase_ids:
         parts.append(f"Captured {len(result.purchase_ids)} line(s)")
     if result.lines_updated:
         parts.append(f"{result.lines_updated} line(s) updated")
+    if result.renamed_from:
+        # A write, and one the operator did not ask for line by line -- so it
+        # is named rather than left silent (FR-016's principle, applied to the
+        # order's own label).
+        parts.append(
+            f"Refiled from {result.renamed_from!r}, which this order was "
+            f"renamed from on McMaster"
+        )
     if not parts:
         parts.append("Nothing new to capture")
 
@@ -1416,14 +1433,6 @@ def _mcmaster_capture_summary(result) -> str:
         parts.append(f"{result.lines_already_captured} already captured")
     if result.lines_excluded:
         parts.append(f"{result.lines_excluded} skipped")
-    if result.renamed_from:
-        # A write, and one the operator did not ask for line by line -- so it
-        # is named rather than left silent (FR-016's principle, applied to the
-        # order's own label).
-        parts.append(
-            f"Refiled from {result.renamed_from!r}, which this order was "
-            f"renamed from on McMaster"
-        )
     if result.orphaned:
         # Reported, never deleted (FR-016).
         parts.append(
