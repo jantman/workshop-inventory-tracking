@@ -21,11 +21,7 @@ import json
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_product_page_capture import (
-    FIXTURES,
-    image_host,  # noqa: F401  -- a fixture, used by injection
-    run_bookmarklet,
-)
+from tests.e2e.test_product_page_capture import FIXTURES, run_bookmarklet
 
 PART_NUMBER = "91290A115"
 PRODUCT_ROUTE = "**/91290A115/"

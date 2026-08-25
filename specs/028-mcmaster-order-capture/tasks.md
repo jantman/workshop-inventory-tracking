@@ -196,7 +196,7 @@ still reads, prices are blank and editable, and the review states that prices co
 - [X] T055 [US4] Mark, per line, which fields came back empty, and leave them editable (FR-037). A blank price on one line of fourteen is not something the operator will notice unaided
 - [X] T056 [US4] Handle a payload with a valid order number and **no readable lines**: a plain statement and the hand-entry way forward (FR-038). Never an empty review that reads like an empty order, and never an error page
 - [X] T057 [US4] Carry the incompleteness into the post-confirm flash, so the record of which lines came back thin survives leaving the review page (FR-037)
-- [ ] T058 [US4] Add the E2E degradation cases against both stripped fixtures, asserting the statements appear and that the readable lines still capture with their part numbers and quantities intact
+- [X] T058 [US4] Add the E2E degradation cases against both stripped fixtures, asserting the statements appear and that the readable lines still capture with their part numbers and quantities intact
 
 **Checkpoint**: A markup change costs fields, not silence.
 

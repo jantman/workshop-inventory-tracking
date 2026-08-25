@@ -20,15 +20,13 @@ the stripping caused.
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_mcmaster_order import (  # noqa: F401
+from tests.e2e.test_mcmaster_order import (
     EACH_LINE_KEY,
     EACH_LINE_PART,
     LINE_COUNT,
     ORDER_NUMBER,
-    PACK_LINE_KEY,
     capture_order,
     confirm,
-    image_host,
     line,
     order_screen,
     payload_of,

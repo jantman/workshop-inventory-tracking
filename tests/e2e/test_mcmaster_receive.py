@@ -15,14 +15,13 @@ matches on.
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_mcmaster_order import (  # noqa: F401
+from tests.e2e.test_mcmaster_order import (
     EACH_LINE_PART,
     LINE_COUNT,
     ORDER_NUMBER,
     PACK_LINE_PART,
     capture_order,
     confirm,
-    image_host,
     order_screen,
 )
 

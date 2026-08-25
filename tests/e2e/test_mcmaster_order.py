@@ -25,11 +25,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_product_page_capture import (
-    FIXTURES,
-    image_host,  # noqa: F401  -- a fixture, used by injection
-    run_bookmarklet,
-)
+from tests.e2e.test_product_page_capture import FIXTURES, run_bookmarklet
 
 # The shape the agent dispatches on: /order-history/order/<24 hex>.
 ORDER_ID = "6a5ffba81f17e12ac4fb7d70"
