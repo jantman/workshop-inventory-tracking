@@ -1157,6 +1157,394 @@ def _digikey_variation_number(value: Any) -> str:
     return ''
 
 
+# ---------------------------------------------------------------------------
+# McMaster-Carr: what the capture agent read off an order page
+# ---------------------------------------------------------------------------
+#
+# These are the payload types for feature 028. They differ from the DigiKey ones
+# above in the way that shapes the whole feature: DigiKey's come from a service
+# that can be asked again, and these come from a page that was read once and
+# cannot be re-read. What the review displayed is what gets written (FR-006).
+
+# The payload shape the agent posts. Anything else is not read, which is what
+# makes a stale cached agent harmless rather than a 500.
+MCMASTER_PAYLOAD_VERSION = 1
+
+# The vendor the agent must declare for a payload to be treated as a McMaster
+# order. Must equal catalog_service.MCMASTER_VENDOR.
+MCMASTER_PAYLOAD_VENDOR = 'McMaster-Carr'
+
+
+def _mcmaster_string(value: Any) -> str:
+    """A trimmed string, or '' for anything unusable as one.
+
+    Numbers are refused. Every string field on this payload is text the agent
+    read out of the page, so a number arriving in one means the agent sent
+    something unexpected, and '' is the honest answer.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ''
+
+
+def _mcmaster_int(value: Any) -> Optional[int]:
+    """A positive int, or None. A bool is not an int here.
+
+    Counts only -- packs and pack sizes. Zero and negatives become None rather
+    than being carried: a pack of zero is not a fact about the order, it is a
+    misread, and it would divide by zero downstream.
+    """
+    if isinstance(value, bool):
+        return None
+    parsed = None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except (TypeError, ValueError):
+            return None
+    if parsed is None or parsed <= 0:
+        return None
+    return parsed
+
+
+def _mcmaster_decimal(value: Any) -> Optional[Decimal]:
+    """A Decimal, or None -- and never by way of a float (Constitution III).
+
+    **Prices cross this boundary as strings, always.** JSON's only number type
+    is an IEEE double, so a price sent as a JSON number is already a float
+    before any of this runs. A float here means the agent sent one, and dropping
+    it is better than recording an inexact price: by that point the damage is
+    done and Decimal(6.9000000000000004) is worse than a blank the operator can
+    fill in.
+
+    Negatives are refused for the same reason zero packs are: a price below zero
+    is a misread, not a credit this feature knows how to record.
+    """
+    if isinstance(value, bool):
+        return None
+    parsed = None
+    if isinstance(value, Decimal):
+        parsed = value
+    elif isinstance(value, int):
+        parsed = Decimal(value)
+    elif isinstance(value, str):
+        try:
+            parsed = Decimal(value.strip())
+        except (InvalidOperation, ValueError):
+            return None
+    elif isinstance(value, float):
+        logger.warning(
+            "McMaster price arrived as a float, which means it was sent as a "
+            "JSON number rather than a string. Dropping it rather than "
+            "recording an inexact price."
+        )
+        return None
+    if parsed is None or parsed < 0 or not parsed.is_finite():
+        return None
+    return parsed
+
+
+# "November 16, 2025" for an order from a previous year; "July 21", with no year
+# at all, for one placed this year. Both are what McMaster renders
+# (research.md §5), and a reader that handles only the first loses the date on
+# every recent order -- which is the majority of the ones anybody re-captures.
+_MCMASTER_DATE_FORMATS = ('%B %d, %Y', '%b %d, %Y', '%Y-%m-%d')
+_MCMASTER_DATE_FORMATS_NO_YEAR = ('%B %d', '%b %d')
+
+
+def _mcmaster_datetime(value: Any, today: Optional[datetime] = None) -> Optional[datetime]:
+    """McMaster's order date, or None.
+
+    Lenient by design: an unparseable date is the same as an absent one, and an
+    absent one is ordinary (contracts/capture-payload.md §3). Nothing about a
+    capture depends on it.
+
+    A date with no year is taken as the current year, because that is precisely
+    when McMaster omits it.
+    """
+    text = _mcmaster_string(value)
+    if not text:
+        return None
+
+    for fmt in _MCMASTER_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+
+    # ISO 8601 with a time on it, should the agent ever send one.
+    try:
+        return datetime.fromisoformat(text.replace('Z', '+00:00'))
+    except ValueError:
+        pass
+
+    # The year is appended to the *text* rather than being patched onto a parsed
+    # date with .replace(year=...). Parsing a bare day-and-month is deprecated
+    # from 3.13 and changes behaviour in 3.15, and it mishandles 29 February --
+    # which strptime accepts against its default year 1900, a non-leap year,
+    # only to raise. Giving it a real year sidesteps both.
+    year = (today or datetime.now()).year
+    for fmt in _MCMASTER_DATE_FORMATS_NO_YEAR:
+        try:
+            return datetime.strptime(f'{text}, {year}', f'{fmt}, %Y')
+        except ValueError:
+            continue
+
+    return None
+
+
+@dataclass(frozen=True)
+class McMasterOrderLine:
+    """One line of a McMaster order, as the agent read it off the page.
+
+    **Packs, not units.** McMaster states a quantity ("2"), a pack ("Packs of
+    100") and a price per pack ("11.51"). What this catalog records is units and
+    a unit price, because what gets consumed -- and what a low-stock flag has to
+    mean -- is individual screws. The conversion is :attr:`quantity` and
+    :attr:`unit_price`, both shown on the review and both editable there
+    (FR-020, FR-020a).
+
+    ``pack_size`` of None means the page stated no pack, so one unit is one
+    unit. That covers "Each" and it also covers **"Pairs"** -- a unit that is
+    plainly not one item but for which McMaster states no count anywhere, so
+    none can be derived. Recording a silent 2 there would be inventing data;
+    FR-037 says show it as unread and let the operator decide.
+    """
+    part_number: str = ''
+    description: str = ''
+    packs: Optional[int] = None
+    pack_size: Optional[int] = None
+    pack_price: Optional[Decimal] = None
+    line_number: Optional[int] = None
+
+    @property
+    def units_per_pack(self) -> int:
+        """How many units one pack holds. 1 when the page stated no pack."""
+        return self.pack_size or 1
+
+    @property
+    def quantity(self) -> Optional[int]:
+        """The quantity to record, in units rather than packs (FR-020).
+
+        None when the page stated no quantity -- blank and editable on the
+        review, not a guessed 1.
+        """
+        if self.packs is None:
+            return None
+        return self.packs * self.units_per_pack
+
+    @property
+    def exact_unit_price(self) -> Optional[Decimal]:
+        """The unit price before it is rounded to the cent.
+
+        Kept apart from :attr:`unit_price` so :attr:`price_rounds` has something
+        to compare against. Nothing stores this.
+        """
+        if self.pack_price is None:
+            return None
+        return self.pack_price / self.units_per_pack
+
+    @property
+    def unit_price(self) -> Optional[Decimal]:
+        """What will actually be stored: the pack price divided, then rounded.
+
+        ``price_to_cents`` is the existing ROUND_HALF_UP quantizer, and using it
+        here means the stored value is one this code chose rather than one
+        MariaDB's Numeric(10, 2) imposed silently.
+        """
+        return price_to_cents(self.exact_unit_price)
+
+    @property
+    def price_rounds(self) -> bool:
+        """Whether dividing the pack price loses precision to the cent.
+
+        Said on the review, for the reason feature 017 already says it: 6.66
+        across a pack of 100 is 0.0666 a unit and gets stored as 0.07, and the
+        operator should learn that now rather than during a reconciliation
+        months later.
+        """
+        exact = self.exact_unit_price
+        return exact is not None and price_to_cents(exact) != exact
+
+    @property
+    def form_key(self) -> str:
+        """What names this line in a form, and what a decision is keyed by.
+
+        The line number McMaster itself displays, because **a part number does
+        not identify a line**: an order can carry the same part twice. Keying
+        the form by part number gave two such lines one shared ``include[]`` and
+        ``description[]``, so neither could be controlled on its own (024,
+        PR #116 review). The same trap is reachable here and the same answer
+        closes it.
+
+        Falls back to the part number when the page stated no line number, which
+        is correct for every order that does not repeat a part.
+        """
+        if self.line_number is not None:
+            return str(self.line_number)
+        return self.part_number
+
+    @property
+    def is_readable(self) -> bool:
+        """Whether there is anything here for the operator to decide about.
+
+        A line with neither a part number nor a description is dropped. A line
+        with either one is kept: a part number alone is capturable, and a
+        description alone is capturable or excludable (FR-019).
+        """
+        return bool(self.part_number or self.description)
+
+    @property
+    def missing_fields(self) -> tuple:
+        """Which fields came back empty, for FR-037.
+
+        A blank price on one line of fifteen is not something the operator
+        notices unaided, so the review marks it rather than leaving them to
+        spot it.
+        """
+        missing = []
+        if not self.part_number:
+            missing.append('part_number')
+        if not self.description:
+            missing.append('description')
+        if self.packs is None:
+            missing.append('quantity')
+        if self.pack_price is None:
+            missing.append('price')
+        return tuple(missing)
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['McMasterOrderLine']:
+        """Build from one element of the payload's ``lines``.
+
+        Returns None only for something that is not an object, or a line
+        carrying neither a part number nor a description -- there is nothing to
+        decide about that one.
+
+        **Never raises on a JSON value.** A field McMaster stops emitting, or a
+        selector that stops matching, costs that field alone (FR-036). Every
+        extraction below is independent.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        line = cls(
+            part_number=_mcmaster_string(data.get('part_number')),
+            description=_mcmaster_string(data.get('description')),
+            packs=_mcmaster_int(data.get('packs')),
+            pack_size=_mcmaster_int(data.get('pack_size')),
+            pack_price=_mcmaster_decimal(data.get('pack_price')),
+            line_number=_mcmaster_int(data.get('line_number')),
+        )
+        return line if line.is_readable else None
+
+
+@dataclass(frozen=True)
+class McMasterOrder:
+    """One McMaster order, as the agent read it off the order-history page.
+
+    **There is no order number.** McMaster shows only the customer's *Purchase
+    Order* string, which is what ``order_number`` holds -- editable in place on
+    their page, and auto-generated as MMDD+SURNAME when the customer gives none
+    (research.md §5). ``order_id`` is the stable, opaque id out of the order's
+    URL; it is never displayed and exists only so a re-capture still recognizes
+    an order whose Purchase Order string has been renamed (research.md §14).
+
+    Deliberately absent: the delivery name and address, the confirmation email
+    and the card. They are on the page and are not read, rather than being read
+    and discarded.
+    """
+    order_number: str
+    order_id: str = ''
+    order_date: Optional[datetime] = None
+    source_url: str = ''
+    lines: tuple = ()
+    lines_read: int = 0
+
+    @property
+    def lines_offered(self) -> int:
+        """How many lines the operator is being shown."""
+        return len(self.lines)
+
+    @property
+    def is_incomplete(self) -> bool:
+        """Whether the agent saw more lines than it could use (FR-004).
+
+        Equal counts say nothing; different ones are the difference between
+        "your order has three lines" and "I could only read three of your
+        fifteen", and those must not look the same.
+        """
+        return self.lines_read > self.lines_offered
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['McMasterOrder']:
+        """Build from the hidden ``order`` form field's JSON.
+
+        Returns None -- not an error -- for a payload this code cannot read:
+
+        * not an object;
+        * a ``version`` it does not recognize;
+        * a ``vendor`` that is not McMaster's;
+        * a body naming no order number.
+
+        That is 007 FR-007 and it is what makes a stale cached agent harmless.
+        Each of these renders today's ordinary confirmation form rather than a
+        500, except the last, which FR-038 renders as "this page yielded no
+        order" with a way to enter it by hand.
+
+        An empty ``lines`` with a valid order number is **not** None: it is a
+        real order whose lines could not be read, and it must not look like an
+        order with no lines.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        if data.get('version') != MCMASTER_PAYLOAD_VERSION:
+            logger.info(
+                "Ignoring a capture payload with version %r; this server reads "
+                "version %s", data.get('version'), MCMASTER_PAYLOAD_VERSION
+            )
+            return None
+
+        if _mcmaster_string(data.get('vendor')) != MCMASTER_PAYLOAD_VENDOR:
+            return None
+
+        order_number = _mcmaster_string(data.get('order_number'))
+        if not order_number:
+            return None
+
+        raw_lines = data.get('lines')
+        if not isinstance(raw_lines, list):
+            raw_lines = []
+
+        lines = tuple(
+            line for line in (
+                McMasterOrderLine.from_payload(entry) for entry in raw_lines
+            )
+            if line is not None
+        )
+
+        # What the agent *saw*, including line elements it could not use. Only
+        # falls back to what survived when the agent said nothing -- taking
+        # len(lines) as the count would erase exactly the discrepancy FR-004
+        # exists to report. A count below what survived is a malformed claim and
+        # is corrected upward for the same reason.
+        lines_read = _mcmaster_int(data.get('lines_read'))
+        if lines_read is None or lines_read < len(lines):
+            lines_read = len(lines)
+
+        return cls(
+            order_number=order_number,
+            order_id=_mcmaster_string(data.get('order_id')),
+            order_date=_mcmaster_datetime(data.get('order_date')),
+            source_url=_mcmaster_string(data.get('source_url')),
+            lines=lines,
+            lines_read=lines_read,
+        )
+
+
 class OrderLineState(Enum):
     """What a review concluded about one line of a DigiKey order.
 

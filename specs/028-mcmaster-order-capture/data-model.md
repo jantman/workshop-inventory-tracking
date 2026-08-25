@@ -35,6 +35,30 @@ is the duplication "boring, obvious code" exists to prevent.
 **Call sites**: eleven, across `app/database.py`, `app/catalog_service.py` and
 `tests/unit/test_digikey_capture.py`. All mechanical.
 
+### `purchases.vendor_order_id` — one new nullable column
+
+Added after reading the live pages (research.md §5, §14). **McMaster shows no
+order number**: only the customer's *Purchase Order* string, which is editable in
+place on the order page and is auto-generated as MMDD+SURNAME when not given. The
+order's URL carries a stable, unique 24-hex id that appears nowhere on the page.
+
+| | |
+|---|---|
+| **Type** | `String(64)`, nullable, not indexed |
+| **Holds** | the vendor's own opaque id for the order — McMaster's `/order-history/order/<id>` segment |
+| **NULL for** | every purchase not captured from a McMaster order, including all DigiKey ones and everything recorded by hand |
+| **Migration** | one new Alembic revision, reversible |
+
+**Why it is not the order number.** The operator cannot recognize, look up or
+type a 24-hex string, so an order screen keyed by it would be a screen nobody can
+find. The Purchase Order string stays the order number, and the id is only ever
+used to *pair* a re-read order to what is already recorded.
+
+**Not indexed**, for the same reason `order_line_number` is not: the lookup is
+already narrowed by vendor and order number, and what remains is a handful of
+rows matched in Python. An index here would be the speculative kind Constitution
+I prohibits.
+
 ### Nothing else in the schema moves
 
 Everything this feature records has a column already, and reusing them is what makes a McMaster
@@ -44,7 +68,8 @@ order openable and receivable with no new tables:
 |---|---|---|
 | Vendor | `purchases.vendor` | `'McMaster-Carr'` — the value `_vendor_from_url` already derives from `mcmaster.com` (`app/product/routes.py:831`) |
 | McMaster part number | `purchases.vendor_item_id` | indexed; half the key a receiving scan matches on |
-| McMaster order number | `purchases.supplier_order_reference` | indexed; FR-013's "field of its own, not free text in a note" |
+| McMaster order number | `purchases.supplier_order_reference` | indexed; FR-013's "field of its own, not free text in a note". For McMaster this is the **Purchase Order string** — the only order identifier the page shows |
+| McMaster's own order id | `purchases.vendor_order_id` | new; the URL's opaque 24-hex segment, used only for re-capture pairing |
 | Which line of that order | `purchases.order_line_number` | FR-014 |
 | Quantity (units) | `purchases.quantity` | `Integer`, `CHECK > 0`; packs × pack size is an integer |
 | Unit price | `purchases.unit_price` | `Numeric(10, 2)`; written through `price_to_cents` |
@@ -96,8 +121,9 @@ because there is nothing for the operator to decide about.
 
 | Field | Type | Rules |
 |---|---|---|
-| `order_number` | `str` | required — no order number, no order |
-| `order_date` | `Optional[datetime]` | parsed leniently; `None` is ordinary |
+| `order_number` | `str` | required — no order number, no order. For McMaster this is the **Purchase Order string** (§1) |
+| `order_id` | `str` | the vendor's opaque id from the order URL; `''` when the agent could not read one. Never displayed — it exists to pair a re-capture (§1, §5) |
+| `order_date` | `Optional[datetime]` | parsed leniently; `None` is ordinary. A current-year order states no year at all |
 | `source_url` | `str` | the order page it was read from |
 | `lines` | `tuple[McMasterOrderLine, ...]` | may be empty |
 | `lines_read` | `int` | how many line elements the agent saw, including any it could not use — FR-004 |
@@ -181,8 +207,18 @@ behaviour.
 ## 5. Re-capture: what reconciles, and against what
 
 A re-capture reads the page again and pairs each line to the purchases already recorded for that
-order number. Pairing is **by `order_line_number`, never by position and never by part number** —
+order. Pairing is **by `order_line_number`, never by position and never by part number** —
 the rule `_recorded_digikey_lines` learned the hard way (`app/catalog_service.py:1939`).
+
+**Which purchases count as "already recorded for that order"** is itself two
+passes, because the Purchase Order string is editable (§1, research.md §14):
+
+1. **By `vendor_order_id`**, where the payload carries one and the row has one.
+   Survives a renamed Purchase Order and tells two same-day orders apart.
+2. **By `supplier_order_reference`**, for rows carrying no `vendor_order_id` —
+   anything recorded by hand, or captured before that column existed.
+
+A row matched in pass one is never reconsidered in pass two.
 
 | Situation | Outcome |
 |---|---|

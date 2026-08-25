@@ -57,8 +57,9 @@ One hidden field holding JSON. Present **only** for a McMaster order page.
   "version": 1,
   "vendor": "McMaster-Carr",
   "source_url": "https://www.mcmaster.com/<order path>",
-  "order_number": "12345678",
-  "order_date": "2026-08-10",
+  "order_number": "MISC-AND-GRINDER",
+  "order_id": "6a5ffba81f17e12ac4fb7d70",
+  "order_date": "November 16, 2025",
   "lines_read": 14,
   "lines": [
     {
@@ -80,8 +81,9 @@ One hidden field holding JSON. Present **only** for a McMaster order page.
 | `version` | yes | integer | must be `1`; anything else → the payload is not read |
 | `vendor` | yes | string | must equal `McMaster-Carr`; the agent declares what it read (research.md §4) |
 | `source_url` | yes | string | the order page's address |
-| `order_number` | yes | string | **no order number, no order** — the key everything else hangs off |
-| `order_date` | no | string | parsed leniently; unparseable is the same as absent, and absent is ordinary |
+| `order_number` | yes | string | **no order number, no order** — the key everything else hangs off. McMaster shows no order number, so this is the **Purchase Order** string, read from `input.order-dtl-po`'s `value` (research.md §5) |
+| `order_id` | no | string | the opaque id from the order URL's path. Recorded, never displayed; it is what pairs a re-capture when the Purchase Order string has been renamed (research.md §14) |
+| `order_date` | no | string | parsed leniently; unparseable is the same as absent, and absent is ordinary. Carries a year only when the order is not from the current year |
 | `lines_read` | no | integer | line elements *seen*, including unusable ones. Absent → treated as `len(lines)` |
 | `lines` | yes | array | may be empty |
 

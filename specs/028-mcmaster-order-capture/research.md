@@ -450,14 +450,28 @@ by `order_line_number` (§8, data-model §5). So:
 Neither is hypothetical: the first needs one click of a pencil icon, and the
 second needs two orders on one day.
 
-**Why this is not being pre-solved.** The fix is to record the URL id alongside
-the PO string and reconcile on the id — one more nullable column, and pairing
-that survives a rename. That is a schema change and a change to FR-013, so it is
-the operator's call and not one to make inside an implementation task. It is
-raised as an open question against the spec rather than answered here.
+### Resolved 2026-08-25: both, and reconcile on the id
 
-**Until it is answered**, the capture records the Purchase Order string and the
-duplicate-on-rename hazard stands. It is worth noting the hazard is *visible*
-when it happens — the review shows every line as `NEW` for an order the operator
-knows they have already captured, which is exactly the signal FR-015 was meant
-to give and is not silent corruption.
+Put to the operator, who chose to record **both**. So:
+
+* The **Purchase Order string** stays what `supplier_order_reference` holds, what
+  the order screen is keyed by, and what the operator sees. Nothing about FR-013's
+  intent changes — it is still "a field of its own, not free text in a note".
+* The **URL id** is recorded alongside it, in one new nullable column
+  `purchases.vendor_order_id`, and **re-capture pairs on the id where both sides
+  have one**, falling back to the order number where they do not.
+
+That fallback is what keeps the change small. A purchase recorded by hand, or
+captured by DigiKey, carries no `vendor_order_id`, and must go on reconciling
+exactly as it does now — so the id is an additional, stronger key rather than a
+replacement for the existing one. It is the same two-pass shape
+`_recorded_digikey_lines` already uses for line numbers: the exact key first, the
+weaker one for rows that have nothing better.
+
+**What this buys**: renaming a Purchase Order on McMaster no longer causes a
+re-capture to duplicate every line, and two orders that share an auto-generated
+MMDD+SURNAME name no longer reconcile against each other.
+
+**What it costs**: one Alembic revision adding one nullable column, and one extra
+field on the order payload. No new table, no change to how an order is displayed
+or found, and nothing for the operator to configure.

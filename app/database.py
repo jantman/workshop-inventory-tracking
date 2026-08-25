@@ -1100,6 +1100,20 @@ class Purchase(Base):
     # supplier_order_reference above, which leaves a handful of rows to match in
     # Python. Must match migration c9e2a4d70318.
     order_line_number = Column(Integer, nullable=True)
+    # The vendor's own opaque id for the order, where it has one that is not the
+    # order number the operator sees. NULL for DigiKey and for everything
+    # recorded by hand.
+    #
+    # McMaster shows *no* order number -- only the customer's Purchase Order
+    # string, which is editable in place and auto-generates as MMDD+SURNAME. So
+    # that string is what supplier_order_reference holds and what the order
+    # screen is keyed by, and this holds the stable id out of the order's URL.
+    # Re-capture pairs on this first and falls back to the order number, which
+    # is what stops a renamed Purchase Order from duplicating every line.
+    #
+    # Not indexed, for the same reason as above. Must match migration
+    # d0817b3ea45c.
+    vendor_order_id = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
 
     date_added = Column(DateTime, nullable=False, default=func.now())
@@ -1148,6 +1162,7 @@ class Purchase(Base):
             'order_reference': self.order_reference,
             'supplier_order_reference': self.supplier_order_reference,
             'order_line_number': self.order_line_number,
+            'vendor_order_id': self.vendor_order_id,
             'notes': self.notes,
             'date_added': self.date_added.isoformat() if self.date_added else None,
             'last_modified': self.last_modified.isoformat() if self.last_modified else None,
