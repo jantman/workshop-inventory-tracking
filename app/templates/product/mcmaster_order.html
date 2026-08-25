@@ -1,0 +1,121 @@
+{# A captured McMaster-Carr order.
+
+   Derived, never stored: this order *is* the purchases carrying its number, the
+   way the reorder list is derived rather than kept. So it cannot drift out of
+   step with the purchases -- it has nothing of its own to drift.
+
+   "Its number" is the customer's **Purchase Order** string. McMaster shows no
+   order number at all, and that string is the only identifier a human can
+   recognize or type (research.md §5). #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-box-seam{% endblock %}
+{% block page_heading %}McMaster-Carr Order {{ order_number }}{% endblock %}
+
+{% block product_content %}
+{% if not lines %}
+{# FR-031: never a 404. An order number nothing was captured against still
+   renders, and says what to do about it. #}
+<div class="alert alert-info" id="not-captured">
+    <h6 class="alert-heading"><i class="bi bi-inbox"></i> Nothing captured under this order</h6>
+    <p class="mb-2">
+        No purchase is recorded against <code>{{ order_number }}</code>.
+    </p>
+    <p class="mb-0">
+        Open that order in your McMaster order history and click the capture
+        bookmarklet; its lines will show here. Note that McMaster's
+        <em>Purchase Order</em> name is editable on their side — if it was
+        renamed after being captured, the lines are recorded under the old name.
+    </p>
+</div>
+{% else %}
+
+<div class="alert {% if outstanding %}alert-warning{% else %}alert-success{% endif %}" id="order-progress">
+    {% if outstanding %}
+    <i class="bi bi-hourglass-split"></i>
+    <strong id="outstanding-count">{{ outstanding | length }} of {{ lines | length }} still outstanding.</strong>
+    Scan a part number off a bag to receive its line.
+    {% else %}
+    <i class="bi bi-check-circle"></i>
+    <strong id="outstanding-count">All {{ lines | length }} line(s) received.</strong>
+    {% endif %}
+</div>
+
+<div class="table-responsive">
+    <table class="table align-middle" id="order-lines">
+        <thead>
+            <tr>
+                <th>Part</th>
+                <th>Product</th>
+                <th class="text-end">Units</th>
+                <th class="text-end">Unit price</th>
+                <th>State</th>
+                <th class="text-end">Receive</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for purchase in lines %}
+            <tr class="order-line{% if highlight and purchase.vendor_item_id == highlight %} table-active{% endif %}"
+                data-part="{{ purchase.vendor_item_id or '' }}"
+                data-line="{{ purchase.order_line_number or '' }}"
+                data-outstanding="{{ 'true' if purchase.is_outstanding else 'false' }}">
+                <td>
+                    {% if purchase.vendor_item_id %}
+                    <code>{{ purchase.vendor_item_id }}</code>
+                    {% else %}
+                    <span class="text-body-secondary">—</span>
+                    {% endif %}
+                    {% if purchase.order_line_number %}
+                    <div class="small text-body-secondary">line {{ purchase.order_line_number }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if purchase.product %}
+                    <a href="{{ url_for('product.product_detail', product_id=purchase.product_id) }}">
+                        {{ purchase.product.description }}
+                    </a>
+                    {% else %}
+                    <span class="text-body-secondary">product deleted</span>
+                    {% endif %}
+                    {% if purchase.listing_title %}
+                    <div class="small text-body-secondary">{{ purchase.listing_title }}</div>
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
+                <td class="text-end">{{ purchase.unit_price if purchase.unit_price is not none else '—' }}</td>
+                <td>
+                    {% if purchase.is_outstanding %}
+                    <span class="badge text-bg-warning">outstanding</span>
+                    {% else %}
+                    <span class="badge text-bg-success">received</span>
+                    <div class="small text-body-secondary">
+                        {{ purchase.received_date.strftime('%-d %b %Y') }}
+                    </div>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    {% if purchase.is_outstanding %}
+                    {# FR-029: routes to the receipt that already exists.
+                       Receiving itself is untouched -- the purchase is marked
+                       received, a counted product's quantity rises, and a
+                       manual low/out flag is cleared. The quantity is amendable
+                       there, which is where what arrived can differ from what
+                       was ordered. #}
+                    <a class="btn btn-sm btn-primary receive-line"
+                       href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}">
+                        <i class="bi bi-box-arrow-in-down"></i> Receive
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="small text-body-secondary mb-0">
+    This page is worked out from the purchases each time you open it — nothing
+    about the order is stored separately, so it cannot fall out of step with them.
+</p>
+{% endif %}
+{% endblock %}
