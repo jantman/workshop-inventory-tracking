@@ -37,6 +37,57 @@
     // on opposite sides of a machine boundary.
     const ASIN_PATTERN = /\/(?:dp|gp\/product|product)\/([A-Z0-9]{10})(?:[/?]|$)/;
 
+    // A McMaster product detail page: `/91290A115/`. Digits, an upper-case
+    // letter, then alphanumerics. Real part numbers seen across sampled orders
+    // range from `2652N1` to `27465A236` (research.md §5).
+    //
+    // The upper-case letter is load-bearing, not decoration. `/catalog/<part>`
+    // redirects to `/products/<part-lowercased>/`, which is a filterable family
+    // *table* naming many part numbers rather than one product -- order lines
+    // link there, so the operator can easily be standing on one. The
+    // `/products/` prefix already excludes it; the case requirement is the
+    // second lock.
+    const MCMASTER_PRODUCT_PATTERN = /^\/(\d{1,5}[A-Z][0-9A-Z]{0,6})\/$/;
+
+    // A McMaster order-history order: `/order-history/order/6a5ffba81f17e12ac4fb7d70`.
+    // The id is opaque and relates to nothing the page displays -- in
+    // particular it is *not* the order number, because McMaster shows none
+    // (research.md §5, §14).
+    //
+    // `/order-history/` itself must not match: it lists many orders.
+    const MCMASTER_ORDER_PATTERN = /^\/order-history\/order\/([0-9a-f]{24})\/?$/;
+
+    // What the server files a McMaster capture under. Must equal
+    // catalog_service.MCMASTER_VENDOR and what `_vendor_from_url` derives from
+    // mcmaster.com -- these are compared, and a mismatch makes a captured order
+    // unfindable. Sent because under the e2e harness the fixture is served from
+    // 127.0.0.1 and the derived vendor would be the loopback host
+    // (research.md §4).
+    const MCMASTER_VENDOR = 'McMaster-Carr';
+
+    /**
+     * Which kind of page the agent is standing on, from the path alone.
+     *
+     * Never the hostname: the e2e harness serves vendor fixtures from the
+     * application's own origin, so a host gate would leave the McMaster readers
+     * with no end-to-end coverage at all (research.md §3).
+     *
+     * @param {string} pathname - `location.pathname`.
+     * @returns {string} 'mcmaster-order', 'mcmaster-product', or 'other'.
+     */
+    function pageKind(pathname) {
+        if (MCMASTER_ORDER_PATTERN.test(pathname)) {
+            return 'mcmaster-order';
+        }
+        if (MCMASTER_PRODUCT_PATTERN.test(pathname)) {
+            return 'mcmaster-product';
+        }
+        // Amazon, and everything else. Untouched: this is the path the existing
+        // suite asserts on, and not editing it is what makes SC-010 checkable
+        // by running that suite unchanged.
+        return 'other';
+    }
+
     // ---------------------------------------------------------------
     // Reading the page
     // ---------------------------------------------------------------
@@ -966,8 +1017,11 @@
      *
      * @param {string} endpoint - this application's /api/capture, absolute.
      * @param {object} listing - the payload, serialized into the hidden field.
+     * @param {string} [vendor] - declared only when a McMaster page was
+     *        recognized. An Amazon capture must send no `vendor` field at all
+     *        and be byte-identical to what it sent before this existed.
      */
-    function submitCapture(endpoint, listing) {
+    function submitCapture(endpoint, listing, vendor) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = endpoint;
@@ -984,6 +1038,13 @@
         add('url', listing.source_url);
         add('listing_title', listing.listing_title || document.title);
         add('listing', JSON.stringify(listing));
+        if (vendor) {
+            // `product_capture()` already prefers a submitted vendor over the
+            // one it derives from the URL (app/product/routes.py), so this is
+            // the agent filling a field that already exists rather than the
+            // server growing anything.
+            add('vendor', vendor);
+        }
 
         document.body.appendChild(form);
         form.submit();
@@ -996,6 +1057,39 @@
         // Without an endpoint there is nowhere to send it, and guessing this
         // application's address from a vendor's page is not possible.
         console.error('[capture-agent] no data-endpoint on the script element');
+        return;
+    }
+
+    // The dispatch. It *wraps* the existing path rather than editing it: the
+    // 'other' branch below is what ran before this existed, unchanged, and an
+    // Amazon capture posts exactly the fields it posted yesterday.
+    const kind = pageKind(location.pathname);
+
+    if (kind === 'mcmaster-product') {
+        const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];
+        // canonicalDocument() resolves to the live document whenever there is
+        // no ASIN, which is always here -- and that is right on the merits as
+        // well as by accident: McMaster renders client-side, so a re-fetch
+        // returns an unrendered shell, strictly worse than the document the
+        // operator is looking at (research.md §6).
+        submitCapture(
+            endpoint,
+            extract(document, location.href, part),
+            MCMASTER_VENDOR
+        );
+        return;
+    }
+
+    if (kind === 'mcmaster-order') {
+        // The order reader lands here. Until it does, falling through to the
+        // ordinary confirmation form is the documented behaviour for a payload
+        // the server cannot read as an order (contracts/capture-payload.md §6),
+        // so this is not a hole -- it is today's answer.
+        submitCapture(
+            endpoint,
+            extract(document, location.href, null),
+            MCMASTER_VENDOR
+        );
         return;
     }
 
