@@ -105,7 +105,7 @@ def serve_listing(page, image_host, fixture="amazon_listing.html"):
     )
 
 
-def run_bookmarklet(page, live_server, tab_url):
+def run_bookmarklet(page, live_server, tab_url, landing="#capture-form"):
     """Click the real bookmarklet on whatever page is being served; return the tab.
 
     The bookmarklet is read off this application's own page rather than
@@ -115,6 +115,12 @@ def run_bookmarklet(page, live_server, tab_url):
     It is *clicked* rather than evaluated because a form submission into a new
     tab needs a user activation to escape the popup blocker -- which is exactly
     what the operator's click on a real bookmark provides.
+
+    ``landing`` names what proves the new tab has rendered. It defaults to the
+    ordinary confirmation form; a McMaster order lands on the review instead,
+    which is a different page with a different form on it. Feature 028 reuses
+    this function from tests/e2e/test_mcmaster_order.py rather than copying it,
+    so the loader stays under test on both paths.
     """
     page.goto(f"{live_server.url}/products/capture")
     expect(page.locator("#capture-bookmarklet")).to_be_visible()
@@ -138,7 +144,7 @@ def run_bookmarklet(page, live_server, tab_url):
     landed = popup.value
     # The landing is a full navigation, so the form's presence is the completion
     # signal and a field read before it lands would read empty (pattern C).
-    expect(landed.locator("#capture-form")).to_be_visible()
+    expect(landed.locator(landing)).to_be_visible()
     return landed
 
 

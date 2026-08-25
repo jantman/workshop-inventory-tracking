@@ -2243,9 +2243,8 @@ class CatalogService:
                 recorded_unit_price=existing.unit_price,
             )
 
-        product = self._mcmaster_product_by_identifier(
-            session, IdentifierType.DISTRIBUTOR, line.part_number,
-            vendor=MCMASTER_VENDOR,
+        product = self._mcmaster_product_by_part_number(
+            session, line.part_number
         )
         if product is not None:
             # The same check DigiKey makes, and it fires for the same reason:
@@ -2296,6 +2295,34 @@ class CatalogService:
             state=OrderLineState.NEW,
             suggested_description=suggested,
         )
+
+    def _mcmaster_product_by_part_number(
+        self, session, part_number: str,
+    ) -> Optional[Product]:
+        """The product a McMaster part number names, however it was recorded.
+
+        **Both vendor-scoped identifier types are tried**, and that is not
+        belt-and-braces. This feature's order capture writes `DISTRIBUTOR`
+        (FR-012), but the product-page capture goes through ``capture_order``,
+        which writes `VENDOR` for every vendor it has ever handled. Looking for
+        only one of them would mean an order capture failed to recognize a part
+        the operator had already catalogued from its product page, and would
+        create a second product for it -- the duplicate FR-007 exists to
+        prevent.
+
+        Editing ``capture_order`` to write a different type for one vendor was
+        the alternative, and it was rejected: it is the write path every Amazon
+        capture goes through, SC-010 requires that path to behave identically
+        after this feature, and both types are vendor-scoped and both are in
+        ``VENDOR_SCOPED_TYPES``, so a scan finds either one already.
+        """
+        for id_type in (IdentifierType.DISTRIBUTOR, IdentifierType.VENDOR):
+            product = self._mcmaster_product_by_identifier(
+                session, id_type, part_number, vendor=MCMASTER_VENDOR,
+            )
+            if product is not None:
+                return product
+        return None
 
     def _mcmaster_product_by_identifier(
         self, session, id_type: IdentifierType, value: str, vendor: str = '',

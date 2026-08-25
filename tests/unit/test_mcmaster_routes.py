@@ -219,3 +219,170 @@ class TestOrderScreen:
 
         body = resp.get_data(as_text=True)
         assert 'table-active' in body
+
+
+class TestPartNumberFromUrl:
+    """FR-025: the paste-a-URL path, with no agent involved at all.
+
+    The pattern is deliberately duplicated between the agent and the server --
+    they are on opposite sides of a machine boundary, the agent's copy decides
+    which reader runs, and this one is what the form uses. The Amazon pair
+    carries the same note.
+    """
+
+    @pytest.mark.parametrize('url, expected', [
+        ('https://www.mcmaster.com/91290A115/', '91290A115'),
+        ('https://mcmaster.com/91290A115/', '91290A115'),
+        ('https://www.mcmaster.com/91290A115', '91290A115'),
+        ('https://www.mcmaster.com/2652N1/', '2652N1'),
+        ('https://www.mcmaster.com/27465A236/', '27465A236'),
+        ('https://www.mcmaster.com/3103A2/', '3103A2'),
+    ])
+    def test_a_product_page_yields_its_part_number(self, url, expected):
+        from app.product.routes import _mcmaster_part_from_url
+
+        assert _mcmaster_part_from_url(url) == expected
+
+    @pytest.mark.parametrize('url', [
+        'https://www.amazon.com/dp/B08N5WRWNW',
+        'https://www.mcmaster.com/',
+        'https://www.mcmaster.com',
+        '',
+        'not a url at all',
+        # The family table /catalog/<part> redirects to. It names many part
+        # numbers rather than one product, so it must not yield one.
+        'https://www.mcmaster.com/products/97531a492/',
+        # The order list, and one order.
+        'https://www.mcmaster.com/order-history/',
+        'https://www.mcmaster.com/order-history/order/6a5ffba81f17e12ac4fb7d70',
+    ])
+    def test_anything_else_is_blank_rather_than_an_error(self, url):
+        """Blank is the ordinary answer -- the operator fills it in."""
+        from app.product.routes import _mcmaster_part_from_url
+
+        assert _mcmaster_part_from_url(url) == ''
+
+    def test_a_pasted_url_fills_the_vendor_and_the_part(self, client):
+        """FR-025, through the form the operator actually uses."""
+        resp = client.post('/products/capture', data={
+            'url': 'https://www.mcmaster.com/91290A115/',
+            'description': 'Socket head screw, M3 x 10',
+            'quantity': '100',
+            'unit_price': '0.13',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        assert '91290A115' in html
+
+
+class TestProductCaptureIdentifiers:
+    """US2 scenario 2, and the defect it turns out to guard.
+
+    The scenario asks for the part number as a `DISTRIBUTOR` identifier scoped
+    to McMaster-Carr, "so that scanning or searching that number finds it".
+    What the product-page path actually writes is `VENDOR`, scoped the same way
+    -- ``capture_order`` has written that for every vendor since feature 007,
+    and it is the path every Amazon capture goes through.
+
+    Both types are vendor-scoped and both are in ``VENDOR_SCOPED_TYPES``, so
+    the *stated purpose* holds either way: a scan finds it. Editing that shared
+    write path to emit a different type for one vendor was rejected -- SC-010
+    requires it to behave identically after this feature.
+
+    What genuinely had to be fixed is the other side: the order review looks up
+    **both** types, so an order capture recognizes a part already catalogued
+    from its product page instead of creating a second product for it.
+    """
+
+    def capture_the_product_page(self, client):
+        from app.catalog_service import MCMASTER_VENDOR
+
+        return client.post('/products/capture', data={
+            'url': 'https://www.mcmaster.com/91290A115/',
+            'vendor': MCMASTER_VENDOR,
+            'description': 'Socket head screw, M3 x 10',
+            'quantity': '100',
+            'unit_price': '0.13',
+        }, follow_redirects=True)
+
+    def test_the_part_number_is_recorded_scoped_to_mcmaster(self, client, app):
+        from app.catalog_service import (
+            CatalogService, MCMASTER_VENDOR, VENDOR_SCOPED_TYPES,
+        )
+
+        self.capture_the_product_page(client)
+
+        catalog = CatalogService(app.config['STORAGE_BACKEND'])
+        product = catalog.find_product_by_identifier(
+            '91290A115', id_type='VENDOR', vendor=MCMASTER_VENDOR)
+
+        assert product is not None, 'the part number was not recorded at all'
+        scoped = [
+            i for i in product.identifiers
+            if i.value == '91290A115'
+        ]
+        assert scoped, 'no identifier carries the part number'
+        assert all(i.vendor == MCMASTER_VENDOR for i in scoped), (
+            'the identifier was not scoped to McMaster-Carr'
+        )
+        assert all(
+            i.id_type in {t.value for t in VENDOR_SCOPED_TYPES}
+            for i in scoped
+        ), 'the identifier is not of a vendor-scoped kind, so a scan misses it'
+
+    def test_no_mpn_is_invented_for_a_page_that_named_no_manufacturer(
+            self, client, app):
+        """Inventing an identifier McMaster never stated would collide with a
+        real MPN later, and identifiers are unique."""
+        from app.catalog_service import CatalogService, MCMASTER_VENDOR
+        from app.models import IdentifierType
+
+        self.capture_the_product_page(client)
+
+        catalog = CatalogService(app.config['STORAGE_BACKEND'])
+        product = catalog.find_product_by_identifier(
+            '91290A115', id_type='VENDOR', vendor=MCMASTER_VENDOR)
+
+        assert not [
+            i for i in product.identifiers
+            if i.id_type == IdentifierType.MPN.value
+        ]
+
+    def test_an_order_capture_finds_a_part_catalogued_from_its_product_page(
+            self, client, app):
+        """The defect this guards. Looking up only DISTRIBUTOR would read this
+        line as NEW and create a second product for a part already held."""
+        import json as _json
+        from app.catalog_service import CatalogService, MCMASTER_VENDOR
+
+        self.capture_the_product_page(client)
+
+        body = dict(PAYLOAD, lines=[{
+            'line_number': 1, 'part_number': '91290A115',
+            'description': 'Socket head screws', 'packs': 1,
+            'pack_size': 100, 'pack_price': '13.23',
+        }], lines_read=1)
+        html = client.post('/api/capture', data={
+            'url': SOURCE_URL, 'listing': '', 'vendor': MCMASTER_VENDOR,
+            'order': _json.dumps(body),
+        }).get_data(as_text=True)
+
+        assert 'data-state="MATCHED"' in html, (
+            'the order did not recognize a part already in the catalog'
+        )
+
+        client.post('/products/mcmaster/orders/capture', data={
+            'order': carried_payload(html), 'include[1]': 'on',
+            'quantity[1]': '100', 'unit_price[1]': '0.13',
+        }, follow_redirects=True)
+
+        catalog = CatalogService(app.config['STORAGE_BACKEND'])
+        holders = [
+            p for p in catalog.list_products()
+            if any(i.value == '91290A115' for i in p.identifiers)
+        ]
+        assert len(holders) == 1, (
+            f'{len(holders)} products now carry 91290A115; the order capture '
+            f'created a duplicate'
+        )

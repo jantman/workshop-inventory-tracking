@@ -689,6 +689,17 @@ class ListingCapture:
     description_text: Optional[str] = None
     specifications: List[Dict[str, str]] = field(default_factory=list)
     images: List[str] = field(default_factory=list)
+    # What a pack cost and how many were in it, where the vendor prices by the
+    # pack. **Neither is recorded anywhere**: they pre-fill the two fields
+    # feature 017 put on the confirmation page, which exist to produce the unit
+    # price and to still be there explaining it when the form comes back with a
+    # question. There is no pack size in the schema and this is not the
+    # beginning of one -- what is stored is a unit price.
+    #
+    # Strings, like `price` and for the same reason: JSON's only number type is
+    # an IEEE double (Constitution III).
+    pack_price: Optional[str] = None
+    pack_size: Optional[str] = None
 
     def manufacturer_part_number(self) -> Optional[str]:
         """The part number this listing's own rows name, or None (019).
@@ -776,6 +787,8 @@ class ListingCapture:
             description_text=_payload_string(data.get('description_text')),
             specifications=_payload_specifications(data.get('specifications')),
             images=_payload_images(data.get('images')),
+            pack_price=_payload_string(data.get('pack_price')),
+            pack_size=_payload_string(data.get('pack_size')),
         )
 
 

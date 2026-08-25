@@ -1152,6 +1152,202 @@
     }
 
     // ---------------------------------------------------------------
+    // McMaster-Carr: reading one product page
+    // ---------------------------------------------------------------
+    //
+    // **Every class name on this page is CSS-module hashed** --
+    // `_price_1y02s_5`, `_partNumber_rhz5b_5`. The trailing hash is a build
+    // artifact and will change without warning; the readable stem will not. So
+    // every selector below matches the stem with `[class*="..."]` and never a
+    // whole class name. A selector written against the whole thing is a
+    // selector with a deadline.
+    //
+    // This is the reverse of the order page, whose card view uses plain
+    // unhashed names. The two readers differ because the two pages do.
+    // research.md §5.
+
+    /**
+     * The first element matching any of `selectors`, or null.
+     */
+    function firstMatch(doc, selectors) {
+        for (let i = 0; i < selectors.length; i++) {
+            const found = doc.querySelector(selectors[i]);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * McMaster's description, which the page splits across two headers.
+     *
+     * "Black-Oxide Alloy Steel Socket Head Screw" and "M3 x 0.5 mm Thread Size,
+     * 10 mm Long" are a primary and a secondary header; joined with ", " they
+     * reproduce `document.title` minus its " | McMaster-Carr" suffix, which is
+     * what the listing title should be.
+     */
+    function mcmasterTitle(doc) {
+        const primary = textOf(
+            doc.querySelector('[class*="_productDetailHeaderPrimary_"]')
+        );
+        const secondary = textOf(
+            doc.querySelector('[class*="_productDetailHeaderSecondary_"]')
+        );
+        if (primary && secondary) {
+            return primary + ', ' + secondary;
+        }
+        return primary || secondary || (doc.title || '').replace(
+            /\s*\|\s*McMaster-Carr\s*$/, ''
+        ) || null;
+    }
+
+    /**
+     * The pack price and the pack size, which McMaster states as one string.
+     *
+     * `_price_` reads "$13.23 per pack of 100". `_unitOfMeasure_` states the
+     * pack again as "Pack of 100", and is the fallback for the size when the
+     * price could not be read.
+     *
+     * @returns {{price: ?string, packSize: ?number}}
+     */
+    function mcmasterPricing(doc) {
+        const priceText = textOf(doc.querySelector('[class*="_price_"]'));
+        const uomText = textOf(doc.querySelector('[class*="_unitOfMeasure_"]'));
+
+        return {
+            price: mcmasterPrice(priceText),
+            packSize: mcmasterPackSize(priceText) || mcmasterPackSize(uomText)
+        };
+    }
+
+    /**
+     * The specification table, as name/value rows.
+     *
+     * The table nests: a group row ("Thread") carries an empty value and is
+     * followed by indented rows for its members ("Size", "Spacing", "Pitch").
+     * A row with no value is skipped rather than emitted as an empty
+     * specification -- the group's name is a heading, not a fact about the
+     * part.
+     *
+     * An explanation-icon div sits inside some labels. Reading the label's
+     * `span` rather than the label itself is what keeps it out of the name.
+     */
+    function mcmasterSpecifications(doc) {
+        const entries = [];
+        const seen = {};
+        const rows = doc.querySelectorAll(
+            '[class*="_product-detail-spec-table-row"]'
+        );
+
+        for (let i = 0; i < rows.length; i++) {
+            const labelEl = rows[i].querySelector(
+                '[class*="_product-detail-spec-row-label_"] span'
+            );
+            const valueEl = rows[i].querySelector(
+                '[class*="_product-detail-spec-row-value_"] p'
+            );
+            const name = textOf(labelEl);
+            const value = textOf(valueEl);
+            if (!name || !value) {
+                continue;
+            }
+            const key = name.toLowerCase();
+            if (seen[key]) {
+                continue;
+            }
+            seen[key] = true;
+            entries.push({ name: name, value: value });
+        }
+        return entries;
+    }
+
+    // Product photographs and line drawings. The page also carries about forty
+    // catalog-navigation icons under /init/gfx/, which are chrome: a reader
+    // that takes every <img> captures the whole browse menu as product
+    // pictures.
+    const MCMASTER_IMAGE_SELECTORS = [
+        'img[class*="_printProductImage_"]',
+        'img[class*="_thumbnailImg_"]'
+    ];
+
+    /**
+     * Absolute addresses for the product's own images.
+     */
+    function mcmasterImages(doc) {
+        const found = [];
+        const seen = {};
+        for (let i = 0; i < MCMASTER_IMAGE_SELECTORS.length; i++) {
+            const images = doc.querySelectorAll(MCMASTER_IMAGE_SELECTORS[i]);
+            for (let j = 0; j < images.length; j++) {
+                const source = images[j].currentSrc || images[j].src || '';
+                if (!/^https?:/i.test(source) || seen[source]) {
+                    continue;
+                }
+                seen[source] = true;
+                found.push(source);
+            }
+        }
+        return found;
+    }
+
+    /**
+     * One McMaster product page, as the `listing` payload.
+     *
+     * Fills the `ListingCapture` shape that already exists, so the server needs
+     * no change to parse it. Every step is independent and optional: a selector
+     * that stops matching costs that field alone (FR-036).
+     *
+     * **`brand` is left empty deliberately.** McMaster sells to its own
+     * specification and names no manufacturer on the great majority of its
+     * goods; that is a fact about the vendor, not a missed selector, and it is
+     * why FR-012 writes an MPN identifier only where a page states one.
+     */
+    function mcmasterListing(doc, sourceUrl, partNumber) {
+        const listing = {
+            version: PAYLOAD_VERSION,
+            source_url: sourceUrl
+        };
+
+        const set = function (key, value) {
+            if (value) {
+                listing[key] = value;
+            }
+        };
+
+        set('vendor_item_id', partNumber);
+        set('listing_title', mcmasterTitle(doc));
+
+        const pricing = mcmasterPricing(doc);
+        if (pricing.packSize && pricing.packSize > 1 && pricing.price) {
+            // The confirmation form's own pack fields, which feature 017 put
+            // there. **UI-only and recorded nowhere**: what is stored is a unit
+            // price, and these exist so the operator can check the arithmetic
+            // against the page.
+            listing.pack_price = pricing.price;
+            // A string, like every other value on this payload.
+            // `_payload_string` refuses a JSON number outright -- which is the
+            // point for `price`, and is why this one matches rather than being
+            // the single field that arrives as a number.
+            listing.pack_size = String(pricing.packSize);
+        } else {
+            set('price', pricing.price);
+        }
+
+        const images = mcmasterImages(doc);
+        if (images.length) {
+            listing.images = images;
+        }
+
+        const specifications = mcmasterSpecifications(doc);
+        if (specifications.length) {
+            listing.specifications = specifications;
+        }
+
+        return listing;
+    }
+
+    // ---------------------------------------------------------------
     // Reading the canonical listing rather than the open tab
     // ---------------------------------------------------------------
 
@@ -1266,14 +1462,13 @@
 
     if (kind === 'mcmaster-product') {
         const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];
-        // canonicalDocument() resolves to the live document whenever there is
-        // no ASIN, which is always here -- and that is right on the merits as
-        // well as by accident: McMaster renders client-side, so a re-fetch
-        // returns an unrendered shell, strictly worse than the document the
-        // operator is looking at (research.md §6).
+        // Read against the live document, and no canonical re-fetch. That is
+        // right on the merits rather than by omission: McMaster renders
+        // client-side, so a re-fetch returns an unrendered shell -- strictly
+        // worse than the document the operator is looking at (research.md §6).
         submitCapture(
             endpoint,
-            extract(document, location.href, part),
+            mcmasterListing(document, location.href, part),
             MCMASTER_VENDOR
         );
         return;

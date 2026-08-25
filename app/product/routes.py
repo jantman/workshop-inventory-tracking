@@ -477,7 +477,11 @@ def product_capture():
     if request.method == 'POST':
         url = request.form.get('url', '').strip()
         vendor = request.form.get('vendor', '') or _vendor_from_url(url)
-        vendor_item_id = request.form.get('vendor_item_id', '') or _asin_from_url(url)
+        vendor_item_id = (
+            request.form.get('vendor_item_id', '')
+            or _asin_from_url(url)
+            or _mcmaster_part_from_url(url)
+        )
         listing = ListingCapture.from_json(request.form.get('listing'))
 
         # The listing fills the blanks and never overwrites: the operator was
@@ -762,7 +766,11 @@ def api_capture():
 
     url = (data.get('url') or '').strip()
     vendor = data.get('vendor') or _vendor_from_url(url)
-    vendor_item_id = data.get('vendor_item_id') or _asin_from_url(url)
+    vendor_item_id = (
+        data.get('vendor_item_id')
+        or _asin_from_url(url)
+        or _mcmaster_part_from_url(url)
+    )
 
     # A McMaster order rides the same endpoint as one extra form field, because
     # the bookmarklet's text cannot change without the operator re-dragging it
@@ -872,6 +880,33 @@ def _asin_from_url(url: str) -> str:
         return ''
 
     match = re.search(r'/(?:dp|gp/product|product)/([A-Z0-9]{10})(?:[/?]|$)', url)
+    return match.group(1) if match else ''
+
+
+def _mcmaster_part_from_url(url: str) -> str:
+    """Pull a McMaster part number out of a URL path.
+
+    The same shape ``capture-agent.js`` dispatches on, and **deliberately
+    duplicated** rather than shared: the two live on opposite sides of a machine
+    boundary, the agent's copy decides which reader runs, and this one is what
+    the paste-a-URL form uses with no agent involved at all (FR-025). The Amazon
+    pair carries the same note.
+
+    ``/91290A115/`` -- digits, an upper-case letter, then alphanumerics.
+    Anything it cannot find is blank for the operator to fill in, never an
+    error.
+
+    Two other shapes reach a McMaster part and neither is a product page:
+    ``/catalog/<part>`` redirects to ``/products/<part-lowercased>/``, which is
+    a filterable family *table* naming many part numbers. Neither yields a part
+    here, because neither names one thing (research.md §5).
+    """
+    if not url:
+        return ''
+
+    match = re.search(
+        r'^https?://[^/]*mcmaster\.com/(\d{1,5}[A-Z][0-9A-Z]{0,6})/?$', url
+    )
     return match.group(1) if match else ''
 
 

@@ -227,13 +227,16 @@
                             <input type="text" class="form-control" id="pack_price"
                                    name="pack_price" inputmode="decimal"
                                    value="{{ form_data.get('pack_price')
+                                             or (listing.pack_price if listing else '')
                                              or (listing.price if listing else '') or '' }}">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label for="pack_size" class="form-label">Units in the Pack</label>
                             <input type="number" class="form-control" id="pack_size"
                                    name="pack_size" min="1" step="1"
-                                   value="{{ form_data.get('pack_size') or '1' }}">
+                                   value="{{ form_data.get('pack_size')
+                                             or (listing.pack_size if listing else '')
+                                             or '1' }}">
                             <div class="form-text">
                                 How many came in it -- not how many you ordered.
                             </div>
