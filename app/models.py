@@ -1314,6 +1314,13 @@ class McMasterOrderLine:
     """
     part_number: str = ''
     description: str = ''
+    # Only where the page actually stated one. McMaster sells to its own
+    # specification and names no manufacturer on the great majority of its
+    # goods, so '' is the ordinary value and not a missed selector -- which is
+    # exactly why FR-012 writes an MPN identifier only when this is set.
+    # Inventing one would collide with a real MPN later, and identifiers are
+    # unique.
+    manufacturer_part_number: str = ''
     packs: Optional[int] = None
     pack_size: Optional[int] = None
     pack_price: Optional[Decimal] = None
@@ -1433,6 +1440,8 @@ class McMasterOrderLine:
         line = cls(
             part_number=_mcmaster_string(data.get('part_number')),
             description=_mcmaster_string(data.get('description')),
+            manufacturer_part_number=_mcmaster_string(
+                data.get('manufacturer_part_number')),
             packs=_mcmaster_int(data.get('packs')),
             pack_size=_mcmaster_int(data.get('pack_size')),
             pack_price=_mcmaster_decimal(data.get('pack_price')),
@@ -1666,3 +1675,40 @@ class DigiKeyCaptureResult:
     # DigiKey part numbers whose part lookup failed (FR-041). Named rather than
     # counted: the operator is told which lines came back thin.
     lines_unenriched: tuple = ()
+
+
+@dataclass(frozen=True)
+class McMasterCaptureResult:
+    """What one confirmed McMaster order capture did.
+
+    Its own type rather than DigiKey's, for the reason research.md §7 gives
+    about the whole orchestration: the two differ in what they have to report.
+    DigiKey names the lines its part lookup would not answer for; McMaster has
+    no part lookup, and what it has to name instead is the lines the *page* did
+    not give up (FR-037), so the operator still knows which ones came back thin
+    after they have left the review behind.
+    """
+    purchase_ids: tuple = ()
+    products_created: int = 0
+    products_attached: int = 0
+    lines_excluded: int = 0
+    lines_already_captured: int = 0
+    lines_updated: int = 0
+    # Descriptions of the captured lines that were missing a field the page
+    # should have given. Named rather than counted, for the same reason
+    # DigiKey names its unenriched ones.
+    lines_incomplete: tuple = ()
+    # Purchases recorded against this order that no line of it claims (FR-016).
+    # Reported, never deleted.
+    orphaned: tuple = ()
+
+    @property
+    def wrote_anything(self) -> bool:
+        """Whether this capture changed the database at all.
+
+        The flash leads on this rather than on the purchase count, because a
+        capture that only applied a quantity change writes no purchase and
+        would otherwise be reported as "nothing new" over the top of a write
+        that landed.
+        """
+        return bool(self.purchase_ids) or self.lines_updated > 0
