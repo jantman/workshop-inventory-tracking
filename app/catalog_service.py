@@ -82,6 +82,12 @@ BARCODE_ROW_NAMES = frozenset({'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A'}
 # 'Digi-Key' are left as they are; this feature does not rewrite history.
 DIGIKEY_VENDOR = 'DigiKey'
 
+# The vendor name a McMaster-Carr capture files purchases under. This **must**
+# equal what ``_vendor_from_url`` derives from an mcmaster.com address
+# (app/product/routes.py) -- the two are compared, and a mismatch would make
+# every captured order unfindable and every scanned bag unreceivable.
+MCMASTER_VENDOR = 'McMaster-Carr'
+
 
 class CatalogService:
     """Business logic for products, identifiers, purchases and reorder state."""
@@ -1818,7 +1824,7 @@ class CatalogService:
                     supplier_order_reference=order.sales_order_number,
                     # Which line, so a re-review pairs them exactly rather than
                     # guessing from the part number. PR #116 review.
-                    digikey_line_number=line.line_number,
+                    order_line_number=line.line_number,
                     order_reference=order.purchase_order or None,
                     # DigiKey's own words, kept as an Amazon listing title is.
                     listing_title=line.description or None,
@@ -1948,7 +1954,7 @@ class CatalogService:
         such lines, re-open the order, and the other line claims its purchase,
         reads as captured with the wrong quantity, and applying a change writes
         to the wrong row. The information needed to pair them is not derivable,
-        so ``purchases.digikey_line_number`` stores it. PR #116 review.
+        so ``purchases.order_line_number`` stores it. PR #116 review.
 
         Two passes, and the order matters:
 
@@ -1976,9 +1982,9 @@ class CatalogService:
         )
 
         by_line_number = {
-            row.digikey_line_number: row
+            row.order_line_number: row
             for row in rows
-            if row.digikey_line_number is not None
+            if row.order_line_number is not None
         }
 
         paired: Dict[str, Purchase] = {}
@@ -1992,7 +1998,7 @@ class CatalogService:
         # Pass two: the ones with no line number to pair on.
         unclaimed = [
             row for row in rows
-            if row.digikey_line_number is None and id(row) not in claimed
+            if row.order_line_number is None and id(row) not in claimed
         ]
         for line in order.lines:
             if line.form_key in paired or not unclaimed:

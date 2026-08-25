@@ -1016,7 +1016,18 @@ class TestPartialCaptureOfADuplicatedPart:
         duplicated = duplicate_part_order(order)
         catalog.capture_digikey_order(duplicated, include_all(duplicated), digikey)
         product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
-        assert sorted(p.digikey_line_number for p in product.purchases) == [1, 2]
+        assert sorted(p.order_line_number for p in product.purchases) == [1, 2]
+
+    def test_to_dict_emits_the_line_number_under_its_column_name(
+            self, catalog, order, digikey):
+        """The API key follows the column. 028 renamed both together."""
+        duplicated = duplicate_part_order(order)
+        catalog.capture_digikey_order(
+            duplicated, include_all(duplicated), digikey)
+        product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
+        dicts = [p.to_dict() for p in product.purchases]
+        assert sorted(d['order_line_number'] for d in dicts) == [1, 2]
+        assert all('digikey_line_number' not in d for d in dicts)
 
     def test_a_hand_recorded_purchase_with_no_line_number_still_pairs(
             self, catalog, order, digikey):
