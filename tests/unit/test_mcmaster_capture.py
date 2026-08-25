@@ -510,6 +510,112 @@ class TestRecapture:
         lines = catalog.find_mcmaster_order_lines('MISC-AND-GRINDER')
         assert sorted(p.quantity for p in lines) == [1, 4]
 
+    def test_an_unread_value_is_not_a_change(self, catalog, order):
+        """FR-036/FR-037. A field the page did not give says nothing about
+        whether the line differs from what is recorded.
+
+        Comparing it anyway reported a change on every degraded line, offered
+        an "Update it?" whose write is then skipped as a no-op, and rendered
+        the reason as "the page now says 1 at None". PR #123 review.
+        """
+        catalog.capture_mcmaster_order(order, include_all(order))
+        # The price selector stopped matching; everything else still reads.
+        degraded = build_order(lines=[
+            {'line_number': 1, 'part_number': '3103A21',
+             'description': 'Steel Pilot', 'packs': 1},
+        ])
+
+        review = catalog.review_mcmaster_order(degraded)
+
+        assert review.lines[0].state is OrderLineState.CAPTURED
+        assert not review.lines[0].has_change
+
+    def test_a_real_change_beside_an_unread_one_is_still_a_change(
+            self, catalog, order):
+        """The guard must not swallow a change in the field that *was* read."""
+        catalog.capture_mcmaster_order(order, include_all(order))
+        degraded = build_order(lines=[
+            {'line_number': 1, 'part_number': '3103A21',
+             'description': 'Steel Pilot', 'packs': 9},
+        ])
+
+        review = catalog.review_mcmaster_order(degraded)
+
+        assert review.lines[0].has_change
+        assert review.lines[0].line.unit_price is None
+
+    def test_applying_a_change_that_writes_nothing_is_not_counted(
+            self, catalog, order):
+        """Otherwise the flash reports "1 line(s) updated" for a skipped
+        write."""
+        catalog.capture_mcmaster_order(order, include_all(order))
+        degraded = build_order(lines=[
+            {'line_number': 1, 'part_number': '3103A21',
+             'description': 'Steel Pilot', 'packs': 1},
+        ])
+
+        result = catalog.capture_mcmaster_order(
+            degraded, {'1': {'apply_change': True}})
+
+        assert result.lines_updated == 0
+        assert not result.wrote_anything
+
+    def test_a_renamed_order_is_refiled_under_its_new_name(
+            self, catalog, order):
+        """The id is the identity; the Purchase Order string is a label.
+
+        The order screen is keyed by the name, because that is the only thing
+        a human can type -- so leaving the rows under the old name meant a
+        re-capture reconciled perfectly and then redirected the operator to a
+        page reading "Nothing captured under this order". PR #123 review.
+        """
+        catalog.capture_mcmaster_order(order, include_all(order))
+        renamed = build_order(order_number='GRINDER-AND-MISC')
+
+        result = catalog.capture_mcmaster_order(renamed, include_all(renamed))
+
+        assert result.renamed_from == 'MISC-AND-GRINDER'
+        assert result.wrote_anything, 'a refile is a write and must be reported'
+        assert len(catalog.find_mcmaster_order_lines('GRINDER-AND-MISC')) == 2
+        assert catalog.find_mcmaster_order_lines('MISC-AND-GRINDER') == []
+
+    def test_a_rename_that_also_adds_a_line_keeps_the_order_whole(
+            self, catalog, order):
+        """Without the refile this split one order across two names, with no
+        view showing it whole."""
+        catalog.capture_mcmaster_order(order, include_all(order))
+        grown = build_order(order_number='GRINDER-AND-MISC', lines=[
+            {'line_number': 1, 'part_number': '3103A21',
+             'description': 'Pilot', 'packs': 1, 'pack_price': '10.23'},
+            {'line_number': 5, 'part_number': '97387A173',
+             'description': 'Rivets', 'packs': 2, 'pack_size': 100,
+             'pack_price': '6.00'},
+            {'line_number': 6, 'part_number': '2652N1',
+             'description': 'Masonry bit', 'packs': 1, 'pack_price': '21.59'},
+        ])
+
+        catalog.capture_mcmaster_order(grown, include_all(grown))
+
+        assert len(catalog.find_mcmaster_order_lines('GRINDER-AND-MISC')) == 3
+
+    def test_nothing_is_refiled_when_the_name_did_not_change(
+            self, catalog, order):
+        result = catalog.capture_mcmaster_order(order, include_all(order))
+
+        assert result.renamed_from == ''
+
+    def test_a_payload_with_no_order_id_refiles_nothing(self, catalog):
+        """No id, no identity to rename *from* -- and a row this feature never
+        wrote has no business being renamed."""
+        order = build_order(order_id='')
+        catalog.capture_mcmaster_order(order, include_all(order))
+        renamed = build_order(order_id='', order_number='SOMETHING-ELSE')
+
+        result = catalog.capture_mcmaster_order(renamed, include_all(renamed))
+
+        assert result.renamed_from == ''
+        assert len(catalog.find_mcmaster_order_lines('MISC-AND-GRINDER')) == 2
+
     def test_a_renamed_purchase_order_still_reconciles(self, catalog, order):
         """research.md §14, and the whole reason vendor_order_id exists. The
         Purchase Order string is editable in place on McMaster's page; without
@@ -551,6 +657,15 @@ class TestRecapture:
             'first because they share an auto-generated name'
         )
         assert result.products_created == 0
+
+        # **Four lines under one name is by design, not the bug above.**
+        # `find_mcmaster_order_lines` is keyed by the Purchase Order string
+        # because that is the only identifier a human can recognise or type,
+        # and two orders that genuinely share a name are indistinguishable to
+        # someone typing it. Showing both beats showing one arbitrarily or
+        # showing none. What must not happen -- and does not -- is the second
+        # order being *mistaken* for the first and recording nothing, which is
+        # what the assertion above covers. PR #123 review.
         assert len(catalog.find_mcmaster_order_lines('MISC-AND-GRINDER')) == 4
 
     def test_a_hand_recorded_purchase_with_no_line_number_still_pairs(

@@ -168,8 +168,16 @@
                             <input class="form-check-input apply-change" type="checkbox"
                                    id="apply-{{ key }}" name="apply_change[{{ key }}]"
                                    {% if form_data.get('apply_change[' ~ key ~ ']') %}checked{% endif %}>
+                            {# Each value guarded on its own. `has_change` no
+                               longer fires on a field the page did not give,
+                               but it still fires when the *other* one changed
+                               -- so a read quantity beside an unread price must
+                               not render "at None". #}
                             <label class="form-check-label small" for="apply-{{ key }}">
-                                The page now says {{ line.quantity }} at {{ line.unit_price }};
+                                The page now says
+                                {% if line.quantity is not none %}{{ line.quantity }}{% else %}an unread quantity{% endif %}
+                                at
+                                {% if line.unit_price is not none %}{{ line.unit_price }}{% else %}an unread price{% endif %};
                                 you have {{ reviewed.recorded_quantity }} at
                                 {{ reviewed.recorded_unit_price }}. Update it?
                             </label>

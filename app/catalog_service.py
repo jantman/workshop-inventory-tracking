@@ -1957,6 +1957,7 @@ class CatalogService:
 
         with self._session() as session:
             recorded = self._recorded_mcmaster_lines(session, order)
+            renamed_from = self._adopt_renamed_order(session, order)
 
             for line in order.lines:
                 decision = decisions.get(line.form_key) or {}
@@ -1972,8 +1973,8 @@ class CatalogService:
                 if existing is not None:
                     lines_already_captured += 1
                     if decision.get('apply_change'):
-                        self._apply_mcmaster_change(existing, line, decision)
-                        lines_updated += 1
+                        if self._apply_mcmaster_change(existing, line, decision):
+                            lines_updated += 1
                     continue
 
                 if not decision.get('include'):
@@ -2044,6 +2045,7 @@ class CatalogService:
             lines_updated=lines_updated,
             lines_incomplete=tuple(lines_incomplete),
             orphaned=orphaned,
+            renamed_from=renamed_from,
         )
         logger.info(
             f"Captured McMaster order {order.order_number}: "
@@ -2139,6 +2141,57 @@ class CatalogService:
             .order_by(Purchase.id)
             .all()
         )
+
+    def _adopt_renamed_order(self, session, order) -> str:
+        """Carry a renamed Purchase Order onto the rows already recorded for it.
+
+        Returns the name they were filed under before, or `''` if nothing moved.
+
+        **The id is the identity; the Purchase Order string is a label.** When
+        the operator renames an order on McMaster's site, ``vendor_order_id``
+        still recognizes it -- that is what the column is for -- but the rows go
+        on carrying the old name, and the order screen is keyed by the *name*
+        because that is the only thing a human can type. Left alone, a
+        re-capture reconciles perfectly and then redirects the operator to a
+        page reading "Nothing captured under this order", and a rename that also
+        adds a line splits one order across two names with no view showing it
+        whole. PR #123 review.
+
+        So the record follows the vendor's own label. Only rows matched by id
+        are touched: a row found by name already carries the name, and a row
+        with no id is one this feature never wrote and has no business
+        renaming.
+
+        Not gated on ``apply_change``. That gate is for a quantity or price the
+        operator is being asked to decide about; this is the catalog keeping up
+        with a rename that has already happened, and leaving it stale breaks
+        the screen rather than preserving anything.
+        """
+        cleaned = (order.order_number or '').strip()
+        if not cleaned or not order.order_id:
+            return ''
+
+        stale = (
+            session.query(Purchase)
+            .filter(
+                Purchase.vendor == MCMASTER_VENDOR,
+                Purchase.vendor_order_id == order.order_id,
+                Purchase.supplier_order_reference != cleaned,
+            )
+            .all()
+        )
+        if not stale:
+            return ''
+
+        previous = stale[0].supplier_order_reference or ''
+        for row in stale:
+            row.supplier_order_reference = cleaned
+        session.flush()
+        logger.info(
+            f"McMaster order {order.order_id} was renamed from {previous!r} "
+            f"to {cleaned!r}; {len(stale)} purchase(s) refiled"
+        )
+        return previous
 
     def _recorded_mcmaster_lines(self, session, order) -> Dict[str, Purchase]:
         """Pair this order's lines to the purchases already recorded for it.
@@ -2471,18 +2524,27 @@ class CatalogService:
                 f"{clash.item_id}; product {product_id} was created without it"
             )
 
-    def _apply_mcmaster_change(self, purchase: Purchase, line, decision) -> None:
+    def _apply_mcmaster_change(self, purchase: Purchase, line, decision) -> bool:
         """Bring a recorded purchase into line with what the page now says (FR-017).
 
         The operator's edited values win here exactly as they do on a fresh
         capture, so "apply this change" applies what the review displayed.
+
+        Returns whether anything was actually written. A field the page did not
+        give is not applied -- there is nothing to apply -- and the caller must
+        not count that as an update, or the flash reports "1 line(s) updated"
+        for a write that was skipped. PR #123 review.
         """
+        wrote = False
         quantity = self._mcmaster_quantity(line, decision)
-        if quantity is not None:
+        if quantity is not None and quantity != purchase.quantity:
             purchase.quantity = quantity
+            wrote = True
         unit_price = self._mcmaster_unit_price(line, decision)
-        if unit_price is not None:
+        if unit_price is not None and unit_price != purchase.unit_price:
             purchase.unit_price = unit_price
+            wrote = True
+        return wrote
 
     def find_mcmaster_order_lines(self, order_number: str) -> List[Purchase]:
         """The purchases that make up one McMaster order (FR-027).

@@ -1416,6 +1416,14 @@ def _mcmaster_capture_summary(result) -> str:
         parts.append(f"{result.lines_already_captured} already captured")
     if result.lines_excluded:
         parts.append(f"{result.lines_excluded} skipped")
+    if result.renamed_from:
+        # A write, and one the operator did not ask for line by line -- so it
+        # is named rather than left silent (FR-016's principle, applied to the
+        # order's own label).
+        parts.append(
+            f"Refiled from {result.renamed_from!r}, which this order was "
+            f"renamed from on McMaster"
+        )
     if result.orphaned:
         # Reported, never deleted (FR-016).
         parts.append(

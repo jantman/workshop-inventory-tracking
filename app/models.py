@@ -1663,17 +1663,30 @@ class ReviewedLine:
         """Whether a captured line's quantity or price differs from what is recorded (FR-014)"""
         if self.state is not OrderLineState.CAPTURED:
             return False
+        # **A value the vendor did not give is not a change.** None means the
+        # field was not read -- a selector that stopped matching, or an order
+        # response that omitted it -- and it says nothing about whether the line
+        # differs from what is recorded. Comparing it anyway reported a change on
+        # every degraded line, offered an "Update it?" whose write is then
+        # skipped as a no-op, and rendered the reason as "the page now says 1 at
+        # None". PR #123 review.
+        #
         # Both sides rounded, because the recorded one has been through a
         # Numeric(10, 2) column and the line's has not. Comparing the raw
         # 0.0126 against the stored 0.01 made "Update it?" reappear on every
         # single review of a sub-cent line, with no way to clear it -- applying
         # the change just rewrote a value that rounded identically. PR #116
         # review.
-        return (
-            (self.recorded_quantity != self.line.quantity)
-            or (price_to_cents(self.recorded_unit_price)
-                != price_to_cents(self.line.unit_price))
+        quantity_changed = (
+            self.line.quantity is not None
+            and self.recorded_quantity != self.line.quantity
         )
+        price_changed = (
+            self.line.unit_price is not None
+            and price_to_cents(self.recorded_unit_price)
+            != price_to_cents(self.line.unit_price)
+        )
+        return quantity_changed or price_changed
 
 
 @dataclass(frozen=True)
@@ -1747,6 +1760,10 @@ class McMasterCaptureResult:
     # Purchases recorded against this order that no line of it claims (FR-016).
     # Reported, never deleted.
     orphaned: tuple = ()
+    # The Purchase Order string this order was filed under before, when the
+    # operator renamed it on McMaster's side and this capture refiled the rows.
+    # '' when nothing moved.
+    renamed_from: str = ''
 
     @property
     def wrote_anything(self) -> bool:
@@ -1757,4 +1774,8 @@ class McMasterCaptureResult:
         would otherwise be reported as "nothing new" over the top of a write
         that landed.
         """
-        return bool(self.purchase_ids) or self.lines_updated > 0
+        return (
+            bool(self.purchase_ids)
+            or self.lines_updated > 0
+            or bool(self.renamed_from)
+        )
