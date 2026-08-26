@@ -85,16 +85,16 @@ review and editable before anything is written.
 
 ### Routes and templates
 
-- [ ] T017 Merge `app/templates/product/digikey_order_review.html` and `mcmaster_order_review.html` into `app/templates/product/order_review.html`, driven by `review_columns`
-- [ ] T018 Merge `app/templates/product/digikey_order.html` and `mcmaster_order.html` into `app/templates/product/order.html`
-- [ ] T019 Collapse `_digikey_decisions`/`_mcmaster_decisions` and `_digikey_capture_summary`/`_mcmaster_capture_summary` into one of each in `app/product/routes.py`
-- [ ] T020 Converge the two order-detail routes onto `GET /products/orders/<vendor>/<number>` in `app/product/routes.py`, redirecting the old DigiKey and McMaster addresses so FR-044 holds
-- [ ] T021 State the receiving rule once in `_receive_url` in `app/product/routes.py` per `contracts/routes.md`, **keeping DigiKey's existing landing exactly as it is**
+- [X] T017 Merge `app/templates/product/digikey_order_review.html` and `mcmaster_order_review.html` into `app/templates/product/order_review.html`, driven by `review_columns`
+- [X] T018 Merge `app/templates/product/digikey_order.html` and `mcmaster_order.html` into `app/templates/product/order.html`
+- [X] T019 Collapse `_digikey_decisions`/`_mcmaster_decisions` and `_digikey_capture_summary`/`_mcmaster_capture_summary` into one of each in `app/product/routes.py`
+- [X] T020 Converge the two order-detail routes onto `GET /products/orders/<vendor>/<number>` in `app/product/routes.py`, redirecting the old DigiKey and McMaster addresses so FR-044 holds
+- [X] T021 State the receiving rule once in `_receive_url` in `app/product/routes.py` per `contracts/routes.md`, **keeping DigiKey's existing landing exactly as it is**
 
 ### The gate
 
-- [ ] T022 Run the regression gate: `tests/unit/test_digikey_capture.py`, `test_digikey_receive.py`, `test_digikey_failures.py`, `test_digikey_client.py`, `test_mcmaster_capture.py`, `test_mcmaster_receive.py`, `test_mcmaster_routes.py`, `test_mcmaster_payload.py` must pass **unedited**
-- [ ] T023 Run the six existing e2e order files unedited — `tests/e2e/test_digikey_order.py`, `test_digikey_part.py`, `test_digikey_receive.py`, `test_mcmaster_order.py`, `test_mcmaster_product.py`, `test_mcmaster_receive.py`
+- [X] T022 Run the regression gate: `tests/unit/test_digikey_capture.py`, `test_digikey_receive.py`, `test_digikey_failures.py`, `test_digikey_client.py`, `test_mcmaster_capture.py`, `test_mcmaster_receive.py`, `test_mcmaster_routes.py`, `test_mcmaster_payload.py` must pass **unedited**
+- [X] T023 Run the six existing e2e order files unedited — `tests/e2e/test_digikey_order.py`, `test_digikey_part.py`, `test_digikey_receive.py`, `test_mcmaster_order.py`, `test_mcmaster_product.py`, `test_mcmaster_receive.py`
 
 **If T022 or T023 requires editing a test, stop.** The seam is in the wrong place; re-cut it
 rather than adjusting the test (research.md §14, SC-011).
@@ -176,14 +176,14 @@ identically.
 ### Tests for User Story 3
 
 - [ ] T044 [P] [US3] E2E test in `tests/e2e/test_orders_list.py` — orders from all three vendors listed, most recent first, a fully-received order visibly distinct from one with outstanding lines
-- [ ] T045 [P] [US3] Unit test in `tests/unit/test_orders_list.py` for the derived query — grouping, counts, and that a purchase with no `supplier_order_reference` appears in no order
+- [X] T045 [P] [US3] Unit test in `tests/unit/test_orders_list.py` for the derived query — grouping, counts, and that a purchase with no `supplier_order_reference` appears in no order
 
 ### Implementation for User Story 3
 
-- [ ] T046 [US3] Add the derived captured-orders query to `app/catalog_service.py` per data-model.md §5 — grouped by `(vendor, supplier_order_reference)`, **no new table**
-- [ ] T047 [US3] Add `GET /products/orders` to `app/product/routes.py`
-- [ ] T048 [US3] Create `app/templates/product/orders.html` showing vendor, number, date, line count and outstanding count
-- [ ] T049 [US3] Add the list to the Products navigation dropdown in `app/templates/base.html` (FR-034)
+- [X] T046 [US3] Add the derived captured-orders query to `app/catalog_service.py` per data-model.md §5 — grouped by `(vendor, supplier_order_reference)`, **no new table**
+- [X] T047 [US3] Add `GET /products/orders` to `app/product/routes.py`
+- [X] T048 [US3] Create `app/templates/product/orders.html` showing vendor, number, date, line count and outstanding count
+- [X] T049 [US3] Add the list to the Products navigation dropdown in `app/templates/base.html` (FR-034)
 
 **Checkpoint**: All three stories independently functional. Three vendors' open orders visible
 from one screen without typing an order number.

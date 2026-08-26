@@ -118,6 +118,16 @@ class OrderVendor:
     #: McMaster's and Amazon's are the ones the *page* did not give up.
     incomplete_label: Optional[Callable[[Any], Optional[str]]] = None
 
+    #: The route that confirms a reviewed order for this vendor. Structural
+    #: rather than decorative -- the shared review template posts to it.
+    confirm_endpoint: str = ''
+
+    #: Whether the review has to carry the read payload through the confirmation
+    #: because the vendor cannot be re-read. True for every vendor read off a
+    #: page; False for DigiKey, whose order is re-fetched at confirmation and is
+    #: the authority.
+    carries_payload: bool = False
+
     #: Extra columns the review and order screens show. DigiKey has shipped and
     #: backorder counts; McMaster has the pack arithmetic; Amazon has neither.
     review_columns: Tuple[str, ...] = ()

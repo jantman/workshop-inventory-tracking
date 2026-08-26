@@ -1,0 +1,83 @@
+{# Every captured order, across every vendor (029 FR-033, FR-034).
+
+   Derived from the purchases each time it is opened -- there is no orders table.
+
+   This exists because the catalog had no answer to "what is still on its way?".
+   An order was reachable only by knowing its number and typing it, or by being
+   redirected onto it by a scan. That is survivable when boxes arrive labelled;
+   across three vendors and several weeks it is not. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-list-ul{% endblock %}
+{% block page_heading %}Captured Orders{% endblock %}
+
+{% block product_content %}
+{% if not orders %}
+<div class="alert alert-info" id="no-orders">
+    <h6 class="alert-heading"><i class="bi bi-inbox"></i> No orders captured yet</h6>
+    <p class="mb-0">
+        Capture a DigiKey order by its sales order number, or click the capture
+        bookmarklet on a McMaster-Carr or Amazon order page, and it will show
+        here.
+    </p>
+</div>
+{% else %}
+
+<div class="alert alert-info" id="orders-summary">
+    <i class="bi bi-hourglass-split"></i>
+    <strong id="open-count">{{ open_orders | length }}</strong> of
+    {{ orders | length }} captured order(s) still have outstanding lines.
+</div>
+
+<div class="table-responsive">
+    <table class="table align-middle" id="orders-table">
+        <thead>
+            <tr>
+                <th>Vendor</th>
+                <th>Order</th>
+                <th>Placed</th>
+                <th class="text-end">Lines</th>
+                <th>State</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for order in orders %}
+            <tr class="captured-order"
+                data-vendor="{{ order.vendor }}"
+                data-order="{{ order.order_number }}"
+                data-complete="{{ 'true' if order.is_complete else 'false' }}">
+                <td>{{ order.vendor }}</td>
+                <td>
+                    <a href="{{ url_for('product.order_detail', vendor=order.vendor, order_number=order.order_number) }}">
+                        <code>{{ order.order_number }}</code>
+                    </a>
+                </td>
+                <td>
+                    {% if order.order_date %}
+                    {{ order.order_date.strftime('%-d %b %Y') }}
+                    {% else %}
+                    <span class="text-body-secondary">—</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ order.line_count }}</td>
+                <td>
+                    {% if order.is_complete %}
+                    <span class="badge text-bg-success">all received</span>
+                    {% else %}
+                    <span class="badge text-bg-warning">
+                        {{ order.outstanding_count }} outstanding
+                    </span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="small text-body-secondary mb-0">
+    Worked out from the purchases each time you open it — nothing about an order
+    is stored separately, so this cannot fall out of step with them.
+</p>
+{% endif %}
+{% endblock %}

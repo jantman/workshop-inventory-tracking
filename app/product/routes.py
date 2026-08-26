@@ -18,11 +18,15 @@ from flask import current_app, flash, jsonify, redirect, render_template, reques
 
 from app import csrf
 from app.catalog_service import (
+    AMAZON_VENDOR,
+    DIGIKEY_ORDER_VENDOR,
     DIGIKEY_VENDOR,
+    MCMASTER_ORDER_VENDOR,
     MCMASTER_VENDOR,
     VENDOR_SCOPED_TYPES,
     CatalogService,
 )
+from app.services import order_vendors
 from app.exceptions import (
     AuthenticationError, CaptureDecisionRequired, ConfigurationError,
     DuplicateItemError, ItemNotFoundError, RateLimitError, TemporaryError,
@@ -1100,6 +1104,30 @@ def _digikey_entry(problem=None, message=None, sales_order_number='', status=200
     ), status
 
 
+def _review_context(vendor, order, review, form_data, payload=None,
+                    start_over_url=None):
+    """The context the one order-review template needs, for any vendor.
+
+    ``item_id`` is handed over as a callable rather than pre-computed per line
+    because the template needs it inside its loop, and which attribute holds it
+    is exactly the sort of thing that should stay on the OrderVendor rather than
+    become a chain of ``{% if %}`` in a template (029 FR-036).
+    """
+    return {
+        'vendor': vendor,
+        'review': review,
+        'order': order,
+        'payload': payload,
+        'form_data': form_data or {},
+        'item_id': vendor.item_id_of,
+        'order_number': (
+            vendor.order_fields(order)['supplier_order_reference']
+            if order is not None else ''
+        ),
+        'start_over_url': start_over_url or url_for('product.product_search'),
+    }
+
+
 @bp.route('/products/digikey/orders', methods=['GET', 'POST'])
 def digikey_order_capture():
     """Enter a sales order number; get a review of what capturing it would do.
@@ -1141,11 +1169,12 @@ def digikey_order_capture():
     review = service.review_digikey_order(order, client)
 
     return render_template(
-        'product/digikey_order_review.html',
+        'product/order_review.html',
         title=f'DigiKey Order {order.sales_order_number}',
-        review=review,
-        order=order,
-        form_data={},
+        **_review_context(
+            DIGIKEY_ORDER_VENDOR, order, review, {},
+            start_over_url=url_for('product.digikey_order_capture'),
+        ),
     )
 
 
@@ -1174,7 +1203,7 @@ def digikey_order_confirm():
             sales_order_number=sales_order_number,
         )[0]
 
-    decisions = _digikey_decisions(request.form, order)
+    decisions = _order_decisions(request.form, order)
     service = _get_catalog_service()
 
     try:
@@ -1186,11 +1215,12 @@ def digikey_order_confirm():
         review = service.review_digikey_order(order, client)
         flash(e.message, 'error')
         return render_template(
-            'product/digikey_order_review.html',
+            'product/order_review.html',
             title=f'DigiKey Order {order.sales_order_number}',
-            review=review,
-            order=order,
-            form_data=request.form,
+            **_review_context(
+                DIGIKEY_ORDER_VENDOR, order, review, request.form,
+                start_over_url=url_for('product.digikey_order_capture'),
+            ),
         )
 
     flash(_digikey_capture_summary(result), 'success')
@@ -1200,41 +1230,72 @@ def digikey_order_confirm():
     ))
 
 
-def _digikey_decisions(form, order):
-    """The per-line decisions the form carries, keyed by DigiKey part number.
+def _order_decisions(form, order):
+    """The per-line decisions the form carries, keyed by ``line.form_key``.
 
-    Built by walking the *order*, not the form: a decision submitted for a line
-    the order no longer contains is ignored rather than acted on.
+    Built by walking the **order**, not the form: a decision submitted for a
+    line the order does not carry is ignored rather than acted on.
+
+    ``form_key``, not the item id: an order can carry the same item on two
+    lines, and keying by item id gave them one shared set of fields so neither
+    could be steered on its own. PR #116 review.
+
+    ``quantity`` and ``unit_price`` are read for every vendor, and ignored by the
+    ones that do not offer the edit -- their ``line_fields`` never looks at the
+    decision, so an absent field costs nothing and there is no branch here.
+
+    One implementation since feature 029.
     """
     decisions = {}
     for line in order.lines:
-        # form_key, not the part number: an order can carry the same part on two
-        # lines, and keying by part number gave them one shared set of fields.
         key = line.form_key
         decisions[key] = {
             'include': form.get(f'include[{key}]') is not None,
             'description': form.get(f'description[{key}]') or '',
+            'quantity': form.get(f'quantity[{key}]') or '',
+            'unit_price': form.get(f'unit_price[{key}]') or '',
             'resolution': form.get(f'resolution[{key}]') or '',
             'apply_change': form.get(f'apply_change[{key}]') is not None,
         }
     return decisions
 
 
-def _digikey_capture_summary(result) -> str:
+def _order_capture_summary(result, thin_sentence=None) -> str:
     """What just happened, in one sentence the operator can act on.
 
     **Every outcome that changed the database has to appear here.** A capture
     that only applies a quantity change writes no purchase, so leading on the
     purchase count alone would report "Nothing new to capture" over the top of
-    an update that genuinely landed -- which is the same silent-write problem
-    the apply_change fix exists to close, moved from the service to the flash.
+    an update that genuinely landed -- the same silent-write problem the
+    apply_change fix exists to close, moved from the service to the flash.
     PR #116 review.
+
+    **Every such outcome therefore goes in the block below, above the
+    fallback.** Appending one after it produced exactly the contradiction the
+    rule exists to prevent: a rename-only re-capture led with "Nothing new to
+    capture" and then said it had refiled the order (PR #123 review). Keeping
+    them together makes the fallback mean "none of the above happened" by
+    construction rather than by a condition that has to be remembered.
+    ``OrderCaptureResult.wrote_anything`` answers the same question, and
+    ``test_the_fallback_agrees_with_wrote_anything`` holds the two in step.
+
+    ``thin_sentence`` is the one part that is genuinely per-vendor: what "this
+    line came back thin" *means* differs, so how it is worded does too. It is
+    passed in by the route rather than carried on the OrderVendor, because it is
+    presentation and the vendor is not the place for that.
     """
     parts = []
     if result.purchase_ids:
         parts.append(f"Captured {len(result.purchase_ids)} line(s)")
     if result.lines_updated:
         parts.append(f"{result.lines_updated} line(s) updated")
+    if result.renamed_from:
+        # A write, and one the operator did not ask for line by line -- so it is
+        # named rather than left silent.
+        parts.append(
+            f"Refiled from {result.renamed_from!r}, which this order was "
+            f"renamed from on McMaster"
+        )
     if not parts:
         # Nothing was written at all. Say so plainly rather than "Captured 0".
         parts.append("Nothing new to capture")
@@ -1242,39 +1303,139 @@ def _digikey_capture_summary(result) -> str:
     if result.products_created:
         parts.append(f"{result.products_created} new product(s)")
     if result.products_attached:
-        parts.append(f"{result.products_attached} attached to products you already had")
+        parts.append(
+            f"{result.products_attached} attached to products you already had"
+        )
     if result.lines_already_captured:
         parts.append(f"{result.lines_already_captured} already captured")
     if result.lines_excluded:
         parts.append(f"{result.lines_excluded} skipped")
-    if result.lines_unenriched:
-        # Named rather than counted: the operator is told which came back thin
-        # so they know which products to look over (FR-041).
+    if result.orphaned:
+        # Reported, never deleted.
         parts.append(
-            "DigiKey had no detail for " + ", ".join(result.lines_unenriched)
+            f"{len(result.orphaned)} recorded purchase(s) this order no longer "
+            f"lists, left alone"
         )
+    if result.lines_incomplete and thin_sentence is not None:
+        parts.append(thin_sentence(result.lines_incomplete))
     return ". ".join(parts) + "."
+
+
+def _digikey_thin_sentence(labels) -> str:
+    """Named rather than counted, and all of them: a handful is the usual case."""
+    return "DigiKey had no detail for " + ", ".join(labels)
+
+
+def _page_thin_sentence(labels) -> str:
+    """Named, but not all of them.
+
+    DigiKey names every unenriched part because a handful is the usual case.
+    Where the lines were read off a page, a selector that stops matching costs
+    the same field on *every* line, and listing fifteen descriptions produces a
+    flash nobody reads -- which loses the warning as surely as not showing it.
+    The first few plus a count says the same thing and stays legible.
+    """
+    named = list(labels[:3])
+    rest = len(labels) - len(named)
+    thin = ", ".join(named)
+    if rest:
+        thin += f" and {rest} more"
+    return "The page did not give up every field for " + thin
+
+
+def _digikey_capture_summary(result) -> str:
+    """See :func:`_order_capture_summary`. Kept by name: the tests import it."""
+    return _order_capture_summary(result, _digikey_thin_sentence)
+
+
+def _mcmaster_capture_summary(result) -> str:
+    """See :func:`_order_capture_summary`. Kept by name: the tests import it."""
+    return _order_capture_summary(result, _page_thin_sentence)
+
+
+@bp.route('/products/orders')
+def orders_list():
+    """Every captured order, across every vendor (029 FR-033, FR-034).
+
+    The catalog had no answer to "what is still on its way?" before this: an
+    order was reachable only by typing its number or by being redirected onto it
+    by a scan.
+
+    Derived from the purchases, like every other order view here.
+    """
+    service = _get_catalog_service()
+    orders = service.find_captured_orders()
+
+    return render_template(
+        'product/orders.html',
+        title='Captured Orders',
+        orders=orders,
+        open_orders=[order for order in orders if not order.is_complete],
+    )
+
+
+@bp.route('/products/orders/<vendor>/<order_number>')
+def order_detail(vendor, order_number):
+    """A captured order, for any vendor (029 FR-028 to FR-032).
+
+    Derived, never stored: the order *is* the purchases carrying its number. An
+    order number nothing was captured against renders "not captured" with a way
+    forward -- not a 404. Nothing dead-ends.
+
+    ``vendor`` is the vendor's own name as it is stored on the purchase, so this
+    also renders an order from a vendor no capture flow knows about --
+    ``for_vendor`` returns None there rather than raising, and the page simply
+    offers no "capture another" link.
+    """
+    service = _get_catalog_service()
+    lines = service.find_order_lines_for(vendor, order_number)
+    order_vendor = order_vendors.for_vendor(vendor)
+
+    capture_url = None
+    if vendor == DIGIKEY_VENDOR:
+        capture_url = url_for('product.digikey_order_capture')
+
+    receive_hint = 'Scan a part number off a bag to receive its line.'
+    if order_vendor is not None:
+        if order_vendor.receive_landing == order_vendors.LANDING_ORDER_SCREEN:
+            receive_hint = "Scan a bag's label to receive its line."
+        elif not order_vendor.carries_payload:
+            receive_hint = 'Receive each line as it arrives.'
+    if vendor == AMAZON_VENDOR:
+        # An Amazon package names neither the order nor the line, and a product
+        # created from an order line carries no barcode -- so the screen is the
+        # receiving path here rather than a progress display (029 US2).
+        receive_hint = 'Receive each line as its box arrives.'
+
+    return render_template(
+        'product/order.html',
+        title=f'{vendor} Order {order_number}',
+        vendor_name=vendor,
+        order_number=order_number,
+        lines=lines,
+        outstanding=[line for line in lines if line.is_outstanding],
+        highlight=request.args.get('highlight', ''),
+        capture_url=capture_url,
+        renameable=bool(order_vendor and order_vendor.adopts_renames),
+        receive_hint=receive_hint,
+    )
 
 
 @bp.route('/products/digikey/orders/<sales_order_number>')
 def digikey_order_detail(sales_order_number):
-    """A captured DigiKey order (FR-017, FR-018).
+    """The address a DigiKey order lives at.
 
-    Derived, never stored: the order *is* the purchases carrying its number. A
-    sales order number nothing was captured against renders "not captured" with
-    a link to capture it -- not a 404. Nothing dead-ends.
+    Kept rather than removed: it is in the operator's history, and it is what
+    ``_receive_url`` has been sending scans to since feature 024. 029 FR-044 --
+    every order captured before this feature stays openable.
+
+    It **renders** rather than redirecting. A redirect would be fine in a
+    browser, but it would turn every existing assertion about this page into an
+    assertion about a 302 -- and those suites are this feature's regression gate,
+    so they are not edited to accommodate the refactor. Delegating keeps one
+    implementation either way.
     """
-    service = _get_catalog_service()
-    lines = service.find_order_lines(sales_order_number)
-
-    return render_template(
-        'product/digikey_order.html',
-        title=f'DigiKey Order {sales_order_number}',
-        sales_order_number=sales_order_number,
-        lines=lines,
-        outstanding=[line for line in lines if line.is_outstanding],
-        highlight=request.args.get('highlight', ''),
-    )
+    return order_detail(DIGIKEY_VENDOR, sales_order_number)
 
 
 # -- McMaster-Carr orders ---------------------------------------------------
@@ -1307,25 +1468,24 @@ def _mcmaster_order_review(service, raw, form_data=None):
     order = _mcmaster_order(raw)
     if order is None:
         return render_template(
-            'product/mcmaster_order_review.html',
+            'product/order_review.html',
             title='Capture a McMaster-Carr Order',
-            review=None,
-            order=None,
-            payload=raw or '',
-            form_data=form_data or {},
+            **_review_context(
+                MCMASTER_ORDER_VENDOR, None, None, form_data,
+                payload=raw or '',
+            ),
         )
 
     review = service.review_mcmaster_order(order)
     return render_template(
-        'product/mcmaster_order_review.html',
+        'product/order_review.html',
         title=f'McMaster-Carr Order {order.order_number}',
-        review=review,
-        order=order,
-        # **Carried through verbatim.** This is the FR-006 mechanism: there is
-        # nothing to re-read at confirmation, so the payload the review was
-        # built from has to survive the round trip or the capture is lost.
-        payload=raw,
-        form_data=form_data or {},
+        # `payload` is carried through verbatim. This is the FR-006 mechanism:
+        # there is nothing to re-read at confirmation, so the payload the review
+        # was built from has to survive the round trip or the capture is lost.
+        **_review_context(
+            MCMASTER_ORDER_VENDOR, order, review, form_data, payload=raw,
+        ),
     )
 
 
@@ -1349,7 +1509,7 @@ def mcmaster_order_confirm():
     if order is None:
         return _mcmaster_order_review(service, raw, form_data=request.form)
 
-    decisions = _mcmaster_decisions(request.form, order)
+    decisions = _order_decisions(request.form, order)
 
     try:
         result = service.capture_mcmaster_order(order, decisions)
@@ -1364,98 +1524,6 @@ def mcmaster_order_confirm():
         'product.mcmaster_order_detail',
         order_number=order.order_number,
     ))
-
-
-def _mcmaster_decisions(form, order):
-    """The per-line decisions the form carries, keyed by ``line.form_key``.
-
-    Built by walking the **payload's** lines, not the form: a decision submitted
-    for a line the payload does not carry is ignored rather than acted on. The
-    rule ``_digikey_decisions`` already follows.
-    """
-    decisions = {}
-    for line in order.lines:
-        # form_key, not the part number: an order can carry the same part on two
-        # lines, and keying by part number gave them one shared set of fields.
-        key = line.form_key
-        decisions[key] = {
-            'include': form.get(f'include[{key}]') is not None,
-            'description': form.get(f'description[{key}]') or '',
-            'quantity': form.get(f'quantity[{key}]') or '',
-            'unit_price': form.get(f'unit_price[{key}]') or '',
-            'resolution': form.get(f'resolution[{key}]') or '',
-            'apply_change': form.get(f'apply_change[{key}]') is not None,
-        }
-    return decisions
-
-
-def _mcmaster_capture_summary(result) -> str:
-    """What just happened, in one sentence the operator can act on.
-
-    **Every outcome that changed the database has to appear here.** A capture
-    that only applies a quantity change writes no purchase, so leading on the
-    purchase count alone would report "Nothing new to capture" over the top of
-    an update that genuinely landed. PR #116 review, and the same trap is
-    reachable here.
-
-    **Every such outcome therefore goes in the block below, above the
-    fallback.** Appending one after it produced exactly the contradiction the
-    rule exists to prevent: a rename-only re-capture led with "Nothing new to
-    capture" and then said it had refiled the order (PR #123 review). Keeping
-    them together makes the fallback mean "none of the above happened" by
-    construction rather than by a condition that has to be remembered.
-    ``McMasterCaptureResult.wrote_anything`` answers the same question, and
-    ``test_the_fallback_agrees_with_wrote_anything`` holds the two in step.
-    """
-    parts = []
-    if result.purchase_ids:
-        parts.append(f"Captured {len(result.purchase_ids)} line(s)")
-    if result.lines_updated:
-        parts.append(f"{result.lines_updated} line(s) updated")
-    if result.renamed_from:
-        # A write, and one the operator did not ask for line by line -- so it
-        # is named rather than left silent (FR-016's principle, applied to the
-        # order's own label).
-        parts.append(
-            f"Refiled from {result.renamed_from!r}, which this order was "
-            f"renamed from on McMaster"
-        )
-    if not parts:
-        parts.append("Nothing new to capture")
-
-    if result.products_created:
-        parts.append(f"{result.products_created} new product(s)")
-    if result.products_attached:
-        parts.append(
-            f"{result.products_attached} attached to products you already had"
-        )
-    if result.lines_already_captured:
-        parts.append(f"{result.lines_already_captured} already captured")
-    if result.lines_excluded:
-        parts.append(f"{result.lines_excluded} skipped")
-    if result.orphaned:
-        # Reported, never deleted (FR-016).
-        parts.append(
-            f"{len(result.orphaned)} recorded purchase(s) this order no longer "
-            f"lists, left alone"
-        )
-    if result.lines_incomplete:
-        # FR-037, carried past the review so the record of which lines came back
-        # thin survives leaving that page.
-        #
-        # **Named, but not all of them.** DigiKey names every unenriched part
-        # because a handful is the usual case; here a selector that stops
-        # matching costs the same field on *every* line, and listing fifteen
-        # McMaster descriptions produces a flash nobody reads -- which loses
-        # the warning as surely as not showing it. The first few plus a count
-        # says the same thing and stays legible.
-        named = list(result.lines_incomplete[:3])
-        rest = len(result.lines_incomplete) - len(named)
-        thin = ", ".join(named)
-        if rest:
-            thin += f" and {rest} more"
-        parts.append("The page did not give up every field for " + thin)
-    return ". ".join(parts) + "."
 
 
 @bp.route('/products/purchases/receive-choice')
@@ -1501,26 +1569,8 @@ def purchase_receive_choice():
 
 @bp.route('/products/mcmaster/orders/<order_number>')
 def mcmaster_order_detail(order_number):
-    """A captured McMaster order (FR-027, FR-028).
-
-    Derived, never stored: the order *is* the purchases carrying its number --
-    the customer's Purchase Order string, since McMaster shows no order number
-    and that is the only identifier the operator can recognize.
-
-    An order number nothing was captured against renders "not captured" with a
-    way forward, not a 404 (FR-031). Nothing dead-ends.
-    """
-    service = _get_catalog_service()
-    lines = service.find_mcmaster_order_lines(order_number)
-
-    return render_template(
-        'product/mcmaster_order.html',
-        title=f'McMaster-Carr Order {order_number}',
-        order_number=order_number,
-        lines=lines,
-        outstanding=[line for line in lines if line.is_outstanding],
-        highlight=request.args.get('highlight', ''),
-    )
+    """The address a McMaster order lives at. See :func:`digikey_order_detail`."""
+    return order_detail(MCMASTER_VENDOR, order_number)
 
 
 @bp.route('/products/digikey/part', methods=['GET', 'POST'])
@@ -1809,25 +1859,60 @@ def api_scan():
     return jsonify(payload)
 
 
+def _order_url(vendor, order_number, highlight=''):
+    """The address a captured order lives at.
+
+    DigiKey keeps its original address. Scans have landed there since feature
+    024, it is in the operator's history, and 029 FR-041 says every existing
+    path behaves exactly as it did. Everything else uses the converged one.
+
+    **Both render the same view**, so this is about which address is shown and
+    nothing else -- it is deliberately not a branch in the capture flow, which
+    FR-036 keeps vendor-neutral.
+    """
+    if vendor == DIGIKEY_VENDOR:
+        return url_for(
+            'product.digikey_order_detail',
+            sales_order_number=order_number,
+            highlight=highlight,
+        )
+    return url_for(
+        'product.order_detail',
+        vendor=vendor,
+        order_number=order_number,
+        highlight=highlight,
+    )
+
+
 def _receive_url(resolution) -> str:
-    """Where a scanned bag should land (024 FR-019, 028 FR-032).
+    """Where a scanned package should land.
 
-    Three cases, and the difference between them is what the operator needs to
-    be told:
+    **One rule, every vendor** (029 FR-038 to FR-040). Three cases, and the
+    difference between them is what the operator needs to be told:
 
-    * one outstanding line -- straight to its receipt, with the label's own
+    * **one outstanding line** -- straight to its receipt, with the label's own
       quantity pre-filled where the label carried one, because the label
-      describes what is in the bag rather than what was ordered (FR-020);
-    * several -- the operator chooses. The catalog does not pick one;
-    * none outstanding but some received -- said plainly. Nothing is received
-      twice (FR-023).
+      describes what is in the package rather than what was ordered;
+    * **several** -- the operator chooses. The catalog does not pick one;
+    * **none outstanding but some received** -- said plainly. Nothing is
+      received twice.
+
+    Which screen "the operator chooses" means is the vendor's one contribution,
+    and it follows from what the package names. A DigiKey bag label names its
+    sales order *and* its part, so every candidate is a line of one order and
+    that order's screen shows them all -- ``LANDING_ORDER_SCREEN``. A McMaster
+    bag names only the part, and the same part can be outstanding on two orders
+    placed weeks apart, so no single order screen shows the candidates and the
+    choice page does -- ``LANDING_CHOICE_PAGE``. Amazon is the choice page too,
+    for a different reason: a package names neither, so a scan only ever reaches
+    a line by the product's own barcode.
 
     **The vendor and the order number come off the matched purchases, not off
-    the scan.** They used to be read from ``classification.ecia_fields``, which
-    a distributor label populates and a **free-text scan leaves empty** -- so a
+    the scan.** They used to be read from ``classification.ecia_fields``, which a
+    distributor label populates and a **free-text scan leaves empty** -- so a
     McMaster match would have built an order URL with a blank order number. The
     purchases carry both either way, and they are the record rather than the
-    scan, which makes this strictly better for the DigiKey case too.
+    scan.
 
     ``app/static/js/scan-capture.js`` navigates to whatever this returns without
     inspecting the outcome, so it needs no change.
@@ -1849,25 +1934,19 @@ def _receive_url(resolution) -> str:
             params['quantity'] = fields['Q']
         return url_for('product.purchase_receive', **params)
 
-    if vendor == MCMASTER_VENDOR:
-        # Several outstanding lines for one part number, and they can be on
-        # orders placed weeks apart -- so unlike DigiKey's case there is no
-        # single order screen that shows them all (research.md §11).
+    landing = order_vendors.for_vendor(vendor)
+    if landing is not None and landing.receive_landing == order_vendors.LANDING_CHOICE_PAGE:
         return url_for(
             'product.purchase_receive_choice', scan=resolution.classification.value
         )
 
     if not outstanding:
         flash(
-            f"That line of DigiKey order {order_number} is already received.",
+            f"That line of {vendor} order {order_number} is already received.",
             'info',
         )
 
-    return url_for(
-        'product.digikey_order_detail',
-        sales_order_number=order_number,
-        highlight=fields.get('P', ''),
-    )
+    return _order_url(vendor, order_number, fields.get('P', ''))
 
 
 def _create_url(resolution) -> str:

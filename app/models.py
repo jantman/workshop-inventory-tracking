@@ -1717,6 +1717,31 @@ class OrderCaptureReview:
 
 
 @dataclass(frozen=True)
+class CapturedOrder:
+    """One captured order, as the orders list shows it (029 FR-033).
+
+    Derived from the purchases carrying its number, never stored -- the same
+    invariant an individual order screen rests on. There is no orders table and
+    this feature does not add one: an order *is* its purchases, and a table would
+    be a second place for the truth to live and a way for the two to disagree.
+    """
+    vendor: str
+    order_number: str
+    order_date: Optional[datetime] = None
+    line_count: int = 0
+    outstanding_count: int = 0
+
+    @property
+    def is_complete(self) -> bool:
+        """Whether everything on this order has been received.
+
+        Shown so a finished order is distinguishable at a glance from one still
+        arriving, which is the whole point of the list.
+        """
+        return self.outstanding_count == 0
+
+
+@dataclass(frozen=True)
 class OrderCaptureResult:
     """What one confirmed order capture did, whoever the vendor was.
 

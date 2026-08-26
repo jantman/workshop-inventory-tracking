@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, create_engine, func, or_
+from sqlalchemy import and_, case, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
 
 from .database import (
@@ -43,6 +43,7 @@ from .models import (
     DigiKeyOrder,
     IdentifierType,
     ListingCapture,
+    CapturedOrder,
     OrderCaptureResult,
     McMasterOrder,
     OrderCaptureReview,
@@ -89,6 +90,13 @@ DIGIKEY_VENDOR = 'DigiKey'
 # (app/product/routes.py) -- the two are compared, and a mismatch would make
 # every captured order unfindable and every scanned bag unreceivable.
 MCMASTER_VENDOR = 'McMaster-Carr'
+
+# The vendor name an Amazon capture files purchases under. Same rule as the two
+# above: it **must** equal what ``_vendor_from_url`` derives from an amazon.com
+# address, because an order captured from an order page and a listing captured
+# from a product page have to land under the same vendor or the order screen
+# cannot find them.
+AMAZON_VENDOR = 'Amazon'
 
 
 class CatalogService:
@@ -2405,18 +2413,70 @@ class CatalogService:
                 f"{clash.item_id}; product {product_id} was created without it"
             )
 
-    def find_mcmaster_order_lines(self, order_number: str) -> List[Purchase]:
-        """The purchases that make up one McMaster order (FR-027).
+    def find_captured_orders(self) -> List[CapturedOrder]:
+        """Every captured order, across every vendor, most recent first.
+
+        029 FR-033. One aggregate over ``purchases`` grouped by vendor and order
+        number -- **derived, not stored**, exactly as an individual order screen
+        is. There is no orders table and this does not add one.
+
+        A purchase carrying no supplier order reference belongs to no order and
+        appears in none: that is a hand-recorded purchase or a single-listing
+        capture, and it is reachable from its product.
+
+        No index work and no caching: ``supplier_order_reference`` is already
+        indexed, the table holds a few thousand rows at this application's scale,
+        and Constitution I asks for a measurement before optimizing.
+        """
+        with self._session() as session:
+            rows = (
+                session.query(
+                    Purchase.vendor,
+                    Purchase.supplier_order_reference,
+                    func.min(Purchase.order_date).label('order_date'),
+                    func.count(Purchase.id).label('line_count'),
+                    func.sum(
+                        case((Purchase.received_date.is_(None), 1), else_=0)
+                    ).label('outstanding'),
+                )
+                .filter(
+                    Purchase.supplier_order_reference.isnot(None),
+                    Purchase.supplier_order_reference != '',
+                )
+                .group_by(Purchase.vendor, Purchase.supplier_order_reference)
+                .all()
+            )
+
+        orders = [
+            CapturedOrder(
+                vendor=row.vendor,
+                order_number=row.supplier_order_reference,
+                order_date=row.order_date,
+                line_count=int(row.line_count or 0),
+                outstanding_count=int(row.outstanding or 0),
+            )
+            for row in rows
+        ]
+        # Sorted in Python rather than by the query: order_date is nullable, and
+        # the two backends disagree about where NULLs sort. An order with no date
+        # goes last either way.
+        orders.sort(
+            key=lambda o: (o.order_date is not None, o.order_date or datetime.min),
+            reverse=True,
+        )
+        return orders
+
+    def find_order_lines_for(self, vendor_name: str, order_number: str) -> List[Purchase]:
+        """The purchases that make up one order, for any vendor.
 
         This is the whole of "open a captured order": there is no order record
-        to load, only the purchases carrying its number. Keyed by the Purchase
-        Order string, because that is the only order identifier the operator
-        can recognize or type.
+        to load, only the purchases carrying its number. Derived rather than
+        stored, so it cannot fall out of step with them -- it has nothing of its
+        own to drift.
 
-        Returns:
-            The purchases, oldest first, each with its product loaded. Empty for
-            an order number nothing was captured against -- which the route
-            renders as "not captured", never as a 404 (FR-031).
+        One implementation since feature 029. ``find_order_lines`` and
+        ``find_mcmaster_order_lines`` remain as the vendor-named entry points
+        their callers and the regression suites use.
         """
         cleaned = (order_number or '').strip()
         if not cleaned:
@@ -2427,39 +2487,29 @@ class CatalogService:
                 session.query(Purchase)
                 .options(selectinload(Purchase.product))
                 .filter(
-                    Purchase.vendor == MCMASTER_VENDOR,
+                    Purchase.vendor == vendor_name,
                     Purchase.supplier_order_reference == cleaned,
                 )
                 .order_by(Purchase.id)
                 .all()
             )
+
+    def find_mcmaster_order_lines(self, order_number: str) -> List[Purchase]:
+        """The purchases that make up one McMaster order (028 FR-027).
+
+        Keyed by the Purchase Order string, because that is the only order
+        identifier the operator can recognize or type.
+
+        See :meth:`find_order_lines_for`.
+        """
+        return self.find_order_lines_for(MCMASTER_VENDOR, order_number)
 
     def find_order_lines(self, sales_order_number: str) -> List[Purchase]:
-        """The purchases that make up one DigiKey order (FR-017).
+        """The purchases that make up one DigiKey order (024 FR-017).
 
-        This is the whole of "open a captured order": there is no order record
-        to load, only the purchases carrying its number.
-
-        Returns:
-            The purchases, oldest first, each with its product loaded. Empty for
-            a sales order number nothing was captured against -- which the route
-            renders as "not captured", never as a 404.
+        See :meth:`find_order_lines_for`.
         """
-        cleaned = (sales_order_number or '').strip()
-        if not cleaned:
-            return []
-
-        with self._session() as session:
-            return (
-                session.query(Purchase)
-                .options(selectinload(Purchase.product))
-                .filter(
-                    Purchase.vendor == DIGIKEY_VENDOR,
-                    Purchase.supplier_order_reference == cleaned,
-                )
-                .order_by(Purchase.id)
-                .all()
-            )
+        return self.find_order_lines_for(DIGIKEY_VENDOR, sales_order_number)
 
     def find_mcmaster_receivable(self, part_number: str) -> List[Purchase]:
         """The outstanding McMaster lines a scanned part number names (FR-032).
@@ -3930,6 +3980,7 @@ DIGIKEY_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     },
     incomplete_label=_digikey_incomplete_label,
     review_columns=('shipped', 'backorder'),
+    confirm_endpoint='product.digikey_order_confirm',
 ))
 
 
@@ -3954,6 +4005,8 @@ MCMASTER_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     receive_landing=order_vendors.LANDING_CHOICE_PAGE,
     incomplete_label=_mcmaster_incomplete_label,
     review_columns=('packs', 'pack_size', 'pack_price'),
+    confirm_endpoint='product.mcmaster_order_confirm',
+    carries_payload=True,
     # The order "number" is the customer's editable Purchase Order string.
     adopts_renames=True,
 ))

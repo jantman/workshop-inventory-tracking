@@ -1,39 +1,52 @@
-{# Review a McMaster-Carr order before anything is written.
+{# Review an order before anything is written. One template, every vendor.
 
-   Nothing on this page has been recorded (FR-005). Closing the tab leaves no
-   product and no purchase -- there was never a record, only a page.
+   Nothing on this page has been recorded. Closing the tab leaves no product and
+   no purchase -- there was never a record, only an order.
 
-   **The hidden `order` field is the whole feature.** DigiKey's review re-fetches
-   its order at confirmation and treats that as the authority; there is nothing
-   here to re-fetch, because the page this was read from is on mcmaster.com and
-   the operator has navigated away from it. What this form carries is what gets
-   written (FR-006), and losing it loses the capture. #}
+   **This was two templates until feature 029** -- one for DigiKey, one for
+   McMaster -- and they were the same page with three differences. The
+   differences are now driven by the OrderVendor, so adding a vendor does not add
+   a third copy (FR-035, FR-037):
+
+   * **`vendor.carries_payload`.** A vendor read off a page cannot be re-read at
+     confirmation, so the payload the review was built from rides the form in a
+     hidden field and what the review displayed is what gets written. Losing that
+     field loses the capture. DigiKey re-fetches instead, and sends its order
+     number.
+   * **`vendor.review_columns`.** DigiKey has shipped/backorder counts; McMaster
+     has the pack arithmetic, which is editable because the operator can see both
+     the box and the page and this application can only see the page; Amazon has
+     neither.
+   * **`vendor.enrich`.** Only DigiKey looks a part up, so only DigiKey can have
+     a line that came back without detail. #}
 {% extends "product/_layout.html" %}
+
+{% set packs = 'packs' in vendor.review_columns %}
+{% set backorder = 'backorder' in vendor.review_columns %}
 
 {% block page_icon %}bi-box-arrow-in-down{% endblock %}
 {% block page_heading %}
-    {%- if order %}McMaster-Carr Order {{ order.order_number }}
-    {%- else %}McMaster-Carr Order{% endif %}
+    {%- if order %}{{ vendor.name }} Order {{ order_number }}
+    {%- else %}{{ vendor.name }} Order{% endif %}
 {% endblock %}
 
 {% block product_content %}
 
 {% if not order %}
-{# FR-038. A page that yielded no order gets a plain statement and a way
-   forward -- never an empty review that reads like an order with no lines,
-   and never an error page. #}
+{# A page that yielded no order gets a plain statement and a way forward --
+   never an empty review that reads like an order with no lines, and never an
+   error page. #}
 <div class="alert alert-warning" id="no-order">
     <h5 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> No order on that page</h5>
     <p class="mb-2">
-        The capture ran, but nothing on that page read as a McMaster order. That
-        usually means the bookmarklet was clicked somewhere other than one order
-        of your order history — the order list itself will do this — and it can
-        also mean McMaster changed the page.
+        The capture ran, but nothing on that page read as a {{ vendor.name }}
+        order. That usually means the bookmarklet was clicked somewhere other
+        than one order of your order history — the order list itself will do
+        this — and it can also mean {{ vendor.name }} changed the page.
     </p>
     <p class="mb-0">
-        Open the order from <em>Order History</em> so its own address is showing,
-        then click the bookmarklet again. Failing that, the purchase can be
-        recorded by hand.
+        Open the order so its own address is showing, then click the bookmarklet
+        again. Failing that, the purchase can be recorded by hand.
     </p>
 </div>
 <div class="d-flex gap-2">
@@ -41,37 +54,61 @@
 </div>
 
 {% else %}
-<form method="POST" action="{{ url_for('product.mcmaster_order_confirm') }}">
+<form method="POST" action="{{ url_for(vendor.confirm_endpoint) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-    {# The payload, carried through verbatim. FR-006: there is nothing to
-       re-read, so this is the only record of what was on the page. #}
+    {% if vendor.carries_payload %}
+    {# The payload, carried through verbatim. There is nothing to re-read, so
+       this is the only record of what was on the page. #}
     <input type="hidden" name="order" id="order-payload" value="{{ payload }}"/>
+    {% else %}
+    <input type="hidden" name="sales_order_number" value="{{ order_number }}"/>
+    {% endif %}
 
     <div class="alert alert-info" id="review-banner">
         <strong>Nothing has been recorded yet.</strong>
-        {# FR-004. Equal counts say nothing; different ones are the difference
-           between "your order has three lines" and "I could only read three of
-           your fifteen", and those must not look the same. #}
-        {% if order.is_incomplete %}
+        {# Equal counts say nothing; different ones are the difference between
+           "your order has three lines" and "I could only read three of your
+           fifteen", and those must not look the same. #}
+        {% if order.is_incomplete is defined and order.is_incomplete %}
         <span id="line-tally" class="fw-semibold text-danger-emphasis">
             Only {{ order.lines_offered }} of the {{ order.lines_read }} line(s)
             on that page could be read.
         </span>
-        {% else %}
+        {% elif vendor.carries_payload %}
         <span id="line-tally">{{ order.lines_offered }} line(s) ordered</span>
+        {% else %}
+        {{ review.lines | length }} line(s) ordered
         {%- endif %}
         {%- if order.order_date %} on {{ order.order_date.strftime('%-d %b %Y') }}{% endif %}.
+        {% if packs %}
         Quantities and prices are shown in <strong>units</strong>, converted from
         the packs McMaster charges by — both are editable.
+        {% elif not vendor.carries_payload %}
+        Prices are as {{ vendor.name }} reported them, in
+        {{ order.currency or 'the account currency' }} — they are not converted.
+        {% else %}
+        Quantities and prices are as {{ vendor.name }} stated them — both are
+        editable.
+        {% endif %}
     </div>
 
-    {% if order.is_incomplete %}
+    {% if vendor.enrich and review.unenriched %}
+    <div class="alert alert-warning" id="unenriched-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        {{ vendor.name }} had no part detail for
+        {% for line in review.unenriched %}<code>{{ item_id(line.line) }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+        Those lines still capture with everything the order gave — they just
+        arrive without a manufacturer, category or specifications.
+    </div>
+    {% endif %}
+
+    {% if order.is_incomplete is defined and order.is_incomplete %}
     <div class="alert alert-warning" id="incomplete-warning">
         <i class="bi bi-exclamation-triangle"></i>
         {{ order.lines_read - order.lines_offered }} line(s) on that page could
         not be read at all and are <strong>not</strong> listed below. Capturing
-        this order will not record them. Check the order on McMaster and add
-        anything missing by hand.
+        this order will not record them. Check the order on {{ vendor.name }} and
+        add anything missing by hand.
     </div>
     {% endif %}
 
@@ -79,18 +116,18 @@
     <div class="alert alert-warning" id="orphaned-warning">
         <i class="bi bi-question-circle"></i>
         {{ review.orphaned | length }} purchase(s) recorded against this order are
-        for lines the page no longer shows. They have <strong>not</strong> been
+        for lines the order no longer contains. They have <strong>not</strong> been
         deleted — open the order to look at them.
     </div>
     {% endif %}
 
-    {% if not review.lines %}
-    {# FR-038's other half: a real order whose lines could not be read. It must
-       not look like an order with no lines. #}
+    {% if vendor.carries_payload and not review.lines %}
+    {# A real order whose lines could not be read. It must not look like an
+       order with no lines. #}
     <div class="alert alert-warning" id="no-lines">
         <strong>No lines could be read from this order.</strong>
         The order itself was recognized — it is
-        <code>{{ order.order_number }}</code> — but none of its lines were.
+        <code>{{ order_number }}</code> — but none of its lines were.
         Record what you need by hand; nothing here has been written.
     </div>
     {% endif %}
@@ -102,19 +139,20 @@
                     <th style="width:3rem">Take</th>
                     <th>Part</th>
                     <th>Description &amp; label</th>
-                    <th class="text-end">Packs</th>
-                    <th class="text-end">Units</th>
-                    <th class="text-end">Unit price</th>
+                    {% if packs %}<th class="text-end">Packs</th>{% endif %}
+                    <th class="text-end">{% if packs %}Units{% else %}Qty{% endif %}</th>
+                    <th class="text-end">{% if packs %}Unit price{% else %}Unit{% endif %}</th>
                 </tr>
             </thead>
             <tbody>
             {% for reviewed in review.lines %}
                 {% set line = reviewed.line %}
-                {# form_key, not the part number -- two lines can share a part,
-                   and keying by part number gave them one shared set of
-                   controls so neither could be steered on its own. #}
+                {# form_key, not the item id -- two lines can share an item, and
+                   keying by item id gave them one shared set of controls so
+                   neither could be steered on its own. #}
                 {% set key = line.form_key %}
-                <tr class="order-line" data-part="{{ line.part_number }}"
+                {% set part_number = item_id(line) %}
+                <tr class="order-line" data-part="{{ part_number }}"
                     data-line="{{ key }}" data-state="{{ reviewed.state.value }}">
                     <td>
                         {% if reviewed.state.value == 'CAPTURED' %}
@@ -127,18 +165,26 @@
                     </td>
 
                     <td>
-                        {% if line.part_number %}
-                        <div><code>{{ line.part_number }}</code></div>
+                        {% if part_number %}
+                        <div><code>{{ part_number }}</code></div>
                         {% else %}
-                        {# FR-019. Capturable on its description alone, or
-                           excludable -- never a reason to refuse the order. #}
+                        {# Capturable on its description alone, or excludable --
+                           never a reason to refuse the order. #}
                         <span class="badge text-bg-warning missing-field"
                               data-field="part_number">no part number</span>
                         {% endif %}
-                        {% if line.manufacturer_part_number %}
+                        {% if line.manufacturer_part_number is defined and line.manufacturer_part_number %}
                         <div class="small text-body-secondary">{{ line.manufacturer_part_number }}</div>
                         {% endif %}
+                        {% if reviewed.part and reviewed.part.manufacturer %}
+                        <div class="small text-body-secondary">{{ reviewed.part.manufacturer }}</div>
+                        {% endif %}
+                        {% if vendor.enrich and not reviewed.is_enriched %}
+                        <span class="badge text-bg-warning">no detail</span>
+                        {% endif %}
+                        {% if vendor.carries_payload %}
                         <div class="small text-body-secondary">line {{ line.line_number or '—' }}</div>
+                        {% endif %}
                     </td>
 
                     <td>
@@ -148,7 +194,7 @@
                                value="{{ form_data.get('description[' ~ key ~ ']') or reviewed.suggested_description }}">
                         <div class="form-text">
                             What goes on the label and what you will search for.
-                            McMaster's words are the default.
+                            {{ vendor.name }}'s words are the default.
                         </div>
 
                         {% elif reviewed.state.value == 'MATCHED' %}
@@ -164,17 +210,18 @@
                             {# Restored on a re-render, like include[] and
                                description[]. A dropped tick is the worst of the
                                three to lose: the resubmission succeeds while
-                               silently skipping the update that was asked for. #}
+                               silently skipping the update that was asked for.
+                               PR #116 review. #}
                             <input class="form-check-input apply-change" type="checkbox"
                                    id="apply-{{ key }}" name="apply_change[{{ key }}]"
                                    {% if form_data.get('apply_change[' ~ key ~ ']') %}checked{% endif %}>
                             {# Each value guarded on its own. `has_change` no
-                               longer fires on a field the page did not give,
-                               but it still fires when the *other* one changed
-                               -- so a read quantity beside an unread price must
-                               not render "at None". #}
+                               longer fires on a field the vendor did not give,
+                               but it still fires when the *other* one changed --
+                               so a read quantity beside an unread price must not
+                               render "at None". #}
                             <label class="form-check-label small" for="apply-{{ key }}">
-                                The page now says
+                                {{ vendor.name }} now says
                                 {% if line.quantity is not none %}{{ line.quantity }}{% else %}an unread quantity{% endif %}
                                 at
                                 {% if line.unit_price is not none %}{{ line.unit_price }}{% else %}an unread price{% endif %};
@@ -186,7 +233,7 @@
 
                         {% elif reviewed.state.value == 'CONFLICT' %}
                         <div class="alert alert-warning py-2 px-2 mb-1 conflict">
-                            <strong>{{ line.part_number }} already names something else.</strong>
+                            <strong>{{ part_number }} already names something else.</strong>
                             <div class="small">
                                 It is on <em>{{ reviewed.product_description }}</em>, whose part
                                 number is <code>{{ reviewed.product_manufacturer_part_number }}</code>,
@@ -197,7 +244,8 @@
                                     {# An unanswered conflict is refused server-side,
                                        and that refusal re-renders this form -- so an
                                        answer already given to a *different*
-                                       conflicted line has to survive it. #}
+                                       conflicted line has to survive it. PR #116
+                                       review. #}
                                     <input class="form-check-input" type="radio"
                                            id="attach-{{ key }}" name="resolution[{{ key }}]" value="attach"
                                            {% if form_data.get('resolution[' ~ key ~ ']') == 'attach' %}checked{% endif %}>
@@ -216,13 +264,14 @@
                                value="{{ form_data.get('description[' ~ key ~ ']') or reviewed.suggested_description }}">
                         {% endif %}
 
-                        {% if 'description' in line.missing_fields %}
+                        {% if line.missing_fields is defined and 'description' in line.missing_fields %}
                         <span class="badge text-bg-warning missing-field"
-                              data-field="description">McMaster's description could not be read</span>
+                              data-field="description">{{ vendor.name }}'s description could not be read</span>
                         {% endif %}
                     </td>
 
-                    {# What McMaster charged by, shown so the arithmetic below it
+                    {% if packs %}
+                    {# What McMaster charged by, shown so the arithmetic beside it
                        can be checked against the page. Not editable, and not
                        stored: what is recorded is units and a unit price. #}
                     <td class="text-end packs-cell">
@@ -240,30 +289,30 @@
                               data-field="quantity">not read</span>
                         {% endif %}
                     </td>
+                    {% endif %}
 
-                    {# FR-020a: computed, and editable. The operator can see both
-                       the box and the page; this application can only see the
-                       page. #}
+                    {% if vendor.carries_payload %}
+                    {# Computed, and editable. The operator can see both the box
+                       and the order; this application can only see the order. #}
                     <td class="text-end">
                         <input type="number" min="1" step="1"
                                class="form-control form-control-sm text-end line-quantity"
                                name="quantity[{{ key }}]"
                                value="{{ form_data.get('quantity[' ~ key ~ ']') or (line.quantity if line.quantity is not none else '') }}">
                     </td>
-
                     <td class="text-end">
                         <input type="text"
                                class="form-control form-control-sm text-end line-unit-price"
                                name="unit_price[{{ key }}]"
                                value="{{ form_data.get('unit_price[' ~ key ~ ']') or (line.unit_price if line.unit_price is not none else '') }}">
-                        {% if 'price' in line.missing_fields %}
+                        {% if line.missing_fields is defined and 'price' in line.missing_fields %}
                         <span class="badge text-bg-warning missing-field"
                               data-field="price">price could not be read</span>
-                        {% elif line.price_rounds %}
+                        {% elif packs and line.price_rounds %}
                         {# Feature 017 already says this for a pack price that
                            does not divide evenly. Pack division reaches it
-                           routinely -- 6.66 across a pack of 100 is 0.0666 --
-                           so say it here rather than letting it turn up in a
+                           routinely -- 6.66 across a pack of 100 is 0.0666 -- so
+                           say it here rather than letting it turn up in a
                            reconciliation months later. #}
                         <div class="small text-warning-emphasis price-rounded">
                             {{ line.pack_price }} &divide; {{ line.pack_size }}
@@ -271,6 +320,26 @@
                         </div>
                         {% endif %}
                     </td>
+
+                    {% else %}
+                    <td class="text-end">
+                        {{ line.quantity if line.quantity is not none else '—' }}
+                        {% if backorder and line.quantity_backorder %}
+                        <div class="small text-warning-emphasis">{{ line.quantity_backorder }} on backorder</div>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        {{ line.unit_price if line.unit_price is not none else '—' }}
+                        {% if reviewed.price_rounds %}
+                        {# DigiKey quotes sub-cent unit prices routinely, so say
+                           it here rather than letting the operator discover it
+                           in a reconciliation. #}
+                        <div class="small text-warning-emphasis price-rounded">
+                            recorded as {{ reviewed.unit_price_as_recorded }}
+                        </div>
+                        {% endif %}
+                    </td>
+                    {% endif %}
                 </tr>
             {% endfor %}
             </tbody>
@@ -281,7 +350,9 @@
         <button type="submit" class="btn btn-primary" id="confirm-capture">
             <i class="bi bi-download"></i> Capture These Lines
         </button>
-        <a href="{{ url_for('product.product_search') }}" class="btn btn-outline-secondary">Cancel</a>
+        <a href="{{ start_over_url }}" class="btn btn-outline-secondary">
+            {% if vendor.carries_payload %}Cancel{% else %}Start Over{% endif %}
+        </a>
     </div>
 </form>
 {% endif %}

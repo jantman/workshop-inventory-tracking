@@ -1,31 +1,50 @@
-{# A captured McMaster-Carr order.
+{# A captured order. One template, every vendor.
 
    Derived, never stored: this order *is* the purchases carrying its number, the
    way the reorder list is derived rather than kept. So it cannot drift out of
    step with the purchases -- it has nothing of its own to drift.
 
-   "Its number" is the customer's **Purchase Order** string. McMaster shows no
-   order number at all, and that string is the only identifier a human can
-   recognize or type (research.md §5). #}
+   **This was two templates until feature 029.** They differed in the heading,
+   two column labels, and what a scan of a delivered package can be expected to
+   name -- which is exactly `vendor.receive_landing`, so it drives the wording
+   here rather than being written out twice. #}
 {% extends "product/_layout.html" %}
 
 {% block page_icon %}bi-box-seam{% endblock %}
-{% block page_heading %}McMaster-Carr Order {{ order_number }}{% endblock %}
+{% block page_heading %}{{ vendor_name }} Order {{ order_number }}{% endblock %}
+
+{% block page_actions %}
+{% if capture_url %}
+<a href="{{ capture_url }}" class="btn btn-outline-secondary">
+    <i class="bi bi-box-arrow-in-down"></i> Capture Another
+</a>
+{% endif %}
+<a href="{{ url_for('product.orders_list') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list-ul"></i> All Orders
+</a>
+{% endblock %}
 
 {% block product_content %}
 {% if not lines %}
-{# FR-031: never a 404. An order number nothing was captured against still
-   renders, and says what to do about it. #}
+{# Never a 404. An order number nothing was captured against still renders, and
+   says what to do about it. #}
 <div class="alert alert-info" id="not-captured">
     <h6 class="alert-heading"><i class="bi bi-inbox"></i> Nothing captured under this order</h6>
     <p class="mb-2">
         No purchase is recorded against <code>{{ order_number }}</code>.
     </p>
     <p class="mb-0">
-        Open that order in your McMaster order history and click the capture
-        bookmarklet; its lines will show here. Note that McMaster's
-        <em>Purchase Order</em> name is editable on their side — if it was
-        renamed after being captured, the lines are recorded under the old name.
+        {% if capture_url %}
+        <a href="{{ capture_url }}">Capture it</a> and its lines will show here.
+        {% else %}
+        Open that order in your {{ vendor_name }} order history and click the
+        capture bookmarklet; its lines will show here.
+        {% endif %}
+        {% if renameable %}
+        Note that {{ vendor_name }}'s <em>Purchase Order</em> name is editable on
+        their side — if it was renamed after being captured, the lines are
+        recorded under the old name.
+        {% endif %}
     </p>
 </div>
 {% else %}
@@ -34,7 +53,7 @@
     {% if outstanding %}
     <i class="bi bi-hourglass-split"></i>
     <strong id="outstanding-count">{{ outstanding | length }} of {{ lines | length }} still outstanding.</strong>
-    Scan a part number off a bag to receive its line.
+    {{ receive_hint }}
     {% else %}
     <i class="bi bi-check-circle"></i>
     <strong id="outstanding-count">All {{ lines | length }} line(s) received.</strong>
@@ -47,7 +66,7 @@
             <tr>
                 <th>Part</th>
                 <th>Product</th>
-                <th class="text-end">Units</th>
+                <th class="text-end">Qty</th>
                 <th class="text-end">Unit price</th>
                 <th>State</th>
                 <th class="text-end">Receive</th>
@@ -95,12 +114,11 @@
                 </td>
                 <td class="text-end">
                     {% if purchase.is_outstanding %}
-                    {# FR-029: routes to the receipt that already exists.
-                       Receiving itself is untouched -- the purchase is marked
-                       received, a counted product's quantity rises, and a
-                       manual low/out flag is cleared. The quantity is amendable
-                       there, which is where what arrived can differ from what
-                       was ordered. #}
+                    {# Routes to the receipt that already exists. Receiving
+                       itself is untouched -- the purchase is marked received, a
+                       counted product's quantity rises, and a manual low/out
+                       flag is cleared. The quantity is amendable there, which is
+                       where what arrived can differ from what was ordered. #}
                     <a class="btn btn-sm btn-primary receive-line"
                        href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}">
                         <i class="bi bi-box-arrow-in-down"></i> Receive
