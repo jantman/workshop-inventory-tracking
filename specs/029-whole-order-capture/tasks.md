@@ -42,11 +42,11 @@ than merging two and extending the result.
 **Purpose**: No Amazon selector can be tested until a real order page exists as a fixture. This
 phase blocks Phase 3 only — **Phase 2 does not depend on it**, so the two run concurrently.
 
-- [ ] T001 Save a real multi-line Amazon order-details page as `tests/e2e/fixtures/amazon_order.html`, **scrubbed** of shipping address, buyer name, payment method and the real order number before it is committed
-- [ ] T002 [P] Verify `tests/e2e/fixtures/amazon_order.html` retains realistic recommendation markup — a 4-line order page carries ~26 `/dp/` links across ~9 ASINs, and a stripped fixture stops catching the trap in research.md §4
-- [ ] T003 [P] Derive `tests/e2e/fixtures/amazon_order_unreadable.html` — a page from which no row can be read, for FR-023
-- [ ] T004 [P] Derive `tests/e2e/fixtures/amazon_order_partial.html` — one row missing its ASIN, one with an unparseable price, for FR-019 and FR-021
-- [ ] T005 [P] Close the one open input: read `[data-component="quantity"]` on a real order containing a line with quantity ≥ 2 and record the rendering in `specs/029-whole-order-capture/research.md` §6
+- [X] T001 Save a real multi-line Amazon order-details page as `tests/e2e/fixtures/amazon_order.html`, **scrubbed** of shipping address, buyer name, payment method and the real order number before it is committed
+- [X] T002 [P] Verify `tests/e2e/fixtures/amazon_order.html` retains realistic recommendation markup — a 4-line order page carries ~26 `/dp/` links across ~9 ASINs, and a stripped fixture stops catching the trap in research.md §4
+- [X] T003 [P] Derive `tests/e2e/fixtures/amazon_order_unreadable.html` — a page from which no row can be read, for FR-023
+- [X] T004 [P] Derive `tests/e2e/fixtures/amazon_order_partial.html` — one row missing its ASIN, one with an unparseable price, for FR-019 and FR-021
+- [ ] T005 [P] **DEFERRED — no qualifying order exists.** Close the one open input: read `[data-component="quantity"]` on a real order containing a line with quantity ≥ 2 and record the rendering in `specs/029-whole-order-capture/research.md` §6
 
 **On T005**: no order in the ten most recent had such a line. **If no such order exists yet, this
 task is deferred, not blocking** — the reader takes any digits it finds and falls back to 1,
@@ -65,23 +65,23 @@ review and editable before anything is written.
 
 ### The regression baseline — establish it first
 
-- [ ] T006 Record the pre-refactor baseline by running `venv/bin/nox -s tests` and the detached `venv/bin/nox -s e2e`, saving results for comparison
-- [ ] T007 [P] Write the seam's own unit tests in `tests/unit/test_order_vendors.py` — one `OrderVendor` per vendor, asserting the field values in `contracts/order-vendor.md`
+- [X] T006 Record the pre-refactor baseline by running `venv/bin/nox -s tests` and the detached `venv/bin/nox -s e2e`, saving results for comparison
+- [X] T007 [P] Write the seam's own unit tests in `tests/unit/test_order_vendors.py` — one `OrderVendor` per vendor, asserting the field values in `contracts/order-vendor.md`
 
 ### The seam
 
-- [ ] T008 Create the `OrderVendor` frozen dataclass and the DigiKey and McMaster values in `app/services/order_vendors.py` per `contracts/order-vendor.md`
-- [ ] T009 Merge `DigiKeyCaptureResult` and `McMasterCaptureResult` into one `OrderCaptureResult` in `app/models.py`, collapsing `lines_unenriched` and `lines_incomplete` into a single `lines_incomplete`
+- [X] T008 Create the `OrderVendor` frozen dataclass and the DigiKey and McMaster values in `app/services/order_vendors.py` per `contracts/order-vendor.md`
+- [X] T009 Merge `DigiKeyCaptureResult` and `McMasterCaptureResult` into one `OrderCaptureResult` in `app/models.py`, collapsing `lines_unenriched` and `lines_incomplete` into a single `lines_incomplete`
 
 ### The shared flow
 
-- [ ] T010 Collapse `_recorded_digikey_lines` and `_recorded_mcmaster_lines` into one vendor-parameterized pairing helper in `app/catalog_service.py`, preserving both passes — by `order_line_number` first, then by item id for purchases carrying none
-- [ ] T011 Collapse `_orphaned_digikey_purchases` and `_orphaned_mcmaster_purchases` into one helper in `app/catalog_service.py`; orphans stay **reported and never deleted**
-- [ ] T012 Collapse `_review_digikey_line` and `_review_mcmaster_line` into one per-line review in `app/catalog_service.py`, keeping the state order `CAPTURED → CONFLICT → MATCHED → NEW`
-- [ ] T013 Collapse `review_digikey_order` and `review_mcmaster_order` into `review_order(order, vendor)` in `app/catalog_service.py`
-- [ ] T014 Collapse `capture_digikey_order` and `capture_mcmaster_order` into one confirmation orchestration in `app/catalog_service.py`, keeping the whole-order write in **one session**
-- [ ] T015 Verify in `app/catalog_service.py` that enrichment is called **before** the write session opens, on both the review and the capture path — this ordering has been broken by a refactor once already (PR #116)
-- [ ] T016 Collapse `_apply_digikey_change` and `_apply_mcmaster_change` into one in `app/catalog_service.py`, keeping McMaster's operator-override behaviour and its changed/unchanged return
+- [X] T010 Collapse `_recorded_digikey_lines` and `_recorded_mcmaster_lines` into one vendor-parameterized pairing helper in `app/catalog_service.py`, preserving both passes — by `order_line_number` first, then by item id for purchases carrying none
+- [X] T011 Collapse `_orphaned_digikey_purchases` and `_orphaned_mcmaster_purchases` into one helper in `app/catalog_service.py`; orphans stay **reported and never deleted**
+- [X] T012 Collapse `_review_digikey_line` and `_review_mcmaster_line` into one per-line review in `app/catalog_service.py`, keeping the state order `CAPTURED → CONFLICT → MATCHED → NEW`
+- [X] T013 Collapse `review_digikey_order` and `review_mcmaster_order` into `review_order(order, vendor)` in `app/catalog_service.py`
+- [X] T014 Collapse `capture_digikey_order` and `capture_mcmaster_order` into one confirmation orchestration in `app/catalog_service.py`, keeping the whole-order write in **one session**
+- [X] T015 Verify in `app/catalog_service.py` that enrichment is called **before** the write session opens, on both the review and the capture path — this ordering has been broken by a refactor once already (PR #116)
+- [X] T016 Collapse `_apply_digikey_change` and `_apply_mcmaster_change` into one in `app/catalog_service.py`, keeping McMaster's operator-override behaviour and its changed/unchanged return
 
 ### Routes and templates
 

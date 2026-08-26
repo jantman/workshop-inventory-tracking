@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!--
+  A hand-written stand-in for an Amazon order-details page, not a saved copy of
+  one -- the convention amazon_listing.html and mcmaster_order.html both follow,
+  and for the reason the McMaster fixture states: a real save carries the ship-to
+  name and street address, the buyer, the payment method and the order total,
+  none of which this feature reads and none of which belongs in the repository
+  (research.md §8).
+
+  What it *does* carry is the real markup, read off a live order on 2026-08-26.
+  Every data-component name, every nesting level and every text shape below was
+  read off the rendered page. The findings are in research.md §2-§6; the ones
+  the reader depends on:
+
+  * **Amazon anchors on `data-component`**, not on classes. The names are
+    semantic and unhashed -- unlike McMaster's product pages, whose class names
+    carry a build hash. This is the most stable vendor markup of the three.
+
+  * **`[data-component="purchasedItems"]` is a GROUP, not a line.** On the order
+    this was read from, a four-line order had *two* of them, holding three lines
+    and one. The line container is `[data-component="purchasedItemsRightGrid"]`,
+    and this fixture reproduces that split deliberately: 3 rows in the first
+    group and 1 in the second. A reader that counts `purchasedItems` gets 2.
+
+  * **The price is rendered twice** -- once in `.a-offscreen` for screen readers
+    and once in an `aria-hidden` span for sight. `innerText` on the component
+    therefore yields "$9.99 $9.99". Read `.a-offscreen`.
+
+  * **An empty quantity component means 1.** Amazon renders
+    `<span class="a-size-small"></span>` with no text when the quantity is one.
+    Every row here is quantity 1, because that is the only rendering that was
+    confirmed against the live site -- no order in the ten most recent contained
+    a line with a quantity above 1 (research.md §6). The digits-or-1 parser is
+    unit-tested directly in tests/unit/test_amazon_payload.py rather than
+    guessed at here; baking an unverified shape into a fixture would be testing
+    our guess rather than Amazon.
+
+  * **The recommendation markup below is load-bearing and must not be trimmed.**
+    The live page carried ~26 `/dp/` links across ~9 distinct ASINs for a
+    four-line order; the surplus are "buy it again" and "related to items you
+    viewed" carousels. A reader that sweeps the document for ASINs invents five
+    order lines out of Amazon's advertising. This fixture reproduces that ratio
+    so the test can catch it. See research.md §4.
+
+  ASINs, titles, prices and the order number are synthetic. The *shapes* are
+  real: the order number is Amazon's 3-7-7 digit form and the date is their US
+  long form.
+-->
+<html lang="en">
+<head><title>Order Details</title></head>
+<body>
+
+<div data-component="orderCard">
+
+  <div data-component="briefOrderInfoInvoice">
+    <div data-component="briefOrderInfoInvoiceLeftGrid">
+      <div data-component="orderDateLabel">Order placed</div>
+      <div data-component="orderDate">August 22, 2026</div>
+      <div data-component="orderIdLabel">Order #</div>
+      <div data-component="orderId">111-2223334-5556667</div>
+    </div>
+  </div>
+
+  <!-- One shipment holding two purchasedItems groups: 3 lines, then 1. -->
+  <div data-component="shipments">
+    <div data-component="shipmentsLeftGrid">
+      <div data-component="shipmentStatus">Delivered August 23 Your package was left near the front door or porch.</div>
+
+      <div data-component="purchasedItems">
+
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage">
+                    <a href="/dp/B0TESTAAA1/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample1.jpg" alt=""></a>
+                  </div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">
+                    <a class="a-link-normal" href="/dp/B0TESTAAA1/ref=ppx_yo_dt_b_asin_title">Digital Calipers 6 Inch Stainless Steel with Fractions</a>
+                  </div>
+                  <div data-component="orderedMerchant">Sold by: Example Tools Co</div>
+                  <div data-component="itemCondition"></div>
+                  <div class="" data-component="quantity">
+                    <span class="a-size-small"></span>
+                  </div>
+                  <div class="" data-component="unitPrice">
+                    <span class="a-price a-text-price" data-a-size="s" data-a-color="base"><span class="a-offscreen">$9.99</span><span aria-hidden="true">$9.99</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage">
+                    <a href="/dp/B0TESTAAA2/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample2.jpg" alt=""></a>
+                  </div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">
+                    <a class="a-link-normal" href="/dp/B0TESTAAA2/ref=ppx_yo_dt_b_asin_title">Assorted Heat Shrink Tubing Kit, 560 Pieces, 2:1 Ratio, Marine Grade Adhesive Lined</a>
+                  </div>
+                  <div data-component="orderedMerchant">Sold by: Example Electronics</div>
+                  <div class="" data-component="quantity">
+                    <span class="a-size-small"></span>
+                  </div>
+                  <div class="" data-component="unitPrice">
+                    <span class="a-price a-text-price" data-a-size="s" data-a-color="base"><span class="a-offscreen">$13.95</span><span aria-hidden="true">$13.95</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage">
+                    <a href="/dp/B0TESTAAA3/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample3.jpg" alt=""></a>
+                  </div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">
+                    <a class="a-link-normal" href="/dp/B0TESTAAA3/ref=ppx_yo_dt_b_asin_title">Cutting Fluid for Metalworking, 16 oz Bottle</a>
+                  </div>
+                  <div data-component="orderedMerchant">Sold by: Example Supply</div>
+                  <div class="" data-component="quantity">
+                    <span class="a-size-small"></span>
+                  </div>
+                  <div class="" data-component="unitPrice">
+                    <span class="a-price a-text-price" data-a-size="s" data-a-color="base"><span class="a-offscreen">$8.99</span><span aria-hidden="true">$8.99</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /purchasedItems (group 1) -->
+
+      <div data-component="purchasedItems">
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage">
+                    <a href="/dp/B0TESTAAA4/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample4.jpg" alt=""></a>
+                  </div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">
+                    <a class="a-link-normal" href="/dp/B0TESTAAA4/ref=ppx_yo_dt_b_asin_title">Magnetic Parts Tray Set, 3 Piece</a>
+                  </div>
+                  <div data-component="orderedMerchant">Sold by: Example Tools Co</div>
+                  <div class="" data-component="quantity">
+                    <span class="a-size-small"></span>
+                  </div>
+                  <div class="" data-component="unitPrice">
+                    <span class="a-price a-text-price" data-a-size="s" data-a-color="base"><span class="a-offscreen">$16.99</span><span aria-hidden="true">$16.99</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /purchasedItems (group 2) -->
+
+    </div>
+  </div><!-- /shipments -->
+</div><!-- /orderCard -->
+
+<!--
+  Everything below is Amazon's advertising. It carries five ASINs that are NOT
+  part of this order, each linked more than once, which is what makes a
+  document-wide `/dp/` sweep read 9 distinct ASINs on a 4-line order. Do not
+  trim this: it is the whole point of the row-scoping test.
+-->
+<div id="rhf" class="rhf-container">
+  <h2>Buy it again</h2>
+  <div class="a-carousel">
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM01/ref=ppx_yo2ov_dt_b_fed_asin_title"><img src="__IMAGE_HOST__/rec1.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM01/ref=ppx_yo2ov_dt_b_fed_asin_title">Recommended Item One</a>
+      <a class="a-button" href="/gp/product/B0RECOMM01">Add to cart</a>
+    </div>
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM02/ref=ppx_yo2ov_dt_b_fed_asin_title"><img src="__IMAGE_HOST__/rec2.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM02/ref=ppx_yo2ov_dt_b_fed_asin_title">Recommended Item Two</a>
+      <a class="a-button" href="/gp/product/B0RECOMM02">Add to cart</a>
+    </div>
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM03/ref=ppx_yo2ov_dt_b_fed_asin_title"><img src="__IMAGE_HOST__/rec3.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM03/ref=ppx_yo2ov_dt_b_fed_asin_title">Recommended Item Three</a>
+      <a class="a-button" href="/gp/product/B0RECOMM03">Add to cart</a>
+    </div>
+  </div>
+</div>
+
+<div id="rvi" class="rvi-container">
+  <h2>Related to items you've viewed</h2>
+  <div class="a-carousel">
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM04/ref=pd_rvi_asin"><img src="__IMAGE_HOST__/rec4.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM04/ref=pd_rvi_asin">Related Item Four</a>
+      <a class="a-button" href="/gp/product/B0RECOMM04">See options</a>
+    </div>
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM05/ref=pd_rvi_asin"><img src="__IMAGE_HOST__/rec5.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM05/ref=pd_rvi_asin">Related Item Five</a>
+      <a class="a-button" href="/gp/product/B0RECOMM05">See options</a>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

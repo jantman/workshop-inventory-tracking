@@ -1717,13 +1717,23 @@ class OrderCaptureReview:
 
 
 @dataclass(frozen=True)
-class DigiKeyCaptureResult:
-    """What one confirmed DigiKey order capture did.
+class OrderCaptureResult:
+    """What one confirmed order capture did, whoever the vendor was.
 
     Counts rather than objects, plus the purchase ids, because the route needs
     to say what happened and then redirect -- not to render the rows it just
     wrote. The order screen reads them back from the database, which is also the
     proof they landed.
+
+    **This was two types until feature 029.** DigiKey's named the lines its part
+    lookup would not answer for; McMaster's named the lines the *page* did not
+    give up. Those are the same fact -- "these lines came back thin, and they are
+    named rather than counted so the operator knows which records to look over"
+    -- wearing two names, so they are now one field.
+
+    ``orphaned`` and ``renamed_from`` default to empty for vendors that cannot
+    produce them: only McMaster has an order identifier the operator can rename
+    on the vendor's side, and only a re-capture reports orphans.
     """
     purchase_ids: tuple = ()
     products_created: int = 0
@@ -1731,39 +1741,27 @@ class DigiKeyCaptureResult:
     lines_excluded: int = 0
     lines_already_captured: int = 0
     lines_updated: int = 0
-    # DigiKey part numbers whose part lookup failed (FR-041). Named rather than
-    # counted: the operator is told which lines came back thin.
-    lines_unenriched: tuple = ()
-
-
-@dataclass(frozen=True)
-class McMasterCaptureResult:
-    """What one confirmed McMaster order capture did.
-
-    Its own type rather than DigiKey's, for the reason research.md §7 gives
-    about the whole orchestration: the two differ in what they have to report.
-    DigiKey names the lines its part lookup would not answer for; McMaster has
-    no part lookup, and what it has to name instead is the lines the *page* did
-    not give up (FR-037), so the operator still knows which ones came back thin
-    after they have left the review behind.
-    """
-    purchase_ids: tuple = ()
-    products_created: int = 0
-    products_attached: int = 0
-    lines_excluded: int = 0
-    lines_already_captured: int = 0
-    lines_updated: int = 0
-    # Descriptions of the captured lines that were missing a field the page
-    # should have given. Named rather than counted, for the same reason
-    # DigiKey names its unenriched ones.
+    # The captured lines that came back thin -- whatever "thin" means for this
+    # vendor. Named rather than counted.
     lines_incomplete: tuple = ()
-    # Purchases recorded against this order that no line of it claims (FR-016).
+    # Purchases recorded against this order that no line of it claims.
     # Reported, never deleted.
     orphaned: tuple = ()
-    # The Purchase Order string this order was filed under before, when the
-    # operator renamed it on McMaster's side and this capture refiled the rows.
-    # '' when nothing moved.
+    # The order reference this order was filed under before, when the operator
+    # renamed it on the vendor's side and this capture refiled the rows. '' when
+    # nothing moved. McMaster only -- see OrderVendor.adopts_renames.
     renamed_from: str = ''
+
+    @property
+    def lines_unenriched(self) -> tuple:
+        """What DigiKey's half of this used to be called.
+
+        Kept because ``tests/unit/test_digikey_capture.py`` reads it, and that
+        suite is feature 029's regression gate: it says what capture *does*, and
+        it is not edited to accommodate the refactor. A field rename is not a
+        behaviour change, and this is what makes it not become one.
+        """
+        return self.lines_incomplete
 
     @property
     def wrote_anything(self) -> bool:
@@ -1779,3 +1777,11 @@ class McMasterCaptureResult:
             or self.lines_updated > 0
             or bool(self.renamed_from)
         )
+
+
+# The names the two flows used before feature 029 merged them. Kept as aliases
+# rather than renamed at every call site, because `tests/unit/test_mcmaster_
+# routes.py` constructs McMasterCaptureResult by name and that suite is the
+# regression gate for this refactor.
+DigiKeyCaptureResult = OrderCaptureResult
+McMasterCaptureResult = OrderCaptureResult
