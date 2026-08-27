@@ -112,6 +112,26 @@ class OrderVendor:
     #: review's enrichment back out of its session once already.
     enrich: Optional[Callable[..., Dict[str, Any]]] = None
 
+    #: ``(service, session, product, part) -> None``. Writes the vendor's own
+    #: part detail onto a product the line **matched**, filling gaps only -- a
+    #: value the operator has already set always wins.
+    #:
+    #: Distinct from :attr:`enrich`, and easy to conflate: ``enrich`` *fetches*
+    #: the detail before the session opens, and this *writes* it onto an existing
+    #: product inside the session. A vendor can have the first without the
+    #: second, but not the reverse.
+    #:
+    #: **A newly created product does not need this** -- the vendor's
+    #: ``create_product`` already writes everything it knows. This exists for the
+    #: MATCHED path, where the product predates the order and may have blanks the
+    #: vendor can fill.
+    #:
+    #: Its absence was a regression: feature 029's first consolidation dropped
+    #: DigiKey's call on the MATCHED path, so capturing an order line that
+    #: attached to an existing product silently stopped backfilling its
+    #: manufacturer, category and parametric specs. Caught in review of PR #126.
+    enrich_product: Optional[Callable[..., None]] = None
+
     #: ``(line) -> str | None``. Names a captured line that came back thin, so
     #: the operator knows which records to look over after leaving the review.
     #: DigiKey's thin lines are the ones its part lookup would not answer for;

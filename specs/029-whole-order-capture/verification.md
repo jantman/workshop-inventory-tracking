@@ -57,6 +57,33 @@ have shipped:
    manufacturer-part-number fallback that `contracts/order-vendor.md` did not
    record. Consolidating without it would have been a silent behaviour change.
 
+### A2b. What the gate did *not* catch — found in review of PR #126
+
+One regression survived every automated gate and was found by review, which is
+worth recording as plainly as the ones the gate caught.
+
+**Consolidating the two `_product_for` helpers dropped DigiKey's enrichment of a
+*matched* product.** The DigiKey branch called `_enrich_digikey_product` before
+returning an existing product; McMaster's had nothing to call; the merged helper
+kept McMaster's shape. So capturing a DigiKey order line that attached to a
+product the catalog already held silently stopped backfilling that product's
+blank manufacturer, category and parametric specs.
+
+**Why the gate missed it.** `test_a_matched_line_attaches_rather_than_duplicating`
+in `tests/unit/test_digikey_capture.py` exercises this exact scenario and passed
+throughout — because it asserts `products_attached`, the product's id and its
+purchase count, and never that the product gained anything. The regression gate
+is only as strong as what its assertions actually look at, and "the existing
+suites pass unedited" is evidence about behaviour those suites *describe*, not
+about behaviour they merely touch.
+
+**Fixed** by moving the call behind the seam as `OrderVendor.enrich_product`
+rather than reintroducing a DigiKey-specific call inside shared code — which
+would have recreated, in reverse, the asymmetry the consolidation existed to
+remove. Covered by `tests/unit/test_order_enrichment.py`; four of its seven tests
+fail against the version without the hook, verified by reverting the fix and
+re-running.
+
 ### A3. What the consolidation actually removed
 
 | Was two | Is one |

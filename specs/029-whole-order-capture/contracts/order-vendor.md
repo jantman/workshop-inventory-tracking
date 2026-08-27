@@ -20,7 +20,8 @@ no subclassing.
 | `identifier_types` | tuple | `DISTRIBUTOR` (scoped) + `MPN` | `DISTRIBUTOR` (scoped) + `MPN` **only where stated** | `ASIN` (scoped) |
 | `suggested_description(line, part)` | callable → `str` | enriched part detail, else the line's | the line's description | the line's title |
 | `find_product(session, line)` | callable → `Product \| None` | by DKPN, then by MPN | by part number, scoped | by ASIN, scoped |
-| `enrich(client, lines)` | callable | the part lookup | no-op | no-op |
+| `enrich(client, lines)` | callable | the part lookup | — | — |
+| `enrich_product(session, product, part)` | callable | backfills a **matched** product's blank manufacturer, category and specs | — | — |
 | `line_arithmetic` | callable \| `None` | `None` | packs → units | `None` |
 | `receive_landing` | enum | `ORDER_SCREEN` | `CHOICE_PAGE` | `CHOICE_PAGE` |
 | `review_columns` | tuple | shipped / backorder | packs / pack size / pack price | — |
@@ -55,6 +56,32 @@ Given any `OrderVendor`, these behave identically and are implemented once:
 * Not a place for network configuration; the DigiKey client is passed in, as it is today.
 * Not a base class. If polymorphism starts to look necessary, the variation has outgrown the
   measurement in research.md §9 and should be re-measured rather than accommodated.
+
+## Two enrichments, and they are not the same thing
+
+`enrich` **fetches** a vendor's part detail, before the write session opens.
+`enrich_product` **writes** that detail onto a product an order line *matched* --
+inside the session, filling gaps only, so a manufacturer the operator corrected
+or a category they filed always wins.
+
+A vendor can have the first without the second, but not the reverse. Only DigiKey
+has either.
+
+**`enrich_product` runs on MATCHED and nowhere else.** A newly created product
+needs nothing: `create_product` already writes everything the vendor knows. A
+CONFLICT resolved with 'attach' deliberately does not enrich either -- the
+operator has just said two things the catalog thought were different are the
+same, which is not a licence to write one's detail onto the other.
+
+This member exists because feature 029's first consolidation **lost it**. The two
+`_product_for` helpers were merged without noticing that DigiKey's MATCHED branch
+called `_enrich_digikey_product` and McMaster's had nothing to call, so an order
+line attaching to an existing product silently stopped backfilling it. The
+regression gate did not catch it: the DigiKey suite has a test for exactly that
+MATCHED/attach scenario, and it asserts the attach counts and the product's
+identity but never that the product gained anything. Caught in review of PR #126;
+covered now by `tests/unit/test_order_enrichment.py`, which fails against the
+merged-without-it version.
 
 ## Enrichment stays outside the session
 

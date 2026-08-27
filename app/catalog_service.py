@@ -1749,7 +1749,19 @@ class CatalogService:
             ), True
 
         if reviewed.state is OrderLineState.MATCHED:
-            return session.get(Product, reviewed.product_id), False
+            # The product predates this order and may have blanks the vendor can
+            # fill. Enrichment writes gaps only -- a manufacturer someone
+            # corrected or a category someone filed always wins.
+            #
+            # **Only on MATCHED.** A CONFLICT resolved with 'attach' deliberately
+            # does not enrich: the operator has just said two things the catalog
+            # thought were different are the same, which is not a licence to
+            # write one's detail onto the other. That was the behaviour before
+            # this was consolidated and it is preserved exactly.
+            product = session.get(Product, reviewed.product_id)
+            if vendor.enrich_product is not None:
+                vendor.enrich_product(self, session, product, part)
+            return product, False
 
         return vendor.create_product(self, session, line, part, decision), True
 
@@ -4033,6 +4045,9 @@ DIGIKEY_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
         for line in lines
     },
     incomplete_label=_digikey_incomplete_label,
+    enrich_product=lambda service, session, product, part: (
+        service._enrich_digikey_product(session, product, part)
+    ),
     review_columns=('shipped', 'backorder'),
     confirm_endpoint='product.digikey_order_confirm',
 ))
