@@ -92,6 +92,23 @@
         {% endif %}
     </div>
 
+    {% if not vendor.enrich and review.lines %}
+    {# FR-026. An order page states a title, a quantity and a price; the
+       gallery, the specification rows and the barcodes live on the *listing*
+       page, one page per line, and fetching eleven of those would make a
+       capture take minutes. So the products this creates are thinner than a
+       single-listing capture's, and the operator is told rather than left to
+       discover it. The way to fill one in later is the capture they already
+       know, and it attaches rather than duplicating (FR-027). #}
+    <div class="alert alert-secondary py-2" id="order-page-detail-note">
+        <i class="bi bi-info-circle"></i>
+        New products created here record only what this order page stated — the
+        description, the quantity and the price. To add pictures, specifications
+        and barcodes, capture the item's own listing page afterwards; it will
+        attach to the same product rather than making a second one.
+    </div>
+    {% endif %}
+
     {% if vendor.enrich and review.unenriched %}
     <div class="alert alert-warning" id="unenriched-warning">
         <i class="bi bi-exclamation-triangle"></i>

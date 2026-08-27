@@ -25,7 +25,7 @@ for, so they are grouped by what they are facts *about* -- the order, the line,
 the product -- which brings it back to six members that each mean something.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
 
 

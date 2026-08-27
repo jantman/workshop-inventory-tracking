@@ -18,6 +18,7 @@ from flask import current_app, flash, jsonify, redirect, render_template, reques
 
 from app import csrf
 from app.catalog_service import (
+    AMAZON_ORDER_VENDOR,
     AMAZON_VENDOR,
     DIGIKEY_ORDER_VENDOR,
     DIGIKEY_VENDOR,
@@ -33,6 +34,7 @@ from app.exceptions import (
     ValidationError, WorkshopInventoryError,
 )
 from app.models import (
+    AmazonOrder,
     CapturedBarcode,
     IdentifierType,
     ListingCapture,
@@ -781,7 +783,8 @@ def api_capture():
         or _mcmaster_part_from_url(url)
     )
 
-    # A McMaster order rides the same endpoint as one extra form field, because
+    # An order read off a page rides the same endpoint as one extra form field,
+    # because
     # the bookmarklet's text cannot change without the operator re-dragging it
     # (FR-034, research.md §2). **This still writes nothing** -- it is a read of
     # the payload plus a read of the catalog, and the operator can close the tab
@@ -791,7 +794,7 @@ def api_capture():
     # which is what the existing capture tests assert and what makes SC-010
     # checkable by running them unchanged.
     if not request.is_json and data.get('order'):
-        return _mcmaster_order_review(service, data.get('order'))
+        return _page_order_review(service, data.get('order'))
 
     if not request.is_json:
         # The bookmarklet's new tab lands here. Show the operator what the URL
@@ -1260,7 +1263,8 @@ def _order_decisions(form, order):
     return decisions
 
 
-def _order_capture_summary(result, thin_sentence=None) -> str:
+def _order_capture_summary(result, thin_sentence=None,
+                           thin_products=False) -> str:
     """What just happened, in one sentence the operator can act on.
 
     **Every outcome that changed the database has to appear here.** A capture
@@ -1283,6 +1287,11 @@ def _order_capture_summary(result, thin_sentence=None) -> str:
     line came back thin" *means* differs, so how it is worded does too. It is
     passed in by the route rather than carried on the OrderVendor, because it is
     presentation and the vendor is not the place for that.
+
+    ``thin_products`` says the products this capture created carry only what an
+    order page stated (029 FR-026). Said here as well as on the review because
+    this is the message the operator leaves the page with, and a title-only
+    product they do not know is title-only is one they will not think to fill in.
     """
     parts = []
     if result.purchase_ids:
@@ -1318,6 +1327,11 @@ def _order_capture_summary(result, thin_sentence=None) -> str:
         )
     if result.lines_incomplete and thin_sentence is not None:
         parts.append(thin_sentence(result.lines_incomplete))
+    if thin_products and result.products_created:
+        parts.append(
+            f"The {result.products_created} new product(s) carry only what the "
+            f"order page stated — capture a listing page to fill one in"
+        )
     return ". ".join(parts) + "."
 
 
@@ -1441,89 +1455,143 @@ def digikey_order_detail(sales_order_number):
 # -- McMaster-Carr orders ---------------------------------------------------
 
 
-def _mcmaster_order(raw):
-    """Parse the hidden ``order`` field, or None.
+# The vendors whose orders are read off a page and ride /api/capture as one
+# hidden JSON field. DigiKey is absent deliberately: its order is fetched by
+# number and re-read at confirmation, so it has no payload and no ambiguity
+# about which vendor a submission belongs to.
+def _payload_vendors():
+    """(OrderVendor, order type, page title) for each page-read vendor."""
+    return (
+        (MCMASTER_ORDER_VENDOR, McMasterOrder, 'Capture a McMaster-Carr Order'),
+        (AMAZON_ORDER_VENDOR, AmazonOrder, 'Capture an Amazon Order'),
+    )
 
-    ``None`` is the ordinary answer for a payload this server cannot read --
-    an unknown version, another vendor, no order number -- and never an error.
-    That is what makes a stale cached agent harmless.
+
+def _page_order(raw):
+    """Which page-read vendor's order a payload is, and the parsed order.
+
+    Returns ``(vendor, order, title)``. ``order`` is None for a payload this
+    server cannot read -- an unknown version, no order number, unparseable JSON
+    -- and that is the ordinary answer rather than an error. It is what makes a
+    stale cached agent harmless.
+
+    The payload's own ``vendor`` field picks the reader, so an Amazon payload
+    that is otherwise unreadable still renders Amazon's wording. When it names
+    no vendor this tries each reader in turn, and when nothing matches it falls
+    back to McMaster -- which is the vendor this endpoint had before Amazon
+    existed, so a payload that was rendered a certain way yesterday still is.
     """
+    candidates = _payload_vendors()
+
     if not raw:
-        return None
+        return candidates[0][0], None, candidates[0][2]
+
     try:
         body = json.loads(raw, parse_float=Decimal)
     except (TypeError, ValueError):
         logger.info('A capture payload carried an unreadable order field')
-        return None
-    return McMasterOrder.from_payload(body)
+        return candidates[0][0], None, candidates[0][2]
+
+    declared = body.get('vendor') if isinstance(body, dict) else None
+    for vendor, order_type, title in candidates:
+        if declared == vendor.name:
+            return vendor, order_type.from_payload(body), title
+
+    for vendor, order_type, title in candidates:
+        order = order_type.from_payload(body)
+        if order is not None:
+            return vendor, order, title
+
+    return candidates[0][0], None, candidates[0][2]
 
 
-def _mcmaster_order_review(service, raw, form_data=None):
+def _page_order_review(service, raw, form_data=None):
     """Render the review for a payload the agent just read. Writes nothing.
 
-    A payload naming no order -- unreadable, or naming no Purchase Order string
-    -- renders the "this page yielded no order" statement with the hand-entry
-    way forward, rather than an error page (FR-038).
+    A payload naming no order -- unreadable, or naming no order number --
+    renders the "this page yielded no order" statement with the hand-entry way
+    forward, rather than an error page.
+
+    One implementation for every page-read vendor since feature 029.
     """
-    order = _mcmaster_order(raw)
+    vendor, order, title = _page_order(raw)
+
     if order is None:
         return render_template(
             'product/order_review.html',
-            title='Capture a McMaster-Carr Order',
-            **_review_context(
-                MCMASTER_ORDER_VENDOR, None, None, form_data,
-                payload=raw or '',
-            ),
+            title=title,
+            **_review_context(vendor, None, None, form_data, payload=raw or ''),
         )
 
-    review = service.review_mcmaster_order(order)
+    review = service.review_order(order, vendor)
+    order_number = vendor.order_fields(order)['supplier_order_reference']
     return render_template(
         'product/order_review.html',
-        title=f'McMaster-Carr Order {order.order_number}',
+        title=f'{vendor.name} Order {order_number}',
         # `payload` is carried through verbatim. This is the FR-006 mechanism:
         # there is nothing to re-read at confirmation, so the payload the review
         # was built from has to survive the round trip or the capture is lost.
-        **_review_context(
-            MCMASTER_ORDER_VENDOR, order, review, form_data, payload=raw,
-        ),
+        **_review_context(vendor, order, review, form_data, payload=raw),
     )
 
 
-@bp.route('/products/mcmaster/orders/capture', methods=['POST'])
-def mcmaster_order_confirm():
-    """Confirm a reviewed McMaster order and write it.
+def _confirm_page_order(expected_vendor, thin_sentence):
+    """Confirm a reviewed order that was read off a page, and write it.
 
     **The payload is the authority**, and it is re-parsed here rather than
     trusted from the review's rendering. DigiKey's equivalent re-reads the order
     from DigiKey; there is nothing to re-read from a page the operator has since
-    navigated away from, so what the review displayed is what this writes
-    (FR-006).
+    navigated away from, so what the review displayed is what this writes.
 
-    Same-origin, so CSRF-protected like every other form in the application --
-    unlike ``/api/capture``, which posts from the vendor's origin and cannot be.
+    One implementation for every page-read vendor since feature 029.
     """
     service = _get_catalog_service()
     raw = request.form.get('order') or ''
-    order = _mcmaster_order(raw)
+    vendor, order, _ = _page_order(raw)
 
-    if order is None:
-        return _mcmaster_order_review(service, raw, form_data=request.form)
+    if order is None or vendor.name != expected_vendor.name:
+        # Either unreadable, or posted to the wrong vendor's confirm route --
+        # which a stale cached agent can do. Neither writes anything.
+        return _page_order_review(service, raw, form_data=request.form)
 
     decisions = _order_decisions(request.form, order)
 
     try:
-        result = service.capture_mcmaster_order(order, decisions)
+        result = service.capture_order_lines(order, vendor, decisions)
     except ValidationError as e:
         # Re-render the review carrying what was submitted, so a description the
         # operator spent time on is not lost.
         flash(e.message, 'error')
-        return _mcmaster_order_review(service, raw, form_data=request.form)
+        return _page_order_review(service, raw, form_data=request.form)
 
-    flash(_mcmaster_capture_summary(result), 'success')
-    return redirect(url_for(
-        'product.mcmaster_order_detail',
-        order_number=order.order_number,
+    flash(
+        _order_capture_summary(
+            result, thin_sentence, thin_products=vendor.enrich is None
+        ),
+        'success',
+    )
+    return redirect(_order_url(
+        vendor.name, vendor.order_fields(order)['supplier_order_reference']
     ))
+
+
+@bp.route('/products/mcmaster/orders/capture', methods=['POST'])
+def mcmaster_order_confirm():
+    """Confirm a reviewed McMaster order. See :func:`_confirm_page_order`.
+
+    Same-origin, so CSRF-protected like every other form in the application --
+    unlike ``/api/capture``, which posts from the vendor's origin and cannot be.
+    """
+    return _confirm_page_order(MCMASTER_ORDER_VENDOR, _page_thin_sentence)
+
+
+@bp.route('/products/amazon/orders/capture', methods=['POST'])
+def amazon_order_confirm():
+    """Confirm a reviewed Amazon order (029 FR-035). See :func:`_confirm_page_order`.
+
+    Same-origin, so CSRF-protected, for the same reason McMaster's is.
+    """
+    return _confirm_page_order(AMAZON_ORDER_VENDOR, _page_thin_sentence)
 
 
 @bp.route('/products/purchases/receive-choice')

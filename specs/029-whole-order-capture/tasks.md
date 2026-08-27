@@ -115,23 +115,23 @@ ASIN, with the quantity, unit price, order number and order date the page stated
 
 ### Tests for User Story 1
 
-- [ ] T024 [P] [US1] Payload parsing tests in `tests/unit/test_amazon_payload.py` — a good payload, a bad `version`, a wrong `vendor`, no order number, and **an empty `lines` with a valid order number, which must not be `None`**
-- [ ] T025 [P] [US1] Capture tests in `tests/unit/test_amazon_capture.py` — one purchase per included line, exclusions, matched vs new products, re-capture writing nothing, and **two lines carrying the same ASIN pairing to their own purchases** (SC-005)
-- [ ] T026 [P] [US1] E2E test in `tests/e2e/test_amazon_order.py` asserting the review lists **exactly the ordered lines** against `tests/e2e/fixtures/amazon_order.html` — the row count, not merely that some lines were read (research.md §4)
-- [ ] T027 [P] [US1] E2E degraded tests in `tests/e2e/test_amazon_degraded.py` against the `amazon_order_unreadable.html` and `amazon_order_partial.html` fixtures, for FR-019, FR-021, FR-022 and FR-023
+- [X] T024 [P] [US1] Payload parsing tests in `tests/unit/test_amazon_payload.py` — a good payload, a bad `version`, a wrong `vendor`, no order number, and **an empty `lines` with a valid order number, which must not be `None`**
+- [X] T025 [P] [US1] Capture tests in `tests/unit/test_amazon_capture.py` — one purchase per included line, exclusions, matched vs new products, re-capture writing nothing, and **two lines carrying the same ASIN pairing to their own purchases** (SC-005)
+- [X] T026 [P] [US1] E2E test in `tests/e2e/test_amazon_order.py` asserting the review lists **exactly the ordered lines** against `tests/e2e/fixtures/amazon_order.html` — the row count, not merely that some lines were read (research.md §4)
+- [X] T027 [P] [US1] E2E degraded tests in `tests/e2e/test_amazon_degraded.py` against the `amazon_order_unreadable.html` and `amazon_order_partial.html` fixtures, for FR-019, FR-021, FR-022 and FR-023
 
 ### Implementation for User Story 1
 
-- [ ] T028 [US1] Change `pageKind` in `app/static/js/capture-agent.js` to take the location rather than `location.pathname`, updating every existing caller without changing any existing return value
-- [ ] T029 [US1] Add the `amazon-order` dispatch case to `app/static/js/capture-agent.js` for path `/your-orders/order-details` carrying `orderID=`, and confirm `/your-orders/orders` does not match
-- [ ] T030 [US1] Write the Amazon order reader in `app/static/js/capture-agent.js` per `contracts/capture-payload.md` — rows from `[data-component="purchasedItemsRightGrid"]`, **every field scoped to the row**, price from `.a-offscreen`, empty quantity meaning 1, `line_number` as the 1-based row index
-- [ ] T031 [US1] Ensure no extraction step in the Amazon reader can throw, so a dead selector costs one field only (FR-021), and report `lines_read` so FR-004 can say "4 of 11"
-- [ ] T032 [P] [US1] Add `AmazonOrder` and `AmazonOrderLine` to `app/models.py` per data-model.md §3, with `unit_price` parsed to `Decimal` and never `float`
-- [ ] T033 [US1] Add the Amazon `OrderVendor` value to `app/services/order_vendors.py` — ASIN identifier, title as the suggested description, no enrichment, no line arithmetic, choice-page landing
-- [ ] T034 [US1] Add the Amazon-order branch to `api_capture()` in `app/product/routes.py`, rendering the shared review and **writing nothing**
-- [ ] T035 [US1] Add `POST /products/amazon/orders/capture` to `app/product/routes.py` — CSRF-protected, carrying the payload through the confirmation because there is nothing to re-read (FR-006)
-- [ ] T036 [US1] Show on the review, in `app/templates/product/order_review.html`, that an Amazon line records only what the order page stated (FR-026)
-- [ ] T037 [US1] Carry the incomplete-line report into the post-capture summary in `app/product/routes.py`, so the operator knows which records to look over after leaving the review (FR-022)
+- [X] T028 [US1] Change `pageKind` in `app/static/js/capture-agent.js` to take the location rather than `location.pathname`, updating every existing caller without changing any existing return value
+- [X] T029 [US1] Add the `amazon-order` dispatch case to `app/static/js/capture-agent.js` for path `/your-orders/order-details` carrying `orderID=`, and confirm `/your-orders/orders` does not match
+- [X] T030 [US1] Write the Amazon order reader in `app/static/js/capture-agent.js` per `contracts/capture-payload.md` — rows from `[data-component="purchasedItemsRightGrid"]`, **every field scoped to the row**, price from `.a-offscreen`, empty quantity meaning 1, `line_number` as the 1-based row index
+- [X] T031 [US1] Ensure no extraction step in the Amazon reader can throw, so a dead selector costs one field only (FR-021), and report `lines_read` so FR-004 can say "4 of 11"
+- [X] T032 [P] [US1] Add `AmazonOrder` and `AmazonOrderLine` to `app/models.py` per data-model.md §3, with `unit_price` parsed to `Decimal` and never `float`
+- [X] T033 [US1] Add the Amazon `OrderVendor` value to `app/services/order_vendors.py` — ASIN identifier, title as the suggested description, no enrichment, no line arithmetic, choice-page landing
+- [X] T034 [US1] Add the Amazon-order branch to `api_capture()` in `app/product/routes.py`, rendering the shared review and **writing nothing**
+- [X] T035 [US1] Add `POST /products/amazon/orders/capture` to `app/product/routes.py` — CSRF-protected, carrying the payload through the confirmation because there is nothing to re-read (FR-006)
+- [X] T036 [US1] Show on the review, in `app/templates/product/order_review.html`, that an Amazon line records only what the order page stated (FR-026)
+- [X] T037 [US1] Carry the incomplete-line report into the post-capture summary in `app/product/routes.py`, so the operator knows which records to look over after leaving the review (FR-022)
 
 **Checkpoint**: An eleven-line Amazon order is captured in one click plus the descriptions. This
 is the MVP — the issue's actual complaint is answered here.
@@ -149,15 +149,15 @@ rose accordingly, and the screen reports the remainder as outstanding.
 
 ### Tests for User Story 2
 
-- [ ] T038 [P] [US2] E2E test in `tests/e2e/test_amazon_receive.py` — receive from the order screen, amend a quantity, confirm a received line cannot be received twice
-- [ ] T039 [P] [US2] Unit test in `tests/unit/test_order_receive.py` that receiving from the order screen has the same effect as receiving by any other route — quantity rises by the **received** amount, manual low/out flag cleared
+- [X] T038 [P] [US2] E2E test in `tests/e2e/test_amazon_receive.py` — receive from the order screen, amend a quantity, confirm a received line cannot be received twice
+- [X] T039 [P] [US2] Unit test in `tests/unit/test_order_receive.py` that receiving from the order screen has the same effect as receiving by any other route — quantity rises by the **received** amount, manual low/out flag cleared
 
 ### Implementation for User Story 2
 
-- [ ] T040 [US2] Add a receive action per outstanding line to `app/templates/product/order.html`, with an editable quantity
-- [ ] T041 [US2] Wire that action in `app/product/routes.py` to the existing `receive_purchase` service call — no second receiving implementation
-- [ ] T042 [US2] Show the outstanding count and distinguish received from outstanding lines in `app/templates/product/order.html` (FR-028, FR-029)
-- [ ] T043 [US2] Render an uncaptured order number as "not captured" with a way forward in `app/product/routes.py`, never a 404 (FR-032)
+- [X] T040 [US2] Add a receive action per outstanding line to `app/templates/product/order.html`, with an editable quantity
+- [X] T041 [US2] Wire that action in `app/product/routes.py` to the existing `receive_purchase` service call — no second receiving implementation
+- [X] T042 [US2] Show the outstanding count and distinguish received from outstanding lines in `app/templates/product/order.html` (FR-028, FR-029)
+- [X] T043 [US2] Render an uncaptured order number as "not captured" with a way forward in `app/product/routes.py`, never a 404 (FR-032)
 
 **Checkpoint**: A four-box Amazon order can be unpacked over a week, and what is still on its way
 is visible throughout.
@@ -175,7 +175,7 @@ identically.
 
 ### Tests for User Story 3
 
-- [ ] T044 [P] [US3] E2E test in `tests/e2e/test_orders_list.py` — orders from all three vendors listed, most recent first, a fully-received order visibly distinct from one with outstanding lines
+- [X] T044 [P] [US3] E2E test in `tests/e2e/test_orders_list.py` — orders from all three vendors listed, most recent first, a fully-received order visibly distinct from one with outstanding lines
 - [X] T045 [P] [US3] Unit test in `tests/unit/test_orders_list.py` for the derived query — grouping, counts, and that a purchase with no `supplier_order_reference` appears in no order
 
 ### Implementation for User Story 3
@@ -192,17 +192,17 @@ from one screen without typing an order number.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T050 Regenerate documentation screenshots with `venv/bin/nox -s screenshots_headless`, then `screenshots_verify` — templates changed, and CI blocks merge on stale screenshots
-- [ ] T051 Review the screenshot churn before committing; screenshots change every run, so commit what actually differs
-- [ ] T052 [P] Update `README.md` and `docs/` to describe whole-order capture for all three vendors and the captured-orders list
-- [ ] T053 [P] Confirm American spelling holds: `grep -ric "catalogue" README.md docs/ app/ tests/` returns nothing
-- [ ] T054 [P] Confirm no `float` entered any price or quantity path introduced by this feature (Constitution III)
-- [ ] T055 Run `venv/bin/nox -s tests` — full unit suite
-- [ ] T056 Run `venv/bin/nox -s e2e` **detached** (`nohup … &` and poll) — it takes ~13m45s warm and exceeds the 10-minute bash cap
-- [ ] T057 [P] Run `venv/bin/nox -s lint` — advisory; satisfy it for new code without reformatting existing files
-- [ ] T058 Confirm `nox -s e2e` left the working tree clean
-- [ ] T059 Walk `quickstart.md` end to end against a real Amazon order, a real DigiKey order and a real McMaster order
-- [ ] T060 Record the outcome in `specs/029-whole-order-capture/verification.md`, including whether T005 was closed or deferred
+- [X] T050 Regenerate documentation screenshots with `venv/bin/nox -s screenshots_headless`, then `screenshots_verify` — templates changed, and CI blocks merge on stale screenshots
+- [X] T051 Review the screenshot churn before committing; screenshots change every run, so commit what actually differs
+- [X] T052 [P] Update `README.md` and `docs/` to describe whole-order capture for all three vendors and the captured-orders list
+- [X] T053 [P] Confirm American spelling holds: `grep -ric "catalogue" README.md docs/ app/ tests/` returns nothing
+- [X] T054 [P] Confirm no `float` entered any price or quantity path introduced by this feature (Constitution III)
+- [X] T055 Run `venv/bin/nox -s tests` — full unit suite
+- [X] T056 Run `venv/bin/nox -s e2e` **detached** (`nohup … &` and poll) — it takes ~13m45s warm and exceeds the 10-minute bash cap
+- [X] T057 [P] Run `venv/bin/nox -s lint` — advisory; satisfy it for new code without reformatting existing files
+- [X] T058 Confirm `nox -s e2e` left the working tree clean
+- [ ] T059 **OPERATOR — needs real orders and real boxes.** Walk `quickstart.md` end to end against a real Amazon order, a real DigiKey order and a real McMaster order
+- [X] T060 Record the outcome in `specs/029-whole-order-capture/verification.md`, including whether T005 was closed or deferred
 
 ---
 

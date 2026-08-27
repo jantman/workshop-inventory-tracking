@@ -65,6 +65,29 @@
     // (research.md §4).
     const MCMASTER_VENDOR = 'McMaster-Carr';
 
+    // An Amazon order-details page: `/your-orders/order-details?orderID=...`.
+    //
+    // **The order id is in the query string, not the path** -- which is why
+    // `pageKind` takes the location rather than `location.pathname` as it did
+    // before feature 029. Every page the agent recognized until now carried its
+    // identifier in the path (029 research.md §2).
+    //
+    // The legacy `/gp/css/order-details?orderID=...` needs no pattern of its
+    // own: it 302s to this one, so the agent only ever runs on the canonical
+    // path.
+    //
+    // `/your-orders/orders` -- the order *list* -- deliberately does not match,
+    // and carries none of the components below either. FR-024 holds on the path
+    // alone.
+    const AMAZON_ORDER_PATH = '/your-orders/order-details';
+    const AMAZON_ORDER_ID_PATTERN = /(?:^|[?&])orderID=(\d{3}-\d{7}-\d{7})(?:&|$)/;
+
+    // What the server files an Amazon capture under. Must equal
+    // catalog_service.AMAZON_VENDOR and what `_vendor_from_url` derives from
+    // amazon.com -- these are compared, and a mismatch makes a captured order
+    // unfindable.
+    const AMAZON_VENDOR = 'Amazon';
+
     /**
      * Which kind of page the agent is standing on, from the path alone.
      *
@@ -72,10 +95,21 @@
      * application's own origin, so a host gate would leave the McMaster readers
      * with no end-to-end coverage at all (research.md §3).
      *
-     * @param {string} pathname - `location.pathname`.
-     * @returns {string} 'mcmaster-order', 'mcmaster-product', or 'other'.
+     * **Takes the location, not just the path.** Amazon's order id lives in the
+     * query string, so a path-only signature cannot express that page. Every
+     * other branch reads `pathname` exactly as it did before (029 research.md
+     * §2).
+     *
+     * @param {Location|{pathname: string, search: string}} loc - `location`.
+     * @returns {string} 'amazon-order', 'mcmaster-order', 'mcmaster-product',
+     *     or 'other'.
      */
-    function pageKind(pathname) {
+    function pageKind(loc) {
+        const pathname = loc.pathname;
+        if (pathname === AMAZON_ORDER_PATH
+            && AMAZON_ORDER_ID_PATTERN.test(loc.search || '')) {
+            return 'amazon-order';
+        }
         if (MCMASTER_ORDER_PATTERN.test(pathname)) {
             return 'mcmaster-order';
         }
@@ -1159,6 +1193,159 @@
     }
 
     // ---------------------------------------------------------------
+    // Amazon: reading an order off the order-details page
+    // ---------------------------------------------------------------
+    //
+    // Amazon anchors on `data-component` -- semantic, unhashed names, unlike
+    // McMaster's product pages whose classes carry a build hash. It is the most
+    // stable vendor markup of the three (029 research.md §3). Still not a
+    // contract: every read below is independent and optional, and a selector
+    // that stops matching costs that one field.
+
+    // **One row = one `purchasedItemsRightGrid`.** Not `purchasedItems`, which
+    // is a *group* of rows: on the order this was read from, a four-line order
+    // had two of them holding three rows and one (029 research.md §4).
+    const AMAZON_ROW = '[data-component="purchasedItemsRightGrid"]';
+
+    /**
+     * The ASIN for one row.
+     *
+     * **Scoped to the row, and that is the whole point.** The page carries about
+     * 26 `/dp/` links across 9 distinct ASINs for a four-line order; the surplus
+     * are "buy it again" and "related to items you viewed" carousels. A
+     * document-wide sweep invents five order lines out of Amazon's advertising.
+     *
+     * The row's enclosing `.a-fixed-left-grid` is used rather than the row
+     * itself because the item's image -- which also links to the ASIN -- sits in
+     * the *left* grid, the row's sibling.
+     *
+     * @param {Element} row - one AMAZON_ROW element.
+     * @returns {string} the ASIN, or '' if the row named none.
+     */
+    function amazonAsin(row) {
+        const scope = row.closest('.a-fixed-left-grid') || row;
+        const links = scope.querySelectorAll('a[href]');
+        for (let i = 0; i < links.length; i++) {
+            const match = (links[i].getAttribute('href') || '')
+                .match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/);
+            if (match) {
+                return match[1];
+            }
+        }
+        return '';
+    }
+
+    /**
+     * The unit price for one row, as a string.
+     *
+     * **`.a-offscreen`, never `innerText`.** Amazon renders the price twice --
+     * once in an `.a-offscreen` span for screen readers and once in an
+     * `aria-hidden` span for sight -- so reading the component's text yields
+     * "$9.99 $9.99".
+     *
+     * Returned without the currency symbol and as a **string**: JSON's only
+     * number type is an IEEE double, and a price sent as a number would already
+     * be a float before the server saw it (Constitution III).
+     *
+     * @param {Element} row - one AMAZON_ROW element.
+     * @returns {string} e.g. '9.99', or '' if nothing parsed.
+     */
+    function amazonPrice(row) {
+        const span = row.querySelector('[data-component="unitPrice"] .a-offscreen');
+        const text = span ? textOf(span) : '';
+        const match = text.match(/(\d[\d,]*\.?\d*)/);
+        return match ? match[1].replace(/,/g, '') : '';
+    }
+
+    /**
+     * The quantity for one row.
+     *
+     * **An empty quantity component means 1.** Amazon renders
+     * `<span class="a-size-small"></span>` with no text when the quantity is
+     * one, which is the only rendering confirmed against the live site -- no
+     * order in the ten most recent had a line above 1 (029 research.md §6).
+     *
+     * So: any digits found win, and no digits means 1. That is correct for the
+     * confirmed case and the safe failure for the other, because the quantity is
+     * shown on the review and is editable before anything is written.
+     *
+     * @param {Element} row - one AMAZON_ROW element.
+     * @returns {number} the quantity, defaulting to 1.
+     */
+    function amazonQuantity(row) {
+        const cell = row.querySelector('[data-component="quantity"]');
+        const match = cell ? textOf(cell).match(/(\d+)/) : null;
+        return match ? parseInt(match[1], 10) : 1;
+    }
+
+    /**
+     * One row of an Amazon order.
+     *
+     * @param {Element} row - one AMAZON_ROW element.
+     * @param {number} index - its position, 0-based.
+     * @returns {object|null} the line, or null if the row named neither an item
+     *     nor a title -- which is not a line, it is a row nothing was read from.
+     */
+    function amazonLine(row, index) {
+        const line = {
+            // 1-based, and the only line identity Amazon offers: the page states
+            // no line number anywhere (029 research.md §7).
+            line_number: index + 1,
+            asin: amazonAsin(row),
+            title: textOf(row.querySelector('[data-component="itemTitle"]')),
+            quantity: amazonQuantity(row)
+        };
+
+        if (!line.asin && !line.title) {
+            return null;
+        }
+
+        const price = amazonPrice(row);
+        if (price) {
+            line.unit_price = price;
+        }
+        return line;
+    }
+
+    /**
+     * One Amazon order, as the `order` payload.
+     *
+     * Deliberately not read: the shipping address, the buyer, the payment
+     * method and the order total. They are on the page and are not read, rather
+     * than being read and discarded (029 research.md §8).
+     *
+     * @param {Document} doc - the live document.
+     * @param {string} sourceUrl - `location.href`.
+     * @param {string} orderId - the id out of the query string.
+     * @returns {object} the payload.
+     */
+    function amazonOrder(doc, sourceUrl, orderId) {
+        const rows = doc.querySelectorAll(AMAZON_ROW);
+        const lines = [];
+        for (let i = 0; i < rows.length; i++) {
+            const line = amazonLine(rows[i], i);
+            if (line) {
+                lines.push(line);
+            }
+        }
+
+        return {
+            version: PAYLOAD_VERSION,
+            vendor: AMAZON_VENDOR,
+            // The component rather than the query string: they matched on every
+            // order read, and the page is what the operator can see.
+            order_number: textOf(doc.querySelector('[data-component="orderId"]'))
+                || orderId,
+            order_date: textOf(doc.querySelector('[data-component="orderDate"]')),
+            source_url: sourceUrl,
+            // What was *seen*, including rows nothing could be read from. This
+            // is what lets the review say "4 of 11" rather than "4".
+            lines_read: rows.length,
+            lines: lines
+        };
+    }
+
+    // ---------------------------------------------------------------
     // McMaster-Carr: reading one product page
     // ---------------------------------------------------------------
     //
@@ -1465,7 +1652,22 @@
     // The dispatch. It *wraps* the existing path rather than editing it: the
     // 'other' branch below is what ran before this existed, unchanged, and an
     // Amazon capture posts exactly the fields it posted yesterday.
-    const kind = pageKind(location.pathname);
+    const kind = pageKind(location);
+
+    if (kind === 'amazon-order') {
+        const orderId = (location.search.match(AMAZON_ORDER_ID_PATTERN) || [])[1] || '';
+        // `listing` rides along and is read exactly as it always was. A server
+        // that did not know about `order` would render the ordinary
+        // confirmation form from it, which is the documented fall-through
+        // rather than a failure.
+        submitCapture(
+            endpoint,
+            extract(document, location.href, null),
+            AMAZON_VENDOR,
+            amazonOrder(document, location.href, orderId)
+        );
+        return;
+    }
 
     if (kind === 'mcmaster-product') {
         const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];

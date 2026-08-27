@@ -2394,6 +2394,60 @@ class CatalogService:
 
         return product
 
+    def _amazon_product_by_asin(self, session, asin: str) -> Optional[Product]:
+        """Find a product by its ASIN, scoped to Amazon, inside an open session."""
+        if not asin:
+            return None
+        return self._digikey_product_by_identifier(
+            session, IdentifierType.VENDOR, asin, vendor=AMAZON_VENDOR,
+        )
+
+    def _create_amazon_product(self, session, line, decision,
+                               claim_distributor: bool = True) -> Product:
+        """Create the product one Amazon order line names, inside the session.
+
+        Deliberately not ``create_product``: that opens its own session, and the
+        whole point of this path is that the order writes as one transaction.
+
+        **What this creates is thin, and 029 FR-026 says so out loud.** An order
+        page states a title, a quantity and a price; the gallery, the
+        specification rows, the bullet points and the barcodes are all on the
+        *listing* page, one page per line. Running the existing single-listing
+        capture against the same ASIN later fills the product in and attaches to
+        this one rather than creating a second (FR-027).
+
+        No manufacturer: Amazon's order page names a *seller*, which is a claim
+        about who sold it rather than who made it, and the vendor is on the
+        purchase already.
+        """
+        description = self._validate_description(
+            (decision.get('description') or '').strip()
+            or line.title
+        )
+
+        product = Product(description=description)
+        session.add(product)
+        session.flush()
+
+        session.add(ProductIdentifier(
+            product_id=product.id,
+            id_type=IdentifierType.INTERNAL.value,
+            value=self._unique_internal_code(session),
+            vendor='',
+            validation_overridden=False,
+        ))
+
+        # The ASIN, scoped to Amazon -- the same identifier a single-listing
+        # Amazon capture writes, which is what lets FR-027's later enrichment
+        # find this product instead of making another.
+        if claim_distributor and line.asin:
+            self._add_mcmaster_identifier(
+                session, product.id, IdentifierType.VENDOR,
+                line.asin, vendor=AMAZON_VENDOR,
+            )
+
+        return product
+
     def _add_mcmaster_identifier(
         self, session, product_id, id_type, value, vendor='',
     ):
@@ -4009,4 +4063,99 @@ MCMASTER_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     carries_payload=True,
     # The order "number" is the customer's editable Purchase Order string.
     adopts_renames=True,
+))
+
+
+def _amazon_order_purchases(service, session, order):
+    """Every purchase already recorded against this Amazon order.
+
+    One pass, unlike McMaster's two: an Amazon order number is stable and printed
+    on the page, so there is no renamed-order problem and ``vendor_order_id``
+    stays NULL.
+    """
+    cleaned = (order.order_number or '').strip()
+    if not cleaned:
+        return []
+    return (
+        session.query(Purchase)
+        .filter(
+            Purchase.vendor == AMAZON_VENDOR,
+            Purchase.supplier_order_reference == cleaned,
+        )
+        .order_by(Purchase.id)
+        .all()
+    )
+
+
+def _amazon_order_fields(order) -> Dict[str, Any]:
+    """The Purchase fields an Amazon *order* supplies."""
+    return {
+        'supplier_order_reference': order.order_number,
+        'listing_url': order.source_url or None,
+    }
+
+
+def _amazon_line_fields(service, line, decision) -> Dict[str, Any]:
+    """The Purchase fields an Amazon *line* supplies.
+
+    Consults the decision, as McMaster's does and DigiKey's does not: the page
+    cannot be re-read, so the operator is allowed to overrule what was read.
+    """
+    return {
+        'vendor_item_id': line.asin or None,
+        # Amazon's own words, kept distinct from the operator's product
+        # description.
+        'listing_title': line.title or None,
+        'order_line_number': line.line_number,
+        'quantity': service._mcmaster_quantity(line, decision),
+        'unit_price': service._mcmaster_unit_price(line, decision),
+    }
+
+
+def _amazon_find_product(service, session, line):
+    """An Amazon line's product: by ASIN, scoped to Amazon.
+
+    One stage, not two. Amazon states no manufacturer part number on an order
+    page, so there is no MPN fallback to make -- unlike both other vendors.
+    """
+    product = service._amazon_product_by_asin(session, line.asin)
+    return (product, True) if product is not None else (None, False)
+
+
+def _amazon_suggested_description(line, part) -> str:
+    """Amazon's title. ``part`` is always None -- there is no lookup."""
+    return line.title or ''
+
+
+def _amazon_incomplete_label(line, part) -> Optional[str]:
+    """Names a line the *page* did not fully give up (FR-022)."""
+    if not line.missing_fields:
+        return None
+    return line.title or line.asin or line.form_key
+
+
+AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
+    name=AMAZON_VENDOR,
+    item_id_of=lambda line: line.asin,
+    order_purchases=_amazon_order_purchases,
+    order_fields=_amazon_order_fields,
+    line_fields=_amazon_line_fields,
+    find_product=_amazon_find_product,
+    create_product=lambda service, session, line, part, decision, claim_distributor=True: (
+        service._create_amazon_product(
+            session, line, decision, claim_distributor=claim_distributor
+        )
+    ),
+    suggested_description=_amazon_suggested_description,
+    # An Amazon package names neither the order nor the line, and a product
+    # created from an order line carries no barcode -- so a scan only ever
+    # reaches a line through the product's own barcode, and that can name lines
+    # on more than one order. The operator chooses.
+    receive_landing=order_vendors.LANDING_CHOICE_PAGE,
+    incomplete_label=_amazon_incomplete_label,
+    # Neither shipped/backorder counts nor pack arithmetic: the order page states
+    # a unit price and a quantity directly.
+    review_columns=(),
+    confirm_endpoint='product.amazon_order_confirm',
+    carries_payload=True,
 ))
