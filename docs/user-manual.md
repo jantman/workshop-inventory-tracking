@@ -1535,6 +1535,12 @@ All six label stocks are available, the same set the inventory labels use. On th
 1x2 stock the description will often be truncated; that is the trade-off, and it
 is why you choose the stock at print time.
 
+The code prints as an ordinary barcode rather than a square 2D symbol, and the
+label carries no "if found, return to" line. Both were choices rather than
+omissions: the goal is a code that can never be mistaken for a manufacturer's or
+a distributor's, which either form of symbol meets, and a 2D symbol would only
+have bought a smaller mark on the narrow stock where space is tight.
+
 Reprinting takes two clicks and no typing. The label is composed from the record
 each time rather than stored, so a reprint after you have improved the
 description shows the improved one.

@@ -96,11 +96,11 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 
 **Independent test**: Run quickstart §4. The three targets are gone, and nothing outside `specs/` references them.
 
-- [ ] T024 [US3] Carry the one piece of reasoning that survives its document into `docs/user-manual.md`'s *Printing Product Labels* section (line 1469): the printed code is a conventional barcode by choice — the goal is a code that cannot be mistaken for a vendor's or a distributor's, which either form meets — and the label carries no ownership or return-to-owner line (FR-007, research.md §4). This is the only carry-over; every other section of the removed document is built, superseded, or recorded in `specs/`
-- [ ] T025 [US3] `git rm docs/product-functionality-gap.md` (FR-001)
-- [ ] T026 [P] [US3] `git rm docs/spec-product-catalog.md` — the input `specs/001-product-catalog/spec.md` was written from and duplicates (FR-003)
-- [ ] T027 [P] [US3] `git rm -r docs/features/` — all 28 files: the instructional `README.md` for a workflow Spec Kit replaced, `TEMPLATE.md`, and 26 completed feature documents under `complete/` (FR-004)
-- [ ] T028 [US3] Run the quickstart §4 link audit and confirm no tracked file outside `specs/` references any removed path; leave every reference under `specs/` alone, dangling and correct as a frozen record (FR-005, FR-006, SC-007)
+- [X] T024 [US3] Carry the one piece of reasoning that survives its document into `docs/user-manual.md`'s *Printing Product Labels* section (line 1469): the printed code is a conventional barcode by choice — the goal is a code that cannot be mistaken for a vendor's or a distributor's, which either form meets — and the label carries no ownership or return-to-owner line (FR-007, research.md §4). This is the only carry-over; every other section of the removed document is built, superseded, or recorded in `specs/`
+- [X] T025 [US3] `git rm docs/product-functionality-gap.md` (FR-001)
+- [X] T026 [P] [US3] `git rm docs/spec-product-catalog.md` — the input `specs/001-product-catalog/spec.md` was written from and duplicates (FR-003)
+- [X] T027 [P] [US3] `git rm -r docs/features/` — all 28 files: the instructional `README.md` for a workflow Spec Kit replaced, `TEMPLATE.md`, and 26 completed feature documents under `complete/` (FR-004)
+- [X] T028 [US3] Run the quickstart §4 link audit and confirm no tracked file outside `specs/` references any removed path; leave every reference under `specs/` alone, dangling and correct as a frozen record (FR-005, FR-006, SC-007)
 - [ ] T029 [US3] Commit the removals and the T024 carry-over as one commit containing nothing else, so it reverts on its own (FR-008)
 
 **Checkpoint**: All three stories delivered.

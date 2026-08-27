@@ -94,8 +94,8 @@ ls docs/product-functionality-gap.md docs/spec-product-catalog.md docs/features 
 grep -rn 'product-functionality-gap\|spec-product-catalog\|docs/features\|features/complete' \
   --include='*.md' --include='*.py' --include='*.yml' --include='*.yaml' \
   --include='*.html' --include='*.toml' --include='*.txt' \
-  . --exclude-dir=venv --exclude-dir=.git | grep -v '^./specs/'
-# expect: no output
+  . --exclude-dir=venv --exclude-dir=.git | grep -v 'specs/'
+# expect: no output (every surviving reference is a frozen record under specs/)
 ```
 
 References remaining under `specs/` are correct and must not be repaired (FR-006).
