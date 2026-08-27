@@ -134,4 +134,4 @@ PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e
 git log --oneline main..HEAD
 ```
 
-Three commits: removals first, then configuration, then vendors. The first must contain deletions and the carry-over sentence only, so it can be reverted alone.
+Three commits: configuration, then vendors, then removals. The last must contain the deletions and the carry-over sentence only, so it can be reverted alone.
