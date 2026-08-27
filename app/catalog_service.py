@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, create_engine, func, or_
+from sqlalchemy import and_, case, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
 
 from .database import (
@@ -35,15 +35,16 @@ from .exceptions import (
     ValidationError,
 )
 from .mariadb_storage import MariaDBStorage
+from .services import order_vendors
 from .models import (
     CaptureAssessment,
     price_to_cents,
     CapturedBarcode,
-    DigiKeyCaptureResult,
     DigiKeyOrder,
     IdentifierType,
     ListingCapture,
-    McMasterCaptureResult,
+    CapturedOrder,
+    OrderCaptureResult,
     McMasterOrder,
     OrderCaptureReview,
     OrderLineState,
@@ -89,6 +90,13 @@ DIGIKEY_VENDOR = 'DigiKey'
 # (app/product/routes.py) -- the two are compared, and a mismatch would make
 # every captured order unfindable and every scanned bag unreceivable.
 MCMASTER_VENDOR = 'McMaster-Carr'
+
+# The vendor name an Amazon capture files purchases under. Same rule as the two
+# above: it **must** equal what ``_vendor_from_url`` derives from an amazon.com
+# address, because an order captured from an order page and a listing captured
+# from a product page have to land under the same vendor or the order screen
+# cannot find them.
+AMAZON_VENDOR = 'Amazon'
 
 
 class CatalogService:
@@ -1668,392 +1676,6 @@ class CatalogService:
     # here is the pair the capture flow needs: a read that decides and writes
     # nothing, and a write that does the whole order or none of it.
 
-    def review_digikey_order(
-        self,
-        order: DigiKeyOrder,
-        digikey_client=None,
-    ) -> OrderCaptureReview:
-        """Decide what capturing this order would do, without doing any of it.
-
-        **Writes nothing** (FR-004). An operator who closes the tab leaves no
-        product, no purchase and no trace -- there was never a record, only a
-        page.
-
-        Args:
-            order: What DigiKey said, already parsed.
-            digikey_client: Used to enrich each line with the part detail an
-                order line does not carry (FR-040). None means no enrichment,
-                which is an ordinary state and not an error.
-
-        Returns:
-            An OrderCaptureReview: one ReviewedLine per line of the order, plus
-            any purchase recorded against this sales order whose part the order
-            no longer contains (FR-013).
-        """
-        # Enrichment happens **before** the session opens, for the reason
-        # capture_digikey_order gives: this is network I/O at ten seconds a call,
-        # and holding a transaction open across twenty-five of them is a
-        # long-lived lock in exchange for nothing.
-        #
-        # The exposure here is worse than capture's, not better -- a review
-        # enriches every line, where a capture enriches only the included ones.
-        # This read used to sit inside the session, which contradicted the
-        # comment on its sibling forty lines below. PR #116 review.
-        parts = {
-            line.digikey_part_number: self._digikey_part(
-                digikey_client, line.digikey_part_number
-            )
-            for line in order.lines
-        }
-
-        with self._session() as session:
-            recorded = self._recorded_digikey_lines(session, order)
-
-            reviewed = [
-                self._review_digikey_line(
-                    session, line, parts.get(line.digikey_part_number), recorded
-                )
-                for line in order.lines
-            ]
-            orphaned = self._orphaned_digikey_purchases(session, order, recorded)
-
-        return OrderCaptureReview(
-            order=order,
-            lines=tuple(reviewed),
-            orphaned=orphaned,
-        )
-
-    def capture_digikey_order(
-        self,
-        order: DigiKeyOrder,
-        decisions: Dict[str, Dict[str, Any]],
-        digikey_client=None,
-    ) -> DigiKeyCaptureResult:
-        """Record a reviewed order: one outstanding purchase per included line.
-
-        **The whole order writes in one session, or none of it does** (FR-039).
-        That is the reason this lives on CatalogService rather than in a service
-        of its own: every method here opens its own session, so building a
-        24-line order from outside would be forty-eight transactions and a
-        half-written order when line thirteen fails.
-
-        ``capture_order`` is deliberately not called. It encodes Amazon's
-        decision model -- a same-day vendor+item duplicate heuristic, a listing
-        title fallback, pack pricing, captured-barcode promotion. A sales order
-        number is an *exact* idempotency key, so that heuristic is not merely
-        unnecessary here, it is wrong: two lines of one order are two purchases
-        and it would query one of them.
-
-        Args:
-            order: What DigiKey said, re-read at confirmation time -- the fetched
-                order is the authority, not the form.
-            decisions: Keyed by DigiKey part number. ``include`` absent or false
-                excludes the line (FR-007); ``description`` overrides DigiKey's
-                (FR-006); ``resolution`` is 'attach' or 'separate' and is
-                required on a conflicted line (FR-015); ``apply_change`` applies
-                a changed quantity or price to an already-captured line (FR-014).
-            digikey_client: For enrichment, as above.
-
-        Returns:
-            A DigiKeyCaptureResult describing what happened.
-
-        Raises:
-            ValidationError: A conflicted line with no resolution, or a refused
-                description. Either way nothing is written.
-        """
-        # Enrichment happens before the session opens: it is network I/O, and
-        # holding a transaction open across twenty-five HTTP calls would be a
-        # long-lived lock in exchange for nothing.
-        parts = {
-            line.digikey_part_number: self._digikey_part(
-                digikey_client, line.digikey_part_number
-            )
-            for line in order.lines
-            if (decisions.get(line.form_key) or {}).get('include')
-        }
-
-        purchase_ids = []
-        products_created = products_attached = 0
-        lines_excluded = lines_already_captured = lines_updated = 0
-
-        with self._session() as session:
-            recorded = self._recorded_digikey_lines(session, order)
-
-            for line in order.lines:
-                decision = decisions.get(line.form_key) or {}
-
-                # **Already captured is a fact about the line, not a decision
-                # about it**, so it is settled before the include gate below.
-                #
-                # The ordering is load-bearing and was wrong once: the review
-                # renders no "take this line" checkbox for a line already
-                # captured -- there is nothing to decide -- so ``include`` is
-                # always false for one. Gating here on ``include`` therefore
-                # made the "Update it?" tick-box (FR-014) dead through the form
-                # while passing a unit test that built the decision by hand, and
-                # counted every already-captured line as excluded, so a
-                # re-capture reported "2 skipped" rather than "2 already
-                # captured". PR #116 review.
-                #
-                # Re-checked inside the session rather than trusted from the
-                # review: the review ran against an earlier read.
-                existing = recorded.get(line.form_key)
-                if existing is not None:
-                    lines_already_captured += 1
-                    if decision.get('apply_change'):
-                        self._apply_digikey_change(existing, line)
-                        lines_updated += 1
-                    continue
-
-                if not decision.get('include'):
-                    lines_excluded += 1
-                    continue
-
-                part = parts.get(line.digikey_part_number)
-                reviewed = self._review_digikey_line(session, line, part, recorded)
-                product, created = self._digikey_product_for(
-                    session, reviewed, line, part, decision
-                )
-                if created:
-                    products_created += 1
-                else:
-                    products_attached += 1
-
-                purchase = Purchase(
-                    product_id=product.id,
-                    vendor=DIGIKEY_VENDOR,
-                    vendor_item_id=line.digikey_part_number,
-                    supplier_order_reference=order.sales_order_number,
-                    # Which line, so a re-review pairs them exactly rather than
-                    # guessing from the part number. PR #116 review.
-                    order_line_number=line.line_number,
-                    order_reference=order.purchase_order or None,
-                    # DigiKey's own words, kept as an Amazon listing title is.
-                    listing_title=line.description or None,
-                    order_date=order.order_date or datetime.now(),
-                    quantity=line.quantity,
-                    # Through _validate_price so a DigiKey sub-cent quote is
-                    # rounded deliberately rather than by the column.
-                    unit_price=self._validate_price(line.unit_price),
-                    # FR-009: outstanding at capture whatever DigiKey says about
-                    # shipping. Shipped is their state; received is the
-                    # operator's, and only they can say it.
-                    received_date=None,
-                )
-                session.add(purchase)
-                session.flush()
-                purchase_ids.append(purchase.id)
-
-        result = DigiKeyCaptureResult(
-            purchase_ids=tuple(purchase_ids),
-            products_created=products_created,
-            products_attached=products_attached,
-            lines_excluded=lines_excluded,
-            lines_already_captured=lines_already_captured,
-            lines_updated=lines_updated,
-            lines_unenriched=tuple(
-                number for number, part in parts.items() if part is None
-            ),
-        )
-        logger.info(
-            f"Captured DigiKey order {order.sales_order_number}: "
-            f"{len(purchase_ids)} purchase(s), {products_created} product(s) created"
-        )
-        return result
-
-    # -- McMaster-Carr order capture ---------------------------------------
-    #
-    # Written beside the DigiKey path rather than by refactoring it
-    # (research.md §7). Shared: the leaf helpers below -- price_to_cents,
-    # _validate_price, _validate_description, _add_identifier,
-    # _unique_internal_code -- and the display value objects OrderLineState and
-    # ReviewedLine. Not shared: the orchestration, because the two flows differ
-    # in four places that sit right in the middle of it.
-    #
-    # The difference that shapes everything here: **the vendor cannot be
-    # re-read.** DigiKey's confirm step re-fetches the order and treats it as
-    # the authority. There is nothing to re-fetch from a page, so the payload
-    # the review was built from is carried through the confirmation and what
-    # the review displayed is what gets written (FR-006).
-
-    def review_mcmaster_order(self, order: McMasterOrder) -> OrderCaptureReview:
-        """Decide what capturing this order would do, without doing any of it.
-
-        **Writes nothing** (FR-005). An operator who closes the tab leaves no
-        product, no purchase and no trace -- there was never a record, only a
-        page.
-
-        There is no enrichment step and no client argument, which is the other
-        half of research.md §7: DigiKey looks each part up because an order line
-        does not carry the detail, and for McMaster **the page is the detail**.
-        ``ReviewedLine.part`` is therefore None on every line here, and the
-        McMaster review does not render ``is_enriched``.
-
-        Args:
-            order: What the agent read off the page, already parsed.
-
-        Returns:
-            An OrderCaptureReview: one ReviewedLine per line, plus any purchase
-            recorded against this order that no line of it claims (FR-016).
-        """
-        with self._session() as session:
-            recorded = self._recorded_mcmaster_lines(session, order)
-
-            reviewed = [
-                self._review_mcmaster_line(session, line, recorded)
-                for line in order.lines
-            ]
-            orphaned = self._orphaned_mcmaster_purchases(session, order, recorded)
-
-        return OrderCaptureReview(
-            order=order,
-            lines=tuple(reviewed),
-            orphaned=orphaned,
-        )
-
-    def capture_mcmaster_order(
-        self,
-        order: McMasterOrder,
-        decisions: Dict[str, Dict[str, Any]],
-    ) -> McMasterCaptureResult:
-        """Record a reviewed order: one outstanding purchase per included line.
-
-        **The whole order writes in one session, or none of it does.** Every
-        other method here opens its own session, so building a fifteen-line
-        order from outside would be thirty transactions and a half-written
-        order when line thirteen fails.
-
-        ``capture_order`` is deliberately not called, for the reason
-        ``capture_digikey_order`` gives: it encodes Amazon's same-day
-        vendor+item duplicate heuristic, and an order number plus a line number
-        is an *exact* idempotency key. Two lines of one order are two
-        purchases, and that heuristic would quietly merge them.
-
-        Args:
-            order: The payload the review was built from, re-parsed at
-                confirmation. **It is the authority**, because there is nothing
-                to re-read.
-            decisions: Keyed by ``line.form_key``. ``include`` absent or false
-                excludes the line (FR-009); ``description`` is the operator's
-                label for a line that creates a product; ``quantity`` and
-                ``unit_price`` overrule the computed values (FR-020a);
-                ``resolution`` is 'attach' or 'separate' for a conflicted line
-                (FR-018); ``apply_change`` applies a changed quantity or price
-                to an already-captured line (FR-017).
-
-        Returns:
-            A McMasterCaptureResult describing what happened.
-
-        Raises:
-            ValidationError: A conflicted line with no resolution, or a refused
-                description. Either way **nothing is written** (SC-009) -- the
-                session rolls back whole, because the operator answered a
-                question about an order rather than about a line.
-        """
-        purchase_ids = []
-        products_created = products_attached = 0
-        lines_excluded = lines_already_captured = lines_updated = 0
-        lines_incomplete = []
-
-        with self._session() as session:
-            recorded = self._recorded_mcmaster_lines(session, order)
-            renamed_from = self._adopt_renamed_order(session, order)
-
-            for line in order.lines:
-                decision = decisions.get(line.form_key) or {}
-
-                # **Already captured is a fact about the line, not a decision
-                # about it**, so it is settled before the include gate. The
-                # review renders no "take this line" checkbox for a line already
-                # captured -- there is nothing to decide -- so `include` is
-                # always false for one, and gating here on `include` would make
-                # the "Update it?" box dead through the form and count every
-                # already-captured line as excluded. PR #116 review.
-                existing = recorded.get(line.form_key)
-                if existing is not None:
-                    lines_already_captured += 1
-                    if decision.get('apply_change'):
-                        if self._apply_mcmaster_change(existing, line, decision):
-                            lines_updated += 1
-                    continue
-
-                if not decision.get('include'):
-                    lines_excluded += 1
-                    continue
-
-                reviewed = self._review_mcmaster_line(session, line, recorded)
-                product, created = self._mcmaster_product_for(
-                    session, reviewed, line, decision
-                )
-                if created:
-                    products_created += 1
-                else:
-                    products_attached += 1
-
-                quantity = self._mcmaster_quantity(line, decision)
-                unit_price = self._mcmaster_unit_price(line, decision)
-
-                purchase = Purchase(
-                    product_id=product.id,
-                    vendor=MCMASTER_VENDOR,
-                    vendor_item_id=line.part_number or None,
-                    # McMaster shows no order number; this is the customer's
-                    # Purchase Order string, the only order identifier on the
-                    # page (research.md §5).
-                    supplier_order_reference=order.order_number,
-                    # The stable id out of the order's URL. Never displayed --
-                    # it is what lets a re-capture still recognize this order
-                    # after the Purchase Order string has been renamed.
-                    vendor_order_id=order.order_id or None,
-                    # Which line, so a re-review pairs them exactly rather than
-                    # guessing from the part number.
-                    order_line_number=line.line_number,
-                    # McMaster's own wording, kept distinct from the operator's
-                    # product description (FR-023).
-                    listing_title=line.description or None,
-                    listing_url=order.source_url or None,
-                    order_date=order.order_date or datetime.now(),
-                    quantity=quantity,
-                    unit_price=unit_price,
-                    # FR-011: outstanding at capture. Delivered is McMaster's
-                    # state; received is the operator's, and only they can say
-                    # it.
-                    received_date=None,
-                )
-                session.add(purchase)
-                session.flush()
-                purchase_ids.append(purchase.id)
-
-                if line.missing_fields:
-                    lines_incomplete.append(
-                        line.description or line.part_number or line.form_key
-                    )
-
-            # The ids just written are passed in: they are flushed, so the
-            # re-query inside this session returns them, and `recorded` was
-            # built before the loop and cannot account for them.
-            orphaned = self._orphaned_mcmaster_purchases(
-                session, order, recorded, also_claimed=purchase_ids
-            )
-
-        result = McMasterCaptureResult(
-            purchase_ids=tuple(purchase_ids),
-            products_created=products_created,
-            products_attached=products_attached,
-            lines_excluded=lines_excluded,
-            lines_already_captured=lines_already_captured,
-            lines_updated=lines_updated,
-            lines_incomplete=tuple(lines_incomplete),
-            orphaned=orphaned,
-            renamed_from=renamed_from,
-        )
-        logger.info(
-            f"Captured McMaster order {order.order_number}: "
-            f"{len(purchase_ids)} purchase(s), "
-            f"{products_created} product(s) created"
-        )
-        return result
-
     def _mcmaster_quantity(self, line, decision) -> Optional[int]:
         """The quantity to record: what the operator typed, else the computed one.
 
@@ -2085,6 +1707,370 @@ class CatalogService:
             except (InvalidOperation, ValueError):
                 pass
         return self._validate_price(line.unit_price)
+
+    def _product_for_order_line(self, session, reviewed, line, part, decision, vendor):
+        """The product this line's purchase attaches to, creating one if needed.
+
+        Returns:
+            ``(product, created)``.
+
+        Raises:
+            ValidationError: A conflicted line with no resolution. Raised inside
+                the session, so the whole capture rolls back rather than this
+                one line being skipped -- the operator answered a question about
+                an order, not about a line, and half an order is worse than
+                none.
+
+        One implementation since feature 029. The error's ``field`` is keyed by
+        ``form_key`` for every vendor now; DigiKey's used to key it by part
+        number, which two lines of one order can share. Nothing reads it -- the
+        route flashes ``e.message`` only -- so this is a correctness tidy rather
+        than a visible change.
+        """
+        if reviewed.state is OrderLineState.CONFLICT:
+            resolution = (decision.get('resolution') or '').strip().lower()
+            if resolution not in ('attach', 'separate'):
+                raise ValidationError(
+                    f"{vendor.item_id_of(line)} already names "
+                    f"{reviewed.product_description!r}, whose part number is "
+                    f"{reviewed.product_manufacturer_part_number!r} rather than "
+                    f"{line.manufacturer_part_number!r}. Say whether to attach to "
+                    f"that product or create a separate one.",
+                    field=f'resolution[{line.form_key}]',
+                )
+            if resolution == 'attach':
+                return session.get(Product, reviewed.product_id), False
+            # 'separate': a new product, and the existing one is left entirely
+            # alone -- including its identifiers. The contested item id stays
+            # where it is; the new product records it on the purchase instead,
+            # via vendor_item_id.
+            return vendor.create_product(
+                self, session, line, part, decision, claim_distributor=False
+            ), True
+
+        if reviewed.state is OrderLineState.MATCHED:
+            # The product predates this order and may have blanks the vendor can
+            # fill. Enrichment writes gaps only -- a manufacturer someone
+            # corrected or a category someone filed always wins.
+            #
+            # **Only on MATCHED.** A CONFLICT resolved with 'attach' deliberately
+            # does not enrich: the operator has just said two things the catalog
+            # thought were different are the same, which is not a licence to
+            # write one's detail onto the other. That was the behaviour before
+            # this was consolidated and it is preserved exactly.
+            product = session.get(Product, reviewed.product_id)
+            if vendor.enrich_product is not None:
+                vendor.enrich_product(self, session, product, part)
+            return product, False
+
+        return vendor.create_product(self, session, line, part, decision), True
+
+    def review_order(self, order, vendor, client=None) -> OrderCaptureReview:
+        """Decide what capturing this order would do, without doing any of it.
+
+        **Writes nothing.** An operator who closes the tab leaves no product, no
+        purchase and no trace -- there was never a record, only an order.
+
+        Args:
+            order: The order, however this vendor's reader obtained it.
+            vendor: Which vendor's half of capture to drive.
+            client: Passed to the vendor's enrichment where it has any. None
+                means no enrichment, which is an ordinary state and not an error.
+
+        Returns:
+            An OrderCaptureReview: one ReviewedLine per line, plus any purchase
+            recorded against this order that no line of it claims.
+
+        One implementation since feature 029; it was written twice before.
+        """
+        # **Enrichment happens before the session opens.** It is network I/O at
+        # up to ten seconds a call, and holding a transaction open across
+        # twenty-five of them is a long-lived lock in exchange for nothing.
+        #
+        # The exposure here is worse than a capture's, not better -- a review
+        # enriches every line, where a capture enriches only the included ones.
+        # This read used to sit inside the session, which contradicted the
+        # comment on its sibling. PR #116 review; do not move it back.
+        parts = {}
+        if vendor.enrich is not None:
+            parts = vendor.enrich(self, client, order.lines)
+
+        with self._session() as session:
+            recorded = self._recorded_order_lines(session, order, vendor)
+
+            reviewed = [
+                self._review_order_line(
+                    session, line, parts.get(vendor.item_id_of(line)),
+                    recorded, vendor,
+                )
+                for line in order.lines
+            ]
+            orphaned = self._orphaned_order_purchases(
+                session, order, vendor, recorded
+            )
+
+        return OrderCaptureReview(
+            order=order,
+            lines=tuple(reviewed),
+            orphaned=orphaned,
+        )
+
+    def capture_order_lines(
+        self, order, vendor, decisions: Dict[str, Dict[str, Any]], client=None,
+    ) -> OrderCaptureResult:
+        """Record a reviewed order: one outstanding purchase per included line.
+
+        **The whole order writes in one session, or none of it does.** Every
+        other method here opens its own session, so building a twenty-four line
+        order from outside would be forty-eight transactions and a half-written
+        order when line thirteen fails.
+
+        ``capture_order`` is deliberately not called. It encodes Amazon's
+        single-listing decision model -- a same-day vendor+item duplicate
+        heuristic, a listing title fallback, pack pricing, captured-barcode
+        promotion. An order number plus a line number is an *exact* idempotency
+        key, so that heuristic is not merely unnecessary here, it is wrong: two
+        lines of one order are two purchases and it would merge them.
+
+        Args:
+            order: The order. For a vendor that can be re-read it is the
+                authority; for one read off a page it is what the review
+                displayed, carried through the confirmation.
+            vendor: Which vendor's half of capture to drive.
+            decisions: Keyed by ``line.form_key``. ``include`` absent or false
+                excludes the line; ``description`` overrides the suggested one;
+                ``quantity`` and ``unit_price`` overrule the computed values
+                where the vendor offers that; ``resolution`` is 'attach' or
+                'separate' and is required on a conflicted line;
+                ``apply_change`` applies a changed quantity or price to an
+                already-captured line.
+            client: Passed to the vendor's enrichment where it has any.
+
+        Returns:
+            An OrderCaptureResult describing what happened.
+
+        Raises:
+            ValidationError: A conflicted line with no resolution, or a refused
+                description. Either way **nothing is written** -- the session
+                rolls back whole, because the operator answered a question about
+                an order rather than about a line.
+
+        One implementation since feature 029; it was written twice before.
+        """
+        # Before the session, and only for the lines a confirmation will act on
+        # -- unlike the review above, which enriches every line.
+        parts = {}
+        if vendor.enrich is not None:
+            parts = vendor.enrich(self, client, [
+                line for line in order.lines
+                if (decisions.get(line.form_key) or {}).get('include')
+            ])
+
+        purchase_ids = []
+        products_created = products_attached = 0
+        lines_excluded = lines_already_captured = lines_updated = 0
+        lines_incomplete = []
+        renamed_from = ''
+
+        with self._session() as session:
+            recorded = self._recorded_order_lines(session, order, vendor)
+            if vendor.adopts_renames:
+                renamed_from = self._adopt_renamed_order(session, order)
+
+            order_fields = vendor.order_fields(order)
+
+            for line in order.lines:
+                decision = decisions.get(line.form_key) or {}
+
+                # **Already captured is a fact about the line, not a decision
+                # about it**, so it is settled before the include gate below.
+                #
+                # The ordering is load-bearing and was wrong once: the review
+                # renders no "take this line" checkbox for a line already
+                # captured -- there is nothing to decide -- so ``include`` is
+                # always false for one. Gating here on ``include`` therefore
+                # made the "Update it?" tick-box dead through the form while
+                # passing a unit test that built the decision by hand, and
+                # counted every already-captured line as excluded, so a
+                # re-capture reported "2 skipped" rather than "2 already
+                # captured". PR #116 review.
+                #
+                # Re-checked inside the session rather than trusted from the
+                # review: the review ran against an earlier read.
+                existing = recorded.get(line.form_key)
+                if existing is not None:
+                    lines_already_captured += 1
+                    if decision.get('apply_change'):
+                        if self._apply_order_change(
+                            existing, line, decision, vendor
+                        ):
+                            lines_updated += 1
+                    continue
+
+                if not decision.get('include'):
+                    lines_excluded += 1
+                    continue
+
+                part = parts.get(vendor.item_id_of(line))
+                reviewed = self._review_order_line(
+                    session, line, part, recorded, vendor
+                )
+                product, created = self._product_for_order_line(
+                    session, reviewed, line, part, decision, vendor
+                )
+                if created:
+                    products_created += 1
+                else:
+                    products_attached += 1
+
+                purchase = Purchase(
+                    product_id=product.id,
+                    vendor=vendor.name,
+                    order_date=order.order_date or datetime.now(),
+                    # Outstanding at capture, whatever the vendor says about
+                    # shipping. Shipped is their state; received is the
+                    # operator's, and only they can say it.
+                    received_date=None,
+                    **order_fields,
+                    **vendor.line_fields(self, line, decision),
+                )
+                session.add(purchase)
+                session.flush()
+                purchase_ids.append(purchase.id)
+
+                if vendor.incomplete_label is not None:
+                    label = vendor.incomplete_label(line, part)
+                    if label:
+                        lines_incomplete.append(label)
+
+            # The ids just written are passed in: they are flushed, so the
+            # re-query inside this session returns them, and `recorded` was
+            # built before the loop and cannot account for them.
+            orphaned = self._orphaned_order_purchases(
+                session, order, vendor, recorded, also_claimed=purchase_ids,
+            )
+
+        result = OrderCaptureResult(
+            purchase_ids=tuple(purchase_ids),
+            products_created=products_created,
+            products_attached=products_attached,
+            lines_excluded=lines_excluded,
+            lines_already_captured=lines_already_captured,
+            lines_updated=lines_updated,
+            lines_incomplete=tuple(lines_incomplete),
+            orphaned=orphaned,
+            renamed_from=renamed_from,
+        )
+        logger.info(
+            f"Captured {vendor.name} order "
+            f"{order_fields.get('supplier_order_reference')}: "
+            f"{len(purchase_ids)} purchase(s), "
+            f"{products_created} product(s) created"
+        )
+        return result
+
+    # -- The vendor-named entry points -------------------------------------
+    #
+    # Thin wrappers over the one flow above. They exist because the routes and
+    # the two shipped test suites call them by name, and those suites are this
+    # feature's regression gate -- they are not edited to accommodate the
+    # refactor.
+
+    def review_digikey_order(self, order, digikey_client=None) -> OrderCaptureReview:
+        """Review a DigiKey sales order. See :meth:`review_order`."""
+        return self.review_order(order, DIGIKEY_ORDER_VENDOR, digikey_client)
+
+    def capture_digikey_order(
+        self, order, decisions: Dict[str, Dict[str, Any]], digikey_client=None,
+    ) -> OrderCaptureResult:
+        """Confirm a reviewed DigiKey order. See :meth:`capture_order_lines`."""
+        return self.capture_order_lines(
+            order, DIGIKEY_ORDER_VENDOR, decisions, digikey_client
+        )
+
+    def review_mcmaster_order(self, order) -> OrderCaptureReview:
+        """Review a McMaster order read off its page. See :meth:`review_order`."""
+        return self.review_order(order, MCMASTER_ORDER_VENDOR)
+
+    def capture_mcmaster_order(
+        self, order, decisions: Dict[str, Dict[str, Any]],
+    ) -> OrderCaptureResult:
+        """Confirm a reviewed McMaster order. See :meth:`capture_order_lines`."""
+        return self.capture_order_lines(order, MCMASTER_ORDER_VENDOR, decisions)
+
+    def _recorded_order_lines(self, session, order, vendor) -> Dict[str, Purchase]:
+        """Pair this order's lines to the purchases already recorded for it.
+
+        Returns a mapping of ``line.form_key`` to its Purchase, so a caller can
+        ask about a *line* rather than about an item id.
+
+        **An item id does not identify a line**, and an order can carry the same
+        item twice. Pairing them positionally, or by counting item-id
+        occurrences, corrupts data as soon as that happens: capture one of two
+        such lines, re-open the order, and the other line claims its purchase,
+        reads as captured with the wrong quantity, and applying a change writes
+        to the wrong row. The information is not derivable, so
+        ``purchases.order_line_number`` stores it. PR #116 review.
+
+        Reading a page rather than a service makes that case stronger, not
+        weaker: a page's line ordering is not a contract at all.
+
+        Two passes, and the order matters:
+
+        1. **By line number.** Exact, and the only pass that runs for anything
+           an order capture wrote.
+        2. **By item id, for purchases carrying no line number** -- one recorded
+           by hand against the same order, or captured before that column
+           existed. Each is claimed once, by the first line that wants it, and
+           never by a line that already matched exactly.
+
+        A purchase no line claims is orphaned, which the caller reports.
+
+        One implementation since feature 029; it was written twice before, once
+        per vendor, with the item id substituted. What the vendor supplies is
+        how its rows are found and what its item id is.
+        """
+        rows = vendor.order_purchases(self, session, order)
+        if not rows:
+            return {}
+
+        by_line_number = {
+            row.order_line_number: row
+            for row in rows
+            if row.order_line_number is not None
+        }
+
+        paired: Dict[str, Purchase] = {}
+        claimed = set()
+        for line in order.lines:
+            row = by_line_number.get(line.line_number)
+            if row is not None and id(row) not in claimed:
+                paired[line.form_key] = row
+                claimed.add(id(row))
+
+        # Pass two: the ones with no line number to pair on.
+        unclaimed = [
+            row for row in rows
+            if row.order_line_number is None and id(row) not in claimed
+        ]
+        for line in order.lines:
+            if line.form_key in paired or not unclaimed:
+                continue
+            item_id = vendor.item_id_of(line)
+            # A line with nothing to identify its item by cannot claim a
+            # purchase this way. McMaster's reader has always skipped these;
+            # DigiKey's never produced one, because a line without a DigiKey
+            # part number is not built at all.
+            if not item_id:
+                continue
+            for row in unclaimed:
+                if row.vendor_item_id == item_id:
+                    paired[line.form_key] = row
+                    claimed.add(id(row))
+                    unclaimed.remove(row)
+                    break
+
+        return paired
 
     def _mcmaster_order_purchases(self, session, order) -> List[Purchase]:
         """Every purchase already recorded for this order.
@@ -2193,117 +2179,60 @@ class CatalogService:
         )
         return previous
 
-    def _recorded_mcmaster_lines(self, session, order) -> Dict[str, Purchase]:
-        """Pair this order's lines to the purchases already recorded for it.
+    def _apply_order_change(self, purchase: Purchase, line, decision, vendor) -> bool:
+        """Bring a recorded purchase into line with what the order now says.
 
-        Returns a mapping of ``line.form_key`` to its Purchase, so a caller can
-        ask about a *line* rather than about a part number.
+        The vendor's own line fields are used, so the operator's edited values
+        win here exactly as they do on a fresh capture wherever that vendor
+        offers an edit -- "apply this change" applies what the review displayed.
 
-        **A part number does not identify a line**, and an order can carry the
-        same part twice. Pairing them positionally, or by counting part-number
-        occurrences, corrupts data as soon as that happens: capture one of two
-        such lines, re-open the order, and the other line claims its purchase,
-        reads as captured with the wrong quantity, and applying a change writes
-        to the wrong row. The information is not derivable, so
-        ``purchases.order_line_number`` stores it. PR #116 review.
+        Returns whether anything was actually written. **A field the vendor did
+        not give is not applied**, there being nothing to apply, and the caller
+        must not count that as an update or the flash reports "1 line(s)
+        updated" for a write that was skipped. PR #123 review.
 
-        Reading a page rather than a service makes that case stronger, not
-        weaker: a page's line ordering is not a contract at all.
-
-        Two passes, and the order matters:
-
-        1. **By line number.** Exact, and the only pass that runs for anything
-           this feature captured.
-        2. **By part number, for purchases carrying no line number** -- one
-           recorded by hand against the same Purchase Order. Each is claimed
-           once, by the first line that wants it, and never by a line that
-           already matched exactly.
-
-        A purchase no line claims is orphaned, which the caller reports
-        (FR-016).
+        One implementation since feature 029, and DigiKey's half gains that last
+        paragraph by it: the fix landed on the McMaster copy and had never been
+        applied back to the DigiKey one, which is the exact duplication cost the
+        consolidation exists to remove.
         """
-        rows = self._mcmaster_order_purchases(session, order)
-        if not rows:
-            return {}
+        fields = vendor.line_fields(self, line, decision)
+        wrote = False
 
-        by_line_number = {
-            row.order_line_number: row
-            for row in rows
-            if row.order_line_number is not None
-        }
+        quantity = fields.get('quantity')
+        if quantity is not None and quantity != purchase.quantity:
+            purchase.quantity = quantity
+            wrote = True
 
-        paired: Dict[str, Purchase] = {}
-        claimed = set()
-        for line in order.lines:
-            row = by_line_number.get(line.line_number)
-            if row is not None and id(row) not in claimed:
-                paired[line.form_key] = row
-                claimed.add(id(row))
+        unit_price = fields.get('unit_price')
+        if unit_price is not None and unit_price != purchase.unit_price:
+            purchase.unit_price = unit_price
+            wrote = True
 
-        unclaimed = [
-            row for row in rows
-            if row.order_line_number is None and id(row) not in claimed
-        ]
-        for line in order.lines:
-            if line.form_key in paired or not unclaimed:
-                continue
-            if not line.part_number:
-                continue
-            for row in unclaimed:
-                if row.vendor_item_id == line.part_number:
-                    paired[line.form_key] = row
-                    claimed.add(id(row))
-                    unclaimed.remove(row)
-                    break
+        return wrote
 
-        return paired
-
-    def _orphaned_mcmaster_purchases(
-        self, session, order, paired, also_claimed=(),
-    ) -> tuple:
-        """Purchases recorded for this order that no line of it claims (FR-016).
-
-        **Reported and never deleted.** A purchase the operator can see and
-        cancel is better than one that vanishes, and a line missing from a
-        re-read page is at least as likely to be a selector that stopped
-        matching as an order that changed.
-
-        ``also_claimed`` is the ids written by the caller's own capture, and it
-        is not optional decoration. This re-queries inside the open session, so
-        rows the capture loop has just added and flushed come back from that
-        query -- while ``paired`` was built *before* the loop and cannot name
-        them. Without them, every line of a brand-new order is reported as
-        orphaned by the capture that created it, and the flash tells the
-        operator the lines they just captured are stale. Its read-only sibling
-        needs none of this, because nothing writes between its query and its
-        pairing.
-        """
-        claimed = {purchase.id for purchase in paired.values()}
-        claimed.update(also_claimed)
-        return tuple(
-            row.id
-            for row in self._mcmaster_order_purchases(session, order)
-            if row.id not in claimed
-        )
-
-    def _review_mcmaster_line(self, session, line, recorded) -> ReviewedLine:
+    def _review_order_line(self, session, line, part, recorded, vendor) -> ReviewedLine:
         """Decide one line's state. Reads only.
 
         The four states are exclusive and tested in this order: already
-        captured, then a contradicted part number, then an ordinary match, then
-        new. CAPTURED comes first because a line already recorded is not a line
-        to decide anything else about.
+        captured, then a contradicted item id, then an ordinary match, then new.
+        CAPTURED comes first because a line already recorded is not a line to
+        decide anything else about.
 
-        ``part`` stays None throughout: for DigiKey it holds a separate part
-        lookup, and McMaster has none because the page *is* the detail.
+        ``part`` is the vendor's own detail for the item where it has any. Only
+        DigiKey does; for the others the page *is* the detail and this is None,
+        which is an ordinary state rather than an error.
+
+        One implementation since feature 029.
         """
-        suggested = (line.description or '')[:MAX_DESCRIPTION_LENGTH]
+        suggested = vendor.suggested_description(line, part)[:MAX_DESCRIPTION_LENGTH]
 
         existing = recorded.get(line.form_key)
         if existing is not None:
             return ReviewedLine(
                 line=line,
                 state=OrderLineState.CAPTURED,
+                part=part,
                 suggested_description=suggested,
                 product_id=existing.product_id,
                 product_description=(
@@ -2314,23 +2243,18 @@ class CatalogService:
                 recorded_unit_price=existing.unit_price,
             )
 
-        product = self._mcmaster_product_by_part_number(
-            session, line.part_number
-        )
+        product, by_own_item_id = vendor.find_product(self, session, line)
         if product is not None:
-            # The same check DigiKey makes, and it fires for the same reason:
-            # a part number that names a product whose recorded identity says
-            # something else is the most damaging match in the feature, because
-            # nothing looks wrong afterwards -- the price history of one product
-            # quietly becomes the history of two.
-            #
-            # It is close to unreachable today, and that is a fact about
-            # McMaster rather than a reason to leave it out: their pages state
-            # no manufacturer part number, so `line.manufacturer_part_number` is
-            # '' and the check short-circuits. If a reader ever learns to read
-            # one, this is already right.
+            # **A contradiction is only possible on a match found by the
+            # vendor's own item id.** A distributor recycling a part number for
+            # a different part is the most damaging failure in the feature,
+            # because nothing looks wrong afterwards -- the price history of one
+            # product quietly becomes the history of two. A product found *by*
+            # its manufacturer part number cannot contradict that same number,
+            # which is why the flag exists rather than checking unconditionally.
             contradicted = (
-                line.manufacturer_part_number
+                by_own_item_id
+                and line.manufacturer_part_number
                 and product.manufacturer_part_number
                 and line.manufacturer_part_number
                 != product.manufacturer_part_number
@@ -2339,32 +2263,48 @@ class CatalogService:
                 line=line,
                 state=(OrderLineState.CONFLICT if contradicted
                        else OrderLineState.MATCHED),
+                part=part,
                 suggested_description=suggested,
                 product_id=product.id,
                 product_description=product.description,
                 product_manufacturer_part_number=product.manufacturer_part_number,
             )
 
-        if line.manufacturer_part_number:
-            product = self._mcmaster_product_by_identifier(
-                session, IdentifierType.MPN, line.manufacturer_part_number,
-            )
-            if product is not None:
-                return ReviewedLine(
-                    line=line,
-                    state=OrderLineState.MATCHED,
-                    suggested_description=suggested,
-                    product_id=product.id,
-                    product_description=product.description,
-                    product_manufacturer_part_number=(
-                        product.manufacturer_part_number
-                    ),
-                )
-
         return ReviewedLine(
             line=line,
             state=OrderLineState.NEW,
+            part=part,
             suggested_description=suggested,
+        )
+
+    def _orphaned_order_purchases(
+        self, session, order, vendor, paired, also_claimed=(),
+    ) -> tuple:
+        """Purchases recorded for this order that no line of it claims.
+
+        **Reported and never deleted.** A purchase the operator can see and
+        cancel is better than one that vanishes, and a line missing from a
+        re-read order is at least as likely to be a selector that stopped
+        matching as an order that changed.
+
+        ``also_claimed`` is the ids written by the caller's own capture, and it
+        is not optional decoration. A capture re-queries inside its open
+        session, so rows its loop has just added and flushed come back from that
+        query -- while ``paired`` was built *before* the loop and cannot name
+        them. Without them, every line of a brand-new order is reported as
+        orphaned by the capture that created it, and the flash tells the
+        operator the lines they just captured are stale. The read-only review
+        needs none of this, because nothing writes between its query and its
+        pairing, and it passes nothing.
+
+        One implementation since feature 029.
+        """
+        claimed = {purchase.id for purchase in paired.values()}
+        claimed.update(also_claimed)
+        return tuple(
+            row.id
+            for row in vendor.order_purchases(self, session, order)
+            if row.id not in claimed
         )
 
     def _mcmaster_product_by_part_number(
@@ -2416,45 +2356,6 @@ class CatalogService:
         )
         return row.product if row is not None else None
 
-    def _mcmaster_product_for(self, session, reviewed, line, decision):
-        """The product this line's purchase attaches to, creating one if needed.
-
-        Returns:
-            ``(product, created)``.
-
-        Raises:
-            ValidationError: A conflicted line with no resolution. Raised inside
-                the session, so the whole capture rolls back rather than this
-                one line being skipped -- the operator answered a question about
-                an order, not about a line, and half an order is worse than
-                none.
-        """
-        if reviewed.state is OrderLineState.CONFLICT:
-            resolution = (decision.get('resolution') or '').strip().lower()
-            if resolution not in ('attach', 'separate'):
-                raise ValidationError(
-                    f"{line.part_number} already names "
-                    f"{reviewed.product_description!r}, whose part number is "
-                    f"{reviewed.product_manufacturer_part_number!r} rather "
-                    f"than {line.manufacturer_part_number!r}. Say whether to "
-                    f"attach to that product or create a separate one.",
-                    field=f'resolution[{line.form_key}]',
-                )
-            if resolution == 'attach':
-                return session.get(Product, reviewed.product_id), False
-            # 'separate': a new product, and the existing one is left entirely
-            # alone -- including its identifiers. The contested McMaster part
-            # number stays where it is; the new product records it on the
-            # purchase instead, via vendor_item_id.
-            return self._create_mcmaster_product(
-                session, line, decision, claim_distributor=False
-            ), True
-
-        if reviewed.state is OrderLineState.MATCHED:
-            return session.get(Product, reviewed.product_id), False
-
-        return self._create_mcmaster_product(session, line, decision), True
-
     def _create_mcmaster_product(
         self, session, line, decision, claim_distributor: bool = True,
     ) -> Product:
@@ -2505,6 +2406,60 @@ class CatalogService:
 
         return product
 
+    def _amazon_product_by_asin(self, session, asin: str) -> Optional[Product]:
+        """Find a product by its ASIN, scoped to Amazon, inside an open session."""
+        if not asin:
+            return None
+        return self._digikey_product_by_identifier(
+            session, IdentifierType.VENDOR, asin, vendor=AMAZON_VENDOR,
+        )
+
+    def _create_amazon_product(self, session, line, decision,
+                               claim_distributor: bool = True) -> Product:
+        """Create the product one Amazon order line names, inside the session.
+
+        Deliberately not ``create_product``: that opens its own session, and the
+        whole point of this path is that the order writes as one transaction.
+
+        **What this creates is thin, and 029 FR-026 says so out loud.** An order
+        page states a title, a quantity and a price; the gallery, the
+        specification rows, the bullet points and the barcodes are all on the
+        *listing* page, one page per line. Running the existing single-listing
+        capture against the same ASIN later fills the product in and attaches to
+        this one rather than creating a second (FR-027).
+
+        No manufacturer: Amazon's order page names a *seller*, which is a claim
+        about who sold it rather than who made it, and the vendor is on the
+        purchase already.
+        """
+        description = self._validate_description(
+            (decision.get('description') or '').strip()
+            or line.title
+        )
+
+        product = Product(description=description)
+        session.add(product)
+        session.flush()
+
+        session.add(ProductIdentifier(
+            product_id=product.id,
+            id_type=IdentifierType.INTERNAL.value,
+            value=self._unique_internal_code(session),
+            vendor='',
+            validation_overridden=False,
+        ))
+
+        # The ASIN, scoped to Amazon -- the same identifier a single-listing
+        # Amazon capture writes, which is what lets FR-027's later enrichment
+        # find this product instead of making another.
+        if claim_distributor and line.asin:
+            self._add_mcmaster_identifier(
+                session, product.id, IdentifierType.VENDOR,
+                line.asin, vendor=AMAZON_VENDOR,
+            )
+
+        return product
+
     def _add_mcmaster_identifier(
         self, session, product_id, id_type, value, vendor='',
     ):
@@ -2524,40 +2479,70 @@ class CatalogService:
                 f"{clash.item_id}; product {product_id} was created without it"
             )
 
-    def _apply_mcmaster_change(self, purchase: Purchase, line, decision) -> bool:
-        """Bring a recorded purchase into line with what the page now says (FR-017).
+    def find_captured_orders(self) -> List[CapturedOrder]:
+        """Every captured order, across every vendor, most recent first.
 
-        The operator's edited values win here exactly as they do on a fresh
-        capture, so "apply this change" applies what the review displayed.
+        029 FR-033. One aggregate over ``purchases`` grouped by vendor and order
+        number -- **derived, not stored**, exactly as an individual order screen
+        is. There is no orders table and this does not add one.
 
-        Returns whether anything was actually written. A field the page did not
-        give is not applied -- there is nothing to apply -- and the caller must
-        not count that as an update, or the flash reports "1 line(s) updated"
-        for a write that was skipped. PR #123 review.
+        A purchase carrying no supplier order reference belongs to no order and
+        appears in none: that is a hand-recorded purchase or a single-listing
+        capture, and it is reachable from its product.
+
+        No index work and no caching: ``supplier_order_reference`` is already
+        indexed, the table holds a few thousand rows at this application's scale,
+        and Constitution I asks for a measurement before optimizing.
         """
-        wrote = False
-        quantity = self._mcmaster_quantity(line, decision)
-        if quantity is not None and quantity != purchase.quantity:
-            purchase.quantity = quantity
-            wrote = True
-        unit_price = self._mcmaster_unit_price(line, decision)
-        if unit_price is not None and unit_price != purchase.unit_price:
-            purchase.unit_price = unit_price
-            wrote = True
-        return wrote
+        with self._session() as session:
+            rows = (
+                session.query(
+                    Purchase.vendor,
+                    Purchase.supplier_order_reference,
+                    func.min(Purchase.order_date).label('order_date'),
+                    func.count(Purchase.id).label('line_count'),
+                    func.sum(
+                        case((Purchase.received_date.is_(None), 1), else_=0)
+                    ).label('outstanding'),
+                )
+                .filter(
+                    Purchase.supplier_order_reference.isnot(None),
+                    Purchase.supplier_order_reference != '',
+                )
+                .group_by(Purchase.vendor, Purchase.supplier_order_reference)
+                .all()
+            )
 
-    def find_mcmaster_order_lines(self, order_number: str) -> List[Purchase]:
-        """The purchases that make up one McMaster order (FR-027).
+        orders = [
+            CapturedOrder(
+                vendor=row.vendor,
+                order_number=row.supplier_order_reference,
+                order_date=row.order_date,
+                line_count=int(row.line_count or 0),
+                outstanding_count=int(row.outstanding or 0),
+            )
+            for row in rows
+        ]
+        # Sorted in Python rather than by the query: order_date is nullable, and
+        # the two backends disagree about where NULLs sort. An order with no date
+        # goes last either way.
+        orders.sort(
+            key=lambda o: (o.order_date is not None, o.order_date or datetime.min),
+            reverse=True,
+        )
+        return orders
+
+    def find_order_lines_for(self, vendor_name: str, order_number: str) -> List[Purchase]:
+        """The purchases that make up one order, for any vendor.
 
         This is the whole of "open a captured order": there is no order record
-        to load, only the purchases carrying its number. Keyed by the Purchase
-        Order string, because that is the only order identifier the operator
-        can recognize or type.
+        to load, only the purchases carrying its number. Derived rather than
+        stored, so it cannot fall out of step with them -- it has nothing of its
+        own to drift.
 
-        Returns:
-            The purchases, oldest first, each with its product loaded. Empty for
-            an order number nothing was captured against -- which the route
-            renders as "not captured", never as a 404 (FR-031).
+        One implementation since feature 029. ``find_order_lines`` and
+        ``find_mcmaster_order_lines`` remain as the vendor-named entry points
+        their callers and the regression suites use.
         """
         cleaned = (order_number or '').strip()
         if not cleaned:
@@ -2568,39 +2553,29 @@ class CatalogService:
                 session.query(Purchase)
                 .options(selectinload(Purchase.product))
                 .filter(
-                    Purchase.vendor == MCMASTER_VENDOR,
+                    Purchase.vendor == vendor_name,
                     Purchase.supplier_order_reference == cleaned,
                 )
                 .order_by(Purchase.id)
                 .all()
             )
+
+    def find_mcmaster_order_lines(self, order_number: str) -> List[Purchase]:
+        """The purchases that make up one McMaster order (028 FR-027).
+
+        Keyed by the Purchase Order string, because that is the only order
+        identifier the operator can recognize or type.
+
+        See :meth:`find_order_lines_for`.
+        """
+        return self.find_order_lines_for(MCMASTER_VENDOR, order_number)
 
     def find_order_lines(self, sales_order_number: str) -> List[Purchase]:
-        """The purchases that make up one DigiKey order (FR-017).
+        """The purchases that make up one DigiKey order (024 FR-017).
 
-        This is the whole of "open a captured order": there is no order record
-        to load, only the purchases carrying its number.
-
-        Returns:
-            The purchases, oldest first, each with its product loaded. Empty for
-            a sales order number nothing was captured against -- which the route
-            renders as "not captured", never as a 404.
+        See :meth:`find_order_lines_for`.
         """
-        cleaned = (sales_order_number or '').strip()
-        if not cleaned:
-            return []
-
-        with self._session() as session:
-            return (
-                session.query(Purchase)
-                .options(selectinload(Purchase.product))
-                .filter(
-                    Purchase.vendor == DIGIKEY_VENDOR,
-                    Purchase.supplier_order_reference == cleaned,
-                )
-                .order_by(Purchase.id)
-                .all()
-            )
+        return self.find_order_lines_for(DIGIKEY_VENDOR, sales_order_number)
 
     def find_mcmaster_receivable(self, part_number: str) -> List[Purchase]:
         """The outstanding McMaster lines a scanned part number names (FR-032).
@@ -2694,170 +2669,6 @@ class CatalogService:
             logger.info(f"No DigiKey detail for {part_number}: {e}")
             return None
 
-    def _recorded_digikey_lines(self, session, order) -> Dict[str, Purchase]:
-        """Pair this order's lines to the purchases already recorded for it.
-
-        Returns a mapping of ``line.form_key`` to its Purchase, so a caller can
-        ask about a *line* rather than about a part number.
-
-        **A part number does not identify a line**, and this used to pretend it
-        did -- first by keeping one purchase per part, then by pairing them
-        positionally. Both corrupt data on a duplicated part: capture one of two
-        such lines, re-open the order, and the other line claims its purchase,
-        reads as captured with the wrong quantity, and applying a change writes
-        to the wrong row. The information needed to pair them is not derivable,
-        so ``purchases.order_line_number`` stores it. PR #116 review.
-
-        Two passes, and the order matters:
-
-        1. **By line number.** Exact, and the only pass that runs for anything
-           this feature captured.
-        2. **By part number, for purchases carrying no line number** -- a
-           purchase recorded by hand against a sales order, or captured before
-           this column existed. Each is claimed once, by the first line that
-           wants it, and never by a line that already matched exactly.
-
-        A purchase no line claims is orphaned, which the caller reports (FR-013).
-        """
-        cleaned = (order.sales_order_number or '').strip()
-        if not cleaned:
-            return {}
-
-        rows = (
-            session.query(Purchase)
-            .filter(
-                Purchase.vendor == DIGIKEY_VENDOR,
-                Purchase.supplier_order_reference == cleaned,
-            )
-            .order_by(Purchase.id)
-            .all()
-        )
-
-        by_line_number = {
-            row.order_line_number: row
-            for row in rows
-            if row.order_line_number is not None
-        }
-
-        paired: Dict[str, Purchase] = {}
-        claimed = set()
-        for line in order.lines:
-            row = by_line_number.get(line.line_number)
-            if row is not None and id(row) not in claimed:
-                paired[line.form_key] = row
-                claimed.add(id(row))
-
-        # Pass two: the ones with no line number to pair on.
-        unclaimed = [
-            row for row in rows
-            if row.order_line_number is None and id(row) not in claimed
-        ]
-        for line in order.lines:
-            if line.form_key in paired or not unclaimed:
-                continue
-            for row in unclaimed:
-                if row.vendor_item_id == line.digikey_part_number:
-                    paired[line.form_key] = row
-                    claimed.add(id(row))
-                    unclaimed.remove(row)
-                    break
-
-        return paired
-
-    def _orphaned_digikey_purchases(self, session, order, paired) -> tuple:
-        """Purchases recorded against this order that no line of it claims (FR-013)."""
-        cleaned = (order.sales_order_number or '').strip()
-        if not cleaned:
-            return ()
-
-        claimed = {purchase.id for purchase in paired.values()}
-        return tuple(
-            row.id
-            for row in session.query(Purchase)
-            .filter(
-                Purchase.vendor == DIGIKEY_VENDOR,
-                Purchase.supplier_order_reference == cleaned,
-            )
-            .order_by(Purchase.id)
-            .all()
-            if row.id not in claimed
-        )
-
-    def _review_digikey_line(self, session, line, part, recorded) -> ReviewedLine:
-        """Decide one line's state. Reads only.
-
-        The four states are exclusive and tested in this order: already
-        captured, then a recycled identifier, then an ordinary match, then new.
-        CAPTURED comes first because a line already recorded is not a line to
-        decide anything else about.
-        """
-        suggested = ((part.description if part else '') or line.description or '')[
-            :MAX_DESCRIPTION_LENGTH
-        ]
-
-        existing = recorded.get(line.form_key)
-        if existing is not None:
-            return ReviewedLine(
-                line=line,
-                state=OrderLineState.CAPTURED,
-                part=part,
-                suggested_description=suggested,
-                product_id=existing.product_id,
-                product_description=(
-                    existing.product.description if existing.product else None
-                ),
-                purchase_id=existing.id,
-                recorded_quantity=existing.quantity,
-                recorded_unit_price=existing.unit_price,
-            )
-
-        product = self._digikey_product_by_identifier(
-            session, IdentifierType.DISTRIBUTOR, line.digikey_part_number,
-            vendor=DIGIKEY_VENDOR,
-        )
-        if product is not None:
-            # A distributor recycling a part number for a different part is the
-            # failure this catches, and it is the most damaging one in the
-            # feature because nothing looks wrong afterwards -- the price history
-            # of one product quietly becomes the history of two.
-            contradicted = (
-                line.manufacturer_part_number
-                and product.manufacturer_part_number
-                and line.manufacturer_part_number != product.manufacturer_part_number
-            )
-            return ReviewedLine(
-                line=line,
-                state=(OrderLineState.CONFLICT if contradicted
-                       else OrderLineState.MATCHED),
-                part=part,
-                suggested_description=suggested,
-                product_id=product.id,
-                product_description=product.description,
-                product_manufacturer_part_number=product.manufacturer_part_number,
-            )
-
-        if line.manufacturer_part_number:
-            product = self._digikey_product_by_identifier(
-                session, IdentifierType.MPN, line.manufacturer_part_number,
-            )
-            if product is not None:
-                return ReviewedLine(
-                    line=line,
-                    state=OrderLineState.MATCHED,
-                    part=part,
-                    suggested_description=suggested,
-                    product_id=product.id,
-                    product_description=product.description,
-                    product_manufacturer_part_number=product.manufacturer_part_number,
-                )
-
-        return ReviewedLine(
-            line=line,
-            state=OrderLineState.NEW,
-            part=part,
-            suggested_description=suggested,
-        )
-
     def _digikey_product_by_identifier(
         self, session, id_type: IdentifierType, value: str, vendor: str = '',
     ) -> Optional[Product]:
@@ -2878,46 +2689,6 @@ class CatalogService:
             .first()
         )
         return row.product if row is not None else None
-
-    def _digikey_product_for(self, session, reviewed, line, part, decision):
-        """The product this line's purchase attaches to, creating one if needed.
-
-        Returns:
-            ``(product, created)``.
-
-        Raises:
-            ValidationError: A conflicted line with no resolution. Raised inside
-                the session, so the whole capture rolls back rather than this
-                one line being skipped -- the operator answered a question about
-                an order, not about a line, and half an order is worse than none.
-        """
-        if reviewed.state is OrderLineState.CONFLICT:
-            resolution = (decision.get('resolution') or '').strip().lower()
-            if resolution not in ('attach', 'separate'):
-                raise ValidationError(
-                    f"{line.digikey_part_number} already names "
-                    f"{reviewed.product_description!r}, whose part number is "
-                    f"{reviewed.product_manufacturer_part_number!r} rather than "
-                    f"{line.manufacturer_part_number!r}. Say whether to attach to "
-                    f"that product or create a separate one.",
-                    field=f'resolution[{line.digikey_part_number}]',
-                )
-            if resolution == 'attach':
-                return session.get(Product, reviewed.product_id), False
-            # 'separate': a new product, and the existing one is left entirely
-            # alone -- including its identifiers. The contested DigiKey part
-            # number stays where it is; the new product records it on the
-            # purchase instead, via vendor_item_id.
-            return self._create_digikey_product(
-                session, line, part, decision, claim_distributor=False
-            ), True
-
-        if reviewed.state is OrderLineState.MATCHED:
-            product = session.get(Product, reviewed.product_id)
-            self._enrich_digikey_product(session, product, part)
-            return product, False
-
-        return self._create_digikey_product(session, line, part, decision), True
 
     def _create_digikey_product(
         self, session, line, part, decision, claim_distributor: bool = True,
@@ -3024,15 +2795,6 @@ class CatalogService:
             ))
             existing.add(normalized_row_name(name))
             order += 1
-
-    def _apply_digikey_change(self, purchase: Purchase, line) -> None:
-        """Bring a recorded purchase into line with what the order now says (FR-014)."""
-        if line.quantity is not None:
-            purchase.quantity = line.quantity
-        if line.unit_price is not None:
-            purchase.unit_price = self._validate_price(line.unit_price)
-
-    # -- Scanning ----------------------------------------------------------
 
     def scan(self, raw: str) -> ScanResolution:
         """Classify a raw scan and resolve it in one step.
@@ -4104,3 +3866,311 @@ def _dedupe_fold_case(values: Any) -> List[str]:
     return list(kept.values())
 
 
+
+
+# -- The order-capture vendors (feature 029) --------------------------------
+#
+# What differs between one vendor's order capture and another's, as measured in
+# 029 research.md §9 rather than anticipated. The shape lives in
+# app/services/order_vendors.py; the behaviour lives here, because every one of
+# these needs the service's leaf helpers and moving those would drag half the
+# service with them.
+#
+# Registered at import time. `tests/unit/test_order_vendors.py` asserts that the
+# two differ only where the vendors genuinely differ.
+
+
+def _digikey_order_purchases(service, session, order):
+    """Every purchase already recorded against this sales order."""
+    cleaned = (order.sales_order_number or '').strip()
+    if not cleaned:
+        return []
+    return (
+        session.query(Purchase)
+        .filter(
+            Purchase.vendor == DIGIKEY_VENDOR,
+            Purchase.supplier_order_reference == cleaned,
+        )
+        .order_by(Purchase.id)
+        .all()
+    )
+
+
+def _digikey_order_fields(order) -> Dict[str, Any]:
+    """The Purchase fields a DigiKey *order* supplies."""
+    return {
+        'supplier_order_reference': order.sales_order_number,
+        'order_reference': order.purchase_order or None,
+    }
+
+
+def _digikey_line_fields(service, line, decision) -> Dict[str, Any]:
+    """The Purchase fields a DigiKey *line* supplies.
+
+    ``decision`` is unused: DigiKey's review offers no quantity or price
+    override, because the fetched order is the authority and can be re-read.
+    """
+    return {
+        'vendor_item_id': line.digikey_part_number,
+        # DigiKey's own words, kept as an Amazon listing title is.
+        'listing_title': line.description or None,
+        'order_line_number': line.line_number,
+        'quantity': line.quantity,
+        # Through _validate_price so a DigiKey sub-cent quote is rounded
+        # deliberately rather than by the column.
+        'unit_price': service._validate_price(line.unit_price),
+    }
+
+
+def _digikey_find_product(service, session, line):
+    """A DigiKey line's product: by DigiKey part number, then by MPN."""
+    product = service._digikey_product_by_identifier(
+        session, IdentifierType.DISTRIBUTOR, line.digikey_part_number,
+        vendor=DIGIKEY_VENDOR,
+    )
+    if product is not None:
+        # Found by DigiKey's own number, so a contradicting MPN means the
+        # number has been recycled for a different part.
+        return product, True
+
+    if line.manufacturer_part_number:
+        product = service._digikey_product_by_identifier(
+            session, IdentifierType.MPN, line.manufacturer_part_number,
+        )
+        if product is not None:
+            # Found *by* the manufacturer part number, which therefore cannot
+            # contradict it.
+            return product, False
+
+    return None, False
+
+
+def _digikey_suggested_description(line, part) -> str:
+    """DigiKey's part detail if the lookup answered, else the order line's."""
+    return (part.description if part else '') or line.description or ''
+
+
+def _digikey_incomplete_label(line, part) -> Optional[str]:
+    """Names a line DigiKey's part lookup would not answer for (024 FR-041)."""
+    return line.digikey_part_number if part is None else None
+
+
+def _mcmaster_order_fields(order) -> Dict[str, Any]:
+    """The Purchase fields a McMaster *order* supplies."""
+    return {
+        # McMaster shows no order number; this is the customer's Purchase Order
+        # string, the only order identifier on the page (028 research.md §5).
+        'supplier_order_reference': order.order_number,
+        # The stable id out of the order's URL. Never displayed -- it is what
+        # lets a re-capture still recognize this order after the Purchase Order
+        # string has been renamed.
+        'vendor_order_id': order.order_id or None,
+        'listing_url': order.source_url or None,
+    }
+
+
+def _mcmaster_line_fields(service, line, decision) -> Dict[str, Any]:
+    """The Purchase fields a McMaster *line* supplies.
+
+    Unlike DigiKey's, these consult the decision: the page cannot be re-read, so
+    the operator is allowed to overrule the computed quantity and unit price
+    (028 FR-020a).
+    """
+    return {
+        'vendor_item_id': line.part_number or None,
+        # McMaster's own wording, kept distinct from the operator's product
+        # description (028 FR-023).
+        'listing_title': line.description or None,
+        'order_line_number': line.line_number,
+        'quantity': service._mcmaster_quantity(line, decision),
+        'unit_price': service._mcmaster_unit_price(line, decision),
+    }
+
+
+def _mcmaster_find_product(service, session, line):
+    """A McMaster line's product: by McMaster part number, then by MPN.
+
+    The same two stages DigiKey uses. The second almost never fires -- McMaster
+    states no manufacturer part number on the great majority of its goods, so
+    ``line.manufacturer_part_number`` is usually '' -- but it is there, and
+    dropping it in the consolidation would have been a silent behaviour change.
+    """
+    product = service._mcmaster_product_by_part_number(session, line.part_number)
+    if product is not None:
+        return product, True
+
+    if line.manufacturer_part_number:
+        product = service._mcmaster_product_by_identifier(
+            session, IdentifierType.MPN, line.manufacturer_part_number,
+        )
+        if product is not None:
+            return product, False
+
+    return None, False
+
+
+def _mcmaster_suggested_description(line, part) -> str:
+    """The page's description. ``part`` is always None -- McMaster has no lookup."""
+    return line.description or ''
+
+
+def _mcmaster_incomplete_label(line, part) -> Optional[str]:
+    """Names a line the *page* did not fully give up (028 FR-037)."""
+    if not line.missing_fields:
+        return None
+    return line.description or line.part_number or line.form_key
+
+
+DIGIKEY_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
+    name=DIGIKEY_VENDOR,
+    item_id_of=lambda line: line.digikey_part_number,
+    order_purchases=_digikey_order_purchases,
+    order_fields=_digikey_order_fields,
+    line_fields=_digikey_line_fields,
+    find_product=_digikey_find_product,
+    create_product=lambda service, session, line, part, decision, claim_distributor=True: (
+        service._create_digikey_product(
+            session, line, part, decision, claim_distributor=claim_distributor
+        )
+    ),
+    suggested_description=_digikey_suggested_description,
+    # A DigiKey bag label names its sales order *and* its part, so every
+    # candidate a scan turns up is a line of one order -- and that order's
+    # screen shows them all.
+    receive_landing=order_vendors.LANDING_ORDER_SCREEN,
+    enrich=lambda service, client, lines: {
+        line.digikey_part_number: service._digikey_part(
+            client, line.digikey_part_number
+        )
+        for line in lines
+    },
+    incomplete_label=_digikey_incomplete_label,
+    enrich_product=lambda service, session, product, part: (
+        service._enrich_digikey_product(session, product, part)
+    ),
+    review_columns=('shipped', 'backorder'),
+    confirm_endpoint='product.digikey_order_confirm',
+))
+
+
+MCMASTER_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
+    name=MCMASTER_VENDOR,
+    item_id_of=lambda line: line.part_number,
+    order_purchases=lambda service, session, order: (
+        service._mcmaster_order_purchases(session, order)
+    ),
+    order_fields=_mcmaster_order_fields,
+    line_fields=_mcmaster_line_fields,
+    find_product=_mcmaster_find_product,
+    create_product=lambda service, session, line, part, decision, claim_distributor=True: (
+        service._create_mcmaster_product(
+            session, line, decision, claim_distributor=claim_distributor
+        )
+    ),
+    suggested_description=_mcmaster_suggested_description,
+    # A McMaster bag names only the part, and the same part can be outstanding
+    # on two orders placed weeks apart -- so no single order screen shows the
+    # candidates and the operator has to choose.
+    receive_landing=order_vendors.LANDING_CHOICE_PAGE,
+    incomplete_label=_mcmaster_incomplete_label,
+    review_columns=('packs', 'pack_size', 'pack_price'),
+    confirm_endpoint='product.mcmaster_order_confirm',
+    carries_payload=True,
+    # The order "number" is the customer's editable Purchase Order string.
+    adopts_renames=True,
+))
+
+
+def _amazon_order_purchases(service, session, order):
+    """Every purchase already recorded against this Amazon order.
+
+    One pass, unlike McMaster's two: an Amazon order number is stable and printed
+    on the page, so there is no renamed-order problem and ``vendor_order_id``
+    stays NULL.
+    """
+    cleaned = (order.order_number or '').strip()
+    if not cleaned:
+        return []
+    return (
+        session.query(Purchase)
+        .filter(
+            Purchase.vendor == AMAZON_VENDOR,
+            Purchase.supplier_order_reference == cleaned,
+        )
+        .order_by(Purchase.id)
+        .all()
+    )
+
+
+def _amazon_order_fields(order) -> Dict[str, Any]:
+    """The Purchase fields an Amazon *order* supplies."""
+    return {
+        'supplier_order_reference': order.order_number,
+        'listing_url': order.source_url or None,
+    }
+
+
+def _amazon_line_fields(service, line, decision) -> Dict[str, Any]:
+    """The Purchase fields an Amazon *line* supplies.
+
+    Consults the decision, as McMaster's does and DigiKey's does not: the page
+    cannot be re-read, so the operator is allowed to overrule what was read.
+    """
+    return {
+        'vendor_item_id': line.asin or None,
+        # Amazon's own words, kept distinct from the operator's product
+        # description.
+        'listing_title': line.title or None,
+        'order_line_number': line.line_number,
+        'quantity': service._mcmaster_quantity(line, decision),
+        'unit_price': service._mcmaster_unit_price(line, decision),
+    }
+
+
+def _amazon_find_product(service, session, line):
+    """An Amazon line's product: by ASIN, scoped to Amazon.
+
+    One stage, not two. Amazon states no manufacturer part number on an order
+    page, so there is no MPN fallback to make -- unlike both other vendors.
+    """
+    product = service._amazon_product_by_asin(session, line.asin)
+    return (product, True) if product is not None else (None, False)
+
+
+def _amazon_suggested_description(line, part) -> str:
+    """Amazon's title. ``part`` is always None -- there is no lookup."""
+    return line.title or ''
+
+
+def _amazon_incomplete_label(line, part) -> Optional[str]:
+    """Names a line the *page* did not fully give up (FR-022)."""
+    if not line.missing_fields:
+        return None
+    return line.title or line.asin or line.form_key
+
+
+AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
+    name=AMAZON_VENDOR,
+    item_id_of=lambda line: line.asin,
+    order_purchases=_amazon_order_purchases,
+    order_fields=_amazon_order_fields,
+    line_fields=_amazon_line_fields,
+    find_product=_amazon_find_product,
+    create_product=lambda service, session, line, part, decision, claim_distributor=True: (
+        service._create_amazon_product(
+            session, line, decision, claim_distributor=claim_distributor
+        )
+    ),
+    suggested_description=_amazon_suggested_description,
+    # An Amazon package names neither the order nor the line, and a product
+    # created from an order line carries no barcode -- so a scan only ever
+    # reaches a line through the product's own barcode, and that can name lines
+    # on more than one order. The operator chooses.
+    receive_landing=order_vendors.LANDING_CHOICE_PAGE,
+    incomplete_label=_amazon_incomplete_label,
+    # Neither shipped/backorder counts nor pack arithmetic: the order page states
+    # a unit price and a quantity directly.
+    review_columns=(),
+    confirm_endpoint='product.amazon_order_confirm',
+    carries_payload=True,
+))

@@ -1154,6 +1154,57 @@ When the parcel arrives, open the purchase and **Mark Received**. The captured
 details are already there; amend the quantity or the price if what turned up
 differed from what you ordered, which it sometimes does.
 
+## Amazon Orders
+
+You usually order more than one thing at a time, and capturing an eleven-item
+order one listing at a time means eleven trips back to pages you have already
+left. **Open the order and click the bookmarklet once instead.**
+
+### Capturing an order
+
+Open the order in *Your Orders* so its own address is showing — the one ending
+`/your-orders/order-details?orderID=...` — and click *Capture to Workshop*. A new
+tab opens listing every item Amazon shows on that order: its title, how many were
+ordered, what each cost, and whether this catalog already holds it.
+
+**Nothing has been recorded at that point.** Write your own label description for
+the items that are new, untick anything you do not want cataloged — a gift, a
+consumable, a digital item — and confirm. One outstanding purchase is recorded
+per line you kept, filed under the order number.
+
+Clicking the bookmarklet on the *orders list* rather than on one order does not
+work, and says so: there is no single order on that page.
+
+**What you get is thinner than a listing capture, and the review says so.** An
+order page states a title, a quantity and a price. The pictures, the
+specifications, the *About this item* bullets and the barcodes all live on the
+item's own listing page — one page per line — so an order capture does not fetch
+them. To fill an item in later, capture its listing page the usual way: it
+attaches to the same product rather than making a second one.
+
+If Amazon changes their markup and a field stops reading, that field goes blank
+and everything else still captures. The review marks what came back thin, and so
+does the message after you confirm, so you know which records to look over.
+
+### Seeing an order, and receiving the boxes
+
+Open **Products → Captured Orders** and click through, or go straight to the
+order. You get every line, its product, what you paid, whether it has arrived,
+and a count of how many are still outstanding.
+
+**Amazon receiving is done from that screen, not by scanning.** A DigiKey bag
+names its order and its part, and a McMaster bag names its part — an Amazon box
+names neither, and an item captured from an order page has no barcode recorded
+for it either. So as each box arrives, open the order and receive the lines that
+were in it. Amend the quantity if what turned up is short; confirming marks the
+line received, raises the counted quantity and clears any low-stock flag, exactly
+as receiving does anywhere else.
+
+Where an item *does* carry a barcode this catalog knows — because you captured
+its listing page at some point — scanning that barcode works too, and behaves the
+way McMaster's does: one outstanding line goes straight to its receipt, several
+ask you which.
+
 ## DigiKey Orders
 
 A DigiKey order is not the shape the Amazon capture was built for. It is thirty
@@ -1438,6 +1489,20 @@ is why you choose the stock at print time.
 Reprinting takes two clicks and no typing. The label is composed from the record
 each time rather than stored, so a reprint after you have improved the
 description shows the improved one.
+
+## Captured Orders
+
+**Products → Captured Orders** answers the question the rest of this chapter
+cannot: *what is still on its way, from anyone?*
+
+Every order you have captured, from every vendor, most recent first — with its
+date, how many lines it has and how many are still outstanding. An order with
+nothing left outstanding is marked as complete, so a glance is enough to tell
+what is still arriving from what has landed.
+
+It is worked out from the purchases each time you open it. There is no separate
+record of an order anywhere in this application: an order *is* the purchases
+carrying its number, which is why the list cannot fall out of step with them.
 
 ## Stock Levels and Reordering
 

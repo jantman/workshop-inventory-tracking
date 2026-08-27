@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<!--
+  An Amazon order whose rows are each broken in a different way. Three lines:
+
+    1. B0TESTBBB1 -- complete. The control: whatever else fails, this one must
+       capture normally (FR-021, "no unreadable field may cost another field,
+       another line, or the capture").
+    2. no ASIN     -- the item links are gone, so the row yields a title and a
+       price and nothing to identify the item by. FR-019 says it stays
+       capturable on its title alone, or excludable, and must not refuse the
+       capture.
+    3. bad price   -- the `.a-offscreen` span is missing and the visible text is
+       not a number. The price is lost; the line is not.
+
+  The order number and date are intact, so this is emphatically not the
+  unreadable-page case -- it is a readable order with damaged rows, and the
+  review has to say which rows came back thin (FR-022).
+-->
+<html lang="en">
+<head><title>Order Details</title></head>
+<body>
+
+<div data-component="orderCard">
+  <div data-component="briefOrderInfoInvoice">
+    <div data-component="briefOrderInfoInvoiceLeftGrid">
+      <div data-component="orderDateLabel">Order placed</div>
+      <div data-component="orderDate">August 20, 2026</div>
+      <div data-component="orderIdLabel">Order #</div>
+      <div data-component="orderId">113-4445556-6667778</div>
+    </div>
+  </div>
+
+  <div data-component="shipments">
+    <div data-component="shipmentsLeftGrid">
+      <div data-component="shipmentStatus">Arriving tomorrow</div>
+      <div data-component="purchasedItems">
+
+        <!-- 1. complete -->
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage">
+                    <a href="/dp/B0TESTBBB1/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample1.jpg" alt=""></a>
+                  </div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">
+                    <a class="a-link-normal" href="/dp/B0TESTBBB1/ref=ppx_yo_dt_b_asin_title">Complete Line, Nothing Wrong With It</a>
+                  </div>
+                  <div class="" data-component="quantity"><span class="a-size-small"></span></div>
+                  <div class="" data-component="unitPrice">
+                    <span class="a-price a-text-price"><span class="a-offscreen">$4.25</span><span aria-hidden="true">$4.25</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. no ASIN: the title is plain text, the image link is gone -->
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage"><img src="__IMAGE_HOST__/sample2.jpg" alt=""></div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">Line With No Identifiable Item</div>
+                  <div class="" data-component="quantity"><span class="a-size-small"></span></div>
+                  <div class="" data-component="unitPrice">
+                    <span class="a-price a-text-price"><span class="a-offscreen">$7.50</span><span aria-hidden="true">$7.50</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. unparseable price: no .a-offscreen, and the text is not a number -->
+        <div class="a-row a-spacing-top-base">
+          <div class="a-fixed-left-grid a-spacing-base">
+            <div class="a-fixed-left-grid-inner">
+              <div data-component="purchasedItemsLeftGrid">
+                <div class="a-fixed-left-grid-col a-col-left">
+                  <div data-component="itemImage">
+                    <a href="/dp/B0TESTBBB3/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample3.jpg" alt=""></a>
+                  </div>
+                </div>
+              </div>
+              <div data-component="purchasedItemsRightGrid">
+                <div class="a-fixed-left-grid-col a-col-right">
+                  <div data-component="itemTitle">
+                    <a class="a-link-normal" href="/dp/B0TESTBBB3/ref=ppx_yo_dt_b_asin_title">Line Whose Price Will Not Parse</a>
+                  </div>
+                  <div class="" data-component="quantity"><span class="a-size-small"></span></div>
+                  <div class="" data-component="unitPrice"><span class="a-price a-text-price">Currently unavailable</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

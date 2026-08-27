@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!--
+  An Amazon order-details page from which no line can be read: the order card is
+  present and names the order, but nothing matches the line container.
+
+  This is FR-023's case, and the distinction it exists to protect is between
+  "this page yielded no order" and "this order has nothing in it". A review that
+  rendered zero lines with no explanation would be indistinguishable from an
+  empty order, so the capture must say which happened.
+
+  The recommendation carousels are still here, and deliberately: they are what a
+  document-wide ASIN sweep would happily read as five order lines from a page
+  that in fact yielded none. See research.md §4.
+-->
+<html lang="en">
+<head><title>Order Details</title></head>
+<body>
+
+<div data-component="orderCard">
+  <div data-component="briefOrderInfoInvoice">
+    <div data-component="briefOrderInfoInvoiceLeftGrid">
+      <div data-component="orderDateLabel">Order placed</div>
+      <div data-component="orderDate">August 22, 2026</div>
+      <div data-component="orderIdLabel">Order #</div>
+      <div data-component="orderId">111-9998887-7776665</div>
+    </div>
+  </div>
+  <div data-component="shipments">
+    <div data-component="shipmentsLeftGrid">
+      <div data-component="shipmentStatus">Delivered August 23</div>
+      <!-- The group is here; the rows Amazon would put in it are not. -->
+      <div data-component="purchasedItems"></div>
+    </div>
+  </div>
+</div>
+
+<div id="rhf" class="rhf-container">
+  <h2>Buy it again</h2>
+  <div class="a-carousel">
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM01/ref=ppx_yo2ov_dt_b_fed_asin_title"><img src="__IMAGE_HOST__/rec1.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM01/ref=ppx_yo2ov_dt_b_fed_asin_title">Recommended Item One</a>
+    </div>
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM02/ref=ppx_yo2ov_dt_b_fed_asin_title"><img src="__IMAGE_HOST__/rec2.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM02/ref=ppx_yo2ov_dt_b_fed_asin_title">Recommended Item Two</a>
+    </div>
+    <div class="a-carousel-card">
+      <a href="/dp/B0RECOMM03/ref=pd_rvi_asin"><img src="__IMAGE_HOST__/rec3.jpg" alt=""></a>
+      <a class="a-link-normal" href="/dp/B0RECOMM03/ref=pd_rvi_asin">Recommended Item Three</a>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1221,19 +1221,22 @@ MCMASTER_PAYLOAD_VERSION = 1
 MCMASTER_PAYLOAD_VENDOR = 'McMaster-Carr'
 
 
-def _mcmaster_string(value: Any) -> str:
+def _order_string(value: Any) -> str:
     """A trimmed string, or '' for anything unusable as one.
 
-    Numbers are refused. Every string field on this payload is text the agent
-    read out of the page, so a number arriving in one means the agent sent
-    something unexpected, and '' is the honest answer.
+    Numbers are refused. Every string field on an agent payload is text read out
+    of a page, so a number arriving in one means the agent sent something
+    unexpected, and '' is the honest answer.
+
+    Shared by every page-read vendor since feature 029 -- these were named for
+    McMaster only because it was the first.
     """
     if isinstance(value, str):
         return value.strip()
     return ''
 
 
-def _mcmaster_int(value: Any) -> Optional[int]:
+def _order_int(value: Any) -> Optional[int]:
     """A positive int, or None. A bool is not an int here.
 
     Counts only -- packs and pack sizes. Zero and negatives become None rather
@@ -1255,7 +1258,7 @@ def _mcmaster_int(value: Any) -> Optional[int]:
     return parsed
 
 
-def _mcmaster_decimal(value: Any) -> Optional[Decimal]:
+def _order_decimal(value: Any) -> Optional[Decimal]:
     """A Decimal, or None -- and never by way of a float (Constitution III).
 
     **Prices cross this boundary as strings, always.** JSON's only number type
@@ -1282,7 +1285,7 @@ def _mcmaster_decimal(value: Any) -> Optional[Decimal]:
             return None
     elif isinstance(value, float):
         logger.warning(
-            "McMaster price arrived as a float, which means it was sent as a "
+            "A price arrived as a float, which means it was sent as a "
             "JSON number rather than a string. Dropping it rather than "
             "recording an inexact price."
         )
@@ -1296,12 +1299,12 @@ def _mcmaster_decimal(value: Any) -> Optional[Decimal]:
 # at all, for one placed this year. Both are what McMaster renders
 # (research.md §5), and a reader that handles only the first loses the date on
 # every recent order -- which is the majority of the ones anybody re-captures.
-_MCMASTER_DATE_FORMATS = ('%B %d, %Y', '%b %d, %Y', '%Y-%m-%d')
-_MCMASTER_DATE_FORMATS_NO_YEAR = ('%B %d', '%b %d')
+_ORDER_DATE_FORMATS = ('%B %d, %Y', '%b %d, %Y', '%Y-%m-%d')
+_ORDER_DATE_FORMATS_NO_YEAR = ('%B %d', '%b %d')
 
 
-def _mcmaster_datetime(value: Any, today: Optional[datetime] = None) -> Optional[datetime]:
-    """McMaster's order date, or None.
+def _order_datetime(value: Any, today: Optional[datetime] = None) -> Optional[datetime]:
+    """An order date off a vendor's page, or None.
 
     Lenient by design: an unparseable date is the same as an absent one, and an
     absent one is ordinary (contracts/capture-payload.md §3). Nothing about a
@@ -1310,11 +1313,11 @@ def _mcmaster_datetime(value: Any, today: Optional[datetime] = None) -> Optional
     A date with no year is taken as the current year, because that is precisely
     when McMaster omits it.
     """
-    text = _mcmaster_string(value)
+    text = _order_string(value)
     if not text:
         return None
 
-    for fmt in _MCMASTER_DATE_FORMATS:
+    for fmt in _ORDER_DATE_FORMATS:
         try:
             return datetime.strptime(text, fmt)
         except ValueError:
@@ -1332,7 +1335,7 @@ def _mcmaster_datetime(value: Any, today: Optional[datetime] = None) -> Optional
     # which strptime accepts against its default year 1900, a non-leap year,
     # only to raise. Giving it a real year sidesteps both.
     year = (today or datetime.now()).year
-    for fmt in _MCMASTER_DATE_FORMATS_NO_YEAR:
+    for fmt in _ORDER_DATE_FORMATS_NO_YEAR:
         try:
             return datetime.strptime(f'{text}, {year}', f'{fmt}, %Y')
         except ValueError:
@@ -1484,14 +1487,14 @@ class McMasterOrderLine:
             return None
 
         line = cls(
-            part_number=_mcmaster_string(data.get('part_number')),
-            description=_mcmaster_string(data.get('description')),
-            manufacturer_part_number=_mcmaster_string(
+            part_number=_order_string(data.get('part_number')),
+            description=_order_string(data.get('description')),
+            manufacturer_part_number=_order_string(
                 data.get('manufacturer_part_number')),
-            packs=_mcmaster_int(data.get('packs')),
-            pack_size=_mcmaster_int(data.get('pack_size')),
-            pack_price=_mcmaster_decimal(data.get('pack_price')),
-            line_number=_mcmaster_int(data.get('line_number')),
+            packs=_order_int(data.get('packs')),
+            pack_size=_order_int(data.get('pack_size')),
+            pack_price=_order_decimal(data.get('pack_price')),
+            line_number=_order_int(data.get('line_number')),
         )
         return line if line.is_readable else None
 
@@ -1563,10 +1566,10 @@ class McMasterOrder:
             )
             return None
 
-        if _mcmaster_string(data.get('vendor')) != MCMASTER_PAYLOAD_VENDOR:
+        if _order_string(data.get('vendor')) != MCMASTER_PAYLOAD_VENDOR:
             return None
 
-        order_number = _mcmaster_string(data.get('order_number'))
+        order_number = _order_string(data.get('order_number'))
         if not order_number:
             return None
 
@@ -1586,15 +1589,232 @@ class McMasterOrder:
         # len(lines) as the count would erase exactly the discrepancy FR-004
         # exists to report. A count below what survived is a malformed claim and
         # is corrected upward for the same reason.
-        lines_read = _mcmaster_int(data.get('lines_read'))
+        lines_read = _order_int(data.get('lines_read'))
         if lines_read is None or lines_read < len(lines):
             lines_read = len(lines)
 
         return cls(
             order_number=order_number,
-            order_id=_mcmaster_string(data.get('order_id')),
-            order_date=_mcmaster_datetime(data.get('order_date')),
-            source_url=_mcmaster_string(data.get('source_url')),
+            order_id=_order_string(data.get('order_id')),
+            order_date=_order_datetime(data.get('order_date')),
+            source_url=_order_string(data.get('source_url')),
+            lines=lines,
+            lines_read=lines_read,
+        )
+
+
+# -- Amazon order capture (feature 029) --------------------------------------
+
+AMAZON_PAYLOAD_VERSION = 1
+
+# The vendor the agent must declare for a payload to be treated as an Amazon
+# order. Must equal catalog_service.AMAZON_VENDOR.
+AMAZON_PAYLOAD_VENDOR = 'Amazon'
+
+
+@dataclass(frozen=True)
+class AmazonOrderLine:
+    """One line of an Amazon order, as the agent read it off the order page.
+
+    Modelled on :class:`McMasterOrderLine` rather than on DigiKey's, because both
+    are read off a page rather than fetched from a service and share the
+    consequences: the read cannot be repeated, and every field is individually
+    fallible.
+
+    **No pack arithmetic.** McMaster states a quantity, a pack and a price per
+    pack, and this catalog records units. Amazon's order page states a unit price
+    and a quantity directly (029 research.md §5), so there is nothing to compute
+    and no rounding to warn about. The spec assumed otherwise and was wrong; the
+    live-site read settled it.
+
+    ``asin`` may be '' -- FR-019 makes a line capturable on its title alone. That
+    happens when the row's item links are missing, which is a per-field failure
+    like any other and must not refuse the order.
+    """
+    asin: str = ''
+    title: str = ''
+    quantity: Optional[int] = None
+    unit_price: Optional[Decimal] = None
+    line_number: Optional[int] = None
+
+    # Amazon states no manufacturer part number on an order page. Present, and
+    # always '', so the shared review can ask every line the same questions --
+    # a line that names no MPN can never contradict a product's, which is what
+    # `_review_order_line` checks.
+    manufacturer_part_number: str = ''
+
+    @property
+    def form_key(self) -> str:
+        """What names this line in a form, and what a decision is keyed by.
+
+        The row's position, because **Amazon numbers nothing** -- no line number
+        anywhere on the page (029 research.md §7). Falls back to the ASIN when
+        even that is missing, which is the same fallback both other vendors use.
+
+        An ASIN does not identify a line: an order can carry the same item on two
+        lines, and keying by it gave them one shared set of controls so neither
+        could be steered on its own. PR #116 review.
+        """
+        if self.line_number is not None:
+            return str(self.line_number)
+        return self.asin
+
+    @property
+    def description(self) -> str:
+        """Amazon's own words for this line.
+
+        Named ``description`` so the shared capture flow can read it the same way
+        it reads the other two vendors'. ``title`` is what the agent calls it,
+        because that is what the page calls it.
+        """
+        return self.title
+
+    @property
+    def missing_fields(self) -> tuple:
+        """Which fields came back empty.
+
+        A blank price on one line of eleven is not something the operator
+        notices unaided, so the review marks it rather than leaving them to spot
+        it (FR-022).
+
+        **A quantity is never missing.** Amazon renders an empty quantity
+        component for a quantity of one, so "no digits" is a value rather than a
+        failure -- see :meth:`AmazonOrder.from_payload`.
+        """
+        missing = []
+        if not self.asin:
+            missing.append('part_number')
+        if not self.title:
+            missing.append('description')
+        if self.unit_price is None:
+            missing.append('price')
+        return tuple(missing)
+
+    @classmethod
+    def from_payload(cls, data: Any, index: int) -> Optional['AmazonOrderLine']:
+        """Build from one element of the payload's ``lines``.
+
+        Returns None only for something that is not an object, or for a row that
+        yielded **neither** an ASIN nor a title -- which is not a line, it is a
+        row the reader could not make anything of. Everything else is offered,
+        however thin, because the operator can see it and decide.
+
+        **Never raises on a JSON value.** A field the agent stops sending costs
+        that field and nothing else.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        asin = _order_string(data.get('asin'))
+        title = _order_string(data.get('title'))
+        if not asin and not title:
+            return None
+
+        # An absent or unreadable quantity is 1, not None: Amazon renders the
+        # quantity component empty when the quantity is one, so an empty read is
+        # the ordinary case rather than a failure (029 research.md §6).
+        quantity = _order_int(data.get('quantity')) or 1
+
+        return cls(
+            asin=asin,
+            title=title,
+            quantity=quantity,
+            unit_price=_order_decimal(data.get('unit_price')),
+            # 1-based, and supplied here rather than trusted from the payload
+            # when the agent omits it -- position is the only line identity
+            # Amazon offers and it must not be left blank.
+            line_number=_order_int(data.get('line_number')) or (index + 1),
+        )
+
+
+@dataclass(frozen=True)
+class AmazonOrder:
+    """One Amazon order, as the agent read it off its order-details page.
+
+    ``order_number`` is Amazon's own, in their 3-7-7 digit form, and it is
+    stable and printed on the page -- so unlike McMaster there is no opaque id to
+    carry alongside it and ``purchases.vendor_order_id`` stays NULL for Amazon.
+
+    Deliberately absent: the shipping address, the buyer, the payment method and
+    the order total. They are on the page and are **not read**, rather than being
+    read and discarded (029 research.md §8).
+    """
+    order_number: str
+    order_date: Optional[datetime] = None
+    source_url: str = ''
+    lines: tuple = ()
+    lines_read: int = 0
+
+    @property
+    def lines_offered(self) -> int:
+        """How many lines the operator is being shown."""
+        return len(self.lines)
+
+    @property
+    def is_incomplete(self) -> bool:
+        """Whether the agent saw more rows than it could use (FR-004).
+
+        Equal counts say nothing; different ones are the difference between "your
+        order has three lines" and "I could only read three of your eleven", and
+        those must not look the same.
+        """
+        return self.lines_read > self.lines_offered
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['AmazonOrder']:
+        """Build from the hidden ``order`` form field's JSON.
+
+        Returns None -- not an error -- for a payload this code cannot read: not
+        an object, an unrecognized ``version``, a ``vendor`` that is not
+        Amazon's, or a body naming no order number. That is what makes a stale
+        cached agent harmless rather than a 500.
+
+        **An empty ``lines`` with a valid order number is not None**: it is a real
+        order whose lines could not be read, and FR-023 requires that not look
+        like an order with nothing in it.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        if data.get('version') != AMAZON_PAYLOAD_VERSION:
+            logger.info(
+                "Ignoring a capture payload with version %r; this server reads "
+                "version %s", data.get('version'), AMAZON_PAYLOAD_VERSION
+            )
+            return None
+
+        if _order_string(data.get('vendor')) != AMAZON_PAYLOAD_VENDOR:
+            return None
+
+        order_number = _order_string(data.get('order_number'))
+        if not order_number:
+            return None
+
+        raw_lines = data.get('lines')
+        if not isinstance(raw_lines, list):
+            raw_lines = []
+
+        lines = tuple(
+            line for line in (
+                AmazonOrderLine.from_payload(entry, index)
+                for index, entry in enumerate(raw_lines)
+            )
+            if line is not None
+        )
+
+        # What the agent *saw*, including rows it could not use. Only falls back
+        # to what survived when the agent said nothing -- taking len(lines) as
+        # the count would erase exactly the discrepancy FR-004 exists to report.
+        # A count below what survived is a malformed claim and is corrected
+        # upward for the same reason.
+        lines_read = _order_int(data.get('lines_read'))
+        if lines_read is None or lines_read < len(lines):
+            lines_read = len(lines)
+
+        return cls(
+            order_number=order_number,
+            order_date=_order_datetime(data.get('order_date')),
+            source_url=_order_string(data.get('source_url')),
             lines=lines,
             lines_read=lines_read,
         )
@@ -1717,13 +1937,48 @@ class OrderCaptureReview:
 
 
 @dataclass(frozen=True)
-class DigiKeyCaptureResult:
-    """What one confirmed DigiKey order capture did.
+class CapturedOrder:
+    """One captured order, as the orders list shows it (029 FR-033).
+
+    Derived from the purchases carrying its number, never stored -- the same
+    invariant an individual order screen rests on. There is no orders table and
+    this feature does not add one: an order *is* its purchases, and a table would
+    be a second place for the truth to live and a way for the two to disagree.
+    """
+    vendor: str
+    order_number: str
+    order_date: Optional[datetime] = None
+    line_count: int = 0
+    outstanding_count: int = 0
+
+    @property
+    def is_complete(self) -> bool:
+        """Whether everything on this order has been received.
+
+        Shown so a finished order is distinguishable at a glance from one still
+        arriving, which is the whole point of the list.
+        """
+        return self.outstanding_count == 0
+
+
+@dataclass(frozen=True)
+class OrderCaptureResult:
+    """What one confirmed order capture did, whoever the vendor was.
 
     Counts rather than objects, plus the purchase ids, because the route needs
     to say what happened and then redirect -- not to render the rows it just
     wrote. The order screen reads them back from the database, which is also the
     proof they landed.
+
+    **This was two types until feature 029.** DigiKey's named the lines its part
+    lookup would not answer for; McMaster's named the lines the *page* did not
+    give up. Those are the same fact -- "these lines came back thin, and they are
+    named rather than counted so the operator knows which records to look over"
+    -- wearing two names, so they are now one field.
+
+    ``orphaned`` and ``renamed_from`` default to empty for vendors that cannot
+    produce them: only McMaster has an order identifier the operator can rename
+    on the vendor's side, and only a re-capture reports orphans.
     """
     purchase_ids: tuple = ()
     products_created: int = 0
@@ -1731,39 +1986,27 @@ class DigiKeyCaptureResult:
     lines_excluded: int = 0
     lines_already_captured: int = 0
     lines_updated: int = 0
-    # DigiKey part numbers whose part lookup failed (FR-041). Named rather than
-    # counted: the operator is told which lines came back thin.
-    lines_unenriched: tuple = ()
-
-
-@dataclass(frozen=True)
-class McMasterCaptureResult:
-    """What one confirmed McMaster order capture did.
-
-    Its own type rather than DigiKey's, for the reason research.md §7 gives
-    about the whole orchestration: the two differ in what they have to report.
-    DigiKey names the lines its part lookup would not answer for; McMaster has
-    no part lookup, and what it has to name instead is the lines the *page* did
-    not give up (FR-037), so the operator still knows which ones came back thin
-    after they have left the review behind.
-    """
-    purchase_ids: tuple = ()
-    products_created: int = 0
-    products_attached: int = 0
-    lines_excluded: int = 0
-    lines_already_captured: int = 0
-    lines_updated: int = 0
-    # Descriptions of the captured lines that were missing a field the page
-    # should have given. Named rather than counted, for the same reason
-    # DigiKey names its unenriched ones.
+    # The captured lines that came back thin -- whatever "thin" means for this
+    # vendor. Named rather than counted.
     lines_incomplete: tuple = ()
-    # Purchases recorded against this order that no line of it claims (FR-016).
+    # Purchases recorded against this order that no line of it claims.
     # Reported, never deleted.
     orphaned: tuple = ()
-    # The Purchase Order string this order was filed under before, when the
-    # operator renamed it on McMaster's side and this capture refiled the rows.
-    # '' when nothing moved.
+    # The order reference this order was filed under before, when the operator
+    # renamed it on the vendor's side and this capture refiled the rows. '' when
+    # nothing moved. McMaster only -- see OrderVendor.adopts_renames.
     renamed_from: str = ''
+
+    @property
+    def lines_unenriched(self) -> tuple:
+        """What DigiKey's half of this used to be called.
+
+        Kept because ``tests/unit/test_digikey_capture.py`` reads it, and that
+        suite is feature 029's regression gate: it says what capture *does*, and
+        it is not edited to accommodate the refactor. A field rename is not a
+        behaviour change, and this is what makes it not become one.
+        """
+        return self.lines_incomplete
 
     @property
     def wrote_anything(self) -> bool:
@@ -1779,3 +2022,11 @@ class McMasterCaptureResult:
             or self.lines_updated > 0
             or bool(self.renamed_from)
         )
+
+
+# The names the two flows used before feature 029 merged them. Kept as aliases
+# rather than renamed at every call site, because `tests/unit/test_mcmaster_
+# routes.py` constructs McMasterCaptureResult by name and that suite is the
+# regression gate for this refactor.
+DigiKeyCaptureResult = OrderCaptureResult
+McMasterCaptureResult = OrderCaptureResult
