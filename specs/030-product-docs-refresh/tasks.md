@@ -114,7 +114,7 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 - [X] T032 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests` as a regression check (SC-009)
 - [X] T033 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s e2e` **detached** and poll — about 13m 45s warm, which outlasts a 10-minute agent bash cap — then confirm `git status` is still clean, since an e2e run must leave the working tree untouched (SC-009, Constitution IV)
 - [X] T034 Read the three commits as a reviewer would: `git log --oneline main..HEAD` shows configuration, vendors, removals, and the removals commit contains deletions plus the T024 sentence and nothing else
-- [ ] T035 Push `030-product-docs-refresh` to origin and open the pull request against `main`, naming issue #124 and listing the nine unread variables removed, the vendor summary added, and the 28 files deleted (FR-027)
+- [X] T035 Push `030-product-docs-refresh` to origin and open the pull request against `main`, naming issue #124 and listing the nine unread variables removed, the vendor summary added, and the 28 files deleted (FR-027)
 
 ---
 
