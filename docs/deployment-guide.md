@@ -57,24 +57,42 @@ unreleased commit.
 
 ### 2. Configure
 
-The container is configured entirely through environment variables -- it does
-not read a `.env` file from inside the image. Put them in a file and pass it
-with `--env-file`:
+The container is configured entirely through environment variables -- there is no
+`.env` file inside the image and it reads none. (`.flaskenv`, which a source
+checkout uses, is not copied into the image either, and `gunicorn` would not read
+it if it were.) Put the variables in a file and pass it with `--env-file`:
 
 ```bash
 # inventory.env
-SECRET_KEY=your-secret-key-here-change-this
+
+# Required
 SQLALCHEMY_DATABASE_URI=mysql+pymysql://user:password@dbhost/workshop_inventory
+SECRET_KEY=your-secret-key-here-change-this
+
+# Optional
 LOG_LEVEL=INFO
 
 # Optional: label printing via a CUPS server on the network
 CUPS_SERVER=cups-host.lan
+
+# Optional: DigiKey order capture and part lookup
+DIGIKEY_CLIENT_ID=your-digikey-client-id-here
+DIGIKEY_CLIENT_SECRET=your-digikey-client-secret-here
+DIGIKEY_ACCOUNT_ID=your-digikey-account-number-here
+
+# Optional: your own category taxonomy instead of the shipped one
+CATEGORY_TAXONOMY_FILE=/etc/workshop-inventory/categories.json
+SPECIFICATION_KEYS_FILE=/etc/workshop-inventory/specification-keys.json
 
 # Optional: Google Sheets export
 GOOGLE_SHEET_ID=your-sheet-id-here
 GOOGLE_CREDENTIALS_FILE=/credentials/credentials.json
 GOOGLE_TOKEN_FILE=/credentials/token.json
 ```
+
+Every variable, what it does, and what happens when you leave it out is in
+[Environment Variables](#1-environment-variables) below. Nothing outside that
+list has any effect.
 
 ### 3. Run Migrations
 
@@ -172,36 +190,91 @@ pip install -r requirements.txt
 ## Configuration
 
 ### 1. Environment Variables
-Create `.env` file in project root:
+
+**This list is the whole configuration surface.** A variable that is not on it
+has no effect, whatever it is named -- the application reads these and nothing
+else. Where a variable is optional, the last column says what you give up by
+leaving it out, so you can decide before you deploy rather than after.
+
+A source deployment reads them from a `.env` file in the repository root; a
+container gets them from `--env-file` (see [Configure](#2-configure) above).
+
+#### Required
+
+| Variable | What it does | Without it |
+|----------|--------------|------------|
+| `SQLALCHEMY_DATABASE_URI` | The MariaDB connection string, e.g. `mysql+pymysql://user:password@localhost/workshop_inventory`. | Nothing works: there is no database. `python manage.py config-check` reports it by name. |
+| `SECRET_KEY` | Signs Flask sessions and CSRF tokens. Generate one -- see [Secret Key Generation](#2-secret-key-generation). | Falls back to `dev-secret-key-change-in-production`, a key published in this repository. Set it. |
+
+#### Optional
+
+| Variable | What it does | Default | Without it |
+|----------|--------------|---------|------------|
+| `LOG_LEVEL` | Log verbosity, written to stdout. | `INFO` | INFO-level logging. |
+| `FLASK_DEBUG` | Debug mode. Leave it off in a deployment. | `False` | Debug off -- which is what you want. See the note on `.flaskenv` below. |
+| `CUPS_SERVER` | Hostname of the CUPS server holding the label printers. Read by the `lp` client, not by the application. | none | In the container, label printing fails: `lp` looks for a local CUPS daemon and the image has none. |
+| `CATEGORY_TAXONOMY_FILE` | Path to your own category list, replacing the shipped one. | the shipped taxonomy | The branches in [category-taxonomy.md](category-taxonomy.md) are offered. See [below](#category-taxonomy-and-specification-vocabulary-optional). |
+| `SPECIFICATION_KEYS_FILE` | Path to your own specification key list. | the shipped keys | The shipped keys are offered. Independent of the variable above. |
+| `GOOGLE_SHEET_ID` | The sheet that data is exported to. | none | Google Sheets export is unavailable. Sheets is export-only and legacy; nothing else is affected. |
+| `GOOGLE_CREDENTIALS_FILE` | Path to the Google API credentials file. | `<repo>/credentials/credentials.json` | The default path is used. |
+| `GOOGLE_TOKEN_FILE` | Path to the Google API token file. | `<repo>/credentials/token.json` | The default path is used. |
+| `DIGIKEY_CLIENT_ID` | DigiKey API client id. | none | *Products → Capture a DigiKey Order* and *Capture a DigiKey Part* both render and say they are not configured. Nothing else in the application changes. See [DigiKey](#digikey-order-capture-and-part-lookup-optional). |
+| `DIGIKEY_CLIENT_SECRET` | DigiKey API client secret. Required whenever the client id is set. | none | DigiKey refuses the credentials and the screen says so. |
+| `DIGIKEY_ACCOUNT_ID` | Your DigiKey customer/account number. Required for **order** capture. | none | Order calls answer `400 Account ID must not be 0`. Part lookup still works. |
+| `DIGIKEY_API_BASE` | Which DigiKey API to talk to. | `https://api.digikey.com` | The production API. Set `https://sandbox-api.digikey.com` to work against the sandbox. |
+
+#### A source checkout also reads `.flaskenv`
+
+`.flaskenv` is committed to the repository and read by the `flask` command --
+not by `gunicorn`, and it is not copied into the Docker image. It supplies four
+values for local development:
+
 ```bash
-# Flask Configuration
-FLASK_APP=app.py
-FLASK_ENV=production
-SECRET_KEY=your-secret-key-here-change-this
-
-# Storage Backend Configuration
-STORAGE_BACKEND=mariadb  # MariaDB is the primary storage backend
-
-# MariaDB Configuration (Production)
-SQLALCHEMY_DATABASE_URI=mysql+pymysql://user:password@localhost/workshop_inventory
-SQLALCHEMY_TRACK_MODIFICATIONS=False
-
-# Google Sheets Configuration (Export Only)
-GOOGLE_SHEET_ID=your-sheet-id-here  # Only needed for export functionality
-GOOGLE_CREDENTIALS_PATH=credentials/service_account.json
-GOOGLE_TOKEN_PATH=credentials/token.json
-
-# Logging Configuration
-LOG_LEVEL=INFO
-
-# Application Settings
-APP_NAME=Workshop Inventory Tracking
-APP_VERSION=1.0.0
-
-# Performance Settings
-CACHE_TTL=300
-BATCH_SIZE=100
+FLASK_APP=wsgi.py          # already correct; do not set it yourself
+FLASK_DEBUG=1              # so `flask run` from a checkout runs WITH debug on
+FLASK_RUN_HOST=127.0.0.1   # loopback only -- not reachable from the rest of the LAN
+FLASK_RUN_PORT=5000
 ```
+
+Two of those matter when you run from source rather than in a container:
+`flask run` gives you a debug-mode server, and it binds to loopback, so nothing
+else on the network can reach it until you override `FLASK_RUN_HOST`. A
+production deployment runs `gunicorn` (as the image does) and gets neither.
+
+Test-database settings (`TEST_DB_HOST` and friends) are not deployment
+configuration; they belong to the test suite and are documented in the
+[Development Testing Guide](development-testing-guide.md).
+
+#### DigiKey order capture and part lookup (optional)
+
+Leaving `DIGIKEY_CLIENT_ID` unset disables the two DigiKey screens cleanly --
+they still render, and they say they are not configured. Everything else in the
+application, including Amazon and McMaster-Carr capture, is unaffected. To turn
+them on:
+
+1. Sign in at <https://developer.digikey.com> and create a **Production App**.
+2. Subscribe it to **Product Information** and **Order Status**. Do *not*
+   subscribe to **Ordering** -- this application never places orders, and that
+   product requires a DigiKey Credit account.
+3. The portal demands an OAuth callback URL. Use `https://localhost`: it must be
+   HTTPS, and 2-legged authentication never redirects a browser, so it is unused.
+4. Find your DigiKey customer/account number on any order confirmation or
+   invoice. This is `DIGIKEY_ACCOUNT_ID`. It is not a credential, but it is
+   required for order capture: a 2-legged token identifies the *application*
+   rather than the customer, so without this header every order call answers
+   `400 Account ID must not be 0`.
+
+```bash
+DIGIKEY_CLIENT_ID=your-digikey-client-id-here
+DIGIKEY_CLIENT_SECRET=your-digikey-client-secret-here
+DIGIKEY_ACCOUNT_ID=your-digikey-account-number-here
+# Override to https://sandbox-api.digikey.com to work against the sandbox.
+DIGIKEY_API_BASE=https://api.digikey.com
+```
+
+Keep the client secret out of version control -- `.env` is untracked, and it
+should stay that way. What each vendor's capture gives you is in the user
+manual's [Which Vendors Are Supported](user-manual.md#which-vendors-are-supported).
 
 #### Category taxonomy and specification vocabulary (optional)
 
@@ -283,11 +356,13 @@ Verify configuration settings:
    python manage.py db init
    ```
 
-4. **Update Environment Variables**:
+4. **Point the application at it**:
    ```bash
-   STORAGE_BACKEND=mariadb
    SQLALCHEMY_DATABASE_URI=mysql+pymysql://inventory_user:your_secure_password@localhost/workshop_inventory
    ```
+
+   That is the only variable involved. MariaDB is the sole storage backend --
+   there is nothing to select.
 
 ## Database Management
 

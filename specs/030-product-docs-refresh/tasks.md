@@ -31,7 +31,7 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 
 **Purpose**: Somewhere to put the work
 
-- [ ] T001 Create branch `030-product-docs-refresh` from `main` and confirm a clean working tree with `git status --short`
+- [X] T001 Create branch `030-product-docs-refresh` from `main` and confirm a clean working tree with `git status --short`
 
 ---
 
@@ -41,8 +41,8 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 
 **⚠️ CRITICAL**: No user story work begins until T002 and T003 pass.
 
-- [ ] T002 Re-run the both-directions configuration comparison from `specs/030-product-docs-refresh/quickstart.md` §1 and confirm the read-set is exactly the seventeen deployment variables plus `HTTP_X_FORWARDED_PORT` and the five `TEST_DB_*`; if it differs, update `contracts/configuration-reference.md` and `research.md` §1 before proceeding
-- [ ] T003 [P] Re-confirm the vendor registry still holds exactly three vendors by checking `order_vendors.register(` call sites in `app/catalog_service.py` and the `pageKind` branches in `app/static/js/capture-agent.js`; if a fourth exists, update `contracts/vendor-capability-matrix.md` and `research.md` §2 before proceeding
+- [X] T002 Re-run the both-directions configuration comparison from `specs/030-product-docs-refresh/quickstart.md` §1 and confirm the read-set is exactly the seventeen deployment variables plus `HTTP_X_FORWARDED_PORT` and the five `TEST_DB_*`; if it differs, update `contracts/configuration-reference.md` and `research.md` §1 before proceeding
+- [X] T003 [P] Re-confirm the vendor registry still holds exactly three vendors by checking `order_vendors.register(` call sites in `app/catalog_service.py` and the `pageKind` branches in `app/static/js/capture-agent.js`; if a fourth exists, update `contracts/vendor-capability-matrix.md` and `research.md` §2 before proceeding
 
 **Checkpoint**: The contracts describe the application as it is today. Story work can begin.
 
@@ -54,17 +54,17 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 
 **Independent test**: Run quickstart §1 and §2. The documented set and the read set match in both directions; the four questions in §2 are answerable from the guide without opening `config.py`.
 
-- [ ] T004 [US1] Replace the environment-variable block in `docs/deployment-guide.md` (the "1. Environment Variables" subsection, currently lines 174-205) with the full reference from `contracts/configuration-reference.md`: all seventeen variables, each stating what it does, required-or-optional, its default, and what is absent or fails when unset (FR-018, FR-020). Delete `FLASK_ENV`, `STORAGE_BACKEND`, `SQLALCHEMY_TRACK_MODIFICATIONS`, `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_TOKEN_PATH`, `APP_NAME`, `APP_VERSION`, `CACHE_TTL` and `BATCH_SIZE` outright (FR-019)
-- [ ] T005 [US1] Add a DigiKey subsection to the Configuration section of `docs/deployment-guide.md` carrying the four setup steps from `contracts/configuration-reference.md` — Production App, the Product Information and Order Status subscriptions (never Ordering), the `https://localhost` callback, and where the account number comes from — plus what is absent when the variables are unset: both DigiKey screens render and say they are not configured, and nothing else changes (FR-021). Placeholders only, never a credential value
-- [ ] T006 [US1] Reconcile the Docker `inventory.env` example in `docs/deployment-guide.md` (lines 64-78) with the new reference: add the DigiKey four and the taxonomy pair, keep `CUPS_SERVER`, and state that the image contains no `.env` and reads none (FR-023)
-- [ ] T007 [US1] State in the from-source part of `docs/deployment-guide.md` that values come from `.env` at the repository root, and that the committed `.flaskenv` already supplies `FLASK_APP=wsgi.py`, `FLASK_DEBUG=1`, `FLASK_RUN_HOST` and `FLASK_RUN_PORT` for `flask run` — so a source checkout runs with debug **on** — while gunicorn reads none of it and the file is not copied into the image (FR-023, research.md §1a)
-- [ ] T008 [US1] Correct the `FLASK_APP=app.py` line in `docs/deployment-guide.md` to match the repository's own `.flaskenv` value `wsgi.py`, or drop it as already-set (contracts/configuration-reference.md, "The set that must be removed")
-- [ ] T009 [US1] Move the `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD` and `TEST_DB_NAME` settings with their defaults into `docs/development-testing-guide.md`, and ensure they appear nowhere in `docs/deployment-guide.md` as deployment settings (FR-022)
-- [ ] T010 [US1] Replace `export FLASK_APP=app.py` and `export FLASK_ENV=development` in `docs/development-testing-guide.md` (lines 422-424) — `.flaskenv` already sets `FLASK_APP=wsgi.py`, and `FLASK_ENV` has had no effect since Flask 2.3 while this project pins 3.1.3 (plan.md, Deviations)
-- [ ] T011 [P] [US1] Update `.env.example` to cover the same set the from-source deployment documents — it is currently missing `SQLALCHEMY_DATABASE_URI` entirely — or state in it which variables it deliberately omits (FR-024)
-- [ ] T012 [US1] Update the Table of Contents in `docs/deployment-guide.md` (lines 3-40) for any subsection added or renamed by T004-T009
-- [ ] T013 [US1] Confirm `DISABLE_LABEL_PRINTING` appears nowhere in `docs/deployment-guide.md` or `.env.example` as an environment variable; it is honored in code and set from no environment (FR-026, research.md §5)
-- [ ] T014 [US1] Run the quickstart §1 checks and the §2 reading, and fix what they surface (SC-001, SC-002, SC-003)
+- [X] T004 [US1] Replace the environment-variable block in `docs/deployment-guide.md` (the "1. Environment Variables" subsection, currently lines 174-205) with the full reference from `contracts/configuration-reference.md`: all seventeen variables, each stating what it does, required-or-optional, its default, and what is absent or fails when unset (FR-018, FR-020). Delete `FLASK_ENV`, `STORAGE_BACKEND`, `SQLALCHEMY_TRACK_MODIFICATIONS`, `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_TOKEN_PATH`, `APP_NAME`, `APP_VERSION`, `CACHE_TTL` and `BATCH_SIZE` outright (FR-019)
+- [X] T005 [US1] Add a DigiKey subsection to the Configuration section of `docs/deployment-guide.md` carrying the four setup steps from `contracts/configuration-reference.md` — Production App, the Product Information and Order Status subscriptions (never Ordering), the `https://localhost` callback, and where the account number comes from — plus what is absent when the variables are unset: both DigiKey screens render and say they are not configured, and nothing else changes (FR-021). Placeholders only, never a credential value
+- [X] T006 [US1] Reconcile the Docker `inventory.env` example in `docs/deployment-guide.md` (lines 64-78) with the new reference: add the DigiKey four and the taxonomy pair, keep `CUPS_SERVER`, and state that the image contains no `.env` and reads none (FR-023)
+- [X] T007 [US1] State in the from-source part of `docs/deployment-guide.md` that values come from `.env` at the repository root, and that the committed `.flaskenv` already supplies `FLASK_APP=wsgi.py`, `FLASK_DEBUG=1`, `FLASK_RUN_HOST` and `FLASK_RUN_PORT` for `flask run` — so a source checkout runs with debug **on** — while gunicorn reads none of it and the file is not copied into the image (FR-023, research.md §1a)
+- [X] T008 [US1] Correct the `FLASK_APP=app.py` line in `docs/deployment-guide.md` to match the repository's own `.flaskenv` value `wsgi.py`, or drop it as already-set (contracts/configuration-reference.md, "The set that must be removed")
+- [X] T009 [US1] Move the `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD` and `TEST_DB_NAME` settings with their defaults into `docs/development-testing-guide.md`, and ensure they appear nowhere in `docs/deployment-guide.md` as deployment settings (FR-022)
+- [X] T010 [US1] Replace `export FLASK_APP=app.py` and `export FLASK_ENV=development` in `docs/development-testing-guide.md` (lines 422-424) — `.flaskenv` already sets `FLASK_APP=wsgi.py`, and `FLASK_ENV` has had no effect since Flask 2.3 while this project pins 3.1.3 (plan.md, Deviations)
+- [X] T011 [P] [US1] Update `.env.example` to cover the same set the from-source deployment documents — it is currently missing `SQLALCHEMY_DATABASE_URI` entirely — or state in it which variables it deliberately omits (FR-024)
+- [X] T012 [US1] Update the Table of Contents in `docs/deployment-guide.md` (lines 3-40) for any subsection added or renamed by T004-T009
+- [X] T013 [US1] Confirm `DISABLE_LABEL_PRINTING` appears nowhere in `docs/deployment-guide.md` or `.env.example` as an environment variable; it is honored in code and set from no environment (FR-026, research.md §5)
+- [X] T014 [US1] Run the quickstart §1 checks and the §2 reading, and fix what they surface (SC-001, SC-002, SC-003)
 - [ ] T015 [US1] Commit the configuration work with a message naming what was removed as unread and what was added for DigiKey
 
 **Checkpoint**: US1 is deliverable on its own. A deployment configured from the guide now gets DigiKey, and no setting in the guide is inert.
