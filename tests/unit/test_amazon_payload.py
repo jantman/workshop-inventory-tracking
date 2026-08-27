@@ -70,10 +70,12 @@ class TestAnOrderIsRead:
 
 class TestQuantity:
     def test_an_absent_quantity_is_one_not_missing(self):
-        """Amazon renders the quantity component empty for a quantity of one.
+        """Amazon omits the quantity badge entirely for a quantity of one.
 
-        So "no digits" is a value, not a failure -- which is why quantity never
-        appears in ``missing_fields``.
+        So an absent quantity is a value, not a failure -- which is why quantity
+        never appears in ``missing_fields``. Reading the badge is the agent's
+        job (see ``amazonQuantity``); what this asserts is that the payload
+        treats its absence as 1 rather than as unknown.
         """
         order = AmazonOrder.from_payload(build(lines=[
             {'asin': 'B0TESTAAA1', 'title': 'A thing', 'unit_price': '1.00'},

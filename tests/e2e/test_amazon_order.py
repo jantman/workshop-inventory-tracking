@@ -140,13 +140,31 @@ def test_the_price_is_read_without_its_screen_reader_twin(page, live_server, ima
 
 
 @pytest.mark.e2e
-def test_an_empty_quantity_component_reads_as_one(page, live_server, image_host):
-    """Amazon renders it empty for a quantity of one (research.md §6)."""
+def test_a_multi_quantity_line_is_read_from_its_badge(page, live_server, image_host):
+    """The quantity is a badge over the image, in the row's **left** grid.
+
+    `[data-component="quantity"]` is on every row and is always empty -- even on
+    a line of four -- so a reader that keys on it records every multi-quantity
+    line as a single item, silently. This is the test that would have caught
+    that; the fixture's row 2 is a quantity of 4 and the rest are 1, which is how
+    a real order with one multi-quantity line renders (research.md §6).
+    """
     review = capture_order(page, live_server, image_host)
 
     quantities = [ln["quantity"] for ln in payload_of(review)["lines"]]
 
-    assert quantities == [1, 1, 1, 1]
+    assert quantities == [1, 4, 1, 1]
+
+
+@pytest.mark.e2e
+def test_a_line_with_no_badge_reads_as_one(page, live_server, image_host):
+    """Amazon omits the badge entirely for a quantity of one."""
+    review = capture_order(page, live_server, image_host)
+
+    lines = payload_of(review)["lines"]
+
+    assert lines[0]["quantity"] == 1
+    assert lines[3]["quantity"] == 1
 
 
 @pytest.mark.e2e

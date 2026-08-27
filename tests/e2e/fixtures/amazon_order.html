@@ -26,14 +26,18 @@
     and once in an `aria-hidden` span for sight. `innerText` on the component
     therefore yields "$9.99 $9.99". Read `.a-offscreen`.
 
-  * **An empty quantity component means 1.** Amazon renders
-    `<span class="a-size-small"></span>` with no text when the quantity is one.
-    Every row here is quantity 1, because that is the only rendering that was
-    confirmed against the live site -- no order in the ten most recent contained
-    a line with a quantity above 1 (research.md §6). The digits-or-1 parser is
-    unit-tested directly in tests/unit/test_amazon_payload.py rather than
-    guessed at here; baking an unverified shape into a fixture would be testing
-    our guess rather than Amazon.
+  * **The quantity is a badge over the image, not `data-component="quantity"`.**
+    That component is on every row and is **always empty** -- even on a line of
+    four. The real value is `<div class="od-item-view-qty"><span>4</span></div>`
+    in the row's **left** grid, and Amazon omits it entirely for a quantity of
+    one. Row 2 below carries it; the rest do not, which is exactly how a real
+    order with one multi-quantity line renders.
+
+    This fixture originally had every row at quantity 1 on the strength of a
+    sample that happened to contain no multi-quantity line, and the reader keyed
+    on the empty component. That would have recorded every line of four as a
+    line of one, silently. Confirmed against two live orders on 2026-08-27
+    (research.md §6).
 
   * **The recommendation markup below is load-bearing and must not be trimmed.**
     The live page carried ~26 `/dp/` links across ~9 distinct ASINs for a
@@ -104,6 +108,10 @@
                 <div class="a-fixed-left-grid-col a-col-left">
                   <div data-component="itemImage">
                     <a href="/dp/B0TESTAAA2/ref=ppx_yo_dt_b_asin_image"><img src="__IMAGE_HOST__/sample2.jpg" alt=""></a>
+                    <!-- The quantity, and the only place it appears. Amazon
+                         renders this badge over the image in the LEFT grid, and
+                         omits it entirely for a quantity of one. -->
+                    <div class="od-item-view-qty"><span>4</span></div>
                   </div>
                 </div>
               </div>

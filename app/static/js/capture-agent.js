@@ -1260,22 +1260,42 @@
     /**
      * The quantity for one row.
      *
-     * **An empty quantity component means 1.** Amazon renders
-     * `<span class="a-size-small"></span>` with no text when the quantity is
-     * one, which is the only rendering confirmed against the live site -- no
-     * order in the ten most recent had a line above 1 (029 research.md §6).
+     * **Not `[data-component="quantity"]`** -- that component exists on every
+     * row and is *always empty*, even on a line of four. Reading it and treating
+     * empty as 1 records every multi-quantity line as a single item, silently,
+     * and the operator would only find out during a reconciliation.
      *
-     * So: any digits found win, and no digits means 1. That is correct for the
-     * confirmed case and the safe failure for the other, because the quantity is
-     * shown on the review and is editable before anything is written.
+     * The real quantity is a badge over the product image:
+     * `<div class="od-item-view-qty"><span>4</span></div>`, and it sits in the
+     * row's **left** grid beside the image, not in `purchasedItemsRightGrid`.
+     * Amazon omits it entirely for a quantity of one. The order-history page
+     * renders the same badge under a different class, `product-image__qty`, so
+     * both are accepted.
+     *
+     * Confirmed against two live orders on 2026-08-27, one of quantity 2 and one
+     * of quantity 4, with the order subtotal corroborating each (029 research.md
+     * §6). An earlier reading of this function assumed the `quantity` component
+     * held it, on a sample that happened to contain only single-item lines.
      *
      * @param {Element} row - one AMAZON_ROW element.
-     * @returns {number} the quantity, defaulting to 1.
+     * @returns {number} the quantity, defaulting to 1 when no badge is shown.
      */
     function amazonQuantity(row) {
+        const scope = row.closest('.a-fixed-left-grid') || row;
+        const badge = scope.querySelector('.od-item-view-qty, .product-image__qty');
+        if (badge) {
+            const match = textOf(badge).match(/(\d+)/);
+            if (match) {
+                return parseInt(match[1], 10);
+            }
+        }
+
+        // The component Amazon leaves empty today. Read anyway, and last: if
+        // they ever start filling it in, this picks the value up rather than
+        // going on ignoring it.
         const cell = row.querySelector('[data-component="quantity"]');
-        const match = cell ? textOf(cell).match(/(\d+)/) : null;
-        return match ? parseInt(match[1], 10) : 1;
+        const fallback = cell ? textOf(cell).match(/(\d+)/) : null;
+        return fallback ? parseInt(fallback[1], 10) : 1;
     }
 
     /**

@@ -101,6 +101,7 @@ design:
 | Is the price readable as text? | Only via `.a-offscreen` — the visible span has an `aria-hidden` twin, so `innerText` yields `"$9.99 $9.99"` |
 | Does Amazon state a unit price? | **Yes** — which disproved a spec assumption and made Amazon *simpler* than McMaster: no pack arithmetic at all |
 | Does Amazon number its lines? | **No.** Position is the only line identity available |
+| Where is the quantity? | A badge over the image in the **left** grid, `.od-item-view-qty`. `[data-component="quantity"]` is always empty — see T005 below |
 
 Two consequences the plan did not anticipate:
 
@@ -133,7 +134,8 @@ merged order screen.
 ## Part B — the manual walk (T059), for the operator
 
 Everything below needs a real signed-in browser and real boxes, so none of it can
-be automated. `quickstart.md` has the full script.
+be automated. `quickstart.md` has the full script. The one open input recorded
+here previously (T005) is **closed** — see below.
 
 - [ ] Capture a real multi-line Amazon order from `/your-orders/order-details`
       with the bookmarklet. Confirm the review lists **exactly** the ordered
@@ -148,27 +150,43 @@ be automated. `quickstart.md` has the full script.
 - [ ] Open `/products/orders` with all three outstanding and confirm each shows
       its vendor, number, date and outstanding count.
 
-### The one open input (T005)
+### T005 — closed, and it was a defect rather than an unknown
 
-**Deferred, not closed.** How a quantity **greater than 1** renders in
-`[data-component="quantity"]` is still unverified: no order in the ten most recent
-contained such a line, and trawling further back through the operator's order
-history was judged disproportionate to what it would settle.
+**Closed 2026-08-27.** This was previously recorded here as "deferred, safe to
+ship". That was wrong twice over, and the correction is worth keeping.
 
-**Why this is safe to ship:**
+**What was claimed**: that `[data-component="quantity"]` holds the quantity and
+renders empty for a quantity of one, and that no order in the ten most recent had
+a line above one, so the >1 rendering could not be confirmed.
 
-* The confirmed rendering — empty means 1 — is implemented and tested.
-* The reader takes any digits it finds and falls back to 1, which is correct for
-  the confirmed case and the safe failure for the other.
-* **It cannot corrupt anything.** The quantity is shown on the review and is
-  editable there, before any row is written.
+**What is true**: `[data-component="quantity"]` is present on every row and is
+**always empty** — including on a line of four. The quantity is a badge over the
+product image, `<div class="od-item-view-qty"><span>4</span></div>`, sitting in
+`purchasedItemsLeftGrid` — the *other* grid from the one the reader was scoped to.
+And two of the ten orders on the first page did have multi-quantity lines all
+along.
 
-**To close it**: open any order containing a line with quantity ≥ 2 and run
+**So this was not a gap in coverage; it was a live defect.** The shipped reader
+would have recorded **every multi-quantity line as a single item, silently**,
+with a plausible-looking review showing "1" and nothing to suggest otherwise. The
+operator would have discovered it during a stock reconciliation, or not at all.
+It is exactly the class of failure Constitution I says cannot be absorbed.
 
-```js
-[...document.querySelectorAll('[data-component="purchasedItemsRightGrid"]')]
-  .map(r => JSON.stringify((r.querySelector('[data-component="quantity"]')||{}).innerText))
-```
+**How the wrong conclusion was reached**, since that is the reusable part: nine
+of the ten orders were never opened. The check that produced "no order has one"
+ran against the order-*history* page, which does not render per-line quantities
+in the form that check looked for. The claim was stated with the confidence of a
+survey and the evidence of two samples — and it took the operator saying "that's
+wrong, I have two such orders" to reopen it. Believing that correction
+immediately, rather than re-verifying it, would have found the defect several
+steps sooner.
 
-then record the shape in research.md §6 and, if it differs from "digits somewhere
-in the element", adjust `amazonQuantity` in `app/static/js/capture-agent.js`.
+**Now confirmed** against two live orders, with the subtotal corroborating each:
+a quantity of 2 at $5.47 against a $10.94 subtotal, and a quantity of 4 at
+$14.99. The order-history page renders the same badge as `product-image__qty`, so
+both classes are accepted.
+
+**Covered by**: `test_a_multi_quantity_line_is_read_from_its_badge` and
+`test_a_line_with_no_badge_reads_as_one` in `tests/e2e/test_amazon_order.py`,
+against a fixture whose row 2 now carries the real badge markup in the real
+place. A reader scoped to the right grid, as the original was, fails both.

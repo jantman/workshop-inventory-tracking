@@ -71,7 +71,7 @@ has 4 lines". A value below `len(lines)` is a malformed claim and is corrected u
 | Row | `[data-component="purchasedItemsRightGrid"]` — **not** `purchasedItems`, which is a group of rows |
 | `asin` | `/dp/<ASIN>` links **within the row's enclosing `.a-fixed-left-grid`**, deduplicated |
 | `title` | `[data-component="itemTitle"]` within the row |
-| `quantity` | `[data-component="quantity"]` within the row; **empty means 1** |
+| `quantity` | `.od-item-view-qty` (or `.product-image__qty`) within the row's enclosing `.a-fixed-left-grid` — a badge over the image, in the **left** grid. Absent means 1. **Not `[data-component="quantity"]`**, which is present on every row and always empty, even at quantity 4 |
 | `unit_price` | `[data-component="unitPrice"] .a-offscreen` within the row — the visible span is duplicated by an `aria-hidden` twin, so `innerText` yields `"$9.99 $9.99"` |
 | `line_number` | 1-based index of the row in document order |
 | `order_number` | `[data-component="orderId"]` |

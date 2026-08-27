@@ -130,32 +130,52 @@ corrected by this research; nothing else in the spec depends on it, and it makes
 capture *simpler* than the McMaster one rather than harder — there is no pack arithmetic here
 at all.
 
-### §6. Quantity — the one rule that is not fully confirmed
+### §6. Quantity — the badge over the image, not the component
 
-`[data-component="quantity"]` exists on every row and **renders empty when the quantity is 1** —
-literally `<span class="a-size-small"></span>` with no text.
+**Decision**: the quantity is `.od-item-view-qty` in the row's **left** grid,
+beside the image. Amazon omits it entirely for a quantity of one.
 
-**Decision**: an empty quantity component means 1.
+**This section originally said the opposite, and it was wrong.** The first
+reading concluded that `[data-component="quantity"]` held the quantity and
+rendered empty for one, and recorded the >1 case as unconfirmed on the grounds
+that no order in the sample had such a line. Both halves were mistaken:
 
-**What is confirmed**: the empty-means-one rendering, on every row of every order sampled.
+* The sample **did** contain multi-quantity lines — two of them, on the first
+  page of order history. They were missed because the check ran against the
+  order-*history* page, which does not render per-line quantities in a form that
+  check looked for, and only two order-*detail* pages were actually opened.
+* `[data-component="quantity"]` is on every row and is **always empty** — even on
+  a line of four. It is not "empty means one"; it is empty, full stop.
 
-**What is not**: how a quantity **greater than 1** renders — whether as a bare `2`, as `Qty: 2`,
-or somewhere other than this component. **No order in the ten most recent contained a line with
-quantity above 1**, and trawling further back through the operator's order history to manufacture
-an example was judged disproportionate to what it would settle.
+So the original rule would have recorded **every multi-quantity line as a single
+item, silently**, with nothing on the review to show for it. That is a
+data-integrity defect, not a cosmetic one: the operator would have found out
+during a stock reconciliation months later, if at all.
 
-**How this is bounded** rather than left as a hole:
+**Confirmed on 2026-08-27** against two live orders, with the order subtotal
+corroborating each:
 
-* It is one implementation task (`T00x`), closed by opening one real order that has a
-  multi-quantity line and reading that component — a minute's work when such an order exists.
-* Until it is closed, the reader takes any digits it finds in the component and falls back to 1
-  when it finds none. That is correct for the confirmed case and is the safe failure for the
-  other: a quantity read as 1 when it was 3 is **visible on the review before anything is
-  written** (FR-003), and the review's quantity field is editable (FR-016's sibling behaviour).
-* It is a per-field failure, so per FR-021 it cannot cost anything else.
+| Order | Badge | Unit price | Subtotal | Checks out |
+|---|---|---|---|---|
+| a two-item line | `<div class="od-item-view-qty"><span>2</span></div>` | $5.47 | $10.94 | 2 × 5.47 ✓ |
+| a four-item line | `<div class="od-item-view-qty"><span>4</span></div>` | $14.99 | — | ✓ |
 
-This is deliberately *not* modelled as a blocking unknown. It cannot corrupt data, because
-nothing is written until the operator has looked at the number.
+**The two pages use different classes for the same badge.** The order-history
+page renders `product-image__qty`; the order-details page renders
+`od-item-view-qty`. The reader accepts both, because the cost is one selector and
+the cost of being wrong is the defect above.
+
+**Where it sits is the part that made this easy to miss.** The badge is in
+`purchasedItemsLeftGrid`, next to the image — *not* in
+`purchasedItemsRightGrid`, which holds the title, the price and the empty
+`quantity` component. A reader scoped to the row's right grid, as the first one
+was, cannot see it at all. This is why the reader scopes to the enclosing
+`.a-fixed-left-grid`, the same scope the ASIN lookup already used.
+
+**What this cost, recorded because it is the lesson**: the earlier conclusion was
+stated with more confidence than a two-page sample supported, and it took the
+operator saying "that's wrong, I have two such orders" to reopen it. The evidence
+for "no order has one" was never there — nine of the ten had never been opened.
 
 ### §7. Amazon numbers nothing, so line identity is positional
 
@@ -343,7 +363,7 @@ introduced.
 
 | # | Risk | Bound |
 |---|---|---|
-| R1 | The qty>1 rendering is unconfirmed (§6) | One task; safe failure; visible on the review before any write |
+| R1 | ~~The qty>1 rendering is unconfirmed~~ **Closed 2026-08-27** (§6) | Confirmed against two live orders. The first reading was wrong and would have recorded every multi-quantity line as one; the reader now keys on the badge |
 | R2 | The refactor changes shipped DigiKey/McMaster behaviour | The existing suites are the gate and must pass **unedited** (§14) |
 | R3 | Amazon's markup changes | Per-field independence (FR-021) + the loss is stated (FR-022). Lower exposure than McMaster's hashed classes (§3) |
 | R4 | Recommendation ASINs read as order lines | Row-scoped extraction, and a fixture that keeps the recommendation markup (§4, §14) |

@@ -46,7 +46,7 @@ phase blocks Phase 3 only — **Phase 2 does not depend on it**, so the two run 
 - [X] T002 [P] Verify `tests/e2e/fixtures/amazon_order.html` retains realistic recommendation markup — a 4-line order page carries ~26 `/dp/` links across ~9 ASINs, and a stripped fixture stops catching the trap in research.md §4
 - [X] T003 [P] Derive `tests/e2e/fixtures/amazon_order_unreadable.html` — a page from which no row can be read, for FR-023
 - [X] T004 [P] Derive `tests/e2e/fixtures/amazon_order_partial.html` — one row missing its ASIN, one with an unparseable price, for FR-019 and FR-021
-- [ ] T005 [P] **DEFERRED — no qualifying order exists.** Close the one open input: read `[data-component="quantity"]` on a real order containing a line with quantity ≥ 2 and record the rendering in `specs/029-whole-order-capture/research.md` §6
+- [X] T005 [P] **CLOSED 2026-08-27 — and it was a defect, not an unknown.** Close the one open input: read `[data-component="quantity"]` on a real order containing a line with quantity ≥ 2 and record the rendering in `specs/029-whole-order-capture/research.md` §6
 
 **On T005**: no order in the ten most recent had such a line. **If no such order exists yet, this
 task is deferred, not blocking** — the reader takes any digits it finds and falls back to 1,
