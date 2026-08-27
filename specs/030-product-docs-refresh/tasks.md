@@ -65,7 +65,7 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 - [X] T012 [US1] Update the Table of Contents in `docs/deployment-guide.md` (lines 3-40) for any subsection added or renamed by T004-T009
 - [X] T013 [US1] Confirm `DISABLE_LABEL_PRINTING` appears nowhere in `docs/deployment-guide.md` or `.env.example` as an environment variable; it is honored in code and set from no environment (FR-026, research.md §5)
 - [X] T014 [US1] Run the quickstart §1 checks and the §2 reading, and fix what they surface (SC-001, SC-002, SC-003)
-- [ ] T015 [US1] Commit the configuration work with a message naming what was removed as unread and what was added for DigiKey
+- [X] T015 [US1] Commit the configuration work with a message naming what was removed as unread and what was added for DigiKey
 
 **Checkpoint**: US1 is deliverable on its own. A deployment configured from the guide now gets DigiKey, and no setting in the guide is inert.
 
@@ -101,7 +101,7 @@ Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository r
 - [X] T026 [P] [US3] `git rm docs/spec-product-catalog.md` — the input `specs/001-product-catalog/spec.md` was written from and duplicates (FR-003)
 - [X] T027 [P] [US3] `git rm -r docs/features/` — all 28 files: the instructional `README.md` for a workflow Spec Kit replaced, `TEMPLATE.md`, and 26 completed feature documents under `complete/` (FR-004)
 - [X] T028 [US3] Run the quickstart §4 link audit and confirm no tracked file outside `specs/` references any removed path; leave every reference under `specs/` alone, dangling and correct as a frozen record (FR-005, FR-006, SC-007)
-- [ ] T029 [US3] Commit the removals and the T024 carry-over as one commit containing nothing else, so it reverts on its own (FR-008)
+- [X] T029 [US3] Commit the removals and the T024 carry-over as one commit containing nothing else, so it reverts on its own (FR-008)
 
 **Checkpoint**: All three stories delivered.
 
