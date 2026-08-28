@@ -21,7 +21,7 @@ description: "Task list for 030-product-docs-refresh"
 
 ## Path Conventions
 
-Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository root. No task touches `app/`, `tests/` or `migrations/` — that is checkable as SC-008 in T024.
+Documentation only: `README.md`, `.env.example`, `docs/*.md` at the repository root. No task touches `app/`, `tests/` or `migrations/` — that is checkable as SC-008 in T031.
 
 **The two contracts are the source of every claim written below.** Do not re-derive facts from the documents being edited; they are what is wrong. `contracts/configuration-reference.md` is the authority for US1, `contracts/vendor-capability-matrix.md` for US2, and `research.md` carries the file:line each fact was read from.
 

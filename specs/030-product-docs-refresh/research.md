@@ -76,7 +76,9 @@ The spec's requirements are almost all of the form "the documentation must agree
 
 ### The distinction that must not be blurred
 
-Mouser, eBay and AliExpress appear in the host table and nowhere else. They get a tidier vendor *name* than the bare host and no reading of any kind. Calling them "supported vendors" without that qualifier would be the single most misleading sentence this feature could write, which is why spec FR-013 exists and why the contract table gives them their own row group.
+Mouser, eBay and AliExpress appear in the host table and nowhere else. Being on it buys them a tidier vendor *name* than the bare host, and nothing else: no reader is written for their markup, so the bookmarklet falls through to the general reader on their pages exactly as it does on a site that is not listed at all (`app/static/js/capture-agent.js:1720-1727`). The paste-a-URL path reads no page for anybody.
+
+**The claim to avoid is "no reading of any kind"** -- an earlier draft of the manual said exactly that, and it is wrong: the general reader does run. What is true is that nothing was written *for them*. Calling them "supported vendors" is wrong in the other direction. Spec FR-013 exists for this sentence, and the contract table gives them their own row group.
 
 **Alternatives considered for where the summary lives**: a new `docs/vendor-support.md`. Rejected — a reader asking "can I capture this?" is already in the user manual, and a fifth document to keep in step with the code is the cost. It goes at the head of the catalog part of the manual, before the per-vendor sections it summarizes.
 
@@ -92,7 +94,7 @@ Mouser, eBay and AliExpress appear in the host table and nowhere else. They get 
 | `deployment-guide.md` | Keep, edit | Current deployment reference. |
 | `development-testing-guide.md` | Keep, one-line edit | Current development reference. |
 | `materials-taxonomy-design.md` | Keep | Describes the three-level `MaterialTaxonomy` design the application still implements (`app/database.py`, used at `app/mariadb_materials_admin_service.py:61-68`). Old (last touched 2025-09-28) but not wrong. |
-| `troubleshooting-guide.md` | Keep, edit | Current diagnostic reference. |
+| `troubleshooting-guide.md` | Keep, unchanged | Current diagnostic reference. Expected to need a vendor correction; it makes no vendor claim, so it did not. |
 | `user-manual.md` | Keep, edit | Current behavior reference. |
 | `product-functionality-gap.md` | **Remove** | A list of what an abandoned branch planned; over half of it is now struck through as built, and the largest remaining item — capture not reading the price — was closed with issue #56. |
 | `spec-product-catalog.md` | **Remove** | The input document `specs/001-product-catalog/spec.md` was written from and duplicates (that spec's own header cites it). |

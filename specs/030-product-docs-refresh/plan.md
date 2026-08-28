@@ -38,7 +38,7 @@ No application code changes. The whole feature is Markdown.
 - No screenshot regeneration: `nox -s screenshots` churns unrelated images, and no template, CSS or JS changes here, so the constitution's screenshot gate is not triggered.
 - Verified in Phase 0: `tests/e2e/screenshot_config.yaml` names only surviving documents in its `used_in` entries, so removals leave it accurate.
 
-**Scale/Scope**: 28 files deleted; 4 files edited (`README.md`, `docs/deployment-guide.md`, `docs/user-manual.md`, `docs/troubleshooting-guide.md`) plus `.env.example` and one line of `docs/development-testing-guide.md`. Roughly 5,700 lines of documentation reviewed, of which about 900 change.
+**Scale/Scope**: 30 files deleted -- 28 under `docs/features/` plus the two standalone documents. Four files edited (`README.md`, `docs/deployment-guide.md`, `docs/user-manual.md`, `docs/development-testing-guide.md`) plus `.env.example`. `docs/troubleshooting-guide.md` was expected to need an edit and did not: it makes no vendor claim, so FR-017 is discharged by verification (tasks.md T021). Roughly 5,700 lines of documentation reviewed, of which about 900 change.
 
 ## Constitution Check
 
@@ -89,9 +89,9 @@ README.md                                # EDIT — vendor names in the catalog 
 docs/
 ├── category-taxonomy.md                 # keep, unchanged
 ├── deployment-guide.md                  # EDIT — the configuration reference (FR-018..FR-026)
-├── development-testing-guide.md         # EDIT — one stale env block (see Deviations)
+├── development-testing-guide.md         # EDIT — stale env block, test-database settings
 ├── materials-taxonomy-design.md         # keep, unchanged (still-implemented design)
-├── troubleshooting-guide.md             # EDIT — capture diagnosis agrees with the matrix (FR-017)
+├── troubleshooting-guide.md             # keep, unchanged — no vendor claim (FR-017 verified)
 ├── user-manual.md                       # EDIT — the vendor summary (FR-009..FR-014)
 ├── images/                              # untouched; no screenshot regeneration
 ├── product-functionality-gap.md         # DELETE (FR-001)

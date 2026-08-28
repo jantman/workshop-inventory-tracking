@@ -40,10 +40,17 @@ Expected differences after the rewrite: **none**, except that `HTTP_X_FORWARDED_
 Then confirm the nine invented names are gone (SC-003):
 
 ```bash
-grep -nE 'FLASK_ENV|STORAGE_BACKEND|SQLALCHEMY_TRACK_MODIFICATIONS|GOOGLE_CREDENTIALS_PATH|GOOGLE_TOKEN_PATH|APP_NAME|APP_VERSION|CACHE_TTL|BATCH_SIZE' \
+# Assignment-shaped only: `VAR=`, optionally commented out. Prose that *names* a
+# dead variable in order to say it is dead is not a setting, and the development
+# guide now carries one such sentence about FLASK_ENV on purpose.
+grep -nE '^#?[[:space:]]*(FLASK_ENV|STORAGE_BACKEND|SQLALCHEMY_TRACK_MODIFICATIONS|GOOGLE_CREDENTIALS_PATH|GOOGLE_TOKEN_PATH|APP_NAME|APP_VERSION|CACHE_TTL|BATCH_SIZE)=' \
   docs/deployment-guide.md docs/development-testing-guide.md .env.example
 # expect: no output
 ```
+
+An unanchored substring match on those names does **not** hold and should not be
+used: it hits the sentence in `docs/development-testing-guide.md` explaining that
+`FLASK_ENV` has no effect. That sentence is the fix, not a relapse.
 
 And that the DigiKey four are present (SC-001):
 

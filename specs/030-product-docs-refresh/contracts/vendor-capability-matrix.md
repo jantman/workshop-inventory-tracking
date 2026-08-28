@@ -34,7 +34,7 @@ Both places, named:
 
 An address is turned into a vendor name from a closed list: **Amazon, DigiKey, Mouser, eBay, McMaster-Carr, AliExpress**. Any other host becomes the vendor name verbatim.
 
-**Mouser, eBay and AliExpress appear here and nowhere else.** They get a tidier name than the bare host and no reading of any kind. The summary must not let a reader infer more than that — this is the sentence most likely to be written wrongly, and FR-013 exists for it.
+**Mouser, eBay and AliExpress appear here and nowhere else.** Being listed buys a tidier name than the bare host and nothing else: no reader is written for their markup, so they get what an unlisted site gets — the general reader on the bookmarklet path, and no page read at all on the paste-a-URL path. The summary must not let a reader infer more than that, and must not overstate it as "no reading of any kind" either. This is the sentence most likely to be written wrongly, and FR-013 exists for it.
 
 ## Required statements
 

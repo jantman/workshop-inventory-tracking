@@ -80,9 +80,11 @@ DIGIKEY_CLIENT_ID=your-digikey-client-id-here
 DIGIKEY_CLIENT_SECRET=your-digikey-client-secret-here
 DIGIKEY_ACCOUNT_ID=your-digikey-account-number-here
 
-# Optional: your own category taxonomy instead of the shipped one
-CATEGORY_TAXONOMY_FILE=/etc/workshop-inventory/categories.json
-SPECIFICATION_KEYS_FILE=/etc/workshop-inventory/specification-keys.json
+# Optional: your own category taxonomy instead of the shipped one. Left
+# commented out on purpose -- a path the container cannot read is fatal at
+# startup, so mount the files before you set these (see below).
+#CATEGORY_TAXONOMY_FILE=/etc/workshop-inventory/categories.json
+#SPECIFICATION_KEYS_FILE=/etc/workshop-inventory/specification-keys.json
 
 # Optional: Google Sheets export
 GOOGLE_SHEET_ID=your-sheet-id-here
@@ -93,6 +95,22 @@ GOOGLE_TOKEN_FILE=/credentials/token.json
 Every variable, what it does, and what happens when you leave it out is in
 [Environment Variables](#1-environment-variables) below. Nothing outside that
 list has any effect.
+
+**If you set the two taxonomy variables, mount the files first.** They are read
+at startup and a path the container cannot read stops it dead -- deliberately, so
+that a typo cannot quietly file your products under somebody else's branches. Add
+a read-only mount for them:
+
+```bash
+docker run ... -v /srv/workshop-inventory/taxonomy:/etc/workshop-inventory:ro ...
+```
+
+or, with Compose, alongside the `credentials` volume shown below:
+
+```yaml
+    volumes:
+      - ./taxonomy:/etc/workshop-inventory:ro
+```
 
 ### 3. Run Migrations
 

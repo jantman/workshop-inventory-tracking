@@ -1018,9 +1018,10 @@ with the most recent price called out.
 
 ## Which Vendors Are Supported
 
-Three vendors are recognized by name, and anything else can still be cataloged
-from its address. The four things below are genuinely different capabilities, and
-which ones you get depends on where you are buying from:
+Three vendors have capture written for them -- Amazon, DigiKey and McMaster-Carr
+-- and anything else can still be cataloged from its address. The four things
+below are genuinely different capabilities, and which ones you get depends on
+where you are buying from:
 
 | | **Amazon** | **DigiKey** | **McMaster-Carr** | **Anywhere else** |
 |---|---|---|---|---|
@@ -1039,16 +1040,21 @@ purchase, in one action. See [Amazon Orders](#amazon-orders),
 the page states, so you get price and specifications rather than just a title.
 
 **One item from the address** is the paste-a-URL form below, and it works for
-anything at all. The vendor name is worked out from the site: Amazon, DigiKey,
-Mouser, eBay, McMaster-Carr and AliExpress get their proper names, and every
-other site becomes its own hostname. **That is all Mouser, eBay and AliExpress
-get** — a tidier name, and no reading of the page whatsoever. They are not
-supported vendors in the sense the other three are.
+anything at all. Nothing on the page is read on this path — only the address —
+and the vendor name is worked out from the site: Amazon, DigiKey, Mouser, eBay,
+McMaster-Carr and AliExpress are spelled properly, and every other site becomes
+its own hostname.
 
-The page reader is written against Amazon's markup, and it is also what runs on a
-site nobody wrote a reader for. So an unfamiliar site usually yields its title
-and address and little else. That is not a failure — it is the honest result, and
-the confirmation page tells you what it found before anything is recorded.
+**A proper name is all being on that list buys you.** Mouser, eBay and AliExpress
+have no reader written for their pages, so they get exactly what an unlisted site
+gets, and they are not supported vendors in the sense the other three are.
+
+What runs on their pages, and on any page nobody wrote a reader for, is the
+general reader — the one written against Amazon's markup. It tries the same
+generic places for a title, a price and images, and on an unfamiliar site it
+usually comes back with the title and address and little else. That is not a
+failure; it is the honest result, and the confirmation page tells you what it
+found before anything is recorded.
 
 **Catalog detail filled in for you** is DigiKey's alone, and it happens in two
 places: [cataloging a single part](#cataloging-a-single-part), where a part
