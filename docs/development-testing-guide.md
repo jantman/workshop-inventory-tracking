@@ -33,6 +33,26 @@
    python -m playwright install chromium
    ```
 
+### Test Database Settings
+
+The test suite talks to its own MariaDB container, on its own port, so it can
+never touch a real database. Every one of these has a working default and you
+only set them if your container is somewhere else:
+
+| Variable | Default |
+|----------|---------|
+| `TEST_DB_HOST` | `localhost` |
+| `TEST_DB_PORT` | `3307` (deliberately not 3306) |
+| `TEST_DB_USER` | `inventory_test_user` |
+| `TEST_DB_PASSWORD` | `test_password` |
+| `TEST_DB_NAME` | `workshop_inventory_test` |
+
+These are read by `TestConfig` in `config.py` and are **test settings, not
+deployment settings** -- they have no effect on a running deployment, and the
+[Deployment Guide](deployment-guide.md#1-environment-variables) does not list
+them. The credentials above are for a throwaway local container; there is
+nothing to protect.
+
 ## Test Suites
 
 The project uses **Nox** for consistent test execution across environments. All test commands should be run from the project root directory.
@@ -419,17 +439,32 @@ python app.py
 
 **Alternative Methods**:
 ```bash
-# Using Flask CLI
-export FLASK_APP=app.py
-export FLASK_ENV=development
+# Using Flask CLI -- no exports needed, see below
 flask run
 
 # Using Python module
 python -m flask run --debug
 
+# Reachable from elsewhere on the LAN (it binds loopback by default)
+flask run --host 0.0.0.0
+
 # Custom host/port
 python app.py  # Configured for 127.0.0.1:5000
 ```
+
+**`.flaskenv` already configures the CLI.** It is committed to the repository and
+read by the `flask` command, so there is nothing to export:
+
+```bash
+FLASK_APP=wsgi.py          # not app.py
+FLASK_DEBUG=1              # `flask run` runs with debug on
+FLASK_RUN_HOST=127.0.0.1   # loopback only
+FLASK_RUN_PORT=5000
+```
+
+Override any of them in your shell if you need to. Note that `FLASK_ENV` does
+nothing: it was removed from Flask in 2.3, and this project pins Flask 3.1.3.
+`gunicorn` -- what the Docker image runs -- reads none of this file.
 
 **Development Configuration**:
 - Debug mode enabled by default in `app.py`

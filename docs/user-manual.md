@@ -25,24 +25,26 @@
 11. [Scanning Products](#scanning-products)
     - [Distributor Labels](#distributor-labels)
 12. [Recording Purchases](#recording-purchases)
-13. [Capturing an Order When You Place It](#capturing-an-order-when-you-place-it)
+13. [Which Vendors Are Supported](#which-vendors-are-supported)
+14. [Capturing an Order When You Place It](#capturing-an-order-when-you-place-it)
+    - [Amazon Orders](#amazon-orders)
     - [DigiKey Orders](#digikey-orders)
     - [McMaster-Carr Orders](#mcmaster-carr-orders)
-14. [Printing Product Labels](#printing-product-labels)
-15. [Stock Levels and Reordering](#stock-levels-and-reordering)
-16. [Product Attachments](#product-attachments)
-17. [Finding Products](#finding-products)
-18. [Categories and Tags](#categories-and-tags)
+15. [Printing Product Labels](#printing-product-labels)
+16. [Stock Levels and Reordering](#stock-levels-and-reordering)
+17. [Product Attachments](#product-attachments)
+18. [Finding Products](#finding-products)
+19. [Categories and Tags](#categories-and-tags)
 
 **Across both halves**
 
-19. [Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary)
-20. [Data Export](#data-export)
-21. [REST API](#rest-api)
-22. [Help and Utilities](#help-and-utilities)
-23. [Tips and Best Practices](#tips-and-best-practices)
-24. [Troubleshooting](#troubleshooting)
-25. [Quick Reference Card](#quick-reference-card)
+20. [Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary)
+21. [Data Export](#data-export)
+22. [REST API](#rest-api)
+23. [Help and Utilities](#help-and-utilities)
+24. [Tips and Best Practices](#tips-and-best-practices)
+25. [Troubleshooting](#troubleshooting)
+26. [Quick Reference Card](#quick-reference-card)
 
 ## Getting Started
 
@@ -1014,6 +1016,59 @@ Buying the same thing again adds a second purchase to the same product. It does
 not create a duplicate. The product page shows the whole history oldest-first
 with the most recent price called out.
 
+## Which Vendors Are Supported
+
+Three vendors have capture written for them -- Amazon, DigiKey and McMaster-Carr
+-- and anything else can still be cataloged from its address. The four things
+below are genuinely different capabilities, and which ones you get depends on
+where you are buying from:
+
+| | **Amazon** | **DigiKey** | **McMaster-Carr** | **Anywhere else** |
+|---|---|---|---|---|
+| **A whole order at once** | Bookmarklet, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order*, by sales order number | Bookmarklet, on the order page | — |
+| **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names | No reader of its own; use the part lookup below, which brings back more | Yes — title, price, pack size, specifications, images | No reader of its own; the general reader runs and usually finds little |
+| **One item, from the address** | Yes; the item id comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address and a vendor name; you fill in the rest |
+| **Catalog detail filled in for you** | — | Yes — manufacturer, category, datasheet, photograph, parametric specifications | — | — |
+| **Needs configuring first** | No | Yes — see below | No | No |
+
+**A whole order at once** records every line of one order as an outstanding
+purchase, in one action. See [Amazon Orders](#amazon-orders),
+[DigiKey Orders](#digikey-orders) and
+[McMaster-Carr Orders](#mcmaster-carr-orders).
+
+**One item with the page read** is the bookmarklet on a listing: it reads what
+the page states, so you get price and specifications rather than just a title.
+
+**One item from the address** is the paste-a-URL form below, and it works for
+anything at all. Nothing on the page is read on this path — only the address —
+and the vendor name is worked out from the site: Amazon, DigiKey, Mouser, eBay,
+McMaster-Carr and AliExpress are spelled properly, and every other site becomes
+its own hostname.
+
+**A proper name is all being on that list buys you.** Mouser, eBay and AliExpress
+have no reader written for their pages, so they get exactly what an unlisted site
+gets, and they are not supported vendors in the sense the other three are.
+
+What runs on their pages, and on any page nobody wrote a reader for, is the
+general reader — the one written against Amazon's markup. It tries the same
+generic places for a title, a price and images, and on an unfamiliar site it
+usually comes back with the title and address and little else. That is not a
+failure; it is the honest result, and the confirmation page tells you what it
+found before anything is recorded.
+
+**Catalog detail filled in for you** is DigiKey's alone, and it happens in two
+places: [cataloging a single part](#cataloging-a-single-part), where a part
+number gets you a filled-in product; and on an order line that matched a product
+you already hold, where the same detail fills that product's blanks. It only ever
+fills blanks — anything you have set yourself is left as you set it.
+
+**DigiKey is the only vendor that needs configuring.** Without credentials, its
+two screens still open and say they are not configured, and nothing else changes:
+Amazon and McMaster-Carr capture need nothing but the bookmarklet, because your
+own browser does the reading. See
+[DigiKey order capture and part lookup](deployment-guide.md#digikey-order-capture-and-part-lookup-optional)
+in the deployment guide.
+
 ## Capturing an Order When You Place It
 
 **Products → Capture an Order.** The point is to catch vendor, item id, title and
@@ -1485,6 +1540,12 @@ description is shortened instead.
 All six label stocks are available, the same set the inventory labels use. On the
 1x2 stock the description will often be truncated; that is the trade-off, and it
 is why you choose the stock at print time.
+
+The code prints as an ordinary barcode rather than a square 2D symbol, and the
+label carries no "if found, return to" line. Both were choices rather than
+omissions: the goal is a code that can never be mistaken for a manufacturer's or
+a distributor's, which either form of symbol meets, and a 2D symbol would only
+have bought a smaller mark on the narrow stock where space is tight.
 
 Reprinting takes two clicks and no typing. The label is composed from the record
 each time rather than stored, so a reprint after you have improved the
