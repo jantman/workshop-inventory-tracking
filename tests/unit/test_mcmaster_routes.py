@@ -593,6 +593,9 @@ class TestPackPricedUnitPrice:
         {'orphaned': (7,)},
         {'lines_incomplete': ('Pilot',)},
         {'lines_already_captured': 3, 'orphaned': (7,)},
+        # 031: an arrival mark never occurs without the purchases it dates, so
+        # this is the realistic shape rather than lines_arrived on its own.
+        {'purchase_ids': (1,), 'lines_arrived': 1},
     ])
     def test_the_fallback_agrees_with_wrote_anything(self, result_kwargs):
         """The two answer the same question and must never disagree.

@@ -63,7 +63,12 @@ class _DigiKeyHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         type(self).seen_headers.append(dict(self.headers))
-        if '/orderstatus/v4/salesorder/' in self.path:
+        if '/orderstatus/v4/orders' in self.path:
+            # 031: the account's order listing. Three orders, one of which
+            # DigiKey split into two sales orders -- the flatten this exercises
+            # is the reason the listing cannot key on the outer order number.
+            self._send(200, (FIXTURES / 'orders.json').read_text())
+        elif '/orderstatus/v4/salesorder/' in self.path:
             if self.path.rstrip('/').endswith(SALES_ORDER):
                 self._send(200, (FIXTURES / 'salesorder.json').read_text())
             else:
@@ -352,3 +357,55 @@ def test_answering_the_conflict_captures_it(page, live_server, digikey_api):
     page.click('#confirm-capture')
 
     expect(page.locator('#order-progress')).to_contain_text('2 of 2 still outstanding')
+
+
+# --------------------------------------------------------------------------
+# The order listing (feature 031, US1)
+# --------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_the_entry_screen_lists_the_accounts_orders(page, live_server, digikey_api):
+    """031 FR-018. A backfill starts from this list rather than from a number
+    copied off DigiKey's website.
+    """
+    page.goto(f"{live_server.url}/products/digikey/orders")
+
+    # Server-rendered, so the row count is a complete signal -- and it is the
+    # assertion that matters: the fixture holds three *orders*, one of which
+    # DigiKey split into two sales orders. A listing keyed on the outer order
+    # number would show three rows and every one of them would 404.
+    expect(page.locator('tr.recent-order')).to_have_count(4)
+    expect(page.locator('tr.recent-order[data-order="92775317"]')).to_be_visible()
+    expect(page.locator('tr.recent-order[data-order="92775316"]')).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_the_form_is_still_there_underneath_it(page, live_server, digikey_api):
+    """The listing is a way to find an order, never a replacement for typing one."""
+    page.goto(f"{live_server.url}/products/digikey/orders")
+    expect(page.locator('#recent-orders')).to_be_visible()
+
+    expect(page.locator('#sales_order_number')).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_a_row_reaches_the_review_with_nothing_typed(page, live_server, digikey_api):
+    """031 FR-019 -- and it lands on the review that already existed."""
+    page.goto(f"{live_server.url}/products/digikey/orders")
+    expect(page.locator('tr.recent-order')).to_have_count(4)
+
+    page.click(f'tr.recent-order[data-order="{SALES_ORDER}"] .look-up-order')
+
+    # A full navigation to the review; its own marker is the completion signal.
+    expect(page.locator('#order-lines')).to_be_visible()
+    expect(page.locator('.order-line')).to_have_count(2)
+
+
+@pytest.mark.e2e
+def test_the_listing_shows_when_each_order_was_placed(page, live_server, digikey_api):
+    """031 FR-020: how the operator tells which orders they have dealt with."""
+    page.goto(f"{live_server.url}/products/digikey/orders")
+    row = page.locator(f'tr.recent-order[data-order="{SALES_ORDER}"]')
+    expect(row).to_be_visible()
+
+    expect(row).to_contain_text('2026')

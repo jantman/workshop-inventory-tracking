@@ -14,6 +14,76 @@
 
         {% include "product/_digikey_problem.html" %}
 
+        {# 031 FR-018. The account's own orders, so a backfill does not mean
+           copying sales order numbers off DigiKey's website and typing them
+           back into a screen that is already talking to DigiKey.
+
+           Each row submits the same form field the box below takes, so it
+           reaches the review that already exists -- this adds a way to *find* an
+           order, never a second way to capture one. #}
+        {% if listing_error %}
+        <div class="alert alert-warning" id="listing-error">
+            <i class="bi bi-exclamation-triangle"></i>
+            Your recent orders could not be listed: {{ listing_error }}
+            You can still capture an order by typing its number below.
+        </div>
+        {% elif recent %}
+        <form method="POST" action="{{ url_for('product.digikey_order_capture') }}" class="mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <h6 class="mb-2"><i class="bi bi-clock-history"></i> Your recent orders</h6>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle" id="recent-orders">
+                    <thead>
+                        <tr>
+                            <th>Sales order</th>
+                            <th>Ordered</th>
+                            <th>Reference</th>
+                            <th class="text-end">Lines</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for order in recent %}
+                        <tr class="recent-order" data-order="{{ order.sales_order_number }}">
+                            <td><code>{{ order.sales_order_number }}</code></td>
+                            <td>
+                                {% if order.order_date %}{{ order.order_date.strftime('%-d %b %Y') }}
+                                {% else %}<span class="text-body-secondary">&mdash;</span>{% endif %}
+                            </td>
+                            <td class="small text-body-secondary">
+                                {{ order.purchase_order or order.status }}
+                            </td>
+                            <td class="text-end">
+                                {# DigiKey does not carry line items on its older
+                                   entries, and "0 lines" would read as an empty
+                                   order rather than as nothing said. #}
+                                {% if order.line_count %}{{ order.line_count }}
+                                {% else %}<span class="text-body-secondary">&mdash;</span>{% endif %}
+                            </td>
+                            <td class="text-end">
+                                <button type="submit" name="sales_order_number"
+                                        value="{{ order.sales_order_number }}"
+                                        class="btn btn-sm btn-outline-primary look-up-order">
+                                    Look Up
+                                </button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="form-text">
+                Capturing one you have already captured records nothing new, so a
+                backfill can be stopped and picked up again.
+            </div>
+        </form>
+        {% elif recent is not none %}
+        <div class="alert alert-info" id="no-recent-orders">
+            <i class="bi bi-inbox"></i>
+            DigiKey lists no orders on this account in the last five years.
+        </div>
+        {% endif %}
+
         <form method="POST" action="{{ url_for('product.digikey_order_capture') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 

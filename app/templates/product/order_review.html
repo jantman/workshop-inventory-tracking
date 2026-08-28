@@ -149,11 +149,60 @@
     </div>
     {% endif %}
 
+    {# Whether the arrival block is open. Set unconditionally so the per-line
+       cells below can read it even when there is nothing capturable. #}
+    {% set ns = namespace(open=false) %}
+    {% for reviewed in review.capturable %}
+        {% if form_data.get('arrived[' ~ reviewed.line.form_key ~ ']') %}{% set ns.open = true %}{% endif %}
+    {% endfor %}
+
+    {% if review.capturable %}
+    {# 031 FR-024. Backfilling an order placed two years ago through the same
+       review as one placed this morning: the only thing that differs is that
+       this one has already turned up, and saying so here is what stops the
+       reorder list and the captured-orders list reporting it as in transit.
+
+       Whether the block is open cannot be read back from a checkbox that is
+       never submitted, so it is inferred from the per-line boxes -- which is
+       also the honest answer, because those are what actually get recorded. #}
+    <div class="card mb-3" id="arrival-block">
+        <div class="card-body py-2">
+            {# Deliberately not submitted: it ticks the per-line boxes and
+               nothing else, so what the operator can see ticked is exactly what
+               gets recorded (031 FR-029). #}
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="order-arrived"
+                       {% if ns.open %}checked{% endif %}>
+                <label class="form-check-label fw-semibold" for="order-arrived">
+                    This order has already arrived
+                </label>
+            </div>
+            <div id="arrival-detail" class="{% if not ns.open %}d-none {% endif %}mt-2">
+                <label for="arrived_date" class="form-label small mb-1">When it arrived</label>
+                <input type="date" class="form-control form-control-sm" style="max-width:14rem"
+                       id="arrived_date" name="arrived_date"
+                       value="{{ form_data.get('arrived_date') or '' }}">
+                <div class="form-text">
+                    Every ticked line is recorded as delivered rather than on its
+                    way. <strong>Leave the date blank and the order's own date is
+                    used</strong> — never today's. Untick a line below that has
+                    not turned up.
+                    <br>
+                    A counted product's quantity is <strong>not</strong> changed
+                    and a low flag you set by hand is <strong>not</strong>
+                    cleared: something delivered long ago has already been used,
+                    and the number on the shelf is the one you counted.
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="table-responsive">
         <table class="table align-middle" id="order-lines">
             <thead>
                 <tr>
-                    <th style="width:3rem">Take</th>
+                    <th style="width:6.5rem">Take</th>
                     <th>Part</th>
                     <th>Description &amp; label</th>
                     {% if packs %}<th class="text-end">Packs</th>{% endif %}
@@ -178,6 +227,16 @@
                         <input class="form-check-input include-line" type="checkbox"
                                id="include-{{ key }}" name="include[{{ key }}]"
                                {% if form_data.get('include[' ~ key ~ ']') or not form_data %}checked{% endif %}>
+                        {# Hidden until the order is marked arrived, and it is
+                           this box -- not the one above the table -- that the
+                           confirmation reads (031 FR-029). #}
+                        <div class="arrived-cell mt-1{% if not ns.open %} d-none{% endif %}">
+                            <input class="form-check-input line-arrived" type="checkbox"
+                                   id="arrived-{{ key }}" name="arrived[{{ key }}]"
+                                   {% if form_data.get('arrived[' ~ key ~ ']') %}checked{% endif %}>
+                            <label class="form-check-label small text-body-secondary"
+                                   for="arrived-{{ key }}">arrived</label>
+                        </div>
                         {% endif %}
                     </td>
 
@@ -373,4 +432,30 @@
     </div>
 </form>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// The order-level "already arrived" box reveals the date and ticks every line's
+// own box. Synchronous DOM work with nothing behind it -- the per-line boxes are
+// what the confirmation reads, so this is a convenience and never the record.
+(function () {
+    var master = document.getElementById('order-arrived');
+    if (!master) { return; }
+    var detail = document.getElementById('arrival-detail');
+    var cells = document.querySelectorAll('.arrived-cell');
+    var boxes = document.querySelectorAll('.line-arrived');
+
+    master.addEventListener('change', function () {
+        var on = master.checked;
+        detail.classList.toggle('d-none', !on);
+        for (var i = 0; i < cells.length; i++) {
+            cells[i].classList.toggle('d-none', !on);
+        }
+        for (var j = 0; j < boxes.length; j++) {
+            boxes[j].checked = on;
+        }
+    });
+})();
+</script>
 {% endblock %}

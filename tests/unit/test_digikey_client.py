@@ -452,3 +452,127 @@ class TestFixturesCarryNoRealIdentifiers:
             if marker in raw:
                 # Present is fine as long as the value was replaced.
                 assert 'REDACTED' in raw, f'{name} still carries {marker!r} unredacted'
+
+
+class TestListingTheAccountsOrders:
+    """`list_orders`, feature 031.
+
+    The fixture is the live response shape recorded on 2026-08-28 and redacted
+    -- see ``specs/031-order-backfill/verification.md``. Three things it proves
+    that a hand-built dict would not: the identifier is nested one level down in
+    ``SalesOrders``, one order can hold two of them, and DigiKey's older entries
+    carry no ``LineItems`` at all.
+    """
+
+    def test_it_asks_the_orders_endpoint_with_a_date_range(self):
+        """**The range has to be sent.** Omitting it is not "unfiltered" -- the
+        endpoint's own default window is narrow enough to return one order on an
+        account holding six (verification.md).
+        """
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, _fixture('orders.json'))
+            client.list_orders()
+
+        url = get.call_args[0][0]
+        assert '/orderstatus/v4/orders' in url
+        assert 'startDate=' in url and 'endDate=' in url
+
+    def test_it_flattens_to_one_row_per_sales_order(self):
+        """One of the fixture's three orders was split into two sales orders."""
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, _fixture('orders.json'))
+            rows = client.list_orders()
+
+        assert [r.sales_order_number for r in rows] == [
+            '100882558', '92775317', '92775316', '81936176',
+        ]
+
+    def test_the_identifier_is_the_one_capture_takes(self):
+        """Not the outer OrderNumber -- a listing of those would 404 every row."""
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, _fixture('orders.json'))
+            rows = client.list_orders()
+
+        assert all(len(r.sales_order_number) == 8 or len(r.sales_order_number) == 9
+                   for r in rows)
+        assert not any(r.sales_order_number.startswith('991') for r in rows)
+
+    def test_most_recent_first(self):
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, _fixture('orders.json'))
+            rows = client.list_orders()
+
+        dates = [r.order_date for r in rows]
+        assert dates == sorted(dates, reverse=True)
+
+    def test_an_entry_with_no_line_items_still_lists(self):
+        """DigiKey's older entries carry none, and that is not a broken order."""
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, _fixture('orders.json'))
+            rows = client.list_orders()
+
+        oldest = rows[-1]
+        assert oldest.sales_order_number == '81936176'
+        assert oldest.line_count == 0
+
+    def test_an_unreadable_entry_costs_its_own_row_and_not_the_listing(self):
+        client = _client()
+        body = json.dumps({'Orders': [
+            {'SalesOrders': [{'nothing': 'useful'}, {'SalesOrderId': 123456789}]},
+        ]})
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, body)
+            rows = client.list_orders()
+
+        assert [r.sales_order_number for r in rows] == ['123456789']
+
+    def test_an_account_with_no_orders_is_an_empty_list_not_an_error(self):
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, json.dumps({'TotalOrders': 0, 'Orders': []}))
+
+            assert client.list_orders() == []
+
+    def test_a_total_price_stays_decimal(self):
+        """No `.json()` in that module, and the listing is not the exception."""
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(200, _fixture('orders.json'))
+            client.list_orders()
+
+        parsed = json.loads(_fixture('orders.json'), parse_float=Decimal)
+        price = parsed['Orders'][0]['SalesOrders'][0]['TotalPrice']
+        assert isinstance(price, Decimal)
+
+    def test_a_missing_account_id_is_configuration_not_refusal(self):
+        client = _client(account_id='')
+
+        with pytest.raises(ConfigurationError):
+            client.list_orders()
+
+    @pytest.mark.parametrize('status,expected', [
+        (401, AuthenticationError),
+        (429, RateLimitError),
+        (503, TemporaryError),
+    ])
+    def test_failures_map_the_way_get_orders_do(self, status, expected):
+        client = _client()
+        with patch('app.services.digikey.requests.get') as get, \
+                patch.object(DigiKeyClient, '_token', return_value='t'):
+            get.return_value = _response(status, '{}')
+
+            with pytest.raises(expected):
+                client.list_orders()

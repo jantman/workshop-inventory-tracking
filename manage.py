@@ -528,5 +528,49 @@ def config_check():
         sys.exit(1)
 
 
+@cli.group()
+def orders():
+    """Order backfill helpers"""
+    pass
+
+
+@orders.command('amazon-urls')
+@click.argument('export_file', type=click.Path(exists=True, dir_okay=False))
+def amazon_urls(export_file):
+    """Turn an edited Amazon order-history export into order addresses.
+
+    EXPORT_FILE is the order history CSV from Amazon's *Request Your Data*, with
+    the rows you do not want cataloged deleted. Amazon states one row per item,
+    so an eleven-item order appears eleven times; this emits each order once.
+
+    Addresses go to stdout and the summary to stderr, so the list can be piped
+    without the summary coming with it:
+
+        python manage.py orders amazon-urls edited.csv > to-capture.txt
+
+    Reads the file and nothing else. No database, no network, and nothing is
+    recorded -- opening each address and clicking the capture bookmarklet is
+    what records anything.
+    """
+    from app.exceptions import ValidationError
+    from app.services.amazon_order_export import summarize
+
+    with open(export_file, newline='', encoding='utf-8-sig') as handle:
+        reader = csv.DictReader(handle)
+        try:
+            # fieldnames as well as rows: a file edited down to its header alone
+            # is a shape question, not an empty one.
+            summary = summarize(reader, fieldnames=reader.fieldnames)
+        except ValidationError as e:
+            # Named plainly and emitting nothing: a partial list is worse than
+            # none, because it is indistinguishable from a successful run.
+            click.echo(e.message, err=True)
+            sys.exit(1)
+
+    for order in summary.orders:
+        click.echo(order.url)
+    click.echo(summary.render(), err=True)
+
+
 if __name__ == '__main__':
     cli()

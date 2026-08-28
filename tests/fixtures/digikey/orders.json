@@ -1,0 +1,93 @@
+{
+  "TotalOrders": 3,
+  "Orders": [
+    {
+      "OrderNumber": 9910000375186108,
+      "CustomerId": 99999999,
+      "DateEntered": "2026-08-07T17:34:04.332-05:00",
+      "Currency": "USD",
+      "PONumber": "",
+      "EntireOrderStatus": {
+        "OrderStatus": "Shipped",
+        "ShortDescription": "Shipped",
+        "LongDescription": "All products in this order have been shipped."
+      },
+      "SalesOrders": [
+        {
+          "CustomerId": 99999999,
+          "Contact": {"FirstName": "Redacted", "LastName": "Redacted", "Email": "redacted@example.invalid"},
+          "SalesOrderId": 100882558,
+          "Status": {
+            "SalesOrderStatus": "Shipped",
+            "ShortDescription": "Shipped",
+            "LongDescription": "All products in this sales order have been shipped."
+          },
+          "PurchaseOrder": "",
+          "TotalPrice": 67.00,
+          "DateEntered": "2026-08-07T17:34:04.332-05:00",
+          "OrderNumber": 9910000375186108,
+          "ShipMethod": "UPS Ground",
+          "Currency": "USD",
+          "ShippingAddress": {"AddressLine1": "Redacted", "City": "Redacted", "ZipCode": "00000"},
+          "LineItems": [{"SalesOrderId": 100882558}, {"SalesOrderId": 100882558}]
+        }
+      ]
+    },
+    {
+      "OrderNumber": 9910000311111111,
+      "CustomerId": 99999999,
+      "DateEntered": "2025-05-24T10:02:11.000-05:00",
+      "Currency": "USD",
+      "PONumber": "SHOP-2025-05",
+      "EntireOrderStatus": {
+        "OrderStatus": "Shipped",
+        "ShortDescription": "Shipped",
+        "LongDescription": "All products in this order have been shipped."
+      },
+      "SalesOrders": [
+        {
+          "CustomerId": 99999999,
+          "SalesOrderId": 92775317,
+          "Status": {"SalesOrderStatus": "Shipped", "ShortDescription": "Shipped"},
+          "PurchaseOrder": "SHOP-2025-05",
+          "TotalPrice": 41.18,
+          "DateEntered": "2025-05-24T10:02:11.000-05:00",
+          "OrderNumber": 9910000311111111,
+          "Currency": "USD",
+          "LineItems": [{"a": 1}, {"b": 2}, {"c": 3}, {"d": 4}, {"e": 5}, {"f": 6}]
+        },
+        {
+          "CustomerId": 99999999,
+          "SalesOrderId": 92775316,
+          "Status": {"SalesOrderStatus": "Shipped", "ShortDescription": "Shipped"},
+          "PurchaseOrder": "SHOP-2025-05",
+          "TotalPrice": 7.42,
+          "DateEntered": "2025-05-24T10:02:11.000-05:00",
+          "OrderNumber": 9910000311111111,
+          "Currency": "USD",
+          "LineItems": [{"a": 1}]
+        }
+      ]
+    },
+    {
+      "OrderNumber": 9910000200000000,
+      "CustomerId": 99999999,
+      "DateEntered": "2023-06-19T08:41:00.000-05:00",
+      "Currency": "USD",
+      "PONumber": "",
+      "EntireOrderStatus": {"OrderStatus": "Shipped", "ShortDescription": "Shipped"},
+      "SalesOrders": [
+        {
+          "CustomerId": 99999999,
+          "SalesOrderId": 81936176,
+          "Status": {"SalesOrderStatus": "Shipped", "ShortDescription": "Shipped"},
+          "PurchaseOrder": "",
+          "TotalPrice": 12.00,
+          "DateEntered": "2023-06-19T08:41:00.000-05:00",
+          "OrderNumber": 9910000200000000,
+          "Currency": "USD"
+        }
+      ]
+    }
+  ]
+}

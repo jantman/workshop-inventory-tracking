@@ -1036,6 +1036,59 @@ class DigiKeyOrder:
 
 
 @dataclass(frozen=True)
+class DigiKeyOrderSummary:
+    """One row of DigiKey's order listing -- enough to pick an order, no more.
+
+    Feature 031. A backfill starts from nothing, and this is the list.
+
+    **A sales order, not an order.** DigiKey's listing nests one or more
+    ``SalesOrders`` inside each ``Orders`` entry, splitting a backorder or a
+    second shipment out under the same web order number. The sales order is what
+    :meth:`DigiKeyClient.get_order` takes and what a bag label's ``1K`` field
+    names, so the listing flattens to one of these per sales order. Reading the
+    outer ``OrderNumber`` would produce a listing whose every row 404s
+    (verification.md).
+
+    Deliberately absent, exactly as :class:`DigiKeyOrder` is: the contact, the
+    shipping address and the customer id. The listing response carries all three
+    for every order, and they are not read rather than read and discarded.
+    """
+    sales_order_number: str
+    order_date: Optional[datetime] = None
+    purchase_order: str = ''
+    status: str = ''
+    line_count: int = 0
+
+    @classmethod
+    def from_payload(cls, data: Any) -> Optional['DigiKeyOrderSummary']:
+        """Build from one ``SalesOrders`` entry of an ``orders`` response.
+
+        Returns None for an entry naming no sales order, so one unreadable row
+        costs its own row and not the listing.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        sales_order_number = _digikey_string(data.get('SalesOrderId'), numbers_ok=True)
+        if not sales_order_number:
+            return None
+
+        status = data.get('Status')
+        return cls(
+            sales_order_number=sales_order_number,
+            order_date=_digikey_datetime(data.get('DateEntered')),
+            purchase_order=_digikey_string(data.get('PurchaseOrder')),
+            status=(
+                _digikey_string(status.get('ShortDescription'))
+                if isinstance(status, dict) else ''
+            ),
+            # Free: the listing already carries the lines. Nothing else in that
+            # array is read -- this is a chooser, not a review.
+            line_count=len(data.get('LineItems') or []),
+        )
+
+
+@dataclass(frozen=True)
 class DigiKeyPart:
     """DigiKey's own detail for one part.
 
@@ -1986,6 +2039,9 @@ class OrderCaptureResult:
     lines_excluded: int = 0
     lines_already_captured: int = 0
     lines_updated: int = 0
+    # Lines recorded as having already arrived, rather than as outstanding.
+    # Backfilling a historical order (031 FR-024); zero for an ordinary capture.
+    lines_arrived: int = 0
     # The captured lines that came back thin -- whatever "thin" means for this
     # vendor. Named rather than counted.
     lines_incomplete: tuple = ()
