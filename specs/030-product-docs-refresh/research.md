@@ -92,7 +92,7 @@ Mouser, eBay and AliExpress appear in the host table and nowhere else. Being on 
 |------|--------|-------|
 | `category-taxonomy.md` | Keep | Documents the shipped taxonomy; linked from the deployment guide and the manual. |
 | `deployment-guide.md` | Keep, edit | Current deployment reference. |
-| `development-testing-guide.md` | Keep, one-line edit | Current development reference. |
+| `development-testing-guide.md` | Keep, edit | Current development reference. Gains the test-database settings and a `.flaskenv` explanation; the stale `FLASK_APP`/`FLASK_ENV` block goes. |
 | `materials-taxonomy-design.md` | Keep | Describes the three-level `MaterialTaxonomy` design the application still implements (`app/database.py`, used at `app/mariadb_materials_admin_service.py:61-68`). Old (last touched 2025-09-28) but not wrong. |
 | `troubleshooting-guide.md` | Keep, unchanged | Current diagnostic reference. Expected to need a vendor correction; it makes no vendor claim, so it did not. |
 | `user-manual.md` | Keep, edit | Current behavior reference. |

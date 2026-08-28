@@ -1027,7 +1027,7 @@ where you are buying from:
 |---|---|---|---|---|
 | **A whole order at once** | Bookmarklet, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order*, by sales order number | Bookmarklet, on the order page | — |
 | **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names | No reader of its own; use the part lookup below, which brings back more | Yes — title, price, pack size, specifications, images | No reader of its own; the general reader runs and usually finds little |
-| **One item, from the address** | Yes; the item id comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address, its title, and a vendor name |
+| **One item, from the address** | Yes; the item id comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address and a vendor name; you fill in the rest |
 | **Catalog detail filled in for you** | — | Yes — manufacturer, category, datasheet, photograph, parametric specifications | — | — |
 | **Needs configuring first** | No | Yes — see below | No | No |
 

@@ -10,7 +10,7 @@ What the user manual's summary, the README bullet and the troubleshooting guide 
 |---|---|---|---|---|
 | **Whole order** | Bookmarklet, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order*, by sales order number | Bookmarklet, on the order page | Not supported |
 | **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names | Not by page read; the part lookup below is better | Yes — title, price, pack size, specifications, images | No |
-| **One item, address only** | Yes; the ASIN comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address, its title, and a vendor name |
+| **One item, address only** | Yes; the ASIN comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address and a vendor name, nothing more |
 | **Detail backfill** | No | Yes — manufacturer, category, datasheet, photograph, parametric specifications | No | No |
 | **Configuration needed** | None | `DIGIKEY_CLIENT_ID`, `DIGIKEY_CLIENT_SECRET`, `DIGIKEY_ACCOUNT_ID` | None | None |
 
@@ -20,7 +20,7 @@ The summary must distinguish these; collapsing any two is the failure mode this 
 
 1. **Whole-order capture** — one action records every line of an order as an outstanding purchase.
 2. **Single-item capture that reads the page** — the bookmarklet runs against the listing in front of you and brings back what the page states.
-3. **Single-item capture from the address alone** — the paste-a-URL form. Works for anything; brings back what the address yields.
+3. **Single-item capture from the address alone** — the paste-a-URL form. Works for anything; brings back what the *address* yields and nothing off the page. Only the vendor name, an Amazon ASIN and a McMaster part number are derived from a URL (`app/product/routes.py:869-876,894,929`); a listing title is not, and must not be claimed for this row.
 4. **Detail backfill** — the application fetches part detail from the vendor and writes it into the catalog, both when cataloging a part on its own and when filling gaps on a product an order line matched. A value the operator has already set is never overwritten.
 
 ## Where DigiKey's backfill happens
