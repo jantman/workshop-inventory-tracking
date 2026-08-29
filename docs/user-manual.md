@@ -30,21 +30,22 @@
     - [Amazon Orders](#amazon-orders)
     - [DigiKey Orders](#digikey-orders)
     - [McMaster-Carr Orders](#mcmaster-carr-orders)
-15. [Printing Product Labels](#printing-product-labels)
-16. [Stock Levels and Reordering](#stock-levels-and-reordering)
-17. [Product Attachments](#product-attachments)
-18. [Finding Products](#finding-products)
-19. [Categories and Tags](#categories-and-tags)
+15. [Backfilling Past Orders](#backfilling-past-orders)
+16. [Printing Product Labels](#printing-product-labels)
+17. [Stock Levels and Reordering](#stock-levels-and-reordering)
+18. [Product Attachments](#product-attachments)
+19. [Finding Products](#finding-products)
+20. [Categories and Tags](#categories-and-tags)
 
 **Across both halves**
 
-20. [Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary)
-21. [Data Export](#data-export)
-22. [REST API](#rest-api)
-23. [Help and Utilities](#help-and-utilities)
-24. [Tips and Best Practices](#tips-and-best-practices)
-25. [Troubleshooting](#troubleshooting)
-26. [Quick Reference Card](#quick-reference-card)
+21. [Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary)
+22. [Data Export](#data-export)
+23. [REST API](#rest-api)
+24. [Help and Utilities](#help-and-utilities)
+25. [Tips and Best Practices](#tips-and-best-practices)
+26. [Troubleshooting](#troubleshooting)
+27. [Quick Reference Card](#quick-reference-card)
 
 ## Getting Started
 
@@ -1025,7 +1026,7 @@ where you are buying from:
 
 | | **Amazon** | **DigiKey** | **McMaster-Carr** | **Anywhere else** |
 |---|---|---|---|---|
-| **A whole order at once** | Bookmarklet, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order*, by sales order number | Bookmarklet, on the order page | — |
+| **A whole order at once** | Bookmarklet, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order* — pick from your recent orders, or type a sales order number | Bookmarklet, on the order page | — |
 | **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names | No reader of its own; use the part lookup below, which brings back more | Yes — title, price, pack size, specifications, images | No reader of its own; the general reader runs and usually finds little |
 | **One item, from the address** | Yes; the item id comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address and a vendor name; you fill in the rest |
 | **Catalog detail filled in for you** | — | Yes — manufacturer, category, datasheet, photograph, parametric specifications | — | — |
@@ -1034,7 +1035,10 @@ where you are buying from:
 **A whole order at once** records every line of one order as an outstanding
 purchase, in one action. See [Amazon Orders](#amazon-orders),
 [DigiKey Orders](#digikey-orders) and
-[McMaster-Carr Orders](#mcmaster-carr-orders).
+[McMaster-Carr Orders](#mcmaster-carr-orders). For orders you placed *before*
+you had this catalog, see [Backfilling Past Orders](#backfilling-past-orders) --
+the same capture, plus a way to find the orders and a way to say they have
+already arrived.
 
 **One item with the page read** is the bookmarklet on a listing: it reads what
 the page states, so you get price and specifications rather than just a title.
@@ -1230,6 +1234,10 @@ per line you kept, filed under the order number.
 Clicking the bookmarklet on the *orders list* rather than on one order does not
 work, and says so: there is no single order on that page.
 
+**Catching up on orders you placed before you had this catalog** is the same
+capture with one extra step — picking the workshop orders out of a household's
+Amazon history. See [Backfilling Past Orders](#backfilling-past-orders).
+
 **What you get is thinner than a listing capture, and the review says so.** An
 order page states a title, a quantity and a price. The pictures, the
 specifications, the *About this item* bullets and the barcodes all live on the
@@ -1273,9 +1281,13 @@ here breaks when they redesign their site. Setting that up is a one-time job; se
 
 ### Capturing an order
 
-**Products → Capture a DigiKey Order.** Type the sales order number from your
-order confirmation — or read it off the `1K` field of a bag label — and press
-**Look Up Order**.
+**Products → Capture a DigiKey Order.** Your recent orders are listed on that
+screen, so usually you can just press **Look Up** on the one you want. Otherwise
+type the sales order number from your order confirmation — or read it off the
+`1K` field of a bag label — and press **Look Up Order**.
+
+That listing is what makes catching up on years of past orders a matter of
+working down a list; see [Backfilling Past Orders](#backfilling-past-orders).
 
 You get every line of the order: the DigiKey part number, the manufacturer and
 part number, the description, the quantity and what each cost. Alongside each
@@ -1430,6 +1442,10 @@ Open one order from **Order History** on McMaster's site, so that order's own
 address is showing, and click the capture bookmarklet. A tab opens here with
 every line of the order in it.
 
+The same walk down that Order History page is how you catch up on orders placed
+before you had this catalog; see
+[Backfilling Past Orders](#backfilling-past-orders).
+
 Each line shows what McMaster said — the part number, their description, how many
 packs, what a pack holds and what a pack cost — and, next to it, what this
 catalog will actually record: **units and a unit price**. Both of those are
@@ -1520,6 +1536,212 @@ ones**.
 
 The flash after a capture repeats which lines came back thin, so the record of it
 survives leaving the review page.
+
+## Backfilling Past Orders
+
+Everything in the three chapters above assumes you are capturing an order at the
+moment you place it. Nobody starts there. You already own a workshop full of
+things, most of it bought from these same three vendors, and none of it is in
+the catalog — while the prices, the part numbers and the pack sizes are all
+still sitting in the vendors' own order histories.
+
+**Backfilling is walking that history and putting it through the capture you
+already know.** There is no separate importer, no special mode, and nothing new
+to learn about capturing. What is different is only how you find the orders, and
+one extra thing you tell the review: *this one already arrived*.
+
+Three practical points before you start.
+
+**It is safe to stop and start again.** Capturing an order you have already
+captured records nothing new — every vendor recognizes its own orders. So a
+backfill can be done over a few evenings, interrupted by a re-login, or restarted
+from the top when you lose your place. Meeting an order you have already done is
+expected, not a fault.
+
+**Say when it arrived, or the catalog will think it is still coming.** A capture
+normally records outstanding purchases, because an order you just placed has not
+turned up yet. That is wrong for an order from 2023 — and left alone, thirty
+backfilled orders would leave several hundred lines claiming to be in transit on
+the two screens that exist to tell you what is still coming. See
+[Saying it already arrived](#saying-it-already-arrived) below. It is one tick box.
+
+**Decide what you are cataloging before you start.** You will meet things you
+have long since used up, given away or thrown out. Cataloging them anyway gives
+you a real price history for something you may buy again, which is usually worth
+it — the product costs you nothing to hold. Untick the ones that are genuinely
+never coming back. There is no wrong answer, but picking one and sticking to it
+is faster than deciding thirty times.
+
+### DigiKey
+
+**Products → Capture a DigiKey Order** lists your recent orders — the last five
+years of them — above the sales-order-number box. Each row shows the sales order
+number, when you placed it, your own reference if you gave one, and how many
+lines it has. Press **Look Up** on one and you land on the review you already
+know.
+
+That listing comes from DigiKey itself, over the same connection the capture
+uses, so there is nothing to set up beyond the connection you already needed and
+nothing to copy by hand. If DigiKey will not answer, the page says so and the
+box underneath still works.
+
+Work up the list from the bottom. When you reach the top, you are done.
+
+**How far back:** five years of listing. DigiKey's own order history goes back
+further than that, and anything older can still be captured by typing its sales
+order number into the box — it is on the order confirmation email.
+
+**What you get:** everything, and this is the best of the three. A DigiKey line
+carries the part numbers, the description, the quantity and the price, and each
+one is then filled in from DigiKey's own part data — manufacturer, category,
+datasheet, photograph and the full parametric specifications. A backfilled
+DigiKey product is as complete as one captured the day you ordered it.
+
+### McMaster-Carr
+
+There is no listing here, because there is no API to read one from — McMaster's
+requires an application review a one-person workshop will not pass, which is why
+their capture reads the page in your own browser.
+
+So: open **Order History** on McMaster's site, and work down it. Open each order
+so that its own address is showing, click the capture bookmarklet, review, and
+capture. Then go back and do the next one.
+
+**How far back:** as far as McMaster's own order history goes, which for a
+personal account is generally the whole life of the account.
+
+**What you get:** everything the order page states — the part number, the
+description, how many packs, what a pack holds and what it cost, converted to
+units and a unit price. The same as capturing the order the day you placed it,
+because it is the same page.
+
+**Remember what identifies a McMaster order:** the Purchase Order name, not a
+number. If you renamed one on McMaster's site since, it will be filed here under
+the name it has now.
+
+### Amazon
+
+Amazon is the hard one, and not for a technical reason. Your Amazon account is
+the household's. The thirty workshop orders are buried in several hundred
+orders of groceries, books, presents and phone chargers, and opening every one
+to find out which is which is not a procedure.
+
+So the selection happens away from the browser, in a file.
+
+**1. Ask Amazon for your order history.** Go to
+[Request Your Data](https://www.amazon.com/hz/privacy-central/data-requests/preview.html),
+choose **Your Orders**, and submit the request. **This is not immediate** —
+Amazon typically takes a few hours, and can take a couple of days. They email you
+a link when it is ready.
+
+**2. Find the order history file in what they send.** It arrives as a zip. The
+file you want is the retail order history — recent exports call it
+`Retail.OrderHistory.1.csv`; older ones called it `Your Amazon
+Orders/Order History.csv`. Amazon has renamed it before and may again; it is the
+one with an `Order ID` column and one row per item.
+
+**3. Delete the rows you do not want.** Open it in a spreadsheet and work down
+the `Product Name` column, keeping only the workshop purchases. This is the whole
+job, and it is judgement rather than a rule — you are the only one who knows that
+a particular cable was for the lathe and not the television. Save it as CSV.
+
+**Note that every order has several rows**, one per item. Keeping one row of an
+order is enough; you do not have to find them all.
+
+**4. Turn what is left into a list of orders to open.**
+
+```bash
+python manage.py orders amazon-urls edited.csv > to-capture.txt
+```
+
+That reads the file, works out which distinct orders your kept rows belong to,
+and writes one address per line. It tells you what it did:
+
+```text
+Read 61 row(s); 24 distinct order(s).
+2 row(s) carried an order id this could not use — digital orders and blank rows are expected here.
+```
+
+Read those numbers. A file you edited down to sixty rows that comes back with two
+orders means the edit went wrong, and that is much easier to notice now than
+after capturing two orders and believing you were finished.
+
+It records nothing — it only reads your file. If it does not recognize the file
+at all it says which column it could not find and stops, rather than handing you
+a short list that looks like a complete one.
+
+**5. Open each address and capture it.** Each one opens an Amazon order page;
+click the capture bookmarklet on it, review, and capture. Order pages of orders
+long past open exactly like recent ones.
+
+**How far back:** the export covers your whole account history.
+
+**What you get is thinner than the other two, and it is worth knowing why.** An
+Amazon *order* page states a title, a quantity and a price. The pictures, the
+specifications, the *About this item* bullets and the barcodes all live on the
+item's own *listing* page — one page per line — so an order capture does not
+fetch them. For the handful of backfilled items where that detail actually
+matters, capture the listing page afterwards the usual way: it attaches to the
+same product rather than making a second one.
+
+If a very old order will not read — Amazon changed the page, or it was a digital
+item — the review says so plainly rather than showing you an empty order. Skip it
+and move on.
+
+### Doing the opening for you
+
+Steps that say "open each of these thirty addresses and click the bookmarklet"
+are exactly the kind of thing worth handing to something that drives a browser —
+[Claude in Chrome](https://www.anthropic.com/claude-in-chrome) or any similar
+tool. It works on your own signed-in session, which is the only reason the
+McMaster and Amazon captures can see an order page at all.
+
+**This application does not drive your browser and never will.** It has no
+credentials for Amazon or McMaster and does not want any; what it has is a page
+that accepts what the bookmarklet posts to it. Whatever opens the tabs is your
+choice and runs on your machine.
+
+Two things to expect if you automate it. Amazon notices thirty order pages
+opening in a minute and may ask you to sign in again partway through — pick up
+where you stopped, since re-capturing costs nothing. And review each capture
+before confirming it: the point of the review is that you look at it, and a
+backfill of thirty orders is thirty chances to catalog something you did not mean
+to.
+
+### Saying it already arrived
+
+Everything you backfill has already turned up. Tell the review so.
+
+On the review, above the lines, tick **This order has already arrived**. A date
+box appears, and every line gets its own tick box beside its *Take* box.
+
+- **Leave the date blank** and the order's own date is used. That is the best
+  answer available, and it is never today's date — a delivery from 2023 recorded
+  as arriving today would be wrong in exactly the way this exists to avoid.
+- **Fill the date in** if you know roughly when the box actually turned up.
+- **Untick a line** that never came — a back-ordered item, something refunded.
+  That line stays outstanding and the rest are recorded as delivered.
+
+Capture as normal. The order shows as complete on **Products → Captured Orders**,
+and nothing from it is marked *on the way* on the reorder list.
+
+**Two things this deliberately does not do**, and they are the difference between
+this and receiving a box on the bench:
+
+- **A counted quantity does not go up.** Something delivered eighteen months ago
+  has already been used, and the number you last counted on the shelf is the true
+  one. Receiving a real delivery does add to the count; backfilling does not.
+- **A low flag you set by hand is not cleared.** You flagged it low last month
+  because the drawer was empty. A delivery from 2023 is not evidence against
+  that.
+
+If you are capturing an order that genuinely just arrived, use this the same way
+— and then adjust the count on the shelf with the **+** and **−** buttons, which
+is what you would have done anyway.
+
+**Do not tick it for an order that is still coming.** It is never ticked for you,
+and an order marked delivered by mistake has to be sorted out on the product's
+purchase record afterwards.
 
 ## Printing Product Labels
 

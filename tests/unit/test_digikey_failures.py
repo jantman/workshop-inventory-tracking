@@ -42,6 +42,9 @@ class BrokenDigiKey:
     def get_part(self, number):
         raise self.error
 
+    def list_orders(self, days=None):
+        raise self.error
+
 
 FAILURES = [
     (ConfigurationError('DIGIKEY_ACCOUNT_ID is not set', config_key='DIGIKEY_ACCOUNT_ID'),
@@ -221,3 +224,81 @@ class TestNotConfigured:
         product = catalog.create_product(description='A thing')
         purchase = catalog.record_purchase(product.id, vendor='Mouser')
         assert client.get(f'/purchases/{purchase.id}/receive').status_code == 200
+
+
+class TestTheOrderListing:
+    """031 FR-018 to FR-022, on the screen the listing shares with the form.
+
+    The rule the whole class is about: **a failure to enumerate must never
+    remove the ability to capture by number.** Enumeration is a convenience;
+    typing the number is the thing that has always worked.
+    """
+
+    def test_the_listing_renders_above_the_form(self, app, client,
+                                                digikey_fixture_client):
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        response = client.get('/products/digikey/orders')
+
+        assert response.status_code == 200
+        assert b'recent-orders' in response.data
+        assert b'100882558' in response.data
+        # The form is still there underneath it.
+        assert b'id="sales_order_number"' in response.data
+
+    def test_each_row_offers_the_number_the_form_takes(self, app, client,
+                                                       digikey_fixture_client):
+        """FR-019: reaching the review without typing anything.
+
+        Whitespace-normalized because the attributes are rendered across a line
+        break, and what is being asserted is that the button carries the number
+        the form field takes -- not how the template happens to wrap.
+        """
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        response = client.get('/products/digikey/orders')
+
+        markup = ' '.join(response.data.decode().split())
+
+        assert 'name="sales_order_number" value="100882558"' in markup
+        assert 'name="sales_order_number" value="92775316"' in markup
+
+    def test_it_shows_the_date_so_dealt_with_orders_are_tellable(
+            self, app, client, digikey_fixture_client):
+        """FR-020."""
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        response = client.get('/products/digikey/orders')
+
+        assert b'2026' in response.data
+
+    def test_not_configured_says_so_and_lists_nothing(self, app, client):
+        """FR-021, and it must not become a second thing to configure."""
+        app.config['DIGIKEY_CLIENT'] = None
+        response = client.get('/products/digikey/orders')
+
+        assert response.status_code == 200
+        assert b'digikey-not-configured' in response.data
+        assert b'recent-orders' not in response.data
+        assert b'id="sales_order_number"' in response.data
+
+    @pytest.mark.parametrize('error,_marker', FAILURES)
+    def test_a_failed_listing_leaves_the_form_working(self, app, client,
+                                                      error, _marker):
+        """FR-022. This is the assertion the class exists for."""
+        app.config['DIGIKEY_CLIENT'] = BrokenDigiKey(error)
+        response = client.get('/products/digikey/orders')
+
+        assert response.status_code == 200
+        assert b'listing-error' in response.data
+        assert b'id="sales_order_number"' in response.data
+
+    def test_and_capturing_by_number_still_works_after_one(
+            self, app, client, test_storage, digikey_fixture_client):
+        """The listing failing is not the client failing."""
+        app.config['DIGIKEY_CLIENT'] = BrokenDigiKey(TemporaryError('listing down'))
+        client.get('/products/digikey/orders')
+
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        response = client.post('/products/digikey/orders',
+                               data={'sales_order_number': '100882558'})
+
+        assert response.status_code == 200
+        assert b'order-lines' in response.data

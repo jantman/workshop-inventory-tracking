@@ -1095,8 +1095,16 @@ def _digikey_part_from_url(value: str) -> str:
     return unquote(segments[marker + 2])
 
 
-def _digikey_entry(problem=None, message=None, sales_order_number='', status=200):
-    """The sales order number form, optionally carrying a problem to explain."""
+def _digikey_entry(problem=None, message=None, sales_order_number='', status=200,
+                   recent=None, listing_error=None):
+    """The sales order number form, optionally carrying a problem to explain.
+
+    ``recent`` is the account's own order listing (031 FR-018), shown above the
+    form so a backfill does not mean copying sales order numbers off DigiKey's
+    website. It is absent whenever it could not be read, and the form below it
+    works either way -- **a failure to enumerate must never remove the ability
+    to capture by number** (FR-022).
+    """
     return render_template(
         'product/digikey_order_entry.html',
         title='Capture a DigiKey Order',
@@ -1104,6 +1112,8 @@ def _digikey_entry(problem=None, message=None, sales_order_number='', status=200
         problem=problem,
         message=message,
         configured=_get_digikey_client() is not None,
+        recent=recent,
+        listing_error=listing_error,
     ), status
 
 
@@ -1142,9 +1152,19 @@ def digikey_order_capture():
 
     if request.method == 'GET':
         # FR-036: say it before they type an order number, not after.
-        return _digikey_entry(
-            problem=None if client is not None else 'not_configured'
-        )[0]
+        if client is None:
+            return _digikey_entry(problem='not_configured')[0]
+
+        # 031 FR-018. One call, and its failure is a message rather than an
+        # error page: the operator's next action either way is to use the form
+        # underneath it.
+        recent, listing_error = None, None
+        try:
+            recent = client.list_orders()
+        except WorkshopInventoryError as e:
+            listing_error = e.message
+
+        return _digikey_entry(recent=recent, listing_error=listing_error)[0]
 
     sales_order_number = (request.form.get('sales_order_number') or '').strip()
     if not sales_order_number:
@@ -1210,7 +1230,10 @@ def digikey_order_confirm():
     service = _get_catalog_service()
 
     try:
-        result = service.capture_digikey_order(order, decisions, client)
+        result = service.capture_digikey_order(
+            order, decisions, client,
+            arrived_date=request.form.get('arrived_date'),
+        )
     except ValidationError as e:
         # Re-render the review carrying what was submitted, so a description the
         # operator spent time on is not lost. The same thing purchase_receive
@@ -1259,6 +1282,12 @@ def _order_decisions(form, order):
             'unit_price': form.get(f'unit_price[{key}]') or '',
             'resolution': form.get(f'resolution[{key}]') or '',
             'apply_change': form.get(f'apply_change[{key}]') is not None,
+            # Per line rather than per order, so that an order which arrived
+            # except for one back-ordered item can still say so (031 FR-029).
+            # The order-level checkbox on the review is a convenience that ticks
+            # these; it is never itself submitted, so what the operator can see
+            # ticked is exactly what gets recorded.
+            'arrived': form.get(f'arrived[{key}]') is not None,
         }
     return decisions
 
@@ -1309,6 +1338,14 @@ def _order_capture_summary(result, thin_sentence=None,
         # Nothing was written at all. Say so plainly rather than "Captured 0".
         parts.append("Nothing new to capture")
 
+    if result.lines_arrived:
+        # A write the operator did not make line by line: they ticked one box
+        # and every line took a delivery date from it. Named for the same reason
+        # the refile is (031 FR-024).
+        parts.append(
+            f"{result.lines_arrived} recorded as already arrived, so nothing "
+            f"here is reported as on its way"
+        )
     if result.products_created:
         parts.append(f"{result.products_created} new product(s)")
     if result.products_attached:
@@ -1557,7 +1594,10 @@ def _confirm_page_order(expected_vendor, thin_sentence):
     decisions = _order_decisions(request.form, order)
 
     try:
-        result = service.capture_order_lines(order, vendor, decisions)
+        result = service.capture_order_lines(
+            order, vendor, decisions,
+            arrived_date=request.form.get('arrived_date'),
+        )
     except ValidationError as e:
         # Re-render the review carrying what was submitted, so a description the
         # operator spent time on is not lost.

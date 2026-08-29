@@ -34,7 +34,8 @@ import json
 import logging
 import time
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from datetime import date, timedelta
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 import requests
@@ -46,7 +47,7 @@ from app.exceptions import (
     RateLimitError,
     TemporaryError,
 )
-from app.models import DigiKeyOrder, DigiKeyPart
+from app.models import DigiKeyOrder, DigiKeyOrderSummary, DigiKeyPart
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,13 @@ _TOKEN_RENEWAL_MARGIN_SECONDS = 30
 
 # The 400 DigiKey returns when nothing has said which account the request is for.
 _MISSING_ACCOUNT_MARKER = 'account id must not be 0'
+
+# How far back the order listing looks by default. A backfill is a one-off catch-up
+# over a workshop's whole buying history, so this is years rather than weeks --
+# and it has to be sent, because **omitting the range is not "unfiltered"**: the
+# endpoint's own default window is narrow enough to return one order on an
+# account holding six (verification.md).
+_ORDER_HISTORY_DAYS = 365 * 5
 
 
 class DigiKeyClient:
@@ -141,6 +149,63 @@ class DigiKeyClient:
                 item_id=cleaned,
             )
         return order
+
+    def list_orders(self, days: int = _ORDER_HISTORY_DAYS) -> List[DigiKeyOrderSummary]:
+        """The account's recent sales orders, most recent first.
+
+        Feature 031. Backfilling DigiKey otherwise means reading sales order
+        numbers off DigiKey's website and typing them back into a screen that is
+        already talking to DigiKey.
+
+        Args:
+            days: How far back to look. Sent as an explicit range because the
+                endpoint's default window is narrow -- see
+                ``_ORDER_HISTORY_DAYS``.
+
+        Returns:
+            One entry per **sales order**, flattened out of the nested
+            ``Orders[].SalesOrders[]`` the endpoint returns, because a sales
+            order is the unit :meth:`get_order` and a bag label both name. Empty
+            when the account has none in the window; that is an answer, not a
+            failure.
+
+        Raises:
+            The same set as :meth:`get_order`. In particular
+            ConfigurationError when nothing has said which account this is.
+
+        No paging. The published shape supports it, but a workshop that orders
+        once a fortnight does not fill a page, and Principle I wants a measured
+        problem before machinery.
+        """
+        today = date.today()
+        payload = self._get(
+            '/orderstatus/v4/orders'
+            f'?startDate={today - timedelta(days=days)}&endDate={today}',
+            subject='your DigiKey orders',
+        )
+
+        if not isinstance(payload, dict):
+            raise TemporaryError(
+                "DigiKey's order listing was not in the expected shape"
+            )
+
+        summaries = []
+        for order in payload.get('Orders') or []:
+            if not isinstance(order, dict):
+                continue
+            for sales_order in order.get('SalesOrders') or []:
+                summary = DigiKeyOrderSummary.from_payload(sales_order)
+                # None is one unreadable row, not a lost listing.
+                if summary is not None:
+                    summaries.append(summary)
+
+        # Most recent first, which is the end a backfill starts from. Undated
+        # entries sort last rather than crashing the comparison.
+        summaries.sort(
+            key=lambda s: (s.order_date is not None, s.order_date),
+            reverse=True,
+        )
+        return summaries
 
     def get_part(self, part_number: str) -> DigiKeyPart:
         """Read DigiKey's detail for one part.

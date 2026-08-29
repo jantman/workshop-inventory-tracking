@@ -1668,6 +1668,41 @@ class CatalogService:
                 field='received_date'
             )
 
+    def _resolve_arrival_date(
+        self, arrived_date: Any, stated: Optional[datetime], fallback: datetime,
+    ) -> datetime:
+        """When a backfilled order arrived (031 FR-026).
+
+        Blank falls back to the **order's own date**, which is the best answer
+        available and is the whole point: a delivery from 2023 recorded as
+        arriving today would be wrong in exactly the way backfilling exists to
+        avoid. Where the vendor gave no date at all, the fallback is now, and
+        the purchase's ``order_date`` and ``received_date`` then agree rather
+        than differing by a microsecond -- which is the least wrong answer
+        available rather than a good one.
+
+        Args:
+            arrived_date: What the operator typed, possibly blank.
+            stated: The order's own date **as the vendor gave it**, so ``None``
+                where they gave none. That None is the point: it is the
+                validation floor, and there is no floor under an order nobody
+                can date. Substituting now() here refused a real 2023 arrival
+                date on an undated order -- the exact case backfilling exists
+                for -- because the floor was today. Found in review of PR #128.
+            fallback: What to use when nothing was typed. Never None.
+
+        Validated against the same rule receiving uses, so the two screens
+        cannot disagree about whether a date is allowed.
+
+        Raises:
+            ValidationError: Unreadable, or earlier than a date the order
+                actually states. Called before the write session opens, so a
+                refusal leaves nothing.
+        """
+        arrived = _parse_datetime(arrived_date, 'arrived_date') or fallback
+        self._validate_receipt_order(stated, arrived)
+        return arrived
+
 
     # -- DigiKey orders ----------------------------------------------------
     #
@@ -1817,8 +1852,9 @@ class CatalogService:
 
     def capture_order_lines(
         self, order, vendor, decisions: Dict[str, Dict[str, Any]], client=None,
+        arrived_date=None,
     ) -> OrderCaptureResult:
-        """Record a reviewed order: one outstanding purchase per included line.
+        """Record a reviewed order: one purchase per included line.
 
         **The whole order writes in one session, or none of it does.** Every
         other method here opens its own session, so building a twenty-four line
@@ -1845,6 +1881,10 @@ class CatalogService:
                 ``apply_change`` applies a changed quantity or price to an
                 already-captured line.
             client: Passed to the vendor's enrichment where it has any.
+            arrived_date: When a backfilled order arrived. Applies only to the
+                lines whose decision says ``arrived``; blank falls back to the
+                order's own date, **never to today** (031 FR-026). See
+                :meth:`_resolve_arrival_date`.
 
         Returns:
             An OrderCaptureResult describing what happened.
@@ -1857,6 +1897,40 @@ class CatalogService:
 
         One implementation since feature 029; it was written twice before.
         """
+        # Validated before the session opens, for the reason receiving does the
+        # same: a refused date must leave nothing half-written. It is also the
+        # only thing here that can raise on the operator's own input rather
+        # than on the vendor's.
+        #
+        # **Only when a line actually claims to have arrived.** The review's
+        # date field is hidden with `d-none` when the operator unticks "already
+        # arrived", and `display: none` does not keep a field out of a
+        # submission -- only `disabled` does. So a date typed and then thought
+        # better of still arrives here, and validating it unconditionally
+        # refused the whole capture over a value no line would have used, with
+        # the offending field hidden on the re-render. Gated on the server
+        # because a fix in the page's JavaScript is only as good as the
+        # JavaScript having run. Found in review of PR #128.
+        now = datetime.now()
+        stated = order.order_date
+        arrived = None
+        if any((d or {}).get('arrived') for d in decisions.values()):
+            arrived = self._resolve_arrival_date(arrived_date, stated, stated or now)
+
+        # **An order the vendor did not date takes the arrival date as its own.**
+        # The two defaults used to be chosen independently -- the stored
+        # order_date fell back to today while the arrival date was whatever the
+        # operator typed -- so backfilling an undated 2023 order wrote a
+        # purchase ordered today and received in 2023. That is the row
+        # `_validate_receipt_order` exists to refuse and that every other write
+        # path does refuse, and the product page renders the pair side by side,
+        # so the contradiction was visible. Found in review of PR #128.
+        #
+        # Deriving one from the other keeps the property the blank-arrival-date
+        # case already had -- the two agree rather than contradict -- and today
+        # is only reached when nothing at all is known about when this happened.
+        order_date = stated or arrived or now
+
         # Before the session, and only for the lines a confirmation will act on
         # -- unlike the review above, which enriches every line.
         parts = {}
@@ -1869,6 +1943,7 @@ class CatalogService:
         purchase_ids = []
         products_created = products_attached = 0
         lines_excluded = lines_already_captured = lines_updated = 0
+        lines_arrived = 0
         lines_incomplete = []
         renamed_from = ''
 
@@ -1923,17 +1998,33 @@ class CatalogService:
                 else:
                     products_attached += 1
 
+                # Outstanding at capture, whatever the vendor says about
+                # shipping. Shipped is their state; received is the operator's,
+                # and only they can say it -- which they now get two chances to
+                # do. A backfilled order arrived long ago, and saying so here is
+                # what stops the reorder list and the captured-orders list
+                # reporting a two-year-old delivery as still in transit
+                # (031 FR-024).
+                #
+                # **This deliberately does not do what receive_purchase does.**
+                # No tracked count goes up and no manual low flag is cleared:
+                # goods delivered two years ago have already been consumed, and
+                # a flag set last month is a statement about today's shelf
+                # (031 FR-028). Satisfied by construction -- a purchase born
+                # with a received_date never passes through receive_purchase --
+                # and pinned by tests/unit/test_order_backfill.py, which is the
+                # only thing that will notice if that ever changes.
+                has_arrived = bool(decision.get('arrived'))
                 purchase = Purchase(
                     product_id=product.id,
                     vendor=vendor.name,
-                    order_date=order.order_date or datetime.now(),
-                    # Outstanding at capture, whatever the vendor says about
-                    # shipping. Shipped is their state; received is the
-                    # operator's, and only they can say it.
-                    received_date=None,
+                    order_date=order_date,
+                    received_date=arrived if has_arrived else None,
                     **order_fields,
                     **vendor.line_fields(self, line, decision),
                 )
+                if has_arrived:
+                    lines_arrived += 1
                 session.add(purchase)
                 session.flush()
                 purchase_ids.append(purchase.id)
@@ -1957,6 +2048,7 @@ class CatalogService:
             lines_excluded=lines_excluded,
             lines_already_captured=lines_already_captured,
             lines_updated=lines_updated,
+            lines_arrived=lines_arrived,
             lines_incomplete=tuple(lines_incomplete),
             orphaned=orphaned,
             renamed_from=renamed_from,
@@ -1982,10 +2074,12 @@ class CatalogService:
 
     def capture_digikey_order(
         self, order, decisions: Dict[str, Dict[str, Any]], digikey_client=None,
+        arrived_date=None,
     ) -> OrderCaptureResult:
         """Confirm a reviewed DigiKey order. See :meth:`capture_order_lines`."""
         return self.capture_order_lines(
-            order, DIGIKEY_ORDER_VENDOR, decisions, digikey_client
+            order, DIGIKEY_ORDER_VENDOR, decisions, digikey_client,
+            arrived_date=arrived_date,
         )
 
     def review_mcmaster_order(self, order) -> OrderCaptureReview:
@@ -1993,10 +2087,12 @@ class CatalogService:
         return self.review_order(order, MCMASTER_ORDER_VENDOR)
 
     def capture_mcmaster_order(
-        self, order, decisions: Dict[str, Dict[str, Any]],
+        self, order, decisions: Dict[str, Dict[str, Any]], arrived_date=None,
     ) -> OrderCaptureResult:
         """Confirm a reviewed McMaster order. See :meth:`capture_order_lines`."""
-        return self.capture_order_lines(order, MCMASTER_ORDER_VENDOR, decisions)
+        return self.capture_order_lines(
+            order, MCMASTER_ORDER_VENDOR, decisions, arrived_date=arrived_date,
+        )
 
     def _recorded_order_lines(self, session, order, vendor) -> Dict[str, Purchase]:
         """Pair this order's lines to the purchases already recorded for it.

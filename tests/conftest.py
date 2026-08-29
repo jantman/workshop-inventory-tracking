@@ -292,7 +292,7 @@ def digikey_fixture_client():
     from decimal import Decimal
     from pathlib import Path
 
-    from app.models import DigiKeyOrder, DigiKeyPart
+    from app.models import DigiKeyOrder, DigiKeyOrderSummary, DigiKeyPart
 
     fixtures = Path(__file__).parent / 'fixtures' / 'digikey'
 
@@ -306,5 +306,23 @@ def digikey_fixture_client():
             return DigiKeyPart.from_payload(json.loads(
                 (fixtures / 'productdetails.json').read_text(), parse_float=Decimal
             ))
+
+        def list_orders(self, days=None):
+            """031. Flattened the way the real client flattens it -- the
+            fixture holds one order DigiKey split into two sales orders, and a
+            fake that returned them nested would hide the bug that matters.
+            """
+            payload = json.loads(
+                (fixtures / 'orders.json').read_text(), parse_float=Decimal
+            )
+            return [
+                summary
+                for order in payload.get('Orders') or []
+                for summary in [
+                    DigiKeyOrderSummary.from_payload(sales_order)
+                    for sales_order in order.get('SalesOrders') or []
+                ]
+                if summary is not None
+            ]
 
     return _FixtureDigiKey()
