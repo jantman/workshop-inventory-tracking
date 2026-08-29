@@ -1223,16 +1223,45 @@ def _digikey_decimal(value: Any) -> Optional[Decimal]:
     return None
 
 
+def _naive(value: Optional[datetime]) -> Optional[datetime]:
+    """Drop a parsed timestamp's offset, keeping its wall clock.
+
+    **Every datetime a payload parser returns is naive**, because every column
+    it can reach is. ``Purchase.order_date`` and ``Purchase.received_date`` are
+    naive ``DateTime`` columns, and both SQLAlchemy's SQLite dialect and PyMySQL
+    format an aware value by its wall clock and discard the offset -- so an
+    aware datetime was never stored as one. What it did instead was travel as
+    far as the first comparison and raise there.
+
+    That is not hypothetical: an operator typing an arrival date on a DigiKey
+    order review sent a naive datetime into ``_validate_receipt_order`` against
+    an aware ``order_date``, and ``TypeError: can't compare offset-naive and
+    offset-aware datetimes`` is not a ``ValidationError``, so it went past the
+    confirm route's handler as a 500 and lost the whole capture. Found in
+    review of PR #128.
+
+    **The offset is dropped, not converted.** Converting would shift new rows
+    relative to every row already stored by the behaviour described above, which
+    would be a silent data change to fix a crash.
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    return value.replace(tzinfo=None)
+
+
 def _digikey_datetime(value: Any) -> Optional[datetime]:
     """DigiKey's ISO 8601 timestamp, or None.
 
     Their offsets are real ones ('2026-08-07T17:34:04.332-05:00'), and a 'Z'
     turns up on shipment dates, which ``fromisoformat`` handles from 3.11.
+
+    Naive on the way out; see :func:`_naive` for why the offset cannot survive
+    the trip to a column anyway.
     """
     if not isinstance(value, str) or not value.strip():
         return None
     try:
-        return datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+        return _naive(datetime.fromisoformat(value.strip().replace('Z', '+00:00')))
     except ValueError:
         return None
 
@@ -1376,9 +1405,12 @@ def _order_datetime(value: Any, today: Optional[datetime] = None) -> Optional[da
         except ValueError:
             continue
 
-    # ISO 8601 with a time on it, should the agent ever send one.
+    # ISO 8601 with a time on it, should the agent ever send one. Naive on the
+    # way out, for the reason :func:`_naive` gives -- this branch is the same
+    # latent crash DigiKey's parser actually hit, and it is closed here rather
+    # than left for whichever agent change first sends an offset.
     try:
-        return datetime.fromisoformat(text.replace('Z', '+00:00'))
+        return _naive(datetime.fromisoformat(text.replace('Z', '+00:00')))
     except ValueError:
         pass
 

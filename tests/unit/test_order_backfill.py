@@ -20,7 +20,8 @@ too. The flow itself is one implementation for all three vendors (029 FR-036),
 so what is tested here is the flow, not the vendor.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
+from decimal import Decimal
 
 import pytest
 
@@ -384,3 +385,131 @@ class TestTheOtherVendorsWrappers:
         lines = purchases_for(catalog, 'BACKFILL-2024', MCMASTER_VENDOR)
         assert len(lines) == 1
         assert lines[0].received_date == datetime(2024, 3, 20)
+
+
+class TestDigiKeyWhoseOrderDateCarriedAnOffset:
+    """The crash found in review of PR #128.
+
+    DigiKey publishes real UTC offsets (`2026-08-07T17:34:04.332-05:00`), while
+    an arrival date typed into an ``<input type="date">`` parses naive. Comparing
+    the two raised ``TypeError``, which is not a ``ValidationError`` and so went
+    straight past the confirm route's handler as a 500 -- losing the capture the
+    operator had just reviewed.
+
+    Nothing in this suite reached it before, because the two vendors it drove
+    both produce naive order dates. So this class drives **DigiKey**, and it
+    drives it through the route, which is where the 500 actually happened.
+    """
+
+    def test_the_parsed_order_date_is_naive(self):
+        """The invariant the fix rests on: a payload parser never returns an
+        aware datetime, because no column it can reach keeps one.
+        """
+        import json
+        from pathlib import Path
+
+        from app.models import DigiKeyOrder
+
+        fixtures = Path(__file__).resolve().parents[1] / 'fixtures' / 'digikey'
+        order = DigiKeyOrder.from_payload(json.loads(
+            (fixtures / 'salesorder.json').read_text(), parse_float=Decimal
+        ))
+
+        assert order.order_date is not None
+        assert order.order_date.tzinfo is None
+
+    def test_the_offset_is_dropped_and_not_converted(self):
+        """Converting would shift new rows against every row already stored."""
+        from app.models import _digikey_datetime
+
+        parsed = _digikey_datetime('2026-08-07T17:34:04.332-05:00')
+
+        assert parsed == datetime(2026, 8, 7, 17, 34, 4, 332000)
+
+    def test_an_agent_sending_an_offset_is_naive_too(self):
+        """The same latent crash on the page-read vendors, closed with it."""
+        from app.models import _order_datetime
+
+        parsed = _order_datetime('2026-08-07T17:34:04.332-05:00')
+
+        assert parsed is not None and parsed.tzinfo is None
+
+    def test_capturing_a_digikey_order_with_a_typed_arrival_date(
+        self, app, client, test_storage, digikey_fixture_client,
+    ):
+        """The reproduction: a 500 before the fix, a capture after it."""
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+
+        response = client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[1]': 'on', 'include[2]': 'on',
+            'arrived[1]': 'on', 'arrived[2]': 'on',
+            'arrived_date': '2026-08-11',
+        })
+
+        assert response.status_code in (200, 302), response.status_code
+
+    def test_and_the_lines_are_recorded_delivered_on_that_date(
+        self, app, client, test_storage, digikey_fixture_client,
+    ):
+        from app.database import Purchase
+
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[1]': 'on', 'include[2]': 'on',
+            'arrived[1]': 'on', 'arrived[2]': 'on',
+            'arrived_date': '2026-08-11',
+        })
+
+        session = test_storage._get_session()
+        try:
+            received = [p.received_date for p in session.query(Purchase).all()]
+        finally:
+            session.close()
+
+        assert received and all(d == datetime(2026, 8, 11) for d in received)
+
+    def test_a_blank_date_on_a_digikey_order_still_works(
+        self, app, client, test_storage, digikey_fixture_client,
+    ):
+        """The path that never crashed -- aware against aware -- must stay right
+        now that both sides are naive.
+        """
+        from app.database import Purchase
+
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[1]': 'on', 'include[2]': 'on',
+            'arrived[1]': 'on', 'arrived[2]': 'on',
+        })
+
+        session = test_storage._get_session()
+        try:
+            rows = [(p.order_date, p.received_date) for p in session.query(Purchase).all()]
+        finally:
+            session.close()
+
+        assert rows and all(ordered == arrived for ordered, arrived in rows)
+
+    def test_an_arrival_before_a_digikey_order_date_is_still_refused(
+        self, app, client, test_storage, digikey_fixture_client,
+    ):
+        """The comparison has to still *work*, not merely stop raising."""
+        from app.database import Purchase
+
+        app.config['DIGIKEY_CLIENT'] = digikey_fixture_client
+        response = client.post('/products/digikey/orders/capture', data={
+            'sales_order_number': '100882558',
+            'include[1]': 'on', 'include[2]': 'on',
+            'arrived[1]': 'on', 'arrived[2]': 'on',
+            'arrived_date': '2020-01-01',
+        })
+
+        assert response.status_code == 200
+        session = test_storage._get_session()
+        try:
+            assert session.query(Purchase).count() == 0
+        finally:
+            session.close()
