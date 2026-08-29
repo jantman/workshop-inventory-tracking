@@ -544,6 +544,26 @@ class TestAnOrderNobodyCanDate:
             p.received_date == datetime(2023, 6, 19) for p in lines
         )
 
+    def test_and_the_order_date_written_agrees_with_it(self, catalog):
+        """An undated order takes the arrival date as its own.
+
+        Asserting the arrival date alone was not enough: the stored
+        ``order_date`` fell back to today independently, so the row said ordered
+        today and received in 2023. Found in review of PR #128 -- and it is why
+        every test in this class now reads the pair.
+        """
+        order = build_order(order_date=None)
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+            arrived_date='2023-06-19',
+        )
+
+        lines = purchases_for(catalog)
+        assert lines and all(
+            p.order_date == datetime(2023, 6, 19) for p in lines
+        )
+
     def test_an_unparseable_date_from_the_vendor_behaves_the_same(self, catalog):
         order = build_order(order_date='sometime last spring')
 
@@ -552,10 +572,37 @@ class TestAnOrderNobodyCanDate:
             arrived_date='2023-06-19',
         )
 
-        assert all(
-            p.received_date == datetime(2023, 6, 19)
-            for p in purchases_for(catalog)
+        lines = purchases_for(catalog)
+        assert lines and all(
+            (p.order_date, p.received_date)
+            == (datetime(2023, 6, 19), datetime(2023, 6, 19))
+            for p in lines
         )
+
+    def test_an_undated_order_with_a_blank_arrival_date_still_agrees(self, catalog):
+        """Nothing is known about when any of it happened, so the two are equal
+        rather than a microsecond apart -- one ``now()``, used twice.
+        """
+        order = build_order(order_date=None)
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+        )
+
+        lines = purchases_for(catalog)
+        assert lines and all(p.order_date == p.received_date for p in lines)
+
+    def test_an_undated_order_nobody_marks_arrived_is_still_ordinary(self, catalog):
+        """No arrival date to borrow, so today is the only answer left."""
+        order = build_order(order_date=None)
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order),
+        )
+
+        lines = purchases_for(catalog)
+        assert lines and all(p.received_date is None for p in lines)
+        assert all(p.order_date is not None for p in lines)
 
     def test_a_dated_order_still_refuses_an_impossible_arrival(self, catalog):
         """Removing the floor where there is no date must not remove it where
@@ -639,4 +686,39 @@ class TestADateTypedAndThenThoughtBetterOf:
         with pytest.raises(ValidationError):
             catalog.capture_order_lines(
                 order, AMAZON_ORDER_VENDOR, decisions, arrived_date='2020-01-01',
+            )
+
+
+class TestNothingIsReceivedBeforeItIsOrdered:
+    """The invariant, asserted over the whole matrix rather than case by case.
+
+    `_validate_receipt_order` refuses this row, and `record_purchase` and
+    `receive_purchase` both go through it. Capture is the one write path that
+    builds a Purchase directly, so it is the one that can produce the row
+    without ever consulting that rule -- which it briefly did, for an undated
+    order given a real arrival date. Found in review of PR #128.
+    """
+
+    @pytest.mark.parametrize('order_date', [None, 'sometime last spring',
+                                            'March 4, 2024'])
+    @pytest.mark.parametrize('arrived_date', ['', '2024-06-01', '2026-01-01'])
+    def test_a_captured_purchase_never_contradicts_itself(
+        self, catalog, order_date, arrived_date
+    ):
+        order = build_order(order_date=order_date)
+
+        try:
+            catalog.capture_order_lines(
+                order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+                arrived_date=arrived_date,
+            )
+        except ValidationError:
+            # Refused is a fine outcome -- an arrival before a *stated* order
+            # date should be. What must not happen is being written anyway.
+            assert purchases_for(catalog) == []
+            return
+
+        for purchase in purchases_for(catalog):
+            assert purchase.received_date >= purchase.order_date, (
+                f'ordered {purchase.order_date}, received {purchase.received_date}'
             )

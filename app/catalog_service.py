@@ -1911,12 +1911,25 @@ class CatalogService:
         # the offending field hidden on the re-render. Gated on the server
         # because a fix in the page's JavaScript is only as good as the
         # JavaScript having run. Found in review of PR #128.
-        order_date = order.order_date or datetime.now()
+        now = datetime.now()
+        stated = order.order_date
         arrived = None
         if any((d or {}).get('arrived') for d in decisions.values()):
-            arrived = self._resolve_arrival_date(
-                arrived_date, order.order_date, order_date
-            )
+            arrived = self._resolve_arrival_date(arrived_date, stated, stated or now)
+
+        # **An order the vendor did not date takes the arrival date as its own.**
+        # The two defaults used to be chosen independently -- the stored
+        # order_date fell back to today while the arrival date was whatever the
+        # operator typed -- so backfilling an undated 2023 order wrote a
+        # purchase ordered today and received in 2023. That is the row
+        # `_validate_receipt_order` exists to refuse and that every other write
+        # path does refuse, and the product page renders the pair side by side,
+        # so the contradiction was visible. Found in review of PR #128.
+        #
+        # Deriving one from the other keeps the property the blank-arrival-date
+        # case already had -- the two agree rather than contradict -- and today
+        # is only reached when nothing at all is known about when this happened.
+        order_date = stated or arrived or now
 
         # Before the session, and only for the lines a confirmation will act on
         # -- unlike the review above, which enriches every line.
