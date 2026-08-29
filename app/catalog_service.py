@@ -1669,27 +1669,38 @@ class CatalogService:
             )
 
     def _resolve_arrival_date(
-        self, arrived_date: Any, order_date: datetime
+        self, arrived_date: Any, stated: Optional[datetime], fallback: datetime,
     ) -> datetime:
         """When a backfilled order arrived (031 FR-026).
 
         Blank falls back to the **order's own date**, which is the best answer
         available and is the whole point: a delivery from 2023 recorded as
         arriving today would be wrong in exactly the way backfilling exists to
-        avoid. ``datetime.now()`` is never reached from here -- where the order
-        itself carried no date, its date is already now, and the purchase's
-        ``order_date`` and ``received_date`` then agree rather than differing by
-        a microsecond.
+        avoid. Where the vendor gave no date at all, the fallback is now, and
+        the purchase's ``order_date`` and ``received_date`` then agree rather
+        than differing by a microsecond -- which is the least wrong answer
+        available rather than a good one.
+
+        Args:
+            arrived_date: What the operator typed, possibly blank.
+            stated: The order's own date **as the vendor gave it**, so ``None``
+                where they gave none. That None is the point: it is the
+                validation floor, and there is no floor under an order nobody
+                can date. Substituting now() here refused a real 2023 arrival
+                date on an undated order -- the exact case backfilling exists
+                for -- because the floor was today. Found in review of PR #128.
+            fallback: What to use when nothing was typed. Never None.
 
         Validated against the same rule receiving uses, so the two screens
         cannot disagree about whether a date is allowed.
 
         Raises:
-            ValidationError: Unreadable, or earlier than the order date. Called
-                before the write session opens, so a refusal leaves nothing.
+            ValidationError: Unreadable, or earlier than a date the order
+                actually states. Called before the write session opens, so a
+                refusal leaves nothing.
         """
-        arrived = _parse_datetime(arrived_date, 'arrived_date') or order_date
-        self._validate_receipt_order(order_date, arrived)
+        arrived = _parse_datetime(arrived_date, 'arrived_date') or fallback
+        self._validate_receipt_order(stated, arrived)
         return arrived
 
 
@@ -1890,8 +1901,22 @@ class CatalogService:
         # same: a refused date must leave nothing half-written. It is also the
         # only thing here that can raise on the operator's own input rather
         # than on the vendor's.
+        #
+        # **Only when a line actually claims to have arrived.** The review's
+        # date field is hidden with `d-none` when the operator unticks "already
+        # arrived", and `display: none` does not keep a field out of a
+        # submission -- only `disabled` does. So a date typed and then thought
+        # better of still arrives here, and validating it unconditionally
+        # refused the whole capture over a value no line would have used, with
+        # the offending field hidden on the re-render. Gated on the server
+        # because a fix in the page's JavaScript is only as good as the
+        # JavaScript having run. Found in review of PR #128.
         order_date = order.order_date or datetime.now()
-        arrived = self._resolve_arrival_date(arrived_date, order_date)
+        arrived = None
+        if any((d or {}).get('arrived') for d in decisions.values()):
+            arrived = self._resolve_arrival_date(
+                arrived_date, order.order_date, order_date
+            )
 
         # Before the session, and only for the lines a confirmation will act on
         # -- unlike the review above, which enriches every line.

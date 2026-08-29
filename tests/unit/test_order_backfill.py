@@ -513,3 +513,130 @@ class TestDigiKeyWhoseOrderDateCarriedAnOffset:
             assert session.query(Purchase).count() == 0
         finally:
             session.close()
+
+
+class TestAnOrderNobodyCanDate:
+    """An order whose vendor gave no date, or gave one nothing could parse.
+
+    `_order_datetime` treats an unparseable date as an absent one and an absent
+    one as ordinary, so this is a documented state for all three vendors rather
+    than a corrupt payload.
+
+    Before the fix, `order.order_date or datetime.now()` became the **validation
+    floor**, so typing the real arrival date of a genuinely old undated order --
+    the exact case backfilling exists for -- was refused because the floor was
+    today. Found in review of PR #128.
+    """
+
+    def test_an_undated_order_is_still_an_order(self):
+        assert build_order(order_date=None) is not None
+
+    def test_a_real_past_arrival_date_is_accepted(self, catalog):
+        order = build_order(order_date=None)
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+            arrived_date='2023-06-19',
+        )
+
+        lines = purchases_for(catalog)
+        assert lines and all(
+            p.received_date == datetime(2023, 6, 19) for p in lines
+        )
+
+    def test_an_unparseable_date_from_the_vendor_behaves_the_same(self, catalog):
+        order = build_order(order_date='sometime last spring')
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+            arrived_date='2023-06-19',
+        )
+
+        assert all(
+            p.received_date == datetime(2023, 6, 19)
+            for p in purchases_for(catalog)
+        )
+
+    def test_a_dated_order_still_refuses_an_impossible_arrival(self, catalog):
+        """Removing the floor where there is no date must not remove it where
+        there is one -- otherwise this fix trades one bug for a worse one.
+        """
+        order = build_order()
+
+        with pytest.raises(ValidationError):
+            catalog.capture_order_lines(
+                order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+                arrived_date='2020-01-01',
+            )
+
+
+class TestADateTypedAndThenThoughtBetterOf:
+    """The review hides the date field with `d-none` when the operator unticks
+    "already arrived", and `display: none` does not keep a field out of a
+    submission -- only `disabled` does.
+
+    So a date that was typed and then abandoned still arrives at the service.
+    Validating it unconditionally refused the **whole capture** over a value no
+    line would have used, and the re-render then hid the offending field, so the
+    operator saw an error tied to something they could no longer see and
+    resubmitting reproduced it. Found in review of PR #128.
+
+    Gated on the server rather than in the page's JavaScript, because a fix
+    there is only as good as the JavaScript having run.
+    """
+
+    def test_a_stale_date_with_nothing_ticked_does_not_refuse_the_capture(
+        self, catalog
+    ):
+        order = build_order()
+
+        result = catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order),
+            arrived_date='2020-01-01',
+        )
+
+        assert len(result.purchase_ids) == 2
+
+    def test_and_the_lines_are_outstanding(self, catalog):
+        order = build_order()
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order),
+            arrived_date='2020-01-01',
+        )
+
+        assert all(p.received_date is None for p in purchases_for(catalog))
+
+    def test_an_unreadable_stale_date_is_ignored_too(self, catalog):
+        """Nothing will read it, so nothing should refuse over it."""
+        order = build_order()
+
+        result = catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR, take_all(order),
+            arrived_date='last thursday',
+        )
+
+        assert len(result.purchase_ids) == 2
+
+    def test_but_a_bad_date_is_still_refused_when_a_line_claims_it(self, catalog):
+        """The gate is about whether the date is used, not about giving up on it."""
+        order = build_order()
+
+        with pytest.raises(ValidationError):
+            catalog.capture_order_lines(
+                order, AMAZON_ORDER_VENDOR, take_all(order, arrived=True),
+                arrived_date='last thursday',
+            )
+
+    def test_one_ticked_line_is_enough_to_validate(self, catalog):
+        """The gate is `any`, not `all` -- a partially arrived order still has a
+        date that has to be right.
+        """
+        order = build_order()
+        decisions = take_all(order)
+        decisions[order.lines[0].form_key]['arrived'] = True
+
+        with pytest.raises(ValidationError):
+            catalog.capture_order_lines(
+                order, AMAZON_ORDER_VENDOR, decisions, arrived_date='2020-01-01',
+            )
