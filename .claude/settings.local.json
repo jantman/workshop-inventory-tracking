@@ -57,7 +57,9 @@
       "Bash(PYENV_VERSION=3.13.12 nox -s e2e -- tests/e2e/test_api_client.py --tb=short)",
       "Bash(PYENV_VERSION=3.13.12 nox -s e2e)"
     ],
-    "deny": [],
+    "deny": [
+      "Bash(shutdown:*)"
+    ],
     "ask": []
   }
 }
