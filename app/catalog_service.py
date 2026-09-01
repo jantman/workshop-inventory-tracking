@@ -2399,7 +2399,7 @@ class CatalogService:
         )
 
     def _candidate_order_purchases(
-        self, session, order, vendor, order_date,
+        self, session, order, vendor, order_date: Optional[datetime],
     ) -> List[Purchase]:
         """Purchases that might already record a line of this order (033 FR-001).
 
@@ -2463,8 +2463,8 @@ class CatalogService:
         )
 
     def _assign_candidates(
-        self, session, order, vendor, order_date, recorded,
-    ) -> Dict[str, 'CandidatePurchase']:
+        self, session, order, vendor, order_date: Optional[datetime], recorded,
+    ) -> Dict[str, CandidatePurchase]:
         """Which lines are offered which candidate purchase (033 FR-004).
 
         Returns a mapping of ``line.form_key`` to a :class:`CandidatePurchase`.
@@ -2715,7 +2715,10 @@ class CatalogService:
         )
         return previous
 
-    def _claim_purchase(self, purchase: Purchase, line, order_fields, order_date):
+    def _claim_purchase(
+        self, purchase: Purchase, line, order_fields: Dict[str, Any],
+        order_date: Optional[datetime],
+    ) -> None:
         """Make an existing purchase a line of this order (033 FR-012).
 
         The operator has said this row and this line are one physical purchase.
