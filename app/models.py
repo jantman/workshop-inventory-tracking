@@ -2023,13 +2023,20 @@ class ReviewedLine:
 
     @property
     def has_change(self) -> bool:
-        """Whether the quantity or price differs from what is already recorded (FR-014).
+        """Whether the quantity or price differs from what is already recorded.
 
         Two ways a line can already be recorded, and both ask this question:
-        paired exactly to a purchase of this order (CAPTURED), or carrying a
-        candidate a listing capture wrote (033 FR-009). The tick that offers to
-        apply the order's values renders on this, so a candidate that is silent
-        here is a change the operator is never offered.
+        paired exactly to a purchase of this order (**024 FR-014** -- show a
+        changed quantity or price against what is recorded, and apply it only if
+        the operator confirms), or carrying a candidate a listing capture wrote
+        (**033 FR-009**, which reuses that same mechanism rather than inventing a
+        second one). The tick that offers to apply the order's values renders on
+        this, so a candidate that is silent here is a change the operator is
+        never offered.
+
+        Both feature numbers are spelled out because the bare "FR-014" this
+        carried before now sits beside 033's requirements, whose FR-014 is about
+        something else entirely -- preserving a received purchase's receipt.
         """
         if self.state is OrderLineState.CAPTURED:
             recorded_quantity = self.recorded_quantity

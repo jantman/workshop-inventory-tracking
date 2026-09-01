@@ -2398,7 +2398,9 @@ class CatalogService:
             order, MCMASTER_ORDER_VENDOR, decisions, arrived_date=arrived_date,
         )
 
-    def _candidate_order_purchases(self, session, order, vendor, order_date):
+    def _candidate_order_purchases(
+        self, session, order, vendor, order_date,
+    ) -> List[Purchase]:
         """Purchases that might already record a line of this order (033 FR-001).
 
         The blind spot this closes: every vendor's ``order_purchases`` finds rows
