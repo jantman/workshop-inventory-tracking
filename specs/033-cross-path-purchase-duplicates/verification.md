@@ -6,12 +6,12 @@
 
 | Suite | Result |
 |---|---|
-| `nox -s tests` | **2288 passed**, 774 deselected, 37s |
+| `nox -s tests` | **2291 passed**, 774 deselected, 37s |
 | `nox -s e2e` | **750 passed**, 0 failed, 2312 deselected, 15m22s |
 | `nox -s lint` | Fails repo-wide on E501 **before this branch as well** — see the note below |
 | Working tree after `nox -s e2e` | **clean** (Constitution IV) — `test-debug-output/` is gitignored |
 
-New coverage: 40 unit tests in `tests/unit/test_cross_path_duplicates.py` and 3 E2E
+New coverage: 43 unit tests in `tests/unit/test_cross_path_duplicates.py` and 3 E2E
 journeys appended to `tests/e2e/test_amazon_order.py`.
 
 **The regression test was confirmed red first** (FR-023, and issue #129's own
@@ -98,6 +98,21 @@ from an undated order.
 Fixed by matching on the stated date and stamping with the derived one. Two tests hold the
 two halves in step -- ``TestTheReviewAndTheCaptureAgree`` -- and the second is the general
 form: whatever the review asks about is exactly what the capture will accept.
+
+## A second defect, found by the PR reviewer
+
+`_assign_candidates` originally drained a pool as it walked the order's lines, offering each
+candidate to the first line that matched. Two lines carrying one item id, one candidate, and
+the operator **excluding the line the row was offered to**: the surviving line found no
+candidate, fell through to the ordinary write path, and recorded a second purchase with no
+question raised — reproducing issue #129 through the feature meant to prevent it.
+
+Reproduced against the implementation before fixing, then fixed by moving the "claimed once"
+rule from offer time to claim time (research.md §13). Three tests now cover it:
+`test_two_lines_of_one_item_are_both_offered_it`,
+`test_excluding_the_first_line_does_not_lose_the_question`,
+`test_and_leaving_that_survivor_unanswered_still_refuses`, plus `test_one_row_cannot_be_two_lines`
+for the both-adopt case.
 
 ## Manual checks — the two that need a person
 

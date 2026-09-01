@@ -59,8 +59,10 @@ Still writes nothing. Each `ReviewedLine` it returns may now carry a `candidate`
    for line in order.lines}`, `supplier_order_reference IS NULL`, and `order_date` within
    `CANDIDATE_WINDOW` of the order's date. Rows with `order_date IS NULL` are excluded.
 2. Walk `order.lines` in order. A line already paired exactly (state CAPTURED) takes nothing.
-   Otherwise it takes the matching row closest in date to the order's date, ties broken by
-   lowest `id`, and that row leaves the pool.
+   Every other line whose item id matches is offered the row closest in date to the order's
+   date, ties broken by lowest `id`. **The row is offered to every matching line, not to the
+   first only** — see research.md §13: draining it into one line let an exclusion lose the
+   question and silently duplicate. Which line actually gets it is settled at claim time.
 
 An order with no date has no candidates at all: FR-006, and it follows from step 1 rather than
 from a special case.
@@ -74,7 +76,8 @@ Still one session for the whole order, still all-or-nothing.
 | Condition | Behavior |
 |---|---|
 | No candidate | Exactly today's behavior. |
-| Candidate, `same_purchase == 'adopt'` | Claim it (§5). No product resolution, no new `Purchase`. |
+| Candidate, `same_purchase == 'adopt'`, row unclaimed | Claim it (§5). No product resolution, no new `Purchase`. |
+| Candidate, `same_purchase == 'adopt'`, row already claimed by an earlier line | Ordinary line: one purchase cannot be two lines of an order, so this one records its own. |
 | Candidate, `same_purchase == 'separate'` | Exactly today's behavior; the candidate is untouched. |
 | Candidate, anything else | `ValidationError`, `field=f'same_purchase[{line.form_key}]'`, **nothing written** — the session rolls back whole. |
 

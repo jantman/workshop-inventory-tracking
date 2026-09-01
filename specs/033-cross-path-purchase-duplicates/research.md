@@ -112,6 +112,11 @@ purchase keeps the date it has. One branch, one test.
 
 ## §6 — One candidate per line, chosen deterministically at review time
 
+> **Revised in review of PR #144.** The design below — draining a pool as lines
+> matched, so a candidate was offered to exactly one line — was implemented and was
+> wrong. See §13.
+
+
 FR-004 says a candidate is claimable by at most one line. Two mechanisms are needed and both
 already have precedent in `_recorded_order_lines`:
 
@@ -207,3 +212,32 @@ parametrize list in §9.
 exist on `purchases` and all are already written by both paths. `supplier_order_reference` is
 indexed; `vendor_item_id` is indexed. Nothing here needs a column, so nothing here needs an
 Alembic revision — the third consecutive order feature to ship none.
+
+## §13 — Why the candidate is offered to every matching line (PR #144 review)
+
+§6 above assigned each candidate to exactly one line, draining a pool as it walked
+``order.lines``. That satisfied "a row is claimable once" at the point of *offering*, and it
+had a hole:
+
+The assignment cannot see the operator's decisions. ``review_order`` has none, and
+``capture_order_lines`` computes candidates before it reads them — deliberately, because a
+capture that asked about a line the review never rendered a control for would be
+unanswerable (§5's sibling trap). So the pool drained by line order alone. Give an order two
+lines carrying one item id and the catalog one listing-captured purchase, and the row was
+offered to line 1 only. **Exclude line 1 and capture line 2**, and line 2 found no candidate,
+fell through to the ordinary write path, and recorded a second purchase for the same physical
+purchase — with no question raised. The feature reproduced the bug it exists to prevent.
+
+Reproduced against the implementation before fixing: two purchases, `order_ref` set on the
+new one and still NULL on the original.
+
+**The fix moves the "claimed once" rule from offer time to claim time.** Every line that could
+be a candidate's line is offered it, so no exclusion can lose the question; a `claimed` set in
+``capture_order_lines`` gives the row to the first line that answers "same purchase", and a
+second line wanting the same row is an ordinary line that records its own purchase. That is
+the true answer as well as the safe one: two lines of an order are two purchases, and one
+purchase cannot be both of them.
+
+Where one item has two candidates, the nearer by date is the one offered, and the other is
+left alone rather than handed to a second line. A purchase this capture does not claim stays
+exactly as it was — the conservative half of every choice in this flow.

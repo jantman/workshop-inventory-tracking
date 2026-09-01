@@ -266,9 +266,14 @@ class TestWhatIsNotACandidate:
 class TestOneCandidatePerLine:
     """FR-004, FR-005: a row is claimable once, and exactness wins."""
 
-    def test_two_lines_of_one_item_share_one_candidate(self, catalog):
-        """One is offered it; the other is an ordinary line."""
-        capture_listing(catalog)
+    def test_two_lines_of_one_item_are_both_offered_it(self, catalog):
+        """Both are asked; which one takes it is settled when they answer.
+
+        Offering it to only the first line looks tidier and is wrong: exclude
+        that line and the second captures with no question raised, writing the
+        duplicate this feature exists to prevent. PR #144 review.
+        """
+        listing = capture_listing(catalog)
         order = build_order(lines=[
             {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
              'quantity': 1, 'unit_price': '37.59'},
@@ -279,7 +284,81 @@ class TestOneCandidatePerLine:
         review = catalog.review_order(order, AMAZON_ORDER_VENDOR)
 
         offered = [line for line in review.lines if line.candidate is not None]
-        assert len(offered) == 1
+        assert len(offered) == 2
+        assert {line.candidate.purchase_id for line in offered} == {listing.id}
+
+    def test_excluding_the_first_line_does_not_lose_the_question(self, catalog):
+        """The regression PR #144's review found, stated as a test.
+
+        Two lines for one item, one candidate, and the operator takes the
+        *second* line. The surviving line must still be asked, and adopting on it
+        must leave one purchase.
+        """
+        listing = capture_listing(catalog)
+        order = build_order(lines=[
+            {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
+             'quantity': 1, 'unit_price': '37.59'},
+            {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
+             'quantity': 1, 'unit_price': '37.59'},
+        ])
+        first, second = (line.form_key for line in order.lines)
+
+        result = catalog.capture_order_lines(order, AMAZON_ORDER_VENDOR, {
+            first: {'include': False},
+            second: {'include': True, 'same_purchase': 'adopt'},
+        })
+
+        assert result.purchases_adopted == (listing.id,)
+        assert result.purchase_ids == ()
+        assert len(catalog.get_purchase_history(listing.product_id)) == 1
+
+    def test_and_leaving_that_survivor_unanswered_still_refuses(self, catalog):
+        """The other half: the question cannot be dodged by excluding a line."""
+        listing = capture_listing(catalog)
+        order = build_order(lines=[
+            {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
+             'quantity': 1, 'unit_price': '37.59'},
+            {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
+             'quantity': 1, 'unit_price': '37.59'},
+        ])
+        first, second = (line.form_key for line in order.lines)
+
+        with pytest.raises(ValidationError) as excinfo:
+            catalog.capture_order_lines(order, AMAZON_ORDER_VENDOR, {
+                first: {'include': False},
+                second: {'include': True},
+            })
+
+        assert excinfo.value.field == f'same_purchase[{second}]'
+        assert len(catalog.get_purchase_history(listing.product_id)) == 1
+
+    def test_one_row_cannot_be_two_lines(self, catalog):
+        """Both lines answer "same purchase"; only one can be right.
+
+        The first takes it and the second records its own -- which is the true
+        answer as well as the safe one, because two lines of an order are two
+        purchases.
+        """
+        listing = capture_listing(catalog)
+        order = build_order(lines=[
+            {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
+             'quantity': 1, 'unit_price': '37.59'},
+            {'asin': ASIN, 'title': 'ELECROW ESP32 E-Ink 4.2"',
+             'quantity': 1, 'unit_price': '37.59'},
+        ])
+
+        result = catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR,
+            decisions_for(order, same_purchase='adopt'),
+        )
+
+        assert result.purchases_adopted == (listing.id,)
+        assert len(result.purchase_ids) == 1
+        history = catalog.get_purchase_history(listing.product_id)
+        assert len(history) == 2
+        assert sorted(
+            row.order_line_number for row in history
+        ) == [line.line_number for line in order.lines]
 
     def test_and_capturing_them_writes_one_row_and_adopts_one(self, catalog):
         listing = capture_listing(catalog)

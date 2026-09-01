@@ -2100,6 +2100,9 @@ class CatalogService:
 
         purchase_ids = []
         adopted_ids = []
+        # The candidate rows this capture has already claimed. A row is offered
+        # to every line that could be its line, so this is what keeps it to one.
+        claimed = set()
         products_created = products_attached = 0
         lines_excluded = lines_already_captured = lines_updated = 0
         lines_arrived = 0
@@ -2184,7 +2187,14 @@ class CatalogService:
                             f"purchase.",
                             field=f'same_purchase[{line.form_key}]',
                         )
-                    if answer == 'adopt':
+                    # **The first line to want it takes it** (FR-004). Two
+                    # lines carrying one item id are both offered the same row,
+                    # so that excluding one does not lose the question -- and one
+                    # purchase cannot be two lines of an order, so a second line
+                    # wanting a row already claimed is an ordinary line and
+                    # records its own purchase. That is the right answer as well
+                    # as the safe one: the operator bought the thing twice.
+                    if answer == 'adopt' and candidate.purchase_id not in claimed:
                         # No product resolution and no new Purchase: the row
                         # already exists and already has a product, and creating
                         # one here would be the duplicate this closes (FR-013,
@@ -2195,6 +2205,7 @@ class CatalogService:
                             purchase, line, order_fields, order_date,
                         )
                         adopted_ids.append(purchase.id)
+                        claimed.add(purchase.id)
                         if decision.get('apply_change') and self._apply_order_change(
                             purchase, line, decision, vendor
                         ):
@@ -2376,54 +2387,67 @@ class CatalogService:
     def _assign_candidates(
         self, session, order, vendor, order_date, recorded,
     ) -> Dict[str, 'CandidatePurchase']:
-        """Which line each candidate purchase is offered to (033 FR-004).
+        """Which lines are offered which candidate purchase (033 FR-004).
 
         Returns a mapping of ``line.form_key`` to a :class:`CandidatePurchase`.
 
-        **One candidate, one line.** An order can carry the same item twice, and
-        one listing capture cannot be both of them -- so a claimed row leaves the
-        pool and the second line is an ordinary line. Two lines both adopting one
-        row would be the merge that ``_recorded_order_lines`` already refuses to
-        make, arriving by a different door.
+        **Every line that could be the candidate's line is offered it**, so two
+        lines carrying the same item id are both asked. This is not the obvious
+        design and the obvious one was wrong: draining a pool as lines matched
+        gave the row to the *first* line only, and if the operator then excluded
+        that line, the second captured with no question raised and wrote exactly
+        the duplicate this feature exists to prevent. Found in review of PR #144,
+        and reproduced before it was fixed.
+
+        The assignment therefore cannot depend on the operator's decisions --
+        ``review_order`` has none, and a capture that asked about a line the
+        review never offered a control for would be unanswerable. So it depends
+        on nothing but the order and the database, and **which line actually
+        gets the row is settled at claim time** by ``capture_order_lines``:
+        the first line to answer "same purchase" takes it, and a second line
+        wanting the same row is an ordinary line, because one purchase cannot be
+        two lines of an order.
 
         **A line already paired exactly takes nothing.** CAPTURED is settled
         before anything else and is not a question (FR-005).
 
-        Where a line has two candidates -- the same item bought twice inside the
-        window -- the one **closest in date** to the order's is offered, ties by
-        lowest id. Deterministic, so the review and the confirmation that follows
-        it agree about which row the operator was shown.
+        Where an item has two candidates -- the same thing bought twice inside
+        the window -- the one **closest in date** to the order's is the one
+        offered, ties by lowest id. Deterministic, so the review and the
+        confirmation that follows it name the same row. The other is left alone
+        rather than being offered to a second line: a purchase this capture does
+        not claim stays exactly as it was, which is the conservative half of
+        every choice in this flow.
         """
         rows = self._candidate_order_purchases(session, order, vendor, order_date)
         if not rows:
             return {}
 
-        pool = list(rows)
+        def nearness(row):
+            return abs(row.order_date - order_date), row.id
+
+        nearest: Dict[str, Purchase] = {}
+        for row in rows:
+            held = nearest.get(row.vendor_item_id)
+            if held is None or nearness(row) < nearness(held):
+                nearest[row.vendor_item_id] = row
+
         assigned: Dict[str, CandidatePurchase] = {}
         for line in order.lines:
-            if line.form_key in recorded or line.form_key in assigned:
+            if line.form_key in recorded:
                 continue
             item_id = vendor.item_id_of(line)
             if not item_id:
                 continue
-
-            matching = [row for row in pool if row.vendor_item_id == item_id]
-            if not matching:
+            row = nearest.get(item_id)
+            if row is None:
                 continue
-
-            row = min(
-                matching,
-                key=lambda candidate: (
-                    abs(candidate.order_date - order_date), candidate.id
-                ),
-            )
-            pool.remove(row)
             assigned[line.form_key] = CandidatePurchase(
                 purchase_id=row.id,
+                product_id=row.product_id,
                 order_date=row.order_date,
                 quantity=row.quantity,
                 unit_price=row.unit_price,
-                product_id=row.product_id,
                 product_description=(
                     row.product.description if row.product else None
                 ),

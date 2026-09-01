@@ -1938,11 +1938,15 @@ class CandidatePurchase:
     eagerly loaded does not survive its session closing, and a thing a template
     renders has no business carrying that hazard.
     """
+    # Both required: ``purchases.product_id`` is NOT NULL, so a candidate that
+    # could not name its product would be a row that cannot exist. Typing it
+    # optional would make every template treat a value that is always there as
+    # though it might not be.
     purchase_id: int
+    product_id: int
     order_date: Optional[datetime] = None
     quantity: Optional[int] = None
     unit_price: Optional[Decimal] = None
-    product_id: Optional[int] = None
     product_description: Optional[str] = None
     # Rendered as a plain statement on the review: adopting a received purchase
     # does not un-receive it, and does not re-run any of receiving's side
