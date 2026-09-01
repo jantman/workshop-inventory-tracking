@@ -21,7 +21,10 @@ from sqlalchemy import and_, case, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
 
 from .database import (
+    ItemPhotoAssociation,
+    Photo,
     Product,
+    ProductAttachment,
     ProductIdentifier,
     ProductSpecification,
     ProductTag,
@@ -48,6 +51,7 @@ from .models import (
     McMasterOrder,
     OrderCaptureReview,
     OrderLineState,
+    PurchaseDeletion,
     ReviewedLine,
     ScanClassification,
     ScanKind,
@@ -1618,6 +1622,91 @@ class CatalogService:
                     product.stock_status_updated_at = None
 
         return self.get_purchase(purchase_id)
+
+    def delete_purchase(self, purchase_id: int) -> Optional[PurchaseDeletion]:
+        """Remove one purchase recorded in error (032 FR-001, issue #130).
+
+        A duplicate, a mis-captured line, an order captured twice by different
+        paths. Several deliberate decisions elsewhere are written up as safe
+        *because* the operator can delete a purchase afterwards -- an orphaned
+        purchase is "reported and never deleted", a line excluded at capture is
+        offered again -- and until this existed, all of them terminated in a
+        decision the operator could not act on.
+
+        **The product's counted quantity is deliberately left alone** (FR-007),
+        along with its age and any hand-set stock flag. Receiving history and
+        current stock are separate claims. Nothing on a purchase records whether
+        its receipt ever moved a count -- one received through the receive
+        screen did, one captured with an arrival date did not (031 FR-028) -- so
+        subtracting would invent a loss for half of them, and would move a number
+        nobody has looked at, which is what ``quantity_updated_at`` exists to
+        prevent. The product page's own +/- controls are how a count gets fixed.
+
+        Everything happens in one session (FR-012): the purchase, its attachment
+        rows, and any photo those attachments were the last reference to.
+
+        Args:
+            purchase_id: The purchase to remove.
+
+        Returns:
+            A PurchaseDeletion describing what went, or None when there was no
+            such purchase. None rather than raising, matching ``get_purchase``
+            and ``remove_identifier`` -- the not-found decision is the route's.
+        """
+        with self._session() as session:
+            purchase = session.query(Purchase).filter(
+                Purchase.id == purchase_id
+            ).first()
+            if purchase is None:
+                return None
+
+            # Read before the delete: by the time the caller is told, the row is
+            # gone, and a deleted ORM instance is not a thing to hand back.
+            photo_ids = [attachment.photo_id for attachment in purchase.attachments]
+            deletion = PurchaseDeletion(
+                purchase_id=purchase.id,
+                product_id=purchase.product_id,
+                vendor=purchase.vendor,
+                order_date=purchase.order_date,
+                quantity=purchase.quantity,
+                unit_price=purchase.unit_price,
+                supplier_order_reference=purchase.supplier_order_reference,
+                attachments_deleted=len(photo_ids),
+            )
+
+            session.delete(purchase)
+            # The attachment rows go with it -- Purchase.attachments is
+            # delete-orphan, and product_attachments.purchase_id is ON DELETE
+            # CASCADE. Flush so the reference check below sees that.
+            session.flush()
+
+            # FR-006: the bytes go only when nothing else wants them.
+            #
+            # **This is the third statement of one rule.** The other two are
+            # PhotoService.delete_attachment and
+            # PhotoService.cleanup_orphaned_photos; a change to the rule has to
+            # find all three. It is restated rather than shared because
+            # PhotoService holds a *separate* session, so calling into it here
+            # would make this two transactions -- and a crash between them would
+            # leave photos this method promised were gone.
+            for photo_id in photo_ids:
+                still_referenced = session.query(ProductAttachment).filter(
+                    ProductAttachment.photo_id == photo_id
+                ).count() or session.query(ItemPhotoAssociation).filter(
+                    ItemPhotoAssociation.photo_id == photo_id
+                ).count()
+
+                if not still_referenced:
+                    photo = session.query(Photo).filter(Photo.id == photo_id).first()
+                    if photo is not None:
+                        session.delete(photo)
+
+        logger.info(
+            f"Deleted purchase {purchase_id} "
+            f"({deletion.vendor}, product {deletion.product_id}) "
+            f"and {deletion.attachments_deleted} attachment(s)"
+        )
+        return deletion
 
     def _validate_purchase_quantity(self, quantity: Any) -> Optional[int]:
         """A purchase of zero is not a purchase"""

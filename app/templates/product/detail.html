@@ -153,6 +153,16 @@
                                     Received {{ purchase.received_date.strftime('%Y-%m-%d') }}
                                 </span>
                                 {% endif %}
+                                {# 032 FR-001, issue #130. In this cell rather
+                                   than a column of its own, so the six-column
+                                   layout and the empty-state row's colspan stay
+                                   correct. A plain link: the confirmation is a
+                                   page, so there is no dialog and no JS. #}
+                                <a href="{{ url_for('product.purchase_delete', purchase_id=purchase.id) }}"
+                                   class="btn btn-sm btn-outline-danger ms-1 delete-purchase-btn"
+                                   title="Delete this purchase">
+                                    <i class="bi bi-trash"></i>
+                                </a>
                             </td>
                             <td class="purchase-attachments" data-purchase-id="{{ purchase.id }}">
                                 {% for attachment in purchase_attachments.get(purchase.id, []) %}

@@ -2118,3 +2118,30 @@ class OrderCaptureResult:
 # regression gate for this refactor.
 DigiKeyCaptureResult = OrderCaptureResult
 McMasterCaptureResult = OrderCaptureResult
+
+
+@dataclass(frozen=True)
+class PurchaseDeletion:
+    """What one deleted purchase was, reported back after it is gone.
+
+    The route needs to say what it removed (032 FR-008) and to decide where to
+    send the operator afterwards, and by then the row does not exist. Reading it
+    in the route beforehand would be a second session and a race; handing back
+    the deleted ORM instance would be worse, because touching an unloaded
+    attribute on a deleted object is undefined. So the service reads what is
+    needed inside the transaction and returns this.
+
+    ``supplier_order_reference`` is what decides whether "back to the order" has
+    anywhere to go. A hand-recorded or listing-captured purchase carries none,
+    and there is no order to return to -- which is a fallback, not an error.
+    """
+    purchase_id: int
+    product_id: int
+    vendor: str
+    order_date: Optional[datetime] = None
+    quantity: Optional[int] = None
+    # Decimal, never float (Constitution III). Rendered and echoed, never
+    # arithmetic'd -- this feature deliberately does no sums.
+    unit_price: Optional[Decimal] = None
+    supplier_order_reference: Optional[str] = None
+    attachments_deleted: int = 0
