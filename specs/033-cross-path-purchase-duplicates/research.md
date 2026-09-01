@@ -315,3 +315,23 @@ skipped branch at all: it was a guard whose *premise* held only in the common ca
 purchase recorded under a recycled id belongs to the old part" is true when one product holds
 both, and this codebase deliberately allows a second product to hold the same vendor id. A
 guard is a claim about the data; it is worth asking which shapes of the data actually satisfy it.
+
+## §16 — The candidate query eager-loads its product (PR #144 review)
+
+`_assign_candidates` reads `row.product.description` off every row the candidate query hands
+it, and the query did not load the relationship — one extra SELECT per candidate.
+
+Constitution I asks for a measurement before optimizing, so one was taken rather than argued
+about. A 25-line order with a candidate for every line: **78 SELECTs for the review before, 54
+after.** The candidate product loads were about a third of the review's queries.
+
+**Decision**: `.options(selectinload(Purchase.product))` on the candidate query. This is not the
+machinery Constitution I forbids — no cache, no batching layer, no background work. It states
+what the query is already for, in the idiom this file already uses for every `Purchase` read
+that touches `.product` (`:3150`, `:3202`, `:3234`).
+
+**The vendor `order_purchases` queries have the same shape and are deliberately left alone.**
+`_review_order_line` reads `existing.product.description` off their rows, so the same per-row
+load happens on the already-captured path — but they are supplied by the vendor adapters, they
+predate this feature by three of them, and changing them is not this feature's business.
+Recorded here so the inconsistency is a known one rather than an oversight.

@@ -150,6 +150,23 @@ changing anything, and the two accepting tests fail against the previous gate. F
 `TestACandidateOnAThirdProduct`, and the existing conflict fixture is now explicit about which
 of the two product shapes it builds.
 
+## A Copilot finding, measured rather than argued
+
+`_candidate_order_purchases` did not eager-load `Purchase.product`, while `_assign_candidates`
+reads `row.product.description` off every row — one extra SELECT per candidate.
+
+Constitution I asks for a measurement before optimizing, so one was taken: a 25-line order with
+a candidate for every line cost **78 SELECTs for the review before, 54 after**. Fixed with
+`.options(selectinload(Purchase.product))`, the idiom this file already uses for every
+`Purchase` read that touches `.product`. research.md §16, which also records why the vendor
+`order_purchases` queries — same shape, same per-row load on the already-captured path — are
+deliberately left alone.
+
+**Process note:** this comment was posted at 11:09 and was closed by a bulk resolve of open
+threads before it had been read. It was found and addressed afterwards, on review of the whole
+comment list. Resolving a thread is a claim to have dealt with it, and a bulk resolve cannot
+make that claim.
+
 ## Manual checks — the two that need a person
 
 Inherited from issue #129's own comment. Both involve real vendor pages and real vendor
