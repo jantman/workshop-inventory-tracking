@@ -451,6 +451,17 @@ Photos can be uploaded when adding or editing items:
 - **Item Details Modal**: Click any item to view full-size photos in a gallery
 - **Edit Page**: View and manage all photos for an item
 
+#### Downloading Photos
+
+Both the gallery card and the full-size viewer offer a download:
+
+- The download button on a photo's card saves that file.
+- Opening a photo full size and pressing **Download** saves the same file.
+
+Either way you get the **original** file as it was uploaded -- full size rather
+than the preview the gallery shows, and under the name it was uploaded with.
+PDFs come back as the PDF, not as the generated preview image.
+
 #### Removing Photos
 
 On the Add Item and Edit Item pages, each photo carries a tick box:

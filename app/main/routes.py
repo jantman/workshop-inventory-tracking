@@ -2987,39 +2987,39 @@ def get_photo_data(photo_id):
             'error': f'Failed to retrieve photo data: {str(e)}'
         }), 500
 
+# Takes the Photo id (photos.id), the same id as GET /api/photos/<id> above.
+# The third route on this path, DELETE /api/photos/<id>, takes the *association*
+# id (item_photo_associations.id) instead, and the two are equal only on a
+# database where every Photo has exactly one association -- product and purchase
+# attachments create Photo rows with none, so on any real database they drift.
+# Issue #131 was this handler resolving one id as both: PhotoService.get_photo()
+# takes an association, while get_photo_file() and get_photo_data() take a Photo.
 @bp.route('/api/photos/<int:photo_id>/download', methods=['GET'])
 def download_photo(photo_id):
     """Download photo as attachment"""
     try:
         from app.photo_service import PhotoService
         import io
-        
+
         with PhotoService(_get_storage_backend()) as photo_service:
-            photo = photo_service.get_photo(photo_id)
-            
-            if not photo:
+            result = photo_service.get_photo_file(photo_id)
+
+            if not result:
                 return jsonify({
                     'success': False,
                     'error': 'Photo not found'
                 }), 404
-            
-            result = photo_service.get_photo_data(photo_id, 'original')
-            if not result:
-                return jsonify({
-                    'success': False,
-                    'error': 'Photo data not found'
-                }), 404
-            
-            data, content_type = result
-        
-        # Return the image data as attachment
+
+            data, content_type, filename = result
+
+        # Return the original file as an attachment
         return send_file(
             io.BytesIO(data),
             mimetype=content_type,
             as_attachment=True,
-            download_name=photo.filename
+            download_name=filename
         )
-        
+
     except Exception as e:
         current_app.logger.error(f'Download photo error: {e}')
         return jsonify({
