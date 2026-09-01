@@ -2446,7 +2446,7 @@ class CatalogService:
             # ``_assign_candidates`` reads ``row.product.description`` off every
             # row it is handed, so the relationship is loaded with them rather
             # than one query at a time. Measured on a 25-line order with a
-            # candidate for each: 78 SELECTs for the review before, 53 after.
+            # candidate for each: 78 SELECTs for the review before, 54 after.
             # Not machinery -- it states what the query is already for, and it is
             # what this file's other Purchase reads do. PR #144 review.
             .options(selectinload(Purchase.product))
