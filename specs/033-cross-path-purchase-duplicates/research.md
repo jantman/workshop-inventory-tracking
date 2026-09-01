@@ -1,0 +1,337 @@
+# Research: Recognize a Listing Capture and an Order Line as One Purchase
+
+**Feature**: `specs/033-cross-path-purchase-duplicates` | **Date**: 2026-09-01
+
+Everything below was established by reading the code, not assumed. Line numbers are as of
+`de97597`.
+
+---
+
+## §1 — Where the blind spot actually is
+
+`capture_order_lines` never asks whether a purchase for this *item* exists. It asks whether a
+purchase for this *order* exists, and that question is delegated to
+`OrderVendor.order_purchases`, which every vendor implements as a filter on
+`supplier_order_reference`:
+
+- `_amazon_order_purchases` — `app/catalog_service.py:4269`: `vendor == Amazon` and
+  `supplier_order_reference == cleaned`. One pass.
+- `_digikey_order_purchases` — `:4068`: the same shape on the sales order number.
+- `_mcmaster_order_purchases` — `:2260`: two passes, but both inside
+  `vendor_order_id`/`supplier_order_reference`.
+
+`capture_order` reaches `record_purchase` (`:1281`) passing neither `supplier_order_reference`
+nor `order_line_number`, so a listing-captured row has both NULL and matches none of the three
+queries. `_recorded_order_lines` (`:2186`) then runs both of its passes over that empty result
+set — including pass two, which exists precisely for "purchases carrying no line number".
+
+**Conclusion**: the defect is one missing input, not a wrong algorithm. Pass two already knows
+how to claim a row by item id; it is never handed a row to claim.
+
+## §2 — The candidate query is vendor-agnostic, so no `OrderVendor` member is needed
+
+The three facts a candidate needs — `vendor`, `vendor_item_id`, `order_date` — are written
+identically by every path, and the two the vendor would otherwise disagree about do not appear:
+
+- `Purchase.vendor` holds the same string for both paths. `OrderVendor.name` "must equal what
+  `_vendor_from_url` derives" (`app/services/order_vendors.py`, `name`), and `capture_order`
+  writes exactly what `_vendor_from_url` derived.
+- `Purchase.vendor_item_id` is written by `capture_order` (`:1284`) and by every vendor's
+  `line_fields`. The vendors differ in what *product identifier type* they claim
+  (`DISTRIBUTOR` vs `VENDOR` — see `_mcmaster_product_by_part_number`, `:2513`), but that is a
+  `product_identifiers` concern and this lookup does not touch it.
+- The line's item id is already available generically as `vendor.item_id_of(line)`.
+
+**Decision**: one new private helper on the service —
+`_candidate_order_purchases(session, order, vendor, order_date)` — filtering
+`vendor == vendor.name`, `vendor_item_id IN (the order's item ids)`,
+`supplier_order_reference IS NULL`, and the date window. No new `OrderVendor` member, and
+FR-021 (all three vendors) is satisfied by construction rather than by three edits.
+
+**Alternative rejected**: widening each vendor's `order_purchases` to return these rows. It
+would have put candidates into `_orphaned_order_purchases` (§8), which reports "purchases
+recorded against this order that no line claims" — a listing capture is not recorded against
+this order and reporting it as a stale line of one would be a new false alarm.
+
+## §3 — Adoption is a decision layered on the existing state, not a fifth `OrderLineState`
+
+`OrderLineState` is documented as "exclusive and exhaustive, tested in this order"
+(`app/models.py:1908`), and `_review_order_line` (`:2399`) tests CAPTURED → CONFLICT → MATCHED
+→ NEW. A fifth value would have to be inserted into that order, and it would have to answer
+"what happens if the operator says *separate*?" — at which point the line is whatever it would
+have been anyway (NEW, MATCHED or CONFLICT), and the state has been thrown away.
+
+**Decision**: `ReviewedLine` keeps its four states and gains candidate fields. The review
+renders the adopt/separate choice *in addition to* whatever the state renders, and a line
+answered "separate" runs today's code path untouched.
+
+This also settles the interaction with CONFLICT: a line can be both contradicted and have a
+candidate, and the two questions are then asked side by side — the shape `capture_order`
+already uses, where "two questions can be open at once … neither implies the other"
+(`CaptureAssessment`, `app/models.py:501`).
+
+**Form key**: `same_purchase[{form_key}]`, values `adopt` / `separate`. Deliberately *not*
+`resolution[...]`, which CONFLICT already owns with values `attach`/`separate` — one input
+answering two different questions on the same line is how the wrong answer gets applied.
+
+## §4 — What claiming writes: the order's fields, not the line's
+
+`OrderVendor` already splits Purchase fields into `order_fields(order)` and
+`line_fields(service, line, decision)`. That split is exactly the rule this feature needs:
+
+- **Order-level fields are the order's.** The purchase is now a line of that order, and every
+  sibling row carries them. `supplier_order_reference` and `order_line_number` are stamped
+  unconditionally — that is FR-012, and it is what makes a *second* capture of the same order
+  pair exactly and ask nothing.
+- **Line-level fields stay the operator's**, changed only through the existing
+  `apply_change` tick (`_apply_order_change`, `:2367`). The operator has had the box in their
+  hands; the page has not.
+
+The remaining `order_fields` keys — `vendor_order_id` and `order_reference` for McMaster,
+`listing_url` for both McMaster (`:4153`) and Amazon — are written **only where the purchase
+holds NULL**. Amazon's
+`order_fields` sets `listing_url` to the *order page* address (`:4294`), and overwriting a
+listing capture's `/dp/B0G43FCHFX` with it would destroy the one field that says where the item
+can be bought again. "Fill gaps only" is not invented here: it is the documented rule for
+`OrderVendor.enrich_product`.
+
+## §5 — `order_date`, and the one invariant that can bite
+
+`find_captured_orders` (`:2667`) derives an order's date as `func.min(Purchase.order_date)`
+across its rows. Leaving a claimed purchase on the operator's typed date would make the order
+list report an order as older than it is — in the reported case, 2026-07-23 becoming
+2026-07-27's sibling with the order itself dated 07-23 and one line dated 07-27.
+
+**Decision**: claiming stamps the order's `order_date`.
+
+**With one guard.** `_validate_receipt_order` (`:1750`) is the standing invariant "nothing
+arrives before it is ordered". A claimed purchase may already be received, and an order date
+later than its `received_date` would create exactly the row every other write path refuses. So
+the stamp is skipped when it would push `order_date` past a recorded `received_date`, and the
+purchase keeps the date it has. One branch, one test.
+
+## §6 — One candidate per line, chosen deterministically at review time
+
+> **Revised in review of PR #144.** The design below — draining a pool as lines
+> matched, so a candidate was offered to exactly one line — was implemented and was
+> wrong. See §13.
+
+
+FR-004 says a candidate is claimable by at most one line. Two mechanisms are needed and both
+already have precedent in `_recorded_order_lines`:
+
+1. **A candidate is assigned to exactly one line**, walking `order.lines` in order and removing
+   each claimed row from the pool — the identical shape to pass two (`:2236`). Two lines
+   carrying the same item id therefore see one candidate between them, so they cannot both
+   adopt it.
+2. **A line that already paired exactly is never offered one.** CAPTURED is settled before
+   anything else in `_review_order_line`, and `capture_order_lines` `continue`s on it before the
+   include gate (`:2066`) — so an already-captured line never reaches the adoption question.
+
+Where one line has **two** candidates (the same item bought twice inside the window, both
+listing-captured), the one **closest in date to the order's date** is offered, ties broken by
+lowest `id`. Deterministic, and the review shows the candidate's date, quantity and price so
+the operator can see which row they are being asked about.
+
+## §7 — The reverse direction is one extra arm on one query
+
+`_find_captured_purchase` (`:1465`) narrows to a single calendar day:
+
+```python
+day_start = order_date.replace(hour=0, minute=0, second=0, microsecond=0)
+day_end = day_start + timedelta(days=1)
+```
+
+**Decision**: keep that query exactly as it is and try a second one only when it finds nothing —
+same vendor, same `vendor_item_id`, `supplier_order_reference IS NOT NULL`, `order_date` within
+the window. Restricting the widened arm to rows that carry an order number is what keeps the
+blast radius to this feature: an ordinary repeat capture of a listing months later still sees
+only the same-day rule and still records a second purchase without a question.
+
+The listing-URL fallback is not widened. An Amazon order capture writes the *order page* address
+into `listing_url`, never the listing's, so there is nothing there for it to match.
+
+`CaptureAssessment` gains `duplicate_order_reference` so the warning panel can say *which*
+order the existing row belongs to (FR-018). The panel and its "This is a separate order — record
+it anyway" checkbox already exist (`app/templates/product/capture.html:27`), as does
+`acknowledged_duplicate_of`, so FR-019 is wording plus one field — not a new flow.
+
+## §8 — The orphan trap, which this feature walks straight into
+
+`_orphaned_order_purchases` (`:2465`) re-queries inside the open session and subtracts
+`paired` plus `also_claimed`; its docstring records that omitting `also_claimed` made "every
+line of a brand-new order reported as orphaned by the capture that created it".
+
+An adopted purchase is stamped with the order reference **inside that session**, so it comes
+back from the re-query — and it is not in `paired`, which was built before the loop. Adopted
+purchase ids must therefore be added to `also_claimed` alongside `purchase_ids`. Missing this
+produces a flash telling the operator the row they just adopted is stale.
+
+## §9 — The flash and `wrote_anything` must learn about adoption together
+
+`_order_capture_summary` (`app/product/routes.py:1402`) leads with "Nothing new to capture" when
+nothing was written, and `OrderCaptureResult.wrote_anything` (`app/models.py:2100`) answers the
+same question independently. `test_the_fallback_agrees_with_wrote_anything`
+(`tests/unit/test_mcmaster_routes.py:600`) is parametrized over result shapes and exists
+specifically to catch a new kind of write added to one and not the other.
+
+An adopt-only capture writes rows and creates no purchase, so both must count it. The
+parametrize list gains a case; no existing assertion changes.
+
+## §10 — Where the 90-day window lives
+
+One module-level constant beside the other capture constants in `app/catalog_service.py`, read
+by both directions (§2 and §7). Not configuration — Constitution I forbids a knob for a future
+that has not arrived, and there is one operator with one answer.
+
+`timedelta(days=90)` either side of the order's date, compared against `Purchase.order_date`.
+A purchase or an order with no date is not a candidate: FR-006, and it falls out of the
+comparison rather than needing a rule.
+
+## §11 — Regression surface: nothing existing exercises both paths
+
+Checked directly: no unit test calls both `capture_order(...)` and one of the order-capture
+entry points, and `tests/e2e/test_amazon_order.py` is the only e2e file touching
+`/products/*/orders/capture` — it never visits `/products/capture`.
+
+The two tests that looked most at risk are both safe:
+
+- `tests/unit/test_amazon_capture.py::TestMatchingAProductAlreadyHeld::test_a_known_asin_attaches_rather_than_duplicating`
+  captures order A then order B carrying the same ASIN. A's purchase carries an order number, so
+  it is **not** a candidate (FR-002) and B behaves exactly as it does today.
+- `tests/unit/test_capture.py::test_the_same_item_on_a_different_day_is_a_different_purchase`
+  captures the same listing twice, months apart. Neither row carries an order number, so the
+  widened arm of §7 never applies.
+
+FR-022 is therefore achievable rather than aspirational. The one file that gains a line is the
+parametrize list in §9.
+
+## §12 — No schema change
+
+`vendor`, `vendor_item_id`, `order_date`, `supplier_order_reference` and `order_line_number` all
+exist on `purchases` and all are already written by both paths. `supplier_order_reference` is
+indexed; `vendor_item_id` is indexed. Nothing here needs a column, so nothing here needs an
+Alembic revision — the third consecutive order feature to ship none.
+
+## §13 — Why the candidate is offered to every matching line (PR #144 review)
+
+§6 above assigned each candidate to exactly one line, draining a pool as it walked
+``order.lines``. That satisfied "a row is claimable once" at the point of *offering*, and it
+had a hole:
+
+The assignment cannot see the operator's decisions. ``review_order`` has none, and
+``capture_order_lines`` computes candidates before it reads them — deliberately, because a
+capture that asked about a line the review never rendered a control for would be
+unanswerable (§5's sibling trap). So the pool drained by line order alone. Give an order two
+lines carrying one item id and the catalog one listing-captured purchase, and the row was
+offered to line 1 only. **Exclude line 1 and capture line 2**, and line 2 found no candidate,
+fell through to the ordinary write path, and recorded a second purchase for the same physical
+purchase — with no question raised. The feature reproduced the bug it exists to prevent.
+
+Reproduced against the implementation before fixing: two purchases, `order_ref` set on the
+new one and still NULL on the original.
+
+**The fix moves the "claimed once" rule from offer time to claim time.** Every line that could
+be a candidate's line is offered it, so no exclusion can lose the question; a `claimed` set in
+``capture_order_lines`` gives the row to the first line that answers "same purchase", and a
+second line wanting the same row is an ordinary line that records its own purchase. That is
+the true answer as well as the safe one: two lines of an order are two purchases, and one
+purchase cannot be both of them.
+
+Where one item has two candidates, the nearer by date is the one offered, and the other is
+left alone rather than handed to a second line. A purchase this capture does not claim stays
+exactly as it was — the conservative half of every choice in this flow.
+
+## §14 — A candidate on a contradicted line, and on a backfilled one (PR #144 review)
+
+Two more holes in the adoption branch, both created by the same `continue`. Skipping the rest
+of the loop skipped two things that were not obviously part of it.
+
+**A CONFLICT line can carry a candidate.** `_review_order_line`'s CONFLICT branch attaches the
+candidate like any other, and `_assign_candidates` skips only CAPTURED lines — so a DigiKey or
+McMaster line can be both contradicted and adoptable, and the review renders both questions.
+(Amazon cannot reach this: its order page states no manufacturer part number, so no line of one
+can contradict a product's.) The adoption branch `continue`d before `_product_for_order_line`,
+which is the only place `resolution` is enforced — so *"different part, make a new product"*
+plus *"same purchase"* claimed the row onto the contradicted product with no error, and a blank
+`resolution` was accepted where every other path refuses the submission.
+
+**Decision**: settle the contradiction first. `_review_order_line` moves above the branch, and
+an adopt on a CONFLICT line requires `resolution == 'attach'`. That is the only coherent
+combination: a candidate is found by item id alone, and CONFLICT is evidence that id has been
+recycled — in which case the purchase recorded under it belongs to the old part and cannot be
+this line's. `separate` and blank are refused rather than silently overruled (FR-015).
+
+**An adopted line was never marked as arrived.** The review renders the same `arrived[]` box
+for an adoptable line as for any other, and the order-level "this order has already arrived"
+box ticks every one of them — so backfilling a delivered order (031 FR-024) is the natural way
+to reach an adoption. The branch skipped the arrival handling, and `_claim_purchase` does not
+touch `received_date` either, so the purchase stayed outstanding for ever and `lines_arrived`
+under-counted the flash.
+
+**Decision**: fill an empty `received_date` from the resolved arrival date and count it, in the
+branch. FR-014 asks that an *already received* purchase keep the receipt it has — which is why
+this only fills an empty one — not that a fresh arrival be discarded. The column is set
+directly, exactly as the create path does, so no tracked count moves and no manual low flag
+clears (031 FR-028).
+
+**The general lesson**, worth stating because it is what produced all three of this PR's
+review findings: `continue` in a long loop is a claim that nothing below it applies. Each of
+the three was something below it that did.
+
+## §15 — The contradicted-line gate, narrowed (PR #144 review, third round)
+
+§14's gate — an adopt on a CONFLICT line requires `resolution == 'attach'` — was too broad, and
+the way it was too broad is worth recording: **it refused a true pair of answers and admitted
+only a false one.**
+
+A candidate is matched by `vendor_item_id` and is independent of any product, so it need not sit
+on the product the line is contradicted against. The reachable case:
+
+1. A distributor recycles a part number. `P_old` keeps the old `DISTRIBUTOR` identifier —
+   identifier claiming is clash-tolerant and never steals one.
+2. The operator captures the *new* part from its listing page. `capture_order` looks up
+   `VENDOR` identifiers, so it never sees `P_old`'s `DISTRIBUTOR` one, creates `P_new` with no
+   prompt at all, and records the purchase against it. **That purchase is in the right place.**
+3. Capturing the order flags the line CONFLICT against `P_old` — `_digikey_find_product` tries
+   `DISTRIBUTOR` first — while the candidate offered sits on `P_new`.
+
+The operator's truthful answers are then `resolution='separate'` (it is not `P_old`) and
+`same_purchase='adopt'` (it is that purchase). §14's gate refused exactly that, leaving
+`resolution='attach'` — a false statement — as the only way through, and it only produced the
+right result because the adopt path discards `resolution` anyway. Taking the error's other
+suggestion instead wrote two purchases for one physical purchase, split across two products so
+no single product page shows it.
+
+**Decision**: gate on `candidate.product_id == reviewed.product_id`, which is the condition that
+actually makes "recycled id ⇒ the purchase belongs to the old part" true, and name that fact in
+the message. Where the products differ, `resolution` is not consulted at all — the line creates
+no product under any answer, so there is nothing for it to decide.
+
+Verified reachable before fixing, and the two accepting tests fail against §14's gate.
+
+**What §14's lesson misses, and this one adds.** §14 blamed a `continue`. This one was not a
+skipped branch at all: it was a guard whose *premise* held only in the common case. "The
+purchase recorded under a recycled id belongs to the old part" is true when one product holds
+both, and this codebase deliberately allows a second product to hold the same vendor id. A
+guard is a claim about the data; it is worth asking which shapes of the data actually satisfy it.
+
+## §16 — The candidate query eager-loads its product (PR #144 review)
+
+`_assign_candidates` reads `row.product.description` off every row the candidate query hands
+it, and the query did not load the relationship — one extra SELECT per candidate.
+
+Constitution I asks for a measurement before optimizing, so one was taken rather than argued
+about. A 25-line order with a candidate for every line: **78 SELECTs for the review before, 54
+after.** The candidate product loads were about a third of the review's queries.
+
+**Decision**: `.options(selectinload(Purchase.product))` on the candidate query. This is not the
+machinery Constitution I forbids — no cache, no batching layer, no background work. It states
+what the query is already for, in the idiom this file already uses for every `Purchase` read
+that touches `.product` (`:3150`, `:3202`, `:3234`).
+
+**The vendor `order_purchases` queries have the same shape and are deliberately left alone.**
+`_review_order_line` reads `existing.product.description` off their rows, so the same per-row
+load happens on the already-captured path — but they are supplied by the vendor adapters, they
+predate this feature by three of them, and changing them is not this feature's business.
+Recorded here so the inconsistency is a known one rather than an oversight.

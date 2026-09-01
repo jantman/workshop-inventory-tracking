@@ -40,6 +40,7 @@ from .exceptions import (
 from .mariadb_storage import MariaDBStorage
 from .services import order_vendors
 from .models import (
+    CandidatePurchase,
     CaptureAssessment,
     price_to_cents,
     CapturedBarcode,
@@ -101,6 +102,20 @@ MCMASTER_VENDOR = 'McMaster-Carr'
 # from a product page have to land under the same vendor or the order screen
 # cannot find them.
 AMAZON_VENDOR = 'Amazon'
+
+# How far apart two order dates may be before they cannot describe the same
+# physical purchase (033 FR-003).
+#
+# **This is the range within which the operator is asked, not a range within
+# which anything is merged.** Nothing is ever joined without an answer, so a
+# generous window costs an occasional question about a genuine repeat purchase
+# and buys never missing a real duplicate that an operator's typed date put
+# weeks away from the vendor's. The case this exists for was four days apart
+# (issue #129); the window is ninety.
+#
+# A constant rather than a setting: Constitution I forbids a configuration knob
+# for a future that has not arrived, and there is one operator with one answer.
+CANDIDATE_WINDOW = timedelta(days=90)
 
 
 class CatalogService:
@@ -1208,6 +1223,11 @@ class CatalogService:
                     duplicate_purchase_id=duplicate.id,
                     duplicate_order_date=duplicate.order_date,
                     duplicate_vendor=duplicate.vendor,
+                    # Set only when the recognized row is a line of an order
+                    # (033 FR-018). Naming the order is what tells the operator
+                    # which record they are being asked about, and it is the
+                    # only thing distinguishing this from the same-day case.
+                    duplicate_order_reference=duplicate.supplier_order_reference,
                 )
             if match_open:
                 reasons.append(f"vendor item {item_id} already names a product")
@@ -1483,6 +1503,22 @@ class CatalogService:
         path, not the query -- and a normalizer that is right for one vendor and
         wrong for the next produces false warnings on genuinely different
         listings, which is worse than a missed one.
+
+        **A second arm, for one specific case** (033 FR-017). The same-day rule
+        above is right for two clicks on one listing and wrong for a listing
+        captured after the *order* it came on was: the operator types the date
+        they remember and the vendor states its own, and the reported case had
+        them four days apart (issue #129). So when the same-day query finds
+        nothing, one more is tried -- and it is restricted to purchases that
+        carry a supplier order number.
+
+        **That restriction is what keeps the blast radius to this feature.** An
+        ordinary repeat capture of a listing months later still meets only the
+        same-day rule and still records a second purchase without a question;
+        only a row an order capture wrote can be recognized across days. The
+        listing-URL fallback is not widened either, and could not be: an order
+        capture writes the *order page* address into ``listing_url``, never the
+        listing's.
         """
         day_start = order_date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
@@ -1502,7 +1538,34 @@ class CatalogService:
                 # so is more honest than matching on the vendor and the date.
                 return None
 
-            return query.first()
+            same_day = query.first()
+            if same_day is not None or not vendor_item_id:
+                return same_day
+
+            ordered = (
+                session.query(Purchase)
+                .filter(
+                    Purchase.vendor == vendor,
+                    Purchase.vendor_item_id == vendor_item_id,
+                    Purchase.supplier_order_reference.isnot(None),
+                    Purchase.order_date.isnot(None),
+                    Purchase.order_date >= order_date - CANDIDATE_WINDOW,
+                    Purchase.order_date <= order_date + CANDIDATE_WINDOW,
+                )
+                .order_by(Purchase.id)
+                .all()
+            )
+            if not ordered:
+                return None
+
+            # Nearest by date, ties by lowest id -- the same choice
+            # ``_assign_candidates`` makes, for the same reason: the operator is
+            # about to be told which row this is, so which row it is must not
+            # depend on how the database felt like ordering them.
+            return min(
+                ordered,
+                key=lambda row: (abs(row.order_date - order_date), row.id),
+            )
 
     def receive_purchase(
         self,
@@ -1921,11 +1984,17 @@ class CatalogService:
 
         with self._session() as session:
             recorded = self._recorded_order_lines(session, order, vendor)
+            # Read in the same session as the pairing above, and after it: a
+            # candidate is only offered to a line the pairing left undecided
+            # (033 FR-005).
+            candidates = self._assign_candidates(
+                session, order, vendor, order.order_date, recorded,
+            )
 
             reviewed = [
                 self._review_order_line(
                     session, line, parts.get(vendor.item_id_of(line)),
-                    recorded, vendor,
+                    recorded, vendor, candidates,
                 )
                 for line in order.lines
             ]
@@ -2030,6 +2099,10 @@ class CatalogService:
             ])
 
         purchase_ids = []
+        adopted_ids = []
+        # The candidate rows this capture has already claimed. A row is offered
+        # to every line that could be its line, so this is what keeps it to one.
+        claimed = set()
         products_created = products_attached = 0
         lines_excluded = lines_already_captured = lines_updated = 0
         lines_arrived = 0
@@ -2040,6 +2113,25 @@ class CatalogService:
             recorded = self._recorded_order_lines(session, order, vendor)
             if vendor.adopts_renames:
                 renamed_from = self._adopt_renamed_order(session, order)
+
+            # Re-computed here rather than carried from the review, for the same
+            # reason ``recorded`` is: the review ran against an earlier read, and
+            # a purchase may have been recorded or deleted since. The assignment
+            # is deterministic, so the row the operator was shown is the row this
+            # claims (033 FR-004).
+            #
+            # **``stated``, not ``order_date``.** The two differ for an order the
+            # vendor did not date, where ``order_date`` above falls back to the
+            # arrival date or to today. ``review_order`` has no such fallback and
+            # matches on the stated date alone, so matching on the derived one
+            # here would find candidates the review never showed -- and refuse
+            # the capture over a question that was never asked, with no control
+            # on the re-rendered page able to answer it. The stamp below still
+            # uses the derived date, because that is what the order's other rows
+            # carry.
+            candidates = self._assign_candidates(
+                session, order, vendor, stated, recorded,
+            )
 
             order_fields = vendor.order_fields(order)
 
@@ -2075,10 +2167,124 @@ class CatalogService:
                     lines_excluded += 1
                     continue
 
+                # Read before the adoption branch rather than after it. The
+                # branch used to `continue` past this, which skipped the only
+                # place a CONFLICT line's `resolution` is enforced -- so an
+                # operator who said "different part, make a new product" *and*
+                # "same purchase" got the purchase claimed onto the contradicted
+                # product with no error. PR #144 review.
                 part = parts.get(vendor.item_id_of(line))
                 reviewed = self._review_order_line(
                     session, line, part, recorded, vendor
                 )
+
+                # **A purchase for this item may already exist, written by a path
+                # that knew nothing about this order** (033 FR-001). The operator
+                # says whether it is the same physical purchase; nothing here
+                # decides it, because nothing here can.
+                candidate = candidates.get(line.form_key)
+                if candidate is not None:
+                    answer = (decision.get('same_purchase') or '').strip().lower()
+                    if answer not in ('adopt', 'separate'):
+                        # Raised inside the session, so the whole order rolls
+                        # back rather than this one line being skipped -- the
+                        # operator answered a question about an order, and half
+                        # an order is worse than none. The same rule an
+                        # unanswered CONFLICT already follows.
+                        raise ValidationError(
+                            f"A purchase for {vendor.item_id_of(line)} is "
+                            f"already recorded and carries no order number. Say "
+                            f"whether it is this order's line or a separate "
+                            f"purchase.",
+                            field=f'same_purchase[{line.form_key}]',
+                        )
+                    # **The first line to want it takes it** (FR-004). Two
+                    # lines carrying one item id are both offered the same row,
+                    # so that excluding one does not lose the question -- and one
+                    # purchase cannot be two lines of an order, so a second line
+                    # wanting a row already claimed is an ordinary line and
+                    # records its own purchase. That is the right answer as well
+                    # as the safe one: the operator bought the thing twice.
+                    if answer == 'adopt' and candidate.purchase_id not in claimed:
+                        # **A contradicted line whose candidate sits on the
+                        # contradicted product has to be settled first.**
+                        # Adopting writes no product, so the row keeps the one it
+                        # already has -- and when that is the product the
+                        # operator has just called wrong, claiming it records
+                        # this line's purchase against the wrong part. Only
+                        # "same thing, attach" makes the two answers coherent.
+                        #
+                        # **Gated on the products, not on `resolution` alone.**
+                        # A candidate is matched by item id and is independent of
+                        # any product, so it can sit on a *third* product that is
+                        # already right: a vendor recycles a part number, the
+                        # operator captures the new part from its listing page
+                        # and correctly gets a new product (the listing path
+                        # looks up VENDOR identifiers and never sees the old
+                        # product's DISTRIBUTOR one), and the order then flags
+                        # the line against the old product while the candidate
+                        # sits on the new one. There "not that product" and "yes,
+                        # that purchase" are both true, and refusing them left
+                        # `attach` -- a false statement -- as the only way
+                        # through. Answering `separate` instead wrote the
+                        # duplicate this feature exists to prevent. PR #144
+                        # review; reproduced before fixing.
+                        #
+                        # Where the products differ, `resolution` is not
+                        # consulted at all: this line creates no product under
+                        # any answer, so there is nothing for it to decide.
+                        if (
+                            reviewed.state is OrderLineState.CONFLICT
+                            and candidate.product_id == reviewed.product_id
+                        ):
+                            resolution = (
+                                decision.get('resolution') or ''
+                            ).strip().lower()
+                            if resolution != 'attach':
+                                raise ValidationError(
+                                    f"{vendor.item_id_of(line)} names "
+                                    f"{reviewed.product_description!r}, whose "
+                                    f"part number contradicts this line, and the "
+                                    f"purchase already recorded under that id is "
+                                    f"on that same product. Say the two are the "
+                                    f"same thing, or record a separate purchase.",
+                                    field=f'resolution[{line.form_key}]',
+                                )
+
+                        # No product resolution and no new Purchase: the row
+                        # already exists and already has a product, and creating
+                        # one here would be the duplicate this closes (FR-013,
+                        # FR-015). products_created and products_attached
+                        # deliberately do not move.
+                        purchase = session.get(Purchase, candidate.purchase_id)
+                        self._claim_purchase(
+                            purchase, line, order_fields, order_date,
+                        )
+                        adopted_ids.append(purchase.id)
+                        claimed.add(purchase.id)
+                        if decision.get('apply_change') and self._apply_order_change(
+                            purchase, line, decision, vendor
+                        ):
+                            lines_updated += 1
+
+                        # **An adopted line arrives like any other** (031 FR-024).
+                        # The review renders the same "arrived" box for it, and
+                        # the order-level box ticks every one of them, so
+                        # backfilling a delivered order is the natural way to
+                        # reach this. Dropping the tick left the purchase on
+                        # order for ever and under-counted the flash. FR-014 asks
+                        # that an *already received* purchase keep its receipt --
+                        # which is why this only fills an empty one -- not that a
+                        # fresh arrival be discarded. PR #144 review.
+                        #
+                        # The column is set directly, exactly as the create path
+                        # below does: no tracked count moves and no manual low
+                        # flag clears (031 FR-028).
+                        if decision.get('arrived') and purchase.received_date is None:
+                            purchase.received_date = arrived
+                            lines_arrived += 1
+                        continue
+
                 product, created = self._product_for_order_line(
                     session, reviewed, line, part, decision, vendor
                 )
@@ -2126,12 +2332,20 @@ class CatalogService:
             # The ids just written are passed in: they are flushed, so the
             # re-query inside this session returns them, and `recorded` was
             # built before the loop and cannot account for them.
+            # Adopted ids belong here for exactly the reason the freshly
+            # written ones do, and it is easier to miss: claiming stamps this
+            # order's reference onto the row *inside this session*, so the
+            # re-query below returns it -- while `recorded` was built before the
+            # loop and cannot name it. Omit them and every adoption is reported
+            # back to the operator as a stale line.
             orphaned = self._orphaned_order_purchases(
-                session, order, vendor, recorded, also_claimed=purchase_ids,
+                session, order, vendor, recorded,
+                also_claimed=purchase_ids + adopted_ids,
             )
 
         result = OrderCaptureResult(
             purchase_ids=tuple(purchase_ids),
+            purchases_adopted=tuple(adopted_ids),
             products_created=products_created,
             products_attached=products_attached,
             lines_excluded=lines_excluded,
@@ -2146,6 +2360,7 @@ class CatalogService:
             f"Captured {vendor.name} order "
             f"{order_fields.get('supplier_order_reference')}: "
             f"{len(purchase_ids)} purchase(s), "
+            f"{len(adopted_ids)} adopted, "
             f"{products_created} product(s) created"
         )
         return result
@@ -2182,6 +2397,143 @@ class CatalogService:
         return self.capture_order_lines(
             order, MCMASTER_ORDER_VENDOR, decisions, arrived_date=arrived_date,
         )
+
+    def _candidate_order_purchases(
+        self, session, order, vendor, order_date: Optional[datetime],
+    ) -> List[Purchase]:
+        """Purchases that might already record a line of this order (033 FR-001).
+
+        The blind spot this closes: every vendor's ``order_purchases`` finds rows
+        by ``supplier_order_reference``, and a single-listing capture leaves that
+        NULL -- so the pairing below has never been handed one to claim, and an
+        order capture wrote a second purchase for a product the operator had
+        already captured from its listing page (issue #129).
+
+        **Vendor-agnostic on purpose, and that is what makes FR-021 free.** The
+        three facts this needs are written identically by both paths: the vendor
+        name (``OrderVendor.name`` must equal what ``_vendor_from_url`` derives,
+        which is what ``capture_order`` records), ``vendor_item_id``, and
+        ``order_date``. Nothing here differs per vendor, so nothing here belongs
+        on :class:`OrderVendor` -- adding a member would be the speculative
+        generality Constitution I forbids, and would need editing three times.
+
+        **Deliberately not folded into ``order_purchases``.** Those rows feed
+        ``_orphaned_order_purchases``, which reports "recorded against this order
+        and claimed by no line". A listing capture is recorded against no order
+        at all, and reporting one as a stale line of this one would be a new
+        false alarm.
+
+        Restrictions, each one a requirement:
+
+        * ``supplier_order_reference IS NULL`` -- a purchase that already names an
+          order is a line of *that* order, never of this one (FR-002).
+        * within :data:`CANDIDATE_WINDOW` of the order's date (FR-003).
+        * a date on both sides; nothing can be dated against nothing (FR-006).
+        """
+        if order_date is None:
+            return []
+
+        item_ids = {
+            item_id for item_id in (
+                vendor.item_id_of(line) for line in order.lines
+            ) if item_id
+        }
+        if not item_ids:
+            return []
+
+        return (
+            session.query(Purchase)
+            # ``_assign_candidates`` reads ``row.product.description`` off every
+            # row it is handed, so the relationship is loaded with them rather
+            # than one query at a time. Measured on a 25-line order with a
+            # candidate for each: 78 SELECTs for the review before, 54 after.
+            # Not machinery -- it states what the query is already for, and it is
+            # what this file's other Purchase reads do. PR #144 review.
+            .options(selectinload(Purchase.product))
+            .filter(
+                Purchase.vendor == vendor.name,
+                Purchase.vendor_item_id.in_(item_ids),
+                Purchase.supplier_order_reference.is_(None),
+                Purchase.order_date.isnot(None),
+                Purchase.order_date >= order_date - CANDIDATE_WINDOW,
+                Purchase.order_date <= order_date + CANDIDATE_WINDOW,
+            )
+            .order_by(Purchase.id)
+            .all()
+        )
+
+    def _assign_candidates(
+        self, session, order, vendor, order_date: Optional[datetime],
+        recorded: Dict[str, Purchase],
+    ) -> Dict[str, CandidatePurchase]:
+        """Which lines are offered which candidate purchase (033 FR-004).
+
+        Returns a mapping of ``line.form_key`` to a :class:`CandidatePurchase`.
+
+        **Every line that could be the candidate's line is offered it**, so two
+        lines carrying the same item id are both asked. This is not the obvious
+        design and the obvious one was wrong: draining a pool as lines matched
+        gave the row to the *first* line only, and if the operator then excluded
+        that line, the second captured with no question raised and wrote exactly
+        the duplicate this feature exists to prevent. Found in review of PR #144,
+        and reproduced before it was fixed.
+
+        The assignment therefore cannot depend on the operator's decisions --
+        ``review_order`` has none, and a capture that asked about a line the
+        review never offered a control for would be unanswerable. So it depends
+        on nothing but the order and the database, and **which line actually
+        gets the row is settled at claim time** by ``capture_order_lines``:
+        the first line to answer "same purchase" takes it, and a second line
+        wanting the same row is an ordinary line, because one purchase cannot be
+        two lines of an order.
+
+        **A line already paired exactly takes nothing.** CAPTURED is settled
+        before anything else and is not a question (FR-005).
+
+        Where an item has two candidates -- the same thing bought twice inside
+        the window -- the one **closest in date** to the order's is the one
+        offered, ties by lowest id. Deterministic, so the review and the
+        confirmation that follows it name the same row. The other is left alone
+        rather than being offered to a second line: a purchase this capture does
+        not claim stays exactly as it was, which is the conservative half of
+        every choice in this flow.
+        """
+        rows = self._candidate_order_purchases(session, order, vendor, order_date)
+        if not rows:
+            return {}
+
+        def nearness(row):
+            return abs(row.order_date - order_date), row.id
+
+        nearest: Dict[str, Purchase] = {}
+        for row in rows:
+            held = nearest.get(row.vendor_item_id)
+            if held is None or nearness(row) < nearness(held):
+                nearest[row.vendor_item_id] = row
+
+        assigned: Dict[str, CandidatePurchase] = {}
+        for line in order.lines:
+            if line.form_key in recorded:
+                continue
+            item_id = vendor.item_id_of(line)
+            if not item_id:
+                continue
+            row = nearest.get(item_id)
+            if row is None:
+                continue
+            assigned[line.form_key] = CandidatePurchase(
+                purchase_id=row.id,
+                product_id=row.product_id,
+                order_date=row.order_date,
+                quantity=row.quantity,
+                unit_price=row.unit_price,
+                product_description=(
+                    row.product.description if row.product else None
+                ),
+                is_received=row.received_date is not None,
+            )
+
+        return assigned
 
     def _recorded_order_lines(self, session, order, vendor) -> Dict[str, Purchase]:
         """Pair this order's lines to the purchases already recorded for it.
@@ -2364,6 +2716,65 @@ class CatalogService:
         )
         return previous
 
+    def _claim_purchase(
+        self, purchase: Purchase, line, order_fields: Dict[str, Any],
+        order_date: Optional[datetime],
+    ) -> None:
+        """Make an existing purchase a line of this order (033 FR-012).
+
+        The operator has said this row and this line are one physical purchase.
+        What that means for the row is settled by a split
+        :class:`~app.services.order_vendors.OrderVendor` already makes:
+
+        * **Order-level fields are the order's.** The purchase is a line of it
+          now, and every sibling row carries them. The reference and the line
+          number are stamped unconditionally -- that is what makes a *second*
+          capture of this order pair to it exactly and ask nothing.
+        * **Line-level fields stay the operator's**, changed only through the
+          "Update it?" tick the caller applies. They have had the box in their
+          hands; the page has not.
+
+        The remaining order fields are **gap-filled only**, the rule
+        ``enrich_product`` already follows. Amazon's ``order_fields`` sets
+        ``listing_url`` to the *order page* address, and overwriting a listing
+        capture's ``/dp/...`` with it would destroy the one field that says where
+        the item can be bought again.
+
+        ``order_date`` is stamped so the order does not report two dates for
+        itself -- ``find_captured_orders`` derives an order's date as the minimum
+        across its rows, so a row left on the operator's typed date makes the
+        order read as older than it is. **Except** where that would place the
+        order after a recorded receipt: nothing arrives before it is ordered
+        (``_validate_receipt_order``), and a claim must not create the row every
+        other write path refuses.
+
+        Never written: ``product_id`` (FR-015), ``received_date`` (FR-014),
+        ``notes`` and ``listing_title``.
+
+        The line number is read off the line rather than out of
+        ``vendor.line_fields``, which also carries it. All three vendors derive
+        it the same way, and ``line_fields`` computes the quantity and the unit
+        price as well -- including running the operator's edited values through
+        validation. Calling it here would let a quantity this claim is not
+        writing refuse the claim.
+        """
+        purchase.supplier_order_reference = order_fields.get(
+            'supplier_order_reference'
+        )
+        purchase.order_line_number = line.line_number
+
+        if order_date is not None and not (
+            purchase.received_date is not None
+            and purchase.received_date < order_date
+        ):
+            purchase.order_date = order_date
+
+        for field, value in order_fields.items():
+            if field == 'supplier_order_reference' or value is None:
+                continue
+            if getattr(purchase, field, None) is None:
+                setattr(purchase, field, value)
+
     def _apply_order_change(self, purchase: Purchase, line, decision, vendor) -> bool:
         """Bring a recorded purchase into line with what the order now says.
 
@@ -2396,7 +2807,10 @@ class CatalogService:
 
         return wrote
 
-    def _review_order_line(self, session, line, part, recorded, vendor) -> ReviewedLine:
+    def _review_order_line(
+        self, session, line, part, recorded: Dict[str, Purchase], vendor,
+        candidates: Optional[Dict[str, CandidatePurchase]] = None,
+    ) -> ReviewedLine:
         """Decide one line's state. Reads only.
 
         The four states are exclusive and tested in this order: already
@@ -2408,9 +2822,18 @@ class CatalogService:
         DigiKey does; for the others the page *is* the detail and this is None,
         which is an ordinary state rather than an error.
 
+        ``candidates`` is feature 033, and it is deliberately **not** a fifth
+        state. A line whose candidate the operator calls a separate purchase is
+        whatever it already was -- NEW, MATCHED or CONFLICT -- so folding the two
+        into one value would throw that answer away and force a second question.
+        The candidate rides alongside the state instead, and a line can carry
+        both it and a CONFLICT: two questions, asked side by side, exactly as
+        ``capture_order`` already asks its two.
+
         One implementation since feature 029.
         """
         suggested = vendor.suggested_description(line, part)[:MAX_DESCRIPTION_LENGTH]
+        candidate = (candidates or {}).get(line.form_key)
 
         existing = recorded.get(line.form_key)
         if existing is not None:
@@ -2453,6 +2876,7 @@ class CatalogService:
                 product_id=product.id,
                 product_description=product.description,
                 product_manufacturer_part_number=product.manufacturer_part_number,
+                candidate=candidate,
             )
 
         return ReviewedLine(
@@ -2460,6 +2884,7 @@ class CatalogService:
             state=OrderLineState.NEW,
             part=part,
             suggested_description=suggested,
+            candidate=candidate,
         )
 
     def _orphaned_order_purchases(

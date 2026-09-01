@@ -517,6 +517,12 @@ class CaptureAssessment:
     duplicate_purchase_id: Optional[int] = None
     duplicate_order_date: Optional[datetime] = None
     duplicate_vendor: Optional[str] = None
+    # The supplier order number that purchase carries, when it has one (033
+    # FR-018). Set only by the widened arm of ``_find_captured_purchase``, which
+    # recognizes a purchase an *order* capture wrote whose date the operator has
+    # since typed differently -- and naming the order is what tells them which
+    # record they are being asked about.
+    duplicate_order_reference: Optional[str] = None
 
     # The recycled identifier: a product this vendor item id already names,
     # whose manufacturer and part number did not corroborate the capture.
@@ -543,6 +549,7 @@ class CaptureAssessment:
                 self.duplicate_order_date.isoformat() if self.duplicate_order_date else None
             ),
             'duplicate_vendor': self.duplicate_vendor,
+            'duplicate_order_reference': self.duplicate_order_reference,
             'matched_product_id': self.matched_product_id,
             'matched_product_description': self.matched_product_description,
             'matched_product_manufacturer': self.matched_product_manufacturer,
@@ -1918,6 +1925,36 @@ class OrderLineState(Enum):
 
 
 @dataclass(frozen=True)
+class CandidatePurchase:
+    """A purchase that could be the same physical purchase as an order line.
+
+    Feature 033. Same vendor, same vendor item id, **no supplier order number**,
+    and an order date close enough to the order's to be the same event. It is
+    offered to the operator on the review, and it is only ever adopted because
+    they said so -- nothing here is claimed on the catalog's own judgement.
+
+    Display-only, and a plain value object rather than an ORM row for the reason
+    :class:`CaptureAssessment` already documents: a relationship that was not
+    eagerly loaded does not survive its session closing, and a thing a template
+    renders has no business carrying that hazard.
+    """
+    # Both required: ``purchases.product_id`` is NOT NULL, so a candidate that
+    # could not name its product would be a row that cannot exist. Typing it
+    # optional would make every template treat a value that is always there as
+    # though it might not be.
+    purchase_id: int
+    product_id: int
+    order_date: Optional[datetime] = None
+    quantity: Optional[int] = None
+    unit_price: Optional[Decimal] = None
+    product_description: Optional[str] = None
+    # Rendered as a plain statement on the review: adopting a received purchase
+    # does not un-receive it, and does not re-run any of receiving's side
+    # effects (033 FR-014).
+    is_received: bool = False
+
+
+@dataclass(frozen=True)
 class ReviewedLine:
     """One line of an order, with what the catalog knows about it.
 
@@ -1940,6 +1977,27 @@ class ReviewedLine:
     purchase_id: Optional[int] = None
     recorded_quantity: Optional[int] = None
     recorded_unit_price: Optional[Decimal] = None
+    # A purchase that may already record this line, recorded by a path that knew
+    # nothing about this order -- a single-listing capture, or one entered by
+    # hand (033 FR-001). None is the ordinary state.
+    candidate: Optional['CandidatePurchase'] = None
+
+    @property
+    def has_candidate(self) -> bool:
+        """Whether a purchase might already record this line (033 FR-007)"""
+        return self.candidate is not None
+
+    @property
+    def needs_same_purchase_answer(self) -> bool:
+        """Whether the operator must say if the candidate is the same purchase.
+
+        **Never on a CAPTURED line.** A line paired exactly by order number and
+        line number is not a line to decide anything else about, and
+        ``_assign_candidates`` never offers one a candidate -- this is the
+        second statement of that rule, so a template cannot render a question
+        the service would not read.
+        """
+        return self.has_candidate and self.state is not OrderLineState.CAPTURED
 
     @property
     def is_enriched(self) -> bool:
@@ -1965,8 +2023,28 @@ class ReviewedLine:
 
     @property
     def has_change(self) -> bool:
-        """Whether a captured line's quantity or price differs from what is recorded (FR-014)"""
-        if self.state is not OrderLineState.CAPTURED:
+        """Whether the quantity or price differs from what is already recorded.
+
+        Two ways a line can already be recorded, and both ask this question:
+        paired exactly to a purchase of this order (**024 FR-014** -- show a
+        changed quantity or price against what is recorded, and apply it only if
+        the operator confirms), or carrying a candidate a listing capture wrote
+        (**033 FR-009**, which reuses that same mechanism rather than inventing a
+        second one). The tick that offers to apply the order's values renders on
+        this, so a candidate that is silent here is a change the operator is
+        never offered.
+
+        Both feature numbers are spelled out because the bare "FR-014" this
+        carried before now sits beside 033's requirements, whose FR-014 is about
+        something else entirely -- preserving a received purchase's receipt.
+        """
+        if self.state is OrderLineState.CAPTURED:
+            recorded_quantity = self.recorded_quantity
+            recorded_unit_price = self.recorded_unit_price
+        elif self.candidate is not None:
+            recorded_quantity = self.candidate.quantity
+            recorded_unit_price = self.candidate.unit_price
+        else:
             return False
         # **A value the vendor did not give is not a change.** None means the
         # field was not read -- a selector that stopped matching, or an order
@@ -1984,11 +2062,11 @@ class ReviewedLine:
         # review.
         quantity_changed = (
             self.line.quantity is not None
-            and self.recorded_quantity != self.line.quantity
+            and recorded_quantity != self.line.quantity
         )
         price_changed = (
             self.line.unit_price is not None
-            and price_to_cents(self.recorded_unit_price)
+            and price_to_cents(recorded_unit_price)
             != price_to_cents(self.line.unit_price)
         )
         return quantity_changed or price_changed
@@ -2080,6 +2158,13 @@ class OrderCaptureResult:
     # Purchases recorded against this order that no line of it claims.
     # Reported, never deleted.
     orphaned: tuple = ()
+    # The purchases this capture *claimed* rather than created: rows a
+    # single-listing capture or a hand entry had already written, which the
+    # operator said were the same physical purchase as one of these lines
+    # (033 FR-011). Ids rather than a count, because the orphan check needs
+    # them -- a claimed row carries this order's number by the time that query
+    # runs, and nothing else can tell it apart from a stale one.
+    purchases_adopted: tuple = ()
     # The order reference this order was filed under before, when the operator
     # renamed it on the vendor's side and this capture refiled the rows. '' when
     # nothing moved. McMaster only -- see OrderVendor.adopts_renames.
@@ -2107,6 +2192,7 @@ class OrderCaptureResult:
         """
         return (
             bool(self.purchase_ids)
+            or bool(self.purchases_adopted)
             or self.lines_updated > 0
             or bool(self.renamed_from)
         )
