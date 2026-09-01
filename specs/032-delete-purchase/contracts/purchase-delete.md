@@ -52,9 +52,17 @@ Performs the deletion.
 | **302 → product (fallback)** | `return_to=order` on a purchase with no supplier order reference. Not an error — there is no order to go back to. |
 | **Not found** | `ItemNotFoundError` when the purchase is already gone — flashed and redirected, as above. Changes nothing (FR-011). |
 
-**Flash on success** (FR-008): names the vendor, the order date and the quantity, and
-states how many attached files went with it. Category `success`, matching
-`purchase_receive`'s `flash('Received.', 'success')`.
+**Flash on success** (FR-008): names the vendor, the order date and the quantity, and —
+**when there were any** — how many attached files went with it. Category `success`,
+matching `purchase_receive`'s `flash('Received.', 'success')`.
+
+The asymmetry with the confirmation page is deliberate. The confirmation states the file
+count *even when it is zero*, because it is a decision aid: "will this take my saved
+listing?" is a question the operator needs answered before committing, and an absence they
+have to infer from silence is not an answer. The flash is a receipt for a decision already
+made and already shown — the operator has just read "no attached files" on the page they
+came from — so a receipt reporting zero of something would be noise. FR-008 requires
+telling the operator *what was removed*; no files were removed.
 
 **Atomicity**: the purchase, its attachment rows and any newly-unreferenced photos are
 removed in one transaction, or none of them are (FR-012).

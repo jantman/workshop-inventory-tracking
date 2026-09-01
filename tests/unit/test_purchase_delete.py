@@ -549,3 +549,51 @@ class TestWhereItGoesAfterwards:
         body = client.get(f'/purchases/{purchase.id}/delete').data.decode()
 
         assert f'/products/{product.id}' in body
+
+
+class TestWhatTheFlashSays:
+    """FR-008, and the deliberate asymmetry with the confirmation page.
+
+    The confirmation states the file count even when it is zero, because it is a
+    decision aid -- "will this take my saved listing?" needs an answer, and an
+    absence inferred from silence is not one. The flash is a receipt for a
+    decision already made and already shown, so it names files only when files
+    went. Pinned in both directions, because it is a choice rather than an
+    oversight.
+    """
+
+    def test_it_names_the_purchase(self, client, purchase):
+        response = client.post(f'/purchases/{purchase.id}/delete', follow_redirects=True)
+
+        body = response.data.decode()
+        assert 'Deleted the Amazon purchase' in body
+        assert 'ordered 2026-07-23' in body
+        assert 'of 1' in body
+
+    def test_it_counts_the_files_that_went(self, client, photos, purchase):
+        photos.upload_purchase_attachment(
+            purchase.id, png_bytes(), 'listing.png', 'image/png'
+        )
+        photos.upload_purchase_attachment(
+            purchase.id, png_bytes((200, 30, 10)), 'receipt.png', 'image/png'
+        )
+
+        response = client.post(f'/purchases/{purchase.id}/delete', follow_redirects=True)
+
+        assert '2 attached files went with it' in response.data.decode()
+
+    def test_one_file_is_singular(self, client, photos, purchase):
+        photos.upload_purchase_attachment(
+            purchase.id, png_bytes(), 'listing.png', 'image/png'
+        )
+
+        response = client.post(f'/purchases/{purchase.id}/delete', follow_redirects=True)
+
+        assert '1 attached file went with it' in response.data.decode()
+
+    def test_it_says_nothing_about_files_when_none_went(self, client, purchase):
+        """A receipt reporting zero of something is noise. The operator has just
+        read "no attached files" on the confirmation they came from."""
+        response = client.post(f'/purchases/{purchase.id}/delete', follow_redirects=True)
+
+        assert 'attached file' not in response.data.decode()
