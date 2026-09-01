@@ -19,7 +19,7 @@ Renders the confirmation. Reads nothing, writes nothing.
 | **Path param** | `purchase_id` — the purchase to delete. |
 | **Query param** | `return_to` — `product` (default) or `order`. Any other value is treated as `product`. |
 | **200** | `product/purchase_delete.html`. |
-| **404** | `ItemNotFoundError` through the existing centralized handler, when no such purchase exists (FR-011). No new error machinery. |
+| **Not found** | `ItemNotFoundError` through the existing centralized handler, when no such purchase exists (FR-011). For a browser request that handler flashes a warning and redirects — it does **not** return a bare 404, and this feature adds no error machinery of its own. `purchase_receive` behaves the same way. |
 
 **The page MUST show** (FR-003, FR-004):
 
@@ -50,7 +50,7 @@ Performs the deletion.
 | **302 → product** | `product.product_detail(product_id=...)` when `return_to` is `product`, unrecognized, or absent. |
 | **302 → order** | `product.order_detail(vendor=..., order_number=...)` when `return_to` is `order` **and** the deleted purchase carried a `supplier_order_reference`. Both values come from the `PurchaseDeletion` summary, never from the request (research R3). |
 | **302 → product (fallback)** | `return_to=order` on a purchase with no supplier order reference. Not an error — there is no order to go back to. |
-| **404** | `ItemNotFoundError` when the purchase is already gone. Changes nothing (FR-011). |
+| **Not found** | `ItemNotFoundError` when the purchase is already gone — flashed and redirected, as above. Changes nothing (FR-011). |
 
 **Flash on success** (FR-008): names the vendor, the order date and the quantity, and
 states how many attached files went with it. Category `success`, matching

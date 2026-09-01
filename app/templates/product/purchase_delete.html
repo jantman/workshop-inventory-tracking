@@ -1,0 +1,125 @@
+{# 032 FR-002 to FR-004, issue #130.
+
+   The confirmation is a page rather than a dialog because FR-004 needs the
+   attachment count, and the order screen does not load attachments -- a dialog
+   fed from the listing's own markup would make both listings grow a count
+   query. One page serves both entry points, which is also how FR-015's
+   "identical wherever it is offered" costs nothing to hold. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-trash{% endblock %}
+{% block page_heading %}Delete a Purchase{% endblock %}
+
+{% block page_actions %}
+<a href="{{ cancel_url }}" class="btn btn-outline-secondary" id="cancel-delete-purchase">
+    <i class="bi bi-arrow-left"></i> Cancel
+</a>
+{% endblock %}
+
+{% block product_content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger-subtle">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Delete this purchase?</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    This removes one purchase from
+                    <a href="{{ url_for('product.product_detail', product_id=product.id) }}">{{ product.description }}</a>.
+                    It cannot be undone.
+                </p>
+
+                {# FR-003: enough to tell the right row from the wrong one. Two
+                   near-identical purchases of the same thing is the case this
+                   screen exists for. #}
+                <dl class="row mb-0" id="delete-purchase-details">
+                    <dt class="col-sm-4">Vendor</dt>
+                    <dd class="col-sm-8" id="delete-vendor">{{ purchase.vendor }}</dd>
+
+                    {% if purchase.listing_title %}
+                    <dt class="col-sm-4">Listing</dt>
+                    <dd class="col-sm-8" id="delete-listing">{{ purchase.listing_title }}</dd>
+                    {% endif %}
+
+                    {% if purchase.vendor_item_id %}
+                    <dt class="col-sm-4">Vendor Item ID</dt>
+                    <dd class="col-sm-8"><code id="delete-vendor-item">{{ purchase.vendor_item_id }}</code></dd>
+                    {% endif %}
+
+                    <dt class="col-sm-4">Ordered</dt>
+                    <dd class="col-sm-8" id="delete-order-date">
+                        {{ purchase.order_date.strftime('%Y-%m-%d') if purchase.order_date else '—' }}
+                    </dd>
+
+                    <dt class="col-sm-4">Quantity</dt>
+                    <dd class="col-sm-8" id="delete-quantity">
+                        {{ purchase.quantity if purchase.quantity is not none else '—' }}
+                    </dd>
+
+                    {# Rendered straight from the Decimal. Never through float
+                       (Constitution III). #}
+                    <dt class="col-sm-4">Unit Price</dt>
+                    <dd class="col-sm-8" id="delete-unit-price">
+                        {{ '$' ~ purchase.unit_price if purchase.unit_price is not none else '—' }}
+                    </dd>
+
+                    {% if purchase.supplier_order_reference %}
+                    <dt class="col-sm-4">Order</dt>
+                    <dd class="col-sm-8">
+                        <code id="delete-order-reference">{{ purchase.supplier_order_reference }}</code>
+                        {% if purchase.order_line_number %}
+                        <span class="text-body-secondary small">line {{ purchase.order_line_number }}</span>
+                        {% endif %}
+                    </dd>
+                    {% endif %}
+
+                    <dt class="col-sm-4">Status</dt>
+                    <dd class="col-sm-8" id="delete-status">
+                        {% if purchase.is_outstanding %}
+                        <span class="badge text-bg-info">On order</span>
+                        {% else %}
+                        <span class="badge text-bg-success">
+                            Received {{ purchase.received_date.strftime('%Y-%m-%d') }}
+                        </span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        {# FR-004: the two consequences the purchase-history row does not show.
+           Both are stated even when they are uneventful -- "no attached files"
+           is a fact, and silence is something the operator would have to infer. #}
+        <div class="alert alert-warning" id="delete-purchase-consequences">
+            <p class="mb-2" id="delete-attachment-count">
+                {% if attachment_count == 0 %}
+                There are <strong>no attached files</strong> on this purchase.
+                {% elif attachment_count == 1 %}
+                <strong>1 attached file</strong> will be deleted with it.
+                {% else %}
+                <strong>{{ attachment_count }} attached files</strong> will be deleted with it.
+                {% endif %}
+                Files attached to the product itself, such as a datasheet, are not affected.
+            </p>
+            {# FR-007. Nothing on a purchase records whether its receipt ever
+               moved a count, so this feature does not guess -- and says so
+               before the operator commits rather than after. #}
+            <p class="mb-0" id="delete-quantity-notice">
+                This product's <strong>counted quantity will not change</strong>, and neither
+                will the date it was last counted or a stock flag you set by hand. Adjust the
+                count yourself on the product page if it needs adjusting.
+            </p>
+        </div>
+
+        <form method="POST" action="{{ url_for('product.purchase_delete', purchase_id=purchase.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="return_to" value="{{ return_to }}"/>
+            <button type="submit" class="btn btn-danger" id="confirm-delete-purchase">
+                <i class="bi bi-trash"></i> Delete this purchase
+            </button>
+            <a href="{{ cancel_url }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

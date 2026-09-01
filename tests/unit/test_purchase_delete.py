@@ -377,3 +377,106 @@ class TestTheDerivedViews:
         assert '111-9281973-9357866' not in [
             order.order_number for order in service.find_captured_orders()
         ]
+
+
+class TestTheConfirmationPage:
+    """FR-002, FR-003, FR-004. Nothing is removed until the operator has seen
+    what they are about to lose and the two consequences the row does not show."""
+
+    def test_it_renders(self, client, purchase):
+        response = client.get(f'/purchases/{purchase.id}/delete')
+
+        assert response.status_code == 200
+
+    def test_it_names_the_purchase(self, client, purchase):
+        """Two near-identical rows is the case this exists for (#129), so the
+        page has to say which one is going."""
+        body = client.get(f'/purchases/{purchase.id}/delete').data.decode()
+
+        assert 'Amazon' in body
+        assert '2026-07-23' in body
+        assert '37.59' in body
+        assert '111-9281973-9357866' in body
+
+    def test_it_says_the_count_will_not_change(self, client, purchase):
+        """FR-004: the operator cannot see this from the row"""
+        body = client.get(f'/purchases/{purchase.id}/delete').data.decode().lower()
+
+        assert 'counted quantity' in body
+        assert 'not change' in body
+
+    def test_it_says_how_many_files_go(self, client, photos, purchase):
+        photos.upload_purchase_attachment(
+            purchase.id, png_bytes(), 'listing.png', 'image/png'
+        )
+        photos.upload_purchase_attachment(
+            purchase.id, png_bytes((200, 30, 10)), 'receipt.png', 'image/png'
+        )
+
+        body = client.get(f'/purchases/{purchase.id}/delete').data.decode()
+
+        assert '2 attached file' in body
+
+    def test_it_says_so_when_there_are_no_files(self, client, purchase):
+        """Stated rather than omitted -- silence is something to infer from"""
+        body = client.get(f'/purchases/{purchase.id}/delete').data.decode().lower()
+
+        assert 'no attached files' in body
+
+    def test_a_get_changes_nothing(self, client, service, purchase):
+        client.get(f'/purchases/{purchase.id}/delete')
+
+        assert service.get_purchase(purchase.id) is not None
+
+    def test_an_unknown_purchase_is_reported_not_rendered(self, client):
+        """Through the existing centralized handler, which for a browser request
+        flashes a warning and redirects rather than returning a bare 404. That is
+        the app-wide convention (``purchase_receive`` behaves the same way); this
+        feature adds no error machinery of its own."""
+        response = client.get('/purchases/999999/delete', follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b'not found' in response.data
+
+
+class TestTheDeletion:
+    def test_it_deletes_and_returns_to_the_product(self, client, service, product, purchase):
+        response = client.post(f'/purchases/{purchase.id}/delete')
+
+        assert response.status_code == 302
+        assert response.headers['Location'].endswith(f'/products/{product.id}')
+        assert service.get_purchase(purchase.id) is None
+
+    def test_it_says_what_went(self, client, purchase):
+        """FR-008"""
+        response = client.post(f'/purchases/{purchase.id}/delete', follow_redirects=True)
+
+        body = response.data.decode()
+        assert 'Deleted' in body
+        assert 'Amazon' in body
+
+    def test_the_row_is_gone_from_the_history(self, client, service, product, purchase):
+        keeper = service.record_purchase(product.id, vendor='eBay')
+
+        client.post(f'/purchases/{purchase.id}/delete')
+
+        assert [p.id for p in service.get_purchase_history(product.id)] == [keeper.id]
+
+    def test_deleting_it_twice_reports_it_and_changes_nothing(
+        self, client, service, product, purchase
+    ):
+        """FR-011: the same product open in two tabs. The second attempt says so
+        rather than reporting a success that did nothing."""
+        keeper = service.record_purchase(product.id, vendor='eBay')
+        client.post(f'/purchases/{purchase.id}/delete')
+
+        response = client.post(f'/purchases/{purchase.id}/delete', follow_redirects=True)
+
+        assert b'not found' in response.data
+        assert [p.id for p in service.get_purchase_history(product.id)] == [keeper.id]
+
+    def test_an_unknown_purchase_is_reported_not_deleted(self, client):
+        response = client.post('/purchases/999999/delete', follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b'not found' in response.data

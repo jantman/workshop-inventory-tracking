@@ -989,6 +989,113 @@ def purchase_receive(purchase_id):
     )
 
 
+@bp.route('/purchases/<int:purchase_id>/delete', methods=['GET', 'POST'])
+def purchase_delete(purchase_id):
+    """Remove a purchase recorded in error (032 FR-001, issue #130).
+
+    A duplicate, a mis-captured line, an order captured twice by different
+    paths. GET confirms, POST deletes -- the same shape ``purchase_receive``
+    has, and for the same reason: the details the operator needs to tell the
+    right row from the wrong one are on the server, not in the row they clicked.
+
+    **The attachment count is why this is a page rather than a dialog.** The
+    order screen does not load attachments, so a confirmation built from the
+    listing's own markup would need both listings to grow a count query. Here it
+    is read once, for both entry points.
+    """
+    service = _get_catalog_service()
+    purchase = service.get_purchase(purchase_id)
+    if purchase is None:
+        raise ItemNotFoundError(f"Purchase {purchase_id} not found", item_id=str(purchase_id))
+
+    product = _product_or_404(service, purchase.product_id)
+    return_to = _purchase_delete_return_to(request.values.get('return_to'))
+
+    if request.method == 'POST':
+        deletion = service.delete_purchase(purchase_id)
+        if deletion is None:
+            # Deleted between the load above and here -- the same product open
+            # in two tabs. Report it rather than reporting a success that did
+            # nothing (FR-011).
+            raise ItemNotFoundError(
+                f"Purchase {purchase_id} not found", item_id=str(purchase_id)
+            )
+
+        flash(_purchase_deleted_sentence(deletion), 'success')
+        return redirect(_purchase_delete_destination(deletion, return_to))
+
+    from app.photo_service import PhotoService
+
+    with PhotoService(_get_storage_backend()) as photos:
+        attachment_count = len(photos.get_purchase_attachments(purchase_id))
+
+    return render_template(
+        'product/purchase_delete.html',
+        title='Delete a Purchase',
+        purchase=purchase,
+        product=product,
+        attachment_count=attachment_count,
+        return_to=return_to,
+        cancel_url=_purchase_delete_cancel_url(purchase, return_to),
+    )
+
+
+def _purchase_delete_return_to(value) -> str:
+    """Where to go afterwards, as a flag rather than as a URL.
+
+    Two accepted values and nothing else. The order address is built from the
+    purchase's own vendor and order number, so no caller-supplied address is
+    ever followed and there is no open-redirect question to answer.
+    """
+    return 'order' if value == 'order' else 'product'
+
+
+def _purchase_delete_destination(deletion, return_to: str) -> str:
+    """Where a completed deletion lands.
+
+    ``return_to='order'`` on a purchase carrying no supplier order reference
+    falls back to the product: a hand-recorded or listing-captured purchase has
+    no order to return to, which is a fallback rather than an error.
+    """
+    if return_to == 'order' and deletion.supplier_order_reference:
+        return url_for(
+            'product.order_detail',
+            vendor=deletion.vendor,
+            order_number=deletion.supplier_order_reference,
+        )
+    return url_for('product.product_detail', product_id=deletion.product_id)
+
+
+def _purchase_delete_cancel_url(purchase, return_to: str) -> str:
+    """Where Cancel goes -- back where they came from, changing nothing."""
+    if return_to == 'order' and purchase.supplier_order_reference:
+        return url_for(
+            'product.order_detail',
+            vendor=purchase.vendor,
+            order_number=purchase.supplier_order_reference,
+        )
+    return url_for('product.product_detail', product_id=purchase.product_id)
+
+
+def _purchase_deleted_sentence(deletion) -> str:
+    """What was removed (FR-008).
+
+    Names the purchase the same way the confirmation did, so the flash reads as
+    a confirmation of the thing just seen rather than as a fresh claim.
+    """
+    parts = [f"Deleted the {deletion.vendor} purchase"]
+    if deletion.order_date:
+        parts.append(f"ordered {deletion.order_date.strftime('%Y-%m-%d')}")
+    if deletion.quantity is not None:
+        parts.append(f"of {deletion.quantity}")
+
+    sentence = ' '.join(parts) + '.'
+    if deletion.attachments_deleted:
+        noun = 'file' if deletion.attachments_deleted == 1 else 'files'
+        sentence += f" {deletion.attachments_deleted} attached {noun} went with it."
+    return sentence
+
+
 # ---------------------------------------------------------------------------
 # JSON API
 # ---------------------------------------------------------------------------
