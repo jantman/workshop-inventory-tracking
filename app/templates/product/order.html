@@ -124,6 +124,19 @@
                         <i class="bi bi-box-arrow-in-down"></i> Receive
                     </a>
                     {% endif %}
+                    {# 032 FR-014, issue #130. On every line, received or not:
+                       a re-capture reports purchases this order no longer
+                       contains and sends the operator here to look at them, and
+                       until this existed there was nothing here to act with.
+
+                       return_to=order brings them back to this page; the address
+                       is rebuilt from the purchase's own vendor and order number
+                       rather than from anything passed in. #}
+                    <a class="btn btn-sm btn-outline-danger ms-1 delete-purchase-btn"
+                       href="{{ url_for('product.purchase_delete', purchase_id=purchase.id, return_to='order') }}"
+                       title="Delete this purchase">
+                        <i class="bi bi-trash"></i>
+                    </a>
                 </td>
             </tr>
         {% endfor %}

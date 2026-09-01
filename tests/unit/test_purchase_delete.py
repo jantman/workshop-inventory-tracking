@@ -480,3 +480,72 @@ class TestTheDeletion:
 
         assert response.status_code == 200
         assert b'not found' in response.data
+
+
+class TestWhereItGoesAfterwards:
+    """FR-015, research R3. Two accepted values and nothing else; the order
+    address is built from the deleted purchase's own vendor and order number, so
+    no caller-supplied address is ever followed."""
+
+    def test_return_to_order_goes_back_to_the_order(self, client, purchase):
+        response = client.post(
+            f'/purchases/{purchase.id}/delete', data={'return_to': 'order'}
+        )
+
+        assert response.status_code == 302
+        assert '/products/orders/Amazon/111-9281973-9357866' in response.headers['Location']
+
+    def test_the_default_is_the_product(self, client, product, purchase):
+        response = client.post(f'/purchases/{purchase.id}/delete')
+
+        assert response.headers['Location'].endswith(f'/products/{product.id}')
+
+    def test_an_unrecognized_value_is_treated_as_the_product(
+        self, client, product, purchase
+    ):
+        response = client.post(
+            f'/purchases/{purchase.id}/delete', data={'return_to': 'somewhere-else'}
+        )
+
+        assert response.headers['Location'].endswith(f'/products/{product.id}')
+
+    def test_a_url_in_return_to_is_not_followed(self, client, product, purchase):
+        """The field is a flag, not an address. Nothing to validate, because
+        nothing is accepted."""
+        response = client.post(
+            f'/purchases/{purchase.id}/delete',
+            data={'return_to': 'https://example.com/'},
+        )
+
+        assert response.headers['Location'].endswith(f'/products/{product.id}')
+
+    def test_no_order_to_return_to_falls_back_to_the_product(self, client, service, product):
+        """A hand-recorded or listing-captured purchase carries no supplier order
+        reference. There is no order to go back to, and that is a fallback rather
+        than an error."""
+        hand_recorded = service.record_purchase(product.id, vendor='eBay')
+
+        response = client.post(
+            f'/purchases/{hand_recorded.id}/delete', data={'return_to': 'order'}
+        )
+
+        assert response.status_code == 302
+        assert response.headers['Location'].endswith(f'/products/{product.id}')
+
+    def test_the_confirmation_carries_the_flag_forward(self, client, purchase):
+        body = client.get(f'/purchases/{purchase.id}/delete?return_to=order').data.decode()
+
+        assert 'name="return_to" value="order"' in body
+
+    def test_cancelling_from_the_order_returns_to_the_order(self, client, purchase):
+        """FR-002: cancel goes back where they came from"""
+        body = client.get(f'/purchases/{purchase.id}/delete?return_to=order').data.decode()
+
+        assert '/products/orders/Amazon/111-9281973-9357866' in body
+
+    def test_cancelling_from_the_product_returns_to_the_product(
+        self, client, product, purchase
+    ):
+        body = client.get(f'/purchases/{purchase.id}/delete').data.decode()
+
+        assert f'/products/{product.id}' in body

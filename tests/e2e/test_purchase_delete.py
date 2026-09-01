@@ -54,7 +54,7 @@ def open_product(page, live_server, product_id):
 
 def open_order(page, live_server, vendor="Amazon", order_number=ORDER_NUMBER):
     page.goto(f"{live_server.url}/products/orders/{vendor}/{order_number}")
-    expect(page.locator("#order-lines, #no-lines")).to_be_visible()
+    expect(page.locator("#order-lines, #not-captured")).to_be_visible()
     return page
 
 
@@ -176,3 +176,123 @@ def test_an_outstanding_purchase_stops_being_on_order(page, live_server):
 
     expect(page.locator("#purchase-history")).to_be_visible()
     expect(page.locator(".purchase-outstanding")).to_have_count(0)
+
+
+# ---------------------------------------------------------------------------
+# User Story 2 -- the order screen
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.e2e
+def test_every_order_line_offers_a_delete_control(page, live_server):
+    """FR-014, and on received lines too -- not only outstanding ones, which is
+    where the Receive control stops."""
+    service, product, _ = seed(live_server)
+    service.record_purchase(
+        product.id, vendor='Amazon', vendor_item_id='B0CKXJLP4B',
+        order_date=datetime(2026, 7, 23), received_date=datetime(2026, 7, 27),
+        quantity=2, supplier_order_reference=ORDER_NUMBER,
+    )
+
+    open_order(page, live_server)
+
+    expect(page.locator(".order-line")).to_have_count(2)
+    expect(page.locator(".delete-purchase-btn")).to_have_count(2)
+    expect(page.locator(".receive-line")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_deleting_a_line_returns_to_the_re_derived_order(page, live_server):
+    """US2 scenario 1"""
+    service, product, _ = seed(live_server)
+    service.record_purchase(
+        product.id, vendor='Amazon', vendor_item_id='B0CKXJLP4B',
+        order_date=datetime(2026, 7, 23), quantity=2,
+        supplier_order_reference=ORDER_NUMBER,
+    )
+
+    open_order(page, live_server)
+    page.locator(".order-line", has_text="B0CKXJLP4B").locator(
+        ".delete-purchase-btn"
+    ).click()
+    page.locator("#confirm-delete-purchase").click()
+
+    expect(page.locator("#order-lines")).to_be_visible()
+    expect(page.locator(".order-line")).to_have_count(1)
+    expect(page.locator("#order-lines")).not_to_contain_text("B0CKXJLP4B")
+
+
+@pytest.mark.e2e
+def test_the_confirmation_is_the_same_one(page, live_server):
+    """FR-015: identical wherever it is offered. One page serves both."""
+    _, product, _ = seed(live_server)
+
+    open_order(page, live_server)
+    page.locator(".delete-purchase-btn").click()
+
+    expect(page.locator("#delete-vendor")).to_have_text("Amazon")
+    expect(page.locator("#delete-quantity-notice")).to_contain_text(
+        "counted quantity will not change"
+    )
+    expect(page.locator("#delete-attachment-count")).to_contain_text("no attached files")
+
+
+@pytest.mark.e2e
+def test_cancelling_from_the_order_returns_to_the_order(page, live_server):
+    _, product, _ = seed(live_server)
+
+    open_order(page, live_server)
+    page.locator(".delete-purchase-btn").click()
+    expect(page.locator("#confirm-delete-purchase")).to_be_visible()
+    page.locator("#cancel-delete-purchase").click()
+
+    expect(page.locator("#order-lines")).to_be_visible()
+    expect(page.locator(".order-line")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_the_line_is_gone_from_its_product_too(page, live_server):
+    """US2 scenario 3. One row, two ways of reaching it."""
+    _, product, _ = seed(live_server)
+
+    open_order(page, live_server)
+    page.locator(".delete-purchase-btn").click()
+    page.locator("#confirm-delete-purchase").click()
+
+    open_product(page, live_server, product.id)
+
+    expect(page.locator("#no-purchases")).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_deleting_the_last_line_leaves_the_order_saying_so(page, live_server):
+    """FR-010. An order is only ever derived from its purchases, so the last one
+    going leaves no order -- which must read as "nothing captured", not an error."""
+    _, product, _ = seed(live_server)
+
+    open_order(page, live_server)
+    page.locator(".delete-purchase-btn").click()
+    page.locator("#confirm-delete-purchase").click()
+
+    open_order(page, live_server)
+
+    expect(page.locator("#not-captured")).to_be_visible()
+    expect(page.locator("#not-captured")).to_contain_text(ORDER_NUMBER)
+
+
+@pytest.mark.e2e
+def test_the_order_leaves_the_captured_orders_list(page, live_server):
+    """FR-009: the last derived view."""
+    _, product, _ = seed(live_server)
+
+    page.goto(f"{live_server.url}/products/orders")
+    expect(page.locator("#orders-table")).to_be_visible()
+    expect(page.locator(f'tr.captured-order[data-order="{ORDER_NUMBER}"]')).to_have_count(1)
+
+    open_order(page, live_server)
+    page.locator(".delete-purchase-btn").click()
+    page.locator("#confirm-delete-purchase").click()
+
+    page.goto(f"{live_server.url}/products/orders")
+    expect(page.locator("#orders-table, #no-orders")).to_be_visible()
+    expect(page.locator(f'tr.captured-order[data-order="{ORDER_NUMBER}"]')).to_have_count(0)
