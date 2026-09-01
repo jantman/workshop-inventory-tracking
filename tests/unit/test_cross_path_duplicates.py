@@ -883,7 +883,21 @@ class TestAContradictedLineCarryingACandidate:
     number, so a line can never contradict a product's. DigiKey can.
     """
 
-    def _digikey(self, catalog):
+    def _digikey(self, catalog, candidate_on_the_contradicted_product=True):
+        """A contradicted DigiKey line whose item id also has a purchase.
+
+        ``candidate_on_the_contradicted_product`` chooses between the two shapes,
+        and they are not the same question:
+
+        * **True** -- the purchase already recorded under the recycled number sits
+          on the very product the operator is being told contradicts this line.
+          Claiming it would record this line against the wrong part.
+        * **False** -- the operator captured the *new* part from its listing page
+          and correctly got a product of its own, so the purchase is already in
+          the right place. The listing path looks up VENDOR identifiers and never
+          sees the old product's DISTRIBUTOR one, so this happens with no prompt
+          at all. PR #144 review.
+        """
         import json
         from pathlib import Path
 
@@ -897,7 +911,7 @@ class TestAContradictedLineCarryingACandidate:
                        parse_float=Decimal)
         )
         # The part number names a product whose MPN contradicts the line.
-        catalog.create_product(
+        contradicted = catalog.create_product(
             description='Something else entirely',
             manufacturer_part_number='WIDGET-99',
             identifiers=[
@@ -912,7 +926,10 @@ class TestAContradictedLineCarryingACandidate:
             url='https://www.digikey.com/en/products/detail/1866-3027-ND',
             quantity=5, unit_price='6.50',
             order_date=datetime(2026, 8, 4),
-            attach_to='new',
+            attach_to=(
+                contradicted.id if candidate_on_the_contradicted_product
+                else 'new'
+            ),
         )
         return order, listing, DIGIKEY_ORDER_VENDOR, FakeDigiKey()
 
@@ -999,6 +1016,105 @@ class TestAContradictedLineCarryingACandidate:
         assert result.purchases_adopted == ()
         assert len(result.purchase_ids) == 2
         assert catalog.get_purchase(listing.id).supplier_order_reference is None
+
+
+class TestACandidateOnAThirdProduct:
+    """The gate above must not refuse an answer that is simply true.
+
+    A candidate is matched by vendor item id and is independent of any product,
+    so it can sit on a product that is already correct while the *line* is
+    contradicted against a different one. The vendor recycles a part number; the
+    operator captures the new part from its listing page and correctly gets a
+    product of its own -- the listing path looks up VENDOR identifiers and never
+    sees the old product's DISTRIBUTOR one, so no prompt is raised. Capturing the
+    order then flags the line against the old product while the purchase already
+    sits on the new one.
+
+    "Not that product" and "yes, that purchase" are then both true, and gating on
+    ``resolution`` alone refused them -- leaving ``attach``, a false statement, as
+    the only way through, while answering "a separate purchase" wrote the very
+    duplicate this feature exists to prevent. PR #144 review.
+    """
+
+    def test_the_candidate_sits_on_a_different_product(self, catalog):
+        """The setup itself is the claim, so it is asserted rather than assumed."""
+        helper = TestAContradictedLineCarryingACandidate()
+        order, listing, vendor, client = helper._digikey(
+            catalog, candidate_on_the_contradicted_product=False
+        )
+
+        review = catalog.review_order(order, vendor, client)
+        line = review.lines[0]
+
+        assert line.state is OrderLineState.CONFLICT
+        assert line.candidate.purchase_id == listing.id
+        assert line.candidate.product_id != line.product_id
+
+    def test_separate_plus_adopt_is_accepted(self, catalog):
+        """Both answers are true, so both are honoured."""
+        helper = TestAContradictedLineCarryingACandidate()
+        order, listing, vendor, client = helper._digikey(
+            catalog, candidate_on_the_contradicted_product=False
+        )
+        products_before = len(catalog.list_products())
+
+        result = catalog.capture_order_lines(
+            order, vendor,
+            helper._decisions(order, '1866-3027-ND',
+                              resolution='separate', same_purchase='adopt'),
+            client,
+        )
+
+        assert result.purchases_adopted == (listing.id,)
+        adopted = catalog.get_purchase(listing.id)
+        assert adopted.supplier_order_reference == order.sales_order_number
+        # The row keeps the product it was already correctly on (FR-015), and no
+        # product is created for a line that wrote no purchase.
+        assert adopted.product_id == listing.product_id
+        assert len(catalog.list_products()) == products_before + 1
+        assert len(catalog.get_purchase_history(listing.product_id)) == 1
+
+    def test_a_blank_resolution_plus_adopt_is_accepted(self, catalog):
+        """Nothing reads it on this path: the line creates no product either way."""
+        helper = TestAContradictedLineCarryingACandidate()
+        order, listing, vendor, client = helper._digikey(
+            catalog, candidate_on_the_contradicted_product=False
+        )
+
+        result = catalog.capture_order_lines(
+            order, vendor,
+            helper._decisions(order, '1866-3027-ND', same_purchase='adopt'),
+            client,
+        )
+
+        assert result.purchases_adopted == (listing.id,)
+
+    def test_answering_separate_purchase_would_have_duplicated(self, catalog):
+        """Why the refusal mattered: the other answer is not a safe fallback."""
+        helper = TestAContradictedLineCarryingACandidate()
+        order, listing, vendor, client = helper._digikey(
+            catalog, candidate_on_the_contradicted_product=False
+        )
+
+        catalog.capture_order_lines(
+            order, vendor,
+            helper._decisions(order, '1866-3027-ND',
+                              resolution='separate', same_purchase='separate'),
+            client,
+        )
+
+        # Two purchases for one physical purchase -- issue #129 again, now split
+        # across two products so no single product page shows it. This is what
+        # the operator was being pushed towards, and it is why the gate had to be
+        # narrowed rather than kept.
+        recorded = [
+            purchase
+            for product in catalog.list_products()
+            for purchase in catalog.get_purchase_history(product.id)
+            if purchase.vendor_item_id == '1866-3027-ND'
+        ]
+        assert len(recorded) == 2
+        assert {purchase.product_id for purchase in recorded} != {listing.product_id}
 
 
 class TestAdoptingABackfilledOrder:

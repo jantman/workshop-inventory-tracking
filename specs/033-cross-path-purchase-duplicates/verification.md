@@ -6,12 +6,12 @@
 
 | Suite | Result |
 |---|---|
-| `nox -s tests` | **2301 passed**, 774 deselected, 37s |
+| `nox -s tests` | **2305 passed**, 774 deselected, 37s |
 | `nox -s e2e` | **750 passed**, 0 failed, 2312 deselected, 15m22s |
 | `nox -s lint` | Fails repo-wide on E501 **before this branch as well** — see the note below |
 | Working tree after `nox -s e2e` | **clean** (Constitution IV) — `test-debug-output/` is gitignored |
 
-New coverage: 53 unit tests in `tests/unit/test_cross_path_duplicates.py` and 3 E2E
+New coverage: 57 unit tests in `tests/unit/test_cross_path_duplicates.py` and 3 E2E
 journeys appended to `tests/e2e/test_amazon_order.py`.
 
 **The regression test was confirmed red first** (FR-023, and issue #129's own
@@ -133,6 +133,22 @@ fixing (`git stash push app/catalog_service.py`, run, restore):
 Written up as research.md §14, which also names what all three review findings had in common:
 a `continue` in a long loop is a claim that nothing below it applies, and each time something
 below it did.
+
+## A third round: the gate above was too broad
+
+The CONFLICT gate added for the second round refused a **true** pair of answers and admitted
+only a false one. A candidate is matched by item id and need not sit on the product the line is
+contradicted against: when a recycled part number leaves the old product holding the old
+`DISTRIBUTOR` identifier and the operator has already captured the new part onto a product of
+its own, `resolution='separate'` + `same_purchase='adopt'` is exactly right — and was refused,
+leaving `attach` (false) as the only way through, while the error's other suggestion wrote two
+purchases for one physical purchase across two products.
+
+Narrowed to gate on `candidate.product_id == reviewed.product_id` — the condition that actually
+makes the premise true (research.md §15). Reachability was verified against the code before
+changing anything, and the two accepting tests fail against the previous gate. Four tests in
+`TestACandidateOnAThirdProduct`, and the existing conflict fixture is now explicit about which
+of the two product shapes it builds.
 
 ## Manual checks — the two that need a person
 

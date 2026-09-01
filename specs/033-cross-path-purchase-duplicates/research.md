@@ -278,3 +278,40 @@ clears (031 FR-028).
 **The general lesson**, worth stating because it is what produced all three of this PR's
 review findings: `continue` in a long loop is a claim that nothing below it applies. Each of
 the three was something below it that did.
+
+## §15 — The contradicted-line gate, narrowed (PR #144 review, third round)
+
+§14's gate — an adopt on a CONFLICT line requires `resolution == 'attach'` — was too broad, and
+the way it was too broad is worth recording: **it refused a true pair of answers and admitted
+only a false one.**
+
+A candidate is matched by `vendor_item_id` and is independent of any product, so it need not sit
+on the product the line is contradicted against. The reachable case:
+
+1. A distributor recycles a part number. `P_old` keeps the old `DISTRIBUTOR` identifier —
+   identifier claiming is clash-tolerant and never steals one.
+2. The operator captures the *new* part from its listing page. `capture_order` looks up
+   `VENDOR` identifiers, so it never sees `P_old`'s `DISTRIBUTOR` one, creates `P_new` with no
+   prompt at all, and records the purchase against it. **That purchase is in the right place.**
+3. Capturing the order flags the line CONFLICT against `P_old` — `_digikey_find_product` tries
+   `DISTRIBUTOR` first — while the candidate offered sits on `P_new`.
+
+The operator's truthful answers are then `resolution='separate'` (it is not `P_old`) and
+`same_purchase='adopt'` (it is that purchase). §14's gate refused exactly that, leaving
+`resolution='attach'` — a false statement — as the only way through, and it only produced the
+right result because the adopt path discards `resolution` anyway. Taking the error's other
+suggestion instead wrote two purchases for one physical purchase, split across two products so
+no single product page shows it.
+
+**Decision**: gate on `candidate.product_id == reviewed.product_id`, which is the condition that
+actually makes "recycled id ⇒ the purchase belongs to the old part" true, and name that fact in
+the message. Where the products differ, `resolution` is not consulted at all — the line creates
+no product under any answer, so there is nothing for it to decide.
+
+Verified reachable before fixing, and the two accepting tests fail against §14's gate.
+
+**What §14's lesson misses, and this one adds.** §14 blamed a `continue`. This one was not a
+skipped branch at all: it was a guard whose *premise* held only in the common case. "The
+purchase recorded under a recycled id belongs to the old part" is true when one product holds
+both, and this codebase deliberately allows a second product to hold the same vendor id. A
+guard is a claim about the data; it is worth asking which shapes of the data actually satisfy it.

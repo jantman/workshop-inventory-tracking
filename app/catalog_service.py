@@ -2206,15 +2206,37 @@ class CatalogService:
                     # records its own purchase. That is the right answer as well
                     # as the safe one: the operator bought the thing twice.
                     if answer == 'adopt' and candidate.purchase_id not in claimed:
-                        # **A contradicted item id has to be settled first.** A
-                        # candidate is found by item id alone, and CONFLICT means
-                        # that id has probably been recycled -- in which case the
-                        # purchase recorded under it belongs to the *old* part
-                        # and cannot be this line's. Only the operator saying
-                        # "same thing, attach" makes the two coherent; 'separate'
-                        # and a blank answer are both refused rather than
-                        # silently overruled (FR-015). PR #144 review.
-                        if reviewed.state is OrderLineState.CONFLICT:
+                        # **A contradicted line whose candidate sits on the
+                        # contradicted product has to be settled first.**
+                        # Adopting writes no product, so the row keeps the one it
+                        # already has -- and when that is the product the
+                        # operator has just called wrong, claiming it records
+                        # this line's purchase against the wrong part. Only
+                        # "same thing, attach" makes the two answers coherent.
+                        #
+                        # **Gated on the products, not on `resolution` alone.**
+                        # A candidate is matched by item id and is independent of
+                        # any product, so it can sit on a *third* product that is
+                        # already right: a vendor recycles a part number, the
+                        # operator captures the new part from its listing page
+                        # and correctly gets a new product (the listing path
+                        # looks up VENDOR identifiers and never sees the old
+                        # product's DISTRIBUTOR one), and the order then flags
+                        # the line against the old product while the candidate
+                        # sits on the new one. There "not that product" and "yes,
+                        # that purchase" are both true, and refusing them left
+                        # `attach` -- a false statement -- as the only way
+                        # through. Answering `separate` instead wrote the
+                        # duplicate this feature exists to prevent. PR #144
+                        # review; reproduced before fixing.
+                        #
+                        # Where the products differ, `resolution` is not
+                        # consulted at all: this line creates no product under
+                        # any answer, so there is nothing for it to decide.
+                        if (
+                            reviewed.state is OrderLineState.CONFLICT
+                            and candidate.product_id == reviewed.product_id
+                        ):
                             resolution = (
                                 decision.get('resolution') or ''
                             ).strip().lower()
@@ -2222,10 +2244,10 @@ class CatalogService:
                                 raise ValidationError(
                                     f"{vendor.item_id_of(line)} names "
                                     f"{reviewed.product_description!r}, whose "
-                                    f"part number contradicts this line, so a "
-                                    f"purchase already recorded under it may not "
-                                    f"be this one's. Say the two are the same "
-                                    f"thing, or record a separate purchase.",
+                                    f"part number contradicts this line, and the "
+                                    f"purchase already recorded under that id is "
+                                    f"on that same product. Say the two are the "
+                                    f"same thing, or record a separate purchase.",
                                     field=f'resolution[{line.form_key}]',
                                 )
 

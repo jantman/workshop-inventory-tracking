@@ -77,7 +77,8 @@ Still one session for the whole order, still all-or-nothing.
 |---|---|
 | No candidate | Exactly today's behavior. |
 | Candidate, `same_purchase == 'adopt'`, row unclaimed, line **not** CONFLICT | Claim it (§5). No product resolution, no new `Purchase`. |
-| Candidate, `same_purchase == 'adopt'`, line is CONFLICT | Requires `resolution == 'attach'`; `separate` or blank raises `ValidationError` on `resolution[...]`. research.md §14. |
+| Candidate, `same_purchase == 'adopt'`, line is CONFLICT **and** `candidate.product_id == reviewed.product_id` | Requires `resolution == 'attach'`; `separate` or blank raises `ValidationError` on `resolution[...]`. research.md §14. |
+| Candidate, `same_purchase == 'adopt'`, line is CONFLICT but the candidate sits on a **different** product | `resolution` is not consulted — the line creates no product under any answer. research.md §15. |
 | Candidate, `same_purchase == 'adopt'`, row already claimed by an earlier line | Ordinary line: one purchase cannot be two lines of an order, so this one records its own. |
 | Candidate, `same_purchase == 'separate'` | Exactly today's behavior; the candidate is untouched. |
 | Candidate, anything else | `ValidationError`, `field=f'same_purchase[{line.form_key}]'`, **nothing written** — the session rolls back whole. |
