@@ -201,7 +201,32 @@ class PhotoService:
         except Exception as e:
             logger.error(f"Failed to get photo data for photo ID {photo_id}: {str(e)}")
             raise RuntimeError(f"Failed to retrieve photo data: {str(e)}")
-    
+
+    def get_photo_file(self, photo_id: int) -> Optional[Tuple[bytes, str, str]]:
+        """
+        Get the original file for download
+
+        Everything a download needs off one row, so the caller resolves the id
+        once. Returns plain values rather than the Photo, because the route
+        reads them after the session has closed.
+
+        Args:
+            photo_id: Photo ID (photos.id) - NOT association ID
+
+        Returns:
+            Tuple of (original_data, content_type, filename), or None if there
+            is no such photo
+        """
+        try:
+            photo = self.session.query(Photo).filter(Photo.id == photo_id).first()
+            if not photo:
+                return None
+
+            return photo.original_data, photo.content_type, photo.filename
+        except Exception as e:
+            logger.error(f"Failed to get photo file for photo ID {photo_id}: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve photo file: {str(e)}")
+
     def delete_photo(self, photo_id: int) -> bool:
         """
         Delete a photo association and the photo itself if no other associations exist
