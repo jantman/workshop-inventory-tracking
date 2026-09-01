@@ -25,6 +25,7 @@
 11. [Scanning Products](#scanning-products)
     - [Distributor Labels](#distributor-labels)
 12. [Recording Purchases](#recording-purchases)
+    - [Removing a Purchase Recorded in Error](#removing-a-purchase-recorded-in-error)
 13. [Which Vendors Are Supported](#which-vendors-are-supported)
 14. [Capturing an Order When You Place It](#capturing-an-order-when-you-place-it)
     - [Amazon Orders](#amazon-orders)
@@ -1016,6 +1017,49 @@ in step with it.
 Buying the same thing again adds a second purchase to the same product. It does
 not create a duplicate. The product page shows the whole history oldest-first
 with the most recent price called out.
+
+### Removing a Purchase Recorded in Error
+
+Sometimes a purchase gets written that should not have been -- a duplicate, a
+line captured twice by two different routes, an order you captured from the
+wrong page. The **trash button** on the row removes it.
+
+You can reach it from two places, and they behave identically:
+
+- the **Purchase History** table on the product page, on every row; and
+- the **order screen** (Products -> Captured Orders -> the order), on every
+  line, whether it has arrived or not.
+
+Either one opens a confirmation page that names the purchase -- vendor, order
+date, quantity, price and order number -- so you can tell two near-identical
+rows apart before committing. It also tells you two things the row itself does
+not show:
+
+**Attached files go with it.** Anything attached to that *purchase*, such as a
+saved listing or a receipt, is deleted too, and the page says how many. Files
+attached to the *product*, such as a datasheet, are untouched.
+
+**The counted quantity does not change.** Deleting a purchase you had marked
+received does not put the count back down, and it does not clear a Low flag you
+set by hand or change the date the product was last counted. This is deliberate:
+receiving history and what is in the drawer are two separate claims, and nothing
+records whether a given receipt ever moved a count in the first place. If the
+count does need correcting, use the **+** and **-** controls on the product page
+-- that way the "counted" date reflects a real look in the drawer.
+
+Deleting is permanent. There is no undo and no trash to recover from, which is
+why there is a confirmation.
+
+Two more things worth knowing:
+
+- **The product survives.** Deleting every purchase of a product leaves the
+  product, its identifiers, specifications, photos and datasheets exactly as
+  they were. This is not a way to delete a product.
+- **The order survives too, or stops existing.** An order is only ever worked
+  out from the purchases carrying its number, so a deleted line simply leaves
+  it. Delete every line and that order number reads "nothing captured under this
+  order" again -- and if you capture it afresh, the deleted line is offered
+  again, because there is no record of your having refused it.
 
 ## Which Vendors Are Supported
 
