@@ -6,12 +6,12 @@
 
 | Suite | Result |
 |---|---|
-| `nox -s tests` | **2291 passed**, 774 deselected, 37s |
+| `nox -s tests` | **2301 passed**, 774 deselected, 37s |
 | `nox -s e2e` | **750 passed**, 0 failed, 2312 deselected, 15m22s |
 | `nox -s lint` | Fails repo-wide on E501 **before this branch as well** — see the note below |
 | Working tree after `nox -s e2e` | **clean** (Constitution IV) — `test-debug-output/` is gitignored |
 
-New coverage: 43 unit tests in `tests/unit/test_cross_path_duplicates.py` and 3 E2E
+New coverage: 53 unit tests in `tests/unit/test_cross_path_duplicates.py` and 3 E2E
 journeys appended to `tests/e2e/test_amazon_order.py`.
 
 **The regression test was confirmed red first** (FR-023, and issue #129's own
@@ -113,6 +113,26 @@ rule from offer time to claim time (research.md §13). Three tests now cover it:
 `test_excluding_the_first_line_does_not_lose_the_question`,
 `test_and_leaving_that_survivor_unanswered_still_refuses`, plus `test_one_row_cannot_be_two_lines`
 for the both-adopt case.
+
+## Two more, from the second review round
+
+Both created by the same `continue` in the adoption branch, and both confirmed red before
+fixing (`git stash push app/catalog_service.py`, run, restore):
+
+- **A CONFLICT line carrying a candidate bypassed `resolution`.** *"Different part, make a new
+  product"* plus *"same purchase"* claimed the row onto the contradicted product with no error,
+  and a blank `resolution` was accepted where every other path refuses. Now an adopt on a
+  CONFLICT line requires `resolution == 'attach'` — the only coherent combination. Five tests
+  in `TestAContradictedLineCarryingACandidate`.
+- **An adopted line was never marked as arrived.** The review renders the same `arrived[]` box
+  for it and the order-level box ticks every one, so backfilling a delivered order was the
+  natural way to hit it: the purchase stayed outstanding for ever and `lines_arrived`
+  under-counted. Now an empty `received_date` is filled and counted; an already-received one is
+  left alone. Five tests in `TestAdoptingABackfilledOrder`.
+
+Written up as research.md §14, which also names what all three review findings had in common:
+a `continue` in a long loop is a claim that nothing below it applies, and each time something
+below it did.
 
 ## Manual checks — the two that need a person
 

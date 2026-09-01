@@ -869,3 +869,218 @@ class TestTheReviewAndTheCaptureAgree:
         result = catalog.capture_order_lines(order, AMAZON_ORDER_VENDOR, decisions)
 
         assert len(result.purchases_adopted) == len(asked)
+
+
+class TestAContradictedLineCarryingACandidate:
+    """Two questions on one line, and the first one settles the second.
+
+    A candidate is found by vendor item id alone. CONFLICT means that id has
+    probably been recycled for a different part -- in which case a purchase
+    recorded under it belongs to the *old* part and cannot be this line's. Only
+    "same thing, attach" makes the two answers coherent.
+
+    Amazon can never reach this: its order page states no manufacturer part
+    number, so a line can never contradict a product's. DigiKey can.
+    """
+
+    def _digikey(self, catalog):
+        import json
+        from pathlib import Path
+
+        from app.catalog_service import DIGIKEY_ORDER_VENDOR, DIGIKEY_VENDOR
+        from app.models import DigiKeyOrder
+        from tests.unit.test_digikey_capture import FakeDigiKey
+
+        fixtures = Path(__file__).resolve().parents[1] / 'fixtures' / 'digikey'
+        order = DigiKeyOrder.from_payload(
+            json.loads((fixtures / 'salesorder.json').read_text(),
+                       parse_float=Decimal)
+        )
+        # The part number names a product whose MPN contradicts the line.
+        catalog.create_product(
+            description='Something else entirely',
+            manufacturer_part_number='WIDGET-99',
+            identifiers=[
+                {'id_type': 'DISTRIBUTOR', 'value': '1866-3027-ND',
+                 'vendor': DIGIKEY_VENDOR},
+                {'id_type': 'MPN', 'value': 'WIDGET-99'},
+            ],
+        )
+        listing = catalog.capture_order(
+            vendor=DIGIKEY_VENDOR,
+            vendor_item_id='1866-3027-ND',
+            url='https://www.digikey.com/en/products/detail/1866-3027-ND',
+            quantity=5, unit_price='6.50',
+            order_date=datetime(2026, 8, 4),
+            attach_to='new',
+        )
+        return order, listing, DIGIKEY_ORDER_VENDOR, FakeDigiKey()
+
+    def _decisions(self, order, conflicted, **extra):
+        return {
+            line.form_key: dict(
+                {'include': True},
+                **(extra if line.digikey_part_number == conflicted else {}),
+            )
+            for line in order.lines
+        }
+
+    def test_the_review_asks_both_questions(self, catalog):
+        order, listing, vendor, client = self._digikey(catalog)
+
+        review = catalog.review_order(order, vendor, client)
+        line = review.lines[0]
+
+        assert line.state is OrderLineState.CONFLICT
+        assert line.candidate is not None
+        assert line.candidate.purchase_id == listing.id
+
+    def test_separate_plus_adopt_is_refused(self, catalog):
+        """"A different part" and "the same purchase" cannot both be true."""
+        order, listing, vendor, client = self._digikey(catalog)
+
+        with pytest.raises(ValidationError) as excinfo:
+            catalog.capture_order_lines(
+                order, vendor,
+                self._decisions(order, '1866-3027-ND',
+                                resolution='separate', same_purchase='adopt'),
+                client,
+            )
+
+        assert excinfo.value.field.startswith('resolution[')
+        assert len(catalog.get_purchase_history(listing.product_id)) == 1
+        assert catalog.get_purchase(listing.id).supplier_order_reference is None
+
+    def test_a_blank_resolution_plus_adopt_is_refused(self, catalog):
+        """The adopt branch used to skip the only check that reads it."""
+        order, listing, vendor, client = self._digikey(catalog)
+
+        with pytest.raises(ValidationError) as excinfo:
+            catalog.capture_order_lines(
+                order, vendor,
+                self._decisions(order, '1866-3027-ND', same_purchase='adopt'),
+                client,
+            )
+
+        assert excinfo.value.field.startswith('resolution[')
+        assert catalog.get_purchase(listing.id).supplier_order_reference is None
+
+    def test_attach_plus_adopt_claims_the_row(self, catalog):
+        """The one coherent combination: the id was not recycled after all."""
+        order, listing, vendor, client = self._digikey(catalog)
+        products_before = len(catalog.list_products())
+
+        result = catalog.capture_order_lines(
+            order, vendor,
+            self._decisions(order, '1866-3027-ND',
+                            resolution='attach', same_purchase='adopt'),
+            client,
+        )
+
+        assert result.purchases_adopted == (listing.id,)
+        adopted = catalog.get_purchase(listing.id)
+        assert adopted.supplier_order_reference == order.sales_order_number
+        assert adopted.product_id == listing.product_id
+        # The contradicted product is left entirely alone, and the other line of
+        # the order still creates its own.
+        assert len(catalog.list_products()) == products_before + 1
+
+    def test_separate_without_adopting_still_works(self, catalog):
+        """The existing CONFLICT path is unchanged when the row is not claimed."""
+        order, listing, vendor, client = self._digikey(catalog)
+
+        result = catalog.capture_order_lines(
+            order, vendor,
+            self._decisions(order, '1866-3027-ND',
+                            resolution='separate', same_purchase='separate'),
+            client,
+        )
+
+        assert result.purchases_adopted == ()
+        assert len(result.purchase_ids) == 2
+        assert catalog.get_purchase(listing.id).supplier_order_reference is None
+
+
+class TestAdoptingABackfilledOrder:
+    """An adopted line arrives like any other (031 FR-024).
+
+    The review renders the same "arrived" box for an adoptable line, and the
+    order-level box ticks every one of them -- so backfilling a delivered order
+    is the natural way to reach an adoption. Dropping the tick left the purchase
+    on order for ever and under-counted the flash. PR #144 review.
+    """
+
+    def test_an_adopted_line_marked_arrived_is_received(self, catalog):
+        listing = capture_listing(catalog)
+        assert catalog.get_purchase(listing.id).received_date is None
+        order = build_order()
+
+        result = catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR,
+            decisions_for(order, same_purchase='adopt', arrived=True),
+            arrived_date='2026-07-30',
+        )
+
+        adopted = catalog.get_purchase(listing.id)
+        assert adopted.received_date == datetime(2026, 7, 30)
+        assert result.lines_arrived == 1
+
+    def test_a_blank_arrival_date_falls_back_to_the_orders_own(self, catalog):
+        """031 FR-026, and never to today -- the same rule the create path has."""
+        listing = capture_listing(catalog)
+        order = build_order()
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR,
+            decisions_for(order, same_purchase='adopt', arrived=True),
+        )
+
+        assert catalog.get_purchase(listing.id).received_date == ORDER_DATE
+
+    def test_an_unticked_line_stays_outstanding(self, catalog):
+        listing = capture_listing(catalog)
+        order = build_order()
+
+        result = catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR,
+            decisions_for(order, same_purchase='adopt'),
+        )
+
+        assert catalog.get_purchase(listing.id).received_date is None
+        assert result.lines_arrived == 0
+
+    def test_an_already_received_candidate_keeps_its_own_receipt(self, catalog):
+        """FR-014 asks that a receipt survive, not that a fresh one be dropped."""
+        listing = capture_listing(catalog)
+        catalog.receive_purchase(listing.id, received_date=datetime(2026, 7, 28))
+        order = build_order()
+
+        result = catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR,
+            decisions_for(order, same_purchase='adopt', arrived=True),
+            arrived_date='2026-07-30',
+        )
+
+        adopted = catalog.get_purchase(listing.id)
+        assert adopted.received_date == datetime(2026, 7, 28)
+        # Nothing was written, so nothing is counted.
+        assert result.lines_arrived == 0
+
+    def test_arriving_moves_no_count_and_clears_no_flag(self, catalog):
+        """031 FR-028: goods delivered long ago have already been consumed."""
+        listing = capture_listing(catalog)
+        catalog.set_quantity(listing.product_id, 4)
+        catalog.set_stock_status(listing.product_id, 'LOW')
+        before = catalog.get_product(listing.product_id)
+        order = build_order()
+
+        catalog.capture_order_lines(
+            order, AMAZON_ORDER_VENDOR,
+            decisions_for(order, same_purchase='adopt', arrived=True),
+        )
+
+        after = catalog.get_product(listing.product_id)
+        assert after.quantity == before.quantity
+        assert after.quantity_updated_at == before.quantity_updated_at
+        assert after.stock_status == before.stock_status
+        assert after.stock_status_updated_at == before.stock_status_updated_at

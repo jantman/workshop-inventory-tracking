@@ -241,3 +241,40 @@ purchase cannot be both of them.
 Where one item has two candidates, the nearer by date is the one offered, and the other is
 left alone rather than handed to a second line. A purchase this capture does not claim stays
 exactly as it was — the conservative half of every choice in this flow.
+
+## §14 — A candidate on a contradicted line, and on a backfilled one (PR #144 review)
+
+Two more holes in the adoption branch, both created by the same `continue`. Skipping the rest
+of the loop skipped two things that were not obviously part of it.
+
+**A CONFLICT line can carry a candidate.** `_review_order_line`'s CONFLICT branch attaches the
+candidate like any other, and `_assign_candidates` skips only CAPTURED lines — so a DigiKey or
+McMaster line can be both contradicted and adoptable, and the review renders both questions.
+(Amazon cannot reach this: its order page states no manufacturer part number, so no line of one
+can contradict a product's.) The adoption branch `continue`d before `_product_for_order_line`,
+which is the only place `resolution` is enforced — so *"different part, make a new product"*
+plus *"same purchase"* claimed the row onto the contradicted product with no error, and a blank
+`resolution` was accepted where every other path refuses the submission.
+
+**Decision**: settle the contradiction first. `_review_order_line` moves above the branch, and
+an adopt on a CONFLICT line requires `resolution == 'attach'`. That is the only coherent
+combination: a candidate is found by item id alone, and CONFLICT is evidence that id has been
+recycled — in which case the purchase recorded under it belongs to the old part and cannot be
+this line's. `separate` and blank are refused rather than silently overruled (FR-015).
+
+**An adopted line was never marked as arrived.** The review renders the same `arrived[]` box
+for an adoptable line as for any other, and the order-level "this order has already arrived"
+box ticks every one of them — so backfilling a delivered order (031 FR-024) is the natural way
+to reach an adoption. The branch skipped the arrival handling, and `_claim_purchase` does not
+touch `received_date` either, so the purchase stayed outstanding for ever and `lines_arrived`
+under-counted the flash.
+
+**Decision**: fill an empty `received_date` from the resolved arrival date and count it, in the
+branch. FR-014 asks that an *already received* purchase keep the receipt it has — which is why
+this only fills an empty one — not that a fresh arrival be discarded. The column is set
+directly, exactly as the create path does, so no tracked count moves and no manual low flag
+clears (031 FR-028).
+
+**The general lesson**, worth stating because it is what produced all three of this PR's
+review findings: `continue` in a long loop is a claim that nothing below it applies. Each of
+the three was something below it that did.

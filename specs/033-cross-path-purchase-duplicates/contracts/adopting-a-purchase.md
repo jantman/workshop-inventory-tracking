@@ -76,7 +76,8 @@ Still one session for the whole order, still all-or-nothing.
 | Condition | Behavior |
 |---|---|
 | No candidate | Exactly today's behavior. |
-| Candidate, `same_purchase == 'adopt'`, row unclaimed | Claim it (§5). No product resolution, no new `Purchase`. |
+| Candidate, `same_purchase == 'adopt'`, row unclaimed, line **not** CONFLICT | Claim it (§5). No product resolution, no new `Purchase`. |
+| Candidate, `same_purchase == 'adopt'`, line is CONFLICT | Requires `resolution == 'attach'`; `separate` or blank raises `ValidationError` on `resolution[...]`. research.md §14. |
 | Candidate, `same_purchase == 'adopt'`, row already claimed by an earlier line | Ordinary line: one purchase cannot be two lines of an order, so this one records its own. |
 | Candidate, `same_purchase == 'separate'` | Exactly today's behavior; the candidate is untouched. |
 | Candidate, anything else | `ValidationError`, `field=f'same_purchase[{line.form_key}]'`, **nothing written** — the session rolls back whole. |
@@ -98,9 +99,12 @@ In this order, on the `Purchase` the candidate names:
    `listing_url` — **only where the purchase currently holds NULL**.
 4. If `decision['apply_change']`, `_apply_order_change(purchase, line, decision, vendor)`,
    counting into `lines_updated` exactly as it does for a CAPTURED line.
+5. If `decision['arrived']` **and** `received_date` is currently NULL, `received_date` ← the
+   resolved arrival date, counting into `lines_arrived`. An already-received purchase keeps its
+   own receipt and is not counted. research.md §14.
 
-Never written: `product_id`, `received_date`, `notes`, `listing_title`, and — absent
-`apply_change` — `quantity` and `unit_price`.
+Never written: `product_id`, `notes`, `listing_title`, an **already-set** `received_date`,
+and — absent `apply_change` — `quantity` and `unit_price`.
 
 ## 6. `OrderCaptureResult` — one new field
 

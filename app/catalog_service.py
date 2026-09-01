@@ -2167,6 +2167,17 @@ class CatalogService:
                     lines_excluded += 1
                     continue
 
+                # Read before the adoption branch rather than after it. The
+                # branch used to `continue` past this, which skipped the only
+                # place a CONFLICT line's `resolution` is enforced -- so an
+                # operator who said "different part, make a new product" *and*
+                # "same purchase" got the purchase claimed onto the contradicted
+                # product with no error. PR #144 review.
+                part = parts.get(vendor.item_id_of(line))
+                reviewed = self._review_order_line(
+                    session, line, part, recorded, vendor
+                )
+
                 # **A purchase for this item may already exist, written by a path
                 # that knew nothing about this order** (033 FR-001). The operator
                 # says whether it is the same physical purchase; nothing here
@@ -2195,6 +2206,29 @@ class CatalogService:
                     # records its own purchase. That is the right answer as well
                     # as the safe one: the operator bought the thing twice.
                     if answer == 'adopt' and candidate.purchase_id not in claimed:
+                        # **A contradicted item id has to be settled first.** A
+                        # candidate is found by item id alone, and CONFLICT means
+                        # that id has probably been recycled -- in which case the
+                        # purchase recorded under it belongs to the *old* part
+                        # and cannot be this line's. Only the operator saying
+                        # "same thing, attach" makes the two coherent; 'separate'
+                        # and a blank answer are both refused rather than
+                        # silently overruled (FR-015). PR #144 review.
+                        if reviewed.state is OrderLineState.CONFLICT:
+                            resolution = (
+                                decision.get('resolution') or ''
+                            ).strip().lower()
+                            if resolution != 'attach':
+                                raise ValidationError(
+                                    f"{vendor.item_id_of(line)} names "
+                                    f"{reviewed.product_description!r}, whose "
+                                    f"part number contradicts this line, so a "
+                                    f"purchase already recorded under it may not "
+                                    f"be this one's. Say the two are the same "
+                                    f"thing, or record a separate purchase.",
+                                    field=f'resolution[{line.form_key}]',
+                                )
+
                         # No product resolution and no new Purchase: the row
                         # already exists and already has a product, and creating
                         # one here would be the duplicate this closes (FR-013,
@@ -2210,12 +2244,25 @@ class CatalogService:
                             purchase, line, decision, vendor
                         ):
                             lines_updated += 1
+
+                        # **An adopted line arrives like any other** (031 FR-024).
+                        # The review renders the same "arrived" box for it, and
+                        # the order-level box ticks every one of them, so
+                        # backfilling a delivered order is the natural way to
+                        # reach this. Dropping the tick left the purchase on
+                        # order for ever and under-counted the flash. FR-014 asks
+                        # that an *already received* purchase keep its receipt --
+                        # which is why this only fills an empty one -- not that a
+                        # fresh arrival be discarded. PR #144 review.
+                        #
+                        # The column is set directly, exactly as the create path
+                        # below does: no tracked count moves and no manual low
+                        # flag clears (031 FR-028).
+                        if decision.get('arrived') and purchase.received_date is None:
+                            purchase.received_date = arrived
+                            lines_arrived += 1
                         continue
 
-                part = parts.get(vendor.item_id_of(line))
-                reviewed = self._review_order_line(
-                    session, line, part, recorded, vendor
-                )
                 product, created = self._product_for_order_line(
                     session, reviewed, line, part, decision, vendor
                 )
