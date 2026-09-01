@@ -28,6 +28,7 @@
     - [Removing a Purchase Recorded in Error](#removing-a-purchase-recorded-in-error)
 13. [Which Vendors Are Supported](#which-vendors-are-supported)
 14. [Capturing an Order When You Place It](#capturing-an-order-when-you-place-it)
+    - [When a Line Was Already Captured From Its Listing Page](#when-a-line-was-already-captured-from-its-listing-page)
     - [Amazon Orders](#amazon-orders)
     - [DigiKey Orders](#digikey-orders)
     - [McMaster-Carr Orders](#mcmaster-carr-orders)
@@ -1229,6 +1230,16 @@ the form. A repeat capture adds no second copy of an image and does not overwrit
 a specification you have edited by hand; it only adds what the product does not
 already have.
 
+**It also asks when the purchase came from an order you have already captured.**
+Here the dates will usually disagree, and that is the point: you type the date
+you remember, and the vendor's order page states its own. So a listing capture is
+also checked against the purchases already recorded as lines of an order --
+within about three months either side, whatever the two dates say -- and the
+warning names the order it belongs to. If it is that same purchase there is
+nothing to record; open it and close the tab. If it genuinely is a second one,
+tick the box and it is recorded alongside.
+
+
 **A captured barcode makes the product scannable.** When the listing publishes
 one -- a `UPC`, `EAN`, `GTIN`, `ISBN`, `GTIN-13` or `UPC-A` row in its product
 information -- the capture records it as the product's barcode as well as
@@ -1256,6 +1267,39 @@ stored image -- there was never a record, only a page.
 When the parcel arrives, open the purchase and **Mark Received**. The captured
 details are already there; amend the quantity or the price if what turned up
 differed from what you ordered, which it sometimes does.
+
+## When a Line Was Already Captured From Its Listing Page
+
+The two ways of capturing meet here. If you captured a product from its own
+listing page while deciding to buy it, and then later captured the order it
+arrived on, the catalog used to record **two** purchases for one physical
+purchase -- doubling what you had spent and what you had on order, with nothing
+on screen saying so.
+
+Now the review says so. A line whose item already has a purchase recorded against
+it, under no order number and within about three months of this order, is shown
+with what that purchase records -- its date, its quantity, its price and the
+product it belongs to -- beside what the order says, and asks one question:
+
+- **Same purchase — add it to this order.** Nothing new is written. The purchase
+  you already had gains this order's number, its line number and its date, so it
+  appears on the order screen with the rest of the lines and stops looking like a
+  loose purchase. Its quantity and price are left as they are unless you tick
+  *update it*, and if you had already marked it received it stays received --
+  nothing about your receipt is undone, and a counted quantity does not move.
+- **A separate purchase — record another.** You genuinely bought the thing twice.
+  A second purchase is recorded and the first is left exactly as it was.
+
+**An unanswered line refuses the whole order**, the same way an unanswered
+"this part number already names something else" does. Nothing at all is written
+until you answer, including the order's other lines. That is deliberate: half an
+order is worse than none.
+
+The question is only asked about purchases carrying **no** order number. A
+purchase that already belongs to another order is a line of that one, and is
+never offered. If you adopt the wrong one, remove it with
+*[Removing a Purchase Recorded in Error](#removing-a-purchase-recorded-in-error)*
+and capture again.
 
 ## Amazon Orders
 

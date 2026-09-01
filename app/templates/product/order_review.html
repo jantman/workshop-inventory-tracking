@@ -105,7 +105,9 @@
         New products created here record only what this order page stated — the
         description, the quantity and the price. To add pictures, specifications
         and barcodes, capture the item's own listing page afterwards; it will
-        attach to the same product rather than making a second one.
+        attach to the same product rather than making a second one, and it will
+        recognize the purchase this order recorded rather than adding a second
+        of those either.
     </div>
     {% endif %}
 
@@ -338,6 +340,81 @@
                         <input type="text" class="form-control form-control-sm line-description"
                                name="description[{{ key }}]" maxlength="255"
                                value="{{ form_data.get('description[' ~ key ~ ']') or reviewed.suggested_description }}">
+                        {% endif %}
+
+                        {% if reviewed.needs_same_purchase_answer %}
+                        {# 033 FR-007. A purchase for this item is already
+                           recorded and carries no order number -- a capture from
+                           the item's own listing page, or one entered by hand.
+                           It may be this very line, recorded before the order
+                           arrived in the order history, and the dates will
+                           usually disagree because one of them was typed from
+                           memory.
+
+                           **A separate input from `resolution[]`, deliberately.**
+                           That one answers the contradicted-item-id question and
+                           uses the same word 'separate'; a line can carry both,
+                           and one control answering two questions applies the
+                           wrong answer to one of them. #}
+                        {% set candidate = reviewed.candidate %}
+                        <div class="alert alert-warning py-2 px-2 mb-1 mt-1 same-purchase">
+                            <strong>A purchase for this is already recorded.</strong>
+                            <div class="small">
+                                {% if candidate.product_description %}<em>{{ candidate.product_description }}</em> — {% endif %}
+                                {% if candidate.order_date %}ordered {{ candidate.order_date.strftime('%-d %b %Y') }}{% else %}no order date{% endif %},
+                                {% if candidate.quantity is not none %}{{ candidate.quantity }}{% else %}an unrecorded quantity{% endif %} at
+                                {% if candidate.unit_price is not none %}{{ candidate.unit_price }}{% else %}an unrecorded price{% endif %},
+                                under no order number.
+                                This order says
+                                {% if order.order_date %}{{ order.order_date.strftime('%-d %b %Y') }}{% else %}no date{% endif %},
+                                {% if line.quantity is not none %}{{ line.quantity }}{% else %}an unread quantity{% endif %} at
+                                {% if line.unit_price is not none %}{{ line.unit_price }}{% else %}an unread price{% endif %}.
+                            </div>
+                            {% if candidate.is_received %}
+                            <div class="small">
+                                It is already marked as received. Saying it is
+                                this line will <strong>not</strong> change that.
+                            </div>
+                            {% endif %}
+                            <div class="mt-1">
+                                <div class="form-check form-check-inline">
+                                    {# Restored on a re-render, like every other
+                                       per-line control: an unanswered line
+                                       refuses the whole order, and that refusal
+                                       re-renders this form -- so an answer
+                                       already given to a *different* line has to
+                                       survive it. #}
+                                    <input class="form-check-input" type="radio"
+                                           id="adopt-{{ key }}" name="same_purchase[{{ key }}]" value="adopt"
+                                           {% if form_data.get('same_purchase[' ~ key ~ ']') == 'adopt' %}checked{% endif %}>
+                                    <label class="form-check-label small" for="adopt-{{ key }}">Same purchase — add it to this order</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio"
+                                           id="new-purchase-{{ key }}" name="same_purchase[{{ key }}]" value="separate"
+                                           {% if form_data.get('same_purchase[' ~ key ~ ']') == 'separate' %}checked{% endif %}>
+                                    <label class="form-check-label small" for="new-purchase-{{ key }}">A separate purchase — record another</label>
+                                </div>
+                            </div>
+                            {% if reviewed.has_change %}
+                            {# The same tick a re-captured line gets, on the same
+                               condition (033 FR-009). It applies only if the
+                               line is adopted -- a separate purchase records the
+                               order's values in the row it creates. #}
+                            <div class="form-check mt-1">
+                                <input class="form-check-input apply-change" type="checkbox"
+                                       id="apply-{{ key }}" name="apply_change[{{ key }}]"
+                                       {% if form_data.get('apply_change[' ~ key ~ ']') %}checked{% endif %}>
+                                <label class="form-check-label small" for="apply-{{ key }}">
+                                    If it is the same purchase, update it to
+                                    {{ vendor.name }}'s
+                                    {% if line.quantity is not none %}{{ line.quantity }}{% else %}unread quantity{% endif %}
+                                    at
+                                    {% if line.unit_price is not none %}{{ line.unit_price }}{% else %}unread price{% endif %}?
+                                </label>
+                            </div>
+                            {% endif %}
+                        </div>
                         {% endif %}
 
                         {% if line.missing_fields is defined and 'description' in line.missing_fields %}

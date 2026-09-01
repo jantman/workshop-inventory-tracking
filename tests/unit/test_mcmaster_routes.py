@@ -596,6 +596,11 @@ class TestPackPricedUnitPrice:
         # 031: an arrival mark never occurs without the purchases it dates, so
         # this is the realistic shape rather than lines_arrived on its own.
         {'purchase_ids': (1,), 'lines_arrived': 1},
+        # 033: an adopt-only capture writes rows and creates no purchase, so it
+        # is the shape most likely to be reported as "nothing happened".
+        {'purchases_adopted': (5,)},
+        {'purchases_adopted': (5,), 'lines_updated': 1},
+        {'purchase_ids': (1,), 'purchases_adopted': (5,)},
     ])
     def test_the_fallback_agrees_with_wrote_anything(self, result_kwargs):
         """The two answer the same question and must never disagree.

@@ -19,10 +19,12 @@ against the bug.
 
 import json
 import re
+from datetime import datetime
 
 import pytest
 from playwright.sync_api import expect
 
+from app.catalog_service import CatalogService
 from tests.e2e.test_product_page_capture import FIXTURES, run_bookmarklet
 
 # The shape the agent dispatches on: /your-orders/order-details?orderID=...
@@ -246,3 +248,110 @@ def test_the_captured_order_appears_in_the_orders_list(page, live_server, image_
     expect(
         page.locator(f'tr.captured-order[data-order="{ORDER_ID}"]')
     ).to_have_count(1)
+
+
+# --------------------------------------------------------------------------
+# A purchase already recorded from the item's listing page (feature 033)
+# --------------------------------------------------------------------------
+
+# The fixture order is dated 22 August 2026; a listing capture the operator made
+# a few days earlier is inside the ninety-day window and is the case issue #129
+# was reported for.
+LISTING_CAPTURE_DATE = "2026-08-18"
+
+
+def seed_listing_capture(live_server, asin=FIRST_ASIN):
+    """A purchase as the single-listing capture writes one: no order number.
+
+    Seeded directly rather than driven through the capture form, which takes
+    about three seconds and is not what these tests are about.
+    """
+    service = CatalogService(live_server.storage)
+    product = service.create_product(description="Digital Calipers")
+    return service.record_purchase(
+        product.id,
+        vendor="Amazon",
+        vendor_item_id=asin,
+        listing_url=f"https://www.amazon.com/dp/{asin}",
+        order_date=datetime.fromisoformat(LISTING_CAPTURE_DATE),
+        quantity=1,
+        unit_price="9.99",
+    )
+
+
+def purchase_rows(page, live_server, product_id):
+    """The product's purchase history, established before it is counted."""
+    page.goto(f"{live_server.url}/products/{product_id}")
+    expect(page.locator("#purchase-history")).to_be_visible()
+    return page.locator("#purchase-history tbody tr.purchase-row")
+
+
+@pytest.mark.e2e
+def test_a_line_already_captured_from_its_listing_asks_rather_than_duplicating(
+    page, live_server, image_host
+):
+    """033 US1: the review states it, and offers the choice."""
+    seed_listing_capture(live_server)
+
+    review = capture_order(page, live_server, image_host)
+    expect(review.locator("tr.order-line")).to_have_count(LINE_COUNT)
+
+    asked = line(review, "1").locator(".same-purchase")
+    expect(asked).to_be_visible()
+    expect(asked).to_contain_text("already recorded")
+    # The other three lines have nothing already recorded for them.
+    expect(review.locator("tr.order-line .same-purchase")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_adopting_it_leaves_one_purchase_carrying_the_order(
+    page, live_server, image_host
+):
+    """033 FR-012, FR-013: the row already there joins the order."""
+    seeded = seed_listing_capture(live_server)
+
+    review = capture_order(page, live_server, image_host)
+    expect(review.locator("tr.order-line")).to_have_count(LINE_COUNT)
+    review.check("#adopt-1")
+    confirm(review)
+
+    # The order carries all four lines, and the adopted one is the row that was
+    # already there -- proved by the link pointing at the seeded product rather
+    # than at one this capture created.
+    order_screen(page, live_server)
+    expect(page.locator("tr.order-line")).to_have_count(LINE_COUNT)
+    expect(
+        page.locator(
+            f'tr.order-line a[href$="/products/{seeded.product_id}"]'
+        )
+    ).to_have_count(1)
+
+    # One purchase, not two -- issue #129. The product page does not render the
+    # order number, so the date is what says which row this is: the seeded
+    # capture was dated 18 August and the order states the 22nd, and the stamp
+    # is what makes them agree (033 FR-012).
+    rows = purchase_rows(page, live_server, seeded.product_id)
+    expect(rows).to_have_count(1)
+    expect(rows.first).to_contain_text("2026-08-22")
+
+
+@pytest.mark.e2e
+def test_leaving_the_question_unanswered_refuses_the_whole_capture(
+    page, live_server, image_host
+):
+    """033 FR-008a, FR-016: an order-level question, so nothing is written."""
+    seeded = seed_listing_capture(live_server)
+
+    review = capture_order(page, live_server, image_host)
+    expect(review.locator("tr.order-line")).to_have_count(LINE_COUNT)
+    review.click("#confirm-capture")
+
+    # The review comes back with the refusal flashed, rather than navigating on.
+    expect(review.locator(".alert-danger")).to_be_visible()
+    expect(review.locator("tr.order-line .same-purchase")).to_have_count(1)
+
+    # **Established before it is counted.** A negative assertion against a table
+    # that has not rendered passes for the wrong reason.
+    rows = purchase_rows(page, live_server, seeded.product_id)
+    expect(rows).to_have_count(1)
+    expect(rows.first).to_contain_text(LISTING_CAPTURE_DATE)

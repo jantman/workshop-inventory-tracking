@@ -1388,6 +1388,12 @@ def _order_decisions(form, order):
             'quantity': form.get(f'quantity[{key}]') or '',
             'unit_price': form.get(f'unit_price[{key}]') or '',
             'resolution': form.get(f'resolution[{key}]') or '',
+            # Whether a purchase already recorded for this item is this line's
+            # (033 FR-008). Its own field rather than sharing ``resolution``,
+            # which answers the *contradicted item id* question with the same
+            # word 'separate' -- a line can carry both questions, and one input
+            # answering two of them applies the wrong answer to one.
+            'same_purchase': form.get(f'same_purchase[{key}]') or '',
             'apply_change': form.get(f'apply_change[{key}]') is not None,
             # Per line rather than per order, so that an order which arrived
             # except for one back-ordered item can still say so (031 FR-029).
@@ -1432,6 +1438,15 @@ def _order_capture_summary(result, thin_sentence=None,
     parts = []
     if result.purchase_ids:
         parts.append(f"Captured {len(result.purchase_ids)} line(s)")
+    if result.purchases_adopted:
+        # A write, and in the block above the fallback because of it: a capture
+        # whose every line was adopted creates no purchase, and leading with
+        # "Nothing new to capture" over the top of rows that just joined this
+        # order is the contradiction this block exists to prevent (033 FR-011).
+        parts.append(
+            f"{len(result.purchases_adopted)} purchase(s) you had already "
+            f"recorded added to this order rather than duplicated"
+        )
     if result.lines_updated:
         parts.append(f"{result.lines_updated} line(s) updated")
     if result.renamed_from:

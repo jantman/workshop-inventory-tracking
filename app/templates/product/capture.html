@@ -33,9 +33,23 @@
                     A purchase from <strong>{{ assessment.duplicate_vendor }}</strong> for this
                     listing is already recorded
                     {% if assessment.duplicate_order_date %}
-                    on {{ assessment.duplicate_order_date.strftime('%Y-%m-%d') }}{% endif %}.
+                    on {{ assessment.duplicate_order_date.strftime('%Y-%m-%d') }}{% endif %}{%
+                    if assessment.duplicate_order_reference %}, as a line of order
+                    <code>{{ assessment.duplicate_order_reference }}</code>{% endif %}.
                     Nothing has been recorded for this capture.
                 </p>
+                {% if assessment.duplicate_order_reference %}
+                {# 033 FR-018. The dates will usually disagree, because one of
+                   them was typed from memory and the other came off the vendor's
+                   own order page -- so saying only "already recorded on the
+                   27th" against a capture dated the 23rd reads like a different
+                   purchase. Naming the order is what makes it recognizable. #}
+                <p class="mb-2 small">
+                    The date shown is the one the order stated, which is often
+                    not the one you would type. If this is that same purchase,
+                    there is nothing to record — open it to check.
+                </p>
+                {% endif %}
                 <p class="mb-2">
                     <a href="{{ url_for('product.purchase_receive',
                                         purchase_id=assessment.duplicate_purchase_id) }}"
