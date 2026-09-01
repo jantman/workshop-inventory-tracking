@@ -120,8 +120,8 @@ is blocking.
 - [X] T026 Run the full E2E suite **detached** — `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" nohup venv/bin/nox -s e2e > /tmp/e2e.log 2>&1 &` — and poll. It is ~13m45s warm against a 15-minute allowance and most agent bash tools cap at 10 minutes, so running it in the foreground produces a false timeout on a passing run. Budget 20 minutes cold
 - [X] T027 Confirm `git status` is clean after T026. A test session that leaves the working tree dirty is a defect (Constitution IV) — `nox -s e2e` selects `-m "e2e and not screenshot"` precisely so it does not write into `docs/images/screenshots/`
 - [X] T028 Walk the eight manual scenarios in [quickstart.md](./quickstart.md) against a running app (`venv/bin/python run.py`), recording the outcome of each in `specs/032-delete-purchase/verification.md`
-- [ ] T029 [P] Open the PR from `issues/130` against `main`, referencing issue #130 and noting the sequencing: #129 should land first or alongside, since this feature is how the operator recovers from the duplicate #129 produces rather than a fix for the duplication
-- [ ] T030 Comment on issue #130's parked verification checklist that the blocker is cleared, so the roughly twenty manual checks inherited from #80 can be run
+- [X] T029 [P] Open the PR from `issues/130` against `main`, referencing issue #130 and noting the sequencing: #129 should land first or alongside, since this feature is how the operator recovers from the duplicate #129 produces rather than a fix for the duplication
+- [X] T030 Comment on issue #130's parked verification checklist that the blocker is cleared, so the roughly twenty manual checks inherited from #80 can be run
 
 ---
 
