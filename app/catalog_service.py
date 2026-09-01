@@ -2463,7 +2463,8 @@ class CatalogService:
         )
 
     def _assign_candidates(
-        self, session, order, vendor, order_date: Optional[datetime], recorded,
+        self, session, order, vendor, order_date: Optional[datetime],
+        recorded: Dict[str, Purchase],
     ) -> Dict[str, CandidatePurchase]:
         """Which lines are offered which candidate purchase (033 FR-004).
 
@@ -2807,7 +2808,8 @@ class CatalogService:
         return wrote
 
     def _review_order_line(
-        self, session, line, part, recorded, vendor, candidates=None,
+        self, session, line, part, recorded: Dict[str, Purchase], vendor,
+        candidates: Optional[Dict[str, CandidatePurchase]] = None,
     ) -> ReviewedLine:
         """Decide one line's state. Reads only.
 
