@@ -89,7 +89,8 @@ def open_gallery(page, live_server, ja_id):
 
 
 def saved_bytes(download):
-    return open(download.path(), 'rb').read()
+    with open(download.path(), 'rb') as handle:
+        return handle.read()
 
 
 @pytest.mark.e2e
