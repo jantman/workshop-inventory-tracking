@@ -103,7 +103,7 @@ surface is unaffected.
 | Save, 404 | Render `data.message` (not `data.error`, which is absent). |
 | Remove, clicked | `window.confirm(...)` first; a decline does nothing at all. |
 | Remove, `ok` or `404` | `window.location.reload()`. |
-| Remove, anything else | Render a message; do not reload. |
+| Remove, anything else | Read the JSON body and render `messageFrom(data)`; do not reload. A rejected CSRF token and a storage error are both real failures with different causes, and both say so. |
 
 ### Message reading
 

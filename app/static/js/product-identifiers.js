@@ -111,9 +111,18 @@
                 // a bodyless DELETE with a redirect to an HTML page.
                 if (response.ok || response.status === 404) {
                     window.location.reload();
-                } else {
-                    showAlert('Could not remove that identifier');
+                    return null;
                 }
+                // Anything else is a real failure, and since #132 every /api/
+                // failure says why in JSON. Flattening a rejected CSRF token and
+                // a storage error into one generic line throws away the only
+                // thing that tells them apart. The catch is for the case that
+                // body is not JSON after all -- a proxy's error page, say.
+                return response.json()
+                    .catch(() => null)
+                    .then((data) => showAlert(
+                        messageFrom(data, 'Could not remove that identifier')
+                    ));
             })
             .catch((error) => showAlert(String(error)));
     }
