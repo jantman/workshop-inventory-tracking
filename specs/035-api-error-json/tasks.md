@@ -141,7 +141,7 @@ flash message.
 - [X] T020 Confirm `git status` is clean after the e2e run — a test session must not modify tracked files (constitution IV). In particular no screenshot under `docs/images/screenshots/` may have changed.
 - [X] T021 Update any test found in T002 that asserted a redirect from an `/api/` path. **None existed** -- all 14 `== 302` assertions in the suite are page-route form posts (`/inventory/add`, `/inventory/edit`, `/purchases/<id>/delete`, `/products/<code>`), so no existing test encoded the bug and none needed changing.
 - [X] T022 Open the PR against `main` from `speckit/035-api-error-json`. `screenshots.yml` will post its reminder comment because `app/static/js/**` was touched; answer it in the PR rather than regenerating — that workflow blocks nothing and was reduced to a reminder under #77, and this change flips a status-code branch without altering a rendered pixel ([research.md](./research.md) D8).
-- [ ] T023 Do the by-hand two-tab check from [quickstart.md](./quickstart.md) §3, which issue #132 carries as an inherited verification item from #80, and tick that checkbox on the issue. The automated tests cover it, but the issue asks for it by hand and the point is to see the `404` in the network panel rather than a `302` followed by `GET /inventory`.
+- [ ] T023 **(left for the human -- requires a browser against a running instance)** Do the by-hand two-tab check from [quickstart.md](./quickstart.md) §3, which issue #132 carries as an inherited verification item from #80, and tick that checkbox on the issue. The automated tests cover it, but the issue asks for it by hand and the point is to see the `404` in the network panel rather than a `302` followed by `GET /inventory`.
 
 ---
 
