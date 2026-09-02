@@ -381,22 +381,27 @@
             </div>
         </div>
 
-        <div class="card mb-4">
+        <div class="card mb-4" id="identifiers-card" data-product-id="{{ product.id }}">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-upc-scan"></i> Identifiers</h5>
             </div>
             <div class="card-body">
                 <div class="mb-3">
                     <div class="text-muted small">Internal code</div>
+                    {# No remove control here, and there never is one: the internal
+                       code is generated rather than typed, so there is nothing to
+                       detach (036 FR-014). #}
                     <div class="fs-5 font-monospace" id="internal-code">{{ product.internal_code }}</div>
                 </div>
 
+                <div id="identifier-alerts"></div>
+
                 <ul class="list-group list-group-flush" id="identifier-list">
                     {% for identifier in product.identifiers if identifier.id_type != 'INTERNAL' %}
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-start">
-                        <div>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-start identifier-row">
+                        <div class="text-break">
                             <span class="badge text-bg-light">{{ identifier.id_type }}</span>
-                            <span class="font-monospace">{{ identifier.value }}</span>
+                            <span class="font-monospace identifier-value">{{ identifier.value }}</span>
                             {% if identifier.vendor %}
                             <div class="text-muted small">{{ identifier.vendor }}</div>
                             {% endif %}
@@ -406,11 +411,63 @@
                             </div>
                             {% endif %}
                         </div>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-danger flex-shrink-0 ms-2 remove-identifier-btn"
+                                data-identifier-id="{{ identifier.id }}"
+                                aria-label="Remove {{ identifier.id_type }} {{ identifier.value }}">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </li>
                     {% else %}
                     <li class="list-group-item px-0 text-muted">No other identifiers.</li>
                     {% endfor %}
                 </ul>
+
+                {# Collapsed by default: this is used rarely, and the card sits in
+                   the narrow column where an always-open four-field form pushes
+                   the list itself off a phone screen. The toggle is markup, so it
+                   costs no JavaScript. #}
+                <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-3"
+                        id="add-identifier-btn" data-bs-toggle="collapse"
+                        data-bs-target="#add-identifier-form"
+                        aria-expanded="false" aria-controls="add-identifier-form">
+                    <i class="bi bi-plus-lg"></i> Add identifier
+                </button>
+
+                <div class="collapse mt-3" id="add-identifier-form">
+                    <div class="mb-2">
+                        <label for="new-identifier-type" class="form-label">Type</label>
+                        <select class="form-select" id="new-identifier-type">
+                            {% for option in identifier_types %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="new-identifier-value" class="form-label">Value</label>
+                        <input type="text" class="form-control" id="new-identifier-value"
+                               maxlength="128">
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="new-identifier-vendor" class="form-label">Vendor</label>
+                        <input type="text" class="form-control" id="new-identifier-vendor"
+                               maxlength="200">
+                        <div class="form-text">Required for vendor and distributor identifiers.</div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="new-identifier-override">
+                        <label class="form-check-label" for="new-identifier-override">
+                            Store even if the barcode fails validation
+                        </label>
+                    </div>
+
+                    <button type="button" class="btn btn-primary w-100" id="save-identifier-btn">
+                        Save identifier
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -455,4 +512,5 @@
 <script src="{{ url_for('static', filename='js/product-label-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-stock.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-attachments.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-identifiers.js') }}"></script>
 {% endblock %}

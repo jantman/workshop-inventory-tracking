@@ -47,7 +47,7 @@
                     <div class="mb-3">
                         <label for="identifier_type" class="form-label">Type</label>
                         <select class="form-select" id="identifier_type" name="identifier_type">
-                            {% for option in ['MPN', 'GTIN', 'VENDOR', 'DISTRIBUTOR'] %}
+                            {% for option in identifier_types %}
                             <option value="{{ option }}"
                                     {% if values.get('identifier_type') == option %}selected{% endif %}>
                                 {{ option }}
