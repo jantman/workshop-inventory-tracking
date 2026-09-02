@@ -10,7 +10,7 @@ from app.mariadb_inventory_service import InventoryService
 from app.taxonomy import type_shape_validator
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
 from app.database import InventoryItem
-from app.error_handlers import with_error_handling, ErrorHandler
+from app.error_handlers import with_error_handling, ErrorHandler, wants_json
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
 from app.utils.handoff import resolve_handoff
@@ -3242,13 +3242,30 @@ def copy_photos():
         }), 500
 
 
-# Error handlers for the blueprint
+# Error handlers for the blueprint.
+#
+# Flask consults a blueprint's handler before the app's, so these shadow the
+# ones create_error_handlers() installs -- and this blueprint serves 30 /api/
+# routes alongside its pages. Without the wants_json() branch an /api/ failure
+# here is answered with an HTML error page (#132).
+#
+# The 404 branch is unreachable today: nothing in app/ calls abort(), and an
+# unrouted path has no blueprint, so it reaches the app-level handler. It is
+# written for consistency with the 500 beside it, not for a caller that hits it.
 @bp.errorhandler(404)
 def not_found_error(error):
+    if wants_json():
+        return jsonify({
+            'success': False,
+            'error': 'Resource not found',
+            'message': 'The requested resource was not found'
+        }), 404
     return render_template('errors/404.html'), 404
 
 @bp.errorhandler(500)
 def internal_error(error):
     current_app.logger.error(f'Server Error: {error}')
+    if wants_json():
+        return jsonify(ErrorHandler.handle_error(error, 'Internal Server Error')), 500
     return render_template('errors/500.html'), 500
 

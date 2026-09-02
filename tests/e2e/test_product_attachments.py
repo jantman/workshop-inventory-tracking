@@ -14,6 +14,7 @@ could, and is in quickstart.md's by-hand list instead.
 import base64
 import io
 import re
+from urllib.parse import urlsplit
 
 import pytest
 from PIL import Image
@@ -439,4 +440,127 @@ def test_the_single_attachment_delete_is_unchanged(page, live_server, product):
     page.locator(f"{CARDS} .delete-attachment-btn").first.click()
 
     expect(page.locator(CARDS)).to_have_count(2)
+    assert messages == [], messages
+
+
+def delete_behind_the_grid(page, attachment_id):
+    """Delete an attachment out from under the rendered grid (#132).
+
+    The two-tab case without a second tab: the row goes from the database while
+    the page keeps showing it, which is exactly the state tab B is in after tab A
+    deleted something. Driven through ``csrfFetch`` so the token travels, and
+    awaited so the delete has landed before the test acts on the stale tile.
+
+    A real delete rather than a ``page.route`` stub on purpose. What is under
+    test *is* the response the server gives for an absent attachment; fulfilling
+    a fake 404 would assert the test's own opinion of it.
+    """
+    status = page.evaluate(
+        """async (id) => {
+            const response = await csrfFetch(`/api/attachments/${id}`,
+                                             { method: 'DELETE' });
+            return response.status;
+        }""",
+        attachment_id,
+    )
+    assert status == 204, f"seeding delete did not succeed: {status}"
+
+
+def record_requests(page):
+    """Collect every URL the page requests from now on."""
+    urls = []
+    page.on("request", lambda request: urls.append(request.url))
+    return urls
+
+
+@pytest.mark.e2e
+def test_deleting_a_selection_containing_an_already_deleted_tile_succeeds(
+    page, live_server, product
+):
+    """#132: the stale-tab case, passing because the 404 branch runs.
+
+    Three tiles, one of them already gone from under the grid. All three are
+    ticked and deleted. "Already gone" is the state the user asked for, so the
+    selection reports no failure.
+
+    Before the fix this failed outright, and not in the way #132 predicts.
+    ``fetch`` follows a 302 but **preserves the method** for anything that is not
+    a POST, so the redirect to ``/inventory`` was re-issued as ``DELETE
+    /inventory`` and answered 405 -- measured, from the browser console:
+    ``HTTP 405: /inventory``. ``response.ok`` was false, so the already-gone
+    attachment was counted as a failure and the user was told one could not be
+    removed. The issue reasoned the redirect would be followed as a GET and its
+    200 counted as success; that is what happens to a GET caller, not to this
+    one. Either way the client could not see the 404 it was written for.
+    """
+    ids = open_with_attachments(page, live_server, product, 3)
+    delete_behind_the_grid(page, ids[1])
+
+    record_dialogs(page)
+    page.locator(SELECT_ALL).check()
+    page.locator(DELETE_SELECTED).click()
+
+    # The success path reloads, so the emptied grid is the signal the whole
+    # selection was accounted for.
+    expect(page.locator("#no-attachments")).to_be_visible()
+    expect(page.locator(CARDS)).to_have_count(0)
+
+    # Only now is a negative assertion meaningful: before the reload landed it
+    # would pass against a page that had not rendered the alert yet.
+    expect(page.locator("#attachment-alert")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_stale_delete_costs_one_request_and_fetches_no_page(
+    page, live_server, product
+):
+    """SC-003: the delete is one request, not a delete plus an inventory page.
+
+    ``fetch`` follows a 302 by default, so before the fix a stale delete issued
+    a second request to ``/inventory`` -- as a ``DELETE``, which that route does
+    not accept, making the round trip pure waste that ended in a 405. A request
+    for ``/inventory`` here at all means the handler is redirecting again.
+    """
+    ids = open_with_attachments(page, live_server, product, 3)
+    delete_behind_the_grid(page, ids[1])
+
+    urls = record_requests(page)
+
+    record_dialogs(page)
+    page.locator(SELECT_ALL).check()
+    page.locator(DELETE_SELECTED).click()
+
+    # Settle the page before reading the recorded list: the reload is the last
+    # thing the flow does, so anything it was going to request has been.
+    expect(page.locator("#no-attachments")).to_be_visible()
+
+    # Matched on the path exactly. A substring test would also catch
+    # /static/js/inventory-shorten.js, which the page legitimately loads.
+    fetched_inventory = [
+        url for url in urls
+        if urlsplit(url).path.rstrip("/") == "/inventory"
+    ]
+    assert not fetched_inventory, urls
+
+
+@pytest.mark.e2e
+def test_the_per_tile_delete_of_an_already_deleted_tile_reports_no_error(
+    page, live_server, product
+):
+    """The regression the client-side half of #132 exists to prevent.
+
+    Making the server honest turns a per-tile delete of a stale tile into a real
+    404. Without the client half of the fix the button would keep showing "Could
+    not remove that attachment" for an attachment that is in the state the user
+    asked for -- it showed that before the fix too, off the 405 from the followed
+    redirect. It reloads instead, matching Delete Selected.
+    """
+    ids = open_with_attachments(page, live_server, product, 3)
+    delete_behind_the_grid(page, ids[0])
+
+    messages = record_dialogs(page)
+    page.locator(f"{CARDS} .delete-attachment-btn").first.click()
+
+    expect(page.locator(CARDS)).to_have_count(2)
+    expect(page.locator("#attachment-alert")).to_have_count(0)
     assert messages == [], messages
