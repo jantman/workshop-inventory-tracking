@@ -3264,8 +3264,13 @@ def not_found_error(error):
 
 @bp.errorhandler(500)
 def internal_error(error):
-    current_app.logger.error(f'Server Error: {error}')
     if wants_json():
+        # handle_error() logs it -- with the error_id that goes back in the
+        # response body, plus the traceback and request context. Logging the
+        # bare line as well would be the same failure twice, and the quieter
+        # copy is the one that cannot be traced back to what the caller saw.
         return jsonify(ErrorHandler.handle_error(error, 'Internal Server Error')), 500
+
+    current_app.logger.error(f'Server Error: {error}')
     return render_template('errors/500.html'), 500
 

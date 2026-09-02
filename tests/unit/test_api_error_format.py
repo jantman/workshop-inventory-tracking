@@ -2,8 +2,14 @@
 
 ``request.is_json`` reports what the caller **sent**. A DELETE has no body and no
 Content-Type, so every centralized error handler used to answer one with a flash
-message and a 302 -- which ``fetch`` follows, reads as a 200, and reports as
-success. The client branch written to handle the failure never ran.
+message and a 302. ``fetch`` follows that redirect, so the client never sees it
+-- it sees whatever the page route said, and the client branch written to handle
+the failure never ran.
+
+Which way that misled depended on the method, because ``fetch`` rewrites only a
+POST to GET across a 302: a GET was followed to the page and its 200 read as
+success, while a DELETE was re-issued as ``DELETE /inventory`` and answered 405,
+so a delete that did exactly what was asked reported a failure.
 
 The fix is one predicate, ``wants_json()``, asked at every handler. These tests
 cover it from both ends: the predicate directly over the paths that matter, and
