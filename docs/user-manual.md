@@ -975,6 +975,37 @@ different product -- and they do -- the catalog will not merge the two, because
 a product's identity is its own record and never one of its names. You can delete
 every identifier a product has and the product is still there.
 
+### Adding and removing one
+
+The Add Product form offers a first identifier, but nothing about an identifier
+is fixed at creation. The product's **Identifiers** card carries an **Add
+identifier** button and a remove control on each row, so a barcode read off a box
+later, a manufacturer part number found on a datasheet, or a second vendor's item
+number off an invoice all have somewhere to go.
+
+The type list is the same one the Add Product form offers, and so are the rules --
+the check digit, the override, the all-zero refusal and the vendor requirement all
+behave exactly as they do at creation. What you see listed afterwards is what was
+stored, which for a barcode is the 14-digit key rather than the twelve digits you
+typed.
+
+Two refusals are worth knowing by sight:
+
+- **A value another product already has.** Nothing is stored and nothing is
+  merged; the card names the product that holds it and links you there, and you
+  decide which of the two is right.
+- **A vendor or distributor identifier with no vendor.** Those only mean anything
+  within a vendor, so the vendor is not optional for them.
+
+There is no edit. To correct an identifier, remove it and add the right one --
+removal asks first, and removing the last one leaves the product exactly where it
+was, still findable by its internal code.
+
+**This is how a product cataloged before mid-August 2026 is made scannable.** A
+barcode captured then was recorded as a specification row rather than as a `GTIN`
+identifier, so scanning it found nothing. Read the number off the product's
+specifications, add it here as a `GTIN`, and the scan lands.
+
 ## Scanning Products
 
 There is a scan box in the header on every page, so a scan starts wherever you

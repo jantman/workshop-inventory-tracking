@@ -411,6 +411,15 @@ class IdentifierType(Enum):
     INTERNAL = "INTERNAL"        # This system's own code; generated, never typed
 
 
+# The types an operator may attach by hand, in enum order. INTERNAL is absent
+# because it is generated rather than typed -- there is nothing for an operator
+# to enter. Both the Add Product form and the detail page's Identifiers card
+# render their type list from this, so the two cannot drift apart (036 FR-003).
+OPERATOR_IDENTIFIER_TYPES: tuple[str, ...] = tuple(
+    member.value for member in IdentifierType if member is not IdentifierType.INTERNAL
+)
+
+
 class ScanKind(Enum):
     """What kind of thing a scan turned out to be.
 

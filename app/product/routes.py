@@ -39,6 +39,7 @@ from app.models import (
     IdentifierType,
     ListingCapture,
     McMasterOrder,
+    OPERATOR_IDENTIFIER_TYPES,
 )
 from app.photo_service import PhotoService
 from app.product import bp
@@ -254,6 +255,7 @@ def product_new():
                 title='Add Product',
                 form_data=_redisplay_values(request.form),
                 prefill={},
+                identifier_types=OPERATOR_IDENTIFIER_TYPES,
             )
 
         # The slow, partially-failing half, after the transaction has already
@@ -326,6 +328,7 @@ def product_new():
         title='Add Product',
         form_data={},
         prefill=prefill,
+        identifier_types=OPERATOR_IDENTIFIER_TYPES,
     )
 
 
@@ -356,6 +359,7 @@ def product_detail(product_id):
         outstanding=[p for p in purchases if p.is_outstanding],
         attachments=attachments,
         purchase_attachments=purchase_attachments,
+        identifier_types=OPERATOR_IDENTIFIER_TYPES,
     )
 
 
