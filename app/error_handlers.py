@@ -137,6 +137,42 @@ class ErrorHandler:
         
         return response
 
+
+# Paths under these prefixes are machine-facing: something parses the response,
+# nothing renders it. `/admin/api/` is here because the admin blueprint carries
+# url_prefix='/admin', so its @bp.route('/api/...') serves /admin/api/... -- a
+# check for '/api/' alone would quietly skip it.
+JSON_ROUTE_PREFIXES = ('/api/', '/admin/api/')
+
+
+def wants_json() -> bool:
+    """True when the caller parses the response rather than rendering it.
+
+    ``request.is_json`` reports what the caller **sent**, not what it accepts. A
+    DELETE carries no body and no Content-Type, and neither does a parameterless
+    GET, so an /api/ route answering on that signal alone hands a programmatic
+    caller a redirect to an HTML page (#132). The route is what settles the
+    format, not whether the caller happened to have a body.
+
+    ``fetch`` follows that redirect, so the caller never sees it -- it sees
+    whatever the *other* page said. Which way that misleads depends on the
+    method, because ``fetch`` rewrites only a POST to GET and preserves
+    everything else across a 302:
+
+    * a GET is followed to the page, which answers 200, and the failure reads
+      as a success;
+    * a DELETE is re-issued against a GET-only page route and answers 405, so a
+      delete that did exactly what was asked reports a failure.
+
+    Neither is distinguishable from the outcome the caller asked about.
+
+    ``request.is_json`` is kept as an alternative rather than replaced: the
+    predicate is then a superset of the old one, so no caller that works today
+    can start getting a redirect it did not get before.
+    """
+    return request.path.startswith(JSON_ROUTE_PREFIXES) or request.is_json
+
+
 def with_error_handling(context: str = None, user_message: str = None, 
                        recovery_action: str = None, return_json: bool = False):
     """
@@ -158,7 +194,7 @@ def with_error_handling(context: str = None, user_message: str = None,
                     e, context or func.__name__, user_message, recovery_action
                 )
                 
-                if return_json or request.is_json:
+                if return_json or wants_json():
                     return jsonify(error_info), 500
                 else:
                     flash(error_info['message'], 'error')
@@ -290,7 +326,7 @@ def create_error_handlers(app):
     @app.errorhandler(ValidationError)
     def handle_validation_error(error):
         error_info = ErrorHandler.handle_error(error, "Validation")
-        if request.is_json:
+        if wants_json():
             return jsonify(error_info), 400
         else:
             flash(error_info['message'], 'error')
@@ -299,7 +335,7 @@ def create_error_handlers(app):
     @app.errorhandler(StorageError)
     def handle_storage_error(error):
         error_info = ErrorHandler.handle_error(error, "Storage Operation")
-        if request.is_json:
+        if wants_json():
             return jsonify(error_info), 500
         else:
             flash(error_info['message'], 'error')
@@ -308,7 +344,7 @@ def create_error_handlers(app):
     @app.errorhandler(ItemNotFoundError)
     def handle_item_not_found(error):
         error_info = ErrorHandler.handle_error(error, "Item Lookup")
-        if request.is_json:
+        if wants_json():
             return jsonify(error_info), 404
         else:
             flash(error_info['message'], 'warning')
@@ -317,7 +353,7 @@ def create_error_handlers(app):
     @app.errorhandler(AuthenticationError)
     def handle_auth_error(error):
         error_info = ErrorHandler.handle_error(error, "Authentication")
-        if request.is_json:
+        if wants_json():
             return jsonify(error_info), 401
         else:
             flash("Authentication required. Please sign in.", 'warning')
@@ -326,7 +362,7 @@ def create_error_handlers(app):
     @app.errorhandler(ConfigurationError)
     def handle_config_error(error):
         error_info = ErrorHandler.handle_error(error, "Configuration")
-        if request.is_json:
+        if wants_json():
             return jsonify(error_info), 500
         else:
             flash("Application configuration error. Please check setup.", 'error')
@@ -335,7 +371,7 @@ def create_error_handlers(app):
     @app.errorhandler(500)
     def handle_internal_error(error):
         error_info = ErrorHandler.handle_error(error, "Internal Server Error")
-        if request.is_json:
+        if wants_json():
             return jsonify(error_info), 500
         else:
             flash("An internal error occurred. Please try again.", 'error')
@@ -343,7 +379,7 @@ def create_error_handlers(app):
     
     @app.errorhandler(404)
     def handle_not_found(error):
-        if request.is_json:
+        if wants_json():
             return jsonify({
                 'success': False,
                 'error': 'Resource not found',

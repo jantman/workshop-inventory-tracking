@@ -99,7 +99,11 @@
                     method: 'DELETE'
                 })
                     .then((response) => {
-                        if (response.ok) {
+                        // 404 is the attachment already being gone -- the state
+                        // that was asked for. Same reasoning as deleteSelection
+                        // below; a stale tile left over from another tab must
+                        // not report an error for succeeding.
+                        if (response.ok || response.status === 404) {
                             window.location.reload();
                         } else {
                             showAlert('Could not remove that attachment');
