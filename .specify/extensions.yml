@@ -124,7 +124,7 @@ hooks:
   - extension: git
     command: speckit.git.commit
     enabled: true
-    optional: true
+    optional: false
     priority: 10
     prompt: Commit task changes?
     description: Auto-commit after task generation
