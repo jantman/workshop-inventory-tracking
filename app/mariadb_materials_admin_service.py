@@ -6,7 +6,6 @@ Provides similar functionality to MaterialsAdminService but works with MariaDB b
 """
 
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime
 from dataclasses import dataclass
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine

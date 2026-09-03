@@ -743,12 +743,20 @@ def inventory_edit(ja_id):
         result = service.update_item(updated_item)
         
         if result:
-            # AUDIT: Log successful edit operation with changes
-            changes = _detect_item_changes(item, updated_item)
-            log_audit_operation('edit_item', 'success', 
+            # AUDIT: Log successful edit operation with changes.
+            #
+            # Read the row back rather than auditing `updated_item`. That object
+            # is transient -- it never joins a session -- so `update_item`
+            # stamps last_modified on its own DB-loaded row and nothing sets it
+            # here. Auditing the transient object reports last_modified as null
+            # and a change entry claiming the timestamp was cleared, on every
+            # successful edit. Found in review of PR #148.
+            persisted_item = service.get_item(ja_id) or updated_item
+            changes = _detect_item_changes(item, persisted_item)
+            log_audit_operation('edit_item', 'success',
                               item_id=ja_id,
                               item_before=_item_to_audit_dict(item),
-                              item_after=_item_to_audit_dict(updated_item),
+                              item_after=_item_to_audit_dict(persisted_item),
                               changes=changes)
             flash('Item updated successfully!', 'success')
             return redirect(url_for('main.inventory_list'))

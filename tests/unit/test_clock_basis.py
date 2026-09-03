@@ -396,3 +396,113 @@ class TestStatedDaysStayOnTheOperatorsCalendar:
         )
 
         assert purchase.order_date == stated
+
+
+class TestTheEditAuditRecordsWhatWasPersisted:
+    """The audit trail reports the timestamp the row actually got.
+
+    ``_parse_item_from_form`` returns a transient ``InventoryItem`` that never
+    joins a session, and ``update_item`` stamps ``last_modified`` on its own
+    DB-loaded row. Auditing the transient object therefore reports
+    ``last_modified`` as null, and ``_detect_item_changes`` turns that into a
+    change entry claiming the timestamp was cleared -- on every successful
+    edit, while the persisted row is correctly stamped. Found in review of
+    PR #148.
+
+    The assertions read the ``LogRecord``'s fields rather than the formatted
+    text: ``log_audit_operation`` passes the audit payload as ``extra=``, so a
+    plain stream handler renders only "AUDIT: edit_item ... phase=success" and
+    a test that greps the text would pass against the bug.
+    """
+
+    @pytest.fixture
+    def audit_records(self):
+        import logging
+
+        records = []
+
+        class Collector(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = Collector(level=logging.INFO)
+        logger = logging.getLogger('inventory')
+        logger.addHandler(handler)
+        previous = logger.level
+        logger.setLevel(logging.INFO)
+        try:
+            yield records
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(previous)
+
+    @pytest.fixture
+    def seeded_item(self, test_storage):
+        from decimal import Decimal
+
+        from app.database import InventoryItem
+        from app.mariadb_inventory_service import InventoryService
+
+        service = InventoryService(test_storage)
+        service.add_item(InventoryItem(
+            ja_id='JA037100',
+            item_type='Plate',
+            shape='Round',
+            material='Aluminum',
+            width=Decimal('6.0'),
+            thickness=Decimal('0.25'),
+            location='Storage A',
+            active=True,
+        ))
+        return service
+
+    @staticmethod
+    def _edit(client):
+        return client.post('/inventory/edit/JA037100', data={
+            'ja_id': 'JA037100',
+            'item_type': 'Plate',
+            'shape': 'Round',
+            'material': 'Aluminum',
+            'location': 'Storage B',
+            'width': '6.0',
+            'thickness': '0.25',
+            'active': 'on',
+        })
+
+    @staticmethod
+    def _success_payload(records):
+        for record in records:
+            if (getattr(record, 'audit_operation', None) == 'edit_item'
+                    and getattr(record, 'audit_phase', None) == 'success'):
+                return record.audit_data
+        raise AssertionError('no successful edit_item audit record was emitted')
+
+    def test_the_audit_records_the_persisted_timestamp(self, client, seeded_item, audit_records):
+        assert self._edit(client).status_code == 302
+
+        after = self._success_payload(audit_records)['item_after']
+
+        assert after['last_modified'] is not None
+        assert after['date_added'] is not None
+
+    def test_the_audit_does_not_claim_the_timestamp_was_cleared(
+        self, client, seeded_item, audit_records
+    ):
+        assert self._edit(client).status_code == 302
+
+        changes = self._success_payload(audit_records).get('changes', {})
+
+        assert changes.get('last_modified', {}).get('after') is not None, (
+            'the audit reports last_modified being cleared by an edit that did '
+            'not clear it'
+        )
+
+    def test_the_edit_itself_still_lands(self, client, seeded_item, audit_records):
+        """Guards the fix's own failure mode: a re-read that returns the stale
+        row, or nothing, would make the assertions above meaningless."""
+        assert self._edit(client).status_code == 302
+
+        after = self._success_payload(audit_records)['item_after']
+
+        assert after['location'] == 'Storage B'
+        assert seeded_item.get_item('JA037100').location == 'Storage B'
