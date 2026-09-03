@@ -11,7 +11,6 @@ from sqlalchemy.sql.sqltypes import Numeric
 from sqlalchemy.dialects.mysql import MEDIUMBLOB, MEDIUMTEXT
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy.sql import func
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import enum
@@ -21,6 +20,8 @@ import re
 from .models import ItemType, ItemShape, ThreadSeries, ThreadHandedness, Dimensions, Thread
 # The authoritative statement of what each type and shape requires
 from .taxonomy import type_shape_validator
+# The one answer to "what time is it, for the purpose of recording an event"
+from .utils.clock import utc_now
 
 Base = declarative_base()
 
@@ -75,8 +76,8 @@ class InventoryItem(Base):
     precision = Column(Boolean, nullable=False, default=False)  # Indicates item has precision dimensions
     
     # Timestamps
-    date_added = Column(DateTime, nullable=False, default=func.now())
-    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    date_added = Column(DateTime, nullable=False, default=utc_now)
+    last_modified = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
     
     # Constraints
     __table_args__ = (
@@ -635,8 +636,8 @@ class MaterialTaxonomy(Base):
     notes = Column(Text, nullable=True)
     
     # Timestamps
-    date_added = Column(DateTime, nullable=False, default=func.now())
-    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    date_added = Column(DateTime, nullable=False, default=utc_now)
+    last_modified = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
     
     # Constraints
     __table_args__ = (
@@ -711,8 +712,8 @@ class Photo(Base):
     sha256_hash = Column(String(64), nullable=True, index=True)  # SHA256 hash of original data
 
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=func.now())
-    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     # Constraints
     __table_args__ = (
@@ -773,7 +774,7 @@ class ItemPhotoAssociation(Base):
     display_order = Column(Integer, nullable=False, default=0)
 
     # Timestamp
-    created_at = Column(DateTime, nullable=False, default=func.now())
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
     # Relationship to Photo
     photo = relationship('Photo', backref='associations')
@@ -867,8 +868,8 @@ class Product(Base):
 
     notes = Column(Text, nullable=True)
 
-    date_added = Column(DateTime, nullable=False, default=func.now())
-    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    date_added = Column(DateTime, nullable=False, default=utc_now)
+    last_modified = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     identifiers = relationship(
         'ProductIdentifier',
@@ -964,7 +965,7 @@ class Product(Base):
         """
         if self.quantity is None or self.quantity_updated_at is None:
             return None
-        return datetime.now() - self.quantity_updated_at
+        return utc_now() - self.quantity_updated_at
 
     @property
     def stock_status_age(self) -> Optional[timedelta]:
@@ -980,7 +981,7 @@ class Product(Base):
         """
         if self.stock_status is None or self.stock_status_updated_at is None:
             return None
-        return datetime.now() - self.stock_status_updated_at
+        return utc_now() - self.stock_status_updated_at
 
     @property
     def internal_code(self) -> Optional[str]:
@@ -1116,8 +1117,8 @@ class Purchase(Base):
     vendor_order_id = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
 
-    date_added = Column(DateTime, nullable=False, default=func.now())
-    last_modified = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    date_added = Column(DateTime, nullable=False, default=utc_now)
+    last_modified = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     product = relationship('Product', back_populates='purchases')
     attachments = relationship(
@@ -1204,7 +1205,7 @@ class ProductIdentifier(Base):
     # validation (FR-010), so the override is visible rather than silent.
     validation_overridden = Column(Boolean, nullable=False, default=False, server_default='0')
 
-    date_added = Column(DateTime, nullable=False, default=func.now())
+    date_added = Column(DateTime, nullable=False, default=utc_now)
 
     product = relationship('Product', back_populates='identifiers')
 
@@ -1374,7 +1375,7 @@ class ProductAttachment(Base):
     )
 
     display_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=func.now())
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
     photo = relationship('Photo')
     product = relationship('Product', back_populates='attachments')

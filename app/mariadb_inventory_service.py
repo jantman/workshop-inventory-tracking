@@ -10,7 +10,7 @@ import warnings
 # Suppress SQLAlchemy warnings about Decimal support in SQLite (used in tests)
 warnings.filterwarnings("ignore", message=".*does.*not.*support Decimal objects natively.*")
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, and_, desc, asc, func
 from .mariadb_storage import MariaDBStorage
 from .database import InventoryItem
 from .models import ItemType, ItemShape
+from .utils.clock import utc_now
 from .utils.fit import Fit, RequestedPiece, SkipReason, envelope_for, evaluate, sort_key
 # Using enhanced InventoryItem directly instead of separate Item dataclass
 from .storage import StorageResult
@@ -535,7 +536,7 @@ class InventoryService:
         Returns:
             Dictionary with success status and details
         """
-        from datetime import datetime, timezone, date
+        from datetime import datetime, date
         from .logging_config import log_audit_operation
         
         try:
@@ -600,7 +601,7 @@ class InventoryService:
             
             # Deactivate current item
             current_db_item.active = False
-            current_db_item.last_modified = datetime.now(timezone.utc)
+            current_db_item.last_modified = utc_now()
             
             # Build shortening notes
             shortening_notes = f"Shortened from {current_db_item.length}\" to {new_length}\" on {cut_date_obj}"
@@ -634,8 +635,8 @@ class InventoryService:
                 original_material=current_db_item.original_material,
                 original_thread=current_db_item.original_thread,
                 active=True,
-                date_added=datetime.now(timezone.utc),
-                last_modified=datetime.now(timezone.utc)
+                date_added=utc_now(),
+                last_modified=utc_now()
             )
             
             # Add new item to session
@@ -950,7 +951,7 @@ class InventoryService:
             current_db_item.active = item.active
             current_db_item.precision = getattr(item, 'precision', False)
             # Update timestamp
-            current_db_item.last_modified = func.now()
+            current_db_item.last_modified = utc_now()
             
             # Commit the changes
             session.commit()
@@ -1130,7 +1131,7 @@ class InventoryService:
             
             # Deactivate the item
             db_item.active = False
-            db_item.last_modified = datetime.now(timezone.utc)
+            db_item.last_modified = utc_now()
             
             session.commit()
             logger.info(f'Successfully deactivated item {ja_id}')
@@ -1163,7 +1164,7 @@ class InventoryService:
             
             # Activate the item
             db_item.active = True
-            db_item.last_modified = datetime.now(timezone.utc)
+            db_item.last_modified = utc_now()
             
             session.commit()
             logger.info(f'Successfully activated item {ja_id}')

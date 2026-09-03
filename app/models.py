@@ -13,6 +13,7 @@ from enum import Enum
 import json
 import logging
 import re
+from .utils.clock import local_now
 
 logger = logging.getLogger(__name__)
 
@@ -1435,7 +1436,7 @@ def _order_datetime(value: Any, today: Optional[datetime] = None) -> Optional[da
     # from 3.13 and changes behaviour in 3.15, and it mishandles 29 February --
     # which strptime accepts against its default year 1900, a non-leap year,
     # only to raise. Giving it a real year sidesteps both.
-    year = (today or datetime.now()).year
+    year = (today or local_now()).year
     for fmt in _ORDER_DATE_FORMATS_NO_YEAR:
         try:
             return datetime.strptime(f'{text}, {year}', f'{fmt}, %Y')

@@ -10,12 +10,13 @@ and impossible to notice from the UI afterwards:
   count, and clears a manual flag only because the receive path says so.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from playwright.sync_api import expect
 
 from app.catalog_service import CatalogService
+from app.utils.clock import utc_now
 from tests.e2e.waits import wait_for_stock_flag
 
 
@@ -233,10 +234,10 @@ def test_two_flagged_products_show_when_each_was_flagged(page, live_server):
     for product in (recent, stale):
         service.set_stock_status(product.id, 'low')
     live_server.backdate_product(
-        recent.id, stock_status_updated_at=datetime.now() - timedelta(days=9)
+        recent.id, stock_status_updated_at=utc_now() - timedelta(days=9)
     )
     live_server.backdate_product(
-        stale.id, stock_status_updated_at=datetime.now() - timedelta(days=800)
+        stale.id, stock_status_updated_at=utc_now() - timedelta(days=800)
     )
 
     page.goto(f"{live_server.url}/products/reorder")

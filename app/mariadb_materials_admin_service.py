@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from .database import MaterialTaxonomy
 from .mariadb_storage import MariaDBStorage
 from .exceptions import ValidationError
+from .utils.clock import utc_now
 from config import Config
 
 
@@ -177,8 +178,8 @@ class MariaDBMaterialsAdminService:
                 notes=request.notes,
                 sort_order=request.sort_order,
                 active=True,
-                date_added=datetime.now(),
-                last_modified=datetime.now()
+                date_added=utc_now(),
+                last_modified=utc_now()
             )
             
             session.add(new_material)
@@ -247,7 +248,7 @@ class MariaDBMaterialsAdminService:
             
             # Toggle status
             material.active = not material.active
-            material.last_modified = datetime.now()
+            material.last_modified = utc_now()
             
             session.commit()
             
@@ -351,7 +352,7 @@ class MariaDBMaterialsAdminService:
             
             # Update status
             material.active = active
-            material.last_modified = datetime.now()
+            material.last_modified = utc_now()
             
             session.commit()
             

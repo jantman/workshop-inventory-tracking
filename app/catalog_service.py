@@ -64,6 +64,7 @@ from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
 from .utils import catalog_taxonomy
+from .utils.clock import local_now, utc_now
 from .utils.scan_router import classify
 from .utils.sql import escape_like as _escape_like
 from config import Config
@@ -220,7 +221,7 @@ class CatalogService:
                 location=_clean(location),
                 sub_location=_clean(sub_location),
                 quantity=quantity,
-                quantity_updated_at=datetime.now() if quantity is not None else None,
+                quantity_updated_at=utc_now() if quantity is not None else None,
                 reorder_threshold=reorder_threshold,
                 notes=_clean(notes),
             )
@@ -442,7 +443,7 @@ class CatalogService:
                 product.reorder_threshold = None
             else:
                 product.quantity = value
-                product.quantity_updated_at = datetime.now()
+                product.quantity_updated_at = utc_now()
 
         return self.get_product(product_id)
 
@@ -496,7 +497,7 @@ class CatalogService:
             product.stock_status = value
             # Written unconditionally, including when `value` equals what is
             # already stored: 008 FR-002 makes a re-assertion a fresh look.
-            product.stock_status_updated_at = datetime.now() if value else None
+            product.stock_status_updated_at = utc_now() if value else None
 
         return self.get_product(product_id)
 
@@ -1148,7 +1149,7 @@ class CatalogService:
         item_id = _clean(vendor_item_id)
         title = _clean(listing_title)
         listing_url = _clean(url)
-        ordered = _parse_datetime(order_date, 'order_date') or datetime.now().replace(
+        ordered = _parse_datetime(order_date, 'order_date') or local_now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         price = self._validate_price(unit_price)
@@ -1617,7 +1618,7 @@ class CatalogService:
             ItemNotFoundError: If the purchase does not exist.
             ValidationError: If an amended value fails validation.
         """
-        received = _parse_datetime(received_date, 'received_date') or datetime.now()
+        received = _parse_datetime(received_date, 'received_date') or local_now()
         amended_quantity = self._validate_purchase_quantity(quantity)
         amended_price = self._validate_price(unit_price)
         # Validated before the session opens, so a refusal leaves the received
@@ -2069,7 +2070,7 @@ class CatalogService:
         # the offending field hidden on the re-render. Gated on the server
         # because a fix in the page's JavaScript is only as good as the
         # JavaScript having run. Found in review of PR #128.
-        now = datetime.now()
+        now = local_now()
         stated = order.order_date
         arrived = None
         if any((d or {}).get('arrived') for d in decisions.values()):

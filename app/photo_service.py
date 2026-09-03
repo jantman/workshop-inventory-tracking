@@ -12,9 +12,9 @@ from typing import List, Optional, Dict, Any, Tuple
 from PIL import Image, ImageOps
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, and_
-from datetime import datetime
 
 from .database import Photo, ItemPhotoAssociation, InventoryItem, Product, ProductAttachment, Purchase
+from .utils.clock import utc_now
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -115,8 +115,8 @@ class PhotoService:
                 medium_data=medium_data,
                 original_data=original_data,
                 sha256_hash=None,  # Optional: can add hash calculation later
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=utc_now(),
+                updated_at=utc_now()
             )
 
             self.session.add(photo)
@@ -130,7 +130,7 @@ class PhotoService:
                 ja_id=ja_id,
                 photo_id=photo.id,
                 display_order=display_order,
-                created_at=datetime.utcnow()
+                created_at=utc_now()
             )
 
             self.session.add(association)
@@ -420,7 +420,7 @@ class PhotoService:
                     ja_id=target_ja_id,
                     photo_id=source_assoc.photo_id,  # Reference same photo (no BLOB duplication!)
                     display_order=target_photo_count + idx,
-                    created_at=datetime.utcnow()
+                    created_at=utc_now()
                 )
                 self.session.add(new_association)
                 created_count += 1
@@ -870,7 +870,7 @@ class PhotoService:
                         # Update the photo record with new thumbnail data
                         photo.thumbnail_data = thumbnail_data
                         photo.medium_data = medium_data
-                        photo.updated_at = datetime.utcnow()
+                        photo.updated_at = utc_now()
                         
                         updated_count += 1
                         logger.info(f"Regenerated thumbnails for PDF {photo.filename} (ID: {photo.id})")

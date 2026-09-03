@@ -737,9 +737,9 @@ def inventory_edit(ja_id):
         # Parse form data into updated item
         updated_item = _parse_item_from_form(form_data)
         
-        # Update the item (preserve dates from original)
+        # Preserve the original creation time across an edit. last_modified is
+        # not set here -- update_item stamps it on the row it actually writes.
         updated_item.date_added = item.date_added
-        updated_item.last_modified = datetime.now()
         result = service.update_item(updated_item)
         
         if result:
@@ -2400,7 +2400,6 @@ def _execute_shortening_operation(form_data):
             current_item.dimensions = new_dimensions
             current_item.notes = f"Shortened to {new_length}\" - {form_data.get('shortening_notes', '').strip()}" if form_data.get('shortening_notes', '').strip() else f"Shortened to {new_length}\""
             current_item.active = True
-            current_item.last_modified = datetime.now()
             
             if service.update_item(current_item):
                 return {
@@ -2420,8 +2419,6 @@ def _execute_shortening_operation(form_data):
 
 def _parse_item_from_form(form_data):
     """Parse form data into an InventoryItem object"""
-    from datetime import datetime
-    
     # Create InventoryItem directly with form data
     item = InventoryItem(
         ja_id=form_data['ja_id'].upper(),
@@ -2468,10 +2465,9 @@ def _parse_item_from_form(form_data):
     item.vendor_part = form_data.get('vendor_part_number', '').strip() or None  # Note: vendor_part not vendor_part_number
     item.notes = form_data.get('notes', '').strip() or None
     
-    # Set timestamps
-    item.date_added = datetime.now()
-    item.last_modified = datetime.now()
-    
+    # No timestamps set here. add_item builds its own row and does not copy
+    # them, so anything written here is discarded; the column defaults in
+    # app/database.py record both (feature 037).
     return item
 
 def _parse_dimension_value(value):
