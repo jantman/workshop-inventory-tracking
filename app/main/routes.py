@@ -761,8 +761,15 @@ def inventory_edit(ja_id):
             # reads the same way, for the same reason.
             persisted_item = service.get_canonical_item(updated_item.ja_id) or updated_item
             changes = _detect_item_changes(item, persisted_item)
+            # `item_id` names the row that was written, so it agrees with
+            # `item_after`. The JA ID field on the edit form is editable, so a
+            # submitted id can differ from the URL's; labelling the record with
+            # the URL's id would leave the audit pointing at a row it does not
+            # describe. `item_before` stays the row the operator opened, which
+            # is what makes `changes` carry the ja_id difference -- the only
+            # trail that a different row was written. Review of PR #148.
             log_audit_operation('edit_item', 'success',
-                              item_id=ja_id,
+                              item_id=persisted_item.ja_id,
                               item_before=_item_to_audit_dict(item),
                               item_after=_item_to_audit_dict(persisted_item),
                               changes=changes)

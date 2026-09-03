@@ -473,12 +473,16 @@ class TestTheEditAuditRecordsWhatWasPersisted:
         return client.post('/inventory/edit/JA037100', data=form)
 
     @staticmethod
-    def _success_payload(records):
+    def _success_record(records):
         for record in records:
             if (getattr(record, 'audit_operation', None) == 'edit_item'
                     and getattr(record, 'audit_phase', None) == 'success'):
-                return record.audit_data
+                return record
         raise AssertionError('no successful edit_item audit record was emitted')
+
+    @classmethod
+    def _success_payload(cls, records):
+        return cls._success_record(records).audit_data
 
     def test_the_audit_records_the_persisted_timestamp(self, client, seeded_item, audit_records):
         assert self._edit(client).status_code == 302
@@ -523,3 +527,39 @@ class TestTheEditAuditRecordsWhatWasPersisted:
         assert payload['item_after']['last_modified'] is not None
         assert payload['item_after']['active'] is False
         assert payload.get('changes', {}).get('last_modified', {}).get('after') is not None
+
+    def test_the_audit_names_the_row_it_describes(self, client, seeded_item, audit_records):
+        """When the submitted JA ID differs from the URL's, the audit record's
+        ``item_id`` must be the row that was written, not the one that was
+        opened -- otherwise the record points at a row it does not describe.
+
+        The edit form's JA ID field is an editable text input, so this is
+        reachable. That `update_item` writes the *submitted* id's row at all is
+        a separate, pre-existing defect and is not what this pins; this pins
+        only that the audit says which row it touched, and that ``changes``
+        still carries the id difference, which is the trail that anything
+        unusual happened. Review of PR #148.
+        """
+        from decimal import Decimal
+
+        from app.database import InventoryItem
+
+        seeded_item.add_item(InventoryItem(
+            ja_id='JA037200',
+            item_type='Plate',
+            shape='Round',
+            material='Aluminum',
+            width=Decimal('6.0'),
+            thickness=Decimal('0.25'),
+            location='Storage Z',
+            active=True,
+        ))
+
+        assert self._edit(client, ja_id='JA037200').status_code == 302
+
+        payload = self._success_payload(audit_records)
+
+        assert payload['item_after']['ja_id'] == 'JA037200'
+        assert payload['item_after']['last_modified'] is not None
+        assert payload['changes']['ja_id'] == {'before': 'JA037100', 'after': 'JA037200'}
+        assert self._success_record(audit_records).item_id == 'JA037200'
