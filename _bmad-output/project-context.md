@@ -41,6 +41,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **SQLAlchemy ORM lives separately** in `app/database.py` (`Base`, `InventoryItem`). Do not merge the dataclass layer and the ORM layer — conversions happen explicitly at the storage boundary.
 - **Type hints expected** — code uses `typing` (`Optional`, `List`, `Dict`, `Union`) throughout; match it.
 - **Defensive parsing** — helpers like `parse_date_value` / `safe_str` tolerate mixed input (strings, Excel serials, None) because data originated from Google Sheets. Preserve this tolerance when touching import/parse paths.
+- **Timestamps come from `app/utils/clock.py`, never from a bare `datetime.now()`.** Two kinds of value land in a `DateTime` column and they are not interchangeable. An instant the application *recorded* — created, changed, counted, flagged, uploaded — uses `utc_now()` and is naive UTC; so does anything compared against one, because both ends of an age subtraction must share a basis. A day the operator *stated*, or accepted as "today" — `order_date`, `received_date`, `purchase_date` — uses `local_now()`, because converting it would push an order captured at 21:00 onto the next day. Column defaults are Python callables (`default=utc_now`), not `func.now()`: a SQL default takes the database server's clock, which is what issue #134 was. A bare `datetime.now()` in a service or model is a bug; the only exceptions are log lines and report headers, which are labels a human reads and are never compared to a stored value.
 
 ### Framework-Specific (Flask) Rules
 

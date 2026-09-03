@@ -18,12 +18,19 @@ import pytest
 from playwright.sync_api import expect
 
 from app.catalog_service import CatalogService
+from app.utils.clock import utc_now
 from tests.e2e.waits import wait_for_stock_flag
 
 
 def days_ago(days):
-    """An age is unreachable through the UI -- every write path stamps now()"""
-    return datetime.now() - timedelta(days=days)
+    """An age is unreachable through the UI -- every write path stamps now()
+
+    Seeded on the application clock, which is what the age properties
+    subtract from (feature 037). A local ``datetime.now()`` here would be
+    off by the UTC offset -- harmless at the 100- and 400-day ages below,
+    and the same defect this feature exists to remove.
+    """
+    return utc_now() - timedelta(days=days)
 
 
 @pytest.mark.e2e

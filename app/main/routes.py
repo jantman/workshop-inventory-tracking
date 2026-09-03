@@ -737,18 +737,41 @@ def inventory_edit(ja_id):
         # Parse form data into updated item
         updated_item = _parse_item_from_form(form_data)
         
-        # Update the item (preserve dates from original)
+        # Preserve the original creation time across an edit. last_modified is
+        # not set here -- update_item stamps it on the row it actually writes.
         updated_item.date_added = item.date_added
-        updated_item.last_modified = datetime.now()
         result = service.update_item(updated_item)
         
         if result:
-            # AUDIT: Log successful edit operation with changes
-            changes = _detect_item_changes(item, updated_item)
-            log_audit_operation('edit_item', 'success', 
-                              item_id=ja_id,
+            # AUDIT: Log successful edit operation with changes.
+            #
+            # Read the row back rather than auditing `updated_item`. That object
+            # is transient -- it never joins a session -- so `update_item`
+            # stamps last_modified on its own DB-loaded row and nothing sets it
+            # here. Auditing the transient object reports last_modified as null
+            # and a change entry claiming the timestamp was cleared, on every
+            # successful edit. Found in review of PR #148.
+            #
+            # **Canonical, and keyed on the submitted id.** `get_item` is
+            # active-only, so an edit that deactivates the item would read back
+            # None and fall through to the transient object -- the same bug,
+            # conditioned on `active == False`. And `update_item` finds its
+            # target by `item.ja_id`, so a submitted id differing from the URL's
+            # would have this auditing an untouched row. The GET path above
+            # reads the same way, for the same reason.
+            persisted_item = service.get_canonical_item(updated_item.ja_id) or updated_item
+            changes = _detect_item_changes(item, persisted_item)
+            # `item_id` names the row that was written, so it agrees with
+            # `item_after`. The JA ID field on the edit form is editable, so a
+            # submitted id can differ from the URL's; labelling the record with
+            # the URL's id would leave the audit pointing at a row it does not
+            # describe. `item_before` stays the row the operator opened, which
+            # is what makes `changes` carry the ja_id difference -- the only
+            # trail that a different row was written. Review of PR #148.
+            log_audit_operation('edit_item', 'success',
+                              item_id=persisted_item.ja_id,
                               item_before=_item_to_audit_dict(item),
-                              item_after=_item_to_audit_dict(updated_item),
+                              item_after=_item_to_audit_dict(persisted_item),
                               changes=changes)
             flash('Item updated successfully!', 'success')
             return redirect(url_for('main.inventory_list'))
@@ -2400,7 +2423,6 @@ def _execute_shortening_operation(form_data):
             current_item.dimensions = new_dimensions
             current_item.notes = f"Shortened to {new_length}\" - {form_data.get('shortening_notes', '').strip()}" if form_data.get('shortening_notes', '').strip() else f"Shortened to {new_length}\""
             current_item.active = True
-            current_item.last_modified = datetime.now()
             
             if service.update_item(current_item):
                 return {
@@ -2420,8 +2442,6 @@ def _execute_shortening_operation(form_data):
 
 def _parse_item_from_form(form_data):
     """Parse form data into an InventoryItem object"""
-    from datetime import datetime
-    
     # Create InventoryItem directly with form data
     item = InventoryItem(
         ja_id=form_data['ja_id'].upper(),
@@ -2468,10 +2488,9 @@ def _parse_item_from_form(form_data):
     item.vendor_part = form_data.get('vendor_part_number', '').strip() or None  # Note: vendor_part not vendor_part_number
     item.notes = form_data.get('notes', '').strip() or None
     
-    # Set timestamps
-    item.date_added = datetime.now()
-    item.last_modified = datetime.now()
-    
+    # No timestamps set here. add_item builds its own row and does not copy
+    # them, so anything written here is discarded; the column defaults in
+    # app/database.py record both (feature 037).
     return item
 
 def _parse_dimension_value(value):
