@@ -10,7 +10,6 @@ import warnings
 # Suppress SQLAlchemy warnings about Decimal support in SQLite (used in tests)
 warnings.filterwarnings("ignore", message=".*does.*not.*support Decimal objects natively.*")
 from dataclasses import dataclass
-from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from decimal import Decimal
 from sqlalchemy.orm import sessionmaker

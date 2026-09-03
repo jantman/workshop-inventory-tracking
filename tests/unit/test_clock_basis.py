@@ -37,6 +37,8 @@ from app.mariadb_materials_admin_service import (
 from app.product.routes import relative_age
 from app.utils.clock import local_now, utc_now
 
+pytestmark = pytest.mark.unit
+
 # Four hours behind UTC in summer, five in winter -- either way, not UTC, which
 # is the only property these tests need from it.
 NON_UTC_ZONE = 'America/New_York'
