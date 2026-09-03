@@ -751,7 +751,15 @@ def inventory_edit(ja_id):
             # here. Auditing the transient object reports last_modified as null
             # and a change entry claiming the timestamp was cleared, on every
             # successful edit. Found in review of PR #148.
-            persisted_item = service.get_item(ja_id) or updated_item
+            #
+            # **Canonical, and keyed on the submitted id.** `get_item` is
+            # active-only, so an edit that deactivates the item would read back
+            # None and fall through to the transient object -- the same bug,
+            # conditioned on `active == False`. And `update_item` finds its
+            # target by `item.ja_id`, so a submitted id differing from the URL's
+            # would have this auditing an untouched row. The GET path above
+            # reads the same way, for the same reason.
+            persisted_item = service.get_canonical_item(updated_item.ja_id) or updated_item
             changes = _detect_item_changes(item, persisted_item)
             log_audit_operation('edit_item', 'success',
                               item_id=ja_id,

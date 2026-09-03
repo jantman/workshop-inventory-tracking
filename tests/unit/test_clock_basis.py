@@ -457,8 +457,8 @@ class TestTheEditAuditRecordsWhatWasPersisted:
         return service
 
     @staticmethod
-    def _edit(client):
-        return client.post('/inventory/edit/JA037100', data={
+    def _edit(client, **overrides):
+        form = {
             'ja_id': 'JA037100',
             'item_type': 'Plate',
             'shape': 'Round',
@@ -467,7 +467,10 @@ class TestTheEditAuditRecordsWhatWasPersisted:
             'width': '6.0',
             'thickness': '0.25',
             'active': 'on',
-        })
+        }
+        form.update(overrides)
+        form = {k: v for k, v in form.items() if v is not None}
+        return client.post('/inventory/edit/JA037100', data=form)
 
     @staticmethod
     def _success_payload(records):
@@ -506,3 +509,17 @@ class TestTheEditAuditRecordsWhatWasPersisted:
 
         assert after['location'] == 'Storage B'
         assert seeded_item.get_item('JA037100').location == 'Storage B'
+
+    def test_an_edit_that_deactivates_the_item_still_audits_the_row(
+        self, client, seeded_item, audit_records
+    ):
+        """`get_item` is active-only, so reading back with it would return None
+        for this edit and fall through to the transient object -- the same bug,
+        conditioned on `active == False`. Found in review of PR #148."""
+        assert self._edit(client, active=None).status_code == 302
+
+        payload = self._success_payload(audit_records)
+
+        assert payload['item_after']['last_modified'] is not None
+        assert payload['item_after']['active'] is False
+        assert payload.get('changes', {}).get('last_modified', {}).get('after') is not None
