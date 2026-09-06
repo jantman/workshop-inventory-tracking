@@ -16,6 +16,8 @@ The first is an absence. A hand-set "low" or "out" flag carries no age at all. A
 
 The second is worse, because it is not a gap but a false statement. Receiving a purchase adds the received quantity to a tracked count *and* stamps the count as freshly updated, so the screen can read "counted just now" when nobody counted anything — the number went up by what the packing slip claimed, sight unseen. That is the one place where the shipped behaviour actively contradicts the plan, which held that receiving must never touch a count because an inaccurate number is worse than no number. The increment itself is defensible and this feature keeps it. What is not defensible is that an arithmetic adjustment presents itself as a physical verification, because that undermines the age display the rest of the catalogue depends on.
 
+> **Amended by feature 041** (`specs/041-counted-at-receipt/`, issue #149). Everything above stands; what it left out is the case where the operator *did* look, which is common while a box is being unpacked next to the shelf. The receive screen now carries an opt-in — off by default — meaning "I counted what is on the shelf", and ticking it moves the count's age as well as the count. The rule this feature was always about is unchanged and is stated more precisely by the addition: **the machine never asserts a verification, and the operator always may.** Read every "receiving does not touch the age" below as the default, which is what happens whenever that box is left alone.
+
 So the feature is one idea in two places: **an assertion about stock displays the age of the evidence behind it, and nothing claims evidence it does not have.**
 
 This is deliberately not a staleness policy. Nothing here decides how old is too old, flags anything as expired, or nags. The existing display renders an age in the words a person would use and lets the operator judge; this extends that treatment to the flag and stops the count's version of it from lying.
@@ -25,6 +27,8 @@ This is deliberately not a staleness policy. Nothing here decides how old is too
 ### User Story 1 - The reorder list stops claiming a count nobody made (Priority: P1)
 
 The operator tracks a count of 4 M3 standoffs, counted properly in January. In August a box of 100 arrives and they receive the purchase. The catalogue now says 104 — and says it was counted in January, because it was. Nothing on the screen claims anyone has looked in the drawer since.
+
+*(Feature 041: unless they tick "I counted what is on the shelf" on the receive screen, in which case somebody has, and the age says so. The scenarios below are the default path, where it is left alone.)*
 
 **Why this priority**: It is the only part of this feature where the application currently states something untrue, and the untruth attacks the mechanism the whole trust story rests on. Every other improvement here is worth less while the age display can be reset by a delivery.
 
@@ -106,7 +110,7 @@ The operator takes two standoffs out of the drawer and presses the minus button 
 **What counts as a verified count**
 
 - **FR-007**: Receiving a purchase MUST continue to add the received quantity to a product's tracked count.
-- **FR-008**: Receiving a purchase MUST NOT cause the product's count to present itself as more recently counted than it was.
+- **FR-008**: Receiving a purchase MUST NOT cause the product's count to present itself as more recently counted than it was, **unless the operator explicitly asserts at receipt that they have counted the stock**. That override was added by feature 041 (`specs/041-counted-at-receipt/`, issue #149); it is off by default, and every receipt where it is not made behaves exactly as this requirement originally stated. The rule the carve-out was always for is that the *system* never asserts a verification — an operator always may.
 - **FR-009**: Receiving a purchase against a product with no tracked count MUST NOT begin tracking one, and MUST NOT record a counted age.
 - **FR-010**: An operator setting or adjusting a count directly — entering a number, or using the increment and decrement controls — MUST record that moment as the count's age.
 - **FR-011**: Stopping count tracking MUST discard the counted age, and starting it again MUST record a fresh one.
@@ -127,9 +131,9 @@ The operator takes two standoffs out of the drawer and presses the minus button 
 
 ### Measurable Outcomes
 
-- **SC-001**: Receiving a purchase never reduces the reported age of a count. Measured by comparing the displayed age immediately before and after a receipt on a product with a tracked count.
+- **SC-001**: Receiving a purchase never reduces the reported age of a count, unless the operator asserts at receipt that they counted the stock (feature 041). Measured by comparing the displayed age immediately before and after a receipt on a product with a tracked count, with the assertion not made.
 - **SC-002**: 100% of manual flags displayed anywhere in the application are accompanied by their age or by an explicit statement that the age is unknown.
-- **SC-003**: The only actions that reset a count's age are an operator entering a count and an operator adjusting one at the shelf. Every other path that can change stored stock data leaves the age alone.
+- **SC-003**: The only actions that reset a count's age are an operator entering a count, an operator adjusting one at the shelf, and — since feature 041 — an operator asserting at receipt that they have counted the stock. All three are the operator saying they looked. Every other path that can change stored stock data leaves the age alone.
 - **SC-004**: On the reorder list, an operator can tell which of two flagged products was flagged more recently without opening either one.
 - **SC-005**: No product that was previously reachable through the reorder list becomes unreachable, and no product joins or leaves it as a result of this feature.
 - **SC-006**: Products carrying flags set before this feature shipped continue to display and behave correctly, with no invented dates.
@@ -141,6 +145,7 @@ The operator takes two standoffs out of the drawer and presses the minus button 
 - Existing flagged products are not backfilled with a date derived from any other field. A record's last-modified date is not evidence that anybody looked at a shelf, and inventing one would repeat in the flag the exact error this feature removes from the count.
 - Receiving continues to clear the manual flag, as it does today. That behaviour is not in question here; only the age travelling with it.
 - Receiving continues to increment a tracked count, as it does today. Issue #59 offered stopping that as well — the original plan's position — and it was not taken: a count that ignores a delivery is knowingly wrong until the operator counts, which is a worse trade than a correct number whose age is honest about who last verified it.
+- **Added by feature 041**: the operator has an explicit way to say they counted while receiving. Issue #135 weighed leaving them to open the product page afterwards and re-enter a number they had already established, and took the opt-in instead. It records no number of its own — it asserts that the total the receipt arrives at is what is on the shelf — so nothing here about how a count is entered or corrected changes.
 - No new screen is introduced. The two ages appear on the screens that already show a count and a flag: the product page and the reorder list.
 - The reorder list's ordering is unchanged. Sorting by evidence age is a plausible follow-on and is not part of this feature.
 - The counted age remains absent — rendered as never counted — for a tracked count that has never been set by an operator, which is the behaviour today.

@@ -980,6 +980,10 @@ def purchase_receive(purchase_id):
                 unit_price=request.form.get('unit_price'),
                 notes=request.form.get('notes'),
                 description=request.form.get('description'),
+                # The operator saying they looked in the drawer, which is the
+                # one thing that lets a receipt move the count's age (041
+                # FR-003). Unchecked posts nothing, so absence is the default.
+                counted=request.form.get('counted') == 'on',
             )
         except ValidationError as e:
             flash(e.message, 'error')

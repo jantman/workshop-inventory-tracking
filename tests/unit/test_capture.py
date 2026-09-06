@@ -921,6 +921,77 @@ class TestTheReceiveForm:
         assert typed in self.description_input(response)
 
 
+class TestTheCountedCheckbox:
+    """041 FR-002, FR-007, FR-009: when the control is offered, and in what state.
+
+    The service refuses to record an age for an untracked product regardless of
+    what is posted, so hiding the control is a courtesy rather than the
+    enforcement. It is still worth asserting: a tick-box that silently does
+    nothing teaches the operator that ticking it is meaningless, which is
+    corrosive to the one control whose whole value is that it is believed.
+    """
+
+    def counted_input(self, response):
+        """The checkbox's own tag, or None when the form does not offer it"""
+        match = re.search(r'<input[^>]*id="counted"[^>]*>', response.data.decode(), re.S)
+        return match.group(0) if match else None
+
+    def _purchase_for(self, service, quantity):
+        product = service.create_product(description='M3 standoff', quantity=quantity)
+        return service.record_purchase(product.id, vendor='Amazon', quantity=10)
+
+    def test_a_tracked_product_is_offered_it_unticked(self, client, service):
+        """041 FR-002 -- default off, every time the screen opens"""
+        purchase = self._purchase_for(service, quantity=4)
+
+        response = client.get(f'/purchases/{purchase.id}/receive')
+
+        assert response.status_code == 200
+        assert 'checked' not in self.counted_input(response)
+
+    def test_an_untracked_product_is_not_offered_it(self, client, service):
+        """041 FR-007 -- there is no count for it to be about"""
+        purchase = self._purchase_for(service, quantity=None)
+
+        response = client.get(f'/purchases/{purchase.id}/receive')
+
+        assert response.status_code == 200
+        assert self.counted_input(response) is None
+
+    def test_a_tracked_count_of_zero_is_offered_it(self, client, service):
+        """Zero is a number somebody counted, so `is not none` and not truthiness"""
+        purchase = self._purchase_for(service, quantity=0)
+
+        response = client.get(f'/purchases/{purchase.id}/receive')
+
+        assert response.status_code == 200
+        assert self.counted_input(response) is not None
+
+    def test_a_refusal_keeps_the_tick(self, client, service):
+        """041 FR-009 -- an assertion the operator made is not discarded by an
+        error about some other field."""
+        purchase = self._purchase_for(service, quantity=4)
+
+        response = client.post(
+            f'/purchases/{purchase.id}/receive',
+            data={'description': 'M3 standoff', 'unit_price': 'not a price', 'counted': 'on'},
+        )
+
+        assert response.status_code == 200
+        assert 'checked' in self.counted_input(response)
+
+    def test_a_refusal_does_not_invent_a_tick(self, client, service):
+        purchase = self._purchase_for(service, quantity=4)
+
+        response = client.post(
+            f'/purchases/{purchase.id}/receive',
+            data={'description': 'M3 standoff', 'unit_price': 'not a price'},
+        )
+
+        assert response.status_code == 200
+        assert 'checked' not in self.counted_input(response)
+
+
 class TestUrlParsing:
     """Reading the URL, never the page's markup"""
 
