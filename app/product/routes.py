@@ -2306,29 +2306,63 @@ def api_print_product_label(product_id):
             'error': f'Invalid label type. Available types: {get_available_label_types()}'
         }), 400
 
+    # Same rules and the same wording as the item label endpoint in
+    # app/main/routes.py, deliberately restated rather than shared: extracting
+    # eight lines would mean editing a second blueprint that has nothing else to
+    # do with this. Absent means 1, which is what lets a caller that sends no
+    # count keep working unchanged.
+    label_count = data.get('label_count', 1)
+    # bool is a subclass of int, so True would otherwise pass as 1.
+    if isinstance(label_count, bool) or not isinstance(label_count, int):
+        return jsonify({
+            'success': False,
+            'error': 'label_count must be a whole number'
+        }), 400
+    if label_count < 1 or label_count > 99:
+        return jsonify({
+            'success': False,
+            'error': 'label_count must be between 1 and 99'
+        }), 400
+
     # Not history[-1]: undated purchases sort last but are not the most recent.
-    provenance = format_provenance(service.get_latest_purchase(product_id))
+    # Manufacturer and part number come off the product, not the purchase: they
+    # are attributes of the thing rather than of the transaction, so a product
+    # that has never been bought still has them to print.
+    provenance_lines = format_provenance(
+        service.get_latest_purchase(product_id),
+        manufacturer=product.manufacturer,
+        part_number=product.manufacturer_part_number,
+    )
 
     try:
         print_product_label(
             description=product.description,
             code=product.internal_code,
-            provenance=provenance,
+            provenance_lines=provenance_lines,
             label_config=LABEL_TYPES[label_type],
+            num_copies=label_count,
         )
     except Exception as e:
         current_app.logger.error(f'Error printing product label for {product_id}: {e}')
         return jsonify({'success': False, 'error': 'Failed to print label'}), 500
 
     current_app.logger.info(
-        f'Printed {label_type} label for product {product_id} ({product.internal_code})'
+        f'Printed {label_count} {label_type} label(s) for product {product_id} '
+        f'({product.internal_code})'
     )
+
+    if label_count == 1:
+        message = f'Label printed for {product.description}'
+    else:
+        message = f'{label_count} labels printed for {product.description}'
+
     return jsonify({
         'success': True,
-        'message': f'Label printed for {product.description}',
+        'message': message,
         'product_id': product_id,
         'code': product.internal_code,
         'label_type': label_type,
+        'label_count': label_count,
     })
 
 

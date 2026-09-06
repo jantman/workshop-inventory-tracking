@@ -1878,16 +1878,34 @@ purchase record afterwards.
 These are the catalog's labels, carrying a product's internal code. For the
 JA ID labels that go on inventory items, see [Label Printing](#label-printing).
 
-**Print Label** on a product composes a label carrying three things:
+**Print Label** on a product composes a label carrying four things:
 
 - the description,
+- the manufacturer and the manufacturer's part number, when the product has
+  them,
 - where it came from and what it cost, when there is a purchase to say so,
 - the internal code, as a barcode **and** as readable text.
+
+The manufacturer and part number are what you re-order the thing by, and what
+identifies it once the bag is open and the box has been thrown away. They come
+from the product itself rather than from a purchase, so a product you entered by
+hand and have never bought still gets them on its label.
+
+**The price is marked `ea`, because it is the price of one.** A bag of five
+labelled `$6.50` is holding $32.50 of parts, and a label in a drawer is read
+precisely because nobody wants to go and look the order up -- possibly years
+later, by someone who never saw it. The three characters are there so the label
+cannot be read as the value of what it is stuck to.
+
+The middle two lines are dropped individually when there is nothing to say, and
+a product with nothing to say at all gets a label with just a description and a
+code, as before.
 
 Both forms of the code are always present. Direct-thermal labels scuff on a
 workshop shelf, and the readable code is what keeps a label with a damaged
 barcode usable -- so it is never dropped to make room. On a narrow label the
-description is shortened instead.
+description is shortened instead: the extra provenance line comes out of the
+description's space, never out of the code's.
 
 All six label stocks are available, the same set the inventory labels use. On the
 1x2 stock the description will often be truncated; that is the trade-off, and it
@@ -1898,6 +1916,10 @@ label carries no "if found, return to" line. Both were choices rather than
 omissions: the goal is a code that can never be mistaken for a manufacturer's or
 a distributor's, which either form of symbol meets, and a 2D symbol would only
 have bought a smaller mark on the narrow stock where space is tight.
+
+You can ask for up to 99 copies in one go, the same as the inventory labels --
+useful when the same product is going into several bags. Leave it at 1 and
+nothing changes.
 
 Reprinting takes two clicks and no typing. The label is composed from the record
 each time rather than stored, so a reprint after you have improved the

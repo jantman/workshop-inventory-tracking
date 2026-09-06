@@ -20,6 +20,7 @@
             this.button = button;
             this.productId = button.dataset.productId;
             this.select = document.getElementById('product-label-type-select');
+            this.count = document.getElementById('product-label-count');
             this.confirm = document.getElementById('product-label-print-confirm');
             this.alerts = document.getElementById('product-label-alerts');
             this.modalEl = document.getElementById('product-label-modal');
@@ -77,11 +78,27 @@
                 /* remembering the choice is a convenience, not a requirement */
             }
 
+            // The stock is remembered above; the count deliberately is not. It
+            // is per-job, and a remembered 20 is a nasty surprise on the next
+            // print.
+            //
+            // A blank field sends nothing and lets the server's default of 1
+            // stand -- clearing the box is not a request to print zero, and
+            // sending NaN would earn a "must be a whole number" complaint about
+            // a field the operator simply did not fill in. A typed 0 or 200 *is*
+            // sent, and is refused by name. The min/max on the input bounds the
+            // spinner, not what can be typed into it.
+            const labelCount = parseInt(this.count.value, 10);
+            const body = { label_type: labelType };
+            if (!Number.isNaN(labelCount)) {
+                body.label_count = labelCount;
+            }
+
             this.confirm.disabled = true;
             csrfFetch(`/api/products/${this.productId}/label`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ label_type: labelType })
+                body: JSON.stringify(body)
             })
                 .then((response) => response.json())
                 .then((data) => {

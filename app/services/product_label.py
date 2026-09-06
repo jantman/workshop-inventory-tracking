@@ -20,7 +20,7 @@ description truncates first.
 
 import logging
 from io import BytesIO
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 from pt_p710bt_label_maker.barcode_label import BarcodeLabelGenerator
@@ -45,7 +45,7 @@ ELLIPSIS = '…'
 def compose_product_label(
     description: str,
     code: str,
-    provenance: Optional[str] = None,
+    provenance_lines: Optional[Sequence[str]] = None,
     lp_width_px: int = 610,
     fixed_len_px: int = 1220,
     maxlen_inches: float = 4.0,
@@ -59,9 +59,16 @@ def compose_product_label(
         description: The product's description; the largest thing on the label.
         code: The internal product code, rendered as a Code128 symbol *and* as
             text. Both, always.
-        provenance: Vendor, order date and price of the most recent purchase.
-            Omitted entirely when the product has no purchases -- a hand-entered
-            product is still labelable (FR-001).
+        provenance_lines: The provenance lines from ``format_provenance``:
+            identity (manufacturer, part number) then purchase (vendor, order
+            date, per-unit price). Either may be absent; when the list is empty
+            the band is omitted entirely rather than left blank -- a
+            hand-entered product with nothing to say is still labelable
+            (FR-001).
+
+            A *sequence*, not a string, and named so. ``str`` satisfies
+            ``Sequence[str]``, so a parameter that accepted both would draw one
+            line per character for a caller that had not been updated.
         lp_width_px: The stock's pixel height, from LABEL_TYPES.
         fixed_len_px: The stock's pixel length, from LABEL_TYPES.
         maxlen_inches: The stock's length in inches, from LABEL_TYPES.
@@ -79,7 +86,7 @@ def compose_product_label(
         # Each half carries the whole message, so the label reads the same
         # whichever way the fold ends up facing.
         half = _compose_panel(
-            description, code, provenance,
+            description, code, provenance_lines,
             width_px=fixed_len_px // 2,
             height_px=lp_width_px,
             maxlen_inches=maxlen_inches / 2,
@@ -90,7 +97,7 @@ def compose_product_label(
         canvas.paste(half.rotate(180), (fixed_len_px - half.width, 0))
     else:
         canvas = _compose_panel(
-            description, code, provenance,
+            description, code, provenance_lines,
             width_px=fixed_len_px,
             height_px=lp_width_px,
             maxlen_inches=maxlen_inches,
@@ -103,33 +110,74 @@ def compose_product_label(
     return out
 
 
+def _band_heights(height_px: int, line_count: int) -> Tuple[int, int, int]:
+    """Split the panel into description, provenance and code bands.
+
+    The code band is the one that must not shrink (FR-006, and FR-012 before
+    it): the human-readable code is what keeps a scuffed label usable, so more
+    provenance is paid for by the description and never by the code.
+
+    The first provenance line takes ``PROVENANCE_BAND`` from the panel, exactly
+    as it always has. **Every line after the first is subtracted from the
+    description**, which is what holds the code band constant no matter how many
+    provenance lines there are. Written as a subtraction from the existing
+    constants rather than as a fresh fraction of the panel, so that the
+    zero-line and one-line cases are not merely close to their old values but
+    identical to the pixel -- a label that gained nothing from this feature
+    prints exactly what it printed before.
+
+    Returns:
+        ``(description_height, provenance_height, code_height)``, summing to
+        ``height_px``.
+    """
+    line_height = int(height_px * PROVENANCE_BAND)
+    provenance_height = line_height * line_count
+
+    description_height = int(height_px * DESCRIPTION_BAND)
+    if line_count > 1:
+        description_height -= line_height * (line_count - 1)
+
+    code_height = height_px - description_height - provenance_height
+    return description_height, provenance_height, code_height
+
+
 def _compose_panel(
     description: str,
     code: str,
-    provenance: Optional[str],
+    provenance_lines: Optional[Sequence[str]],
     width_px: int,
     height_px: int,
     maxlen_inches: float,
     lp_dpi: int,
 ) -> Image.Image:
-    """Compose one panel: description band, provenance line, then the code."""
+    """Compose one panel: description band, provenance lines, then the code.
+
+    Empty lines are dropped before anything is measured, so a provenance line
+    with nothing in it neither reserves a band nor moves the code.
+    ``_band_heights`` divides what is left; see its docstring for why the code
+    band comes out the same whether there is one provenance line or two.
+    """
     canvas = Image.new('RGBA', (width_px, height_px), (255, 255, 255, 0))
     draw = ImageDraw.Draw(canvas)
 
     margin = max(2, int(width_px * MARGIN_FRACTION))
     usable_width = width_px - 2 * margin
 
-    description_height = int(height_px * DESCRIPTION_BAND)
-    provenance_height = int(height_px * PROVENANCE_BAND) if provenance else 0
-    code_height = height_px - description_height - provenance_height
+    lines = [line for line in (provenance_lines or []) if line]
+    description_height, provenance_height, code_height = _band_heights(
+        height_px, len(lines)
+    )
+    # Divided back out rather than recomputed, so the row a line is drawn on
+    # cannot drift from the band that was reserved for it.
+    line_height = provenance_height // len(lines) if lines else 0
 
     cursor = _draw_description(
         draw, description or '', margin, description_height, usable_width
     )
 
-    if provenance:
+    if lines:
         cursor = _draw_provenance(
-            draw, provenance, margin, cursor, provenance_height, usable_width
+            draw, lines, margin, cursor, line_height, usable_width
         )
 
     _paste_code(canvas, code, margin, cursor, code_height, usable_width,
@@ -227,17 +275,32 @@ def _draw_description(draw, description: str, margin: int, band_height: int,
     return band_height
 
 
-def _draw_provenance(draw, provenance: str, margin: int, top: int, band_height: int,
-                     usable_width: int) -> int:
-    """Draw the single provenance line and return the y coordinate below it."""
-    font = _fit_font(provenance, usable_width, int(band_height * 0.8), MIN_PROVENANCE_FONT_PX)
-    draw.text(
-        (margin, top),
-        _truncate(provenance, font, usable_width),
-        fill=(0, 0, 0, 255),
-        font=font,
+def _draw_provenance(draw, lines: Sequence[str], margin: int, top: int,
+                     line_height: int, usable_width: int) -> int:
+    """Draw the provenance lines and return the y coordinate below them.
+
+    One font for all of them, fitted to whichever line needs the smallest. Two
+    lines set at different sizes read as a mistake, and the smallest of the
+    fitted sizes is the only one that is guaranteed to fit every line. With a
+    single line this reduces to fitting that line, which is what it did when a
+    single line was all there could be.
+    """
+    max_height = int(line_height * 0.8)
+    font = min(
+        (_fit_font(line, usable_width, max_height, MIN_PROVENANCE_FONT_PX)
+         for line in lines),
+        key=lambda candidate: candidate.size,
     )
-    return top + band_height
+
+    for index, line in enumerate(lines):
+        draw.text(
+            (margin, top + index * line_height),
+            _truncate(line, font, usable_width),
+            fill=(0, 0, 0, 255),
+            font=font,
+        )
+
+    return top + line_height * len(lines)
 
 
 def _paste_code(canvas, code: str, margin: int, top: int, band_height: int,
@@ -296,34 +359,81 @@ def _paste_code(canvas, code: str, margin: int, top: int, band_height: int,
     )
 
 
-def format_provenance(purchase) -> Optional[str]:
-    """Build the provenance line from the most recent purchase.
+def format_provenance(
+    purchase,
+    manufacturer: Optional[str] = None,
+    part_number: Optional[str] = None,
+) -> List[str]:
+    """Build the provenance lines: identity first, then the purchase.
+
+    Identity goes first because it answers the question asked more often. Once
+    the bag is open and the box is gone, the manufacturer and part number are
+    what identify the thing and what you re-order it by; the vendor and the date
+    are what you consult afterwards, if at all.
+
+    Two lines rather than one long one. The font is fitted to the widest line, so
+    splitting the fields in two sets them at roughly double the size a single
+    run of six fields would get on the narrow stocks -- and on a direct-thermal
+    label that will be read in five years, size is durability.
+
+    The two are built independently: a product that has never been bought still
+    has a manufacturer, and it now gets a label that says so (FR-004).
 
     Args:
         purchase: A Purchase, or None when the product has never been bought.
+        manufacturer: The product's manufacturer, if it has one.
+        part_number: The manufacturer's part number, if it has one.
 
     Returns:
-        A single line naming vendor, date and price, or None -- in which case the
-        band is omitted rather than left blank.
+        The lines to print, in order. Empty when there is nothing to say -- in
+        which case the band is omitted rather than left blank.
     """
+    candidates = [
+        _join([manufacturer, part_number]),
+        _join(_purchase_fields(purchase)),
+    ]
+
+    return [line for line in candidates if line]
+
+
+def _purchase_fields(purchase) -> List[Any]:
+    """Vendor, order date and price of the most recent purchase."""
     if purchase is None:
-        return None
+        return []
 
     parts = [purchase.vendor]
     if purchase.order_date is not None:
         parts.append(purchase.order_date.strftime('%Y-%m-%d'))
     if purchase.unit_price is not None:
         # str() on the Decimal: a price never passes through a float, not even
-        # on its way to a label.
-        parts.append(f"${purchase.unit_price}")
+        # on its way to a label. The suffix is concatenated onto that string, so
+        # nothing here is ever an arithmetic operand.
+        #
+        # "ea" is three characters standing between a reader and a wrong answer.
+        # This is a *unit* price going onto a bag that may hold five, and a label
+        # in a drawer is read precisely because nobody wants to go and look the
+        # order up -- possibly years later, by someone who never saw it.
+        parts.append(f"${purchase.unit_price} ea")
 
-    return '  '.join(str(part) for part in parts if part)
+    return parts
+
+
+def _join(parts: Sequence[Any]) -> str:
+    """Join the fields of one provenance line, dropping the ones with nothing.
+
+    A field that is absent, empty, or nothing but whitespace takes its separator
+    with it, so no label carries a blank field, a doubled separator, or a
+    separator with nothing after it (FR-003).
+    """
+    return '  '.join(
+        str(part).strip() for part in parts if part is not None and str(part).strip()
+    )
 
 
 def print_product_label(
     description: str,
     code: str,
-    provenance: Optional[str],
+    provenance_lines: Optional[Sequence[str]],
     label_config: Dict[str, Any],
     num_copies: int = 1,
 ) -> None:
@@ -336,7 +446,7 @@ def print_product_label(
     Args:
         description: The product's description.
         code: The internal product code.
-        provenance: The provenance line, or None.
+        provenance_lines: The provenance lines, possibly empty.
         label_config: One LABEL_TYPES entry.
         num_copies: How many to print.
     """
@@ -350,7 +460,8 @@ def print_product_label(
         logger.info(
             f"Test mode detected - short-circuiting product label print. "
             f"Would have printed: description='{description}', code='{code}', "
-            f"provenance='{provenance}', lp_options='{label_config.get('lp_options')}', "
+            f"provenance={list(provenance_lines or [])}, "
+            f"lp_options='{label_config.get('lp_options')}', "
             f"num_copies={num_copies}"
         )
         return
@@ -358,7 +469,7 @@ def print_product_label(
     image = compose_product_label(
         description=description,
         code=code,
-        provenance=provenance,
+        provenance_lines=provenance_lines,
         lp_width_px=label_config['lp_width_px'],
         fixed_len_px=label_config['fixed_len_px'],
         maxlen_inches=label_config['maxlen_inches'],
