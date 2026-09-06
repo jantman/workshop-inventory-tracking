@@ -33,6 +33,13 @@
 
         open() {
             this.alerts.innerHTML = '';
+            // The stock is remembered across opens; the count deliberately is
+            // not. The modal is one static node reused every time it is shown,
+            // so the markup's value="1" only ever applies on the first open --
+            // without this line a job of 20 would still read 20 the next time
+            // the dialog opened, and print 20. The three sibling print dialogs
+            // reset theirs for the same reason.
+            this.count.value = '1';
             this.loadLabelTypes().then(() => {
                 new bootstrap.Modal(this.modalEl).show();
             });
@@ -72,33 +79,35 @@
                 return;
             }
 
+            // The shared reader, not a fourth hand-rolled one: the bounds and
+            // the wording when a count is refused have to agree across the
+            // print dialogs, which is why label-count.js exists. Its own
+            // docstring already counted this dialog as the fourth.
+            //
+            // The gate is here rather than in the browser's constraint
+            // validation because the print button is type="button", for which
+            // constraint validation never fires. The route validates again --
+            // min/max on the input bounds the spinner, not what can be typed.
+            const countResult = window.readLabelCount('product-label-count');
+            if (!countResult.ok) {
+                this.showAlert('warning', countResult.error);
+                return;
+            }
+
             try {
                 localStorage.setItem(STORAGE_KEY, labelType);
             } catch (e) {
                 /* remembering the choice is a convenience, not a requirement */
             }
 
-            // The stock is remembered above; the count deliberately is not. It
-            // is per-job, and a remembered 20 is a nasty surprise on the next
-            // print.
-            //
-            // A blank field sends nothing and lets the server's default of 1
-            // stand -- clearing the box is not a request to print zero, and
-            // sending NaN would earn a "must be a whole number" complaint about
-            // a field the operator simply did not fill in. A typed 0 or 200 *is*
-            // sent, and is refused by name. The min/max on the input bounds the
-            // spinner, not what can be typed into it.
-            const labelCount = parseInt(this.count.value, 10);
-            const body = { label_type: labelType };
-            if (!Number.isNaN(labelCount)) {
-                body.label_count = labelCount;
-            }
-
             this.confirm.disabled = true;
             csrfFetch(`/api/products/${this.productId}/label`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                body: JSON.stringify({
+                    label_type: labelType,
+                    label_count: countResult.value
+                })
             })
                 .then((response) => response.json())
                 .then((data) => {

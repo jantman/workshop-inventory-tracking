@@ -173,11 +173,37 @@ def test_the_count_defaults_to_one(page, live_server):
 
 @pytest.mark.e2e
 def test_a_count_out_of_range_is_refused_and_prints_nothing(page, live_server):
-    """The spinner bounds the arrows; the server bounds what was typed"""
+    """The spinner bounds the arrows, not what can be typed into the box.
+
+    Refused by the shared reader before the request is made, in the wording
+    every print dialog uses. The route validates the same range again -- that
+    backstop is covered by the unit tests, which can post past the dialog.
+    """
     create_product(page, live_server.url, "Refused widget")
 
     print_label(page, count=200)
 
     expect(page.locator("#product-label-alert")).to_contain_text(
-        "label_count must be between 1 and 99"
+        "Label count must be a whole number between 1 and 99"
     )
+
+
+@pytest.mark.e2e
+def test_the_count_does_not_survive_into_the_next_job(page, live_server):
+    """A job of three must not silently become the next job's default.
+
+    The modal is one static node reused on every open, so the markup's value="1"
+    applies once and never again. Without the reset in open(), reopening shows
+    the previous count -- and printing accepts it.
+    """
+    create_product(page, live_server.url, "Reset widget")
+
+    print_label(page, count=3)
+    expect(page.locator("#product-label-alert")).to_contain_text("3 labels printed")
+
+    page.click("#product-label-modal .btn-secondary")
+    expect(page.locator("#product-label-modal")).not_to_be_visible()
+
+    page.click("#print-product-label-btn")
+    expect(page.locator("#product-label-modal")).to_be_visible()
+    expect(page.locator("#product-label-count")).to_have_value("1")
