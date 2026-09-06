@@ -1,9 +1,14 @@
 """Enriching a product an order line *matched* (feature 029, PR #126 review).
 
 A product a line matches predates the order, and may have blanks the vendor can
-fill: a manufacturer nobody typed, no category, no parametric specs. DigiKey
-publishes all three, so capturing a line that attaches to such a product
-backfills them.
+fill: a manufacturer nobody typed, no parametric specs. DigiKey publishes both,
+so capturing a line that attaches to such a product backfills them.
+
+**A blank category is deliberately not one of those gaps** (feature 040, issue
+#138). It was until then. The two that remain are statements about the part;
+a category is a statement about where this workshop keeps it, and the browsable
+tree is built from the values products carry -- so filling a blank category from
+a vendor adds a branch to the shop's taxonomy rather than filling a gap.
 
 **These tests exist because feature 029 broke exactly that and nothing noticed.**
 Consolidating the two vendors' `_product_for` helpers dropped
@@ -67,7 +72,15 @@ class TestAMatchedProductIsEnriched:
 
         assert catalog.get_product(existing.id).manufacturer
 
-    def test_a_blank_category_is_filled(self, catalog, order, digikey):
+    def test_a_blank_category_is_left_blank(self, catalog, order, digikey):
+        """040 FR-002. This assertion was inverted on purpose.
+
+        It read ``assert ...category_path`` -- a blank category *is* filled --
+        until issue #138. Restoring it would restore the bug: DigiKey files the
+        fixture part under "Power Supplies - Board Mount", and one product
+        carrying that puts it in the category tree for good. The two
+        assertions either side of this one are what enrichment is still for.
+        """
         existing = catalog.create_product(
             description='5V PSU I already own',
             identifiers=[{'id_type': 'MPN', 'value': MATCHED_MPN}],
@@ -76,7 +89,7 @@ class TestAMatchedProductIsEnriched:
 
         catalog.capture_digikey_order(order, include_all(order), digikey)
 
-        assert catalog.get_product(existing.id).category_path
+        assert not catalog.get_product(existing.id).category_path
 
     def test_parametric_specifications_are_added(self, catalog, order, digikey):
         existing = catalog.create_product(
@@ -120,6 +133,27 @@ class TestWhatTheOperatorSetWins:
 
         assert catalog.get_product(existing.id).manufacturer == (
             'The Name I Filed It Under'
+        )
+
+    def test_a_category_the_operator_filed_is_not_overwritten(
+        self, catalog, order, digikey
+    ):
+        """The other half of 040 FR-002, and the more damaging half to lose.
+
+        Enrichment no longer writes the category at all, so a filed product
+        keeps its own. Asserted separately from the blank case because the two
+        used to be one rule with two outcomes, and now they are one outcome.
+        """
+        existing = catalog.create_product(
+            description='5V PSU I already own',
+            category_path='electronics/power/power supplies',
+            identifiers=[{'id_type': 'MPN', 'value': MATCHED_MPN}],
+        )
+
+        catalog.capture_digikey_order(order, include_all(order), digikey)
+
+        assert catalog.get_product(existing.id).category_path == (
+            'electronics/power/power supplies'
         )
 
 

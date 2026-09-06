@@ -3321,12 +3321,16 @@ class CatalogService:
             # place it can come from (FR-040).
             manufacturer=_clean(part.manufacturer) if part else None,
             manufacturer_part_number=_clean(line.manufacturer_part_number),
-            # DigiKey's category is a suggestion about their catalog, not a
-            # statement about this workshop's shelves. It is offered because a
-            # blank is worse, and the operator can change it like any other.
-            category_path=self._validate_category_path(
-                part.category_path if part else None
-            ),
+            # **DigiKey's category is deliberately not carried across** (040
+            # FR-001). It used to be, on the reasoning that a suggestion the
+            # operator can override beats a blank. That reasoning had a hole:
+            # `category_path` is free-form and the browsable tree is built from
+            # the distinct values in use, so a vendor category left unchanged
+            # even once *becomes* a branch of this workshop's taxonomy -- paid
+            # for on the categories page, not in the one record nobody
+            # revisits (issue #138). Uncategorized is an ordinary state, and it
+            # is the state every other capture path already produces
+            # (018 FR-013).
         )
         session.add(product)
         session.flush()
@@ -3375,17 +3379,22 @@ class CatalogService:
         """Write DigiKey's part detail onto a product, filling gaps only.
 
         **A value the operator has already set wins.** Enrichment fills what is
-        blank; it does not overwrite a manufacturer someone corrected or a
-        category someone filed. The same rule a captured listing's
-        specifications already follow.
+        blank; it does not overwrite a manufacturer someone corrected. The same
+        rule a captured listing's specifications already follow.
+
+        **The category is not one of the gaps it fills** (040 FR-002), and that
+        is an exclusion rather than an oversight. A manufacturer is a fact about
+        the part, and a specification row is DigiKey's own reading kept as
+        theirs; a category is a statement about where this workshop keeps the
+        thing, and the browsable tree is built from the values products carry.
+        Filling a blank category from a vendor therefore does not fill a gap --
+        it adds a branch (issue #138).
         """
         if product is None or part is None:
             return
 
         if part.manufacturer and not product.manufacturer:
             product.manufacturer = part.manufacturer
-        if part.category_path and not product.category_path:
-            product.category_path = self._validate_category_path(part.category_path)
 
         if not part.parameters:
             return

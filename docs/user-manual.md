@@ -1446,11 +1446,15 @@ For each line you can:
 Capturing records **one outstanding purchase per line**, so the reorder list stops
 suggesting things that are already on the way.
 
-**Each line is filled in from DigiKey's own part data** — the manufacturer, the
-category and the full parametric detail as specification rows. A DigiKey order
-line carries the manufacturer's part *number* but not their *name*, so that is
-looked up separately for every line. A 24-line order therefore takes ten or
-fifteen seconds to read, which is expected. If DigiKey will not answer for one
+**Each line is filled in from DigiKey's own part data** — the manufacturer and
+the full parametric detail as specification rows. **Not the category**: DigiKey's
+catalog is not your shelves, and because the category tree is built from the
+values your products carry, storing theirs once puts a vendor-shaped branch in
+it for good. Captured products arrive uncategorized, and you file them.
+
+A DigiKey order line carries the manufacturer's part *number* but not their
+*name*, so that is looked up separately for every line. A 24-line order therefore
+takes ten or fifteen seconds to read, which is expected. If DigiKey will not answer for one
 part, that line still captures with everything the order gave and the page says
 which lines came back thin.
 
@@ -1501,8 +1505,10 @@ the order is stored separately, so it cannot fall out of step with them.
 **Products → Capture a DigiKey Part.** Give it a DigiKey part number, a
 manufacturer part number, or the address of a DigiKey product page, and you get a
 filled-in product: manufacturer, both part numbers, the description, the
-datasheet, the photograph, DigiKey's category and the part's full parametric
-detail as specification rows.
+datasheet, the photograph and the part's full parametric detail as specification
+rows. DigiKey's own category is shown alongside, for information — the Category
+box on the form is yours, and starts empty. Fill it in if you know where the
+part goes; leaving it blank is perfectly ordinary.
 
 Useful for cataloging something already on the shelf, and for anything you want
 in the catalog before you order it. Write your own description over DigiKey's —
@@ -1723,9 +1729,10 @@ order number into the box — it is on the order confirmation email.
 
 **What you get:** everything, and this is the best of the three. A DigiKey line
 carries the part numbers, the description, the quantity and the price, and each
-one is then filled in from DigiKey's own part data — manufacturer, category,
-datasheet, photograph and the full parametric specifications. A backfilled
-DigiKey product is as complete as one captured the day you ordered it.
+one is then filled in from DigiKey's own part data — manufacturer, datasheet,
+photograph and the full parametric specifications. A backfilled DigiKey product
+is as complete as one captured the day you ordered it, and like that one it
+arrives uncategorized: the category is the one thing a vendor cannot tell you.
 
 ### McMaster-Carr
 
