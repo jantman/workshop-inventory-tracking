@@ -342,6 +342,70 @@
                     </button>
                 </div>
 
+                {# 039 FR-001: recording a counted forty used to be forty presses of
+                   the button above, because a stepper was the only way to move a
+                   count at all.
+
+                   The steppers stay exactly as they are (FR-009). They are the right
+                   control for "I just used one", and they are the only count control
+                   that works on a handheld with no keyboard -- so this is an addition
+                   to them and never a replacement.
+
+                   `inputmode` rather than `type="number"` is what raises the numeric
+                   keypad on a touchscreen (FR-010), and it is deliberate: a number
+                   input discards non-numeric keystrokes silently, which would make
+                   "abc" and "" arrive identically empty. Those are the two cases
+                   FR-006 and FR-007 refuse with *different* messages, so the field
+                   has to be able to hold both. `pattern` is here for the keypad too;
+                   nothing validates in the browser, because the control is not in a
+                   form and a native bubble is not something a test can see. The
+                   handler decides -- see product-stock.js. #}
+                <label for="quantity-input" class="form-label text-muted small mb-1">
+                    {% if product.quantity is none %}Starting count{% else %}Set the count{% endif %}
+                </label>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control form-control-lg"
+                           id="quantity-input" inputmode="numeric" pattern="[0-9]*"
+                           autocomplete="off"
+                           {% if product.quantity is none %}
+                           placeholder="0"
+                           {% else %}
+                           value="{{ product.quantity }}"
+                           {% endif %}>
+                    {% if product.quantity is not none %}
+                    {# Absent, not disabled, while untracked: "Start counting this"
+                       is the commit control in that state, and two commit buttons
+                       saying different things would be ambiguous (FR-011). #}
+                    <button type="button" class="btn btn-outline-primary btn-lg"
+                            id="quantity-set-btn">Set</button>
+                    {% endif %}
+                </div>
+
+                {% if product.quantity is none and received_total %}
+                {# FR-012. Stated, never filled in: the record says what arrived and
+                   nothing says what has since been used, so a number committed
+                   unread would be a count nobody verified.
+
+                   Only while untracked (FR-013). Receiving into a *tracked* product
+                   already adds to its count, so repeating the total there would
+                   invite adding it a second time.
+
+                   The wording claims the total and nothing else. It deliberately
+                   does **not** say whether any of it has been counted, because this
+                   cannot know: the sum is over every received purchase across the
+                   product's whole life, while the guard above is on whether it is
+                   tracked *now*. A product that was tracked when a purchase arrived
+                   -- so the count did absorb it -- and was stopped afterwards reaches
+                   this line as well. Saying "none of it counted" there would be
+                   false, and false in the direction that invites the double-counting
+                   the guard exists to prevent. Telling the two apart would need a
+                   per-purchase flag recording whether the count absorbed it, which
+                   is a schema change to caption a hint; the hint says less instead. #}
+                <div class="text-muted small mb-2" id="received-total">
+                    {{ received_total }} received for this product to date.
+                </div>
+                {% endif %}
+
                 {% if product.quantity is none %}
                 <button type="button" class="btn btn-outline-primary btn-lg w-100 mb-2"
                         id="start-tracking-btn">

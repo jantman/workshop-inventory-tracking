@@ -357,6 +357,19 @@ def product_detail(product_id):
         latest_price=service.get_latest_price(product_id),
         from_scan=bool(request.args.get('from_scan')),
         outstanding=[p for p in purchases if p.is_outstanding],
+        # 039 FR-012. Receiving only moves a count that already exists --
+        # `receive_purchase` guards on `product.quantity is not None` -- so
+        # everything received into an untracked product left the count at zero.
+        # "Receive a hundred, then start counting" is the likeliest way to meet
+        # issue #139, and this is what the operator would otherwise reconstruct
+        # from the order history by hand.
+        #
+        # Arithmetic over the purchases already fetched above, not a second
+        # query: the same shape as the comprehension on the line before it. A
+        # purchase with no recorded quantity contributes nothing (FR-014).
+        received_total=sum(
+            p.quantity for p in purchases if not p.is_outstanding and p.quantity
+        ),
         attachments=attachments,
         purchase_attachments=purchase_attachments,
         identifier_types=OPERATOR_IDENTIFIER_TYPES,

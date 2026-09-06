@@ -28,9 +28,14 @@
                 }
             });
 
+            const set = document.getElementById('quantity-set-btn');
+            if (set) {
+                set.addEventListener('click', () => this.setTypedQuantity());
+            }
+
             const start = document.getElementById('start-tracking-btn');
             if (start) {
-                start.addEventListener('click', () => this.setQuantity(0));
+                start.addEventListener('click', () => this.startCountingAtTypedQuantity());
             }
 
             const stop = document.getElementById('stop-tracking-btn');
@@ -55,6 +60,73 @@
 
         step(delta) {
             this.setQuantity(Math.max(0, this.currentQuantity() + delta));
+        }
+
+        /**
+         * Read the typed count, or say why it cannot be read.
+         *
+         * Returns one of {value: <int>}, {empty: true}, or {error: <message>}.
+         * It never yields '' as a value to send, and that is the point: the
+         * service reads an empty quantity as "stop counting", because the
+         * product form posts '' for a field the operator left blank and there
+         * that is exactly right. An empty box here is saying nothing yet, which
+         * is a different thing, and this is the only place the two are
+         * distinguishable.
+         */
+        readEntry() {
+            const input = document.getElementById('quantity-input');
+            const raw = input ? input.value.trim() : '';
+
+            if (raw === '') {
+                return { empty: true };
+            }
+            if (/^-\d+$/.test(raw)) {
+                return { error: 'A count cannot be negative' };
+            }
+            if (!/^\d+$/.test(raw)) {
+                return { error: 'The count must be a whole number' };
+            }
+            return { value: parseInt(raw, 10) };
+        }
+
+        /**
+         * Commit the typed count on a product already being counted.
+         *
+         * Committing an unchanged number is not a no-op: it re-stamps the
+         * count's date, which is the operator saying they have just looked
+         * again. That is what an age on a count means (FR-003).
+         */
+        setTypedQuantity() {
+            const entry = this.readEntry();
+
+            if (entry.error) {
+                this.showAlert(entry.error);
+            } else if (entry.empty) {
+                this.showAlert(
+                    'Type a count to set. To stop counting this, use "Stop counting this".'
+                );
+            } else {
+                this.setQuantity(entry.value);
+            }
+        }
+
+        /**
+         * Begin counting, at the typed number if there is one.
+         *
+         * An untouched field is the absence of an entry rather than an entry of
+         * nothing, so it starts the count at zero exactly as this button did
+         * before there was a field to type in (FR-004). The Set button refuses
+         * that same emptiness, because its label promises a count -- the button
+         * the operator pressed is what says which one this is.
+         */
+        startCountingAtTypedQuantity() {
+            const entry = this.readEntry();
+
+            if (entry.error) {
+                this.showAlert(entry.error);
+            } else {
+                this.setQuantity(entry.empty ? 0 : entry.value);
+            }
         }
 
         setQuantity(quantity) {
