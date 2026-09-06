@@ -572,5 +572,71 @@ def amazon_urls(export_file):
     click.echo(summary.render(), err=True)
 
 
+@orders.command('receive-outstanding')
+@click.option(
+    '--before', required=True, type=click.DateTime(formats=['%Y-%m-%d']),
+    help='Only purchases ordered strictly before this date (YYYY-MM-DD).',
+)
+@click.option('--vendor', help='Restrict to one vendor. Case-insensitive.')
+@click.option('--dry-run', is_flag=True, help='List what would be received and stop.')
+def receive_outstanding(before, vendor, dry_run):
+    """Mark a backfill's outstanding purchases received, retroactively.
+
+    Capturing an order records every line as outstanding, which is right for an
+    order placed this week and wrong for one placed in 2023. The order review
+    has a tick for that -- *This order has already arrived* -- but it only
+    applies at capture. This is the same thing afterwards, for orders captured
+    before that existed or where the tick was forgotten.
+
+    Each purchase is received **on its own order date**, never today's:
+
+        python manage.py orders receive-outstanding --before 2026-01-01 --dry-run
+
+    ``--before`` is required and is the safety rail. ``--dry-run`` lists what
+    would be touched and writes nothing; without it the same list is shown and
+    confirmed before anything is written.
+
+    Like the tick it mirrors, this is **not** a receiving-desk receipt. No
+    counted quantity goes up and no hand-set low flag is cleared: goods
+    delivered two years ago have already been used, and a flag set last month is
+    a statement about today's shelf.
+
+    A purchase the vendor never dated is left alone and reported, because there
+    is no date to receive it at and today's would be wrong.
+
+    **There is no un-receive.** A purchase received by mistake has to be deleted
+    from the product's purchase record and captured again, which is why the list
+    is shown before the write and why --dry-run exists.
+    """
+    from app.catalog_service import CatalogService
+
+    service = CatalogService()
+    plan = service.plan_outstanding_receipts(before=before, vendor=vendor)
+
+    if plan.is_empty:
+        # Nothing to confirm, so nothing is asked. The undated count still
+        # prints -- "nothing matched" and "nothing matched but four purchases
+        # carry no date" are different answers.
+        click.echo(plan.render('Would receive'))
+        return
+
+    if dry_run:
+        click.echo(plan.render('Would receive'))
+        click.echo()
+        click.echo("Dry run: nothing was written.")
+        return
+
+    click.echo(plan.render('About to receive'))
+    click.echo()
+    if not click.confirm(
+        f"Receive {len(plan.receipts)} purchase(s)? There is no un-receive."
+    ):
+        click.echo("Nothing was written.")
+        return
+
+    written = service.apply_outstanding_receipts(plan)
+    click.echo(f"Received {written} outstanding purchase(s).")
+
+
 if __name__ == '__main__':
     cli()

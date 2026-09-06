@@ -6,7 +6,7 @@ including support for different materials, shapes, and threading specifications.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Tuple, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timedelta
 from enum import Enum
@@ -2242,3 +2242,95 @@ class PurchaseDeletion:
     unit_price: Optional[Decimal] = None
     supplier_order_reference: Optional[str] = None
     attachments_deleted: int = 0
+
+
+@dataclass(frozen=True)
+class OutstandingReceipt:
+    """One outstanding purchase a backfill sweep would mark received (042 FR-001).
+
+    ``order_date`` is deliberately **not** optional. A purchase the vendor never
+    dated is not a candidate -- there is no date to compare against the cutoff
+    and none to receive it at (FR-006) -- and modelling that here is what makes
+    "the receipt date is the purchase's own order date" (FR-008) total rather
+    than a condition re-checked at the write.
+
+    Flattened out of the ORM row, and for the reason ``PurchaseDeletion`` states:
+    the caller reads this after the session that loaded it has closed, and
+    leaning on ``expire_on_commit=False`` for that works by luck rather than by
+    design.
+    """
+    purchase_id: int
+    vendor: str
+    order_date: datetime
+    order_number: Optional[str] = None
+    product_description: Optional[str] = None
+    # Rendered so the operator can recognize the line. Never summed -- a
+    # backfill receipt moves no count (031 FR-028, 042 FR-009).
+    quantity: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class OutstandingReceiptPlan:
+    """What one sweep's selection found, before anything is written.
+
+    The read half of the bulk receipt. It exists so the operator can be shown
+    exactly what a run would touch and then confirm *that*: the command prints
+    this, prompts, and hands the same object back to be applied, so what was
+    listed is what gets written.
+
+    ``undated_count`` is a count and not a list on purpose. Those purchases are
+    outstanding and this command cannot honestly date them, so naming them here
+    would invite the operator to try; saying how many there are is what stops a
+    sweep that looks total from being mistaken for one (FR-006, FR-018).
+    """
+    receipts: Tuple[OutstandingReceipt, ...] = ()
+    undated_count: int = 0
+
+    @property
+    def purchase_ids(self) -> List[int]:
+        """The rows the write iterates, in the order they were listed."""
+        return [receipt.purchase_id for receipt in self.receipts]
+
+    @property
+    def is_empty(self) -> bool:
+        """Nothing to do -- the ordinary answer, not an error (FR-017)."""
+        return not self.receipts
+
+    def render(self, verb: str) -> str:
+        """The listing, as the command prints it (FR-014).
+
+        Rendering lives with the result rather than in the command body, the way
+        ``AmazonExportSummary.render`` already does for the other backfill
+        helper.
+
+        Args:
+            verb: How to open the heading -- "Would receive" for a dry run,
+                "About to receive" ahead of the confirmation prompt. The rows
+                are identical either way; only the promise about them differs.
+        """
+        if self.is_empty:
+            lines = ["No outstanding purchases match. Nothing to do."]
+        else:
+            lines = [
+                f"{verb} {len(self.receipts)} outstanding purchase(s), "
+                f"each dated from its own order date:",
+                "",
+            ]
+            for receipt in self.receipts:
+                quantity = '' if receipt.quantity is None else str(receipt.quantity)
+                lines.append(
+                    f"  #{receipt.purchase_id:<6} "
+                    f"{receipt.vendor:<14} "
+                    f"{receipt.order_number or '-':<16} "
+                    f"{receipt.order_date.strftime('%Y-%m-%d')}  "
+                    f"{quantity:>5}  "
+                    f"{receipt.product_description or ''}".rstrip()
+                )
+
+        if self.undated_count:
+            lines.append("")
+            lines.append(
+                f"{self.undated_count} outstanding purchase(s) skipped: no order "
+                f"date, so there is no date to receive them at."
+            )
+        return "\n".join(lines)
