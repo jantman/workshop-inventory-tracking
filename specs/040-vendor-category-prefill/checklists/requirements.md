@@ -31,9 +31,12 @@
 
 ## Notes
 
-- The three user stories are the three doors the vendor category reaches a product
-  through: order capture, single-part capture, and enrichment. Each is independently
-  testable and independently valuable; P1 alone closes the reported defect.
+- The three user stories cover the four doors the vendor category reaches a product
+  through: order capture (US1), the single-part capture page and the Add Product form a
+  scan opens (US2), and enrichment of an already-matched product (US3). Each story is
+  independently testable and independently valuable; P1 alone closes the reported defect.
+  The fourth door was found while planning and folded into US2 as FR-010 rather than
+  being fixed silently.
 - The one judgement call is FR-004 (a visible Category field on the single-part capture
   page), recorded in Assumptions as a deliberate small addition rather than an
   unremarked expansion of scope.

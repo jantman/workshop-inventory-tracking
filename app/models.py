@@ -931,10 +931,11 @@ class DigiKeyOrderLine:
 
     **There is no manufacturer here**, and its absence is not an oversight: a v4
     order line carries the manufacturer's *part number* but never the
-    manufacturer's *name*. That, and the category, datasheet, photograph and
-    parametric detail, come from a separate part lookup -- which is why capture
-    enriches every line (FR-040) rather than taking the order response as the
-    whole story.
+    manufacturer's *name*. That, and the datasheet, photograph and parametric
+    detail, come from a separate part lookup -- which is why capture enriches
+    every line (FR-040) rather than taking the order response as the whole
+    story. The part lookup states a category too, and capture deliberately does
+    not use it: DigiKey's catalog is not this workshop's shelves (040 FR-001).
 
     ``quantity_shipped`` and ``quantity_backorder`` are display-only. They let
     the review say "4 of 10 shipped, 6 on backorder" without inventing a

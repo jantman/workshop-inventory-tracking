@@ -236,12 +236,54 @@ class TestEnrichment:
         assert review.lines[0].part.manufacturer == 'MEAN WELL USA Inc.'
 
     def test_enrichment_fills_the_product_the_order_could_not(self, catalog, order, digikey):
+        """The manufacturer and the parametric detail -- and deliberately not the category.
+
+        This test asserted ``category_path is not None`` until feature 040.
+        DigiKey's category is a statement about their catalog, and the shop's
+        category tree is built from the values products actually carry, so
+        storing theirs once made it a branch of this workshop's taxonomy
+        (issue #138). The manufacturer is a fact about the part and stays.
+        """
         catalog.capture_digikey_order(order, include_all(order), digikey)
         product = catalog.find_product_by_identifier('IRM-05-5', id_type='MPN')
         assert product.manufacturer == 'MEAN WELL USA Inc.'
-        assert product.category_path is not None
+        assert not product.category_path
         names = [s.name for s in product.specifications]
         assert 'Type' in names
+
+    def test_no_captured_product_carries_digikeys_category(
+        self, catalog, order, digikey
+    ):
+        """040 FR-001. Not one line, and not one product.
+
+        The fixture part is filed under "Power Supplies - Board Mount", which
+        is not a path in anybody's shelves. The cost of storing it is not paid
+        in the one record -- it is paid on the categories page, which lists
+        every distinct value in use and would grow a vendor-shaped branch.
+        """
+        assert digikey.get_part('1866-3027-ND').category_path
+        catalog.capture_digikey_order(order, include_all(order), digikey)
+
+        products = catalog.list_products()
+        assert products
+        assert not any(product.category_path for product in products)
+
+    def test_a_part_lookup_failure_still_leaves_an_ordinary_blank_category(
+        self, catalog, order
+    ):
+        """040 FR-006. Uncategorized is a state, not a failure.
+
+        A line DigiKey would not answer for and a line it answered fully both
+        produce a product with no category, and neither raises. There is
+        nothing to tell apart, which is the point.
+        """
+        digikey = FakeDigiKey(fail_for={'1866-3027-ND'})
+        result = catalog.capture_digikey_order(order, include_all(order), digikey)
+
+        assert len(result.purchase_ids) == 2
+        assert not any(
+            product.category_path for product in catalog.list_products()
+        )
 
     def test_a_failed_part_lookup_leaves_that_line_thin(self, catalog, order):
         """FR-041. Costs that line's extra detail and nothing else."""

@@ -120,7 +120,7 @@ tests/
 ├── unit/
 │   ├── test_digikey_capture.py             # invert the "category is not None" assertion
 │   ├── test_order_enrichment.py            # invert "a blank category is filled"
-│   └── test_product_routes.py              # single-part form fields; scan prefill
+│   └── test_vendor_category.py             # single-part form fields; scan prefill (new)
 └── e2e/
     └── test_digikey_part.py                # the visible, empty Category field on that page
 

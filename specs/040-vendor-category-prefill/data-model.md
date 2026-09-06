@@ -18,9 +18,13 @@ one field involved is shaped the way it is — because that shape is the reason 
 
 ## The category tree is derived, not stored
 
-The browsable hierarchy on `/products/categories` has no rows of its own. It is computed from the
-distinct `category_path` values in use across products. Two consequences, and they are the whole
-argument of the feature:
+The browsable hierarchy on `/products/categories` has no rows of its own. `category_tree()` computes
+it as the **union** of the distinct `category_path` values products carry and the branches the
+declared taxonomy names (feature 025). A path products carry that the taxonomy does not name is
+legitimate — 025 FR-015 — and is flagged `in_taxonomy: False`, which is what makes the divergence
+visible at all (025 FR-019). A vendor category therefore does not merely appear in the tree; it
+appears in it as a branch nobody declared. Two consequences, and they are the whole argument of the
+feature:
 
 1. **Storing a value creates a branch.** There is no separate step at which a category is
    "created", so there is no step at which a vendor's value could be reviewed before it becomes

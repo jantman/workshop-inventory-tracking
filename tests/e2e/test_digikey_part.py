@@ -75,6 +75,49 @@ def test_the_operators_description_wins_over_digikeys(page, live_server, digikey
 
 
 @pytest.mark.e2e
+def test_the_category_box_starts_empty_and_the_product_is_uncategorized(
+    page, live_server, digikey_api
+):
+    """040 FR-003, FR-004. The vendor's category is shown, never carried.
+
+    DigiKey files this part under "Power Supplies - Board Mount". That used to
+    ride along in a hidden field, and one product carrying it puts it in the
+    shop's category tree for good -- the tree is built from the values products
+    carry, so storing a vendor's category *is* creating a branch (issue #138).
+    """
+    look_up(page, live_server, '1866-3027-ND')
+
+    # The page still says what DigiKey says. It just does not act on it.
+    expect(page.locator('#part-detail')).to_contain_text('Power Supplies - Board Mount')
+    expect(page.locator('#category_path')).to_have_value('')
+
+    page.fill('#description', 'Uncategorized on purpose')
+    page.click('#create-part')
+
+    # Landing on the product page is the signal the write finished.
+    expect(page.locator('h2')).to_contain_text('Uncategorized on purpose')
+    expect(page.locator('#product-category')).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_category_the_operator_types_is_the_one_that_is_stored(
+    page, live_server, digikey_api
+):
+    """040 FR-004. Filing at capture time survives; only the vendor's value goes."""
+    look_up(page, live_server, '1866-3027-ND')
+    expect(page.locator('#category_path')).to_have_value('')
+
+    page.fill('#description', 'Filed by hand')
+    page.fill('#category_path', 'electronics/power/power supplies')
+    page.click('#create-part')
+
+    expect(page.locator('h2')).to_contain_text('Filed by hand')
+    expect(page.locator('#product-category')).to_have_text(
+        'electronics/power/power supplies'
+    )
+
+
+@pytest.mark.e2e
 def test_a_part_already_cataloged_names_it(page, live_server, digikey_api):
     """FR-031. Rather than inviting a second one."""
     from app.catalog_service import CatalogService

@@ -66,8 +66,10 @@ Evidence:
   own default state.
 - `tests/unit/test_product_model.py` asserts a freshly-made product's `category_path` is `None`.
 - Every reader tolerates it: `product/detail.html` wraps the row in `{% if product.category_path %}`,
-  `product/search.html` renders `or ''`, and the taxonomy helpers build the tree from the distinct
-  values *in use*, so a product with none simply is not in it.
+  `product/search.html` renders `or ''`, and `category_tree()` unions the paths products carry with
+  the branches the declared taxonomy names, so a product carrying none simply contributes nothing.
+  (The same union is why storing one *does* contribute: a vendor path products carry but the
+  taxonomy does not name is a real branch, marked `in_taxonomy: False`.)
 - Every other capture path already produces uncategorized products: the Amazon listing capture by
   the explicit rule of 018 FR-013, the Amazon and McMaster order captures because those vendors
   have no part lookup to read a category from. The DigiKey order capture is the outlier being

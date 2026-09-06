@@ -315,7 +315,14 @@ def product_new():
                 'description': part.description,
                 'manufacturer': part.manufacturer,
                 'manufacturer_part_number': part.manufacturer_part_number,
-                'category_path': part.category_path,
+                # DigiKey's category is deliberately absent (040 FR-010). It
+                # landed in the visible Category box, which is better than the
+                # hidden field the part-capture page used to post but still the
+                # vendor's vocabulary one accepted default away from being a
+                # branch of the shop's category tree -- which is built from the
+                # values products carry (issue #138). Everything else here is a
+                # fact about the part; the category is a statement about this
+                # workshop, and only the operator can make it.
                 'digikey_part_number': part.digikey_part_number or distributor_part_number,
                 'digikey_datasheet_url': part.datasheet_url,
                 'digikey_photo_url': part.photo_url,
