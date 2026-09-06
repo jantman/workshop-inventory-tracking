@@ -122,9 +122,9 @@ accounts for it.
 
 - [X] T024 [P] Add a subsection to `docs/user-manual.md` immediately after **Saying it already arrived** (~line 1861), covering the command for an operator who captured orders as outstanding or forgot the tick: what to run, that `--dry-run` shows the list first, that the receipt date is each order's own date, and — restated rather than cross-referenced, because this is exactly the operator who will wonder — that a counted quantity does not go up and a hand-set low flag is not cleared. Say plainly that there is no un-receive and that a mistake means deleting the purchase and re-capturing it
 - [X] T025 [P] Check the wording added in T024 and every new docstring for the project's American spelling rule (`catalog`, never `catalogue`) per `CLAUDE.md`
-- [ ] T026 Run `venv/bin/nox -s tests` and confirm green, then run `venv/bin/nox -s e2e` detached (it exceeds the 10-minute Bash cap; see `CLAUDE.md`) and confirm it is unaffected — no page changed, so nothing there should move
-- [ ] T027 Confirm the working tree is clean after the test runs (Constitution IV) and that no file under `app/templates/**`, `app/static/css/**` or `app/static/js/**` was touched, so the screenshot gate correctly does not apply
-- [ ] T028 Mark this task list complete and commit, push the branch, and open the PR
+- [X] T026 Run `venv/bin/nox -s tests` and confirm green, then run `venv/bin/nox -s e2e` detached (it exceeds the 10-minute Bash cap; see `CLAUDE.md`) and confirm it is unaffected — no page changed, so nothing there should move
+- [X] T027 Confirm the working tree is clean after the test runs (Constitution IV) and that no file under `app/templates/**`, `app/static/css/**` or `app/static/js/**` was touched, so the screenshot gate correctly does not apply
+- [X] T028 Task list complete; committed, pushed, and opened PR #154 — all five CI checks green (unit-tests, e2e-tests, coverage, docker-build, claude-review) and the Claude review reported no issues
 
 ---
 
