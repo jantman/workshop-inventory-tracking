@@ -135,10 +135,21 @@ def test_the_stock_controls_are_large_enough_to_hit(touch_page, page, live_serve
     touch_page.wait_for_load_state("domcontentloaded")
 
     for selector in ["#flag-low-btn", "#flag-out-btn", "#clear-flag-btn",
-                     "#start-tracking-btn"]:
+                     "#start-tracking-btn", "#quantity-input"]:
         box = touch_page.locator(selector).bounding_box()
         assert box is not None, f"{selector} is not visible on a touch viewport"
         assert box["height"] >= 44, f"{selector} is only {box['height']}px tall"
+
+    # 039: the Set button exists only once there is a count to set, so start
+    # one. Tapping is the whole wait -- the button is server-rendered after the
+    # reload, so it cannot exist before the PATCH that produced the count
+    # completed.
+    touch_page.tap("#start-tracking-btn")
+    expect(touch_page.locator("#quantity-set-btn")).to_be_visible()
+
+    box = touch_page.locator("#quantity-set-btn").bounding_box()
+    assert box is not None, "#quantity-set-btn is not visible on a touch viewport"
+    assert box["height"] >= 44, f"#quantity-set-btn is only {box['height']}px tall"
 
 
 @pytest.mark.e2e

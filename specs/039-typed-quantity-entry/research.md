@@ -164,14 +164,36 @@ the class already routes server errors there. Rejecting locally means the page d
 FR-008 — correct the entry and commit again without losing the displayed count — falls out for
 free, since `patch()` only reloads on success.
 
-Browser constraint validation (`min`, `step` on a numeric input) is deliberately *not* the
-mechanism. A control that is not inside a form never runs it, and where it does run the failure is
-a transient native bubble — which is precisely the "submissions that never happen are silent"
-failure mode `CLAUDE.md` warns about. The attributes are still set, because they configure the
-touch keypad and the browser's own affordances, but the check that decides is in the handler.
+Browser constraint validation is deliberately *not* the mechanism. A control that is not inside a
+form never runs it, and where it does run the failure is a transient native bubble — which is
+precisely the "submissions that never happen are silent" failure mode `CLAUDE.md` warns about.
 
 **Alternatives considered**: Wrapping the control in a `<form>` and relying on constraint
 validation. Rejected: a native bubble is not observable from an E2E test, and this is not a form.
+
+## 7a. Why the field is not `type="number"` *(decided during implementation)*
+
+**Decision**: `type="text"` with `inputmode="numeric"` and `pattern="[0-9]*"`. Not `type="number"`
+with `min` and `step`, which is what §7 originally assumed.
+
+**Rationale**: a number input **discards non-numeric keystrokes and reports `value` as `''`** for
+content it considers invalid. So "abc" and an untouched field would arrive at the handler
+identically empty — and those are exactly the two cases FR-006 and FR-007 refuse with *different*
+messages ("type a count first" versus "the count must be a whole number"). Collapsing them would
+make one of the two requirements unimplementable and the other's message wrong half the time.
+
+It would also make the handler's non-numeric branch dead code, and dead code that a test cannot
+reach: Playwright refuses to `fill()` a number input with non-numeric text, so the E2E case for
+FR-007 could not be written at all.
+
+`inputmode="numeric"` is what actually raises the numeric keypad on a touchscreen, which is the
+only thing FR-010 needs from the input's type. `pattern` is there for the same reason (historically
+required alongside `inputmode` on iOS) and validates nothing, since the control is not in a form —
+the template says so at the call site so that nobody later reads it as validation that is somehow
+not firing.
+
+**Alternatives considered**: `type="number"` with the empty/invalid distinction dropped. Rejected —
+it deletes a requirement to keep an attribute.
 
 ## 8. Screenshots
 
@@ -179,12 +201,23 @@ validation. Rejected: a native bubble is not observable from an E2E test, and th
 change, and commit only screenshots whose content actually changed.
 
 **Rationale**: The constitution requires regenerating documentation screenshots for any change to
-`app/templates/**` or `app/static/js/**`, and CI blocks on stale ones. But
-`tests/e2e/screenshot_config.yaml` contains no product-detail entry, so the Stock card is very
-likely not depicted anywhere and the regeneration will be a no-op for this feature. Screenshot
-output churns byte-for-byte between runs regardless of content, so the diff must be inspected
-rather than committed wholesale — committing incidental churn is noise in review and is what
-`nox -s screenshots_verify` exists downstream of, not what it prevents.
+`app/templates/**` or `app/static/js/**`. Screenshot output churns byte-for-byte between runs
+regardless of content, so the diff must be inspected rather than committed wholesale — committing
+incidental churn is noise in review, and `nox -s screenshots_verify` does not catch it (it checks
+size, format and colour mode, nothing about content).
+
+**Corrected after running it.** This section originally predicted the regeneration would be a
+no-op, on the grounds that `tests/e2e/screenshot_config.yaml` has no product-detail entry. That
+was wrong: `docs/images/screenshots/user-manual/product_detail.png` exists and does depict the
+Stock card, generated from `tests/e2e/test_screenshot_generation.py` rather than from the YAML.
+The run changed six PNGs; `product_detail.png` grew by ~2.5KB, a real content change showing the
+new label, entry and Set button, and the other five moved by under 800 bytes each, which is churn.
+Only `product_detail.png` and `metadata.json` were committed.
+
+`.github/workflows/screenshots.yml` does **not** diff or block — it posts a reminder comment on
+PRs touching UI files and, in its own words, "leaves the judgment" to a person. So there is no
+staleness gate to satisfy, which is what makes reverting the churn the right call rather than a
+risk.
 
 ## 9. How the E2E tests wait
 

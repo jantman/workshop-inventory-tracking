@@ -36,9 +36,11 @@ count at zero.
 
 ### `#quantity-input`
 
-- Numeric entry, `min="0"`, `step="1"`, `inputmode="numeric"`. The attributes configure the
-  on-screen keypad and the browser's affordances; **they are not the validation** (see
-  `contracts/quantity-commit.md`).
+- `type="text"` with `inputmode="numeric"` and `pattern="[0-9]*"` — **not** `type="number"`. The
+  attributes configure the on-screen keypad; **they are not the validation** (see
+  `contracts/quantity-commit.md`). A number input would report `value` as `''` for content it
+  considers invalid, collapsing "abc" and an untouched field into one case — and those are the two
+  FR-006 and FR-007 refuse with different messages (`research.md` §7a).
 - When the product is counted, its value is the current count, so committing an unchanged field is
   a re-verification (FR-003) rather than an accident.
 - When the product is not counted, it is empty and labelled as a starting count. Empty means zero

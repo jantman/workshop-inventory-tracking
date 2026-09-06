@@ -84,6 +84,15 @@ service layer without changing what an empty value means for product creation (s
   The service would read `''` as `None`, which means "stop counting" and is not what an empty box
   is saying.
 
+One pre-existing behavior was found while testing and deliberately left alone: the endpoint
+**truncates** a fractional quantity rather than refusing it, because `_validate_quantity` coerces
+with `int()`, so `{"quantity": 2.5}` stores `2`. Nothing sends a fraction — the Stock card only
+sends the integer parse of a string it has already matched against `^\d+$`, and a fractional entry
+is refused in the browser with a message. Tightening the validator would change product creation
+and editing, which pass form strings through it, to guard against a client that does not exist.
+Recorded in `tests/unit/test_typed_quantity.py` so it stays a known behavior rather than a
+rediscovery.
+
 ## What is not modelled
 
 - No history of count changes. `quantity_updated_at` remains a single "last established" stamp,
