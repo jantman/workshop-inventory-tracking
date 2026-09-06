@@ -19,7 +19,7 @@ def create_product(page, base_url, description):
     return page.url
 
 
-def print_label(page, stock="Sato 2x4"):
+def print_label(page, stock="Sato 2x4", count=None):
     """Open the label modal, pick a stock and print"""
     page.click("#print-product-label-btn")
     expect(page.locator("#product-label-modal")).to_be_visible()
@@ -27,6 +27,12 @@ def print_label(page, stock="Sato 2x4"):
     # single placeholder option, so more than one option is proof it arrived.
     wait_for_select_populated(page, "product-label-type-select")
     page.select_option("#product-label-type-select", stock)
+    if count is not None:
+        page.fill("#product-label-count", str(count))
+        # fill() is synchronous against a plain input, but the value is read at
+        # click time -- confirm it landed before clicking, or a slow machine
+        # posts the default.
+        expect(page.locator("#product-label-count")).to_have_value(str(count))
     page.click("#product-label-print-confirm")
     # print() posts and reports the outcome into #product-label-alert -- on both
     # the success and the failure path -- so the alert existing means the POST
@@ -135,3 +141,69 @@ def test_the_label_carries_provenance_once_there_is_a_purchase(page, live_server
 
     print_label(page)
     expect(page.locator("#product-label-alert")).to_contain_text("Bought widget")
+
+
+@pytest.mark.e2e
+def test_several_copies_print_in_one_pass(page, live_server):
+    """SC-005: N copies is one trip through the dialog, not N trips"""
+    create_product(page, live_server.url, "Bagged widget")
+
+    print_label(page, count=3)
+
+    # The confirmation names the count, which is the only thing on the page that
+    # distinguishes three labels from one -- printing itself is short-circuited.
+    expect(page.locator("#product-label-alert")).to_contain_text(
+        "3 labels printed for Bagged widget"
+    )
+
+
+@pytest.mark.e2e
+def test_the_count_defaults_to_one(page, live_server):
+    """Touching nothing prints one label, as it always has"""
+    create_product(page, live_server.url, "Single widget")
+
+    expect(page.locator("#product-label-count")).to_have_value("1")
+
+    print_label(page)
+
+    expect(page.locator("#product-label-alert")).to_contain_text(
+        "Label printed for Single widget"
+    )
+
+
+@pytest.mark.e2e
+def test_a_count_out_of_range_is_refused_and_prints_nothing(page, live_server):
+    """The spinner bounds the arrows, not what can be typed into the box.
+
+    Refused by the shared reader before the request is made, in the wording
+    every print dialog uses. The route validates the same range again -- that
+    backstop is covered by the unit tests, which can post past the dialog.
+    """
+    create_product(page, live_server.url, "Refused widget")
+
+    print_label(page, count=200)
+
+    expect(page.locator("#product-label-alert")).to_contain_text(
+        "Label count must be a whole number between 1 and 99"
+    )
+
+
+@pytest.mark.e2e
+def test_the_count_does_not_survive_into_the_next_job(page, live_server):
+    """A job of three must not silently become the next job's default.
+
+    The modal is one static node reused on every open, so the markup's value="1"
+    applies once and never again. Without the reset in open(), reopening shows
+    the previous count -- and printing accepts it.
+    """
+    create_product(page, live_server.url, "Reset widget")
+
+    print_label(page, count=3)
+    expect(page.locator("#product-label-alert")).to_contain_text("3 labels printed")
+
+    page.click("#product-label-modal .btn-secondary")
+    expect(page.locator("#product-label-modal")).not_to_be_visible()
+
+    page.click("#print-product-label-btn")
+    expect(page.locator("#product-label-modal")).to_be_visible()
+    expect(page.locator("#product-label-count")).to_have_value("1")

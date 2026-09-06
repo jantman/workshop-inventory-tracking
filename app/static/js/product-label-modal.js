@@ -20,6 +20,7 @@
             this.button = button;
             this.productId = button.dataset.productId;
             this.select = document.getElementById('product-label-type-select');
+            this.count = document.getElementById('product-label-count');
             this.confirm = document.getElementById('product-label-print-confirm');
             this.alerts = document.getElementById('product-label-alerts');
             this.modalEl = document.getElementById('product-label-modal');
@@ -32,6 +33,13 @@
 
         open() {
             this.alerts.innerHTML = '';
+            // The stock is remembered across opens; the count deliberately is
+            // not. The modal is one static node reused every time it is shown,
+            // so the markup's value="1" only ever applies on the first open --
+            // without this line a job of 20 would still read 20 the next time
+            // the dialog opened, and print 20. The three sibling print dialogs
+            // reset theirs for the same reason.
+            this.count.value = '1';
             this.loadLabelTypes().then(() => {
                 new bootstrap.Modal(this.modalEl).show();
             });
@@ -71,6 +79,21 @@
                 return;
             }
 
+            // The shared reader, not a fourth hand-rolled one: the bounds and
+            // the wording when a count is refused have to agree across the
+            // print dialogs, which is why label-count.js exists. Its own
+            // docstring already counted this dialog as the fourth.
+            //
+            // The gate is here rather than in the browser's constraint
+            // validation because the print button is type="button", for which
+            // constraint validation never fires. The route validates again --
+            // min/max on the input bounds the spinner, not what can be typed.
+            const countResult = window.readLabelCount('product-label-count');
+            if (!countResult.ok) {
+                this.showAlert('warning', countResult.error);
+                return;
+            }
+
             try {
                 localStorage.setItem(STORAGE_KEY, labelType);
             } catch (e) {
@@ -81,7 +104,10 @@
             csrfFetch(`/api/products/${this.productId}/label`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ label_type: labelType })
+                body: JSON.stringify({
+                    label_type: labelType,
+                    label_count: countResult.value
+                })
             })
                 .then((response) => response.json())
                 .then((data) => {

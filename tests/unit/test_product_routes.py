@@ -10,6 +10,8 @@ static pages, and if it ever outranked them the failure would surface somewhere
 else entirely.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from app.catalog_service import CatalogService
@@ -162,3 +164,107 @@ class TestExistingProductRoutesAreNotShadowed:
         matched, args = app.url_map.bind('localhost').match('/products/WIT0123456789')
         assert matched == 'product.product_by_code'
         assert args == {'product_code': 'WIT0123456789'}
+
+
+class TestPrintingAProductLabel:
+    """POST /api/products/<id>/label -- 038, issue #141.
+
+    ``print_product_label`` is patched out rather than allowed to short-circuit
+    on TESTING, so the assertion is on what the route *passed* rather than on
+    what it logged. **No test here reaches LpPrinter.print_images()**, which
+    drives real hardware.
+    """
+
+    def test_the_label_carries_the_manufacturer_and_part_number(
+        self, client, service
+    ):
+        product = service.create_product(
+            description='5W AC/DC converter',
+            manufacturer='MEAN WELL',
+            manufacturer_part_number='IRM-05-5',
+        )
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            response = client.post(
+                f'/api/products/{product.id}/label',
+                json={'label_type': 'Sato 2x4'},
+            )
+
+        assert response.status_code == 200
+        assert printer.call_args.kwargs['provenance_lines'] == ['MEAN WELL  IRM-05-5']
+
+    def test_a_product_without_either_field_still_prints(self, client, service):
+        product = service.create_product(description='Unbranded widget')
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            response = client.post(
+                f'/api/products/{product.id}/label',
+                json={'label_type': 'Sato 2x4'},
+            )
+
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+        assert printer.call_args.kwargs['provenance_lines'] == []
+
+    def test_the_count_defaults_to_one_when_absent(self, client, service):
+        """A caller that sends no count keeps working exactly as it did"""
+        product = service.create_product(description='Blue widget')
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            response = client.post(
+                f'/api/products/{product.id}/label',
+                json={'label_type': 'Sato 2x4'},
+            )
+
+        assert response.status_code == 200
+        assert printer.call_args.kwargs['num_copies'] == 1
+        assert response.get_json()['label_count'] == 1
+        assert response.get_json()['message'] == 'Label printed for Blue widget'
+
+    @pytest.mark.parametrize('count', [1, 5, 99])
+    def test_an_accepted_count_reaches_the_printer(self, client, service, count):
+        product = service.create_product(description='Blue widget')
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            response = client.post(
+                f'/api/products/{product.id}/label',
+                json={'label_type': 'Sato 2x4', 'label_count': count},
+            )
+
+        assert response.status_code == 200
+        assert printer.call_args.kwargs['num_copies'] == count
+        assert response.get_json()['label_count'] == count
+
+    def test_more_than_one_is_said_in_the_plural(self, client, service):
+        product = service.create_product(description='Blue widget')
+
+        with patch('app.services.product_label.print_product_label'):
+            response = client.post(
+                f'/api/products/{product.id}/label',
+                json={'label_type': 'Sato 2x4', 'label_count': 5},
+            )
+
+        assert response.get_json()['message'] == '5 labels printed for Blue widget'
+
+    @pytest.mark.parametrize('count,error', [
+        (0, 'label_count must be between 1 and 99'),
+        (-1, 'label_count must be between 1 and 99'),
+        (100, 'label_count must be between 1 and 99'),
+        (2.5, 'label_count must be a whole number'),
+        ('3', 'label_count must be a whole number'),
+        (None, 'label_count must be a whole number'),
+        # bool is a subclass of int, so True would otherwise pass as 1.
+        (True, 'label_count must be a whole number'),
+    ])
+    def test_a_refused_count_prints_nothing(self, client, service, count, error):
+        product = service.create_product(description='Blue widget')
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            response = client.post(
+                f'/api/products/{product.id}/label',
+                json={'label_type': 'Sato 2x4', 'label_count': count},
+            )
+
+        assert response.status_code == 400
+        assert response.get_json()['error'] == error
+        printer.assert_not_called()

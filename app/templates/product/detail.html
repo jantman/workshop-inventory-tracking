@@ -491,10 +491,17 @@
                         <option value="">Select label stock...</option>
                     </select>
                     <div class="form-text">
-                        The label carries the description, where it came from, and the code in
+                        The label carries the description, the manufacturer and part number,
+                        where it came from with the price marked per unit, and the code in
                         both scannable and readable form. On the narrowest stock the description
                         is what gets shortened.
                     </div>
+                </div>
+                <div class="mb-3">
+                    <label for="product-label-count" class="form-label">Number of labels</label>
+                    <input type="number" class="form-control" id="product-label-count"
+                           min="1" max="99" step="1" value="1">
+                    <div class="form-text">How many copies of this label to print (1-99)</div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -509,6 +516,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-label-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-stock.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-attachments.js') }}"></script>
