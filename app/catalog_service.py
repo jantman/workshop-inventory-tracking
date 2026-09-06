@@ -52,6 +52,8 @@ from .models import (
     McMasterOrder,
     OrderCaptureReview,
     OrderLineState,
+    OutstandingReceipt,
+    OutstandingReceiptPlan,
     PurchaseDeletion,
     ReviewedLine,
     ScanClassification,
@@ -3170,6 +3172,143 @@ class CatalogService:
             reverse=True,
         )
         return orders
+
+    def plan_outstanding_receipts(
+        self, before: datetime, vendor: Optional[str] = None,
+    ) -> OutstandingReceiptPlan:
+        """The outstanding purchases a backfill sweep would mark received (042 FR-001).
+
+        Reads and decides; writes nothing. Its counterpart
+        :meth:`apply_outstanding_receipts` takes what this returns, so the rows
+        the operator was shown are the rows that get written.
+
+        A purchase is a candidate when it is outstanding, carries an order date,
+        and was ordered strictly before the cutoff -- "before" means before, so
+        an order placed *on* ``before`` is not swept. **Provenance is not part of
+        the predicate** (FR-007): a hand-recorded outstanding purchase from 2023
+        is the same wrong state as a captured one.
+
+        Args:
+            before: The cutoff. Required, and required of the caller too: an
+                unbounded sweep of every outstanding purchase in the database
+                has no legitimate use, and this date is the whole safety rail.
+            vendor: Restrict to one vendor, matched case-insensitively with
+                surrounding whitespace stripped -- the operator typing it is
+                recalling a name, not reading one. ``None`` means every vendor.
+
+        Returns:
+            The plan. Empty is the ordinary "nothing to do" answer, not an error.
+        """
+        cleaned_vendor = (vendor or '').strip()
+
+        with self._session() as session:
+            outstanding = session.query(Purchase).filter(
+                Purchase.received_date.is_(None)
+            )
+            if cleaned_vendor:
+                outstanding = outstanding.filter(
+                    func.lower(func.trim(Purchase.vendor)) == cleaned_vendor.lower()
+                )
+
+            rows = (
+                outstanding.options(selectinload(Purchase.product))
+                .filter(
+                    Purchase.order_date.isnot(None),
+                    Purchase.order_date < before,
+                )
+                .order_by(Purchase.order_date, Purchase.id)
+                .all()
+            )
+
+            # A second small query rather than a branch on the rows above: the
+            # cutoff cannot apply to a row with no date to compare, so undated
+            # purchases never appear there to be counted (FR-006).
+            undated_count = outstanding.filter(
+                Purchase.order_date.is_(None)
+            ).count()
+
+            receipts = tuple(
+                OutstandingReceipt(
+                    purchase_id=row.id,
+                    vendor=row.vendor,
+                    order_date=row.order_date,
+                    order_number=row.supplier_order_reference,
+                    product_description=(
+                        row.product.description if row.product is not None else None
+                    ),
+                    quantity=row.quantity,
+                )
+                for row in rows
+            )
+
+        return OutstandingReceiptPlan(receipts=receipts, undated_count=undated_count)
+
+    def apply_outstanding_receipts(self, plan: OutstandingReceiptPlan) -> int:
+        """Mark a planned sweep's purchases received, dated from their own orders.
+
+        The retroactive half of the capture-time "this order has already arrived"
+        tick (031 FR-024). Each purchase's ``received_date`` becomes its own
+        ``order_date`` (042 FR-008) -- the rule ``_resolve_arrival_date`` already
+        settled for a backfilled arrival, reused rather than restated, because a
+        delivery from 2023 recorded as arriving today is wrong in exactly the way
+        backfilling exists to avoid. Equal dates pass
+        ``_validate_receipt_order`` by construction.
+
+        **This deliberately does not do what receive_purchase does**, and that is
+        the whole design rather than an omission. Four things stay put:
+
+        * **No tracked count moves** (FR-009). Goods delivered two years ago have
+          been consumed; adding them now would inflate every counted quantity in
+          the catalog by years of consumption, and nothing would say which
+          numbers were wrong.
+        * **No count's age moves** (FR-010). Nobody counted anything -- the
+          operator is at a terminal, not at the shelf.
+        * **No manual low flag clears** (FR-011). A flag set last month is a
+          statement about today's shelf.
+        * **No quantity, price, notes or description is amended** (FR-012).
+
+        ``capture_order_lines`` takes the same position for a line captured as
+        already-arrived (031 FR-028) and reaches it the same way: by writing the
+        column rather than calling :meth:`receive_purchase`. There it holds *by
+        construction* -- a purchase born with a ``received_date`` never passes
+        through that method. **Here it does not.** This is the first code that
+        receives an already-existing purchase without going through
+        ``receive_purchase``, so nothing but ``tests/unit/test_bulk_receive.py``
+        will notice if a later refactor routes it back.
+
+        The whole sweep lands or none of it does (FR-020): ``_session`` commits
+        on success and rolls back on any exception.
+
+        Args:
+            plan: What :meth:`plan_outstanding_receipts` returned and the
+                operator confirmed.
+
+        Returns:
+            How many purchases were written.
+        """
+        written = 0
+
+        with self._session() as session:
+            for purchase_id in plan.purchase_ids:
+                purchase = session.query(Purchase).filter(
+                    Purchase.id == purchase_id
+                ).first()
+                # Re-checked rather than trusted: the plan was read in an earlier
+                # session, and an existing receipt is never overwritten (FR-002).
+                if purchase is None or purchase.received_date is not None:
+                    continue
+                if purchase.order_date is None:
+                    continue
+
+                purchase.received_date = purchase.order_date
+                written += 1
+
+        if written:
+            logger.info(
+                f"Backfill sweep received {written} outstanding purchase(s), "
+                f"each dated from its own order date"
+            )
+        return written
 
     def find_order_lines_for(self, vendor_name: str, order_number: str) -> List[Purchase]:
         """The purchases that make up one order, for any vendor.

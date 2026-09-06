@@ -1893,6 +1893,49 @@ is what you would have done anyway.
 and an order marked delivered by mistake has to be sorted out on the product's
 purchase record afterwards.
 
+### If you forgot to say it
+
+The tick above only applies while you are capturing. If you have already
+captured a pile of old orders without it — or you started backfilling before the
+tick existed — every one of those lines is sitting outstanding, and the reorder
+list is telling you that a delivery from 2023 is on its way.
+
+There is a command for that. It does the same thing afterwards:
+
+```bash
+python manage.py orders receive-outstanding --before 2026-01-01 --dry-run
+```
+
+It finds every outstanding purchase ordered **before** the date you give, lists
+them, and — with `--dry-run` — stops there. Read the list. When it is right, run
+it again without `--dry-run` and it shows you the same list and asks before
+writing anything.
+
+- **`--before` is required.** It is the whole safety rail: an order placed before
+  it and still outstanding is almost certainly one that turned up and was never
+  marked. Pick a date you are sure of.
+- **`--vendor DigiKey` narrows it to one vendor.** Case does not matter. Leave it
+  out and every vendor is included.
+- **Each purchase is received on its own order date**, exactly as the tick does.
+  Never today's.
+- **A purchase with no order date is left alone** and the count of those is
+  reported. There is no date to receive it at, and today's would be wrong.
+
+It is the same kind of receipt as the tick, which means the same two things do
+not happen: **a counted quantity does not go up**, and **a low flag you set by
+hand is not cleared.**
+
+**There is no un-receive.** If you sweep something that had not actually
+arrived, the only way back is to delete that purchase from the product's
+purchase record and capture it again. That is why the list is shown twice before
+anything is written — use `--dry-run` first, and narrow the date if you see a
+line that is genuinely still on order.
+
+**For a mixed order** — most of it delivered years ago, one line still coming —
+this command has no per-line control, on purpose. Narrow the date if that
+separates them; otherwise leave that order out of the sweep and receive its
+lines individually from the product pages.
+
 ## Printing Product Labels
 
 These are the catalog's labels, carrying a product's internal code. For the
