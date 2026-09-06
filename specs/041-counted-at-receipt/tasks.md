@@ -109,12 +109,12 @@ prose changes and none of them blocks another.
 
 ## Phase 7: Polish and gates
 
-- [ ] T022 Run `venv/bin/nox -s tests` with `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"` and confirm green
-- [ ] T023 Run `venv/bin/nox -s e2e` **detached** (`nohup ... &`, then poll the log) — it takes ~14 minutes warm and exceeds the usual 10-minute shell cap. Confirm green, and confirm the working tree is still clean afterwards per Constitution IV
-- [ ] T024 Run `venv/bin/nox -s screenshots_headless` then `venv/bin/nox -s screenshots_verify`, because `app/templates/**` changed. Then `git status --short docs/images/screenshots/`: no PNG should differ, since no documentation screenshot shows the receive screen. Commit only images that genuinely changed; leave `metadata.json`'s `generated_at` churn out of the commit
-- [ ] T025 Walk `quickstart.md`'s five manual scenarios against a running app (`venv/bin/python app.py`), confirming in particular Scenario 4 (a refusal keeps the tick and writes nothing) and Scenario 5 (a second submission records the age), which no automated test drives through the browser
-- [ ] T026 Re-read the diff for the one thing this feature must not do: confirm no path writes `quantity_updated_at` without `counted` being true, and that `git diff app/` touches only `catalog_service.py`, `database.py`, `product/routes.py` and `templates/product/receive.html`
-- [ ] T027 Commit, push `robot-army/issue-149-explicit-i-counted-the-shelf-option` to `origin`, and open the pull request
+- [X] T022 Run `venv/bin/nox -s tests` with `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH"` and confirm green
+- [X] T023 Run `venv/bin/nox -s e2e` **detached** (`nohup ... &`, then poll the log) — it takes ~14 minutes warm and exceeds the usual 10-minute shell cap. Confirm green, and confirm the working tree is still clean afterwards per Constitution IV
+- [X] T024 Run `venv/bin/nox -s screenshots_headless` then `venv/bin/nox -s screenshots_verify`, because `app/templates/**` changed. Then `git status --short docs/images/screenshots/`: no PNG should differ, since no documentation screenshot shows the receive screen. Commit only images that genuinely changed; leave `metadata.json`'s `generated_at` churn out of the commit
+- [X] T025 Walk `quickstart.md`'s five manual scenarios against a running app (`venv/bin/python app.py`), confirming in particular Scenario 4 (a refusal keeps the tick and writes nothing) and Scenario 5 (a second submission records the age), which no automated test drives through the browser
+- [X] T026 Re-read the diff for the one thing this feature must not do: confirm no path writes `quantity_updated_at` without `counted` being true, and that `git diff app/` touches only `catalog_service.py`, `database.py`, `product/routes.py` and `templates/product/receive.html`
+- [X] T027 Commit, push `robot-army/issue-149-explicit-i-counted-the-shelf-option` to `origin`, and open the pull request
 
 ---
 
