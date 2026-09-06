@@ -158,3 +158,71 @@ def test_adjusting_a_count_at_the_shelf_resets_its_age(page, live_server):
     # trip finished, and the age line is re-rendered by that same reload.
     expect(page.locator("#quantity-value")).to_contain_text("5")
     expect(page.locator("#quantity-age")).to_have_text("counted just now")
+
+
+@pytest.mark.e2e
+def test_ticking_the_counted_box_at_receipt_resets_the_age(page, live_server):
+    """041 FR-003, SC-002, SC-003 -- the operator did look, and says so.
+
+    The mirror of ``test_receiving_does_not_reset_a_counted_age`` above: same
+    seeding, same screen, same submit, one checkbox ticked in between. That pair
+    is the whole of feature 041 -- 008's carve-out is the default and this is its
+    one named exception.
+    """
+    service = CatalogService(live_server.storage)
+    product = service.create_product(
+        description='M3 standoff', quantity=4, reorder_threshold=5
+    )
+    service.record_purchase(
+        product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=100
+    )
+    live_server.backdate_product(product.id, quantity_updated_at=days_ago(100))
+
+    page.goto(f"{live_server.url}/products/reorder")
+    receive = page.locator(f"tr[data-product-id='{product.id}'] .receive-btn")
+    expect(receive).to_be_visible()
+    receive.click()
+
+    expect(page.locator("#confirm-receive-btn")).to_be_visible()
+    counted = page.locator("#counted")
+    # Default off, checked here by the operator and never by the page (FR-002).
+    expect(counted).not_to_be_checked()
+    counted.check()
+
+    page.click("#confirm-receive-btn")
+
+    # Receiving redirects to the product page. The increased count is the proof
+    # the round trip landed, so it is also the wait for the age assertion below.
+    expect(page.locator("#quantity-value")).to_contain_text("104")
+    expect(page.locator("#quantity-age")).to_have_text("counted just now")
+
+
+@pytest.mark.e2e
+def test_the_counted_box_is_offered_only_where_a_count_is_tracked(page, live_server):
+    """041 FR-007 -- a tick that would do nothing is not offered.
+
+    Both assertions are negative or absence-shaped, so each waits on
+    ``#confirm-receive-btn`` first: a ``to_have_count(0)`` against a page that
+    has not rendered passes for the wrong reason.
+    """
+    service = CatalogService(live_server.storage)
+
+    untracked = service.create_product(description='Blue tape')
+    untracked_purchase = service.record_purchase(
+        untracked.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=10
+    )
+
+    # Zero is a number somebody counted, not an absence -- the control belongs
+    # on this one.
+    counted_to_zero = service.create_product(description='M3 standoff', quantity=0)
+    zero_purchase = service.record_purchase(
+        counted_to_zero.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=10
+    )
+
+    page.goto(f"{live_server.url}/purchases/{untracked_purchase.id}/receive")
+    expect(page.locator("#confirm-receive-btn")).to_be_visible()
+    expect(page.locator("#counted")).to_have_count(0)
+
+    page.goto(f"{live_server.url}/purchases/{zero_purchase.id}/receive")
+    expect(page.locator("#confirm-receive-btn")).to_be_visible()
+    expect(page.locator("#counted")).to_have_count(1)

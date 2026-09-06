@@ -18,6 +18,7 @@ from app.catalog_service import CatalogService
 from app.database import Product
 from app.exceptions import ItemNotFoundError, ValidationError
 from app.product.routes import relative_age
+from app.utils.clock import utc_now
 
 
 @pytest.fixture
@@ -348,6 +349,11 @@ class TestReceivingDoesNotVerifyACount:
     anything. Every assertion below compares the stored timestamp for
     **equality** with the seeded value, never ``>=`` and never "older than an
     hour": the weaker forms pass against exactly the bug being removed.
+
+    None of these pass ``counted``, so all of them exercise its ``False``
+    default -- which is the point. Feature 041 added the operator's explicit
+    override (see ``TestTheOperatorCanSayTheyCounted`` below) and this class is
+    the proof that it changed nothing about the path nobody opts into.
     """
 
     def _tracked_with_an_outstanding_order(self, service, quantity=4, ordered=100):
@@ -406,6 +412,171 @@ class TestReceivingDoesNotVerifyACount:
         after = service.get_product(product.id)
         assert after.quantity == 104
         assert after.quantity_updated_at == COUNTED_IN_JANUARY
+
+
+class TestTheOperatorCanSayTheyCounted:
+    """041 FR-003 to FR-010: the one thing that lets a receipt move the age.
+
+    Feature 008's carve-out is not reversed here. What it always meant was that
+    *the machine* may not assert a verification, and the operator always may --
+    so a tick saying "I counted what is on the shelf" writes the age, and
+    everything else about receiving stays exactly where 008 left it.
+
+    ``counted=True`` is passed explicitly everywhere below. The unticked path
+    lives in ``TestReceivingDoesNotVerifyACount`` above and in the two dozen
+    other ``receive_purchase`` call sites across this suite that pass nothing.
+    """
+
+    def _tracked_with_an_outstanding_order(self, service, quantity=4, ordered=100):
+        product = service.create_product(description='M3 standoff', quantity=quantity)
+        backdate(service, product.id, quantity_updated_at=COUNTED_IN_JANUARY)
+        purchase = service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=ordered
+        )
+        return product, purchase
+
+    def test_the_count_rises_and_the_age_resets(self, service):
+        """041 FR-003, SC-002 -- the whole feature in one assertion pair"""
+        product, purchase = self._tracked_with_an_outstanding_order(service)
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert after.quantity == 104
+        assert utc_now() - after.quantity_updated_at < timedelta(minutes=1)
+
+    def test_passing_it_false_explicitly_leaves_the_age_alone(self, service):
+        """041 FR-004 -- equality, for the same reason the class above uses it"""
+        product, purchase = self._tracked_with_an_outstanding_order(service)
+        service.receive_purchase(purchase.id, counted=False)
+
+        after = service.get_product(product.id)
+        assert after.quantity == 104
+        assert after.quantity_updated_at == COUNTED_IN_JANUARY
+
+    def test_an_untracked_product_still_gains_neither(self, service):
+        """041 FR-006 -- ticking the box does not start counting something.
+
+        008 FR-009 in a case that did not exist when it was written: the
+        assertion is about a count, and a product with no count has nothing for
+        it to be about.
+        """
+        product = service.create_product(description='untracked')
+        purchase = service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=10
+        )
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert after.quantity is None
+        assert after.quantity_updated_at is None
+
+    def test_a_purchase_with_no_quantity_still_moves_the_age(self, service):
+        """041 FR-005 and the no-quantity edge case.
+
+        The increment is guarded on ``purchase.quantity`` and this write
+        deliberately is not. A delivery with no number recorded on it does not
+        stop the operator having looked in the drawer, and the drawer is what
+        the age is about.
+        """
+        product = service.create_product(description='M3 standoff', quantity=4)
+        backdate(service, product.id, quantity_updated_at=COUNTED_IN_JANUARY)
+        purchase = service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14)
+        )
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert after.quantity == 4
+        assert utc_now() - after.quantity_updated_at < timedelta(minutes=1)
+
+    def test_a_second_receipt_moves_the_age_and_nothing_else(self, service):
+        """041 FR-010 -- the assertion is about now, not about the purchase.
+
+        Receiving twice stays a no-op for the received date and for the count.
+        Whether the operator looked at the shelf a moment ago is a separate
+        question from what state this purchase was already in, which is why the
+        write sits outside the already-received guard alongside the description
+        amendment.
+        """
+        product, purchase = self._tracked_with_an_outstanding_order(service)
+        first = service.receive_purchase(purchase.id, received_date=datetime(2026, 2, 1))
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert service.get_purchase(purchase.id).received_date == first.received_date
+        assert after.quantity == 104
+        assert utc_now() - after.quantity_updated_at < timedelta(minutes=1)
+
+    def test_a_tracked_count_of_zero_is_a_count(self, service):
+        """A counted zero is a number somebody counted, not an absence"""
+        product = service.create_product(description='M3 standoff', quantity=0)
+        backdate(service, product.id, quantity_updated_at=COUNTED_IN_JANUARY)
+        purchase = service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=10
+        )
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert after.quantity == 10
+        assert utc_now() - after.quantity_updated_at < timedelta(minutes=1)
+
+    def test_a_count_never_counted_gets_its_first_age(self, service):
+        """041 Story 1 scenario 4 -- this is the operator counting"""
+        product = service.create_product(description='M3 standoff', quantity=4)
+        backdate(service, product.id, quantity_updated_at=None)
+        purchase = service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=100
+        )
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert after.quantity == 104
+        assert utc_now() - after.quantity_updated_at < timedelta(minutes=1)
+
+    def test_the_manual_flag_is_cleared_the_same_either_way(self, service):
+        """041 FR-011 -- the flag is a separate assertion and is untouched"""
+        product = service.create_product(description='x', quantity=4)
+        service.set_stock_status(product.id, 'low')
+        purchase = service.record_purchase(
+            product.id, vendor='Amazon', order_date=datetime(2026, 1, 14), quantity=10
+        )
+        service.receive_purchase(purchase.id, counted=True)
+
+        after = service.get_product(product.id)
+        assert after.stock_status is None
+        assert after.stock_status_updated_at is None
+
+    def test_a_refusal_records_no_age(self, service):
+        """041 FR-009 -- validation happens before the session opens.
+
+        A refused submission must not leave the operator's assertion half
+        applied: the count, its age and the received date are all as they were.
+        """
+        product, purchase = self._tracked_with_an_outstanding_order(service)
+
+        with pytest.raises(ValidationError):
+            service.receive_purchase(purchase.id, counted=True, unit_price='not a price')
+
+        after = service.get_product(product.id)
+        assert after.quantity == 4
+        assert after.quantity_updated_at == COUNTED_IN_JANUARY
+        assert service.get_purchase(purchase.id).received_date is None
+
+    def test_the_age_is_not_the_backdated_received_date(self, service):
+        """041 FR-008 -- an age is a recorded instant, not a stated day.
+
+        The received date on this form is the operator's calendar day and can be
+        backdated to when the box actually turned up. The count age is when they
+        say they counted, which is now.
+        """
+        product, purchase = self._tracked_with_an_outstanding_order(service)
+        service.receive_purchase(
+            purchase.id, counted=True, received_date=datetime(2026, 1, 20)
+        )
+
+        after = service.get_product(product.id)
+        assert after.quantity_updated_at > datetime(2026, 1, 20)
+        assert utc_now() - after.quantity_updated_at < timedelta(minutes=1)
 
 
 FLAGGED_TWO_YEARS_AGO = datetime(2024, 3, 5, 11, 0, 0)

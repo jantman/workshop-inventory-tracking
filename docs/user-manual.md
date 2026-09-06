@@ -1310,6 +1310,19 @@ When the parcel arrives, open the purchase and **Mark Received**. The captured
 details are already there; amend the quantity or the price if what turned up
 differed from what you ordered, which it sometimes does.
 
+If the product has a **tracked count**, the receipt screen also offers a tick box
+reading *I counted what is on the shelf*. It starts off, every time, and it is the
+only thing on that screen that moves the *counted* date. Leave it alone and the
+count still goes up by what arrived, but the date beside it keeps saying when you
+last counted — adding a packing slip's number to a stored number is arithmetic,
+not a look in the drawer. Tick it when you did open the drawer while unpacking
+— often the shelf is right there — and the date says *counted just now*, because
+it was.
+
+It records no number of its own. What it asserts is that the total the receipt
+arrives at is what is on the shelf. If you counted and got something else, that is
+a correction, and it belongs in the count on the product page.
+
 ## When a Line Was Already Captured From Its Listing Page
 
 The two ways of capturing meet here. If you captured a product from its own
@@ -1966,9 +1979,11 @@ the handful where running out costs you something.
 Where a quantity is tracked, it is always shown with its age: *counted 8 months
 ago*. A count nobody has revisited in eight months is not a fact about today, and
 showing the age lets you decide how much to trust it. The age means **the last
-time you counted** -- typing a number, or pressing **+** or **−** at the shelf.
-Receiving an order adds to the count without touching the age, because a packing
-slip is not you looking in the drawer.
+time you counted** -- typing a number, pressing **+** or **−** at the shelf, or
+ticking *I counted what is on the shelf* while receiving an order. Receiving on
+its own adds to the count without touching the age, because a packing slip is not
+you looking in the drawer. Every one of the three is you saying you looked;
+nothing moves that date on your behalf.
 
 A hand-set **Low** or **Out** flag is shown with its age the same way: *Flagged
 low 3 months ago*, on the product page and on the reorder list. Pressing the same
@@ -1997,6 +2012,10 @@ inherits an old date. What receiving deliberately leaves alone is the *count's*
 age: the number accounts for the delivery, and the date beside it still tells you
 when you last counted. What the delivery changed is on the purchase that changed
 it.
+
+The one exception is yours to make. Tick *I counted what is on the shelf* on the
+receipt and the date moves too, because then somebody did look. It is off unless
+you tick it, and it is never remembered from one receipt to the next.
 
 All of these controls are buttons, not typing, so the whole flow works on a
 handheld with no keyboard.

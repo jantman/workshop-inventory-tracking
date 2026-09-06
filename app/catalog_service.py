@@ -1576,6 +1576,7 @@ class CatalogService:
         unit_price: Optional[Any] = None,
         notes: Optional[str] = None,
         description: Optional[str] = None,
+        counted: bool = False,
     ) -> Purchase:
         """Mark an outstanding purchase received, amending it if reality differed.
 
@@ -1597,6 +1598,12 @@ class CatalogService:
         receipt changed is recorded, with its date and quantity, on the purchase
         that changed it.
 
+        ``counted`` is the one exception, and it is the operator's to make (041
+        FR-003). Often the shelf is right there while the box is being unpacked,
+        and the operator does look. Saying so moves the age; the rule that holds
+        is not "receiving never refreshes an age" but "the machine never asserts
+        a verification, and the operator always may".
+
         Marking an already-received purchase received again is a no-op, not an
         error.
 
@@ -1610,6 +1617,10 @@ class CatalogService:
                 against the thing in hand. ``None`` leaves it alone; **blank is
                 refused** (FR-024) -- unlike at capture, there is no listing
                 title here to fall back to.
+            counted: The operator asserting they have counted what is on the
+                shelf, and that the count this receipt arrives at is that
+                number. An act, not a value -- it carries no quantity of its
+                own. False, the default, is the behaviour feature 008 shipped.
 
         Returns:
             The updated Purchase.
@@ -1662,14 +1673,31 @@ class CatalogService:
             ):
                 product.description = amended_description
 
+            # Outside it for the same reason (041 FR-010): the operator either
+            # looked at the shelf just now or did not, and what state this
+            # purchase was already in has no bearing on that.
+            #
+            # `utc_now()` and not `received`, which the operator may have
+            # backdated on this very form: an age is a recorded instant
+            # (app/utils/clock.py), and quantity_age subtracts it from utc_now.
+            #
+            # Guarded on a tracked count, because receiving never starts one
+            # (041 FR-006, 008 FR-009) -- but deliberately *not* on
+            # purchase.quantity as the increment above is. A delivery with no
+            # number on it does not stop the operator having counted the drawer.
+            if counted and product is not None and product.quantity is not None:
+                product.quantity_updated_at = utc_now()
+
             if product is not None and not already_received:
                 # A tracked count goes up by what arrived, which clears any
                 # threshold-derived low on its own (008 FR-007).
                 #
-                # The count's age is deliberately *not* touched (008 FR-008).
-                # Arithmetic against a packing slip is not a verification: the
-                # number moved, but nobody has looked in the drawer, and
-                # quantity_updated_at means the last time somebody did.
+                # The count's age is deliberately *not* touched here (008
+                # FR-008). Arithmetic against a packing slip is not a
+                # verification: the number moved, but nobody has looked in the
+                # drawer, and quantity_updated_at means the last time somebody
+                # did. The one thing that can say somebody has is the operator
+                # saying so -- `counted`, handled above, outside this guard.
                 if product.quantity is not None and purchase.quantity:
                     product.quantity = product.quantity + purchase.quantity
 

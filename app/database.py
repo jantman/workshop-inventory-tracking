@@ -955,9 +955,13 @@ class Product(Base):
         Not "how long ago the number was last written", and the difference is
         the point of feature 008: receiving a purchase adds the received
         quantity here and deliberately leaves this age alone (008 FR-008),
-        because arithmetic against a packing slip is not a verification. Do not
-        restore a timestamp write to ``receive_purchase`` -- it looks like a
-        missing update and it is the bug that feature removed.
+        because arithmetic against a packing slip is not a verification.
+
+        ``receive_purchase`` does write this field, but only when the operator
+        ticks "I counted what is on the shelf" on the receive screen (041
+        FR-003). That conditional write is the feature; **an unconditional one
+        is the bug feature 008 removed**, and it looks like a missing update
+        every time somebody reads that method. Do not restore it.
 
         None when the quantity is not tracked, and also when it is tracked but
         no timestamp was recorded -- an unknown age is not an error, and the
