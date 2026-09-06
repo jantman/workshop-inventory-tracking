@@ -388,9 +388,21 @@
 
                    Only while untracked (FR-013). Receiving into a *tracked* product
                    already adds to its count, so repeating the total there would
-                   invite adding it a second time. #}
+                   invite adding it a second time.
+
+                   The wording claims the total and nothing else. It deliberately
+                   does **not** say whether any of it has been counted, because this
+                   cannot know: the sum is over every received purchase across the
+                   product's whole life, while the guard above is on whether it is
+                   tracked *now*. A product that was tracked when a purchase arrived
+                   -- so the count did absorb it -- and was stopped afterwards reaches
+                   this line as well. Saying "none of it counted" there would be
+                   false, and false in the direction that invites the double-counting
+                   the guard exists to prevent. Telling the two apart would need a
+                   per-purchase flag recording whether the count absorbed it, which
+                   is a schema change to caption a hint; the hint says less instead. #}
                 <div class="text-muted small mb-2" id="received-total">
-                    {{ received_total }} received for this product, none of it counted.
+                    {{ received_total }} received for this product to date.
                 </div>
                 {% endif %}
 

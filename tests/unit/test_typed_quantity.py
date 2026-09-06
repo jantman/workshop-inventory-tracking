@@ -189,6 +189,35 @@ class TestReceivedTotal:
 
         assert b'received for this product' not in self.context(client, product.id).data
 
+    def test_the_line_does_not_claim_the_total_is_uncounted(self, client, service):
+        """It cannot know, so it must not say (PR #151 review).
+
+        The sum is over every received purchase for the product's whole life;
+        the guard is on whether it is tracked *now*. Receive into a tracked
+        product -- where the count does absorb the arrival -- then stop
+        counting, and the line is reached with a total that *was* counted. A
+        claim of "none of it counted" would be false there, and false in the
+        direction that invites double-counting.
+        """
+        product = service.create_product(description='Resistor', quantity=5)
+        purchase = outstanding(service, product.id, 100)
+
+        # Received while tracked, so the count really does absorb it. Asserted
+        # rather than assumed: `receive_purchase` only adds when the purchase
+        # was not already received, so seeding one with a received_date and
+        # calling it again would prove nothing.
+        service.receive_purchase(purchase.id)
+        assert service.get_product(product.id).quantity == 105
+
+        # Then tracking stops, which clears the count and leaves the purchase
+        # history untouched -- so the line below is reached with a lifetime
+        # total that a count did once absorb.
+        service.set_quantity(product.id, None)
+
+        page = self.context(client, product.id).data
+        assert b'100 received' in page
+        assert b'none of it counted' not in page
+
     def test_nothing_is_stated_once_the_product_is_counted(self, client, service):
         """FR-013. Receiving already added it; saying so again invites
         adding it a second time."""

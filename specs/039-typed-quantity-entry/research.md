@@ -153,6 +153,37 @@ second time.
 - Netting received against consumption. Rejected: nothing in the record says what has been
   consumed, so the number would be an invention.
 
+### 6a. What the line may claim *(revised after review of PR #151)*
+
+**Decision**: the line states the received total and says nothing about whether any of it has been
+counted. It reads "N received for this product to date."
+
+**Rationale**: the first version read "N received for this product, none of it counted", and that
+second clause is not knowable. The sum is over every received purchase for the product's whole
+life; the guard is on whether the product is tracked *now*. Those come apart in a reachable
+sequence:
+
+1. the product is tracked, so `receive_purchase` adds an arriving 100 to its count — the count
+   *did* absorb them;
+2. the operator later presses "Stop counting this", which clears the count and leaves the purchase
+   history untouched;
+3. the product is now untracked with a lifetime received total of 100, and the line claimed none of
+   it had been counted.
+
+False, and false in exactly the direction the FR-013 suppression exists to prevent: it invites the
+operator to enter stock that was already counted once.
+
+Two ways out. Scope the sum to purchases received while the product was untracked — which needs a
+per-purchase flag recording whether the count absorbed it, i.e. a schema change and a migration to
+caption an advisory hint. Or claim only what the record supports. The second is right here: the
+total is the useful part, the operator is standing at the shelf about to count the thing anyway,
+and Constitution I does not let a hint earn a column. **The hint says less rather than guessing.**
+
+**Alternatives considered**: a per-purchase "absorbed by a count" flag (rejected — a schema change
+for a caption); suppressing the line entirely whenever the product has ever been tracked (rejected
+— it would hide the total in the issue's own scenario as soon as the operator experimented with the
+tracking buttons once, and "has ever been tracked" is not recorded either).
+
 ## 7. Client-side validation and how it reports
 
 **Decision**: The handler validates before sending, and writes any refusal into the existing
