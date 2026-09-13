@@ -85,7 +85,7 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
 
 ### Tests for User Story 2 ⚠️ write first, confirm they fail
 
-- [ ] T006 [US2] In `tests/unit/test_material_aliases.py` (same file as T001, so not parallel with it), add `class TestAliasConflicts`.
+- [X] T006 [US2] In `tests/unit/test_material_aliases.py` (same file as T001, so not parallel with it), add `class TestAliasConflicts`.
   - **Seed:** via `seed(...)`, the category and family from T001; material `Oil Embedded Bronze` with aliases `'Oilite, Sintered Bronze, 841 Bronze'`; and a material *named* `Alias Test Carbon Steel` with no aliases.
   - **Cases:** use one `@pytest.mark.parametrize('alias, conflicts', [...])` with these rows:
 
@@ -109,7 +109,7 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] In `app/mariadb_materials_admin_service.py`:
+- [X] T007 [US2] In `app/mariadb_materials_admin_service.py`:
   - Change the import to `from sqlalchemy import create_engine, func`.
   - Add a private method on `MariaDBMaterialsAdminService`, placed just above `_validate_add_request`: `def _find_alias_conflict(self, session, alias: str) -> Optional[str]:`. Its docstring cites data-model.md's validation rule and says that both validators call it so they cannot disagree (FR-006).
   - Behavior:
@@ -118,9 +118,9 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
     - Then iterate `session.query(MaterialTaxonomy).filter(MaterialTaxonomy.aliases.isnot(None)).all()`. If `wanted.lower()` is in `[a.lower() for a in material.aliases_list]`, return `f"Alias '{wanted}' conflicts with existing alias for '{material.name}'"`.
     - Otherwise return `None`.
   - Keep the existing live-path wording. `add_material.html:196` filters errors on `'alias'`/`'conflicts'`, and `test_alias_conflict_prevention` asserts `"conflicts"`.
-- [ ] T008 [US2] In `app/mariadb_materials_admin_service.py`, in `validate_add_request`, replace the body of the `if request.aliases:` block (lines 399–419, from the name query through the `break`) with a loop that calls `self._find_alias_conflict(session, alias)` for each alias and appends any non-`None` result to `errors`. Remove the stale "JSON array searching" comment.
-- [ ] T009 [US2] In `app/mariadb_materials_admin_service.py`, in `_validate_add_request`, replace the `if request.aliases:` block (lines 209–220, the `MaterialTaxonomy.name == alias` query and the `aliases.like(f'%{alias}%')` query) with a loop that calls `self._find_alias_conflict(session, alias)` and raises `ValidationError(conflict)` on the first non-`None` result. The error still reaches the user through the `flash(message, 'error')` in `app/admin/routes.py:94`.
-- [ ] T010 [US2] Run `nox -s tests`. All must pass, including every `TestAliasConflicts` row and all of `TestOverviewAliases`.
+- [X] T008 [US2] In `app/mariadb_materials_admin_service.py`, in `validate_add_request`, replace the body of the `if request.aliases:` block (lines 399–419, from the name query through the `break`) with a loop that calls `self._find_alias_conflict(session, alias)` for each alias and appends any non-`None` result to `errors`. Remove the stale "JSON array searching" comment.
+- [X] T009 [US2] In `app/mariadb_materials_admin_service.py`, in `_validate_add_request`, replace the `if request.aliases:` block (lines 209–220, the `MaterialTaxonomy.name == alias` query and the `aliases.like(f'%{alias}%')` query) with a loop that calls `self._find_alias_conflict(session, alias)` and raises `ValidationError(conflict)` on the first non-`None` result. The error still reaches the user through the `flash(message, 'error')` in `app/admin/routes.py:94`.
+- [X] T010 [US2] Run `nox -s tests`. All must pass, including every `TestAliasConflicts` row and all of `TestOverviewAliases`.
 
 **Checkpoint**: Both stories are complete. The live and save checks give the same verdicts.
 
@@ -128,9 +128,9 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T011 Run the regression guard from [quickstart.md](quickstart.md): `grep -n "material.aliases or \[\]\|aliases.like(\|_normalize_taxonomy_aliases" app/` must return nothing. Also run `grep -n "in \[a.lower() for a in material.aliases\]" app/`, which must return nothing.
+- [X] T011 Run the regression guard from [quickstart.md](quickstart.md): `grep -n "material.aliases or \[\]\|aliases.like(\|_normalize_taxonomy_aliases" app/` must return nothing. Also run `grep -n "in \[a.lower() for a in material.aliases\]" app/`, which must return nothing.
 - [ ] T012 Run the e2e suite detached, because it outlasts the Bash tool's 10-minute cap: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" nohup venv/bin/nox -s e2e > <scratchpad>/e2e.log 2>&1 &`. Let the harness report when it exits instead of polling, and allow up to 20 minutes. All tests must pass, including T002's new test, the unchanged `test_alias_conflict_prevention`, and `tests/e2e/test_api_client.py::test_get_taxonomy_aliases_are_lists`, which guards FR-009. Then `git status` must show no changes the run made itself; the e2e session writes no screenshots.
-- [ ] T013 Confirm that no file under `app/templates/**`, `app/static/css/**` or `app/static/js/**` changed (`git diff --name-only main... -- app/templates app/static`), which means no screenshots need regenerating. If one did change, run `nox -s screenshots_headless` and `nox -s screenshots_verify` and commit the results.
+- [X] T013 Confirm that no file under `app/templates/**`, `app/static/css/**` or `app/static/js/**` changed (`git diff --name-only main... -- app/templates app/static`), which means no screenshots need regenerating. If one did change, run `nox -s screenshots_headless` and `nox -s screenshots_verify` and commit the results.
 - [ ] T014 Hand the manual check in [quickstart.md § 3](quickstart.md) to the user: `Oil Embedded Bronze` on their real database, plus the `Oilite` and `Bronze` add-form checks. It needs their live data, so it is not automated here.
 
 ---

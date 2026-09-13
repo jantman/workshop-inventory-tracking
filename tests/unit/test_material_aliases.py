@@ -9,7 +9,10 @@ through ``MaterialTaxonomy.aliases_list`` instead.
 import pytest
 
 from app.database import MaterialTaxonomy
-from app.mariadb_materials_admin_service import MariaDBMaterialsAdminService
+from app.mariadb_materials_admin_service import (
+    MariaDBMaterialsAdminService,
+    TaxonomyAddRequest,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -92,3 +95,55 @@ class TestOverviewAliases:
         node = find_node(overview, 'Test Inactive')
         assert node['active'] is False
         assert node['aliases'] == ['Old Name', 'Older Name']
+
+
+# (alias, conflicts): data-model.md's comparison table. Whole names only,
+# ignoring case and surrounding whitespace; an existing material's name counts.
+CONFLICT_CASES = [
+    ('Oilite', True),
+    ('OILITE', True),
+    (' Oilite ', True),
+    ('Sintered Bronze', True),
+    ('Bronze', False),
+    ('841', False),
+    ('Alias Test Carbon Steel', True),
+    ('alias test carbon steel', True),
+]
+
+
+class TestAliasConflicts:
+    """FR-004 to FR-007: both validation paths judge aliases the same way"""
+
+    @pytest.fixture(autouse=True)
+    def existing(self, admin):
+        seed(admin, *hierarchy(
+            {'name': 'Oil Embedded Bronze', 'aliases': 'Oilite, Sintered Bronze, 841 Bronze'},
+            {'name': 'Alias Test Carbon Steel', 'aliases': None},
+        ))
+
+    @staticmethod
+    def request_with(alias):
+        return TaxonomyAddRequest(
+            name=f'Conflict Probe {alias.strip()}', level=3, parent=FAMILY, aliases=[alias],
+        )
+
+    @pytest.mark.parametrize('alias, conflicts', CONFLICT_CASES)
+    def test_the_live_check(self, admin, alias, conflicts):
+        ok, errors = admin.validate_add_request(self.request_with(alias))
+        assert any('conflicts' in e for e in errors) == conflicts, errors
+
+    @pytest.mark.parametrize('alias, conflicts', CONFLICT_CASES)
+    def test_the_check_on_save(self, admin, alias, conflicts):
+        ok, message = admin.add_taxonomy_entry(self.request_with(alias))
+        assert ok is (not conflicts), message
+        if conflicts:
+            assert 'conflicts' in message
+
+    @pytest.mark.parametrize('alias, conflicts', CONFLICT_CASES)
+    def test_the_two_checks_agree(self, admin, alias, conflicts):
+        """FR-006. Live runs first: the save, when accepted, adds a row."""
+        request = self.request_with(alias)
+        _, errors = admin.validate_add_request(request)
+        saved, _ = admin.add_taxonomy_entry(request)
+        refused_live = any('conflicts' in e for e in errors)
+        assert refused_live is (not saved)
