@@ -129,9 +129,9 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
 ## Phase 5: Polish & Cross-Cutting Concerns
 
 - [X] T011 Run the regression guard from [quickstart.md](quickstart.md): `grep -n "material.aliases or \[\]\|aliases.like(\|_normalize_taxonomy_aliases" app/` must return nothing. Also run `grep -n "in \[a.lower() for a in material.aliases\]" app/`, which must return nothing.
-- [ ] T012 Run the e2e suite detached, because it outlasts the Bash tool's 10-minute cap: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" nohup venv/bin/nox -s e2e > <scratchpad>/e2e.log 2>&1 &`. Let the harness report when it exits instead of polling, and allow up to 20 minutes. All tests must pass, including T002's new test, the unchanged `test_alias_conflict_prevention`, and `tests/e2e/test_api_client.py::test_get_taxonomy_aliases_are_lists`, which guards FR-009. Then `git status` must show no changes the run made itself; the e2e session writes no screenshots.
+- [X] T012 Run the e2e suite detached, because it outlasts the Bash tool's 10-minute cap: `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" nohup venv/bin/nox -s e2e > <scratchpad>/e2e.log 2>&1 &`. Let the harness report when it exits instead of polling, and allow up to 20 minutes. All tests must pass, including T002's new test, the unchanged `test_alias_conflict_prevention`, and `tests/e2e/test_api_client.py::test_get_taxonomy_aliases_are_lists`, which guards FR-009. Then `git status` must show no changes the run made itself; the e2e session writes no screenshots.
 - [X] T013 Confirm that no file under `app/templates/**`, `app/static/css/**` or `app/static/js/**` changed (`git diff --name-only main... -- app/templates app/static`), which means no screenshots need regenerating. If one did change, run `nox -s screenshots_headless` and `nox -s screenshots_verify` and commit the results.
-- [ ] T014 Hand the manual check in [quickstart.md § 3](quickstart.md) to the user: `Oil Embedded Bronze` on their real database, plus the `Oilite` and `Bronze` add-form checks. It needs their live data, so it is not automated here.
+- [X] T014 Hand the manual check in [quickstart.md § 3](quickstart.md) to the user: `Oil Embedded Bronze` on their real database, plus the `Oilite` and `Bronze` add-form checks. It needs their live data, so it is not automated here.
 
 ---
 
