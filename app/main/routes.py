@@ -1288,23 +1288,6 @@ def inventory_field_suggestions(field):
     })
 
 
-def _normalize_taxonomy_aliases(nodes: list[dict[str, Any]]) -> None:
-    """Recursively convert each node's ``aliases`` into a list.
-
-    ``get_taxonomy_overview`` passes the raw ``MaterialTaxonomy.aliases``
-    column through, which is a comma-separated string (or an empty list
-    when null). Mutates ``nodes`` in place so the public API returns
-    consistently list-typed aliases.
-    """
-    for node in nodes:
-        aliases = node.get('aliases')
-        if isinstance(aliases, str):
-            node['aliases'] = [a.strip() for a in aliases.split(',') if a.strip()]
-        children = node.get('children')
-        if isinstance(children, list):
-            _normalize_taxonomy_aliases(children)
-
-
 @bp.route('/api/taxonomy')
 def api_taxonomy():
     """Return the full hierarchical materials taxonomy.
@@ -1328,12 +1311,6 @@ def api_taxonomy():
 
         admin_service = MariaDBMaterialsAdminService(_get_storage_backend())
         taxonomy = admin_service.get_taxonomy_overview(include_inactive=include_inactive)
-
-        # Normalize `aliases` into a proper list. The admin service
-        # passes the raw MaterialTaxonomy.aliases column through, which
-        # is a comma-separated string (or an empty list when null); for
-        # this public API we want consistent list-typed aliases.
-        _normalize_taxonomy_aliases(taxonomy)
 
         return jsonify({
             'success': True,

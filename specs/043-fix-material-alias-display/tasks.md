@@ -45,7 +45,7 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
 
 ### Tests for User Story 1 ⚠️ write first, confirm they fail
 
-- [ ] T001 [P] [US1] Create `tests/unit/test_material_aliases.py` with:
+- [X] T001 [P] [US1] Create `tests/unit/test_material_aliases.py` with:
   - A module docstring naming feature 043.
   - `pytestmark = pytest.mark.unit`.
   - An `admin` fixture returning `MariaDBMaterialsAdminService(test_storage)`, the pattern at `tests/unit/test_clock_basis.py:154`.
@@ -62,16 +62,16 @@ None. `MaterialTaxonomy.aliases_list` already exists and is the only shared buil
 
   One test method per case, named for what it proves. Cases (a), (b), (d) and (f) must fail before T003.
 
-- [ ] T002 [P] [US1] Add `test_material_aliases_render_as_whole_names` to `tests/e2e/test_admin_materials.py`, marked `@pytest.mark.e2e`, after `test_alias_conflict_prevention`:
+- [X] T002 [P] [US1] Add `test_material_aliases_render_as_whole_names` to `tests/e2e/test_admin_materials.py`, marked `@pytest.mark.e2e`, after `test_alias_conflict_prevention`:
   - Use `AdminMaterialsPage(page, live_server.url).navigate()`.
   - Assert with `expect(page.locator('.taxonomy-node[data-name="304"] > div small').first).to_have_text("(aliases: 304 Stainless, SS304)")`. The seed row at `tests/e2e/test_server.py:365` stores `304 Stainless,SS304`. The page is server-rendered, so this `expect` is the whole wait. Do not add `wait_for_timeout`, `time.sleep` or `networkidle` (CLAUDE.md, "Writing e2e tests").
   - Add a second assertion: `expect(page.locator('.taxonomy-node[data-name="Carbon Steel"] > div small')).to_have_count(0)` if `Carbon Steel` is seeded with no aliases. Confirm this against `tests/e2e/test_server.py` first, and pick another seeded material with `aliases` empty if not. This covers FR-003. It is safe as a negative assertion because the first `expect` has already established that the tree rendered.
 
 ### Implementation for User Story 1
 
-- [ ] T003 [US1] In `app/mariadb_materials_admin_service.py`, in `get_taxonomy_overview` (line 115), change `'aliases': material.aliases or [],` to `'aliases': material.aliases_list,`. T001 should now pass. Make no other change in this method.
-- [ ] T004 [US1] In `app/main/routes.py`, delete `_normalize_taxonomy_aliases` (lines 1291–1305) and, in `api_taxonomy`, delete the comment block and `_normalize_taxonomy_aliases(taxonomy)` call (lines 1332–1336). Depends on T003: without it `/api/taxonomy` would start returning strings. Then run `grep -rn "_normalize_taxonomy_aliases" app/ tests/`; it must return nothing. If a test references it, delete that test only if it exercised the function directly. A test of `/api/taxonomy` output stays.
-- [ ] T005 [US1] Run `nox -s tests`. All tests must pass, including every `TestOverviewAliases` case.
+- [X] T003 [US1] In `app/mariadb_materials_admin_service.py`, in `get_taxonomy_overview` (line 115), change `'aliases': material.aliases or [],` to `'aliases': material.aliases_list,`. T001 should now pass. Make no other change in this method.
+- [X] T004 [US1] In `app/main/routes.py`, delete `_normalize_taxonomy_aliases` (lines 1291–1305) and, in `api_taxonomy`, delete the comment block and `_normalize_taxonomy_aliases(taxonomy)` call (lines 1332–1336). Depends on T003: without it `/api/taxonomy` would start returning strings. Then run `grep -rn "_normalize_taxonomy_aliases" app/ tests/`; it must return nothing. If a test references it, delete that test only if it exercised the function directly. A test of `/api/taxonomy` output stays.
+- [X] T005 [US1] Run `nox -s tests`. All tests must pass, including every `TestOverviewAliases` case.
 
 **Checkpoint**: User Story 1 is complete. The reported bug is fixed and shippable on its own. The e2e test (T002) is run in the final phase with the whole suite.
 

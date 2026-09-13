@@ -112,7 +112,7 @@ class MariaDBMaterialsAdminService:
                             'level': material.level,
                             'parent': material.parent,
                             'active': material.active,
-                            'aliases': material.aliases or [],
+                            'aliases': material.aliases_list,
                             'notes': material.notes or '',
                             'sort_order': material.sort_order or 0
                         }

@@ -303,6 +303,26 @@ def test_alias_conflict_prevention(page, live_server):
 
 
 @pytest.mark.e2e
+def test_material_aliases_render_as_whole_names(page, live_server):
+    """Aliases show as names, not one entry per character (feature 043).
+
+    The seeded ``304`` stores its aliases as ``304 Stainless,SS304``, with no
+    space after the comma, so this also pins the separator the page displays.
+    """
+    admin_page = AdminMaterialsPage(page, live_server.url)
+    admin_page.navigate()
+
+    aliases = page.locator('.taxonomy-node[data-name="304"] > div small')
+    expect(aliases).to_have_text("(aliases: 304 Stainless, SS304)")
+
+    # 12L14 is seeded with no aliases. Its node being visible establishes the
+    # region, so the absence below cannot pass against an unrendered tree.
+    no_aliases_node = page.locator('.taxonomy-node[data-name="12L14"]')
+    expect(no_aliases_node).to_be_visible()
+    expect(no_aliases_node.locator('> div small')).to_have_count(0)
+
+
+@pytest.mark.e2e
 def test_parent_validation(page, live_server):
     """Test that parent validation works correctly"""
     admin_page = AdminMaterialsPage(page, live_server.url)
