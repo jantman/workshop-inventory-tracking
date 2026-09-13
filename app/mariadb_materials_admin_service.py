@@ -8,7 +8,7 @@ Provides similar functionality to MaterialsAdminService but works with MariaDB b
 from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 
 from .database import MaterialTaxonomy
 from .mariadb_storage import MariaDBStorage
@@ -112,7 +112,7 @@ class MariaDBMaterialsAdminService:
                             'level': material.level,
                             'parent': material.parent,
                             'active': material.active,
-                            'aliases': material.aliases or [],
+                            'aliases': material.aliases_list,
                             'notes': material.notes or '',
                             'sort_order': material.sort_order or 0
                         }
@@ -196,31 +196,52 @@ class MariaDBMaterialsAdminService:
             if 'session' in locals():
                 session.close()
     
+    def _find_alias_conflict(self, session, alias: str) -> Optional[str]:
+        """Return why ``alias`` conflicts with existing taxonomy data, or None.
+
+        Applies data-model.md's validation rule: an alias conflicts if, trimmed
+        and compared without regard to case, it equals any material's name or
+        any whole alias of any material, active or not. Both
+        ``validate_add_request`` (the live check) and ``_validate_add_request``
+        (the check on save) call this, so the two cannot disagree (FR-006).
+        """
+        wanted = alias.strip()
+        if not wanted:
+            return None
+        wanted_lower = wanted.lower()
+
+        # func.lower rather than ilike, which would treat % and _ in an alias
+        # as wildcards.
+        named = session.query(MaterialTaxonomy).filter(
+            func.lower(MaterialTaxonomy.name) == wanted_lower
+        ).first()
+        if named:
+            return f"Alias '{wanted}' conflicts with existing material '{named.name}'"
+
+        materials_with_aliases = session.query(MaterialTaxonomy).filter(
+            MaterialTaxonomy.aliases.isnot(None)
+        ).all()
+        for material in materials_with_aliases:
+            if wanted_lower in [a.lower() for a in material.aliases_list]:
+                return f"Alias '{wanted}' conflicts with existing alias for '{material.name}'"
+
+        return None
+
     def _validate_add_request(self, request: TaxonomyAddRequest, session):
         """Validate a taxonomy add request"""
         # Check if name already exists
         existing = session.query(MaterialTaxonomy).filter(
             MaterialTaxonomy.name == request.name
         ).first()
-        
+
         if existing:
             raise ValidationError(f'Material "{request.name}" already exists')
-        
-        # Check aliases for conflicts  
-        if request.aliases:
-            for alias in request.aliases:
-                # Check if alias matches any existing material name
-                existing_name = session.query(MaterialTaxonomy).filter(
-                    MaterialTaxonomy.name == alias
-                ).first()
-                
-                # Check if alias exists in any aliases field (comma-separated strings)
-                existing_alias = session.query(MaterialTaxonomy).filter(
-                    MaterialTaxonomy.aliases.like(f'%{alias}%')
-                ).first()
-                
-                if existing_alias or existing_name:
-                    raise ValidationError(f'Alias "{alias}" conflicts with existing material or alias')
+
+        # Check aliases for conflicts
+        for alias in request.aliases or []:
+            conflict = self._find_alias_conflict(session, alias)
+            if conflict:
+                raise ValidationError(conflict)
         
         # Validate parent exists (for levels 2 and 3)
         if request.level > 1 and request.parent:
@@ -396,27 +417,10 @@ class MariaDBMaterialsAdminService:
                 errors.append(f"Material '{request.name}' already exists")
             
             # Check aliases for conflicts
-            if request.aliases:
-                for alias in request.aliases:
-                    if alias.strip():
-                        # Check if alias conflicts with existing names
-                        existing_name = session.query(MaterialTaxonomy).filter(
-                            MaterialTaxonomy.name.ilike(alias.strip())
-                        ).first()
-                        
-                        if existing_name:
-                            errors.append(f"Alias '{alias}' conflicts with existing material '{existing_name.name}'")
-                        
-                        # Check if alias conflicts with existing aliases
-                        # Note: This is a simplified check; for JSON array searching, we'd need more complex SQL
-                        materials_with_aliases = session.query(MaterialTaxonomy).filter(
-                            MaterialTaxonomy.aliases.isnot(None)
-                        ).all()
-                        
-                        for material in materials_with_aliases:
-                            if material.aliases and alias.strip().lower() in [a.lower() for a in material.aliases]:
-                                errors.append(f"Alias '{alias}' conflicts with existing alias for '{material.name}'")
-                                break
+            for alias in request.aliases or []:
+                conflict = self._find_alias_conflict(session, alias)
+                if conflict:
+                    errors.append(conflict)
             
             # Validate parent exists and is correct level
             if request.parent:

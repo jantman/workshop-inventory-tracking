@@ -43,9 +43,9 @@ the bare word. Verify with `grep -rn "catalogd\|catalogng\|uncatalogd" app/ test
 # Testing
 
 * Run tests via the `nox` test runner, not by running `pytest` directly
-* The `e2e` test session must have a timeout of 15 minutes set on your bash tool. This timeout is set on your bash tool, not on the command line. **Most agent bash tools cap at 10 minutes regardless of what you ask for, and the suite no longer fits inside that** — run it detached (`nohup`/`run_in_background`) and poll, or you will get a false timeout on a passing run.
-* **The suite takes about 13m 45s warm** (602 tests, measured 2026-08-22 on feature 024). That leaves under 90 seconds of margin against the 15-minute figure, and a cold start — pulling the MariaDB image, installing Playwright browsers — will exceed it. Budget 20 minutes if the environment is cold.
-* This is **growth, not regression**: no single test is slow (the twenty slowest sum to under nine seconds of call time) and there are no fixed waits. It is 602 tests at roughly 1.35s each, and the count has roughly doubled since the figure below was measured. Making it faster means running fewer or running them in parallel, not removing waits — there are none left to remove.
+* The `e2e` test session must have a timeout of at least 20 minutes set on your bash tool. This timeout is set on your bash tool, not on the command line. **Most agent bash tools cap at 10 minutes regardless of what you ask for, and the suite no longer fits inside that** — run it detached (`nohup`/`run_in_background`) and poll, or you will get a false timeout on a passing run.
+* **The suite takes about 17m 15s warm** (796 tests, measured 2026-09-13 on feature 043). That is past the 15-minute figure this file used to give, so budget 20 minutes warm. A cold start — pulling the MariaDB image, installing Playwright browsers — takes longer still; budget 25 minutes if the environment is cold.
+* This is **growth, not regression**: no single test is slow (the twenty slowest sum to under nine seconds of call time) and there are no fixed waits. It is 796 tests at roughly 1.3s each, and the count has more than doubled since the figure below was measured. Making it faster means running fewer or running them in parallel, not removing waits — there are none left to remove.
 
 ## Writing e2e tests
 
@@ -53,7 +53,7 @@ This section is the normative source for how to wait in an e2e test. The constit
 
 The suite used to take 22 minutes, over half of it blocked on a clock rather than on the application. Two features were spent getting the fixed waits out — the second one because the first left 127 of them behind. It came out of that at 8m 13s with **zero** `wait_for_timeout` executions, and it still executes zero. Adding one puts that back.
 
-(The wall-clock figure has since risen to about 13m 45s, but purely because there are now 602 tests rather than because any of them waits on a clock. The 8m 13s above is the historical measurement that made the rules below non-negotiable, not a target to hold.)
+(The wall-clock figure has since risen to about 17m 15s, but purely because there are now 796 tests rather than because any of them waits on a clock. The 8m 13s above is the historical measurement that made the rules below non-negotiable, not a target to hold.)
 
 ### The rules
 
