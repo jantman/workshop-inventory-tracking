@@ -15,7 +15,7 @@ import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import and_, case, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
@@ -40,13 +40,18 @@ from .exceptions import (
 from .mariadb_storage import MariaDBStorage
 from .services import order_vendors
 from .models import (
+    BARCODE_ROW_NAMES,
     CandidatePurchase,
     CaptureAssessment,
     price_to_cents,
     CapturedBarcode,
     DigiKeyOrder,
     IdentifierType,
+    LISTING_DETAIL_FIELDS,
     ListingCapture,
+    ListingDetailsResult,
+    ListingMatch,
+    MANUFACTURER_PART_NUMBER_MAX_LENGTH,
     CapturedOrder,
     OrderCaptureResult,
     McMasterOrder,
@@ -78,14 +83,23 @@ MAX_CATEGORY_PATH_LENGTH = 512
 MAX_TAG_LENGTH = 64
 MAX_SPECIFICATION_NAME_LENGTH = 100
 
+# The column widths of the product details a listing capture can write that have
+# no validator of their own (app/database.py, Product). Checked before a
+# details-only capture writes anything, so an over-long brand is a message on
+# the page rather than a database error (044).
+DETAIL_FIELD_MAX_LENGTHS = {
+    'manufacturer': 200,
+    'manufacturer_part_number': MANUFACTURER_PART_NUMBER_MAX_LENGTH,
+    'location': 100,
+    'sub_location': 100,
+}
+
 # The identifier types whose meaning depends on knowing whose identifier it is.
 VENDOR_SCOPED_TYPES = (IdentifierType.VENDOR, IdentifierType.DISTRIBUTOR)
 
-# Specification row names that mean "this value is a retail barcode" (016 FR-001).
-# A captured row carrying one of these is a candidate for promotion to a GTIN
-# identifier; see _promote_barcode_rows. The list is closed and short, and adding
-# to it is a one-line change -- which is why it is a constant and not a setting.
-BARCODE_ROW_NAMES = frozenset({'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A'})
+# BARCODE_ROW_NAMES (016 FR-001) now lives in app/models.py beside
+# normalized_row_name, so a ListingCapture can say whether it carries a barcode
+# without importing this module. It is imported above and still reachable here.
 
 # The vendor name a DigiKey capture files purchases under. Matches what
 # ``_vendor_from_url`` already derives from a digikey.com address, so a capture
@@ -757,47 +771,286 @@ class CatalogService:
                     f"Product {product_id} not found", item_id=str(product_id)
                 )
 
-            # Folded in Python, never in SQL. The deployment's collation folds
-            # accents as well as case, so a comparison pushed into SQL would
-            # call "Volt" and "Vôlt" one name on MariaDB and two under the unit
-            # suite -- a rule meaning two different things on two backends.
-            # ProductSpecification's own docstring already says
-            # _validate_specifications is the authority and compares in Python;
-            # this joins it.
-            existing = {row.name.lower() for row in product.specifications}
-            next_order = max(
-                (row.display_order for row in product.specifications), default=-1
-            ) + 1
-
-            added = []
-            for entry in entries or []:
-                try:
-                    validated = self._validate_specifications([entry])
-                except ValidationError as e:
-                    logger.info(f"Captured specification dropped: {e.message}")
-                    continue
-                if not validated:
-                    continue
-
-                name = validated[0]['name']
-                key = name.lower()
-                if key in existing:
-                    continue
-
-                existing.add(key)
-                product.specifications.append(ProductSpecification(
-                    name=name,
-                    value=validated[0]['value'],
-                    display_order=next_order,
-                ))
-                next_order += 1
-                added.append(validated[0])
+            added = self._merge_specification_rows(product, entries)
 
         if added:
             logger.info(
                 f"Merged {len(added)} captured specifications into product {product_id}"
             )
         return added
+
+    def _merge_specification_rows(
+        self, product: Product, entries: Optional[List[Dict[str, str]]]
+    ) -> List[Dict[str, str]]:
+        """``merge_specifications``' rule, applied to a product already loaded.
+
+        Split out so ``apply_listing_details`` can merge inside the same session
+        that fills the product's other fields, and still obey the one add-only
+        rule rather than a copy of it. ``product.specifications`` must be loaded.
+        """
+        # Folded in Python, never in SQL. The deployment's collation folds
+        # accents as well as case, so a comparison pushed into SQL would
+        # call "Volt" and "Vôlt" one name on MariaDB and two under the unit
+        # suite -- a rule meaning two different things on two backends.
+        # ProductSpecification's own docstring already says
+        # _validate_specifications is the authority and compares in Python;
+        # this joins it.
+        existing = {row.name.lower() for row in product.specifications}
+        next_order = max(
+            (row.display_order for row in product.specifications), default=-1
+        ) + 1
+
+        added = []
+        for entry in entries or []:
+            try:
+                validated = self._validate_specifications([entry])
+            except ValidationError as e:
+                logger.info(f"Captured specification dropped: {e.message}")
+                continue
+            if not validated:
+                continue
+
+            name = validated[0]['name']
+            key = name.lower()
+            if key in existing:
+                continue
+
+            existing.add(key)
+            product.specifications.append(ProductSpecification(
+                name=name,
+                value=validated[0]['value'],
+                display_order=next_order,
+            ))
+            next_order += 1
+            added.append(validated[0])
+        return added
+
+    # -- Filling a product in from a listing (044) --------------------------
+
+    def products_missing_details(self, product_ids) -> Set[int]:
+        """The products among these that hold no specification row at all.
+
+        That is what "missing details" means (044 FR-014), derived rather than
+        stored. Every listing capture writes rows -- the listing's own, "About
+        this item", the description -- and a product an order line created has
+        none, so the catalog's existing rows classify correctly with nothing to
+        backfill (FR-015). A listing that yielded no rows leaves its product
+        reading as missing, which is true: the capture got nothing.
+
+        One query for the whole set, because the order page asks it of every
+        line at once.
+        """
+        ids = {int(product_id) for product_id in product_ids if product_id is not None}
+        if not ids:
+            return set()
+
+        with self._session() as session:
+            detailed = {
+                row[0] for row in
+                session.query(ProductSpecification.product_id)
+                .filter(ProductSpecification.product_id.in_(ids))
+                .distinct()
+            }
+        return ids - detailed
+
+    def find_listing_match(
+        self,
+        vendor: Optional[str],
+        vendor_item_id: Optional[str],
+        url: Optional[str] = None,
+        order_date: Optional[Any] = None,
+    ) -> Optional[ListingMatch]:
+        """The product a listing capture's item number names, or None. Writes nothing.
+
+        The confirmation page asks this before the operator submits, so it can
+        offer "update this product's details only" up front (044 FR-001) rather
+        than only once ``capture_order`` has raised a question.
+
+        The order purchase is ``_find_captured_purchase``'s own answer -- the
+        same one ``capture_order`` would reach with the same date -- kept only
+        when an *order* capture wrote it and it sits on this same product. That
+        is issue #156's case, and the page then puts one question naming the
+        order instead of the two ``capture_order`` would raise (FR-009).
+
+        Args:
+            vendor: The vendor, as the capture derives it.
+            vendor_item_id: The listing's item number, e.g. an ASIN.
+            url: The listing's address, for the duplicate lookup's fallback.
+            order_date: The date on the form, if any. Unparseable or blank is
+                today, which is ``capture_order``'s default too.
+        """
+        vendor_name = _clean(vendor)
+        item_id = _clean(vendor_item_id)
+        if not vendor_name or not item_id:
+            return None
+
+        product = self.find_product_by_identifier(
+            item_id, id_type=IdentifierType.VENDOR.value, vendor=vendor_name
+        )
+        if product is None:
+            return None
+
+        try:
+            ordered = _parse_datetime(order_date, 'order_date')
+        except ValidationError:
+            # The capture itself will refuse this date with a message; the page
+            # rendering that message still wants to know what the listing is.
+            ordered = None
+        ordered = ordered or local_now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        purchase = self._find_captured_purchase(
+            vendor_name, item_id, _clean(url), ordered
+        )
+        from_order = (
+            purchase is not None
+            and purchase.supplier_order_reference
+            and purchase.product_id == product.id
+        )
+
+        return ListingMatch(
+            product_id=product.id,
+            description=product.description,
+            manufacturer=product.manufacturer,
+            manufacturer_part_number=product.manufacturer_part_number,
+            category_path=product.category_path,
+            location=product.location,
+            sub_location=product.sub_location,
+            specifications=tuple(
+                (row.name, row.value)
+                for row in sorted(product.specifications, key=lambda r: r.display_order)
+            ),
+            order_purchase_id=purchase.id if from_order else None,
+            order_reference=purchase.supplier_order_reference if from_order else None,
+            order_vendor=purchase.vendor if from_order else None,
+        )
+
+    def apply_listing_details(
+        self,
+        product_id: int,
+        listing: Optional[ListingCapture],
+        proposed: Optional[Dict[str, Any]] = None,
+        replace: Any = frozenset(),
+    ) -> ListingDetailsResult:
+        """Write a listing onto an existing product, and record no purchase.
+
+        The whole of 044's details-only capture, and what an order capture uses
+        to fill in the products its lines landed on. The rule, and all of it:
+
+        * **A blank is filled.** A proposed value for a field the product holds
+          nothing in is written, and so is a listing row whose name it lacks.
+        * **A held value is kept unless it is named in** ``replace`` (FR-004,
+          FR-005) -- a field by its column name, a row as ``spec:<name>``. The
+          operator ticked it, looking at both values; nothing else overwrites.
+          An order capture passes nothing, which is exactly FR-027's "fill what
+          it lacks, overwrite nothing".
+        * **A blank proposal changes nothing.** An empty form field is not a
+          request to clear the product.
+        * **No purchase is created, changed or deleted, and no count moves**
+          (FR-002). Nothing here touches quantity, stock status or the reorder
+          threshold -- the same fence ``update_product`` keeps.
+
+        Every proposed value is validated before anything is written, so a
+        refused one leaves the product exactly as it was. Barcode rows this call
+        added or replaced are promoted afterwards by the existing rule (016), and
+        pictures are the route's job, outside this, as for every capture.
+
+        Args:
+            product_id: The product to fill in.
+            listing: What the agent read off the listing, or None.
+            proposed: Values for the fields in ``LISTING_DETAIL_FIELDS`` -- from
+                the confirmation form, or the listing's brand and part number.
+            replace: The field names and ``spec:<name>`` keys the operator
+                chose to overwrite.
+
+        Raises:
+            ItemNotFoundError: If the product does not exist.
+            ValidationError: If a proposed value is refused. Nothing is written.
+        """
+        proposed = proposed or {}
+        replace = set(replace or ())
+
+        values = {}
+        for name, _label in LISTING_DETAIL_FIELDS:
+            value = _clean(proposed.get(name))
+            if value is not None:
+                values[name] = self._validate_detail_value(name, value)
+
+        entries = listing.specification_entries() if listing is not None else []
+        listed = {}
+        for entry in entries:
+            row_name, row_value = _clean(entry.get('name')), _clean(entry.get('value'))
+            if row_name and row_value:
+                listed.setdefault(row_name.lower(), row_value)
+        replace_rows = {
+            key[len('spec:'):].strip().lower()
+            for key in replace if key.startswith('spec:')
+        }
+
+        with self._session() as session:
+            product = session.query(Product).options(
+                selectinload(Product.specifications)
+            ).filter(Product.id == product_id).first()
+            if product is None:
+                raise ItemNotFoundError(
+                    f"Product {product_id} not found", item_id=str(product_id)
+                )
+
+            filled, replaced = [], []
+            for name, value in values.items():
+                if value is None:
+                    continue
+                current = getattr(product, name)
+                if not current:
+                    setattr(product, name, value)
+                    filled.append(name)
+                elif current != value and name in replace:
+                    setattr(product, name, value)
+                    replaced.append(name)
+
+            # Replacements before the merge, so a row the merge is about to
+            # append can never be mistaken for one the operator ticked.
+            replaced_rows = []
+            for row in product.specifications:
+                key = row.name.lower()
+                if key in replace_rows and key in listed and row.value != listed[key]:
+                    row.value = listed[key]
+                    replaced_rows.append({'name': row.name, 'value': row.value})
+
+            added_rows = self._merge_specification_rows(product, entries)
+
+        if added_rows or replaced_rows:
+            self._promote_barcode_rows(product_id, added_rows + replaced_rows)
+
+        result = ListingDetailsResult(
+            product_id=product_id,
+            fields_filled=tuple(filled),
+            fields_replaced=tuple(replaced),
+            specifications_added=len(added_rows),
+            specifications_replaced=len(replaced_rows),
+        )
+        logger.info(
+            f"Listing details on product {product_id}: filled {list(filled)}, "
+            f"replaced {list(replaced)}, {len(added_rows)} row(s) added, "
+            f"{len(replaced_rows)} replaced; no purchase recorded"
+        )
+        return result
+
+    def _validate_detail_value(self, name: str, value: str) -> Optional[str]:
+        """One proposed product detail, held to its column's rules."""
+        if name == 'description':
+            return self._validate_description(value)
+        if name == 'category_path':
+            return self._validate_category_path(value)
+        limit = DETAIL_FIELD_MAX_LENGTHS.get(name)
+        if limit is not None and len(value) > limit:
+            label = dict(LISTING_DETAIL_FIELDS).get(name, name)
+            raise ValidationError(
+                f"The {label} is longer than {limit} characters",
+                field=name, value=value[:100],
+            )
+        return value
 
     # -- Identifiers -------------------------------------------------------
 
@@ -1328,9 +1581,7 @@ class CatalogService:
         mismatch there is the evidence the recycled-identifier question depends
         on.
         """
-        entries = list(listing.specifications)
-        if listing.description_text:
-            entries.append({'name': 'Description', 'value': listing.description_text})
+        entries = listing.specification_entries()
         if entries:
             self._promote_barcode_rows(
                 product_id, self.merge_specifications(product_id, entries)
@@ -2131,6 +2382,9 @@ class CatalogService:
 
         purchase_ids = []
         adopted_ids = []
+        # Which product each written, adopted or already-captured line is on, so
+        # the confirm route can apply that line's listing to it (044).
+        line_products = []
         # The candidate rows this capture has already claimed. A row is offered
         # to every line that could be its line, so this is what keeps it to one.
         claimed = set()
@@ -2187,6 +2441,9 @@ class CatalogService:
                 existing = recorded.get(line.form_key)
                 if existing is not None:
                     lines_already_captured += 1
+                    # 044 FR-030: a re-capture that read this line's listing
+                    # fills its product in, so the product is reported too.
+                    line_products.append((line.form_key, existing.product_id))
                     if decision.get('apply_change'):
                         if self._apply_order_change(
                             existing, line, decision, vendor
@@ -2293,6 +2550,7 @@ class CatalogService:
                         )
                         adopted_ids.append(purchase.id)
                         claimed.add(purchase.id)
+                        line_products.append((line.form_key, purchase.product_id))
                         if decision.get('apply_change') and self._apply_order_change(
                             purchase, line, decision, vendor
                         ):
@@ -2354,6 +2612,7 @@ class CatalogService:
                 session.add(purchase)
                 session.flush()
                 purchase_ids.append(purchase.id)
+                line_products.append((line.form_key, product.id))
 
                 if vendor.incomplete_label is not None:
                     label = vendor.incomplete_label(line, part)
@@ -2377,6 +2636,7 @@ class CatalogService:
         result = OrderCaptureResult(
             purchase_ids=tuple(purchase_ids),
             purchases_adopted=tuple(adopted_ids),
+            line_products=tuple(line_products),
             products_created=products_created,
             products_attached=products_attached,
             lines_excluded=lines_excluded,
@@ -3065,9 +3325,12 @@ class CatalogService:
         **What this creates is thin, and 029 FR-026 says so out loud.** An order
         page states a title, a quantity and a price; the gallery, the
         specification rows, the bullet points and the barcodes are all on the
-        *listing* page, one page per line. Running the existing single-listing
-        capture against the same ASIN later fills the product in and attaches to
-        this one rather than creating a second (FR-027).
+        *listing* page, one page per line. The listing's details reach this
+        product by one of two routes, neither of which records another purchase
+        (044): the order capture reads each line's listing itself and the
+        confirm route applies it after this transaction commits, or the operator
+        captures the listing later and chooses "add the listing's details to it".
+        Until 044 the second route promised that and could not deliver it.
 
         No manufacturer: Amazon's order page names a *seller*, which is a claim
         about who sold it rather than who made it, and the vendor is on the

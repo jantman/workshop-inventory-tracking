@@ -3,6 +3,26 @@
 {% block page_icon %}bi-link-45deg{% endblock %}
 {% block page_heading %}Capture an Order{% endblock %}
 
+{# 044 FR-004: what the matched product holds now, beside the field that would
+   replace it, and a tick that says "yes, replace it". Unticked unless the
+   operator ticked it before a re-render. Renders nothing when the product holds
+   nothing there -- a blank is simply filled, with nothing to ask. Only a
+   details-only capture reads these ticks; recording a purchase ignores them. #}
+{% macro current_value(field) -%}
+{%- set held = (match | attr(field)) if match else None -%}
+{%- if held -%}
+{%- set chosen = form_data.getlist('replace') if form_data.getlist is defined else [] -%}
+<div class="form-text current-value" id="current-{{ field }}">
+    This product currently says <strong>{{ held }}</strong>.
+    <span class="form-check form-check-inline ms-1 mb-0">
+        <input class="form-check-input replace-current" type="checkbox" name="replace"
+               value="{{ field }}" id="replace-{{ field }}"{% if field in chosen %} checked{% endif %}>
+        <label class="form-check-label" for="replace-{{ field }}">Replace it with the value entered here</label>
+    </span>
+</div>
+{%- endif -%}
+{%- endmacro %}
+
 {% block product_content %}
 <div class="row">
     <div class="col-lg-7">
@@ -24,7 +44,87 @@
             </div>
             {% endif %}
 
-            {% if assessment and assessment.has_duplicate %}
+            {# 044. The listing's item number already names a product, so this
+               capture can do one of two things: record a purchase of it, or
+               fill the product in and record nothing (FR-001). Asked here, up
+               front, rather than only after a question -- a repeat buy whose
+               brand and part number agree is otherwise recorded without a page.
+
+               **When that product also holds a purchase an order capture wrote**
+               -- issue #156's exact case -- the two warnings below say the same
+               thing twice and neither answer avoids a second purchase. So one
+               message names the order instead, details-only is selected, and
+               the other choice carries both of the answers capture_order needs
+               as hidden fields, so choosing it asks nothing further (FR-009 to
+               FR-011). No JavaScript: the hidden answers are simply ignored by
+               the details path. #}
+            {% if match %}
+            {% set collapsed = match.from_order %}
+            {% set chosen_intent = form_data.get('intent') or ('details' if collapsed else 'purchase') %}
+            <input type="hidden" name="details_product_id" value="{{ match.product_id }}"/>
+            {% if collapsed %}
+            <div class="alert alert-info" id="order-item-match">
+                <h6 class="alert-heading">
+                    <i class="bi bi-box-seam"></i> This is the item from order
+                    <code>{{ match.order_reference }}</code>
+                </h6>
+                <p class="mb-2">
+                    <a href="{{ url_for('product.product_detail', product_id=match.product_id) }}">{{ match.description }}</a>
+                    came on that order, and its purchase is already recorded. The order page
+                    could not give its pictures, specifications or barcodes — this listing can.
+                </p>
+                <input type="hidden" name="return_order" value="{{ match.order_reference }}"/>
+                <input type="hidden" name="acknowledged_duplicate_of" value="{{ match.order_purchase_id }}"/>
+                <input type="hidden" name="attach_to" value="{{ match.product_id }}"/>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="intent" id="intent-details"
+                           value="details"{% if chosen_intent == 'details' %} checked{% endif %}>
+                    <label class="form-check-label" for="intent-details">
+                        <strong>Add the listing's details to it</strong> — don't record a purchase.
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="intent" id="intent-purchase"
+                           value="purchase"{% if chosen_intent == 'purchase' %} checked{% endif %}>
+                    <label class="form-check-label" for="intent-purchase">
+                        I bought it again — record a separate purchase of it.
+                    </label>
+                </div>
+                <p class="small mb-0 mt-2" id="separate-purchase-consequence">
+                    A separate purchase is recorded alongside the one order
+                    <code>{{ match.order_reference }}</code> recorded, so its spend and quantity
+                    count twice. Choose it only if you really bought this again.
+                </p>
+            </div>
+            {% else %}
+            <div class="alert alert-secondary" id="listing-match">
+                <h6 class="alert-heading">
+                    <i class="bi bi-box"></i> This listing is already in the catalog
+                </h6>
+                <p class="mb-2">
+                    It is
+                    <a href="{{ url_for('product.product_detail', product_id=match.product_id) }}">{{ match.description }}</a>.
+                    What should this capture do?
+                </p>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="intent" id="intent-purchase"
+                           value="purchase"{% if chosen_intent == 'purchase' %} checked{% endif %}>
+                    <label class="form-check-label" for="intent-purchase">
+                        Record a purchase of it.
+                    </label>
+                </div>
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="radio" name="intent" id="intent-details"
+                           value="details"{% if chosen_intent == 'details' %} checked{% endif %}>
+                    <label class="form-check-label" for="intent-details">
+                        Update its details only — don't record a purchase.
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+
+            {% if assessment and assessment.has_duplicate and not (match and match.from_order) %}
             <div class="alert alert-warning" id="duplicate-warning">
                 <h6 class="alert-heading">
                     <i class="bi bi-files"></i> You may have captured this already
@@ -68,7 +168,7 @@
             </div>
             {% endif %}
 
-            {% if assessment and assessment.has_uncorroborated_match %}
+            {% if assessment and assessment.has_uncorroborated_match and not (match and match.from_order) %}
             <div class="alert alert-warning" id="identifier-warning">
                 <h6 class="alert-heading">
                     <i class="bi bi-exclamation-triangle"></i> This item number already names
@@ -95,6 +195,12 @@
                            id="attach-new" value="new">
                     <label class="form-check-label" for="attach-new">
                         This is a different product — file it separately.
+                        {# 044 FR-013: what this choice costs, before it is made. #}
+                        <span class="d-block small text-body-secondary" id="attach-new-consequence">
+                            The new product will not carry this item number, so later order and
+                            listing captures will not find it, and
+                            {{ assessment.matched_product_description }} keeps its current details.
+                        </span>
                     </label>
                 </div>
             </div>
@@ -155,6 +261,7 @@
                             while the listing's specifications are in front of you. Left blank,
                             the listing title is used.
                         </div>
+                        {{ current_value('description') }}
                     </div>
 
                     <div class="row">
@@ -169,6 +276,7 @@
                                    name="manufacturer" maxlength="200"
                                    value="{{ form_data.get('manufacturer')
                                              or (listing.brand if listing else '') or '' }}">
+                            {{ current_value('manufacturer') }}
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="manufacturer_part_number" class="form-label">
@@ -204,6 +312,7 @@
                             <div class="form-text">
                                 Both together let a repeat buy attach without asking.
                             </div>
+                            {{ current_value('manufacturer_part_number') }}
                         </div>
                     </div>
 
@@ -288,8 +397,75 @@
                     {% with values = form_data %}
                     {% include "product/_classification_fields.html" %}
                     {% endwith %}
+                    {# The shared include is left alone; what the matched
+                       product holds for these three is said beneath it. #}
+                    {{ current_value('category_path') }}
+                    {{ current_value('location') }}
+                    {{ current_value('sub_location') }}
                 </div>
             </div>
+
+            {# 044 FR-004 to FR-007: what a details-only capture would do to the
+               product's specification rows, before it does it. A row the
+               product lacks is added; a row it holds with another value is
+               listed with a tick, unticked. Rows it holds with the same value
+               are not mentioned -- there is nothing to decide about them. #}
+            {% if match and listing %}
+            {% set differences = match.spec_differences(listing) %}
+            {% set chosen_rows = form_data.getlist('replace') if form_data.getlist is defined else [] %}
+            <div class="card mb-4" id="details-preview">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="bi bi-arrow-left-right"></i>
+                        If you update this product's details only
+                    </h6>
+                </div>
+                <div class="card-body small">
+                    {% if match.adds_nothing(listing) %}
+                    <p class="mb-2" id="nothing-new">
+                        The product already holds every specification row, the brand and the part
+                        number this listing gives. Pictures it does not already have are still
+                        added.
+                    </p>
+                    {% endif %}
+                    {% if differences[0] %}
+                    <p class="mb-2" id="spec-added-count">
+                        {{ differences[0] | length }} specification
+                        row{{ '' if differences[0] | length == 1 else 's' }} the product lacks
+                        will be added.
+                    </p>
+                    {% endif %}
+                    {% if differences[1] %}
+                    <p class="mb-1">These rows differ. Tick any you want the listing's value for:</p>
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-2" id="spec-differences">
+                            <thead>
+                                <tr><th></th><th>Row</th><th>Currently</th><th>The listing says</th></tr>
+                            </thead>
+                            <tbody>
+                            {% for name, current, proposed in differences[1] %}
+                                <tr class="spec-difference">
+                                    <td>
+                                        <input class="form-check-input replace-row" type="checkbox"
+                                               name="replace" value="spec:{{ name }}"
+                                               id="replace-spec-{{ loop.index }}"{% if ('spec:' ~ name) in chosen_rows %} checked{% endif %}>
+                                    </td>
+                                    <td><label for="replace-spec-{{ loop.index }}">{{ name }}</label></td>
+                                    <td>{{ current | truncate(200) }}</td>
+                                    <td>{{ proposed | truncate(200) }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                    <p class="text-muted mb-0">
+                        Anything the product already holds is kept unless you tick it — here, or
+                        beside a field above. Recording a purchase instead ignores these ticks.
+                    </p>
+                </div>
+            </div>
+            {% endif %}
 
             {# FR-017: what will be written, before it is written. It also does a
                second job -- a capture that comes back thin is the first signal

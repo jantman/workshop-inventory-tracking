@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!--
+  What Amazon serves in place of a listing when it decides a session is
+  automated: a page with no #productTitle. Feature 044's agent must recognize it
+  as "not a listing" and record why, rather than capturing a product called
+  "Robot Check".
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Amazon.com</title>
+</head>
+<body>
+    <div class="a-container">
+        <h4>Enter the characters you see below</h4>
+        <p class="a-last">
+            Sorry, we just need to make sure you're not a robot. For best results,
+            please make sure your browser is accepting cookies.
+        </p>
+        <form method="get" action="/errors/validateCaptcha">
+            <input type="text" id="captchacharacters" name="field-keywords">
+            <button type="submit">Continue shopping</button>
+        </form>
+    </div>
+</body>
+</html>

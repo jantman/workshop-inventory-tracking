@@ -30,9 +30,9 @@ defect. US3 (P2) and US4 (P3) build the guided process on top of them.
 **Purpose**: The two single settings from research.md §7 and §8. Without them a multi-line order
 fails with a 413 or a killed worker.
 
-- [ ] T001 [P] Add `MAX_FORM_MEMORY_SIZE = 16 * 1024 * 1024` to the base config class in `config.py`, with a comment citing Werkzeug 3.1's 500 000-byte per-field default and research.md §7 (the order payload now carries a listing per line, and the review posts it back).
-- [ ] T002 [P] Add `--timeout 600` to the gunicorn `CMD` in `Dockerfile`, with a comment citing research.md §8 (an order confirmation now stores a gallery per line at 8–15 s each; the default is 30 s).
-- [ ] T003 [P] In `docs/deployment-guide.md`, state that a reverse proxy in front of the app needs a read timeout of at least 600 s, because confirming an Amazon order downloads every line's pictures before it responds.
+- [X] T001 [P] Add `MAX_FORM_MEMORY_SIZE = 16 * 1024 * 1024` to the base config class in `config.py`, with a comment citing Werkzeug 3.1's 500 000-byte per-field default and research.md §7 (the order payload now carries a listing per line, and the review posts it back).
+- [X] T002 [P] Add `--timeout 600` to the gunicorn `CMD` in `Dockerfile`, with a comment citing research.md §8 (an order confirmation now stores a gallery per line at 8–15 s each; the default is 30 s).
+- [X] T003 [P] In `docs/deployment-guide.md`, state that a reverse proxy in front of the app needs a read timeout of at least 600 s, because confirming an Amazon order downloads every line's pictures before it responds.
 
 ---
 
@@ -43,25 +43,25 @@ fails with a 413 or a killed worker.
 
 **⚠️ CRITICAL**: No user story work begins until this phase is complete.
 
-- [ ] T004 Write the SC-001 regression test **first** in `tests/unit/test_order_product_details.py`. It covers a product created through `CatalogService.capture_order_lines` from an Amazon order holding ASIN X (use the `AMAZON_ORDER_VENDOR` path and a hand-built `AmazonOrder`). It then POSTs a listing capture for X to `/products/capture` with `intent=details` and `details_product_id=<that product>` plus a `listing` payload carrying two specification rows. Assert:
+- [X] T004 Write the SC-001 regression test **first** in `tests/unit/test_order_product_details.py`. It covers a product created through `CatalogService.capture_order_lines` from an Amazon order holding ASIN X (use the `AMAZON_ORDER_VENDOR` path and a hand-built `AmazonOrder`). It then POSTs a listing capture for X to `/products/capture` with `intent=details` and `details_product_id=<that product>` plus a `listing` payload carrying two specification rows. Assert:
   - the response redirects to that order's page
   - the product has specification rows
   - the product still has exactly one purchase
 
   Run `nox -s tests -- tests/unit/test_order_product_details.py`, confirm it **fails**, and paste the failure into a new `specs/044-order-product-details/verification.md` under "Red before the fix".
-- [ ] T005 Refactor `ListingCapture.from_json` in `app/models.py` into `from_data(data: Any) -> Optional[ListingCapture]` (every current check except `json.loads`) plus a thin `from_json` that parses and delegates. Behavior must be byte-for-byte unchanged, so the existing `tests/unit/test_amazon_payload.py` passes unedited.
-- [ ] T006 Add the frozen dataclasses `ListingMatch` and `ListingDetailsResult` to `app/models.py`, with exactly the fields and properties in data-model.md:
+- [X] T005 Refactor `ListingCapture.from_json` in `app/models.py` into `from_data(data: Any) -> Optional[ListingCapture]` (every current check except `json.loads`) plus a thin `from_json` that parses and delegates. Behavior must be byte-for-byte unchanged, so the existing `tests/unit/test_amazon_payload.py` passes unedited.
+- [X] T006 Add the frozen dataclasses `ListingMatch` and `ListingDetailsResult` to `app/models.py`, with exactly the fields and properties in data-model.md:
   - `ListingMatch.from_order`
   - `ListingMatch.spec_differences(listing)`, returning `(added, differing)`. Names are case-folded in Python, and `description_text` counts as a row named `Description`.
   - `ListingDetailsResult.changed_anything`
-- [ ] T007 Add `CatalogService.products_missing_details(product_ids) -> Set[int]` to `app/catalog_service.py`. It is one grouped query over `ProductSpecification.product_id` for the given ids, returns the ids with no row, and returns an empty set for empty input (data-model.md, "Derived: a product's details status").
-- [ ] T008 Add `CatalogService.find_listing_match(vendor, vendor_item_id, url=None, order_date=None) -> Optional[ListingMatch]` to `app/catalog_service.py`, read-only. It works as follows:
+- [X] T007 Add `CatalogService.products_missing_details(product_ids) -> Set[int]` to `app/catalog_service.py`. It is one grouped query over `ProductSpecification.product_id` for the given ids, returns the ids with no row, and returns an empty set for empty input (data-model.md, "Derived: a product's details status").
+- [X] T008 Add `CatalogService.find_listing_match(vendor, vendor_item_id, url=None, order_date=None) -> Optional[ListingMatch]` to `app/catalog_service.py`, read-only. It works as follows:
   - Look up the product with `find_product_by_identifier(item_id, id_type=VENDOR, vendor=vendor)`.
   - Call `_find_captured_purchase(vendor, item_id, url, ordered)`, where `ordered` defaults to today at midnight exactly as `capture_order` computes it.
   - Keep the purchase as `order_purchase_id`/`order_reference`/`order_vendor` only when it carries a `supplier_order_reference` and its `product_id` equals the matched product's id.
   - Copy the product's current scalar values and its specification rows (in `display_order`) into the dataclass inside the session.
   - Return None for no item id or no product.
-- [ ] T009 Add `CatalogService.apply_listing_details(product_id, listing, proposed=None, replace=frozenset()) -> ListingDetailsResult` to `app/catalog_service.py`, per contracts/details-only-capture.md §5 and research.md §4:
+- [X] T009 Add `CatalogService.apply_listing_details(product_id, listing, proposed=None, replace=frozenset()) -> ListingDetailsResult` to `app/catalog_service.py`, per contracts/details-only-capture.md §5 and research.md §4:
   - **Validation.** Validate every non-blank proposed scalar up front with the existing validators: `_validate_description`, `_validate_category_path`, and the lengths `update_product` enforces. A refusal writes nothing.
   - **One session.**
     - Each scalar: a blank proposal changes nothing. A blank current value is filled. A differing current value is replaced only when its field name is in `replace`.
@@ -70,7 +70,7 @@ fails with a 413 or a killed worker.
   - **Never touches** purchases, quantity, stock status, their dates, or reorder threshold.
   - **Returns** the result; raises `ItemNotFoundError` for a missing product.
   - **Shared merge code.** Factor the add-only loop of `merge_specifications` into a private helper that works on a loaded `Product` in any session, so the two methods share one rule. `merge_specifications`' own behavior must not change.
-- [ ] T010 Unit-test T005–T009 in `tests/unit/test_order_product_details.py`:
+- [X] T010 Unit-test T005–T009 in `tests/unit/test_order_product_details.py`:
   - `from_data`/`from_json` parity
   - `spec_differences`
   - `products_missing_details`:
@@ -107,7 +107,7 @@ purchase.
 
 ### Tests for User Story 1
 
-- [ ] T011 [P] [US1] Route tests in `tests/unit/test_order_product_details.py` for the landing and details path:
+- [X] T011 [P] [US1] Route tests in `tests/unit/test_order_product_details.py` for the landing and details path:
   - **Landing.** A form POST to `/api/capture` whose listing ASIN names a product renders `#listing-match` with `#intent-purchase` checked and `#intent-details` present. One naming no product renders neither.
   - **Details path.** `intent=details` writes no purchase, flashes the result, redirects to the product page, and stores images through a mocked `store_listing_images`.
   - **Replace ticks.** A tick replaces only that value.
@@ -120,10 +120,10 @@ purchase.
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] In `app/product/routes.py`, add a helper `_capture_page(form_data, listing, **extra)` that computes `match = service.find_listing_match(vendor, item_id, url, form_data.get('order_date'))` and renders `product/capture.html` with `match`.
+- [X] T013 [US1] In `app/product/routes.py`, add a helper `_capture_page(form_data, listing, **extra)` that computes `match = service.find_listing_match(vendor, item_id, url, form_data.get('order_date'))` and renders `product/capture.html` with `match`.
   - **Where `vendor`/`item_id` come from:** the same derivation `product_capture` uses (`vendor` field, else `_vendor_from_url`; `vendor_item_id`, else `_asin_from_url` / `_mcmaster_part_from_url`).
   - **Call sites:** the bookmarklet landing in `api_capture` (form branch), plus the `CaptureDecisionRequired` and `ValidationError` re-renders in `product_capture`. Each keeps its current keyword arguments.
-- [ ] T014 [US1] In `product_capture` (`app/product/routes.py`), add the `intent == 'details'` branch per contracts/details-only-capture.md §4:
+- [X] T014 [US1] In `product_capture` (`app/product/routes.py`), add the `intent == 'details'` branch per contracts/details-only-capture.md §4:
   - **Fields.** Resolve the listing fallbacks for manufacturer and part number exactly as the purchase path does, then call `service.apply_listing_details(int(details_product_id), listing, proposed={...six fields from the form...}, replace=set(request.form.getlist('replace')))`.
   - **Errors.** On `ValidationError` or `ItemNotFoundError`, flash and re-render through `_capture_page`.
   - **Success.**
@@ -132,7 +132,7 @@ purchase.
     - Call `store_listing_images` with its `_image_tally`.
     - Redirect to `product.product_detail`. US2 adds `return_order`.
   - **Absent `intent`.** Must reach the unchanged purchase code.
-- [ ] T015 [US1] In `app/templates/product/capture.html`, render the plain-mode `#listing-match` block when `match` is set and not `match.from_order`:
+- [X] T015 [US1] In `app/templates/product/capture.html`, render the plain-mode `#listing-match` block when `match` is set and not `match.from_order`:
   - **The choice.** Radios `name="intent"`: `#intent-purchase`, checked by default, and `#intent-details`. Include a hidden `details_product_id`, and restore the chosen intent from `form_data` on re-render.
   - **Scalar fields.** Under each of description, manufacturer, part number, and the classification fields: when `match` holds a value, show *"Currently: X"* and an unticked checkbox `name="replace" value="<field>"` with class `.replace-current`. The classification fields come from the shared `_classification_fields.html` include, so put the notes in a small block right after the include rather than editing the include.
   - **`#spec-differences`.** A table built from `match.spec_differences(listing)`, with the added-row count and a checkbox per differing row (`value="spec:<name>"`), restored from `form_data.getlist('replace')` on re-render.
@@ -154,13 +154,13 @@ changing anything. The product has details and one purchase, and you land on the
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Route tests in `tests/unit/test_order_product_details.py`:
+- [X] T016 [P] [US2] Route tests in `tests/unit/test_order_product_details.py`:
   - **Collapsed landing.** The landing for a listing whose product carries an order-captured purchase renders `#order-item-match`, naming the order reference and the product, with `#intent-details` checked. It does **not** render `#duplicate-warning` or `#identifier-warning`, and it does render the FR-011 sentence.
   - **Confirming as shown.** This makes T004 pass: redirect to `_order_url('Amazon', ref, highlight=asin)`.
   - **Separate purchase.** `intent=purchase` with the hidden answers records exactly one new purchase on that product with no question raised.
   - **Paste path.** A paste-path re-render where `capture_order` raised both questions for that same situation renders the collapsed block instead of the two warnings.
   - **Different product.** `#attach-new` carries the FR-013 consequence sentence.
-- [ ] T017 [P] [US2] Update the assertions in `tests/unit/test_cross_path_duplicates.py::TestCapturingAListingAfterItsOrder` (around lines 631–742) for FR-009:
+- [X] T017 [P] [US2] Update the assertions in `tests/unit/test_cross_path_duplicates.py::TestCapturingAListingAfterItsOrder` (around lines 631–742) for FR-009:
   - Expect `#order-item-match` where the class expected both warnings.
   - Keep, unchanged in meaning, every assertion that acknowledging records a separate purchase. It now goes through the collapsed block's hidden answers.
   - Record each edited assertion and why in `specs/044-order-product-details/verification.md`.
@@ -172,13 +172,13 @@ changing anything. The product has details and one purchase, and you land on the
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] In `app/templates/product/capture.html`, render `#order-item-match` when `match.from_order`, and wrap the existing `#duplicate-warning` and `#identifier-warning` blocks so they do not render in that case:
+- [X] T019 [US2] In `app/templates/product/capture.html`, render `#order-item-match` when `match.from_order`, and wrap the existing `#duplicate-warning` and `#identifier-warning` blocks so they do not render in that case:
   - **The choice.** Radios `#intent-details` (checked unless `form_data.intent == 'purchase'`) and `#intent-purchase`.
   - **The FR-011 sentence**, always visible.
   - **Hidden fields:** `acknowledged_duplicate_of=match.order_purchase_id`, `attach_to=match.product_id`, `details_product_id=match.product_id`, `return_order=match.order_reference`.
   - **The show-and-choose section from T015**, reused rather than duplicated. Move it into a `{% macro %}` or a small include in the same template directory if both blocks need it.
   - **`#attach-new`.** Add the FR-013 consequence sentence to its label in the existing identifier block.
-- [ ] T020 [US2] In the details branch of `product_capture` (`app/product/routes.py`), redirect to `_order_url(vendor, request.form['return_order'], highlight=vendor_item_id)` when `return_order` is present and non-blank; otherwise to the product page (FR-020).
+- [X] T020 [US2] In the details branch of `product_capture` (`app/product/routes.py`), redirect to `_order_url(vendor, request.form['return_order'], highlight=vendor_item_id)` when `return_order` is present and non-blank; otherwise to the product page (FR-020).
 
 **Checkpoint**: T004 is green, and the reported scenario (SC-001) works end to end. This is a
 shippable fix for issue #156 on its own.
@@ -195,7 +195,7 @@ with an "Open listing" link. Fill one through US2 and the count drops.
 
 ### Tests for User Story 3
 
-- [ ] T021 [P] [US3] Route tests in `tests/unit/test_order_product_details.py`:
+- [X] T021 [P] [US3] Route tests in `tests/unit/test_order_product_details.py`:
   - **Order page.** `GET /products/orders/Amazon/<ref>` renders:
     - `#details-progress` with the distinct-product count
     - `.details-missing` plus `a.open-listing[href="https://www.amazon.com/dp/<ASIN>"]` on thin lines
@@ -210,18 +210,18 @@ with an "Open listing" link. Fill one through US2 and the count drops.
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] In `order_detail` (`app/product/routes.py`), when `vendor == AMAZON_VENDOR`, compute `missing = service.products_missing_details({p.product_id for p in lines if p.product_id})` and pass the following to the template:
+- [X] T023 [US3] In `order_detail` (`app/product/routes.py`), when `vendor == AMAZON_VENDOR`, compute `missing = service.products_missing_details({p.product_id for p in lines if p.product_id})` and pass the following to the template:
   - `details_missing` (the set)
   - `details_checklist=True`
   - the distinct missing and total product counts
-- [ ] T024 [US3] In `app/templates/product/order.html`, when `details_checklist` is set:
+- [X] T024 [US3] In `app/templates/product/order.html`, when `details_checklist` is set:
   - render `#details-progress` above the table per contracts/order-payload.md §4
   - add a "Details" column with a `.details-captured` or `.details-missing` badge
   - add `a.open-listing` (`target="_blank" rel="noopener"`) built from `purchase.vendor_item_id`, omitted when blank
 
   Other vendors' markup must be unchanged.
-- [ ] T025 [US3] In `product_detail` (`app/product/routes.py`), pass `listing_link` when the product has a VENDOR identifier with vendor `Amazon` and `not product.specifications`. In `app/templates/product/detail.html`, render `#details-missing-notice` with that link at the top of the product content (contracts/order-payload.md §5).
-- [ ] T026 [US3] Rewrite `#order-page-detail-note` in `app/templates/product/order_review.html` (FR-021). Say that new products carry only what the order page stated, that after confirming the order's page lists them with a link to each listing, and that the bookmarklet there adds the details without recording another purchase. Remove the undelivered promise. US4 extends this note. Correct the matching claim in `_create_amazon_product`'s docstring in `app/catalog_service.py`.
+- [X] T025 [US3] In `product_detail` (`app/product/routes.py`), pass `listing_link` when the product has a VENDOR identifier with vendor `Amazon` and `not product.specifications`. In `app/templates/product/detail.html`, render `#details-missing-notice` with that link at the top of the product content (contracts/order-payload.md §5).
+- [X] T026 [US3] Rewrite `#order-page-detail-note` in `app/templates/product/order_review.html` (FR-021). Say that new products carry only what the order page stated, that after confirming the order's page lists them with a link to each listing, and that the bookmarklet there adds the details without recording another purchase. Remove the undelivered promise. US4 extends this note. Correct the matching claim in `_create_amazon_product`'s docstring in `app/catalog_service.py`.
 
 **Checkpoint**: The order page is a working checklist, and US1/US2 complete it one product at a
 time.
@@ -240,18 +240,18 @@ not read" and appears on the checklist.
 
 ### Tests for User Story 4
 
-- [ ] T027 [P] [US4] Model and service tests in `tests/unit/test_order_product_details.py`:
+- [X] T027 [P] [US4] Model and service tests in `tests/unit/test_order_product_details.py`:
   - **Payload parsing.** `AmazonOrderLine.from_payload` reads a `listing` object (via `ListingCapture.from_data`) and a `listing_problem`. A malformed `listing` object yields `listing=None` with a problem string, never a refused line. A line with neither key is unchanged.
   - **`line_products`.** `capture_order_lines` reports one entry per NEW, MATCHED, adopted and already-captured line, and none for an excluded line.
   - **`wrote_anything`.** It is true when only `products_detailed` is non-zero.
-- [ ] T028 [P] [US4] Route tests in `tests/unit/test_order_product_details.py` for `POST /products/amazon/orders/capture`, with `store_listing_images` mocked:
+- [X] T028 [P] [US4] Route tests in `tests/unit/test_order_product_details.py` for `POST /products/amazon/orders/capture`, with `store_listing_images` mocked:
   - **New product.** A NEW line carrying a listing yields a product with the listing's manufacturer, part number and rows.
   - **Matched product.** A MATCHED line fills only blanks; a held manufacturer is kept.
   - **Not read.** A `listing_problem` line yields a thin product that the order page lists as missing.
   - **Shared ASIN.** Two lines with one ASIN are applied once.
   - **Re-capture (FR-030).** Re-posting the same order with listings fills the already-captured lines' products, writes no purchase, and flashes "Details added to N product(s)" without leading on "Nothing new to capture".
   - **Review rendering.** The review renders `.line-listing-summary` and `.details-not-read` with the reason.
-- [ ] T029 [P] [US4] Create `tests/e2e/fixtures/amazon_robot_check.html`: a minimal page with no `#productTitle`, shaped like a robot-check interstitial.
+- [X] T029 [P] [US4] Create `tests/e2e/fixtures/amazon_robot_check.html`: a minimal page with no `#productTitle`, shaped like a robot-check interstitial.
 - [ ] T030 [US4] Update `tests/e2e/test_amazon_order.py` and `tests/e2e/test_amazon_receive.py` for research.md §11:
   - In each test that captures an order, fulfil `/dp/<ASIN>` (the `LISTING_ROUTE` pattern from `test_product_page_capture.py`) with `amazon_listing.html`, or assert `.details-not-read` where the test is about the unread state.
   - Rewrite `test_the_review_says_the_products_will_be_thin` against the new `#order-page-detail-note` wording.
@@ -270,23 +270,23 @@ not read" and appears on the checklist.
 
 ### Implementation for User Story 4
 
-- [ ] T032 [US4] In `app/models.py`, add `listing: Optional[ListingCapture] = None` and `listing_problem: str = ''` to `AmazonOrderLine`, parsed in `from_payload` per data-model.md.
-- [ ] T033 [US4] In `app/models.py`, add `line_products: tuple = ()` and `products_detailed: int = 0` to `OrderCaptureResult`, and include `products_detailed > 0` in `wrote_anything`.
-- [ ] T034 [US4] In `capture_order_lines` (`app/catalog_service.py`), collect `(line.form_key, product_id)` for every created or attached purchase, every adopted purchase, and every already-captured line (`existing.product_id`), and return them as `line_products`. Nothing else in the method changes.
-- [ ] T035 [US4] In `_confirm_page_order` (`app/product/routes.py`), after `capture_order_lines` succeeds, add a helper `_apply_order_listings(service, order, result)`:
+- [X] T032 [US4] In `app/models.py`, add `listing: Optional[ListingCapture] = None` and `listing_problem: str = ''` to `AmazonOrderLine`, parsed in `from_payload` per data-model.md.
+- [X] T033 [US4] In `app/models.py`, add `line_products: tuple = ()` and `products_detailed: int = 0` to `OrderCaptureResult`, and include `products_detailed > 0` in `wrote_anything`.
+- [X] T034 [US4] In `capture_order_lines` (`app/catalog_service.py`), collect `(line.form_key, product_id)` for every created or attached purchase, every adopted purchase, and every already-captured line (`existing.product_id`), and return them as `line_products`. Nothing else in the method changes.
+- [X] T035 [US4] In `_confirm_page_order` (`app/product/routes.py`), after `capture_order_lines` succeeds, add a helper `_apply_order_listings(service, order, result)`:
   - **Which lines.** For each distinct product in `result.line_products` whose line carries `listing`: call `service.apply_listing_details(product_id, listing, proposed={'manufacturer': listing.brand, 'manufacturer_part_number': listing.manufacturer_part_number()})` with no replacements, then `store_listing_images(product_id, listing.images, _get_storage_backend(), vendor_item_id=line.asin)`.
   - **Errors.** Catch and log a `ValidationError` or `ItemNotFoundError` per product so it never un-writes the order (FR-031).
   - **What it returns.** `products_detailed` and the summed image counts.
   - **Summary.** Pass `dataclasses.replace(result, products_detailed=...)` to `_order_capture_summary`.
-- [ ] T036 [US4] In `_order_capture_summary` (`app/product/routes.py`):
+- [X] T036 [US4] In `_order_capture_summary` (`app/product/routes.py`):
   - **"Details added to N product(s)".** Add it inside the "wrote something" block, above the "Nothing new to capture" fallback, per the function's docstring rule.
   - **The image tally.** Add it when pictures were attempted.
   - **The thin-products sentence.** Replace it with "K product(s) still need details — see below" when K > 0, where K is the not-read lines' products still missing. `_confirm_page_order` computes K with `products_missing_details`.
-- [ ] T037 [US4] In `app/templates/product/order_review.html`, for Amazon lines:
+- [X] T037 [US4] In `app/templates/product/order_review.html`, for Amazon lines:
   - **`.line-listing-summary`.** Brand, row count, picture count, and barcode found (a row whose name `_is_barcode_row_name` accepts; expose a template-safe property on `ListingCapture` rather than calling a private function from Jinja).
   - **`.details-not-read`.** The badge, with the reason.
   - **The `#order-page-detail-note` variants.** Extend the note per contracts/order-payload.md §2, with `data-listings-read` and `data-listings-missing`.
-- [ ] T038 [US4] In `app/static/js/capture-agent.js`, in the `amazon-order` branch:
+- [X] T038 [US4] In `app/static/js/capture-agent.js`, in the `amazon-order` branch:
   - **The loop.** Replace the immediate `submitCapture` with an async function that, for each distinct ASIN among `order.lines`, sequentially calls `fetch(location.origin + '/dp/' + asin, {credentials: 'same-origin'})`.
   - **A listing counts as read only when all three hold:**
     - `response.ok`
@@ -305,7 +305,7 @@ checklist.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T039 [P] Rewrite the Amazon Orders section of `docs/user-manual.md` (anchor `#amazon-orders`) to describe the guided process:
+- [X] T039 [P] Rewrite the Amazon Orders section of `docs/user-manual.md` (anchor `#amazon-orders`) to describe the guided process:
   - the bookmarklet reads each listing
   - what "details not read" means
   - the order page's checklist and "Open listing" links
@@ -313,8 +313,8 @@ checklist.
   - re-running the order bookmarklet to fill products already captured
 
   Mention the per-field replace ticks. Keep American spelling ("catalog").
-- [ ] T040 Run `grep -ric "catalogue" README.md docs/ app/ tests/`; it must print nothing. Then run `grep -rn "catalogd\|catalogng\|uncatalogd" app/ tests/`; it must also print nothing.
-- [ ] T041 Run `nox -s tests` and fix every failure. Tests outside those edited under T017/T030 must pass **unedited**, notably `tests/unit/test_capture.py` and `tests/e2e/test_repeat_purchase.py` (research.md §11).
+- [X] T040 Run `grep -ric "catalogue" README.md docs/ app/ tests/`; it must print nothing. Then run `grep -rn "catalogd\|catalogng\|uncatalogd" app/ tests/`; it must also print nothing.
+- [X] T041 Run `nox -s tests` and fix every failure. Tests outside those edited under T017/T030 must pass **unedited**, notably `tests/unit/test_capture.py` and `tests/e2e/test_repeat_purchase.py` (research.md §11).
 - [ ] T042 Run `nox -s e2e` detached (`nohup ... > log &`; it takes about 17 minutes, past the Bash tool's 10-minute cap) and wait for it to finish. Fix failures by waiting on state, never on time (CLAUDE.md). Confirm `git status` is clean afterwards.
 - [ ] T043 Regenerate screenshots with `nox -s screenshots_headless`, then run `nox -s screenshots_verify`. Commit only the screenshots of the pages this feature changed (capture confirmation, order review, order page, product page); revert other churn with `git checkout -- docs/images/screenshots/<file>`.
 - [ ] T044 Complete `specs/044-order-product-details/verification.md`:

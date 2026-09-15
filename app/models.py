@@ -569,6 +569,121 @@ class CaptureAssessment:
         }
 
 
+# The product's own words for what a listing capture can fill in or replace, in
+# the order the confirmation page shows them (044 FR-004). The label is what the
+# operator reads in "Currently: ..." and in the flash; the key is the column.
+LISTING_DETAIL_FIELDS = (
+    ('description', 'description'),
+    ('manufacturer', 'manufacturer'),
+    ('manufacturer_part_number', 'part number'),
+    ('category_path', 'category'),
+    ('location', 'location'),
+    ('sub_location', 'sub-location'),
+)
+
+
+@dataclass(frozen=True)
+class ListingMatch:
+    """The product a listing capture's item number names, for the confirmation page.
+
+    Built by ``CatalogService.find_listing_match``, which writes nothing, before
+    the operator has submitted anything -- that is what lets the page offer
+    "update this product's details only" up front rather than after a question
+    (044 FR-001). Plain values, for the reason ``CaptureAssessment`` gives: a
+    display-only object has no business carrying a detached ORM row around.
+
+    ``order_purchase_id`` is set when the same product also holds a purchase an
+    *order* capture wrote that this listing capture may be (033's window). That
+    is the case issue #156 reported, and the page then asks one question naming
+    the order instead of two (FR-009).
+    """
+    product_id: int
+    description: str
+    manufacturer: Optional[str] = None
+    manufacturer_part_number: Optional[str] = None
+    category_path: Optional[str] = None
+    location: Optional[str] = None
+    sub_location: Optional[str] = None
+    # (name, value) pairs, in display order.
+    specifications: tuple = ()
+    order_purchase_id: Optional[int] = None
+    order_reference: Optional[str] = None
+    order_vendor: Optional[str] = None
+
+    @property
+    def from_order(self) -> bool:
+        """Whether the listing looks like a line of an order already captured."""
+        return self.order_purchase_id is not None
+
+    def spec_differences(self, listing: Optional['ListingCapture']) -> Tuple[tuple, tuple]:
+        """What the listing's rows would do to this product's.
+
+        Returns ``(added, differing)``: the listing's rows whose names the
+        product does not hold, as ``{'name', 'value'}`` dicts, and
+        ``(name, current, proposed)`` for rows it holds with another value.
+
+        Names fold with ``str.lower`` in Python, which is ``merge_specifications``'
+        rule -- the preview and the write must call the same two rows one name.
+        A row repeated within the listing counts once, first wins, as the merge
+        does. Pure, because a template calls it.
+        """
+        if listing is None:
+            return (), ()
+
+        held = {name.lower(): (name, value) for name, value in self.specifications}
+        seen = set()
+        added, differing = [], []
+        for entry in listing.specification_entries():
+            name = (entry.get('name') or '').strip()
+            value = (entry.get('value') or '').strip()
+            if not name or not value or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            current = held.get(name.lower())
+            if current is None:
+                added.append({'name': name, 'value': value})
+            elif current[1] != value:
+                differing.append((current[0], current[1], value))
+        return tuple(added), tuple(differing)
+
+    def adds_nothing(self, listing: Optional['ListingCapture']) -> bool:
+        """Whether the listing offers no row, brand or part number this lacks (FR-007).
+
+        Pictures are not weighed: whether an image is already stored is only
+        known once it has been fetched, and a repeat is skipped then anyway.
+        """
+        if listing is None:
+            return True
+        added, differing = self.spec_differences(listing)
+        if added or differing:
+            return False
+        for current, offered in (
+            (self.manufacturer, listing.brand),
+            (self.manufacturer_part_number, listing.manufacturer_part_number()),
+        ):
+            if offered and offered.strip() != (current or ''):
+                return False
+        return True
+
+
+@dataclass(frozen=True)
+class ListingDetailsResult:
+    """What ``CatalogService.apply_listing_details`` changed, for the flash."""
+    product_id: int
+    fields_filled: tuple = ()
+    fields_replaced: tuple = ()
+    specifications_added: int = 0
+    specifications_replaced: int = 0
+
+    @property
+    def changed_anything(self) -> bool:
+        """Whether the product is any different for it."""
+        return bool(
+            self.fields_filled or self.fields_replaced
+            or self.specifications_added or self.specifications_replaced
+        )
+
+
 @dataclass
 class CapturedBarcode:
     """What became of one barcode-named row a listing carried (016 FR-009).
@@ -627,6 +742,15 @@ class ImageCaptureResult:
 # from_json stops accepting 1, at which point a stale cached agent degrades to
 # today's behaviour on its next use and is replaced on the one after.
 LISTING_CAPTURE_VERSION = 1
+
+
+# Specification row names that mean "this value is a retail barcode" (016 FR-001).
+# A captured row carrying one of these is a candidate for promotion to a GTIN
+# identifier; see CatalogService._promote_barcode_rows. The list is closed and
+# short, and adding to it is a one-line change -- which is why it is a constant
+# and not a setting. Here rather than in catalog_service so ListingCapture can
+# read it (044) without an import cycle.
+BARCODE_ROW_NAMES = frozenset({'UPC', 'EAN', 'GTIN', 'ISBN', 'GTIN-13', 'UPC-A'})
 
 
 def normalized_row_name(name: Optional[str]) -> str:
@@ -787,6 +911,28 @@ class ListingCapture:
                     return value
         return None
 
+    def specification_entries(self) -> List[Dict[str, str]]:
+        """The rows this listing contributes to a product, description included.
+
+        The listing's own product-information rows, then its description as a
+        row named ``Description`` -- which is how a capture has always stored the
+        prose (007), and so how anything comparing a listing with a product must
+        see it too. One definition, because the capture that writes the rows
+        and the confirmation page that previews them must agree on what they are.
+        """
+        entries = list(self.specifications)
+        if self.description_text:
+            entries.append({'name': 'Description', 'value': self.description_text})
+        return entries
+
+    @property
+    def has_barcode(self) -> bool:
+        """Whether any row is named as a barcode (016's six names). Pure."""
+        return any(
+            normalized_row_name(entry.get('name')) in BARCODE_ROW_NAMES
+            for entry in self.specifications
+        )
+
     @classmethod
     def from_json(cls, raw: Optional[str]) -> Optional['ListingCapture']:
         """Parse the hidden ``listing`` field, or return None.
@@ -811,6 +957,17 @@ class ListingCapture:
             logger.info("Capture payload is not JSON; capturing without it")
             return None
 
+        return cls.from_data(data)
+
+    @classmethod
+    def from_data(cls, data: Any) -> Optional['ListingCapture']:
+        """Build from an already-parsed payload object, or return None.
+
+        The half of :meth:`from_json` after ``json.loads``. It exists because an
+        Amazon order payload carries one of these *inside* each line (044), and
+        that arrives parsed -- round-tripping it through a string to reach the
+        checks below would be a second parser in disguise.
+        """
         if not isinstance(data, dict):
             logger.info("Capture payload is not an object; capturing without it")
             return None
@@ -1746,6 +1903,13 @@ class AmazonOrderLine:
     # `_review_order_line` checks.
     manufacturer_part_number: str = ''
 
+    # The line's own listing, when the agent read it (044 US4), or why it could
+    # not. At most one is set; an older agent sends neither and the line reads
+    # exactly as it did. Excluded from comparison and hashing: a ListingCapture
+    # holds lists, and this line is a frozen value the review may put in a set.
+    listing: Optional['ListingCapture'] = field(default=None, compare=False)
+    listing_problem: str = field(default='', compare=False)
+
     @property
     def form_key(self) -> str:
         """What names this line in a form, and what a decision is keyed by.
@@ -1818,6 +1982,16 @@ class AmazonOrderLine:
         # the ordinary case rather than a failure (029 research.md §6).
         quantity = _order_int(data.get('quantity')) or 1
 
+        # 044: what the agent read off this line's own listing. A listing that
+        # will not parse costs the listing, never the line -- it is reported as
+        # unread and the order captures exactly as it did before (FR-024).
+        listing = None
+        problem = _order_string(data.get('listing_problem'))
+        if data.get('listing') is not None:
+            listing = ListingCapture.from_data(data.get('listing'))
+            if listing is None and not problem:
+                problem = 'the listing read was unusable'
+
         return cls(
             asin=asin,
             title=title,
@@ -1827,6 +2001,8 @@ class AmazonOrderLine:
             # when the agent omits it -- position is the only line identity
             # Amazon offers and it must not be left blank.
             line_number=_order_int(data.get('line_number')) or (index + 1),
+            listing=listing,
+            listing_problem='' if listing is not None else problem,
         )
 
 
@@ -1852,6 +2028,16 @@ class AmazonOrder:
     def lines_offered(self) -> int:
         """How many lines the operator is being shown."""
         return len(self.lines)
+
+    @property
+    def listings_read(self) -> int:
+        """How many lines arrived carrying their own listing (044)."""
+        return sum(1 for line in self.lines if line.listing is not None)
+
+    @property
+    def listings_unread(self) -> int:
+        """How many lines the agent tried to read a listing for and could not."""
+        return sum(1 for line in self.lines if line.listing_problem)
 
     @property
     def is_incomplete(self) -> bool:
@@ -2180,6 +2366,13 @@ class OrderCaptureResult:
     # renamed it on the vendor's side and this capture refiled the rows. '' when
     # nothing moved. McMaster only -- see OrderVendor.adopts_renames.
     renamed_from: str = ''
+    # (form_key, product_id) for every line whose purchase this capture wrote or
+    # adopted, and every line already captured (044). The confirm route applies
+    # each line's listing to that product after this transaction commits.
+    line_products: tuple = ()
+    # How many of those products the listings changed. Set by the confirm route
+    # with dataclasses.replace, not by the service -- it happens afterwards.
+    products_detailed: int = 0
 
     @property
     def lines_unenriched(self) -> tuple:
@@ -2206,6 +2399,7 @@ class OrderCaptureResult:
             or bool(self.purchases_adopted)
             or self.lines_updated > 0
             or bool(self.renamed_from)
+            or self.products_detailed > 0
         )
 
 

@@ -1381,16 +1381,59 @@ work, and says so: there is no single order on that page.
 capture with one extra step — picking the workshop orders out of a household's
 Amazon history. See [Backfilling Past Orders](#backfilling-past-orders).
 
-**What you get is thinner than a listing capture, and the review says so.** An
-order page states a title, a quantity and a price. The pictures, the
-specifications, the *About this item* bullets and the barcodes all live on the
-item's own listing page — one page per line — so an order capture does not fetch
-them. To fill an item in later, capture its listing page the usual way: it
-attaches to the same product rather than making a second one.
+**The bookmarklet reads each item's own listing too.** An order page states only
+a title, a quantity and a price; the pictures, the specifications, the *About
+this item* bullets and the barcodes live on each item's listing page. So after
+reading the order, the bookmarklet opens each listing in the background — a
+small box on the Amazon page counts through them, *reading listing 3 of 5…* —
+and the review shows, under each item, what its listing gave: the brand, how
+many specification rows, how many pictures, and whether a barcode was found.
+Confirming gives each new product all of that, exactly as capturing its listing
+on its own would. A product already in the catalog only gains what it lacks;
+nothing it already holds is overwritten.
+
+**A listing that could not be read is marked *details not read*,** with the
+reason — most often Amazon asking you to sign in or to prove you are not a robot
+after several pages in a row. That item still captures with what the order page
+stated, and the rest of the order is unaffected.
 
 If Amazon changes their markup and a field stops reading, that field goes blank
 and everything else still captures. The review marks what came back thin, and so
 does the message after you confirm, so you know which records to look over.
+
+### Filling in each product's details
+
+After you confirm, you land on the order's page, and it doubles as a checklist.
+Each line says whether its product's details are *captured* or *missing*, and the
+top of the page says how many products still need them. A missing one has an
+**Open listing** link. Follow it, click *Capture to Workshop* on the listing, and
+the confirmation page opens with one message: *This is the item from order …*,
+with **Add the listing's details to it — don't record a purchase** already
+selected. Confirm, and you are back on the order's page with that line reading
+*captured*. When every line does, the page says so.
+
+A few things worth knowing:
+
+- **No second purchase is recorded.** The order already recorded this purchase;
+  filling in the product changes only the product. If you really did buy it
+  again, choose *I bought it again — record a separate purchase*, and the page
+  says plainly that it will count twice.
+- **Nothing the product already holds is replaced unless you tick it.** Where the
+  product has a manufacturer, a part number, a description or a specification row
+  that differs from the listing, the confirmation page shows the current value
+  beside the listing's with a *Replace* tick, unticked. What the product lacks is
+  simply filled in.
+- **This works for any product, not only ones an order made.** Capture a listing
+  whose item number is already in the catalog and the page asks whether to
+  record a purchase or *update its details only*. It defaults to recording a
+  purchase, because that is usually why you are on a listing.
+- **The product's own page says so too.** A product with no details from its
+  listing shows a notice with the same *Open listing* link.
+- **Re-running the bookmarklet on the order fills in what an earlier capture
+  left thin.** Lines already captured are not captured again, but the listings
+  it reads still fill in their products, and the message says how many gained
+  details. This is the quickest way to fix an order captured before listings were
+  read.
 
 ### Seeing an order, and receiving the boxes
 

@@ -7,6 +7,7 @@ Everything delegates to CatalogService. Server-rendered pages return HTML,
 rather than any new error machinery.
 """
 
+import dataclasses
 import json
 import logging
 import re
@@ -20,6 +21,7 @@ from app import csrf
 from app.catalog_service import (
     AMAZON_ORDER_VENDOR,
     AMAZON_VENDOR,
+    DETAIL_FIELD_MAX_LENGTHS,
     DIGIKEY_ORDER_VENDOR,
     DIGIKEY_VENDOR,
     MCMASTER_ORDER_VENDOR,
@@ -37,6 +39,8 @@ from app.models import (
     AmazonOrder,
     CapturedBarcode,
     IdentifierType,
+    ImageCaptureResult,
+    LISTING_DETAIL_FIELDS,
     ListingCapture,
     McMasterOrder,
     OPERATOR_IDENTIFIER_TYPES,
@@ -380,7 +384,35 @@ def product_detail(product_id):
         attachments=attachments,
         purchase_attachments=purchase_attachments,
         identifier_types=OPERATOR_IDENTIFIER_TYPES,
+        listing_link=_missing_details_link(product),
     )
+
+
+def _amazon_listing_url(asin: str) -> str:
+    """An Amazon item's own listing page -- where the capture bookmarklet reads details.
+
+    Built from the ASIN rather than read off a purchase: an order-captured
+    purchase's ``listing_url`` is the *order* page (``_amazon_line_fields``), not
+    the listing, and linking to it would send the operator to the wrong place.
+    """
+    return f'https://www.amazon.com/dp/{asin}'
+
+
+def _missing_details_link(product):
+    """Where to fill this product in, when it has no details and we know (044 FR-018).
+
+    "Missing details" is the derived rule -- no specification rows -- and the
+    link is only offered for a product carrying an Amazon ASIN, because that is
+    the only listing address the catalog can build. A product with nothing to
+    link to gets no nagging.
+    """
+    if product.specifications:
+        return None
+    for identifier in product.identifiers:
+        if (identifier.id_type == IdentifierType.VENDOR.value
+                and identifier.vendor == AMAZON_VENDOR):
+            return _amazon_listing_url(identifier.value)
+    return None
 
 
 @bp.route('/products/<product_code>')
@@ -545,6 +577,16 @@ def product_capture():
             if manufacturer_part_number is None:
                 manufacturer_part_number = listing.manufacturer_part_number()
 
+        if request.form.get('intent') == 'details':
+            # 044: the listing's details onto the product its item number
+            # names, and no purchase. Nothing below applies -- no question is
+            # asked and nothing is recorded -- so it is its own function. An
+            # absent `intent` is today's request exactly (FR-008).
+            return _capture_details_only(
+                service, listing, vendor, vendor_item_id,
+                manufacturer, manufacturer_part_number,
+            )
+
         try:
             purchase = service.capture_order(
                 vendor=vendor,
@@ -572,23 +614,10 @@ def product_capture():
         except CaptureDecisionRequired as e:
             # Not an error page: a step in the flow. Nothing was written, and the
             # form comes back with the question attached.
-            return render_template(
-                'product/capture.html',
-                title='Capture an Order',
-                form_data=request.form,
-                listing=listing,
-                assessment=e.assessment,
-                bookmarklet=_capture_bookmarklet(),
-            )
+            return _capture_page(request.form, listing, assessment=e.assessment)
         except ValidationError as e:
             flash(e.message, 'error')
-            return render_template(
-                'product/capture.html',
-                title='Capture an Order',
-                form_data=request.form,
-                listing=listing,
-                bookmarklet=_capture_bookmarklet(),
-            )
+            return _capture_page(request.form, listing)
 
         flash('Captured. Confirm the details when it arrives.', 'success')
 
@@ -620,13 +649,125 @@ def product_capture():
 
         return redirect(url_for('product.purchase_receive', purchase_id=purchase.id))
 
+    return _capture_page(
+        request.args, ListingCapture.from_json(request.args.get('listing'))
+    )
+
+
+def _capture_page(form_data, listing, **extra):
+    """Render the confirmation form, knowing what the listing's item number names.
+
+    Every render of ``capture.html`` goes through here -- the bookmarklet's
+    landing, the paste form, and each re-render after a question or a refused
+    value -- so the "what should this capture do?" choice (044 FR-001) is on
+    every one of them or on none. ``find_listing_match`` writes nothing, and it
+    is asked with the form's own date so it reaches the same answer about an
+    order purchase that ``capture_order`` would.
+    """
+    url = (form_data.get('url') or '').strip()
+    vendor = form_data.get('vendor') or _vendor_from_url(url)
+    item_id = (
+        form_data.get('vendor_item_id')
+        or _asin_from_url(url)
+        or _mcmaster_part_from_url(url)
+    )
+    match = _get_catalog_service().find_listing_match(
+        vendor, item_id, url, form_data.get('order_date')
+    )
     return render_template(
         'product/capture.html',
         title='Capture an Order',
-        form_data=request.args,
-        listing=ListingCapture.from_json(request.args.get('listing')),
+        form_data=form_data,
+        listing=listing,
+        match=match,
+        detail_fields=LISTING_DETAIL_FIELDS,
         bookmarklet=_capture_bookmarklet(),
+        **extra,
     )
+
+
+def _capture_details_only(service, listing, vendor, vendor_item_id,
+                          manufacturer, manufacturer_part_number):
+    """Write the listing onto an existing product and record no purchase (044 US1).
+
+    The form names the product (``details_product_id``, put there by the page
+    from ``find_listing_match``), the values to propose -- the same fields the
+    purchase path reads, with the same listing fallbacks -- and which held
+    values the operator ticked to replace. ``apply_listing_details`` does the
+    rest and refuses before writing anything if a value is refused.
+
+    Pictures and barcodes are reported exactly as a purchase capture reports
+    them, and the operator goes back to the order the page named if it named one
+    (FR-020) -- which is where the order's checklist is -- or to the product.
+    """
+    try:
+        product_id = int(request.form.get('details_product_id') or '')
+    except ValueError:
+        product_id = None
+
+    try:
+        if product_id is None:
+            raise ValidationError(
+                'Choose which product to update.', field='details_product_id'
+            )
+        result = service.apply_listing_details(
+            product_id,
+            listing,
+            proposed={
+                'description': request.form.get('description'),
+                'manufacturer': manufacturer,
+                'manufacturer_part_number': manufacturer_part_number,
+                'category_path': request.form.get('category_path'),
+                'location': request.form.get('location'),
+                'sub_location': request.form.get('sub_location'),
+            },
+            replace=request.form.getlist('replace'),
+        )
+    except (ValidationError, ItemNotFoundError) as e:
+        flash(e.message, 'error')
+        return _capture_page(request.form, listing)
+
+    flash(_details_summary(result), 'success' if result.changed_anything else 'info')
+
+    if listing is not None:
+        barcodes = service.describe_captured_barcodes(product_id, listing)
+        if barcodes:
+            flash(
+                _barcode_tally(barcodes),
+                'success' if all(n.outcome == 'recorded' for n in barcodes)
+                else 'warning',
+            )
+        if listing.images:
+            images = store_listing_images(
+                product_id,
+                listing.images,
+                _get_storage_backend(),
+                vendor_item_id=vendor_item_id,
+            )
+            flash(_image_tally(images), 'success' if images.stored else 'warning')
+
+    return_order = (request.form.get('return_order') or '').strip()
+    if return_order:
+        return redirect(_order_url(vendor, return_order, highlight=vendor_item_id or ''))
+    return redirect(url_for('product.product_detail', product_id=product_id))
+
+
+def _details_summary(result) -> str:
+    """What a details-only capture changed, in one sentence. No purchase, said so."""
+    labels = dict(LISTING_DETAIL_FIELDS)
+    parts = []
+    if result.fields_filled:
+        parts.append('filled in ' + ', '.join(labels[f] for f in result.fields_filled))
+    if result.fields_replaced:
+        parts.append('replaced ' + ', '.join(labels[f] for f in result.fields_replaced))
+    if result.specifications_added:
+        parts.append(f"{result.specifications_added} specification row(s) added")
+    if result.specifications_replaced:
+        parts.append(f"{result.specifications_replaced} replaced")
+    if not parts:
+        return ("Nothing new to add to this product: it already held everything "
+                "the listing gave. No purchase was recorded.")
+    return "Details updated: " + '; '.join(parts) + ". No purchase was recorded."
 
 
 def _barcode_tally(barcodes: List[CapturedBarcode]) -> str:
@@ -824,10 +965,12 @@ def api_capture():
         # The bookmarklet's new tab lands here. Show the operator what the URL
         # yielded and let them finish it; the write happens when they submit to
         # product_capture, which is on this app's origin and carries a token.
-        return render_template(
-            'product/capture.html',
-            title='Capture an Order',
-            form_data={
+        #
+        # _capture_page also asks what the item number names, so a listing whose
+        # product is already in the catalog is offered "details only" here,
+        # before anything is submitted (044 FR-001).
+        return _capture_page(
+            {
                 'url': url,
                 'vendor': vendor,
                 'vendor_item_id': vendor_item_id,
@@ -841,9 +984,8 @@ def api_capture():
             # Parsed separately, and only for rendering: the form fields fall
             # back to it (US1 scenarios 1 and 2) and the "what will be written"
             # panel is built from it (FR-017). Reading it is not writing it.
-            listing=ListingCapture.from_json(data.get('listing')),
+            ListingCapture.from_json(data.get('listing')),
             from_bookmarklet=True,
-            bookmarklet=_capture_bookmarklet(),
         )
 
     try:
@@ -1434,7 +1576,8 @@ def _order_decisions(form, order):
 
 
 def _order_capture_summary(result, thin_sentence=None,
-                           thin_products=False) -> str:
+                           thin_products=False, still_missing=None,
+                           images_note=None) -> str:
     """What just happened, in one sentence the operator can act on.
 
     **Every outcome that changed the database has to appear here.** A capture
@@ -1462,6 +1605,11 @@ def _order_capture_summary(result, thin_sentence=None,
     order page stated (029 FR-026). Said here as well as on the review because
     this is the message the operator leaves the page with, and a title-only
     product they do not know is title-only is one they will not think to fill in.
+
+    ``still_missing`` replaces that sentence for Amazon since 044: the number of
+    this order's products still without details, which the order page then lists
+    with a link to each listing. ``images_note`` is the image tally from applying
+    the lines' listings, in ``_image_tally``'s words.
     """
     parts = []
     if result.purchase_ids:
@@ -1484,6 +1632,12 @@ def _order_capture_summary(result, thin_sentence=None,
             f"Refiled from {result.renamed_from!r}, which this order was "
             f"renamed from on McMaster"
         )
+    if result.products_detailed:
+        # A write, and above the fallback because of it: re-capturing an order
+        # whose lines are all captured writes no purchase, and leading with
+        # "Nothing new to capture" over products that just gained their details
+        # is the contradiction this block exists to prevent (044 FR-030).
+        parts.append(f"Details added to {result.products_detailed} product(s)")
     if not parts:
         # Nothing was written at all. Say so plainly rather than "Captured 0".
         parts.append("Nothing new to capture")
@@ -1518,6 +1672,13 @@ def _order_capture_summary(result, thin_sentence=None,
         parts.append(
             f"The {result.products_created} new product(s) carry only what the "
             f"order page stated — capture a listing page to fill one in"
+        )
+    if images_note:
+        parts.append(images_note.rstrip('.'))
+    if still_missing:
+        parts.append(
+            f"{still_missing} product(s) on this order still need details — the "
+            f"list below links to each listing"
         )
     return ". ".join(parts) + "."
 
@@ -1608,6 +1769,15 @@ def order_detail(vendor, order_number):
         # receiving path here rather than a progress display (029 US2).
         receive_hint = 'Receive each line as its box arrives.'
 
+    # 044 US3: an Amazon order's page is also the checklist of its products'
+    # details. Amazon only, because it is the one page-read order whose products
+    # are created without them and whose listing address the catalog can build.
+    details_checklist = vendor == AMAZON_VENDOR and bool(lines)
+    product_ids = {line.product_id for line in lines if line.product_id}
+    details_missing = (
+        service.products_missing_details(product_ids) if details_checklist else set()
+    )
+
     return render_template(
         'product/order.html',
         title=f'{vendor} Order {order_number}',
@@ -1619,6 +1789,10 @@ def order_detail(vendor, order_number):
         capture_url=capture_url,
         renameable=bool(order_vendor and order_vendor.adopts_renames),
         receive_hint=receive_hint,
+        details_checklist=details_checklist,
+        details_missing=details_missing,
+        products_total=len(product_ids),
+        amazon_listing_url=_amazon_listing_url,
     )
 
 
@@ -1754,15 +1928,91 @@ def _confirm_page_order(expected_vendor, thin_sentence):
         flash(e.message, 'error')
         return _page_order_review(service, raw, form_data=request.form)
 
+    images_note = None
+    still_missing = None
+    if vendor.name == AMAZON_VENDOR:
+        # 044 US4: the listings the agent read ride the payload, and are applied
+        # now that the order's own transaction has committed (research.md §6).
+        # What falls short leaves its product reading "missing" on the order
+        # page this redirects to, which is the fallback the spec asks for.
+        detailed, images_note = _apply_order_listings(service, order, result)
+        result = dataclasses.replace(result, products_detailed=detailed)
+        still_missing = len(service.products_missing_details(
+            {product_id for _, product_id in result.line_products}
+        ))
+
     flash(
         _order_capture_summary(
-            result, thin_sentence, thin_products=vendor.enrich is None
+            result, thin_sentence,
+            # Amazon says how many products still need details instead, which
+            # is the sentence the order page then shows the list for.
+            thin_products=vendor.enrich is None and still_missing is None,
+            still_missing=still_missing,
+            images_note=images_note,
         ),
         'success',
     )
     return redirect(_order_url(
         vendor.name, vendor.order_fields(order)['supplier_order_reference']
     ))
+
+
+def _apply_order_listings(service, order, result):
+    """Fill in each product an order's lines landed on from that line's listing.
+
+    Returns ``(products_detailed, images_note)``. Fill-blanks only: nothing a
+    product already holds is replaced (044 FR-027) -- the review has no place to
+    ask, and a details-only capture of that listing is where differences are
+    shown. The brand and the listing's own part number are proposed as a
+    single-listing capture proposes them.
+
+    **One product, once.** Two lines naming one ASIN land on one product, and
+    applying its listing twice would store its gallery twice over.
+
+    **Never un-writes the order.** A refused value or a product that has gone is
+    logged and skipped, and that product reads as missing details on the page
+    the operator lands on (FR-031).
+    """
+    listed = {line.form_key: line for line in order.lines if line.listing is not None}
+    done = set()
+    detailed = 0
+    images = ImageCaptureResult()
+    attempted = False
+
+    for form_key, product_id in result.line_products:
+        line = listed.get(form_key)
+        if line is None or product_id in done:
+            continue
+        done.add(product_id)
+        listing = line.listing
+
+        proposed = {'manufacturer_part_number': listing.manufacturer_part_number()}
+        if listing.brand and len(listing.brand) <= DETAIL_FIELD_MAX_LENGTHS['manufacturer']:
+            proposed['manufacturer'] = listing.brand
+        try:
+            outcome = service.apply_listing_details(product_id, listing, proposed=proposed)
+        except (ValidationError, ItemNotFoundError) as e:
+            logger.warning(
+                f"Listing for order line {form_key} not applied to product "
+                f"{product_id}: {e.message}"
+            )
+            continue
+        if outcome.changed_anything:
+            detailed += 1
+
+        if listing.images:
+            attempted = True
+            stored = store_listing_images(
+                product_id, listing.images, _get_storage_backend(),
+                vendor_item_id=line.asin or None,
+            )
+            images.stored += stored.stored
+            images.failed += stored.failed
+            images.skipped += stored.skipped
+            images.duplicates += stored.duplicates
+            images.cap_reached = images.cap_reached or stored.cap_reached
+
+    return detailed, (_image_tally(images) if attempted else None)
 
 
 @bp.route('/products/mcmaster/orders/capture', methods=['POST'])

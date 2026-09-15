@@ -42,6 +42,25 @@
 </div>
 {% endif %}
 
+{% if listing_link %}
+{# 044 FR-018. A product an order line created carries only what the order
+   page stated; this says so where the operator will see it, with the one link
+   that fixes it. The capture on that listing recognizes this product and fills
+   it in without recording another purchase. #}
+<div class="alert alert-warning d-flex flex-wrap align-items-center gap-2" id="details-missing-notice">
+    <span class="me-auto">
+        <i class="bi bi-card-checklist"></i>
+        This product has no details from its listing yet. Open the listing and click the
+        capture bookmarklet there to add its pictures, specifications and barcodes — no
+        purchase is recorded.
+    </span>
+    <a class="btn btn-outline-primary open-listing" href="{{ listing_link }}"
+       target="_blank" rel="noopener">
+        Open listing <i class="bi bi-box-arrow-up-right"></i>
+    </a>
+</div>
+{% endif %}
+
 <div class="row">
     <div class="col-lg-8">
         <div class="card mb-4">
