@@ -48,9 +48,12 @@ the default-to-purchase page and the untouched purchase path.
 | `nox -s e2e`: this feature's journeys plus the Amazon order, receive, degraded, product-page-capture and paste-form files | 104 passed, 0 failed, in a run the host stopped at 80% for low memory, well after this feature's files had finished |
 | `nox -s e2e`: `test_order_capture.py` and `test_repeat_purchase.py`, the files the stopped run had not finished | 42 passed |
 
-The e2e runs were stopped twice by the session host because its swap was full. Other workloads on
-the machine were responsible; the suite itself failed nothing. The CI `test.yml` run on the pull
-request is the full-suite gate.
+| `nox -s e2e` (full suite, T042) | **802 passed**, 0 failed, 0 reruns, in 16 min 45 s. The working tree was clean afterwards |
+| CI on PR #158 (`unit-tests`, `e2e-tests`, `coverage`, `docker-build`) | all passed |
+
+Two earlier partial e2e runs were stopped by the session host because its swap was full. Other
+workloads on the machine were responsible, and neither run had failed a test. The full run above
+completed.
 
 ## Screenshots (T043)
 

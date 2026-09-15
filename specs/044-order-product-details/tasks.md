@@ -315,9 +315,9 @@ checklist.
   Mention the per-field replace ticks. Keep American spelling ("catalog").
 - [X] T040 Run `grep -ric "catalogue" README.md docs/ app/ tests/`; it must print nothing. Then run `grep -rn "catalogd\|catalogng\|uncatalogd" app/ tests/`; it must also print nothing.
 - [X] T041 Run `nox -s tests` and fix every failure. Tests outside those edited under T017/T030 must pass **unedited**, notably `tests/unit/test_capture.py` and `tests/e2e/test_repeat_purchase.py` (research.md §11).
-- [ ] T042 Run `nox -s e2e` detached (`nohup ... > log &`; it takes about 17 minutes, past the Bash tool's 10-minute cap) and wait for it to finish. Fix failures by waiting on state, never on time (CLAUDE.md). Confirm `git status` is clean afterwards.
+- [X] T042 Run `nox -s e2e` detached (`nohup ... > log &`; it takes about 17 minutes, past the Bash tool's 10-minute cap) and wait for it to finish. Fix failures by waiting on state, never on time (CLAUDE.md). Confirm `git status` is clean afterwards.
 - [X] T043 Regenerate screenshots with `nox -s screenshots_headless`, then run `nox -s screenshots_verify`. Commit only the screenshots of the pages this feature changed (capture confirmation, order review, order page, product page); revert other churn with `git checkout -- docs/images/screenshots/<file>`.
-- [ ] T044 Complete `specs/044-order-product-details/verification.md`:
+- [X] T044 Complete `specs/044-order-product-details/verification.md`:
   - the red-then-green record for T004
   - the edited-tests list
   - the payload measurement from T031
