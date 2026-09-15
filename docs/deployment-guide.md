@@ -159,7 +159,10 @@ containing `credentials.json` and `token.json` read-write, owned by uid 1000.
 
 ### Image Details
 
-- Runs `gunicorn` with 2 workers on port 5000 as the non-root `inventory` user
+- Runs `gunicorn` with 2 workers on port 5000 as the non-root `inventory` user,
+  with a 600-second worker timeout: confirming an Amazon order downloads every
+  line's listing pictures before it responds (see
+  [Serving Behind a TLS Reverse Proxy](#serving-behind-a-tls-reverse-proxy))
 - Built-in `HEALTHCHECK` polls `/health`, so `docker ps` reports health directly
 - Logs go to STDOUT/STDERR in the same structured JSON format as a bare-metal
   install, so `docker logs` is the equivalent of `journalctl -u workshop-inventory`
@@ -891,6 +894,17 @@ something. That was issue #114.
 
 Nothing here is a security control. On a LAN-only single-user application there
 is no one to spoof the headers; the trust is there so the URLs come out right.
+
+**Give the proxy a long read timeout.** Confirming an Amazon order stores every
+line's listing pictures before the response is sent -- eight to fifteen seconds
+per product, so a ten-line order can take a couple of minutes. The image runs
+gunicorn with a 600-second worker timeout for this reason, and a proxy that
+gives up sooner shows an error page even though the order was captured. For
+nginx:
+
+```nginx
+    proxy_read_timeout 600s;
+```
 
 ## Security Posture for `/api/*` Endpoints
 

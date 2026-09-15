@@ -37,6 +37,13 @@ class Config:
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ['true', '1', 'yes']
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 
+    # Werkzeug 3.1 refuses any single non-file form field over 500,000 bytes with
+    # a 413. An Amazon order capture carries every line's listing -- description
+    # text uncapped, the image addresses, the specification rows -- in its one
+    # `order` field, and the review posts that field back on confirmation, so a
+    # large order was refused outright with nothing captured (044 research.md §7).
+    MAX_FORM_MEMORY_SIZE = 16 * 1024 * 1024
+
     # CATEGORY_TAXONOMY_FILE and SPECIFICATION_KEYS_FILE are deliberately absent
     # here. app/utils/catalog_taxonomy.py reads them from the environment itself,
     # because it is a pure module with no Flask import and is used by tests that

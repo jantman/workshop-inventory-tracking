@@ -66,4 +66,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # No ENTRYPOINT, so `docker run <image> python manage.py db upgrade` works for
 # migrations and the other manage.py commands.
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--access-logfile", "-", "wsgi:app"]
+#
+# --timeout 600: confirming an Amazon order stores every line's listing images
+# before it responds, at 8-15 seconds per gallery, so a five-line order is well
+# past gunicorn's 30-second default and the worker was killed mid-request. The
+# purchases were already written; the pictures and the page were not
+# (044 research.md §8). A reverse proxy in front needs a read timeout as long.
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "600", "--access-logfile", "-", "wsgi:app"]

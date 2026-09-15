@@ -60,6 +60,26 @@
     {% endif %}
 </div>
 
+{% if details_checklist %}
+{# 044 FR-016. Counted by product, not by line: two lines naming one product
+   are one thing to fill in. "Missing" is derived -- no specification rows --
+   so a product filled in by any path reads as captured here with nothing to
+   update. #}
+{% set missing_count = details_missing | length %}
+<div class="alert {% if missing_count %}alert-warning{% else %}alert-success{% endif %}"
+     id="details-progress" data-missing="{{ missing_count }}">
+    {% if missing_count %}
+    <i class="bi bi-card-checklist"></i>
+    <strong>{{ missing_count }} of {{ products_total }} product(s) still need details.</strong>
+    Open each listing below and click the capture bookmarklet there — it adds the pictures,
+    specifications and barcodes without recording another purchase, and brings you back here.
+    {% else %}
+    <i class="bi bi-check-circle"></i>
+    <strong>Every product on this order has its details.</strong>
+    {% endif %}
+</div>
+{% endif %}
+
 <div class="table-responsive">
     <table class="table align-middle" id="order-lines">
         <thead>
@@ -69,6 +89,7 @@
                 <th class="text-end">Qty</th>
                 <th class="text-end">Unit price</th>
                 <th>State</th>
+                {% if details_checklist %}<th>Details</th>{% endif %}
                 <th class="text-end">Receive</th>
             </tr>
         </thead>
@@ -112,6 +133,23 @@
                     </div>
                     {% endif %}
                 </td>
+                {% if details_checklist %}
+                <td>
+                    {% if purchase.product_id in details_missing %}
+                    <span class="badge text-bg-warning details-missing">missing</span>
+                    {% if purchase.vendor_item_id %}
+                    <div>
+                        <a class="small open-listing" href="{{ amazon_listing_url(purchase.vendor_item_id) }}"
+                           target="_blank" rel="noopener">
+                            Open listing <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                    </div>
+                    {% endif %}
+                    {% elif purchase.product_id %}
+                    <span class="badge text-bg-success details-captured">captured</span>
+                    {% endif %}
+                </td>
+                {% endif %}
                 <td class="text-end">
                     {% if purchase.is_outstanding %}
                     {# Routes to the receipt that already exists. Receiving

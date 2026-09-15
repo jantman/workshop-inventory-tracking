@@ -1610,6 +1610,153 @@
     }
 
     // ---------------------------------------------------------------
+    // Reading each order line's own listing (044)
+    // ---------------------------------------------------------------
+
+    /**
+     * Fetch and read one ASIN's listing, or say why it could not be read.
+     *
+     * The same same-origin `/dp/<ASIN>` fetch `canonicalDocument` makes, with
+     * two differences that are the point. **There is no fallback to the open
+     * tab**: the open tab is the order page, and reading it as a listing would
+     * capture the wrong thing. And **a page is only a listing if it has a
+     * `#productTitle`** -- not `titleFrom`, which falls back to the document's
+     * `<title>` and would take Amazon's robot check ("Amazon.com") for a product.
+     *
+     * A redirect to another ASIN -- a variant, a replacement listing -- is
+     * reported rather than applied: the order line's ASIN is the product's
+     * identity, and another item's details must not be written onto it.
+     *
+     * Never rejects. Every failure is a reason the review shows beside the line
+     * (044 FR-024), and that line falls back to the order page's checklist.
+     *
+     * @param {string} asin
+     * @returns {Promise<{listing: object}|{problem: string}>}
+     */
+    function readListing(asin) {
+        const url = location.origin + '/dp/' + asin;
+        return fetch(url, { credentials: 'same-origin' })
+            .then(function (response) {
+                if (!response.ok) {
+                    return { problem: 'the listing could not be fetched (HTTP ' +
+                                      response.status + ')' };
+                }
+                const landed = (response.url ? new URL(response.url).pathname : '')
+                    .match(ASIN_PATTERN);
+                if (landed && landed[1] !== asin) {
+                    return { problem: 'the listing now shows a different item (' +
+                                      landed[1] + ')' };
+                }
+                return response.text().then(function (html) {
+                    const doc = new DOMParser().parseFromString(html, 'text/html');
+                    if (!doc || !doc.body || !textOf(doc.querySelector('#productTitle'))) {
+                        return { problem: 'the page was not a listing — Amazon may be ' +
+                                          'asking to sign in or check for a robot' };
+                    }
+                    return { listing: extract(doc, url, asin) };
+                });
+            })
+            .catch(function (error) {
+                console.warn('[capture-agent] could not read ' + url + ' (' + error + ')');
+                return { problem: 'the listing could not be fetched (network error)' };
+            });
+    }
+
+    /**
+     * Read every distinct ASIN's listing, one after another, onto the order.
+     *
+     * **Sequential, and with no pause between reads.** Several listings fetched
+     * at once from one session is the likeliest way to be handed a robot check,
+     * and a fixed pause would be a wait with nothing to justify it
+     * (044 research.md §5). An ASIN two lines share is read once and given to
+     * both.
+     *
+     * @param {object} order - the payload `amazonOrder` built; its lines gain
+     *        `listing` or `listing_problem`.
+     * @param {function(number, number)} report - called before each read.
+     * @returns {Promise<object>} the same order.
+     */
+    function readOrderListings(order, report) {
+        const asins = [];
+        order.lines.forEach(function (line) {
+            if (!line.asin) {
+                line.listing_problem = 'no item number on the order line';
+            } else if (asins.indexOf(line.asin) === -1) {
+                asins.push(line.asin);
+            }
+        });
+
+        const results = {};
+        let chain = Promise.resolve();
+        asins.forEach(function (asin, index) {
+            chain = chain.then(function () {
+                report(index + 1, asins.length);
+                return readListing(asin).then(function (result) {
+                    results[asin] = result;
+                });
+            });
+        });
+
+        return chain.then(function () {
+            order.lines.forEach(function (line) {
+                const result = results[line.asin];
+                if (!result) {
+                    return;
+                }
+                if (result.listing) {
+                    line.listing = result.listing;
+                } else {
+                    line.listing_problem = result.problem;
+                }
+            });
+            return order;
+        });
+    }
+
+    /**
+     * Say what the agent is doing while it reads (044 FR-023).
+     *
+     * On the Amazon page, inline-styled because nothing on a vendor's page can
+     * be relied on for a stylesheet -- and in the tab the review will land in,
+     * which the operator's eye has usually already moved to.
+     *
+     * @param {Window|null} landing - the tab opened for the review, if any.
+     */
+    function showProgress(landing) {
+        const banner = document.createElement('div');
+        banner.id = 'workshop-capture-progress';
+        banner.setAttribute('role', 'status');
+        banner.style.cssText =
+            'position:fixed;top:12px;right:12px;z-index:2147483647;' +
+            'background:#212529;color:#fff;padding:10px 14px;border-radius:6px;' +
+            'font:14px/1.4 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35)';
+        document.body.appendChild(banner);
+
+        const say = function (text) {
+            banner.textContent = text;
+            if (landing) {
+                try {
+                    landing.document.title = text;
+                    landing.document.body.textContent = text;
+                } catch (error) {
+                    // The tab has already navigated away, or was closed. The
+                    // banner on this page still says it.
+                }
+            }
+        };
+        say('Workshop capture: reading the order…');
+
+        return {
+            update: function (index, total) {
+                say('Workshop capture: reading listing ' + index + ' of ' + total + '…');
+            },
+            remove: function () {
+                banner.remove();
+            }
+        };
+    }
+
+    // ---------------------------------------------------------------
     // Transport
     // ---------------------------------------------------------------
 
@@ -1622,12 +1769,14 @@
      *        recognized. An Amazon capture must send no `vendor` field at all
      *        and be byte-identical to what it sent before this existed.
      * @param {object} [order] - a McMaster order payload, for an order page.
+     * @param {string} [target] - the name of a tab already opened for the
+     *        review (044). Absent means a new tab, as it always was.
      */
-    function submitCapture(endpoint, listing, vendor, order) {
+    function submitCapture(endpoint, listing, vendor, order, target) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = endpoint;
-        form.target = '_blank';
+        form.target = target || '_blank';
 
         const add = function (name, value) {
             const input = document.createElement('input');
@@ -1676,16 +1825,32 @@
 
     if (kind === 'amazon-order') {
         const orderId = (location.search.match(AMAZON_ORDER_ID_PATTERN) || [])[1] || '';
-        // `listing` rides along and is read exactly as it always was. A server
-        // that did not know about `order` would render the ordinary
-        // confirmation form from it, which is the documented fall-through
-        // rather than a failure.
-        submitCapture(
-            endpoint,
-            extract(document, location.href, null),
-            AMAZON_VENDOR,
-            amazonOrder(document, location.href, orderId)
-        );
+        const order = amazonOrder(document, location.href, orderId);
+
+        // 044: each line's own listing is read before submitting, which takes
+        // seconds -- longer than the few the browser allows between a click and
+        // a script opening a tab. So the review's tab is opened *now*, while
+        // the click on the bookmark still counts, and the form is submitted
+        // into it by name once the reads are done. If even this is blocked the
+        // form falls back to a new tab, which is exactly what it did before.
+        const target = 'workshop-capture-' + Date.now();
+        const landing = window.open('', target);
+        const progress = showProgress(landing);
+
+        readOrderListings(order, progress.update).then(function () {
+            progress.remove();
+            // `listing` rides along and is read exactly as it always was. A
+            // server that did not know about `order` would render the ordinary
+            // confirmation form from it, which is the documented fall-through
+            // rather than a failure.
+            submitCapture(
+                endpoint,
+                extract(document, location.href, null),
+                AMAZON_VENDOR,
+                order,
+                landing ? target : null
+            );
+        });
         return;
     }
 

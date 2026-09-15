@@ -93,20 +93,33 @@
     </div>
 
     {% if not vendor.enrich and review.lines %}
-    {# FR-026. An order page states a title, a quantity and a price; the
-       gallery, the specification rows and the barcodes live on the *listing*
-       page, one page per line, and fetching eleven of those would make a
-       capture take minutes. So the products this creates are thinner than a
-       single-listing capture's, and the operator is told rather than left to
-       discover it. The way to fill one in later is the capture they already
-       know, and it attaches rather than duplicating (FR-027). #}
-    <div class="alert alert-secondary py-2" id="order-page-detail-note">
+    {# 029 FR-026, rewritten by 044 FR-021. An order page states a title, a
+       quantity and a price; the gallery, the specification rows and the
+       barcodes live on each item's *listing* page. This note used to promise
+       that capturing a listing afterwards would attach without writing a
+       second purchase -- and until 044 every answer that capture offered did
+       write one (issue #156). It now says only what is true. #}
+    <div class="alert alert-secondary py-2" id="order-page-detail-note"{%
+         if order.listings_read is defined %} data-listings-read="{{ order.listings_read }}"
+         data-listings-missing="{{ order.listings_unread }}"{% endif %}>
         <i class="bi bi-info-circle"></i>
+        {% if order.listings_read is defined and order.listings_read %}
+        Each line whose listing was read brings its details with it: a new product
+        carries them, and a product already in the catalog gains only what it
+        lacks — nothing it holds is overwritten; capture its listing on its own to
+        review any differences.
+        {% if order.listings_unread %}<strong>{{ order.listings_unread }} line(s)</strong>
+        could not be read, and new products for them record only what this order
+        page stated.{% endif %}
+        {% else %}
         New products created here record only what this order page stated — the
-        description, the quantity and the price. To add pictures, specifications
-        and barcodes, capture the item's own listing page afterwards. It attaches
-        to the same product rather than making a second one, and it recognizes
-        the purchase this order recorded rather than writing a second purchase.
+        description, the quantity and the price.
+        {% endif %}
+        {% if vendor.name == 'Amazon' %}After you confirm, this order's page lists
+        each product still missing its details, with a link to its listing.{% endif %}
+        Clicking the capture bookmarklet on an item's listing adds its pictures,
+        specifications and barcodes to the same product, without recording another
+        purchase.
     </div>
     {% endif %}
 
@@ -261,6 +274,23 @@
                         {% endif %}
                         {% if vendor.carries_payload %}
                         <div class="small text-body-secondary">line {{ line.line_number or '—' }}</div>
+                        {% endif %}
+                        {# 044 FR-024, FR-025: what this line's own listing
+                           yielded, in the confirmation page's words -- or why
+                           the agent could not read it. #}
+                        {% if line.listing is defined and line.listing %}
+                        <div class="small text-body-secondary line-listing-summary">
+                            <i class="bi bi-check2"></i> Listing read:
+                            {% if line.listing.brand %}{{ line.listing.brand }} ·{% endif %}
+                            {{ line.listing.specification_entries() | length }} specification
+                            row{{ '' if line.listing.specification_entries() | length == 1 else 's' }}
+                            · {{ line.listing.images | length }}
+                            picture{{ '' if line.listing.images | length == 1 else 's' }}
+                            {% if line.listing.has_barcode %}· barcode found{% endif %}
+                        </div>
+                        {% elif line.listing_problem is defined and line.listing_problem %}
+                        <span class="badge text-bg-warning details-not-read">details not read</span>
+                        <div class="small text-body-secondary listing-problem">{{ line.listing_problem }}</div>
                         {% endif %}
                     </td>
 
