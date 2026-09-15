@@ -47,7 +47,6 @@ the default-to-purchase page and the untouched purchase path.
 | `nox -s tests` (full unit suite) | 2625 passed |
 | `nox -s e2e`: this feature's journeys plus the Amazon order, receive, degraded, product-page-capture and paste-form files | 104 passed, 0 failed, in a run the host stopped at 80% for low memory, well after this feature's files had finished |
 | `nox -s e2e`: `test_order_capture.py` and `test_repeat_purchase.py`, the files the stopped run had not finished | 42 passed |
-
 | `nox -s e2e` (full suite, T042) | **802 passed**, 0 failed, 0 reruns, in 16 min 45 s. The working tree was clean afterwards |
 | CI on PR #158 (`unit-tests`, `e2e-tests`, `coverage`, `docker-build`) | all passed |
 
