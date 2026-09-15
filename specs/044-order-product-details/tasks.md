@@ -113,7 +113,7 @@ purchase.
   - **Replace ticks.** A tick replaces only that value.
   - **Nothing new.** `#nothing-new` renders when the listing holds nothing new.
   - **No `intent`.** Posting without `intent` records a purchase exactly as before (FR-008).
-- [ ] T012 [P] [US1] E2E journey in `tests/e2e/test_order_product_details.py`:
+- [X] T012 [P] [US1] E2E journey in `tests/e2e/test_order_product_details.py`:
   - **Setup.** Seed a thin Amazon product (ASIN from `amazon_listing.html`) plus one purchase with `live_server.add_test_data` or the service. Fulfil `/dp/<ASIN>` with the fixture as `test_product_page_capture.py` does, and run the agent.
   - **Landing.** In the new tab, wait on `expect(page.locator('#listing-match')).to_be_visible()`. Check `#intent-details`, then submit.
   - **After submit.** Wait for the product page's specifications list (`#product-specifications`). Then assert its purchase history still shows one row.
@@ -164,7 +164,7 @@ changing anything. The product has details and one purchase, and you land on the
   - Expect `#order-item-match` where the class expected both warnings.
   - Keep, unchanged in meaning, every assertion that acknowledging records a separate purchase. It now goes through the collapsed block's hidden answers.
   - Record each edited assertion and why in `specs/044-order-product-details/verification.md`.
-- [ ] T018 [P] [US2] E2E journey in `tests/e2e/test_order_product_details.py`:
+- [X] T018 [P] [US2] E2E journey in `tests/e2e/test_order_product_details.py`:
   - **Setup.** Capture `amazon_order.html` through the agent as `tests/e2e/test_amazon_order.py::capture_order` does, with `/dp/<ASIN>` fulfilled by `amazon_listing.html` for the listing capture only, and confirm.
   - **Listing capture.** Run the agent on the first line's listing. Wait for `#order-item-match`, assert `#intent-details` is checked, then submit without changing anything.
   - **After submit.** Wait for the order page (`#order-lines`). Open the product and assert one purchase and non-empty `#product-specifications`.
@@ -203,7 +203,7 @@ with an "Open listing" link. Fill one through US2 and the count drops.
     - "Every product on this order has its details" when none are missing
   - **Other vendors.** A McMaster or DigiKey order page renders none of these.
   - **Product page.** `#details-missing-notice` renders for an Amazon-identified product with no rows, and not for one with rows or without an Amazon identifier.
-- [ ] T022 [P] [US3] E2E checklist round trip in `tests/e2e/test_order_product_details.py`:
+- [X] T022 [P] [US3] E2E checklist round trip in `tests/e2e/test_order_product_details.py`:
   - **Setup.** Capture an order with every `/dp/<ASIN>` routed to `amazon_robot_check.html` (created in T029; write this test after T029 if doing it in order). Every product is then missing.
   - **Order page.** Wait for `#details-progress`, and assert `a.open-listing` on each line.
   - **One listing.** Capture one listing through the agent, with `/dp/<ASIN>` now fulfilled by `amazon_listing.html`. Confirm the collapsed page, then wait until `#details-progress` shows the reduced count.
@@ -252,11 +252,11 @@ not read" and appears on the checklist.
   - **Re-capture (FR-030).** Re-posting the same order with listings fills the already-captured lines' products, writes no purchase, and flashes "Details added to N product(s)" without leading on "Nothing new to capture".
   - **Review rendering.** The review renders `.line-listing-summary` and `.details-not-read` with the reason.
 - [X] T029 [P] [US4] Create `tests/e2e/fixtures/amazon_robot_check.html`: a minimal page with no `#productTitle`, shaped like a robot-check interstitial.
-- [ ] T030 [US4] Update `tests/e2e/test_amazon_order.py` and `tests/e2e/test_amazon_receive.py` for research.md §11:
+- [X] T030 [US4] Update `tests/e2e/test_amazon_order.py` and `tests/e2e/test_amazon_receive.py` for research.md §11:
   - In each test that captures an order, fulfil `/dp/<ASIN>` (the `LISTING_ROUTE` pattern from `test_product_page_capture.py`) with `amazon_listing.html`, or assert `.details-not-read` where the test is about the unread state.
   - Rewrite `test_the_review_says_the_products_will_be_thin` against the new `#order-page-detail-note` wording.
   - List each edited test and why in `verification.md`.
-- [ ] T031 [P] [US4] E2E journeys in `tests/e2e/test_order_product_details.py`:
+- [X] T031 [P] [US4] E2E journeys in `tests/e2e/test_order_product_details.py`:
   - **(a) One click.**
     - Every `/dp/<ASIN>` is fulfilled by `amazon_listing.html`.
     - Wait for `.line-listing-summary` on each review line, then confirm.
@@ -316,7 +316,7 @@ checklist.
 - [X] T040 Run `grep -ric "catalogue" README.md docs/ app/ tests/`; it must print nothing. Then run `grep -rn "catalogd\|catalogng\|uncatalogd" app/ tests/`; it must also print nothing.
 - [X] T041 Run `nox -s tests` and fix every failure. Tests outside those edited under T017/T030 must pass **unedited**, notably `tests/unit/test_capture.py` and `tests/e2e/test_repeat_purchase.py` (research.md §11).
 - [ ] T042 Run `nox -s e2e` detached (`nohup ... > log &`; it takes about 17 minutes, past the Bash tool's 10-minute cap) and wait for it to finish. Fix failures by waiting on state, never on time (CLAUDE.md). Confirm `git status` is clean afterwards.
-- [ ] T043 Regenerate screenshots with `nox -s screenshots_headless`, then run `nox -s screenshots_verify`. Commit only the screenshots of the pages this feature changed (capture confirmation, order review, order page, product page); revert other churn with `git checkout -- docs/images/screenshots/<file>`.
+- [X] T043 Regenerate screenshots with `nox -s screenshots_headless`, then run `nox -s screenshots_verify`. Commit only the screenshots of the pages this feature changed (capture confirmation, order review, order page, product page); revert other churn with `git checkout -- docs/images/screenshots/<file>`.
 - [ ] T044 Complete `specs/044-order-product-details/verification.md`:
   - the red-then-green record for T004
   - the edited-tests list
