@@ -120,8 +120,9 @@ holds exactly one purchase for X.
    Story 3).
 4. **Given** that message, **When** the operator selects recording a separate purchase, **Then**
    the page states plainly, before they confirm, that this records a second purchase of the item
-   alongside the one the order recorded. On confirming, the purchase is recorded and the listing's
-   details are applied to the product under the same show-and-choose rule.
+   alongside the one the order recorded. On confirming, the purchase is recorded against that
+   product, and the listing's details are added as a purchase capture adds them today — filling
+   what the product lacks and overwriting nothing.
 5. **Given** a listing capture for item X where a product holds X but no order-captured purchase
    matches, **When** the page is shown, **Then** no order is named and recording a purchase stays
    the selected choice, since a new purchase is the likely intent. Details-only is still offered
@@ -163,6 +164,10 @@ one listing details-only and you are returned to the page, which now reports two
 6. **Given** products created from order lines before this feature shipped, holding only what the
    order page stated, **When** their order's page or their own page is shown, **Then** they read as
    missing details, so products already in the catalog can be repaired the same way.
+7. **Given** an order already captured whose products are missing details, **When** the operator
+   runs the bookmarklet on that order's page again and its listings are read (User Story 4),
+   **Then** confirming fills in what those products lack, records no purchase, and says how many
+   products gained details.
 
 ---
 
@@ -266,9 +271,10 @@ details on the order's page.
   product already holds. Repeating the same details-only capture MUST change nothing.
 - **FR-007**: When the listing yields nothing the product does not already hold with the same value,
   the confirmation page MUST say so before the operator confirms.
-- **FR-008**: The show-and-choose rule of FR-004 and FR-005 MUST also govern the details a listing
-  capture applies to an existing product when the operator records a purchase with it. Today that
-  capture silently keeps some existing values and ignores others.
+- **FR-008**: A listing capture that records a purchase against an existing product MUST go on
+  applying the listing as it does today: adding what the product lacks and overwriting nothing.
+  Differing values are reconciled through a details-only capture, which is where the operator is
+  shown them.
 
 #### One question after an order capture
 
@@ -330,14 +336,18 @@ details on the order's page.
   today, and its product MUST read as missing details.
 - **FR-029**: None of the order capture's existing questions — same-purchase adoption, conflicting
   item numbers, re-captured lines — MAY change in meaning because listing details were read.
+- **FR-030**: When an order is captured again and a line is already captured, a listing read for
+  that line MUST fill details its product lacks, under the rule of FR-027, without recording a
+  purchase. The confirmation message MUST say how many products gained details.
 
 #### General
 
-- **FR-030**: Every capture path MUST write all it writes in one step, or nothing. An interrupted or
-  refused confirmation MUST leave the catalog as it was, except that pictures, which are saved after
-  the step completes, may fall short as they can today.
-- **FR-031**: Details-only capture (FR-001 to FR-013) applies to any vendor whose listings the
-  bookmarklet captures. The order checklist and auto-fetch (FR-016, FR-017, FR-022 to FR-028) apply
+- **FR-031**: A refused, abandoned or unconfirmed capture MUST write nothing, as today. An order's
+  purchases and products MUST still be written together or not at all. Listing details and pictures
+  applied after that write may fall short, for example when a picture cannot be fetched. A product
+  left short reads as missing details (FR-014), and the operator is told.
+- **FR-032**: Details-only capture (FR-001 to FR-013) applies to any vendor whose listings the
+  bookmarklet captures. The order checklist and auto-fetch (FR-016, FR-017, FR-022 to FR-030) apply
   to Amazon orders.
 
 ### Key Entities *(include if feature involves data)*
