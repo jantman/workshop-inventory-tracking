@@ -268,3 +268,60 @@ class TestPrintingAProductLabel:
         assert response.status_code == 400
         assert response.get_json()['error'] == error
         printer.assert_not_called()
+
+
+class TestTheProductsListOffersBulkLabelPrinting:
+    """045 FR-001/FR-002/FR-004: the entry point exists on the list page.
+
+    Cheap guards against a template edit silently removing the way in.
+    The behaviour itself is E2E territory -- these assert only that the
+    elements the JavaScript binds to are rendered at all, which is the
+    failure a Jinja change causes and no other test would notice.
+    """
+
+    def test_each_row_carries_a_checkbox_naming_its_product(self, client, service):
+        product = service.create_product(description='Blue widget')
+
+        html = client.get('/products').get_data(as_text=True)
+
+        assert 'class="form-check-input product-checkbox"' in html
+        assert f'data-product-id="{product.id}"' in html
+        assert 'data-product-label="Blue widget"' in html
+
+    def test_the_header_carries_a_select_all_control(self, client, service):
+        service.create_product(description='Blue widget')
+
+        html = client.get('/products').get_data(as_text=True)
+
+        assert 'id="product-select-all"' in html
+
+    def test_the_print_action_starts_disabled_with_an_empty_count(
+        self, client, service
+    ):
+        service.create_product(description='Blue widget')
+
+        html = client.get('/products').get_data(as_text=True)
+
+        assert 'id="product-print-labels-btn"' in html
+        assert 'id="product-selected-count"' in html
+
+    def test_the_bulk_dialog_is_rendered_with_the_prefix_its_script_reads(
+        self, client, service
+    ):
+        service.create_product(description='Blue widget')
+
+        html = client.get('/products').get_data(as_text=True)
+
+        # The macro and app/static/js/bulk-label-print.js must agree on
+        # ids; a mismatch produces a dialog that silently does nothing.
+        assert 'id="productBulkLabelPrintingModal"' in html
+        for suffix in ('label-type', 'label-count', 'print-all-btn',
+                       'print-status', 'print-errors', 'print-done-btn'):
+            assert f'id="product-bulk-{suffix}"' in html
+
+    def test_the_empty_row_spans_every_column(self, client):
+        """Six columns now; a stale colspan misaligns the table."""
+        html = client.get('/products').get_data(as_text=True)
+
+        assert 'colspan="6"' in html
+        assert 'id="no-products"' in html

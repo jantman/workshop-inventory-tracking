@@ -1,0 +1,81 @@
+{# The bulk label printing dialog, shared by the pages that offer one.
+
+   The markup lives here rather than in each page because the element ids it
+   emits are the ones app/static/js/bulk-label-print.js reads. Two hand-written
+   copies could drift -- and a renamed id produces a dialog that silently does
+   nothing, with no test failing unless someone wrote one for that exact id.
+   With the macro, the ids the template writes and the ids the JS reads are one
+   fact.
+
+   `prefix` names every element inside; `modal_id` names the dialog itself. Pass
+   the same prefix to the BulkLabelPrintDialog constructed for this page. #}
+
+{% macro bulk_label_modal(modal_id, prefix, noun, noun_plural) %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}Label" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}Label">
+                    <i class="bi bi-printer"></i> Print Labels
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Print labels for selected {{ noun_plural }}</strong>
+                    <p class="mb-0" id="{{ prefix }}-print-summary"></p>
+                </div>
+
+                <div class="mb-3">
+                    <h6>Selected {{ noun_plural|title }}:</h6>
+                    <ul class="list-group" id="{{ prefix }}-label-items-list" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Populated by JavaScript -->
+                    </ul>
+                </div>
+
+                <div class="mb-3">
+                    <label for="{{ prefix }}-label-type" class="form-label">Label Type *</label>
+                    <select class="form-select" id="{{ prefix }}-label-type" required>
+                        <option value="">Select label type...</option>
+                        <!-- Options will be populated by JavaScript from API -->
+                    </select>
+                    <div class="form-text">Choose the type and size of label to print for all selected {{ noun_plural }}</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="{{ prefix }}-label-count" class="form-label">Labels per {{ noun }}</label>
+                    <input type="number" class="form-control" id="{{ prefix }}-label-count"
+                           min="1" max="99" step="1" value="1">
+                    <div class="form-text">How many labels to print for each selected {{ noun }} (1-99)</div>
+                </div>
+
+                <div id="{{ prefix }}-print-progress" class="d-none">
+                    <div class="mb-2">
+                        <strong>Printing Progress:</strong>
+                        <span id="{{ prefix }}-print-status"></span>
+                    </div>
+                    <div class="progress">
+                        <div id="{{ prefix }}-print-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Outside the progress region: a refused label count is
+                     reported before any run starts, so it cannot be nested in
+                     a container that only appears once printing has begun. -->
+                <div id="{{ prefix }}-print-errors" class="alert alert-warning mt-2 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="{{ prefix }}-print-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="{{ prefix }}-print-all-btn" disabled>
+                    <i class="bi bi-printer"></i> Print All Labels
+                </button>
+                <button type="button" class="btn btn-success d-none" id="{{ prefix }}-print-done-btn" data-bs-dismiss="modal">
+                    <i class="bi bi-check-lg"></i> Done
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

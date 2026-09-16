@@ -54,7 +54,7 @@ def shown_specifications(page):
 
 def listed(page):
     """Descriptions currently shown in the catalog table"""
-    links = page.locator("#product-table tbody tr td:first-child a")
+    links = page.locator("#product-table tbody tr td a")
     return sorted(links.nth(i).inner_text().strip() for i in range(links.count()))
 
 

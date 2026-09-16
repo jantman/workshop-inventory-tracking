@@ -231,7 +231,8 @@ The system can print barcode labels for any JA ID using connected label printers
 
 These are inventory labels, carrying a JA ID. Catalog products get their own
 labels, carrying the product's internal code -- see
-[Printing Product Labels](#printing-product-labels).
+[Printing Product Labels](#printing-product-labels), which can also be printed
+in bulk from the products list in the same way.
 
 ### Accessing Label Printing
 
@@ -2030,6 +2031,33 @@ nothing changes.
 Reprinting takes two clicks and no typing. The label is composed from the record
 each time rather than stored, so a reprint after you have improved the
 description shows the improved one.
+
+### Printing Labels for Several Products at Once
+
+You do not have to visit each product to label a box of parts you have just
+unpacked. The products list works the same way the [Inventory
+List](#from-inventory-list-bulk-printing) does:
+
+1. Go to **Products** and filter or search until the list shows what you are
+   holding
+2. Tick the checkbox on each product you want a label for — or use the checkbox
+   in the table header to take the whole list at once
+3. **Print Labels**, at the top of the page, becomes available and shows how
+   many products are selected
+4. Choose a stock and how many labels you want **of each product**, then print
+
+The selection only ever covers what the list is showing you. Narrow the filters
+and the products that drop out of the list drop out of the selection with them,
+so you cannot print a label for something you can no longer see.
+
+The dialog names each product as its label goes to the printer, and tells you at
+the end how many labels it produced. If one product fails — an unreachable
+printer, a record deleted from another tab — the rest are still printed and the
+one that failed is named. The count it reports is labels that actually came out,
+so a product that failed contributes none of its copies to the total.
+
+The labels themselves are exactly the ones you get from **Print Label** on a
+single product, composed by the same code from the same record.
 
 ## Captured Orders
 
