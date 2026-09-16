@@ -43,7 +43,7 @@ def seed(page, base_url):
 
 def listed(page):
     """Descriptions currently shown in the catalog table"""
-    links = page.locator("#product-table tbody tr td:first-child a")
+    links = page.locator("#product-table tbody tr td a")
     return sorted(links.nth(i).inner_text().strip() for i in range(links.count()))
 
 
@@ -141,7 +141,7 @@ def test_an_empty_category_cannot_exist(page, live_server):
     expect(page.locator("#category-tree")).to_contain_text("temporary/category")
 
     page.goto(f"{live_server.url}/products")
-    page.click("#product-table tbody tr td:first-child a")
+    page.click("#product-table tbody tr td a")
     page.click("text=Edit")
     page.wait_for_load_state("domcontentloaded")
     page.fill("#category_path", "")

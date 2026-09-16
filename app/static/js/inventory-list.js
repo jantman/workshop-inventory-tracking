@@ -137,153 +137,31 @@ class InventoryListManager {
     }
 
     initializeBulkPrintModal() {
-        // Set up event listener for label type selection
-        const labelTypeSelect = document.getElementById('list-bulk-label-type');
-        if (labelTypeSelect) {
-            labelTypeSelect.addEventListener('change', () => {
-                this.onLabelTypeChange();
-            });
-        }
-
-        // Set up event listener for Print All Labels button
-        const printAllBtn = document.getElementById('list-bulk-print-all-btn');
-        if (printAllBtn) {
-            printAllBtn.addEventListener('click', () => {
-                this.printAllLabels();
-            });
-        }
-
-        // Set up event listener for modal close to reset state
-        const modalElement = document.getElementById('listBulkLabelPrintingModal');
-        if (modalElement) {
-            modalElement.addEventListener('hidden.bs.modal', () => {
-                this.onBulkPrintModalClose();
-            });
-        }
-    }
-
-    onLabelTypeChange() {
-        const labelTypeSelect = document.getElementById('list-bulk-label-type');
-        const printAllBtn = document.getElementById('list-bulk-print-all-btn');
-
-        // Enable the Print All button only if a label type is selected
-        if (labelTypeSelect.value) {
-            printAllBtn.disabled = false;
-        } else {
-            printAllBtn.disabled = true;
-        }
-    }
-
-    onBulkPrintModalClose() {
-        // Reset the modal state when it's closed
-        // This ensures the modal is clean for the next use
-        this.resetBulkPrintModal();
-    }
-
-    async printAllLabels() {
-        const labelType = document.getElementById('list-bulk-label-type').value;
-        const selectedJaIds = this.table.getSelectedItems();
-
-        const progressDiv = document.getElementById('list-bulk-print-progress');
-        const progressBar = document.getElementById('list-bulk-print-progress-bar');
-        const statusSpan = document.getElementById('list-bulk-print-status');
-        const errorsDiv = document.getElementById('list-bulk-print-errors');
-        const printBtn = document.getElementById('list-bulk-print-all-btn');
-        const doneBtn = document.getElementById('list-bulk-print-done-btn');
-        const cancelBtn = document.getElementById('list-bulk-print-cancel');
-
-        // Clear anything a previous attempt left behind. The modal reset only
-        // runs when the dialog opens and closes, so without this a refused
-        // count's warning would still be sitting there after the user corrects
-        // it and prints -- visible directly above a successful completion line.
-        errorsDiv.classList.add('d-none');
-        errorsDiv.innerHTML = '';
-
-        // Read the count before anything is printed -- a refused count must
-        // leave the dialog untouched and print nothing at all.
-        const countResult = window.readLabelCount('list-bulk-label-count');
-        if (!countResult.ok) {
-            errorsDiv.classList.remove('d-none');
-            errorsDiv.innerHTML = `<strong>Warning:</strong> ${countResult.error}`;
-            return;
-        }
-        const labelCount = countResult.value;
-
-        // Show progress section
-        progressDiv.classList.remove('d-none');
-        printBtn.classList.add('d-none');
-        cancelBtn.classList.add('d-none');
-
-        let successCount = 0;
-        let failureCount = 0;
-        const errors = [];
-
-        // Iterate through all selected items and print labels
-        for (let i = 0; i < selectedJaIds.length; i++) {
-            const jaId = selectedJaIds[i];
-            const progress = Math.round(((i + 1) / selectedJaIds.length) * 100);
-
-            // Update progress display. The count suffix appears only above 1,
-            // so a run at the default reads exactly as it does today.
-            const countSuffix = labelCount > 1 ? ` (${labelCount} labels)` : '';
-            statusSpan.textContent =
-                `Printing ${i + 1} of ${selectedJaIds.length}: ${jaId}${countSuffix}`;
-            progressBar.style.width = `${progress}%`;
-            progressBar.textContent = `${progress}%`;
-
-            try {
-                const response = await fetch('/api/labels/print', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        ja_id: jaId,
-                        label_type: labelType,
-                        label_count: labelCount
-                    })
-                });
-
-                if (response.ok) {
-                    successCount++;
-                } else {
-                    const data = await response.json();
-                    failureCount++;
-                    errors.push(`${jaId}: ${data.error || response.statusText}`);
+        // The dialog itself lives in bulk-label-print.js, shared with the
+        // products list. Only what is printed differs here.
+        this.bulkPrint = new BulkLabelPrintDialog({
+            modalId: 'listBulkLabelPrintingModal',
+            prefix: 'list-bulk',
+            noun: 'item',
+            nounPlural: 'items',
+            printOne: (entry, labelType, labelCount) => fetch('/api/labels/print', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    ja_id: entry.id,
+                    label_type: labelType,
+                    label_count: labelCount
+                })
+            }),
+            onFinished: ({ successCount, labelsPrinted }) => {
+                if (successCount > 0) {
+                    this.showToast(`Printed ${labelsPrinted} label(s) successfully`, 'success');
                 }
-            } catch (error) {
-                failureCount++;
-                errors.push(`${jaId}: ${error.message}`);
             }
-        }
-
-        // Display error messages if any failures occurred
-        if (failureCount > 0) {
-            errorsDiv.classList.remove('d-none');
-            errorsDiv.innerHTML = `
-                <strong>Warning:</strong> ${failureCount} label(s) failed to print:<br>
-                ${errors.map(e => `• ${e}`).join('<br>')}
-            `;
-        }
-
-        // Update final status. A failed item contributes 0 labels rather than a
-        // partial figure -- one item's copies are one lp job with one exit code,
-        // so the total must never claim more labels than actually emerged.
-        const labelsPrinted = successCount * labelCount;
-        const itemsAttempted = successCount + failureCount;
-        statusSpan.textContent =
-            `Complete: ${labelsPrinted} ${labelsPrinted === 1 ? 'label' : 'labels'} ` +
-            `for ${itemsAttempted} ${itemsAttempted === 1 ? 'item' : 'items'}, ` +
-            `${failureCount} failed`;
-        progressBar.classList.remove('progress-bar-animated');
-
-        // Show done button
-        doneBtn.classList.remove('d-none');
-
-        // Show success toast notification
-        if (successCount > 0) {
-            this.showToast(`Printed ${labelsPrinted} label(s) successfully`, 'success');
-        }
+        });
+        this.bulkPrint.init();
     }
 
     showToast(message, type = 'info') {
@@ -532,101 +410,9 @@ class InventoryListManager {
             return;
         }
 
-        // Show the bulk label printing modal with selected items
-        this.showBulkLabelPrintingModal();
-    }
-
-    async showBulkLabelPrintingModal() {
-        const selectedJaIds = this.table.getSelectedItems();
-
-        // Update summary
-        const summaryElement = document.getElementById('list-bulk-print-summary');
-        summaryElement.textContent = `You have selected ${selectedJaIds.length} item(s) to print labels for.`;
-
-        // Populate the items list
-        const itemsList = document.getElementById('list-bulk-label-items-list');
-        itemsList.innerHTML = '';
-        selectedJaIds.forEach(jaId => {
-            const li = document.createElement('li');
-            li.className = 'list-group-item';
-            li.textContent = jaId;
-            itemsList.appendChild(li);
-        });
-
-        // Load and populate label types
-        await this.loadLabelTypes();
-
-        // Reset modal state
-        this.resetBulkPrintModal();
-
-        // Show the modal
-        const modalElement = document.getElementById('listBulkLabelPrintingModal');
-        const modal = new bootstrap.Modal(modalElement);
-        modal.show();
-    }
-
-    async loadLabelTypes() {
-        try {
-            const response = await fetch('/api/labels/types');
-            if (!response.ok) {
-                throw new Error('Failed to load label types');
-            }
-
-            const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.error || 'Failed to load label types');
-            }
-
-            const labelTypeSelect = document.getElementById('list-bulk-label-type');
-            // Clear existing options except the first placeholder
-            while (labelTypeSelect.children.length > 1) {
-                labelTypeSelect.removeChild(labelTypeSelect.lastChild);
-            }
-
-            // Add label type options
-            data.label_types.forEach(labelType => {
-                const option = document.createElement('option');
-                option.value = labelType;
-                option.textContent = labelType;
-                labelTypeSelect.appendChild(option);
-            });
-        } catch (error) {
-            console.error('Error loading label types:', error);
-            alert('Failed to load label types. Please try again.');
-        }
-    }
-
-    resetBulkPrintModal() {
-        // Reset label type selection
-        const labelTypeSelect = document.getElementById('list-bulk-label-type');
-        labelTypeSelect.value = '';
-
-        // Reset the label count. The modal is reused rather than recreated, so
-        // the markup's value="1" only covers the first open.
-        const labelCountInput = document.getElementById('list-bulk-label-count');
-        if (labelCountInput) {
-            labelCountInput.value = '1';
-        }
-
-        // Hide progress section
-        const progressDiv = document.getElementById('list-bulk-print-progress');
-        progressDiv.classList.add('d-none');
-
-        // Reset progress bar
-        const progressBar = document.getElementById('list-bulk-print-progress-bar');
-        progressBar.style.width = '0%';
-        progressBar.textContent = '';
-
-        // Clear error messages
-        const errorsDiv = document.getElementById('list-bulk-print-errors');
-        errorsDiv.classList.add('d-none');
-        errorsDiv.innerHTML = '';
-
-        // Show/hide appropriate buttons
-        document.getElementById('list-bulk-print-all-btn').classList.remove('d-none');
-        document.getElementById('list-bulk-print-all-btn').disabled = true;
-        document.getElementById('list-bulk-print-done-btn').classList.add('d-none');
-        document.getElementById('list-bulk-print-cancel').classList.remove('d-none');
+        // A JA ID is both what identifies the item and what the operator reads,
+        // so it serves as the entry's id and its label alike.
+        this.bulkPrint.open(selectedIds.map(jaId => ({ id: jaId, label: jaId })));
     }
 
     exportToCSV() {

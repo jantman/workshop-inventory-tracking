@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from 'inventory/_item_table.html' import render_inventory_table %}
+{% from '_bulk_label_modal.html' import bulk_label_modal %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -196,78 +197,12 @@
     </div>
 </div>
 
-<!-- Bulk Label Printing Modal -->
-<div class="modal fade" id="listBulkLabelPrintingModal" tabindex="-1" aria-labelledby="listBulkLabelPrintingModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="listBulkLabelPrintingModalLabel">
-                    <i class="bi bi-printer"></i> Print Labels
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info" role="alert">
-                    <i class="bi bi-info-circle"></i>
-                    <strong>Print labels for selected items</strong>
-                    <p class="mb-0" id="list-bulk-print-summary"></p>
-                </div>
-
-                <div class="mb-3">
-                    <h6>Selected Items:</h6>
-                    <ul class="list-group" id="list-bulk-label-items-list" style="max-height: 200px; overflow-y: auto;">
-                        <!-- Items will be populated by JavaScript -->
-                    </ul>
-                </div>
-
-                <div class="mb-3">
-                    <label for="list-bulk-label-type" class="form-label">Label Type *</label>
-                    <select class="form-select" id="list-bulk-label-type" required>
-                        <option value="">Select label type...</option>
-                        <!-- Options will be populated by JavaScript from API -->
-                    </select>
-                    <div class="form-text">Choose the type and size of label to print for all selected items</div>
-                </div>
-
-                <div class="mb-3">
-                    <label for="list-bulk-label-count" class="form-label">Labels per item</label>
-                    <input type="number" class="form-control" id="list-bulk-label-count"
-                           min="1" max="99" step="1" value="1">
-                    <div class="form-text">How many labels to print for each selected item (1-99)</div>
-                </div>
-
-                <div id="list-bulk-print-progress" class="d-none">
-                    <div class="mb-2">
-                        <strong>Printing Progress:</strong>
-                        <span id="list-bulk-print-status"></span>
-                    </div>
-                    <div class="progress">
-                        <div id="list-bulk-print-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
-                             role="progressbar" style="width: 0%"></div>
-                    </div>
-                </div>
-
-                <!-- Outside the progress region: a refused label count is
-                     reported before any run starts, so it cannot be nested in
-                     a container that only appears once printing has begun. -->
-                <div id="list-bulk-print-errors" class="alert alert-warning mt-2 d-none"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="list-bulk-print-cancel">Cancel</button>
-                <button type="button" class="btn btn-primary" id="list-bulk-print-all-btn" disabled>
-                    <i class="bi bi-printer"></i> Print All Labels
-                </button>
-                <button type="button" class="btn btn-success d-none" id="list-bulk-print-done-btn" data-bs-dismiss="modal">
-                    <i class="bi bi-check-lg"></i> Done
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+{{ bulk_label_modal('listBulkLabelPrintingModal', 'list-bulk', 'item', 'items') }}
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bulk-label-print.js') }}"></script>
 <script type="module" src="{{ url_for('static', filename='js/inventory-list.js') }}"></script>
 <script src="{{ url_for('static', filename='js/history-viewer.js') }}"></script>
 {% endblock %}
