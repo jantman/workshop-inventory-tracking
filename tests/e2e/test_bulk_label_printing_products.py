@@ -483,3 +483,38 @@ def test_a_run_in_which_everything_fails_claims_nothing(page, live_server):
     )
     expect(page.locator(ERRORS)).to_contain_text("Blue widget: No printer")
     expect(page.locator(ERRORS)).to_contain_text("Green gizmo: No printer")
+
+
+@pytest.mark.e2e
+def test_a_description_with_angle_brackets_survives_the_failure_report(
+    page, live_server
+):
+    """US3: the report is the moment you most need to read the name.
+
+    Angle brackets turn up in ordinary descriptions -- as an aside about the
+    material, alongside the inch marks of fractional notation. Built as an
+    innerHTML template, `<brass>` is parsed as an unknown element and vanishes
+    from the very line that exists to say which product failed.
+    """
+    product = _seed(live_server, ['Shim stock <brass> 1/32"'])[0]
+
+    page.route(
+        f"**/api/products/{product.id}/label",
+        lambda route: route.fulfill(
+            status=500,
+            content_type="application/json",
+            body=json.dumps({"success": False, "error": "No printer"}),
+        ),
+    )
+
+    _open_list(page, live_server, 1)
+    _tick(page, product)
+    _open_dialog(page)
+    _print(page)
+    _wait_for_run_to_finish(page)
+
+    errors = page.locator(ERRORS)
+    expect(errors).to_be_visible()
+    expect(errors).to_contain_text('Shim stock <brass> 1/32": No printer')
+    # Nothing in the description was taken for markup on the way in.
+    assert errors.locator("img, script").count() == 0

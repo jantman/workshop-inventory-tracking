@@ -227,10 +227,24 @@ class BulkLabelPrintDialog {
 
         if (failureCount > 0) {
             errorsDiv.classList.remove('d-none');
-            errorsDiv.innerHTML = `
-                <strong>Warning:</strong> ${failureCount} label(s) failed to print:<br>
-                ${errors.map(e => `• ${e}`).join('<br>')}
-            `;
+            // Built from nodes rather than an innerHTML template, because
+            // `errors` carries entry.label and that is now a free-text product
+            // description. An ordinary one -- `Shim stock <brass> 1/32"` --
+            // is otherwise parsed as markup, and the name vanishes from the
+            // very line that exists to say which product failed. The
+            // selected-things list above has always built itself this way.
+            errorsDiv.innerHTML = '';
+
+            const warning = document.createElement('strong');
+            warning.textContent = 'Warning:';
+            errorsDiv.appendChild(warning);
+            errorsDiv.appendChild(document.createTextNode(
+                ` ${failureCount} label(s) failed to print:`));
+
+            errors.forEach(message => {
+                errorsDiv.appendChild(document.createElement('br'));
+                errorsDiv.appendChild(document.createTextNode(`• ${message}`));
+            });
         }
 
         // A failed entry contributes 0 labels rather than a partial figure --
