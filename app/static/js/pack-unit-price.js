@@ -109,6 +109,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const priceField = document.getElementById('unit_price');
     const inexactNote = document.getElementById('unit-price-inexact');
     const errorNote = document.getElementById('unit-price-error');
+    // 046: how many packs were bought, and the item count they make. Optional
+    // -- an older render of this form has neither, and the price derivation
+    // above is unaffected by their absence.
+    const packsField = document.getElementById('packs');
+    const quantityField = document.getElementById('quantity');
 
     // Inert on every page that is not the capture form.
     if (!paidField || !sizeField || !priceField || !inexactNote || !errorNote) {
@@ -142,7 +147,33 @@ document.addEventListener('DOMContentLoaded', function() {
      * The inexactness note is shown either way, so that a rounded price still
      * explains itself on the far side of a question (FR-008, FR-012).
      */
+    /**
+     * The item count the pack fields imply, written under the same guard.
+     *
+     * Integer multiplication, so no helper and no `parseFloat`: a quantity is
+     * a whole number of items and `BigInt` keeps it visibly exact, the way the
+     * price arithmetic above does.
+     *
+     * A pack of one is left alone rather than written, so a listing with no
+     * pack behaves exactly as it did before this existed (046 FR-026).
+     */
+    function recomputeQuantity(editing) {
+        if (!editing || !packsField || !quantityField) {
+            return;
+        }
+        const packs = packsField.value.trim();
+        const size = sizeField.value.trim();
+        if (!PACK_SIZE_PATTERN.test(packs) || !PACK_SIZE_PATTERN.test(size)) {
+            return;
+        }
+        if (BigInt(packs) < 1n || BigInt(size) < 1n) {
+            return;
+        }
+        quantityField.value = String(BigInt(packs) * BigInt(size));
+    }
+
     function recompute(editing) {
+        recomputeQuantity(editing);
         const result = window.unitPriceFromPack(paidField.value, sizeField.value);
 
         if (!result.ok) {
@@ -167,11 +198,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Only the two pack fields. Nothing listens on #unit_price: an operator
-    // typing there is overruling the derivation, and a derivation that
-    // recomputed itself back over the top of that would be useless (FR-004).
+    // Only the pack fields. Nothing listens on #unit_price or #quantity: an
+    // operator typing there is overruling the derivation, and a derivation
+    // that recomputed itself back over the top of that would be useless
+    // (FR-004, and 046 FR-025 for the quantity).
     paidField.addEventListener('input', () => recompute(true));
     sizeField.addEventListener('input', () => recompute(true));
+    if (packsField) {
+        packsField.addEventListener('input', () => recompute(true));
+    }
 
     recompute(false);
 });

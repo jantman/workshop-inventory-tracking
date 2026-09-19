@@ -610,6 +610,15 @@ def product_capture():
                 category_path=request.form.get('category_path'),
                 location=request.form.get('location'),
                 sub_location=request.form.get('sub_location'),
+                # 046. The pack the operator confirmed, which the form has
+                # carried since feature 017 and this route dropped on the
+                # floor until now. Straight from the form and never from the
+                # listing: the confirmation page pre-fills them from it and
+                # always submits all three, so a value that arrives empty is
+                # one the operator cleared.
+                packs=request.form.get('packs'),
+                pack_size=request.form.get('pack_size'),
+                pack_price=request.form.get('pack_price'),
             )
         except CaptureDecisionRequired as e:
             # Not an error page: a step in the flow. Nothing was written, and the
@@ -1557,6 +1566,11 @@ def _order_decisions(form, order):
             'description': form.get(f'description[{key}]') or '',
             'quantity': form.get(f'quantity[{key}]') or '',
             'unit_price': form.get(f'unit_price[{key}]') or '',
+            # How many items came in one of what the vendor sold (046). Read
+            # for every vendor and ignored by the ones that do not offer it,
+            # exactly as the two fields above are -- Amazon is the only vendor
+            # whose page cannot state a pack.
+            'pack_size': form.get(f'pack_size[{key}]') or '',
             'resolution': form.get(f'resolution[{key}]') or '',
             # Whether a purchase already recorded for this item is this line's
             # (033 FR-008). Its own field rather than sharing ``resolution``,

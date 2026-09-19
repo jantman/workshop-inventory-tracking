@@ -121,8 +121,40 @@
                     <div class="small text-body-secondary">{{ purchase.listing_title }}</div>
                     {% endif %}
                 </td>
-                <td class="text-end">{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
-                <td class="text-end">{{ purchase.unit_price if purchase.unit_price is not none else '—' }}</td>
+                {# 046 FR-034. Two views of one line: what the catalog records
+                   -- items, and the price of one -- and, beneath it, the
+                   vendor's own line, so the order reconciles against the card
+                   statement without opening the vendor's site.
+
+                   The pack is a record of **what the vendor charged**, never a
+                   derivation of the row above it. They may legitimately
+                   disagree: a pack of 100 ordered and 90 received is a true
+                   row, and the receive screen amends the quantity while
+                   leaving the pack alone. Labelled accordingly. #}
+                {% set packs_ordered = (purchase.quantity // purchase.pack_size)
+                      if (purchase.pack_size and purchase.quantity
+                          and purchase.quantity % purchase.pack_size == 0) else None %}
+                {# Whitespace control throughout: a purchase with no pack must
+                   render byte-identically to how it did before this feature,
+                   so the committed screenshots of DigiKey and McMaster orders
+                   do not churn over a change that does not apply to them. #}
+                <td class="text-end">
+                    {{- purchase.quantity if purchase.quantity is not none else '—' -}}
+                    {%- if purchase.pack_size %}
+                    <div class="small text-body-secondary line-pack">
+                        {% if packs_ordered %}{{ packs_ordered }} &times; {% endif %}
+                        pack of {{ purchase.pack_size }}
+                    </div>
+                    {% endif -%}
+                </td>
+                <td class="text-end">
+                    {{- purchase.unit_price if purchase.unit_price is not none else '—' -}}
+                    {%- if purchase.pack_price is not none %}
+                    <div class="small text-body-secondary line-pack-price">
+                        {{ purchase.pack_price }} a pack, as charged
+                    </div>
+                    {% endif -%}
+                </td>
                 <td>
                     {% if purchase.is_outstanding %}
                     <span class="badge text-bg-warning">outstanding</span>

@@ -355,3 +355,207 @@ def test_leaving_the_question_unanswered_refuses_the_whole_capture(
     rows = purchase_rows(page, live_server, seeded.product_id)
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text(LISTING_CAPTURE_DATE)
+
+
+# --------------------------------------------------------------------------
+# Packs recorded as units (feature 046, issue #137)
+# --------------------------------------------------------------------------
+#
+# The fixture already carries the two shapes this needs, which is why nothing
+# new is served here: line 2 is "Assorted Heat Shrink Tubing Kit, **560
+# Pieces**" and line 4 is "Magnetic Parts Tray Set, **3 Piece**", while lines 1
+# and 3 name no count at all. A real four-line order with two pack lines, read
+# off markup written before the feature existed.
+
+# Line 1: "Digital Calipers 6 Inch Stainless Steel with Fractions". The "6" is
+# a dimension and the parse must not read it, so this is the line the operator
+# has to state a pack size on by hand.
+PLAIN_LINE = "1"
+# Line 2: "... 560 Pieces ...", quantity 4 on the fixture's badge.
+SUGGESTED_LINE = "2"
+SUGGESTED_PACK = 560
+
+
+def pack_size_field(review, key):
+    return line(review, key).locator(".line-pack-size")
+
+
+def quantity_field(review, key):
+    return line(review, key).locator(".line-quantity")
+
+
+def unit_price_field(review, key):
+    return line(review, key).locator(".line-unit-price")
+
+
+@pytest.mark.e2e
+def test_stating_a_pack_size_converts_the_line(page, live_server, image_host):
+    """US1 scenario 1, the reported defect.
+
+    ``to_have_value`` polls; ``input_value()`` does not, and against a field a
+    script is about to rewrite it reads the pre-conversion number on a slow
+    machine (CLAUDE.md pattern E).
+    """
+    review = capture_order(page, live_server, image_host)
+
+    # The plain line starts unconverted, at what Amazon stated.
+    expect(quantity_field(review, PLAIN_LINE)).to_have_value("1")
+    expect(unit_price_field(review, PLAIN_LINE)).to_have_value("9.99")
+
+    pack_size_field(review, PLAIN_LINE).fill("100")
+
+    expect(quantity_field(review, PLAIN_LINE)).to_have_value("100")
+    expect(unit_price_field(review, PLAIN_LINE)).to_have_value("0.10")
+
+
+@pytest.mark.e2e
+def test_a_converted_line_records_items(page, live_server, image_host):
+    """SC-001. The purchase is in items at a per-item price."""
+    review = capture_order(page, live_server, image_host)
+    pack_size_field(review, PLAIN_LINE).fill("100")
+    expect(quantity_field(review, PLAIN_LINE)).to_have_value("100")
+    confirm(review)
+
+    order_screen(page, live_server)
+    first = page.locator("tr.order-line").first
+    expect(first).to_contain_text("100")
+    expect(first.locator(".line-pack")).to_contain_text("pack of 100")
+
+
+@pytest.mark.e2e
+def test_a_line_left_alone_records_what_the_order_stated(
+    page, live_server, image_host
+):
+    """FR-002, SC-005. The change costs nothing where it is not used."""
+    review = capture_order(page, live_server, image_host)
+
+    expect(pack_size_field(review, PLAIN_LINE)).to_have_value("1")
+    confirm(review)
+
+    order_screen(page, live_server)
+    first = page.locator("tr.order-line").first
+    expect(first).to_contain_text("9.99")
+    # Establish the row before asserting an absence, or this passes against a
+    # table that has not rendered (CLAUDE.md, negative assertions).
+    expect(first.locator(".line-pack")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_title_naming_a_count_arrives_pre_filled_and_marked(
+    page, live_server, image_host
+):
+    """US3. "560 Pieces" is read, offered, and plainly labelled a guess."""
+    review = capture_order(page, live_server, image_host)
+
+    expect(pack_size_field(review, SUGGESTED_LINE)).to_have_value(
+        str(SUGGESTED_PACK)
+    )
+    expect(line(review, SUGGESTED_LINE).locator(".pack-size-suggested")).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_a_title_naming_no_count_is_not_guessed_at(page, live_server, image_host):
+    """FR-022, and the reason the parse anchors on a word.
+
+    "Digital Calipers **6 Inch**" and "Cutting Fluid, **16 oz** Bottle" are the
+    trap: a parse that read a bare number would multiply both purchases.
+    """
+    review = capture_order(page, live_server, image_host)
+
+    expect(pack_size_field(review, PLAIN_LINE)).to_have_value("1")
+    expect(line(review, PLAIN_LINE).locator(".pack-size-suggested")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_the_review_says_which_lines_were_converted(page, live_server, image_host):
+    """US2, FR-014. A missed pack line must not look like a finished one.
+
+    Asserted as the **presence** of the marking on the converted lines, never
+    its absence on the others: the absent form also passes against a table
+    that has not rendered (CLAUDE.md pattern F).
+    """
+    review = capture_order(page, live_server, image_host)
+
+    expect(line(review, SUGGESTED_LINE).locator(".line-converted")).to_be_visible()
+    expect(
+        line(review, SUGGESTED_LINE).locator(".line-converted")
+    ).to_contain_text(str(SUGGESTED_PACK))
+
+    # The plain line is not claimed to have been converted. Asserted as the
+    # positive fact that it carries the hidden class, rather than as an
+    # absence -- the marking is always rendered so the script has something to
+    # reveal, so "count == 0" would be wrong here and "not visible" would pass
+    # against a row that has not rendered.
+    expect(line(review, PLAIN_LINE).locator(".line-converted")).to_have_class(
+        re.compile(r"\bd-none\b")
+    )
+
+
+@pytest.mark.e2e
+def test_converting_a_line_by_hand_marks_it(page, live_server, image_host):
+    """US2 for the line the operator converts themselves.
+
+    The marking is rendered hidden for every line, so that setting a pack size
+    on a line that arrived at 1 reveals it. A marking created only for
+    already-converted lines would be absent for exactly the lines just
+    converted by hand.
+    """
+    review = capture_order(page, live_server, image_host)
+    marking = line(review, PLAIN_LINE).locator(".line-converted")
+    expect(marking).to_have_class(re.compile(r"\bd-none\b"))
+
+    pack_size_field(review, PLAIN_LINE).fill("100")
+
+    expect(marking).to_be_visible()
+    expect(marking).to_contain_text("1 \u00d7 100")
+
+
+@pytest.mark.e2e
+def test_overruling_a_suggestion_sticks(page, live_server, image_host):
+    """FR-021. A guess the operator has corrected is no longer a guess."""
+    review = capture_order(page, live_server, image_host)
+    expect(pack_size_field(review, SUGGESTED_LINE)).to_have_value(
+        str(SUGGESTED_PACK)
+    )
+
+    pack_size_field(review, SUGGESTED_LINE).fill("10")
+
+    expect(quantity_field(review, SUGGESTED_LINE)).to_have_value("40")
+    expect(
+        line(review, SUGGESTED_LINE).locator(".pack-size-suggested")
+    ).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_refused_pack_size_keeps_every_other_entry(page, live_server, image_host):
+    """FR-011, FR-012, FR-013. Nothing is written and nothing is retyped."""
+    review = capture_order(page, live_server, image_host)
+    review.fill('input[name="description[3]"]', "Way Oil")
+    pack_size_field(review, PLAIN_LINE).fill("0")
+
+    review.click("#confirm-capture")
+
+    # The review comes back rather than landing on the order screen.
+    expect(review.locator("#order-lines")).to_be_visible()
+    expect(review.locator('input[name="description[3]"]')).to_have_value("Way Oil")
+    expect(pack_size_field(review, PLAIN_LINE)).to_have_value("0")
+
+    order_screen(page, live_server)
+    expect(page.locator("#not-captured")).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_a_captured_pack_order_shows_both_views(page, live_server, image_host):
+    """US5, FR-034. The invoice reconciles without opening Amazon."""
+    review = capture_order(page, live_server, image_host)
+    expect(pack_size_field(review, SUGGESTED_LINE)).to_have_value(
+        str(SUGGESTED_PACK)
+    )
+    confirm(review)
+
+    order_screen(page, live_server)
+    expect(page.locator("tr.order-line")).to_have_count(LINE_COUNT)
+
+    row = page.locator("tr.order-line").nth(1)
+    expect(row.locator(".line-pack")).to_contain_text(f"pack of {SUGGESTED_PACK}")
+    expect(row.locator(".line-pack-price")).to_contain_text("13.95")

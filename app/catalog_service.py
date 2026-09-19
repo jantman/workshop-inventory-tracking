@@ -13,6 +13,7 @@ session closes.
 
 import logging
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Set
@@ -1176,6 +1177,8 @@ class CatalogService:
         order_reference: Optional[str] = None,
         supplier_order_reference: Optional[str] = None,
         notes: Optional[str] = None,
+        pack_size: Optional[int] = None,
+        pack_price: Optional[Decimal] = None,
     ) -> Purchase:
         """Record one acquisition of a product (FR-004, FR-005).
 
@@ -1231,6 +1234,11 @@ class CatalogService:
                 order_reference=_clean(order_reference),
                 supplier_order_reference=_clean(supplier_order_reference),
                 notes=_clean(notes),
+                # What the vendor charged, where it sold a pack (046). Both
+                # NULL for a purchase recorded by hand, which is the default
+                # and must stay so: nothing about a pack may be inferred.
+                pack_size=pack_size,
+                pack_price=pack_price,
             )
             session.add(purchase)
             session.flush()
@@ -1332,6 +1340,9 @@ class CatalogService:
         category_path: Optional[str] = None,
         location: Optional[str] = None,
         sub_location: Optional[str] = None,
+        packs: Optional[Any] = None,
+        pack_size: Optional[Any] = None,
+        pack_price: Optional[Any] = None,
     ) -> Purchase:
         """Capture an order while the vendor's listing is still on screen.
 
@@ -1409,6 +1420,33 @@ class CatalogService:
         )
         price = self._validate_price(unit_price)
         count = self._validate_purchase_quantity(quantity)
+
+        # 046. A listing that sells a pack of 100 puts 100 items on the shelf,
+        # and until this feature the quantity recorded was the number of
+        # *packs* -- one. `pack-unit-price.js` derives both visible fields as
+        # the operator types, so `count` and `price` usually arrive already
+        # converted. This is the same **override detection** the order review
+        # uses (``contracts/pack-conversion.md`` §2), and for the same reason:
+        # without it a browser with JavaScript disabled records the wrong
+        # number in silence.
+        #
+        # **Comparing against None is not enough.** This form is rendered with
+        # `quantity` pre-filled from `listing.quantity_from_pack`, which is
+        # *one pack's worth* -- so with JS off the submitted `count` is
+        # non-empty whatever the operator typed into Packs Bought, and their
+        # "2" would be discarded. What distinguishes "untouched" from
+        # "overruled" is equality with the value this form was rendered
+        # carrying, which is reconstructible because it is a pure function of
+        # the listing.
+        pack_count = self._validate_pack_size(pack_size)
+        paid_per_pack = self._validate_price(pack_price)
+        if pack_count > 1:
+            rendered_count, rendered_price = self._rendered_pack_defaults(listing)
+            if count is None or count == rendered_count:
+                bought = self._validate_purchase_quantity(packs) or 1
+                count = bought * pack_count
+            if paid_per_pack is not None and (price is None or price == rendered_price):
+                price = self._validate_price(paid_per_pack / pack_count)
         # Here rather than inside create_product/update_product so that an
         # over-length path is refused before the duplicate and recycled-
         # identifier questions are put to the operator, keeping this method's
@@ -1563,7 +1601,65 @@ class CatalogService:
             order_date=ordered,
             quantity=count,
             unit_price=price,
+            # What the vendor charged, beside what the catalog records. Both
+            # or neither, and never a pack of 1 -- see
+            # `contracts/purchase-pack-fields.md`.
+            **_pack_fields(self, pack_count, paid_per_pack),
         )
+
+    def _rendered_pack_defaults(self, listing) -> tuple:
+        """The quantity and unit price the capture form was rendered carrying.
+
+        The counterpart of :meth:`_rendered_pack_size` for the single-listing
+        page: override detection needs to know what the operator was *shown*,
+        and this reconstructs it. **Must stay a pure function of the listing**,
+        because it is called at submission to reproduce a render that has
+        already happened.
+
+        It mirrors `capture.html` exactly, and has to keep doing so -- the two
+        drifting apart is the failure mode, not a cosmetic inconsistency:
+
+        * ``quantity`` ← ``listing.quantity_from_pack`` (one pack's worth)
+        * ``unit_price`` ← ``listing.price``, else ``unit_price_from_pack``
+
+        Returns:
+            ``(quantity, unit_price)``, either of which may be None -- for a
+            capture with no listing at all, which is the pasted-URL path where
+            the operator types every field and nothing was pre-filled.
+        """
+        if listing is None:
+            return None, None
+
+        try:
+            count = int(str(listing.quantity_from_pack).strip())
+        except (TypeError, ValueError):
+            count = None
+
+        return count, self._validate_price(
+            listing.price or listing.unit_price_from_pack
+        )
+
+    def _validate_pack_size(self, pack_size: Any) -> int:
+        """How many items came in one pack. 1 when none was stated (046).
+
+        Raises:
+            ValidationError: Not a whole number of at least 1. Never coerced --
+                a "0" or a "1.5" is a question about the pack, and answering it
+                silently with "no pack" records the wrong quantity (FR-011).
+        """
+        if pack_size is None or pack_size == '':
+            return 1
+        try:
+            size = int(str(pack_size).strip())
+        except (TypeError, ValueError):
+            size = 0
+        if size < 1:
+            raise ValidationError(
+                f"The pack size must be a whole number of items, one or more: "
+                f"{pack_size!r}",
+                field='pack_size',
+            )
+        return size
 
     def _apply_listing(self, product_id: int, listing: ListingCapture) -> None:
         """Write the parts of a capture that belong to the product.
@@ -2144,6 +2240,127 @@ class CatalogService:
     # number, the way the reorder list is derived rather than kept. What lives
     # here is the pair the capture flow needs: a read that decides and writes
     # nothing, and a write that does the whole order or none of it.
+
+    def _pack_size_for_line(self, line, decision) -> int:
+        """How many items are in one of what the vendor sold, for this line (046).
+
+        **What the operator submitted, and nothing else.** The review renders
+        the field pre-filled -- with the line's suggestion where it has one --
+        so the submitted value is already the operator's answer to it, whether
+        they accepted it, changed it, or cleared it.
+
+        That is why a blank is 1 and not the suggestion: **clearing the field
+        is how you say "this is not a pack"**, and falling back to the
+        suggestion there would put it straight back with no way to refuse it
+        (FR-021). A blank is a value, not an error.
+
+        The absent case -- a form posted without the field at all -- reads the
+        same way, which is correct for the only caller that can produce it: a
+        vendor whose review does not offer the column and whose lines are
+        therefore never packs.
+
+        Raises:
+            ValidationError: The entry is not a whole number of at least 1.
+                **Never coerced to 1** (FR-011): silently treating "0" or "1.5"
+                as no-pack records the wrong quantity on a line the operator
+                plainly meant to convert, which is the defect this feature
+                exists to fix.
+        """
+        entered = decision.get('pack_size')
+        if entered in (None, ''):
+            return 1
+
+        try:
+            size = int(str(entered).strip())
+        except (TypeError, ValueError):
+            size = 0
+
+        if size < 1:
+            raise ValidationError(
+                f"The pack size must be a whole number of items, one or more: "
+                f"{entered!r}",
+                field=f'pack_size[{line.form_key}]',
+            )
+        return size
+
+    def _rendered_pack_size(self, line) -> int:
+        """The pack size the review drew for this line before anyone typed.
+
+        **Must stay pure** -- no clock, no request state, no database read. The
+        override detection below reconstructs what the server rendered by
+        calling this again at confirmation, so a value that varied between the
+        two would misclassify an override as an untouched field
+        (``contracts/pack-conversion.md`` §2, preconditions).
+
+        1 for any line whose class has no suggestion of its own, which is every
+        vendor but Amazon.
+        """
+        return getattr(line, 'suggested_pack_size', None) or 1
+
+    def _converted_quantity(self, line, decision) -> Optional[int]:
+        """The quantity to record, honouring an override (046 FR-005, FR-007).
+
+        **A value the operator did not change follows the pack size; a value
+        they changed wins.** The comparison is against what this page *drew*,
+        which is reconstructible because :meth:`_rendered_pack_size` is pure.
+
+        Without this, a pack size entered in a browser with JavaScript disabled
+        records the wrong number in silence: the quantity input still holds the
+        rendered 1, that 1 wins as an "edit", and the purchase says one item at
+        the price of a whole pack. With JavaScript the input already holds the
+        converted value, differs from the rendered one, and comes back through
+        the first branch as the same number the second branch would compute --
+        so both browsers agree, which is what makes the script an ergonomic aid
+        rather than part of the write path.
+        """
+        pack = self._pack_size_for_line(line, decision)
+        rendered = self._pack_applied(line, self._rendered_pack_size(line))
+
+        edited = decision.get('quantity')
+        if edited not in (None, ''):
+            try:
+                value = int(str(edited).strip())
+            except (TypeError, ValueError):
+                value = None
+            if value is not None and value > 0 and value != rendered.quantity:
+                return value
+
+        return self._pack_applied(line, pack).quantity
+
+    def _converted_unit_price(self, line, decision) -> Optional[Decimal]:
+        """The unit price to record, honouring an override. The price half of
+        :meth:`_converted_quantity`, and the same rule.
+
+        Through ``_validate_price`` either way, so a sub-cent unit price from a
+        pack division is rounded deliberately here rather than silently by the
+        Numeric(10, 2) column.
+        """
+        pack = self._pack_size_for_line(line, decision)
+        rendered = self._pack_applied(line, self._rendered_pack_size(line))
+
+        edited = decision.get('unit_price')
+        if edited not in (None, ''):
+            try:
+                typed = self._validate_price(Decimal(str(edited).strip()))
+            except (InvalidOperation, ValueError):
+                typed = None
+            if typed is not None and typed != rendered.unit_price:
+                return typed
+
+        return self._validate_price(self._pack_applied(line, pack).unit_price)
+
+    @staticmethod
+    def _pack_applied(line, pack_size: int):
+        """The line as it reads with this pack size applied.
+
+        ``dataclasses.replace`` because the line is frozen, deliberately -- and
+        because replacing it is what makes every reader see the conversion at
+        once. ``ReviewedLine.has_change``, ``price_rounds`` and the review
+        template all read ``line.quantity`` directly, so converting here rather
+        than in each of them is what makes FR-010 fall out instead of needing
+        four copies of one division.
+        """
+        return replace(line, pack_size=pack_size if pack_size > 1 else None)
 
     def _mcmaster_quantity(self, line, decision) -> Optional[int]:
         """The quantity to record: what the operator typed, else the computed one.
@@ -3095,6 +3312,22 @@ class CatalogService:
         if unit_price is not None and unit_price != purchase.unit_price:
             purchase.unit_price = unit_price
             wrote = True
+
+        # 046. The pack moves with the numbers it explains. A re-capture that
+        # updated the quantity and left a stale pack size behind would leave
+        # the row stating a vendor line that is not the one it now records --
+        # the one contradiction `contracts/purchase-pack-fields.md` forbids.
+        #
+        # Written whenever the vendor supplied the pair, **including when it
+        # supplied NULLs**: a line the operator has stopped treating as a pack
+        # must lose its pack, and `is not None` would pin the old value there
+        # forever. Guarded on the key's presence instead, so a vendor that
+        # names no pack at all (DigiKey) is untouched.
+        if 'pack_size' in fields:
+            for name in ('pack_size', 'pack_price'):
+                if fields[name] != getattr(purchase, name):
+                    setattr(purchase, name, fields[name])
+                    wrote = True
 
         return wrote
 
@@ -5025,6 +5258,16 @@ def _mcmaster_line_fields(service, line, decision) -> Dict[str, Any]:
     Unlike DigiKey's, these consult the decision: the page cannot be re-read, so
     the operator is allowed to overrule the computed quantity and unit price
     (028 FR-020a).
+
+    **The conversion is unchanged** (046 FR-039); what is new is that the pack
+    it converted from is now kept rather than discarded, so a McMaster order
+    reconciles against its invoice the same way an Amazon one does. The pack
+    comes straight off the line -- McMaster's page states it and this code does
+    not have to ask.
+
+    ``line.pack_size`` is None for "Each" and, importantly, for **"Pairs"**:
+    McMaster states no count there, and inventing a silent 2 would be inventing
+    data. A NULL pack is the honest record of that.
     """
     return {
         'vendor_item_id': line.part_number or None,
@@ -5034,6 +5277,7 @@ def _mcmaster_line_fields(service, line, decision) -> Dict[str, Any]:
         'order_line_number': line.line_number,
         'quantity': service._mcmaster_quantity(line, decision),
         'unit_price': service._mcmaster_unit_price(line, decision),
+        **_pack_fields(service, line.pack_size, line.pack_price),
     }
 
 
@@ -5165,15 +5409,45 @@ def _amazon_line_fields(service, line, decision) -> Dict[str, Any]:
 
     Consults the decision, as McMaster's does and DigiKey's does not: the page
     cannot be re-read, so the operator is allowed to overrule what was read.
+
+    **The quantity and price are converted from the pack** (046). Amazon's
+    order page counts listings, and a listing can be a pack of 100 screws; what
+    the catalog records is items. The pack size comes from the review, because
+    the order page is the one place that cannot state it.
+
+    ``pack_size`` and ``pack_price`` record *what the vendor charged*, so a
+    captured order can be reconciled against the invoice -- the rounding this
+    function performs destroys that figure, and $0.13 x 100 is $13.00, not the
+    $13.23 that was paid. They are **not** a derivation of the row and are
+    never recomputed from it (``contracts/purchase-pack-fields.md`` §1).
     """
+    pack_size = service._pack_size_for_line(line, decision)
     return {
         'vendor_item_id': line.asin or None,
         # Amazon's own words, kept distinct from the operator's product
         # description.
         'listing_title': line.title or None,
         'order_line_number': line.line_number,
-        'quantity': service._mcmaster_quantity(line, decision),
-        'unit_price': service._mcmaster_unit_price(line, decision),
+        'quantity': service._converted_quantity(line, decision),
+        'unit_price': service._converted_unit_price(line, decision),
+        # Both or neither, and never 1: a pack of one is no pack, and storing
+        # 1 would make every purchase in the catalog claim to be a pack
+        # (FR-031, invariant P2).
+        **_pack_fields(service, pack_size, line.pack_price),
+    }
+
+
+def _pack_fields(service, pack_size, pack_price) -> Dict[str, Any]:
+    """The two stored pack columns, or both empty (046 FR-028, FR-031).
+
+    One implementation for all three capture paths, because "both or neither,
+    and never 1" is an invariant rather than three similar conditions.
+    """
+    if not pack_size or pack_size < 2 or pack_price is None:
+        return {'pack_size': None, 'pack_price': None}
+    return {
+        'pack_size': pack_size,
+        'pack_price': service._validate_price(pack_price),
     }
 
 
@@ -5218,9 +5492,12 @@ AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     # on more than one order. The operator chooses.
     receive_landing=order_vendors.LANDING_CHOICE_PAGE,
     incomplete_label=_amazon_incomplete_label,
-    # Neither shipped/backorder counts nor pack arithmetic: the order page states
-    # a unit price and a quantity directly.
-    review_columns=(),
+    # No shipped/backorder counts, and no pack arithmetic *read off the page*
+    # -- but a pack size the operator states, because Amazon's order page
+    # counts listings and a listing can be a pack (046, issue #137). This is
+    # the one column whose value comes from the review rather than the vendor,
+    # which is why it is 'pack_entry' and not McMaster's 'packs'.
+    review_columns=('pack_entry',),
     confirm_endpoint='product.amazon_order_confirm',
     carries_payload=True,
 ))

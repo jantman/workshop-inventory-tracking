@@ -93,6 +93,18 @@
                             <input type="number" class="form-control" id="quantity" name="quantity"
                                    min="1" step="1"
                                    value="{{ scanned_quantity or (purchase.quantity if purchase.quantity is not none else '') }}">
+                            {# 046. Context for a number that is in items while
+                               the box in your hands is a pack. What arrived is
+                               allowed to differ from what was ordered, so
+                               changing this does **not** touch the recorded
+                               pack -- that stays what the vendor charged. #}
+                            {% if purchase.pack_size %}
+                            <div class="form-text purchase-pack">
+                                In items. Ordered as packs of {{ purchase.pack_size }}
+                                {%- if purchase.pack_price is not none %},
+                                {{ purchase.pack_price }} each{% endif %}.
+                            </div>
+                            {% endif %}
                         </div>
                         <div class="col-md-4 mb-3">
                             <label for="unit_price" class="form-label">Unit Price</label>
