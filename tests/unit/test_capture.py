@@ -2627,3 +2627,113 @@ class TestDigiKeyPartFromUrl:
         from app.product.routes import _digikey_part_from_url
         value = 'https://www.amazon.com/dp/B0ABCDEFGH'
         assert _digikey_part_from_url(value) == value
+
+
+class TestAPackListingRecordsItems:
+    """046 US4: buying one pack of 100 puts 100 on the shelf, not one.
+
+    The same defect as issue #137's order capture, on the page the operator
+    reaches most often. The confirmation form has had *Paid for the Pack* and
+    *Units in the Pack* since feature 017, but they fed only the unit price --
+    so a pack of 100 at $13.23 recorded **1 item at $13.23**, and the user
+    manual has been describing the behaviour this class finally makes true.
+    """
+
+    def capture(self, client, **form):
+        data = {'url': AMAZON_URL, 'listing_title': 'Widget Screws (Pack of 100)'}
+        data.update(form)
+        return client.post('/products/capture', data=data, follow_redirects=False)
+
+    def only_purchase(self, service):
+        products = service.list_products()
+        assert len(products) == 1
+        history = service.get_purchase_history(products[0].id)
+        assert len(history) == 1
+        return history[0]
+
+    def test_one_pack_of_a_hundred_records_a_hundred(self, client, service):
+        """The reported defect, on this page. Was 1 at 13.23."""
+        self.capture(client, packs='1', pack_size='100', pack_price='13.23')
+
+        purchase = self.only_purchase(service)
+        assert purchase.quantity == 100
+        assert purchase.unit_price == Decimal('0.13')
+
+    def test_two_packs_of_a_hundred_records_two_hundred(self, client, service):
+        """The pack size multiplies the packs bought; it does not replace them."""
+        self.capture(client, packs='2', pack_size='100', pack_price='13.23')
+
+        purchase = self.only_purchase(service)
+        assert purchase.quantity == 200
+        assert purchase.unit_price == Decimal('0.13')
+
+    def test_a_typed_quantity_wins(self, client, service):
+        """FR-025. The derived value is a default, not a decision."""
+        self.capture(client, packs='1', pack_size='100', pack_price='13.23',
+                     quantity='96')
+
+        assert self.only_purchase(service).quantity == 96
+
+    def test_a_typed_unit_price_wins(self, client, service):
+        self.capture(client, packs='1', pack_size='100', pack_price='13.23',
+                     unit_price='0.15')
+
+        assert self.only_purchase(service).unit_price == Decimal('0.15')
+
+    def test_no_pack_behaves_exactly_as_before(self, client, service):
+        """FR-026, SC-005. The change costs nothing where it is not used."""
+        self.capture(client, quantity='3', unit_price='4.50')
+
+        purchase = self.only_purchase(service)
+        assert purchase.quantity == 3
+        assert purchase.unit_price == Decimal('4.50')
+        assert purchase.pack_size is None
+        assert purchase.pack_price is None
+
+    def test_a_pack_of_one_stores_no_pack(self, client, service):
+        """FR-031. A pack of one is no pack, and must not be stored as one."""
+        self.capture(client, packs='1', pack_size='1', pack_price='4.50')
+
+        purchase = self.only_purchase(service)
+        assert purchase.pack_size is None
+        assert purchase.pack_price is None
+
+    def test_the_pack_is_kept(self, client, service):
+        """FR-028. What the vendor charged, so the invoice reconciles."""
+        self.capture(client, packs='1', pack_size='100', pack_price='13.23')
+
+        purchase = self.only_purchase(service)
+        assert purchase.pack_size == 100
+        assert purchase.pack_price == Decimal('13.23')
+        # And the reason it is a column: the rounding destroyed this figure.
+        assert purchase.unit_price * purchase.pack_size == Decimal('13.00')
+
+    def test_a_bad_pack_size_is_refused_and_records_nothing(self, client, service):
+        """FR-011, FR-013. Never coerced to "no pack"."""
+        response = self.capture(client, packs='1', pack_size='0', pack_price='13.23')
+
+        assert response.status_code == 200
+        assert service.list_products() == []
+
+    def test_the_listing_fills_the_quantity_without_javascript(self):
+        """FR-023. The server supplies the first render's derived value.
+
+        `pack-unit-price.js` deliberately writes a derived field only once the
+        operator has typed in a pack field, so without this the field renders
+        empty on a page plainly showing "per pack of 100".
+        """
+        listing = ListingCapture.from_json(json.dumps({
+            'version': 1, 'source_url': AMAZON_URL,
+            'pack_price': '13.23', 'pack_size': '100',
+        }))
+
+        assert listing.quantity_from_pack == '100'
+        assert listing.unit_price_from_pack == '0.13'
+
+    def test_a_listing_with_no_pack_leaves_the_quantity_empty(self):
+        """FR-026. Blank, exactly as the field rendered before 046."""
+        listing = ListingCapture.from_json(json.dumps({
+            'version': 1, 'source_url': AMAZON_URL, 'price': '4.50',
+        }))
+
+        assert listing.quantity_from_pack is None

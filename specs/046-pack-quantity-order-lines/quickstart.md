@@ -136,9 +136,11 @@ $NOX -s screenshots_headless
 $NOX -s screenshots_verify
 ```
 
-Regenerated screenshots are committed with the UI change; CI blocks merge on stale ones. Measure
-the churn before committing — screenshots come from two sources and churn on every run, so commit
-only the ones this change actually altered.
+**The screenshot job is a reminder, not a gate.** It stopped diffing in CI because CI rasterizes
+fonts differently and reported every file changed on every run (issue #77), so the constitution's
+"CI blocks merge on stale screenshots" no longer holds. Regenerating still churns locally — most
+files move by a few dozen bytes of antialiasing. **Measure the churn and commit only the files
+this change actually altered**, which here is the capture confirmation form.
 
 ---
 

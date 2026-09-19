@@ -1228,22 +1228,33 @@ Two ways in:
 ### When it is sold as a pack
 
 A listing that sells a 3-pack quotes one price, and that price is what the *pack*
-cost. A purchase records what *one* costs. So the form asks for both: **Paid for
-the Pack**, already filled in with the listing's price, and **Units in the Pack**.
-Fill in the second and **Unit Price** works itself out.
+cost. A purchase records what *one* costs, and how many *items* you now own. So
+the form asks for three things: **Packs Bought**, **Paid for the Pack** — already
+filled in with the listing's price — and **Units in the Pack**. Fill those in and
+both **Quantity** and **Unit Price** work themselves out.
 
-It stays an ordinary field. Type over it if the listing was wrong about the price
-or if something else was; what is in the field when you press **Capture** is what
+They stay ordinary fields. Type over either if the listing was wrong, or if what
+turned up in the box was; what is in the field when you press **Capture** is what
 gets recorded, whoever arrived at it.
 
 **Units in the Pack is not Quantity.** It is how many came in one pack; Quantity
-is how many units the order brings in. Neither pack field is stored — they exist
-to work the unit price out and are forgotten the moment you capture.
+is how many items the order brings in. Buy two packs of a hundred and Quantity
+reads 200, because two hundred screws is what you will count on the shelf and
+what a low-stock threshold has to mean.
+
+Both pack fields **are** kept, on the purchase, as what the vendor charged — a
+pack of 100 at $13.23, beside the 100 items at $0.13 the catalog records. The two
+sit together on the order's page so you can check a line against a card statement
+months later. They are a record of the invoice and nothing else: if 90 of that
+pack of 100 turn up, you change the quantity on the receive screen and the pack
+stays saying what was charged.
 
 A pack price rarely divides evenly. $17.99 across three is $5.996666…, and a price
 is recorded to the cent, so the unit price is rounded — $6.00 here. Three of those
 do not add back up to the $17.99 you paid, and the page says so beneath the field
-rather than letting you discover it during a reconciliation months later.
+rather than letting you discover it during a reconciliation months later. That
+rounding is also why the pack price is kept rather than worked out backwards
+later: $6.00 times three is $18.00, not the $17.99 you were charged.
 
 ### Filing it while you are there
 
@@ -1397,6 +1408,30 @@ nothing it already holds is overwritten.
 reason — most often Amazon asking you to sign in or to prove you are not a robot
 after several pages in a row. That item still captures with what the order page
 stated, and the rest of the order is unaffected.
+
+#### When a line is a multi-item pack
+
+An Amazon order page counts *listings*, not items. Order one bag of a hundred
+screws and it says "1" at the price of the bag — but a hundred screws is what
+goes on the shelf, what you consume, and what a low-stock threshold has to mean.
+
+So every line has an **In a pack** box. Say how many items came in one, and that
+line's Units and Unit price convert: one bag of a hundred at $13.23 becomes 100
+at $0.13. A line that is not a pack is left at 1 and records exactly what Amazon
+stated. Converted lines are marked as such, with the arithmetic beside them, so
+a pack line you have not got to yet cannot be mistaken for one that needed
+nothing.
+
+**Where the title names a count, the box arrives already filled in** — *Pack of
+100*, *560 Pieces*, *5-Pack* and the like — and marked *read from the title —
+check it*. That is a guess made from a sentence a marketing department wrote, so
+it is yours to check against the box in your hands. Type over it and the mark
+goes away. Titles that merely contain numbers — *6 Inch*, *12V*, *1/4-20* — are
+never read as pack counts.
+
+Both numbers stay editable whatever the pack says. And, as on the single-listing
+page, what the pack was is kept beside what the catalog recorded, so the order
+reconciles against a card statement later.
 
 If Amazon changes their markup and a field stops reading, that field goes blank
 and everything else still captures. The review marks what came back thin, and so
@@ -1645,6 +1680,10 @@ catalog will actually record: **units and a unit price**. Both of those are
 editable. Individual screws are what you consume and what a low-stock flag has to
 mean, so a line reading "2 packs of 100 at $6.00" is recorded as 200 at $0.03.
 
+The pack itself is kept too, on the purchase, as what McMaster charged. The
+order's page shows both — *2 packs of 100 at $6.00* beside *200 at $0.03* — so a
+line still reconciles against a card statement after the division has rounded it.
+
 Alongside each line, whether the catalog already holds it:
 
 - **Nothing matches.** Write the label description you want — what goes on the
@@ -1806,8 +1845,8 @@ personal account is generally the whole life of the account.
 
 **What you get:** everything the order page states — the part number, the
 description, how many packs, what a pack holds and what it cost, converted to
-units and a unit price. The same as capturing the order the day you placed it,
-because it is the same page.
+units and a unit price, with the pack kept alongside. The same as capturing the
+order the day you placed it, because it is the same page.
 
 **Remember what identifies a McMaster order:** the Purchase Order name, not a
 number. If you renamed one on McMaster's site since, it will be filed here under

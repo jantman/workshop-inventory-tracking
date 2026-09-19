@@ -324,22 +324,47 @@
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="quantity" class="form-label">Quantity</label>
+                            {# 046 FR-023. What gets recorded, in **items**.
+                               Derived from the two pack fields below the way
+                               Unit Price already is -- buying one pack of 100
+                               puts 100 on the shelf, and until 046 this field
+                               recorded 1. Empty when no pack was stated, which
+                               is exactly how it behaved before (FR-026), and
+                               editable either way. #}
                             <input type="number" class="form-control" id="quantity" name="quantity"
-                                   min="1" step="1" value="{{ form_data.get('quantity') or '' }}">
+                                   min="1" step="1"
+                                   value="{{ form_data.get('quantity')
+                                             or (listing.quantity_from_pack if listing else '') or '' }}">
+                            <div class="form-text">
+                                How many items this brings in, not how many packs.
+                            </div>
                         </div>
                     </div>
 
                     {# The pack, and what one of it costs. Read left to right:
-                       what you paid, how many were in it, what that makes one.
+                       how many you bought, what one cost, how many were in it,
+                       what that makes a single item.
 
-                       **Neither pack field is recorded anywhere.** They are
-                       submitted because they are form fields and product_capture
-                       ignores them; they exist to produce the unit price on this
-                       page and to still be here explaining it when the form comes
-                       back with a question. There is no pack size in the schema
-                       and this is not the beginning of one. #}
+                       **Both pack fields are recorded**, on the purchase, as
+                       what the *vendor charged* -- beside the quantity and unit
+                       price, which are what the catalog holds. That reverses
+                       what this comment said until 046, for a reason that is
+                       arithmetic rather than taste: the unit price is rounded
+                       to the cent, so $13.23 across 100 stores as $0.13 and
+                       multiplying back gives $13.00. The invoice figure cannot
+                       be recovered once discarded, and a captured purchase has
+                       to reconcile against the card statement (046 US5). #}
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
+                            <label for="packs" class="form-label">Packs Bought</label>
+                            {# 046 FR-024. Defaults to one, which is what makes
+                               a listing with no pack behave exactly as it did
+                               before this field existed. #}
+                            <input type="number" class="form-control" id="packs"
+                                   name="packs" min="1" step="1"
+                                   value="{{ form_data.get('packs') or '1' }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
                             <label for="pack_price" class="form-label">Paid for the Pack</label>
                             {# The listing quotes what the *pack* cost, so that is
                                the field its price belongs in. It also still fills
@@ -353,7 +378,7 @@
                                              or (listing.pack_price if listing else '')
                                              or (listing.price if listing else '') or '' }}">
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label for="pack_size" class="form-label">Units in the Pack</label>
                             <input type="number" class="form-control" id="pack_size"
                                    name="pack_size" min="1" step="1"
@@ -361,10 +386,10 @@
                                              or (listing.pack_size if listing else '')
                                              or '1' }}">
                             <div class="form-text">
-                                How many came in it -- not how many you ordered.
+                                How many came in one -- not how many you bought.
                             </div>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label for="unit_price" class="form-label">Unit Price</label>
                             {# US1 scenario 1. The listing's price is a string all
                                the way here and stays one until _validate_price

@@ -23,6 +23,11 @@
 
 {% set packs = 'packs' in vendor.review_columns %}
 {% set backorder = 'backorder' in vendor.review_columns %}
+{# 046: a pack size the *operator* states, as against McMaster's `packs`,
+   which the page states and this page only displays. Amazon's order page
+   counts listings and a listing can be a pack of 100 screws, so this is the
+   one column whose value does not come from the vendor. #}
+{% set pack_entry = 'pack_entry' in vendor.review_columns %}
 
 {% block page_icon %}bi-box-arrow-in-down{% endblock %}
 {% block page_heading %}
@@ -86,6 +91,13 @@
         {% elif not vendor.carries_payload %}
         Prices are as {{ vendor.name }} reported them, in
         {{ order.currency or 'the account currency' }} — they are not converted.
+        {% elif pack_entry %}
+        {# 046 FR-017. It is no longer true of a converted line, and a banner
+           that says it anyway is the thing that would stop the operator
+           looking. #}
+        Quantities and prices are in <strong>units</strong>. Say how many came
+        in a pack and they are converted from what {{ vendor.name }} charged —
+        all three are editable.
         {% else %}
         Quantities and prices are as {{ vendor.name }} stated them — both are
         editable.
@@ -220,8 +232,9 @@
                     <th>Part</th>
                     <th>Description &amp; label</th>
                     {% if packs %}<th class="text-end">Packs</th>{% endif %}
-                    <th class="text-end">{% if packs %}Units{% else %}Qty{% endif %}</th>
-                    <th class="text-end">{% if packs %}Unit price{% else %}Unit{% endif %}</th>
+                    {% if pack_entry %}<th class="text-end" style="width:7rem">In a pack</th>{% endif %}
+                    <th class="text-end">{% if packs or pack_entry %}Units{% else %}Qty{% endif %}</th>
+                    <th class="text-end">{% if packs or pack_entry %}Unit price{% else %}Unit{% endif %}</th>
                 </tr>
             </thead>
             <tbody>
@@ -232,8 +245,16 @@
                    neither could be steered on its own. #}
                 {% set key = line.form_key %}
                 {% set part_number = item_id(line) %}
+                {# data-packs / data-pack-price are what the *vendor* charged,
+                   carried on the row so the pack script can divide the stated
+                   price rather than an already-divided one (046). Absent for
+                   the vendors that state no pack. #}
                 <tr class="order-line" data-part="{{ part_number }}"
-                    data-line="{{ key }}" data-state="{{ reviewed.state.value }}">
+                    data-line="{{ key }}" data-state="{{ reviewed.state.value }}"
+                    {%- if pack_entry %}
+                    data-packs="{{ line.packs if line.packs is not none else '' }}"
+                    data-pack-price="{{ line.pack_price if line.pack_price is not none else '' }}"
+                    {%- endif %}>
                     <td>
                         {% if reviewed.state.value == 'CAPTURED' %}
                         <i class="bi bi-check-circle-fill text-success" title="Already captured"></i>
@@ -453,9 +474,15 @@
                     </td>
 
                     {% if packs %}
-                    {# What McMaster charged by, shown so the arithmetic beside it
-                       can be checked against the page. Not editable, and not
-                       stored: what is recorded is units and a unit price. #}
+                    {# What McMaster charged by, shown so the arithmetic beside
+                       it can be checked against the page. Not editable -- the
+                       page states it and the operator has nothing to add.
+
+                       It **is** stored, as of 046, on the purchase and beside
+                       the units and unit price that are recorded: the division
+                       rounds, so $6.00 across 100 keeps $0.03 and multiplying
+                       back gives $3.00. Keeping the pack is what lets a line
+                       reconcile against an invoice afterwards. #}
                     <td class="text-end packs-cell">
                         {% if line.packs is not none %}
                         {{ line.packs }}
@@ -473,6 +500,33 @@
                     </td>
                     {% endif %}
 
+                    {% if pack_entry %}
+                    {# 046 FR-001. How many items are in one of what Amazon
+                       sold -- the one number the order page cannot state, and
+                       the one the operator has in their hands.
+
+                       Pre-filled from the line's title where it names a count,
+                       and marked as a guess when it is one: a wrong guess is
+                       stored along with everything else, so it has to be
+                       visible before it is confirmed (FR-020). #}
+                    <td class="text-end pack-entry-cell">
+                        <input type="number" min="1" step="1"
+                               class="form-control form-control-sm text-end line-pack-size"
+                               name="pack_size[{{ key }}]"
+                               data-key="{{ key }}"
+                               aria-label="Items in one pack"
+                               value="{{ form_data.get('pack_size[' ~ key ~ ']')
+                                         or (line.pack_size if line.pack_size else '1') }}">
+                        {% if line.pack_size_is_suggested
+                              and not form_data.get('pack_size[' ~ key ~ ']') %}
+                        <div class="small text-body-secondary pack-size-suggested">
+                            read from the title — check it
+                        </div>
+                        {% endif %}
+                        <div class="form-text small">not how many you bought</div>
+                    </td>
+                    {% endif %}
+
                     {% if vendor.carries_payload %}
                     {# Computed, and editable. The operator can see both the box
                        and the order; this application can only see the order. #}
@@ -481,6 +535,31 @@
                                class="form-control form-control-sm text-end line-quantity"
                                name="quantity[{{ key }}]"
                                value="{{ form_data.get('quantity[' ~ key ~ ']') or (line.quantity if line.quantity is not none else '') }}">
+                        {% if pack_entry and line.packs is not none %}
+                        {# 046 FR-014, FR-015, FR-016. A line that was
+                           converted and one that needed no conversion must not
+                           look the same -- otherwise a pack line nobody has
+                           got to yet reads as finished. The vendor's own
+                           numbers stay beside the catalog's so both can be
+                           checked against the page and the box.
+
+                           **Always rendered, hidden when there is no pack.**
+                           The operator can set a pack size on a line that
+                           arrived at 1, and `order-line-pack.js` has to have
+                           something to reveal -- a node created only for
+                           already-converted lines would leave the marking
+                           absent for exactly the lines the operator just
+                           converted by hand. #}
+                        <div class="small text-body-secondary line-converted
+                                    {%- if line.units_per_pack < 2 %} d-none{% endif %}"
+                             data-packs="{{ line.packs }}">
+                            <span class="conversion-arithmetic">{{ line.packs }}
+                                &times; {{ line.units_per_pack }}</span>
+                            {%- if line.pack_price is not none %},
+                            {{ vendor.name }} said {{ line.packs }} at {{ line.pack_price }}
+                            {%- endif %}
+                        </div>
+                        {% endif %}
                     </td>
                     <td class="text-end">
                         <input type="text"
@@ -490,7 +569,7 @@
                         {% if line.missing_fields is defined and 'price' in line.missing_fields %}
                         <span class="badge text-bg-warning missing-field"
                               data-field="price">price could not be read</span>
-                        {% elif packs and line.price_rounds %}
+                        {% elif (packs or pack_entry) and line.price_rounds %}
                         {# Feature 017 already says this for a pack price that
                            does not divide evenly. Pack division reaches it
                            routinely -- 6.66 across a pack of 100 is 0.0666 -- so
@@ -541,6 +620,11 @@
 {% endblock %}
 
 {% block scripts %}
+{# The pack arithmetic, on the two reviews that offer a pack size. The first
+   file supplies `window.unitPriceFromPack` and must load first; both are inert
+   on a page without their hooks (046). #}
+<script src="{{ url_for('static', filename='js/pack-unit-price.js') }}"></script>
+<script src="{{ url_for('static', filename='js/order-line-pack.js') }}"></script>
 <script>
 // The order-level "already arrived" box reveals the date and ticks every line's
 // own box. Synchronous DOM work with nothing behind it -- the per-line boxes are

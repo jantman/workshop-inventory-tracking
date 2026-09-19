@@ -5,7 +5,7 @@ These models define the structure and validation rules for inventory items,
 including support for different materials, shapes, and threading specifications.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, List, Dict, Any, Tuple, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timedelta
@@ -831,11 +831,17 @@ class ListingCapture:
     specifications: List[Dict[str, str]] = field(default_factory=list)
     images: List[str] = field(default_factory=list)
     # What a pack cost and how many were in it, where the vendor prices by the
-    # pack. **Neither is recorded anywhere**: they pre-fill the two fields
-    # feature 017 put on the confirmation page, which exist to produce the unit
-    # price and to still be there explaining it when the form comes back with a
-    # question. There is no pack size in the schema and this is not the
-    # beginning of one -- what is stored is a unit price.
+    # pack. They pre-fill the two fields feature 017 put on the confirmation
+    # page, which produce the unit price -- and, since 046, the quantity too:
+    # buying one pack of 100 puts 100 items on the shelf, not one.
+    #
+    # **Both are now recorded**, on the purchase, as ``pack_size`` and
+    # ``pack_price``. That reverses what this comment said until 046, and the
+    # reason is arithmetic rather than taste: the capture rounds $13.23 across
+    # 100 to a stored $0.13, and $0.13 x 100 is $13.00, so the invoice figure
+    # cannot be recovered once it is discarded. What is stored is what the
+    # vendor charged, beside what the catalog records -- see
+    # ``specs/046-pack-quantity-order-lines/contracts/purchase-pack-fields.md``.
     #
     # Strings, like `price` and for the same reason: JSON's only number type is
     # an IEEE double (Constitution III).
@@ -874,6 +880,40 @@ class ListingCapture:
         if size <= 0 or paid < 0:
             return None
         return str(price_to_cents(paid / size))
+
+    @property
+    def quantity_from_pack(self) -> Optional[str]:
+        """The item count one pack implies, or None (046 FR-023).
+
+        The Quantity field's counterpart to :attr:`unit_price_from_pack`, and
+        it exists for the same reason: **without it the field renders empty on
+        a page that is plainly showing "$13.23 per pack of 100"**, and the
+        operator who does not notice records one item at the price of a
+        hundred. That is the reported defect (issue #137) on the single-listing
+        page rather than the order page.
+
+        `pack-unit-price.js` does not fill the gap, deliberately -- it writes a
+        derived field only once the operator has *typed* in a pack field,
+        because writing on load would discard a value they had typed over the
+        derived one before a re-render brought the form back. This supplies the
+        initial value instead, which is also what makes the page correct with
+        no JavaScript at all.
+
+        One pack, because the listing says what is in a pack and only the
+        operator knows how many they bought; the form's ``packs`` field
+        multiplies it. None where no pack was stated, which leaves the field
+        empty exactly as it was before this feature (FR-026).
+
+        Returns:
+            The count as a string, or None.
+        """
+        if not self.pack_size:
+            return None
+        try:
+            size = int(str(self.pack_size).strip())
+        except (TypeError, ValueError):
+            return None
+        return str(size) if size > 1 else None
 
     def manufacturer_part_number(self) -> Optional[str]:
         """The part number this listing's own rows name, or None (019).
@@ -1604,48 +1644,48 @@ def _order_datetime(value: Any, today: Optional[datetime] = None) -> Optional[da
     return None
 
 
-@dataclass(frozen=True)
-class McMasterOrderLine:
-    """One line of a McMaster order, as the agent read it off the page.
+class PackLine:
+    """The pack-to-units arithmetic shared by every order line that has a pack.
 
-    **Packs, not units.** McMaster states a quantity ("2"), a pack ("Packs of
-    100") and a price per pack ("11.51"). What this catalog records is units and
-    a unit price, because what gets consumed -- and what a low-stock flag has to
-    mean -- is individual screws. The conversion is :attr:`quantity` and
-    :attr:`unit_price`, both shown on the review and both editable there
-    (FR-020, FR-020a).
+    A vendor sells a *pack* and charges for a *pack*. What this catalog records
+    is individual items and what one item cost, because what gets consumed --
+    and what a low-stock flag has to mean -- is individual screws. These five
+    members are that conversion, and they are the whole of it.
 
-    ``pack_size`` of None means the page stated no pack, so one unit is one
-    unit. That covers "Each" and it also covers **"Pairs"** -- a unit that is
-    plainly not one item but for which McMaster states no count anywhere, so
-    none can be derived. Recording a silent 2 there would be inventing data;
-    FR-037 says show it as unread and let the operator decide.
+    **Its host must supply three fields**: ``packs`` (how many of what the
+    vendor sold), ``pack_size`` (how many items are in one of them, or None) and
+    ``pack_price`` (what one of them cost). Nothing here touches any other field,
+    so a host can be any frozen dataclass carrying those three.
+
+    **Why a mixin and not two copies**, given Constitution I forbids an
+    abstraction for a single implementation: there are two -- McMaster's line
+    (028) and Amazon's (046) -- and a third shape of the same idea on the
+    single-listing confirmation page. The variation is measured rather than
+    anticipated, which is the standard ``app/services/order_vendors.py`` already
+    sets. It also has a specific cost behind it: the duplicated DigiKey and
+    McMaster capture paths grew two of the defects PR #123 had to fix twice, and
+    this is the same arithmetic in the same position.
+
+    Nothing here is stored. ``purchases.pack_size`` and ``purchases.pack_price``
+    keep what the *vendor charged*; these properties produce what the catalog
+    records. See ``specs/046-pack-quantity-order-lines/contracts/``.
     """
-    part_number: str = ''
-    description: str = ''
-    # Only where the page actually stated one. McMaster sells to its own
-    # specification and names no manufacturer on the great majority of its
-    # goods, so '' is the ordinary value and not a missed selector -- which is
-    # exactly why FR-012 writes an MPN identifier only when this is set.
-    # Inventing one would collide with a real MPN later, and identifiers are
-    # unique.
-    manufacturer_part_number: str = ''
-    packs: Optional[int] = None
-    pack_size: Optional[int] = None
-    pack_price: Optional[Decimal] = None
-    line_number: Optional[int] = None
+
+    packs: Optional[int]
+    pack_size: Optional[int]
+    pack_price: Optional[Decimal]
 
     @property
     def units_per_pack(self) -> int:
-        """How many units one pack holds. 1 when the page stated no pack."""
+        """How many units one pack holds. 1 when no pack was stated."""
         return self.pack_size or 1
 
     @property
     def quantity(self) -> Optional[int]:
-        """The quantity to record, in units rather than packs (FR-020).
+        """The quantity to record, in units rather than packs (028 FR-020).
 
-        None when the page stated no quantity -- blank and editable on the
-        review, not a guessed 1.
+        None when no quantity was stated -- blank and editable on the review,
+        not a guessed 1. **A pack size never invents a quantity** (046 FR-009).
         """
         if self.packs is None:
             return None
@@ -1683,6 +1723,42 @@ class McMasterOrderLine:
         """
         exact = self.exact_unit_price
         return exact is not None and price_to_cents(exact) != exact
+
+
+@dataclass(frozen=True)
+class McMasterOrderLine(PackLine):
+    """One line of a McMaster order, as the agent read it off the page.
+
+    **Packs, not units.** McMaster states a quantity ("2"), a pack ("Packs of
+    100") and a price per pack ("11.51"). What this catalog records is units and
+    a unit price, because what gets consumed -- and what a low-stock flag has to
+    mean -- is individual screws. The conversion is :attr:`quantity` and
+    :attr:`unit_price`, both shown on the review and both editable there
+    (FR-020, FR-020a).
+
+    ``pack_size`` of None means the page stated no pack, so one unit is one
+    unit. That covers "Each" and it also covers **"Pairs"** -- a unit that is
+    plainly not one item but for which McMaster states no count anywhere, so
+    none can be derived. Recording a silent 2 there would be inventing data;
+    FR-037 says show it as unread and let the operator decide.
+    """
+    part_number: str = ''
+    description: str = ''
+    # Only where the page actually stated one. McMaster sells to its own
+    # specification and names no manufacturer on the great majority of its
+    # goods, so '' is the ordinary value and not a missed selector -- which is
+    # exactly why FR-012 writes an MPN identifier only when this is set.
+    # Inventing one would collide with a real MPN later, and identifiers are
+    # unique.
+    manufacturer_part_number: str = ''
+    packs: Optional[int] = None
+    pack_size: Optional[int] = None
+    pack_price: Optional[Decimal] = None
+    line_number: Optional[int] = None
+
+    # units_per_pack, quantity, exact_unit_price, unit_price and price_rounds
+    # come from PackLine. They were written here first and are unchanged; the
+    # move exists so Amazon's line cannot drift from them (046).
 
     @property
     def form_key(self) -> str:
@@ -1863,6 +1939,71 @@ class McMasterOrder:
         )
 
 
+# -- Reading a pack count out of a title (feature 046) -----------------------
+
+# The forms a vendor actually writes a pack count in. Every one of these is
+# anchored on a *word*, never on a bare number, and that is the whole safety of
+# it: an Amazon title is full of numbers that are not pack counts -- "M3 x
+# 12mm", "12V 5A", "1/4-20", "0-6 Inch" -- and a parse that read any of them
+# would silently multiply a purchase by a thread pitch.
+#
+# Two orders of the same idea, kept apart because the number sits on opposite
+# sides of the word: "Pack of 100" and "100 Pcs".
+_PACK_COUNT_AFTER = re.compile(
+    r'\b(?:pack|packs|set|box|bag|pkg|package)\s+of\s+(\d{1,6})\b',
+    re.IGNORECASE,
+)
+_PACK_COUNT_BEFORE = re.compile(
+    r'\b(\d{1,6})\s*[- ]?\s*(?:packs?|pks?|pcs?|pieces?|ct|count)\b',
+    re.IGNORECASE,
+)
+
+
+def pack_size_from_title(text: Optional[str]) -> Optional[int]:
+    """How many items a title says are in one pack, or None (046 FR-019).
+
+    **A suggestion, never an assertion.** Amazon states pack counts in free
+    text and nowhere else, so this is a guess the operator is shown, is told is
+    a guess, and can overrule (FR-020, FR-021). Nothing may treat a value from
+    here as more trustworthy for having been parsed.
+
+    Returns None rather than guessing wherever a guess would be unfounded:
+
+    * **No pack word.** A bare number is never a count -- see the comment above.
+    * **A count of 0 or 1.** Neither is a pack, and returning 1 would make
+      "no pack was stated" and "a pack of one" the same thing, which the stored
+      columns deliberately keep apart (FR-031).
+    * **Two different counts.** "Screws Pack of 100 and Nuts Pack of 50" gives
+      no basis for choosing one, and picking the first would be arbitrary.
+      Two mentions that *agree* are not ambiguity and are read.
+
+    **Pure**: no I/O, no clock, no request state. Override detection
+    reconstructs the value the review rendered by calling this again at
+    confirmation (``contracts/pack-conversion.md`` §2), so a result that varied
+    between the two would misclassify an override as an untouched field.
+
+    Args:
+        text: A product title, or None.
+
+    Returns:
+        The pack count, or None where none can be read.
+    """
+    if not text:
+        return None
+
+    found = {
+        int(match)
+        for pattern in (_PACK_COUNT_AFTER, _PACK_COUNT_BEFORE)
+        for match in pattern.findall(text)
+    }
+    found.discard(0)
+    found.discard(1)
+
+    if len(found) != 1:
+        return None
+    return found.pop()
+
+
 # -- Amazon order capture (feature 029) --------------------------------------
 
 AMAZON_PAYLOAD_VERSION = 1
@@ -1873,7 +2014,7 @@ AMAZON_PAYLOAD_VENDOR = 'Amazon'
 
 
 @dataclass(frozen=True)
-class AmazonOrderLine:
+class AmazonOrderLine(PackLine):
     """One line of an Amazon order, as the agent read it off the order page.
 
     Modelled on :class:`McMasterOrderLine` rather than on DigiKey's, because both
@@ -1881,11 +2022,24 @@ class AmazonOrderLine:
     consequences: the read cannot be repeated, and every field is individually
     fallible.
 
-    **No pack arithmetic.** McMaster states a quantity, a pack and a price per
-    pack, and this catalog records units. Amazon's order page states a unit price
-    and a quantity directly (029 research.md §5), so there is nothing to compute
-    and no rounding to warn about. The spec assumed otherwise and was wrong; the
-    live-site read settled it.
+    **Pack arithmetic, after all** (046, issue #137). Feature 029 recorded that
+    Amazon needs none, because its order page states a unit price and a quantity
+    directly (029 research.md §5). That was true of what the page *states* and
+    false of what the operator *bought*: the page's "unit" is the listing, and a
+    listing can be a pack of 100 screws. So the page's quantity is :attr:`packs`
+    and its unit price is :attr:`pack_price`, and :attr:`quantity` and
+    :attr:`unit_price` are the conversion -- the same two names, meaning the same
+    thing they mean for McMaster.
+
+    **The payload format did not change for this.** The agent still sends
+    ``quantity`` and ``unit_price``; :meth:`from_payload` reads them into the two
+    pack fields, so a bookmarklet saved before 046 keeps working and a payload
+    captured before it reads identically.
+
+    ``pack_size`` is the one thing the order page cannot state. It comes from the
+    operator on the review, from the line's listing where one was read, or from
+    the title (:func:`pack_size_from_title`) -- never from the order row itself.
+    None means no pack, and one unit is one unit.
 
     ``asin`` may be '' -- FR-019 makes a line capturable on its title alone. That
     happens when the row's item links are missing, which is a per-field failure
@@ -1893,8 +2047,15 @@ class AmazonOrderLine:
     """
     asin: str = ''
     title: str = ''
-    quantity: Optional[int] = None
-    unit_price: Optional[Decimal] = None
+    # What the order page calls the quantity: how many *of the listing* were
+    # bought. Units only when the listing is not a pack.
+    packs: Optional[int] = None
+    # How many items are in one of them. Never read off the order page -- see
+    # the class docstring.
+    pack_size: Optional[int] = None
+    # What the order page calls the unit price: the price of one *of the
+    # listing*.
+    pack_price: Optional[Decimal] = None
     line_number: Optional[int] = None
 
     # Amazon states no manufacturer part number on an order page. Present, and
@@ -1909,6 +2070,58 @@ class AmazonOrderLine:
     # holds lists, and this line is a frozen value the review may put in a set.
     listing: Optional['ListingCapture'] = field(default=None, compare=False)
     listing_problem: str = field(default='', compare=False)
+
+    @property
+    def suggested_pack_size(self) -> Optional[int]:
+        """The pack size to offer on the review before the operator types (046).
+
+        Precedence, and the reason for it
+        (``contracts/pack-conversion.md`` §3):
+
+        1. **The listing's own field**, where 044 read the listing and it states
+           one. A vendor that publishes a count in a structured row is stating
+           it, not implying it.
+        2. **The line's title.** Amazon's is the full product title, on the
+           order page itself -- so this fires even for a line whose listing
+           could not be read, which is exactly when the capture is already
+           degraded and a suggestion is worth most.
+        3. **The listing's title**, for the rare line whose order-page title was
+           not read but whose listing was.
+
+        None where nothing says a pack. **Never 1** -- see
+        :func:`pack_size_from_title`.
+
+        Pure, for the reason that function gives.
+        """
+        if self.listing is not None and self.listing.pack_size:
+            try:
+                size = int(str(self.listing.pack_size).strip())
+            except (TypeError, ValueError):
+                size = 0
+            if size > 1:
+                return size
+
+        from_title = pack_size_from_title(self.title)
+        if from_title is not None:
+            return from_title
+
+        if self.listing is not None:
+            return pack_size_from_title(self.listing.listing_title)
+        return None
+
+    @property
+    def pack_size_is_suggested(self) -> bool:
+        """Whether this line's pack size was read rather than stated (046 FR-020).
+
+        A guess from a free-text title can be wrong, and it is *stored* once
+        confirmed -- so the review has to say which lines it is guessing about,
+        right up until the operator confirms. True only while the pack size in
+        force is still the one this line suggested for itself.
+        """
+        return (
+            self.pack_size is not None
+            and self.pack_size == self.suggested_pack_size
+        )
 
     @property
     def form_key(self) -> str:
@@ -1947,13 +2160,17 @@ class AmazonOrderLine:
         **A quantity is never missing.** Amazon renders an empty quantity
         component for a quantity of one, so "no digits" is a value rather than a
         failure -- see :meth:`AmazonOrder.from_payload`.
+
+        ``pack_price`` and not ``unit_price``: the question is whether the
+        *page* gave a price, and a converted unit price is derived from it. A
+        pack size of 100 must not make an unread price look read (046 FR-009).
         """
         missing = []
         if not self.asin:
             missing.append('part_number')
         if not self.title:
             missing.append('description')
-        if self.unit_price is None:
+        if self.pack_price is None:
             missing.append('price')
         return tuple(missing)
 
@@ -1980,7 +2197,11 @@ class AmazonOrderLine:
         # An absent or unreadable quantity is 1, not None: Amazon renders the
         # quantity component empty when the quantity is one, so an empty read is
         # the ordinary case rather than a failure (029 research.md §6).
-        quantity = _order_int(data.get('quantity')) or 1
+        #
+        # It lands in `packs`, because what the page counts is listings and a
+        # listing can be a pack (046). The payload key is unchanged, so an older
+        # bookmarklet is read exactly as it was.
+        packs = _order_int(data.get('quantity')) or 1
 
         # 044: what the agent read off this line's own listing. A listing that
         # will not parse costs the listing, never the line -- it is reported as
@@ -1992,11 +2213,13 @@ class AmazonOrderLine:
             if listing is None and not problem:
                 problem = 'the listing read was unusable'
 
-        return cls(
+        line = cls(
             asin=asin,
             title=title,
-            quantity=quantity,
-            unit_price=_order_decimal(data.get('unit_price')),
+            packs=packs,
+            # What the page calls the unit price is the price of one listing,
+            # which is one pack where the listing is a pack (046).
+            pack_price=_order_decimal(data.get('unit_price')),
             # 1-based, and supplied here rather than trusted from the payload
             # when the agent omits it -- position is the only line identity
             # Amazon offers and it must not be left blank.
@@ -2004,6 +2227,19 @@ class AmazonOrderLine:
             listing=listing,
             listing_problem='' if listing is not None else problem,
         )
+
+        # The suggestion is applied here rather than left for the template, so
+        # that **every** reader sees the same converted line: the review's
+        # "you have N at $x, this order says M at $y" comparison
+        # (``ReviewedLine.has_change``) reads ``line.quantity`` directly, and
+        # against an unconverted line it reports a discrepancy on every pack
+        # line that does not exist (046 FR-010).
+        #
+        # It stays a suggestion: the operator's entry outranks it on every
+        # submission, and the review marks the line as a guess until they
+        # confirm (FR-020, FR-021).
+        suggested = line.suggested_pack_size
+        return replace(line, pack_size=suggested) if suggested else line
 
 
 @dataclass(frozen=True)

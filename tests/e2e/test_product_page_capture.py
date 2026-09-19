@@ -1641,3 +1641,57 @@ def test_a_bullet_list_with_nothing_readable_yields_no_row(
     assert about_this_item(payload) is None
     assert all(row["value"] for row in payload["specifications"])
     assert payload["price"] == "4.20"
+
+
+# --------------------------------------------------------------------------
+# A pack listing records items, not packs (feature 046, US4)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.e2e
+def test_the_quantity_follows_the_pack_fields(page, live_server, image_host):
+    """046 FR-023. Buying one pack of 100 puts 100 on the shelf.
+
+    Until this feature the pack fields fed only Unit Price and Quantity was
+    left to the operator, so a pack of 100 recorded **one item** at the price
+    of a hundred -- the reported defect on the page reached most often.
+
+    ``to_have_value`` throughout: these fields are written by a script and a
+    snapshot read returns the pre-conversion value (CLAUDE.md pattern E).
+    """
+    landed = capture_from_listing(page, live_server, image_host)
+
+    landed.fill("#pack_price", "13.23")
+    landed.fill("#pack_size", "100")
+
+    expect(landed.locator("#quantity")).to_have_value("100")
+    expect(landed.locator("#unit_price")).to_have_value("0.13")
+
+
+@pytest.mark.e2e
+def test_buying_two_packs_doubles_the_items_and_not_the_price(
+    page, live_server, image_host
+):
+    """The pack size multiplies the packs bought; it does not replace them."""
+    landed = capture_from_listing(page, live_server, image_host)
+
+    landed.fill("#pack_price", "13.23")
+    landed.fill("#pack_size", "100")
+    landed.fill("#packs", "2")
+
+    expect(landed.locator("#quantity")).to_have_value("200")
+    expect(landed.locator("#unit_price")).to_have_value("0.13")
+
+
+@pytest.mark.e2e
+def test_a_typed_quantity_is_not_recomputed_over(page, live_server, image_host):
+    """FR-025. Nothing listens on #quantity -- typing there is overruling."""
+    landed = capture_from_listing(page, live_server, image_host)
+
+    landed.fill("#pack_price", "13.23")
+    landed.fill("#pack_size", "100")
+    expect(landed.locator("#quantity")).to_have_value("100")
+
+    landed.fill("#quantity", "96")
+
+    expect(landed.locator("#quantity")).to_have_value("96")

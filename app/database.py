@@ -1071,6 +1071,30 @@ class Purchase(Base):
     # Decimal, never float (Constitution III).
     unit_price = Column(Numeric(10, 2), nullable=True)
 
+    # What the vendor charged, where it sold a pack rather than an item (046).
+    #
+    # **Not a derivation of the two columns above.** Those are what the catalog
+    # records -- individual items, and the price of one. These are the vendor's
+    # own line, kept so a captured order can be reconciled against the invoice,
+    # and the two pairs answer different questions. A pack of 100 ordered and
+    # 90 received is a true row, not an inconsistency to repair; the receive
+    # screen amends the quantity and leaves these alone.
+    #
+    # **pack_price cannot be recomputed**, which is why it is a column at all:
+    # the capture rounds $13.23 across 100 to a stored $0.13, and $0.13 x 100
+    # is $13.00. The 23 cents is destroyed by arithmetic the feature performs
+    # on purpose.
+    #
+    # Both NULL or both set, and **pack_size is never 1** -- a pack of one is
+    # no pack, and storing 1 would make every purchase claim to be a pack.
+    # Nothing queries by either, so neither is indexed.
+    #
+    # Must match migration b1a0c0d10011 exactly: the unit suite builds its
+    # schema with create_all and never runs Alembic, so drift between the two
+    # passes `nox -s tests` and fails on the real database.
+    pack_size = Column(Integer, nullable=True)
+    pack_price = Column(Numeric(10, 2), nullable=True)
+
     # The *customer's* order number -- ECIA K. Filled by hand, or from a scan.
     order_reference = Column(String(200), nullable=True)
     # The *supplier's* order number -- ECIA 1K, which for DigiKey is the sales
