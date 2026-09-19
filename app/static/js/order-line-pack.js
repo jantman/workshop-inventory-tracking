@@ -93,8 +93,14 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const size = packField.value.trim();
         const source = stated(packField);
+
+        // **A cleared field is "this is not a pack", not "leave it as it
+        // was".** Clearing has to put the line back to what the vendor stated
+        // and drop the conversion marking, or the operator is looking at a
+        // converted quantity the server is about to record as unconverted.
+        // `unitPriceFromPack` already treats an empty size this way.
+        const size = packField.value.trim() || '1';
 
         // A pack size the server would refuse changes nothing here. The
         // refusal is the server's to give, with the line named; guessing at a

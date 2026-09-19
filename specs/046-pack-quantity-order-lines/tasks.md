@@ -214,7 +214,7 @@ vendor's own line from what was stored.
 - [X] T070 Confirm zero fixed waits were added: `grep -rn "wait_for_timeout\|time.sleep\|networkidle" tests/e2e/` returns only the one justified call in `waits.dismiss_material_suggestions`
 - [X] T071 Confirm the E2E run left the working tree clean (`git status`) — a test session that modifies tracked files fails Constitution IV
 - [ ] T072 Do the by-hand check in [quickstart.md](./quickstart.md) §7 against order `111-1533738-5610601`, the four-line pack order from the issue, including the no-pack regression that proves SC-005
-- [ ] T073 Open the PR against `main` per the branching rule, linking issue #137 and quoting the comment this feature answers
+- [X] T073 Open the PR against `main` per the branching rule, linking issue #137 and quoting the comment this feature answers
 
 ---
 

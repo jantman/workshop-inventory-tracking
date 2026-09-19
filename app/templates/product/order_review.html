@@ -508,17 +508,26 @@
                        Pre-filled from the line's title where it names a count,
                        and marked as a guess when it is one: a wrong guess is
                        stored along with everything else, so it has to be
-                       visible before it is confirmed (FR-020). #}
+                       visible before it is confirmed (FR-020).
+
+                       **`is not none`, never `or`.** A cleared field submits
+                       `''`, which `or` treats as "nothing submitted" and
+                       replaces with the suggestion -- so a line the operator
+                       had said is *not* a pack silently becomes one again the
+                       moment some other line fails validation and the review
+                       re-renders. The payload is re-parsed on every render, so
+                       the suggestion is always there to come back; only the
+                       submitted value can say it was refused (FR-021). #}
+                    {% set submitted_pack = form_data.get('pack_size[' ~ key ~ ']') %}
                     <td class="text-end pack-entry-cell">
                         <input type="number" min="1" step="1"
                                class="form-control form-control-sm text-end line-pack-size"
                                name="pack_size[{{ key }}]"
                                data-key="{{ key }}"
                                aria-label="Items in one pack"
-                               value="{{ form_data.get('pack_size[' ~ key ~ ']')
-                                         or (line.pack_size if line.pack_size else '1') }}">
-                        {% if line.pack_size_is_suggested
-                              and not form_data.get('pack_size[' ~ key ~ ']') %}
+                               value="{{ submitted_pack if submitted_pack is not none
+                                         else (line.pack_size if line.pack_size else '1') }}">
+                        {% if line.pack_size_is_suggested and submitted_pack is none %}
                         <div class="small text-body-secondary pack-size-suggested">
                             read from the title — check it
                         </div>

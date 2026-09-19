@@ -2737,3 +2737,94 @@ class TestAPackListingRecordsItems:
         }))
 
         assert listing.quantity_from_pack is None
+
+
+class TestAPackListingWithoutJavaScript:
+    """The Packs Bought field must work with the script disabled (PR #161 review).
+
+    `capture.html` renders Quantity pre-filled from `listing.quantity_from_pack`
+    -- **one pack's worth**. So with the script off, the submitted quantity is
+    non-empty whatever the operator typed into Packs Bought, and a conversion
+    that only fired on a missing quantity discarded their answer: two packs of
+    a hundred recorded a hundred items.
+
+    That is the same defect this feature exists to fix, reintroduced through
+    the back door, which is why these tests post the fields a **real render**
+    of the form produces rather than the minimal dict the other pack tests use.
+    """
+
+    def payload(self, pack_size='100', pack_price='13.23'):
+        return json.dumps({
+            'version': 1, 'source_url': MCMASTER_URL,
+            'pack_size': pack_size, 'pack_price': pack_price,
+        })
+
+    def capture(self, client, **form):
+        """Post what the rendered form carries, not a hand-picked subset."""
+        listing = ListingCapture.from_json(self.payload())
+        data = {
+            'url': MCMASTER_URL,
+            'listing_title': 'Socket Head Cap Screws, Packs of 100',
+            'listing': self.payload(),
+            # Exactly what the template pre-fills.
+            'packs': '1',
+            'pack_size': listing.pack_size,
+            'pack_price': listing.pack_price,
+            'quantity': listing.quantity_from_pack,
+            'unit_price': listing.unit_price_from_pack,
+        }
+        data.update(form)
+        return client.post('/products/capture', data=data, follow_redirects=False)
+
+    def only_purchase(self, service):
+        products = service.list_products()
+        assert len(products) == 1
+        history = service.get_purchase_history(products[0].id)
+        assert len(history) == 1
+        return history[0]
+
+    def test_two_packs_records_two_packs_worth(self, client, service):
+        """The regression: the rendered quantity must not defeat Packs Bought."""
+        self.capture(client, packs='2')
+
+        assert self.only_purchase(service).quantity == 200
+
+    def test_one_pack_still_records_one_packs_worth(self, client, service):
+        self.capture(client, packs='1')
+
+        assert self.only_purchase(service).quantity == 100
+
+    def test_a_deliberately_typed_quantity_still_wins(self, client, service):
+        """Override detection, not "ignore the quantity field".
+
+        A quantity that differs from what the form was rendered carrying is
+        the operator's own, and it is recorded whatever the pack says.
+        """
+        self.capture(client, packs='2', quantity='96')
+
+        assert self.only_purchase(service).quantity == 96
+
+    def test_a_changed_pack_price_reaches_the_unit_price(self, client, service):
+        """The price half of the same rule.
+
+        The rendered unit price is the listing's. Correcting what the pack
+        actually cost, with the script off, must re-divide rather than record
+        the price the page happened to be showing.
+        """
+        self.capture(client, pack_price='20.00')
+
+        purchase = self.only_purchase(service)
+        assert purchase.unit_price == Decimal('0.20')
+        assert purchase.pack_price == Decimal('20.00')
+
+    def test_a_deliberately_typed_unit_price_still_wins(self, client, service):
+        self.capture(client, pack_price='20.00', unit_price='0.25')
+
+        assert self.only_purchase(service).unit_price == Decimal('0.25')
+
+    def test_the_pack_recorded_is_what_the_vendor_charged(self, client, service):
+        self.capture(client, packs='2')
+
+        purchase = self.only_purchase(service)
+        assert purchase.pack_size == 100
+        assert purchase.pack_price == Decimal('13.23')

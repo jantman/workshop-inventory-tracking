@@ -16,6 +16,8 @@ The arithmetic is ``Decimal`` throughout (Constitution III). A test that builds
 a price from a float would pass while proving the opposite of what it claims.
 """
 
+import json
+import re
 from decimal import Decimal
 
 import pytest
@@ -541,3 +543,108 @@ def test_receiving_a_short_delivery_leaves_the_pack_alone(catalog):
     assert after.quantity == 90
     assert after.pack_size == 100
     assert after.pack_price == Decimal('13.23')
+
+
+# ---------------------------------------------------------------------------
+# Clearing a suggestion has to survive a re-render (PR #161 review)
+# ---------------------------------------------------------------------------
+#
+# The payload is re-parsed on **every** render, and `from_payload` reapplies
+# the title suggestion each time -- so the suggestion is always there waiting
+# to come back. Only the submitted value can say the operator refused it, and
+# a cleared field submits '', which Jinja's `or` treats as "nothing
+# submitted". A line the operator had said is *not* a pack therefore became
+# one again the moment some other line failed validation.
+
+
+ORDER_JSON = json.dumps({
+    'version': AMAZON_PAYLOAD_VERSION,
+    'vendor': AMAZON_PAYLOAD_VENDOR,
+    'order_number': ORDER_NUMBER,
+    'order_date': 'September 19, 2026',
+    'source_url': 'https://www.amazon.com/your-orders/order-details',
+    'lines': [
+        # Its title names a count, so the review pre-fills 100 and marks it a
+        # guess. This is the line the operator clears.
+        {'asin': 'B0PACK100', 'title': 'Widget Screws (Pack of 100)',
+         'quantity': 1, 'unit_price': '13.23'},
+        # A second line, so something else can fail and force the re-render.
+        {'asin': 'B0OTHER', 'title': 'Digital Calipers',
+         'quantity': 1, 'unit_price': '9.99'},
+    ],
+})
+
+
+def confirm_post(client, **fields):
+    data = {'order': ORDER_JSON, 'include[1]': 'on', 'include[2]': 'on'}
+    data.update(fields)
+    return client.post('/products/amazon/orders/capture', data=data)
+
+
+def pack_field_value(html, key):
+    """The value the re-rendered pack input carries for one line."""
+    row = re.search(
+        r'name="pack_size\[' + re.escape(key) + r'\]"[^>]*?value="([^"]*)"',
+        html, re.S,
+    )
+    assert row is not None, f'no pack_size input for line {key}'
+    return row.group(1)
+
+
+def test_clearing_a_suggestion_survives_another_lines_refusal(client):
+    """The reported regression. Line 2's bad pack must not restore line 1's.
+
+    Without the fix the operator's cleared field comes back reading "100",
+    with the "read from the title" marker back too -- and because that is also
+    what override detection reconstructs as "the rendered value", a second
+    submission records 100 items rather than the one they intended.
+    """
+    response = confirm_post(
+        client,
+        **{'pack_size[1]': '', 'quantity[1]': '1', 'unit_price[1]': '13.23',
+           # Refused, which is what forces the re-render.
+           'pack_size[2]': '0', 'quantity[2]': '1', 'unit_price[2]': '9.99'},
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert pack_field_value(html, '1') == ''
+
+
+def test_a_cleared_suggestion_loses_its_guess_marker(client):
+    """The marker follows the value. A field the operator emptied is theirs."""
+    response = confirm_post(
+        client,
+        **{'pack_size[1]': '', 'quantity[1]': '1', 'unit_price[1]': '13.23',
+           'pack_size[2]': '0', 'quantity[2]': '1', 'unit_price[2]': '9.99'},
+    )
+
+    html = response.get_data(as_text=True)
+    # Exactly one line still carries a suggestion -- line 2, untouched. The
+    # count is the assertion: "not present at all" would also pass against a
+    # page that failed to render its rows.
+    assert html.count('pack-size-suggested') == 0
+
+
+def test_a_fresh_render_still_offers_the_suggestion(client):
+    """The other half. `is not none` must not defeat the pre-fill itself."""
+    response = confirm_post(
+        client,
+        **{'pack_size[1]': '100', 'quantity[1]': '100', 'unit_price[1]': '0.13',
+           'pack_size[2]': '0', 'quantity[2]': '1', 'unit_price[2]': '9.99'},
+    )
+
+    html = response.get_data(as_text=True)
+    assert pack_field_value(html, '1') == '100'
+
+
+def test_a_corrected_suggestion_survives_the_refusal(client):
+    """A value the operator typed over the guess comes back as theirs."""
+    response = confirm_post(
+        client,
+        **{'pack_size[1]': '10', 'quantity[1]': '10', 'unit_price[1]': '1.32',
+           'pack_size[2]': '0', 'quantity[2]': '1', 'unit_price[2]': '9.99'},
+    )
+
+    html = response.get_data(as_text=True)
+    assert pack_field_value(html, '1') == '10'

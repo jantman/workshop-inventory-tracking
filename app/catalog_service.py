@@ -1423,17 +1423,29 @@ class CatalogService:
 
         # 046. A listing that sells a pack of 100 puts 100 items on the shelf,
         # and until this feature the quantity recorded was the number of
-        # *packs* -- one. The form derives both fields, so `count` and `price`
-        # are normally already converted; this fills them in for a submission
-        # that carried a pack and no derived value, which is what a browser
-        # with JavaScript disabled sends.
+        # *packs* -- one. `pack-unit-price.js` derives both visible fields as
+        # the operator types, so `count` and `price` usually arrive already
+        # converted. This is the same **override detection** the order review
+        # uses (``contracts/pack-conversion.md`` §2), and for the same reason:
+        # without it a browser with JavaScript disabled records the wrong
+        # number in silence.
+        #
+        # **Comparing against None is not enough.** This form is rendered with
+        # `quantity` pre-filled from `listing.quantity_from_pack`, which is
+        # *one pack's worth* -- so with JS off the submitted `count` is
+        # non-empty whatever the operator typed into Packs Bought, and their
+        # "2" would be discarded. What distinguishes "untouched" from
+        # "overruled" is equality with the value this form was rendered
+        # carrying, which is reconstructible because it is a pure function of
+        # the listing.
         pack_count = self._validate_pack_size(pack_size)
         paid_per_pack = self._validate_price(pack_price)
         if pack_count > 1:
-            if count is None:
+            rendered_count, rendered_price = self._rendered_pack_defaults(listing)
+            if count is None or count == rendered_count:
                 bought = self._validate_purchase_quantity(packs) or 1
                 count = bought * pack_count
-            if price is None and paid_per_pack is not None:
+            if paid_per_pack is not None and (price is None or price == rendered_price):
                 price = self._validate_price(paid_per_pack / pack_count)
         # Here rather than inside create_product/update_product so that an
         # over-length path is refused before the duplicate and recycled-
@@ -1593,6 +1605,38 @@ class CatalogService:
             # or neither, and never a pack of 1 -- see
             # `contracts/purchase-pack-fields.md`.
             **_pack_fields(self, pack_count, paid_per_pack),
+        )
+
+    def _rendered_pack_defaults(self, listing) -> tuple:
+        """The quantity and unit price the capture form was rendered carrying.
+
+        The counterpart of :meth:`_rendered_pack_size` for the single-listing
+        page: override detection needs to know what the operator was *shown*,
+        and this reconstructs it. **Must stay a pure function of the listing**,
+        because it is called at submission to reproduce a render that has
+        already happened.
+
+        It mirrors `capture.html` exactly, and has to keep doing so -- the two
+        drifting apart is the failure mode, not a cosmetic inconsistency:
+
+        * ``quantity`` ← ``listing.quantity_from_pack`` (one pack's worth)
+        * ``unit_price`` ← ``listing.price``, else ``unit_price_from_pack``
+
+        Returns:
+            ``(quantity, unit_price)``, either of which may be None -- for a
+            capture with no listing at all, which is the pasted-URL path where
+            the operator types every field and nothing was pre-filled.
+        """
+        if listing is None:
+            return None, None
+
+        try:
+            count = int(str(listing.quantity_from_pack).strip())
+        except (TypeError, ValueError):
+            count = None
+
+        return count, self._validate_price(
+            listing.price or listing.unit_price_from_pack
         )
 
     def _validate_pack_size(self, pack_size: Any) -> int:
