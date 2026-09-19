@@ -1,21 +1,41 @@
 name: Claude PR Review
 
-# Proactive: reviews every PR without being asked. Pairs with
-# claude-mention.yml, which is the reactive half — see the README in this
-# directory for why both exist before deleting either as a "duplicate".
+# Proactive: reviews every PR without being asked. Pairs with claude-mention.yml, the
+# reactive half. Both are thin: the logic lives in
+# jantman/github-actions-workflows/claude-pr-review.
+#
+# >>> A CHANGE TO *THIS FILE* CANNOT BE TESTED BY THE PR THAT MAKES IT. <<<
+# claude-code-action refuses to run when this file differs from the copy on the default
+# branch -- that is what stops a pull request from rewriting it to steal the OAuth
+# token. It exits 0 when it skips, so such a PR goes green having reviewed nothing.
+# Look for "Exiting due to workflow validation skip". Merge first, then the next PR
+# gets a real review. A change to the shared ACTION has no such problem, because this
+# file does not change.
 
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
+# A new push supersedes the review it interrupted. Reviewing a commit that has already
+# been replaced burns a full agent run on code that no longer exists.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
+    # A pull request from a fork gets no secrets, so CLAUDE_CODE_OAUTH_TOKEN is empty
+    # and the action fails red rather than skipping -- a confusing failure on somebody
+    # else's contribution. Skip cleanly instead. Always true on a repository that takes
+    # no fork pull requests.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
+      pull-requests: write # POST /pulls/N/reviews, and the agent reads the PR
+      issues: write # the action's own tracking/error comments, not the review
       id-token: write
+      actions: read # lets the reviewer read this commit's CI results
 
     steps:
       - name: Checkout repository
@@ -23,71 +43,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Run Claude Code Review
-        id: claude-review
-        uses: anthropics/claude-code-action@v1
+      - uses: jantman/github-actions-workflows/claude-pr-review@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          # Step 1 of the plugin's command stops silently if Claude has already
-          # commented on the PR, which would make every `synchronize` run a no-op
-          # after the first review. The trailing paragraphs override that; they
-          # reach the model as command arguments.
-          prompt: |
-            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment
-
-            Override to step 1: do NOT stop because Claude has already commented on
-            this pull request. Earlier Claude reviews are expected here and are not a
-            reason to skip. The other step 1 stop conditions (closed, draft, trivial)
-            still apply.
-
-            If Claude has commented before, scope this review to the commits pushed
-            since Claude's most recent review comment rather than the whole PR diff,
-            and do not re-raise an issue that a previous comment already covers.
-
-            This is a non-interactive CI run. Nothing will resume the session once
-            you produce a final message, so do not launch background or async agents
-            and do not schedule a wakeup — run subagents synchronously and wait for
-            each result. The review must be posted before you finish the turn.
-          # Without these the log shows only "init" and "result" — 2+ minutes of
-          # invisible work and a bare permission_denials_count when it goes wrong.
-          display_report: true
-          show_full_output: true
-          # `Skill` is load-bearing: /code-review:code-review IS a skill, so leaving
-          # it off denies the review itself and the run silently improvises the
-          # plugin's steps by hand. That fallback backgrounds an agent and ends the
-          # turn, which is why runs went green having posted nothing.
-          #
-          # An enumerated command allowlist starves the review: the plugin fans out
-          # ~10 subagents that inherit it, and each reach for sed/awk/jq/diff, none of
-          # which were listed. The job is contents:read on a single-user repo with no
-          # forks, so allow Bash outright rather than chase the list.
-          claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Task,Skill,TodoWrite,Bash"
-
-      # The action writes its transcript under the runner temp dir and throws it
-      # away with the runner. Without this there is no way to find out why a run
-      # posted nothing.
-      - name: Collect Claude logs
-        if: always()
-        env:
-          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/claude-logs"
-          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
-            cp "$EXECUTION_FILE" "$RUNNER_TEMP/claude-logs/execution-output.json"
-          fi
-          if [ -d "$HOME/.claude/projects" ]; then
-            cp -r "$HOME/.claude/projects" "$RUNNER_TEMP/claude-logs/sessions"
-          fi
-          find "$RUNNER_TEMP/claude-logs" -type f -printf '%s\t%p\n' | sort -rn
-
-      - name: Upload Claude logs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: claude-pr-review-logs-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/claude-logs/
-          if-no-files-found: warn
-          retention-days: 14
