@@ -195,12 +195,13 @@ test.
       `docs/deployment-guide.md`, which currently shows `"version":"0.1.0"` — stale
       against the current `0.1.1` and now also unrepresentative of a CI build. Show a
       suffixed example.
-- [ ] T020 Run `venv/bin/nox -s tests` and confirm green.
-- [ ] T021 Run `venv/bin/nox -s e2e` detached with a 20+ minute budget and confirm green.
+- [X] T020 Run `venv/bin/nox -s tests` and confirm green. **Result: 2744 passed.**
+- [X] T021 Run `venv/bin/nox -s e2e` detached with a 20+ minute budget and confirm green.
+      **Result: 836 passed, 0 failed, 18m32s.**
       It gains no new test, but Constitution IV requires it to pass before merge, and the
       footer appears on every page every E2E test loads. Per `CLAUDE.md`, run it with
       `nohup`/background and poll — it does not fit inside a 10-minute tool timeout.
-- [ ] T022 Confirm `git status` is clean after the test runs (Constitution IV: a test
+- [X] T022 Confirm `git status` is clean after the test runs (Constitution IV: a test
       session must leave the working tree clean), and confirm no file under
       `app/templates/`, `app/static/css/` or `app/static/js/` was touched, so the
       screenshot-regeneration gate is genuinely not triggered rather than merely assumed.
@@ -208,6 +209,8 @@ test.
       confirm the stamped image reports the suffix and the unstamped one reports the bare
       number. This is the only check that exercises the real Dockerfile and the real
       "no git in the image" fallback; the unit tests cannot reach either.
+      **Result: stamped image reported `0.1.1-2d11d99` from both the import and
+      `/health`; unstamped image reported `0.1.1`.**
 
 ---
 
