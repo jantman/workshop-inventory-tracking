@@ -1909,13 +1909,21 @@ long past open exactly like recent ones.
 
 **How far back:** the export covers your whole account history.
 
-**What you get is thinner than the other two, and it is worth knowing why.** An
-Amazon *order* page states a title, a quantity and a price. The pictures, the
-specifications, the *About this item* bullets and the barcodes all live on the
-item's own *listing* page — one page per line — so an order capture does not
-fetch them. For the handful of backfilled items where that detail actually
-matters, capture the listing page afterwards the usual way: it attaches to the
-same product rather than making a second one.
+**What you get:** the same as capturing the order the day you placed it. The
+bookmarklet reads each line's own *listing* page as well as the order page, so a
+backfilled product arrives with the pictures, the specifications, the *About this
+item* bullets and the barcode, exactly as capturing that listing on its own
+would. See [Amazon Orders](#amazon-orders) for what that looks like while it
+runs.
+
+**A backfill is where a listing is likeliest to be missing.** An item withdrawn
+since, or one whose address now redirects to a replacement item, cannot be read;
+and Amazon is readier to interrupt thirty order pages in a row with a sign-in or
+a robot check than a single capture. Those lines are marked *details not read*
+and capture with what the order page stated — a title, a quantity and a price.
+For the handful where that detail actually matters, capture the listing page
+afterwards the usual way: it attaches to the same product rather than making a
+second one.
 
 If a very old order will not read — Amazon changed the page, or it was a digital
 item — the review says so plainly rather than showing you an empty order. Skip it
