@@ -115,8 +115,11 @@ distinct forms.
   build of the commit the source was taken from. For a pull request, that MUST be the
   commit under review, not the throwaway merge commit the CI system synthesizes — the
   suffix has to name a commit that exists in the repository's history.
-- **FR-005**: The release image build path MUST stamp the image it produces as a release
-  build.
+- **FR-005**: The release image build path MUST NOT stamp a commit onto the image it
+  produces, so that a release image reports the bare release number. (Revised during
+  planning: the original wording asked for a positive "this is a release" stamp. Two
+  stamps where one suffices is a knob Principle I does not allow, and the observable
+  outcome — FR-003 — is identical either way. See research.md R2.)
 - **FR-006**: When no build stamp is present, the application MUST attempt to determine
   its version from the source history of the directory it is running from, and MUST
   report: the bare release number when positioned exactly on the tag matching that
