@@ -8,9 +8,9 @@ is a single source of truth. The application is not installed as a package, so
 ``/health`` report, which is the release number plus whatever can be determined
 about *which build* is running:
 
-    0.1.1                    a release, or a provenance that cannot be determined
-    0.1.1-6d15bde            built by CI from commit 6d15bde, or a working copy there
-    0.1.1-6d15bde-dirty      a working copy with edits to tracked files
+    2.0.0                    a release, or a provenance that cannot be determined
+    2.0.0-6d15bde            built by CI from commit 6d15bde, or a working copy there
+    2.0.0-6d15bde-dirty      a working copy with edits to tracked files
 
 A built image carries no history -- ``.dockerignore`` excludes ``.git/`` and the
 runtime stage installs no ``git`` -- so a container is told its commit at build

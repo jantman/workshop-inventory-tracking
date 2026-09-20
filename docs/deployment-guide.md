@@ -818,7 +818,7 @@ sudo journalctl -u workshop-inventory -f
 ```bash
 # Application health endpoint -- also reports the running version
 curl http://localhost:5000/health
-# {"service":"workshop-inventory-tracking","status":"healthy","version":"0.1.1-6d15bde"}
+# {"service":"workshop-inventory-tracking","status":"healthy","version":"2.0.0-6d15bde"}
 ```
 
 ## Versioning and Releases
@@ -837,9 +837,9 @@ same string:
 
 | Shown | What is running |
 |---|---|
-| `0.1.1` | a release image, or a working copy checked out at the `v0.1.1` tag |
-| `0.1.1-6d15bde` | commit `6d15bde` -- a CI image, or a working copy at that commit |
-| `0.1.1-6d15bde-dirty` | commit `6d15bde` in a working copy with edited tracked files |
+| `2.0.0` | a release image, or a working copy checked out at the `v2.0.0` tag |
+| `2.0.0-6d15bde` | commit `6d15bde` -- a CI image, or a working copy at that commit |
+| `2.0.0-6d15bde-dirty` | commit `6d15bde` in a working copy with edited tracked files |
 
 The suffix is a git short SHA, so it can be pasted straight into
 `git show <sha>` to see exactly what is deployed.
