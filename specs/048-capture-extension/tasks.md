@@ -36,10 +36,10 @@ takes ~20 minutes warm and outlasts most tool timeouts — run it detached and p
 
 **Purpose**: The extension directory exists and loads unpacked, doing nothing yet.
 
-- [ ] T001 Create `extension/manifest.json`: manifest_version 3, name, description, `version` matching `pyproject.toml`'s `2.0.0`, `permissions` of exactly `scripting`/`storage`/`contextMenus`/`activeTab`, no `host_permissions`, `background.service_worker`, `options_page`, `action` — per [contracts/extension-surface.md](./contracts/extension-surface.md#declared-in-the-manifest)
-- [ ] T002 [P] Add `extension/icons/` with the sizes the manifest declares (16, 48, 128)
-- [ ] T003 [P] Add `capture-extension.zip` to `.gitignore` so a local package build never gets committed
-- [ ] T004 Confirm the directory loads via `chrome://extensions` → Load unpacked with no manifest errors
+- [X] T001 Create `extension/manifest.json`: manifest_version 3, name, description, `version` matching `pyproject.toml`'s `2.0.0`, `permissions` of exactly `scripting`/`storage`/`contextMenus`/`activeTab`, no `host_permissions`, `background.service_worker`, `options_page`, `action` — per [contracts/extension-surface.md](./contracts/extension-surface.md#declared-in-the-manifest)
+- [X] T002 [P] Add `extension/icons/` with the sizes the manifest declares (16, 48, 128)
+- [X] T003 [P] Add `capture-extension.zip` to `.gitignore` so a local package build never gets committed
+- [X] T004 Confirm the directory loads via `chrome://extensions` → Load unpacked with no manifest errors
 
 **Checkpoint**: the extension installs and shows its icon. It captures nothing.
 
@@ -57,25 +57,25 @@ the extension, the bookmarklet is gone, and the whole suite is green again.
 
 ### The reader moves and changes shape
 
-- [ ] T005 `git mv app/static/js/capture-agent.js extension/capture-agent.js` — preserve history; the readers themselves are not edited
-- [ ] T006 In `extension/capture-agent.js`, replace the trailing dispatch IIFE (from `const script = document.currentScript;` to end of file) with an entry point that takes no arguments, dispatches on `location` exactly as before, and **returns a promise for the payload** `{url, listing_title, listing, order?, vendor?}` — per [contracts/extension-transport.md](./contracts/extension-transport.md#the-readers-own-interface-after-this-feature). `order` and `vendor` MUST be absent, not null or empty, when they do not apply
-- [ ] T007 In `extension/capture-agent.js`, delete `submitCapture()` and the `data-endpoint` read plus its "no endpoint" console error — the reader no longer submits and no longer needs the address
-- [ ] T008 In `extension/capture-agent.js`, reduce `showProgress()` to the vendor-page banner only, dropping the half that wrote into a pre-opened landing tab — research.md §3 removed that tab
-- [ ] T009 Update the module docstring at the top of `extension/capture-agent.js`: it currently describes a bookmarklet loader, a form submission and a mixed-content rationale that no longer apply. State instead that it is injected into an isolated world and returns its payload
+- [X] T005 `git mv app/static/js/capture-agent.js extension/capture-agent.js` — preserve history; the readers themselves are not edited
+- [X] T006 In `extension/capture-agent.js`, replace the trailing dispatch IIFE (from `const script = document.currentScript;` to end of file) with an entry point that takes no arguments, dispatches on `location` exactly as before, and **returns a promise for the payload** `{url, listing_title, listing, order?, vendor?}` — per [contracts/extension-transport.md](./contracts/extension-transport.md#the-readers-own-interface-after-this-feature). `order` and `vendor` MUST be absent, not null or empty, when they do not apply
+- [X] T007 In `extension/capture-agent.js`, delete `submitCapture()` and the `data-endpoint` read plus its "no endpoint" console error — the reader no longer submits and no longer needs the address
+- [X] T008 In `extension/capture-agent.js`, reduce `showProgress()` to the vendor-page banner only, dropping the half that wrote into a pre-opened landing tab — research.md §3 removed that tab
+- [X] T009 Update the module docstring at the top of `extension/capture-agent.js`: it currently describes a bookmarklet loader, a form submission and a mixed-content rationale that no longer apply. State instead that it is injected into an isolated world and returns its payload
 
 ### The bookmarklet is removed
 
-- [ ] T010 Remove `_capture_bookmarklet()` from `app/product/routes.py` and the `bookmarklet=` argument passed to the template from `_capture_page()`
-- [ ] T011 In `app/templates/product/capture.html`, remove the `#bookmarklet-http-warning` alert and the `#capture-bookmarklet` control, and replace the surrounding "The faster way" card body with a pointer to the extension and where to get it (FR-018). Keep the card; the paste box beside it is untouched (FR-019)
-- [ ] T012 [P] Remove the four bookmarklet-address assertions from `tests/unit/test_proxy_headers.py` (~lines 117, 127, 143, 163). Keep every other proxy-header assertion — `X-Forwarded-Proto`/`-Port` still matter to the rest of the app
-- [ ] T013 [P] Remove the two bookmarklet-href assertions from `tests/e2e/test_order_capture.py` (~lines 290, 317)
-- [ ] T014 [P] Update the stale references to `app/static/js/capture-agent.js` in the comments of `app/services/amazon_order_export.py` and `app/models.py` to the new path
+- [X] T010 Remove `_capture_bookmarklet()` from `app/product/routes.py` and the `bookmarklet=` argument passed to the template from `_capture_page()`
+- [X] T011 In `app/templates/product/capture.html`, remove the `#bookmarklet-http-warning` alert and the `#capture-bookmarklet` control, and replace the surrounding "The faster way" card body with a pointer to the extension and where to get it (FR-018). Keep the card; the paste box beside it is untouched (FR-019)
+- [X] T012 [P] Remove the four bookmarklet-address assertions from `tests/unit/test_proxy_headers.py` (~lines 117, 127, 143, 163). Keep every other proxy-header assertion — `X-Forwarded-Proto`/`-Port` still matter to the rest of the app
+- [X] T013 [P] Remove the two bookmarklet-href assertions from `tests/e2e/test_order_capture.py` (~lines 290, 317)
+- [X] T014 [P] Update the stale references to `app/static/js/capture-agent.js` in the comments of `app/services/amazon_order_export.py` and `app/models.py` to the new path
 
 ### The e2e driver is converted
 
-- [ ] T015 In `tests/e2e/test_product_page_capture.py`, replace `run_bookmarklet()` with a driver that injects `extension/capture-agent.js` from disk into the fixture page, calls the entry point, and posts the returned payload to `/api/capture` the way the extension's submit page will. Keep the function's signature and its `landing` parameter so the three importing modules need no change. Document in its docstring what it no longer covers (the submission) and where that is covered instead — research.md §9
-- [ ] T016 Update the module docstring of `tests/e2e/test_product_page_capture.py`, which currently explains the bookmarklet-as-loader design in its opening paragraphs
-- [ ] T017 Run `nox -s tests` and `nox -s e2e` (detached, ~20 min) and confirm green, with a clean working tree afterwards
+- [X] T015 In `tests/e2e/test_product_page_capture.py`, replace `run_bookmarklet()` with a driver that injects `extension/capture-agent.js` from disk into the fixture page, calls the entry point, and posts the returned payload to `/api/capture` the way the extension's submit page will. Keep the function's signature and its `landing` parameter so the three importing modules need no change. Document in its docstring what it no longer covers (the submission) and where that is covered instead — research.md §9
+- [X] T016 Update the module docstring of `tests/e2e/test_product_page_capture.py`, which currently explains the bookmarklet-as-loader design in its opening paragraphs
+- [X] T017 Run `nox -s tests` and `nox -s e2e` (detached, ~20 min) and confirm green, with a clean working tree afterwards
 
 **Checkpoint**: exactly one transport exists in the repository, the reader lives in the
 extension, and the suite passes. The extension still captures nothing.
@@ -92,17 +92,17 @@ on a McMaster order fixture; the order review opens listing the order's lines.
 
 ### Implementation
 
-- [ ] T018 [US1] Create `extension/storage.js`: read and write the configured address in `chrome.storage.sync`, with the normalization from [data-model.md](./data-model.md#configured-application-address) (trim whitespace, strip trailing slashes) applied on write
-- [ ] T019 [US1] Create `extension/background.js` — the service worker. On the action being clicked: read the address; if unset, open the options page and stop (FR-011, and **never** fail silently); otherwise inject `capture-agent.js` into the active tab with the default isolated world, then a second `executeScript` invoking the entry point, awaiting its payload — research.md §1, §7
-- [ ] T020 [US1] In `extension/background.js`, write the payload plus the resolved address to `chrome.storage.session` under a single-use key and open a tab on `submit.html` carrying that key — research.md §6
-- [ ] T021 [US1] Create `extension/submit.html` and `extension/submit.js`: read the keyed value, delete it, build a form with exactly the fields in [contracts/extension-transport.md](./contracts/extension-transport.md#what-the-extension-sends), and submit it to `<address>/api/capture` **in its own tab**. Omit `order` and `vendor` entirely when absent. If the key holds nothing, say so rather than submitting an empty form
-- [ ] T022 [US1] In `extension/background.js`, report a reader that threw as "the page could not be read" without submitting a partial payload — per the preconditions table in [contracts/extension-transport.md](./contracts/extension-transport.md#preconditions-the-extension-enforces-before-submitting)
+- [X] T018 [US1] Create `extension/storage.js`: read and write the configured address in `chrome.storage.sync`, with the normalization from [data-model.md](./data-model.md#configured-application-address) (trim whitespace, strip trailing slashes) applied on write
+- [X] T019 [US1] Create `extension/background.js` — the service worker. On the action being clicked: read the address; if unset, open the options page and stop (FR-011, and **never** fail silently); otherwise inject `capture-agent.js` into the active tab with the default isolated world, then a second `executeScript` invoking the entry point, awaiting its payload — research.md §1, §7
+- [X] T020 [US1] In `extension/background.js`, write the payload plus the resolved address to `chrome.storage.session` under a single-use key and open a tab on `submit.html` carrying that key — research.md §6
+- [X] T021 [US1] Create `extension/submit.html` and `extension/submit.js`: read the keyed value, delete it, build a form with exactly the fields in [contracts/extension-transport.md](./contracts/extension-transport.md#what-the-extension-sends), and submit it to `<address>/api/capture` **in its own tab**. Omit `order` and `vendor` entirely when absent. If the key holds nothing, say so rather than submitting an empty form
+- [X] T022 [US1] In `extension/background.js`, report a reader that threw as "the page could not be read" without submitting a partial payload — per the preconditions table in [contracts/extension-transport.md](./contracts/extension-transport.md#preconditions-the-extension-enforces-before-submitting)
 
 ### Tests
 
-- [ ] T023 [US1] Create `tests/e2e/test_capture_extension.py` with a fixture launching `launch_persistent_context` with `channel="chromium"` and `--load-extension`, recovering the extension id from `context.service_workers[0].url`. Wait on the worker as observable state — **no fixed waits** (Constitution IV); Playwright exposes a service-worker event for exactly this
-- [ ] T024 [US1] In `tests/e2e/test_capture_extension.py`, add the McMaster order path end to end: seed the address into `chrome.storage.sync`, open the McMaster order fixture, invoke the action, assert the order review renders with its lines
-- [ ] T025 [US1] In `tests/e2e/test_capture_extension.py`, assert the vendor tab is still open and has not navigated after a capture — the property research.md §3 buys, which nothing else would notice regressing
+- [X] T023 [US1] Create `tests/e2e/test_capture_extension.py` with a fixture launching `launch_persistent_context` with `channel="chromium"` and `--load-extension`, recovering the extension id from `context.service_workers[0].url`. Wait on the worker as observable state — **no fixed waits** (Constitution IV); Playwright exposes a service-worker event for exactly this
+- [X] T024 [US1] In `tests/e2e/test_capture_extension.py`, add the McMaster order path end to end: seed the address into `chrome.storage.sync`, open the McMaster order fixture, invoke the action, assert the order review renders with its lines
+- [X] T025 [US1] In `tests/e2e/test_capture_extension.py`, assert the vendor tab is still open and has not navigated after a capture — the property research.md §3 buys, which nothing else would notice regressing
 
 **Checkpoint**: US1 is independently deliverable. A McMaster order can be captured — the issue's
 core defect is closed.
@@ -116,13 +116,13 @@ core defect is closed.
 **Independent test**: Invoke capture on an Amazon order, an Amazon listing and a McMaster
 product fixture; each produces what the bookmarklet produced.
 
-- [ ] T026 [US2] Verify `extension/background.js` needs no per-vendor branching — the entry point already dispatches on `location`. Add none; if a branch appears here the dispatch has been duplicated, which [data-model.md](./data-model.md#supported-page-kind) warns against
-- [ ] T027 [US2] In `extension/background.js`, handle the unrecognized-page case: tell the operator this is not a page it can read (FR-008), asking the reader rather than reimplementing the path patterns
-- [ ] T028 [US2] Confirm the progress banner (FR-007) still appears on the vendor page during a multi-line Amazon order read, now that it no longer writes into a pre-opened tab
-- [ ] T029 [P] [US2] In `tests/e2e/test_capture_extension.py`, add the Amazon order path through the real extension, asserting per-line listing details survive — this is the path whose same-origin `/dp/<ASIN>` fetches research.md §2 says are unchanged
-- [ ] T030 [P] [US2] In `tests/e2e/test_capture_extension.py`, add the McMaster product and Amazon listing paths through the real extension
-- [ ] T031 [P] [US2] In `tests/e2e/test_capture_extension.py`, assert an unsupported page reports that it cannot be read and submits nothing
-- [ ] T032 [US2] Assert the plain Amazon listing capture sends **no `vendor` field at all** — not an empty one (FR-003). This is the one field whose absence is load-bearing
+- [X] T026 [US2] Verify `extension/background.js` needs no per-vendor branching — the entry point already dispatches on `location`. Add none; if a branch appears here the dispatch has been duplicated, which [data-model.md](./data-model.md#supported-page-kind) warns against
+- [X] T027 [US2] In `extension/background.js`, handle the unrecognized-page case: tell the operator this is not a page it can read (FR-008), asking the reader rather than reimplementing the path patterns
+- [X] T028 [US2] Confirm the progress banner (FR-007) still appears on the vendor page during a multi-line Amazon order read, now that it no longer writes into a pre-opened tab
+- [X] T029 [P] [US2] In `tests/e2e/test_capture_extension.py`, add the Amazon order path through the real extension, asserting per-line listing details survive — this is the path whose same-origin `/dp/<ASIN>` fetches research.md §2 says are unchanged
+- [X] T030 [P] [US2] In `tests/e2e/test_capture_extension.py`, add the McMaster product and Amazon listing paths through the real extension
+- [X] T031 [P] [US2] In `tests/e2e/test_capture_extension.py`, assert an unsupported page reports that it cannot be read and submits nothing
+- [X] T032 [US2] Assert the plain Amazon listing capture sends **no `vendor` field at all** — not an empty one (FR-003). This is the one field whose absence is load-bearing
 
 **Checkpoint**: all four page kinds capture through the extension.
 
@@ -135,12 +135,12 @@ product fixture; each produces what the bookmarklet produced.
 **Independent test**: Install, open options, enter an address, save; restart the browser and
 confirm a capture still works.
 
-- [ ] T033 [US3] Create `extension/options.html` and `extension/options.js`: one address field pre-filled from storage, a save action, and the extension's own version displayed (FR-014)
-- [ ] T034 [US3] In `extension/options.js`, apply the accept/reject table from [data-model.md](./data-model.md#configured-application-address): reject empty, reject unparseable with the reason shown, **save but warn** when not `https` (FR-012), save when valid
-- [ ] T035 [P] [US3] In `tests/e2e/test_capture_extension.py`, assert the options page saves an address and a subsequent capture uses it
-- [ ] T036 [P] [US3] In `tests/e2e/test_capture_extension.py`, assert an address entered with a trailing slash and surrounding whitespace is normalized and still reaches the endpoint (FR-013)
-- [ ] T037 [P] [US3] In `tests/e2e/test_capture_extension.py`, assert an `http://` address saves and shows the warning (FR-012)
-- [ ] T038 [US3] In `tests/e2e/test_capture_extension.py`, assert that with **no** address configured, invoking capture opens the options page and submits nothing (FR-011). This is the regression test for the bug's own symptom — silence — and is the most important test in the file
+- [X] T033 [US3] Create `extension/options.html` and `extension/options.js`: one address field pre-filled from storage, a save action, and the extension's own version displayed (FR-014)
+- [X] T034 [US3] In `extension/options.js`, apply the accept/reject table from [data-model.md](./data-model.md#configured-application-address): reject empty, reject unparseable with the reason shown, **save but warn** when not `https` (FR-012), save when valid
+- [X] T035 [P] [US3] In `tests/e2e/test_capture_extension.py`, assert the options page saves an address and a subsequent capture uses it
+- [X] T036 [P] [US3] In `tests/e2e/test_capture_extension.py`, assert an address entered with a trailing slash and surrounding whitespace is normalized and still reaches the endpoint (FR-013)
+- [X] T037 [P] [US3] In `tests/e2e/test_capture_extension.py`, assert an `http://` address saves and shows the warning (FR-012)
+- [X] T038 [US3] In `tests/e2e/test_capture_extension.py`, assert that with **no** address configured, invoking capture opens the options page and submits nothing (FR-011). This is the regression test for the bug's own symptom — silence — and is the most important test in the file
 
 **Checkpoint**: the extension works for any self-hoster, not just this one.
 
@@ -153,12 +153,12 @@ confirm a capture still works.
 **Independent test**: From a completed build, download the package, follow the documentation,
 reach a first capture without editing a file.
 
-- [ ] T039 [US4] Create `tests/unit/test_extension_manifest.py` asserting `extension/manifest.json`'s `version` equals `pyproject.toml`'s `version` (FR-024). Read both files; do not hardcode the number
-- [ ] T040 [US4] Add an `extension-package` job to `.github/workflows/test.yml` that zips `extension/` and uploads it with `actions/upload-artifact@v7`, mirroring the `docker-build` job's shape (FR-022)
-- [ ] T041 [US4] In `.github/workflows/release.yml`, build the same zip and attach it via the existing `softprops/action-gh-release@v2` step's `files:` input, and mention it in that step's release `body:` beside the Docker pull instructions (FR-023)
-- [ ] T042 [US4] Add the "keep in sync" comment to both workflow additions, matching the convention the Docker jobs already carry at `test.yml:271` and in `release.yml`
-- [ ] T043 [US4] Create `docs/capture-extension.md` covering: what it is and why it replaced the bookmarklet, install by Load unpacked, configuring the address, the TLS requirement, the supported pages, updating by replace-and-reload, and — explicitly — that changing the readers now requires a new extension version installed by hand (FR-025, FR-026)
-- [ ] T044 [P] [US4] Cross-reference `docs/capture-extension.md` from `docs/user-manual.md` and `docs/deployment-guide.md` wherever the bookmarklet is described today
+- [X] T039 [US4] Create `tests/unit/test_extension_manifest.py` asserting `extension/manifest.json`'s `version` equals `pyproject.toml`'s `version` (FR-024). Read both files; do not hardcode the number
+- [X] T040 [US4] Add an `extension-package` job to `.github/workflows/test.yml` that zips `extension/` and uploads it with `actions/upload-artifact@v7`, mirroring the `docker-build` job's shape (FR-022)
+- [X] T041 [US4] In `.github/workflows/release.yml`, build the same zip and attach it via the existing `softprops/action-gh-release@v2` step's `files:` input, and mention it in that step's release `body:` beside the Docker pull instructions (FR-023)
+- [X] T042 [US4] Add the "keep in sync" comment to both workflow additions, matching the convention the Docker jobs already carry at `test.yml:271` and in `release.yml`
+- [X] T043 [US4] Create `docs/capture-extension.md` covering: what it is and why it replaced the bookmarklet, install by Load unpacked, configuring the address, the TLS requirement, the supported pages, updating by replace-and-reload, and — explicitly — that changing the readers now requires a new extension version installed by hand (FR-025, FR-026)
+- [X] T044 [P] [US4] Cross-reference `docs/capture-extension.md` from `docs/user-manual.md` and `docs/deployment-guide.md` wherever the bookmarklet is described today
 
 **Checkpoint**: the extension is reachable by someone who did not build it.
 
@@ -174,9 +174,9 @@ worker's capture routine, so abandoning it removes a registration and nothing el
 **Independent test**: Right-click a supported page and capture from the menu; right-click an
 unrelated page and find no entry.
 
-- [ ] T045 [US5] In `extension/background.js`, register a context-menu item on install, scoped with `documentUrlPatterns` to the supported vendor sites, whose handler calls the same capture routine the action does — no capture logic of its own
-- [ ] T046 [P] [US5] In `tests/e2e/test_capture_extension.py`, assert the menu-invoked capture produces the same result as the action-invoked one
-- [ ] T047 [P] [US5] Document the context-menu entry in `docs/capture-extension.md`
+- [X] T045 [US5] In `extension/background.js`, register a context-menu item on install, scoped with `documentUrlPatterns` to the supported vendor sites, whose handler calls the same capture routine the action does — no capture logic of its own
+- [X] T046 [P] [US5] In `tests/e2e/test_capture_extension.py`, assert the menu-invoked capture produces the same result as the action-invoked one
+- [X] T047 [P] [US5] Document the context-menu entry in `docs/capture-extension.md`
 
 **Checkpoint**: both entry points work identically.
 
@@ -184,13 +184,35 @@ unrelated page and find no entry.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T048 Regenerate documentation screenshots (`nox -s screenshots_headless`) and commit them — `app/templates/product/capture.html` changed and CI blocks merge on stale screenshots (Constitution, Development Workflow)
-- [ ] T049 Run `nox -s screenshots_verify` and confirm valid PNG, RGB/RGBA, under 500KB
-- [ ] T050 [P] Grep the repository for surviving references to the bookmarklet in prose and comments (`grep -ril bookmarklet app/ tests/ docs/ README.md`) and update each, leaving `specs/` untouched — it is the frozen record
-- [ ] T051 [P] Confirm no `wait_for_timeout`, `time.sleep` or `networkidle` was introduced in `tests/e2e/test_capture_extension.py` (Constitution IV — the suite executes zero fixed waits and must continue to)
-- [ ] T052 Run the full gate: `nox -s tests` and `nox -s e2e` (detached), and confirm the working tree is clean afterwards
+- [X] T048 Regenerate documentation screenshots (`nox -s screenshots_headless`) and commit them — `app/templates/product/capture.html` changed and CI blocks merge on stale screenshots (Constitution, Development Workflow)
+  - **Run**: 23 passed, 1 skipped, 69s. All 20 PNGs came back byte-changed, so the churn was measured pixel-wise before anything was committed rather than after.
+  - **One screenshot changed for a reason**: `user-manual/order_capture.png`, 8.17% of pixels, across the whole "The faster way" card — the bookmarklet control and the `http` warning gone, the extension pointer in their place.
+  - **The other nineteen are pre-existing churn** and were reverted. Sixteen differ only in a 666×14 strip at the page foot: the build-version line, which changes on every run. Three more (`add_item_form`, `bulk_creation_preview`, `digikey_order`, ≤3.3%) differ in generated JA IDs and dates. None is caused by this feature, and committing twenty binaries when one changed makes the one unreviewable.
+  - **`metadata.json`** holds a timestamp per screenshot; only `order_capture.png`'s was updated, for the same reason.
+  - **The task's premise about CI is out of date**: `.github/workflows/screenshots.yml` stopped diffing screenshots in issue #77 — CI rasterizes fonts differently and the check could never pass. What runs now is a reminder comment that blocks nothing, so the judgment above is the author's to make, which is what that workflow's own comment says.
+- [X] T049 Run `nox -s screenshots_verify` and confirm valid PNG, RGB/RGBA, under 500KB — all 21 pass; 2.90 MB total, 141.3 KB average, all valid PNG and all under the limit
+- [X] T050 [P] Grep the repository for surviving references to the bookmarklet in prose and comments (`grep -ril bookmarklet app/ tests/ docs/ README.md`) and update each, leaving `specs/` untouched — it is the frozen record
+- [X] T051 [P] Confirm no `wait_for_timeout`, `time.sleep` or `networkidle` was introduced in `tests/e2e/test_capture_extension.py` (Constitution IV — the suite executes zero fixed waits and must continue to)
+- [X] T052 Run the full gate: `nox -s tests` and `nox -s e2e` (detached), and confirm the working tree is clean afterwards
+  - `nox -s tests`: **2747 passed**, 872 deselected, 47.8s.
+  - `nox -s e2e`: **848 passed**, 2771 deselected, 17m 19s. One rerun — `test_material_field_validation.py::test_edit_form_accepts_valid_taxonomy_materials`, a file this feature does not touch — which passed on retry.
+  - Working tree **clean** afterwards: the only changes present are this feature's own, and `test-debug-output/` is ignored.
 - [ ] T053 Walk [quickstart.md](./quickstart.md) §3 against the real sites — the manual checks CI cannot do. **§3a and §3b are the feature**; no local fixture carries McMaster's content policy, so nothing but a real McMaster page proves the bug is fixed
+  - **NOT DONE, and deliberately left open.** This is the one task in the list that cannot be automated and was not attempted. It needs a person, a browser, a signed-in McMaster account and a signed-in Amazon account, against an installation of this application served over TLS. None of that is available to the agent that did the rest of this work, and faking a result here would falsify the only check that actually closes issue #133.
+  - What the automated suite **does** prove: the readers still extract what they extracted, the extension loads, the worker injects, the payload survives the hand-off, the submit page POSTs, the application renders the review, and the vendor tab survives. What it **cannot** prove: that an isolated-world injection defeats a real `script-src`, because no fixture serves one.
+  - Run §3a first and with the console already open. The old failure was a `script-src` violation naming `capture-agent.js`; **its absence is the check.**
 - [ ] T054 Record the quickstart results in this file, as feature 047 did in its `tasks.md`
+  - Blocked on T053. The table below is ready for the results; it is left empty rather than filled in with guesses.
+
+| # | Page | Expected | Result |
+|---|---|---|---|
+| 3a | A real McMaster **product** page | Confirmation opens pre-filled; **no content-policy error in the console** | |
+| 3b | A real McMaster **order** page | Order review opens with the order's lines | |
+| 3c | A real Amazon **order** page | Same review as before, per-line listing details, progress shown | |
+| 3d | A real Amazon **listing** | Confirmation opens pre-filled, exactly as before | |
+| 3e | Any unrelated page | Says it is not a page it can read; no context-menu entry offered | |
+| 3f | 3a again, from the **right-click menu** | Identical to the toolbar control | |
+| — | After every capture | The vendor tab is still open and unnavigated | |
 
 ---
 

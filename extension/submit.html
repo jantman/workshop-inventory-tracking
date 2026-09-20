@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Workshop Capture</title>
+    <style>
+        body {
+            font: 15px/1.5 system-ui, sans-serif;
+            margin: 3rem auto;
+            max-width: 34rem;
+            padding: 0 1rem;
+            color: #212529;
+        }
+        #problem { color: #842029; }
+        code { background: #f1f3f5; padding: 0.1em 0.3em; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <!-- Replaced by the landing page the moment the form submits. It is only
+         ever seen when something went wrong, or for the instant before the
+         navigation -- so it says what is happening rather than nothing. -->
+    <p id="status">Sending the capture to your Workshop…</p>
+    <p id="problem" hidden></p>
+    <script type="module" src="submit.js"></script>
+</body>
+</html>

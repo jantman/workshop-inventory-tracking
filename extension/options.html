@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Workshop Capture — Options</title>
+    <style>
+        body {
+            font: 15px/1.5 system-ui, sans-serif;
+            margin: 2.5rem auto;
+            max-width: 34rem;
+            padding: 0 1rem;
+            color: #212529;
+        }
+        h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+        label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
+        input[type="url"], input[type="text"] {
+            width: 100%;
+            padding: 0.5rem;
+            font: inherit;
+            box-sizing: border-box;
+        }
+        button {
+            margin-top: 0.75rem;
+            padding: 0.45rem 1.1rem;
+            font: inherit;
+            cursor: pointer;
+        }
+        .hint { color: #6c757d; font-size: 0.9rem; }
+        #saved { color: #0f5132; }
+        #warning { color: #664d03; }
+        #error { color: #842029; }
+        #version { color: #6c757d; font-size: 0.9rem; margin-top: 2rem; }
+        code { background: #f1f3f5; padding: 0.1em 0.3em; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>Workshop Capture</h1>
+    <p class="hint">
+        Where your Workshop Inventory Tracking application is. Scheme, host and
+        port — for example <code>https://workshop.example.com:15603</code>. A
+        trailing slash and surrounding spaces are fine.
+    </p>
+
+    <form id="address-form">
+        <label for="address">Application address</label>
+        <input type="text" id="address" name="address" autocomplete="off"
+               placeholder="https://workshop.example.com" spellcheck="false">
+        <button type="submit" id="save">Save</button>
+    </form>
+
+    <p id="saved" hidden></p>
+    <!-- FR-012. Shown when the saved address is not https. It is saved anyway:
+         it is the operator's installation and they are told, not blocked. -->
+    <p id="warning" hidden></p>
+    <p id="error" hidden></p>
+
+    <!-- FR-014. So it can be compared with the application's own footer. -->
+    <p id="version"></p>
+
+    <script type="module" src="options.js"></script>
+</body>
+</html>

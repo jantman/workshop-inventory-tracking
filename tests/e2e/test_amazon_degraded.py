@@ -116,7 +116,7 @@ def test_a_degraded_order_still_captures(page, live_server, image_host):
     )
     confirm(review)
 
-    # **Asserted on `review`, not on `page`.** The bookmarklet submits into a
+    # **Asserted on `review`, not on `page`.** The capture submits into a
     # new tab, so the review -- and the order screen the confirmation redirects
     # to -- live on that one; `page` is still sitting on the vendor's fixture.
     # And no second navigation: the flash is shown once, on the page the

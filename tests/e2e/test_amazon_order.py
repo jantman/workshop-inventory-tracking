@@ -25,7 +25,7 @@ import pytest
 from playwright.sync_api import expect
 
 from app.catalog_service import CatalogService
-from tests.e2e.test_product_page_capture import FIXTURES, run_bookmarklet
+from tests.e2e.test_product_page_capture import FIXTURES, run_capture
 
 # The shape the agent dispatches on: /your-orders/order-details?orderID=...
 ORDER_ID = "111-2223334-5556667"
@@ -52,9 +52,9 @@ def serve_order(page, image_host, fixture="amazon_order.html"):
 
 def capture_order(page, live_server, image_host, fixture="amazon_order.html",
                   order_id=ORDER_ID):
-    """Serve the fixture order and click the real bookmarklet on it."""
+    """Serve the fixture order and run the real reader on it."""
     serve_order(page, image_host, fixture)
-    return run_bookmarklet(
+    return run_capture(
         page,
         live_server,
         f"{live_server.url}/your-orders/order-details?orderID={order_id}",

@@ -8,15 +8,15 @@ never load from a convincing ``http://www.mcmaster.com/...``. That is why the
 dispatch keys on the URL *path* and never the hostname -- a host gate would
 leave every line of the McMaster reader with no end-to-end coverage at all.
 
-What this exercises that no unit test can: the **real bookmarklet**, clicked,
-loading the **real agent**, reading the **real markup** off the fixture, posting
-a real form into a new tab, and the review that lands there carrying enough to
-write the order.
+What this exercises that no unit test can: the **real agent**, run against the
+**real markup** off the fixture, its payload posted as a real form, and the
+review that lands there carrying enough to write the order.
 
-What it cannot exercise, stated rather than hidden: the genuinely cross-origin
-half of the transport -- a real McMaster page over TLS submitting to this app
-over plain HTTP on the LAN. That is a manual check in quickstart.md, as it is
-for Amazon.
+What it cannot exercise, stated rather than hidden: the extension's own
+transport, which only exists inside the extension and is covered in
+test_capture_extension.py; and the genuinely cross-origin half of it -- a real
+McMaster page over TLS submitting to this app -- which is a manual check in
+048 quickstart.md, as it is for Amazon.
 """
 
 import json
@@ -25,7 +25,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_product_page_capture import FIXTURES, run_bookmarklet
+from tests.e2e.test_product_page_capture import FIXTURES, run_capture
 
 # The shape the agent dispatches on: /order-history/order/<24 hex>.
 ORDER_ID = "6a5ffba81f17e12ac4fb7d70"
@@ -68,9 +68,9 @@ def serve_order(page, image_host, fixture="mcmaster_order.html",
 
 def capture_order(page, live_server, image_host, fixture="mcmaster_order.html",
                   order_id=ORDER_ID, order_number=None):
-    """Serve the fixture order and click the real bookmarklet on it."""
+    """Serve the fixture order and run the real reader on it."""
     serve_order(page, image_host, fixture, order_number=order_number)
-    return run_bookmarklet(
+    return run_capture(
         page,
         live_server,
         f"{live_server.url}/order-history/order/{order_id}",

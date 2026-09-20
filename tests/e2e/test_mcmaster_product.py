@@ -7,7 +7,7 @@ subresource from a more-private address space and the agent would never load
 from a convincing ``http://www.mcmaster.com/...``.
 
 This is the issue's first half, and the visibly broken case before this
-feature: clicking the bookmarklet on a McMaster page yielded the address and
+feature: capturing a McMaster page yielded the address and
 nothing else, because every selector the agent knew was Amazon's.
 
 The reader under test here keys on **stems** of CSS-module class names --
@@ -21,7 +21,7 @@ import json
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.test_product_page_capture import FIXTURES, run_bookmarklet
+from tests.e2e.test_product_page_capture import FIXTURES, run_capture
 
 PART_NUMBER = "91290A115"
 PRODUCT_ROUTE = "**/91290A115/"
@@ -46,9 +46,9 @@ def serve_product(page, image_host, fixture="mcmaster_product.html"):
 
 
 def capture_product(page, live_server, image_host):
-    """Serve the fixture product page and click the real bookmarklet on it."""
+    """Serve the fixture product page and run the real reader on it."""
     serve_product(page, image_host)
-    return run_bookmarklet(
+    return run_capture(
         page, live_server, f"{live_server.url}/{PART_NUMBER}/"
     )
 

@@ -1843,7 +1843,7 @@ class CatalogService:
 
         The item id is the key when there is one. When there is not -- most
         vendors' URLs yield none -- the listing's address stands in for it
-        (FR-013), which is what makes a second click on the bookmarklet
+        (FR-013), which is what makes a second capture of the same page
         recognizable rather than a second purchase.
 
         The address is compared **exactly**, and deliberately not normalized. The

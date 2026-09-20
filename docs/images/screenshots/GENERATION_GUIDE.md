@@ -70,7 +70,7 @@ Product catalog:
 - `user-manual/product_search.png` - Product list with filters (also embedded in the README)
 - `user-manual/product_detail.png` - Product detail: identifiers, purchases, stock
 - `user-manual/product_add_form.png` - Add Product form
-- `user-manual/order_capture.png` - Capture an Order, including the HTTP bookmarklet warning
+- `user-manual/order_capture.png` - Capture an Order, including the pointer to the browser extension
 - `user-manual/reorder_list.png` - Reorder list, all four low states
 - `user-manual/category_tree.png` - Category tree with rename controls
 

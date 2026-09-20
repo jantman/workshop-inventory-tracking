@@ -737,10 +737,11 @@ class ImageCaptureResult:
     cap_reached: bool = False
 
 
-# The payload shape capture-agent.js produces. There is exactly one version and
-# no compatibility machinery: when the shape changes the number goes to 2 and
-# from_json stops accepting 1, at which point a stale cached agent degrades to
-# today's behaviour on its next use and is replaced on the one after.
+# The payload shape extension/capture-agent.js produces. There is exactly one
+# version and no compatibility machinery: when the shape changes the number goes
+# to 2 and from_json stops accepting 1, at which point an extension older than
+# the application degrades to today's behaviour until it is re-installed -- which
+# is the cost 048 FR-026 records for moving the reader into the extension.
 LISTING_CAPTURE_VERSION = 1
 
 
@@ -2033,8 +2034,8 @@ class AmazonOrderLine(PackLine):
 
     **The payload format did not change for this.** The agent still sends
     ``quantity`` and ``unit_price``; :meth:`from_payload` reads them into the two
-    pack fields, so a bookmarklet saved before 046 keeps working and a payload
-    captured before it reads identically.
+    pack fields, so a reader older than 046 keeps working and a payload captured
+    before it reads identically.
 
     ``pack_size`` is the one thing the order page cannot state. It comes from the
     operator on the review, from the line's listing where one was read, or from
@@ -2200,7 +2201,7 @@ class AmazonOrderLine(PackLine):
         #
         # It lands in `packs`, because what the page counts is listings and a
         # listing can be a pack (046). The payload key is unchanged, so an older
-        # bookmarklet is read exactly as it was.
+        # reader is read exactly as it was.
         packs = _order_int(data.get('quantity')) or 1
 
         # 044: what the agent read off this line's own listing. A listing that

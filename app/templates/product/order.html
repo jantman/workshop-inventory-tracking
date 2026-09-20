@@ -37,8 +37,8 @@
         {% if capture_url %}
         <a href="{{ capture_url }}">Capture it</a> and its lines will show here.
         {% else %}
-        Open that order in your {{ vendor_name }} order history and click the
-        capture bookmarklet; its lines will show here.
+        Open that order in your {{ vendor_name }} order history and capture it
+        with the browser extension; its lines will show here.
         {% endif %}
         {% if renameable %}
         Note that {{ vendor_name }}'s <em>Purchase Order</em> name is editable on
@@ -71,7 +71,7 @@
     {% if missing_count %}
     <i class="bi bi-card-checklist"></i>
     <strong>{{ missing_count }} of {{ products_total }} product(s) still need details.</strong>
-    Open each listing below and click the capture bookmarklet there — it adds the pictures,
+    Open each listing below and capture it with the browser extension — it adds the pictures,
     specifications and barcodes without recording another purchase, and brings you back here.
     {% else %}
     <i class="bi bi-check-circle"></i>
