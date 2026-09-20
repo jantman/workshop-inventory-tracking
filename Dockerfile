@@ -57,6 +57,19 @@ COPY alembic.ini config.py manage.py pyproject.toml wsgi.py ./
 COPY app/ ./app/
 COPY migrations/ ./migrations/
 
+# The commit this image was built from, shown in the footer and reported by
+# /health as `0.1.1-6d15bde`. The image carries no history to derive it from --
+# .dockerignore excludes .git/ and this stage installs no git -- so the build has
+# to tell it.
+#
+# The `docker-build` job in test.yml passes this; the `release` job deliberately
+# does not, which is what makes a release image report a bare `0.1.1`.
+#
+# It goes here, below every COPY, because its value changes with every commit and
+# would otherwise invalidate the layers above it on every build.
+ARG BUILD_SHA=""
+ENV APP_BUILD_SHA=$BUILD_SHA
+
 USER inventory
 
 EXPOSE 5000

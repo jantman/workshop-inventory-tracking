@@ -101,6 +101,11 @@ jobs:
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      # Deliberately passes no BUILD_SHA build argument, unlike the docker-build
+      # job in test.yml. That absence is what makes a release image report a bare
+      # `0.1.1` rather than `0.1.1-<short sha>`: a release is identified by its
+      # version, a CI build by the commit it came from. Adding one here would
+      # make every release look like a development build.
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:

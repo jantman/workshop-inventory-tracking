@@ -308,6 +308,15 @@ jobs:
         push: true
         sbom: true
         platforms: linux/amd64
+        # Stamps the image so it reports `0.1.1-<short sha>` in the footer and
+        # from /health, distinguishing one CI build from another. The release
+        # workflow passes no BUILD_SHA, so a release image reports a bare
+        # version -- keep that asymmetry.
+        #
+        # steps.image.outputs.sha, not github.sha: see the comment above, the
+        # suffix has to name a commit that exists in the repository.
+        build-args: |
+          BUILD_SHA=${{ steps.image.outputs.sha }}
         labels: |
           org.opencontainers.image.title=workshop-inventory-tracking
           org.opencontainers.image.description=Flask web application for tracking materials and supplies in a hobby workshop

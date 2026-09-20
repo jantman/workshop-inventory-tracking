@@ -818,7 +818,7 @@ sudo journalctl -u workshop-inventory -f
 ```bash
 # Application health endpoint -- also reports the running version
 curl http://localhost:5000/health
-# {"service":"workshop-inventory-tracking","status":"healthy","version":"0.1.0"}
+# {"service":"workshop-inventory-tracking","status":"healthy","version":"0.1.1-6d15bde"}
 ```
 
 ## Versioning and Releases
@@ -827,6 +827,38 @@ The project uses [Semantic Versioning](https://semver.org/). The version in the
 `[project]` table of `pyproject.toml` is the single source of truth: the
 application reads it at runtime (shown in the page footer and returned by
 `/health`), and the release workflow reads it to decide whether to cut a release.
+
+### What the version tells you
+
+The release number alone does not say *which build* is running -- every commit
+between two releases reports the same number. So the reported version carries a
+suffix identifying the build, and the page footer and `/health` always report the
+same string:
+
+| Shown | What is running |
+|---|---|
+| `0.1.1` | a release image, or a working copy checked out at the `v0.1.1` tag |
+| `0.1.1-6d15bde` | commit `6d15bde` -- a CI image, or a working copy at that commit |
+| `0.1.1-6d15bde-dirty` | commit `6d15bde` in a working copy with edited tracked files |
+
+The suffix is a git short SHA, so it can be pasted straight into
+`git show <sha>` to see exactly what is deployed.
+
+How it is determined:
+
+- **Container images** are stamped at build time. The `docker-build` job in
+  `test.yml` passes the commit as the `BUILD_SHA` build argument, which the
+  Dockerfile persists as `APP_BUILD_SHA`; the release workflow passes nothing, so
+  a release image reports the bare version. An image cannot work this out for
+  itself -- it carries neither the git history nor a `git` binary.
+- **A working copy** is asked directly, with `git`, once at startup.
+- **Anything else** -- an unpacked archive, an image built by hand, a machine with
+  no `git` -- reports the bare release number. Version reporting never fails; an
+  undeterminable provenance degrades to the number that is always known.
+
+If a deployed container reports `-dirty`, something is wrong: images are never
+built from an edited working copy, so that marker in production means the running
+code is not what the repository says it is.
 
 To cut a release:
 

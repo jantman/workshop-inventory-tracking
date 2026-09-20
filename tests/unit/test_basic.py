@@ -6,6 +6,7 @@ Simple tests to ensure our testing framework is working correctly.
 
 import pytest
 from app import __version__
+from app.version import RELEASE_VERSION
 from app.mariadb_storage import MariaDBStorage
 from app.storage import StorageResult
 
@@ -53,8 +54,13 @@ class TestBasicInfrastructure:
 
     @pytest.mark.unit
     def test_version_is_semver(self):
-        """Version from pyproject.toml is a SemVer MAJOR.MINOR.PATCH string"""
-        major, minor, patch = __version__.split('.')
+        """Release version from pyproject.toml is a SemVer MAJOR.MINOR.PATCH string
+
+        Asserted against RELEASE_VERSION, not __version__: the reported version
+        may carry a build suffix (`0.1.1-6d15bde-dirty`), which is not SemVer
+        MAJOR.MINOR.PATCH and is not meant to be.
+        """
+        major, minor, patch = RELEASE_VERSION.split('.')
         assert all(part.isdigit() for part in (major, minor, patch))
 
     @pytest.mark.unit
@@ -63,3 +69,15 @@ class TestBasicInfrastructure:
         response = client.get('/')
         assert response.status_code == 200
         assert f'v{__version__}' in response.get_data(as_text=True)
+
+    @pytest.mark.unit
+    def test_footer_and_health_report_the_same_version(self, client):
+        """The footer and /health cannot disagree -- they read one string
+
+        The point of the build suffix is undermined if the two surfaces can drift
+        apart, so assert their agreement directly rather than trusting that both
+        happen to import the same name.
+        """
+        health_version = client.get('/health').json['version']
+        page = client.get('/').get_data(as_text=True)
+        assert f'v{health_version}' in page

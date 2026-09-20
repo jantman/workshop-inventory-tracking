@@ -44,21 +44,21 @@ exists.
 
 **⚠️ CRITICAL**: T001–T003 block both US1 and US2.
 
-- [ ] T001 Restructure `app/version.py` so the release number is read into a
+- [X] T001 Restructure `app/version.py` so the release number is read into a
       `RELEASE_VERSION: str` module constant by a helper rather than assigned inline, and
       `__version__: str` becomes the result of a `_compute_version()` call evaluated at
       module level. At this task `_compute_version()` may simply return `RELEASE_VERSION`
       — the behaviour is unchanged and the module still imports cleanly. Keep the existing
       module docstring's point (pyproject is the single source of truth) and extend it to
       say what the suffix means.
-- [ ] T002 Update `tests/unit/test_basic.py`: change `test_version_is_semver` to assert
+- [X] T002 Update `tests/unit/test_basic.py`: change `test_version_is_semver` to assert
       against `RELEASE_VERSION` instead of `__version__`, importing it from
       `app.version`. `__version__` may now carry a suffix, so splitting it on `.` and
       requiring three digit parts is no longer a true statement about it. Leave
       `test_health_reports_version` and `test_templates_render_version` asserting against
       `__version__` — they are checking that the *reported* version reaches both
       surfaces, which is exactly what must stay true.
-- [ ] T003 Add `tests/unit/test_version.py` with a test asserting `RELEASE_VERSION`
+- [X] T003 Add `tests/unit/test_version.py` with a test asserting `RELEASE_VERSION`
       equals the `[project].version` value parsed independently from `pyproject.toml`, so
       the single-source-of-truth claim (FR-010) has a test and not just a comment.
 
@@ -79,12 +79,12 @@ the bare number. Both are spelled out in [quickstart.md](./quickstart.md) §3.
 
 ### Tests for User Story 1
 
-- [ ] T004 [P] [US1] In `tests/unit/test_version.py`, cover the build-stamp branch by
+- [X] T004 [P] [US1] In `tests/unit/test_version.py`, cover the build-stamp branch by
       monkeypatching the environment: `APP_BUILD_SHA` set to a full forty-character SHA
       yields `RELEASE_VERSION + "-" + first seven characters`; set to exactly seven
       characters yields the same shape; set to empty string and to whitespace-only are
       both treated as absent and fall through to the git path.
-- [ ] T005 [P] [US1] In `tests/unit/test_version.py`, assert the stamp takes precedence:
+- [X] T005 [P] [US1] In `tests/unit/test_version.py`, assert the stamp takes precedence:
       with `APP_BUILD_SHA` set *and* `app.version._git` monkeypatched to return
       working-copy answers, the result is the stamped version and `_git` is never called.
       This is the spec edge case "a container started inside a working copy must report
@@ -92,22 +92,22 @@ the bare number. Both are spelled out in [quickstart.md](./quickstart.md) §3.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] In `app/version.py`, implement the build-stamp branch of
+- [X] T006 [US1] In `app/version.py`, implement the build-stamp branch of
       `_compute_version()`: read `APP_BUILD_SHA` from `os.environ`, strip it, and if
       non-empty return `f"{RELEASE_VERSION}-{sha[:7]}"` without consulting anything else.
       Per [data-model.md](./data-model.md) resolution step 1.
-- [ ] T007 [US1] In `Dockerfile`, add `ARG BUILD_SHA=""` and `ENV APP_BUILD_SHA=$BUILD_SHA`
+- [X] T007 [US1] In `Dockerfile`, add `ARG BUILD_SHA=""` and `ENV APP_BUILD_SHA=$BUILD_SHA`
       to the **runtime** stage (`ARG` is stage-scoped, and it is the runtime stage that
       must carry the `ENV`). Place them after the last `COPY` and before `HEALTHCHECK`, so
       a value that changes every commit does not invalidate the expensive layers above it.
       Add a short comment saying the CI build passes it and the release build does not.
-- [ ] T008 [US1] In `.github/workflows/test.yml`, add
+- [X] T008 [US1] In `.github/workflows/test.yml`, add
       `build-args: BUILD_SHA=${{ steps.image.outputs.sha }}` to the `docker-build` job's
       `docker/build-push-action` step. **Use `steps.image.outputs.sha`, not `github.sha`**
       — on a `pull_request` event `github.sha` is GitHub's synthetic merge commit, which
       is not in the repository, and the job already computes the right value for exactly
       this reason (see its existing comment).
-- [ ] T009 [US1] In `.github/workflows/release.yml`, add a comment to the release job's
+- [X] T009 [US1] In `.github/workflows/release.yml`, add a comment to the release job's
       build step recording that it deliberately passes no `BUILD_SHA`, and that this
       absence is what makes a release image report a bare version. Both files already
       carry "keep these two in sync" notices; an unexplained asymmetry between them would
@@ -133,25 +133,25 @@ it is not a significant additional complication") and found the condition unmet.
 
 ### Tests for User Story 2
 
-- [ ] T010 [P] [US2] In `tests/unit/test_version.py`, add a helper that monkeypatches
+- [X] T010 [P] [US2] In `tests/unit/test_version.py`, add a helper that monkeypatches
       `app.version._git` with a stub driven by a dict keyed on the git subcommand, so
       each case states only the three answers it cares about (`rev-parse`,
       `tag --points-at`, `status`). Research R5 — this stub is what lets all eight
       situations be covered without a fixture repository.
-- [ ] T011 [P] [US2] Cover the four working-copy rows of the
+- [X] T011 [P] [US2] Cover the four working-copy rows of the
       [data-model.md](./data-model.md) worked-case table: on the release tag + clean →
       bare; on the release tag + dirty → `-dirty`; untagged + clean → `-<sha>`; untagged +
       dirty → `-<sha>-dirty`.
-- [ ] T012 [P] [US2] Cover tag matching precisely: `v0.1.1` matches, bare `0.1.1` matches,
+- [X] T012 [P] [US2] Cover tag matching precisely: `v0.1.1` matches, bare `0.1.1` matches,
       an unrelated tag such as `nightly` does not, and a near-miss such as
       `v0.1.1-rc1` does not. Cover a HEAD carrying several tags where one of them is the
       release tag.
-- [ ] T013 [P] [US2] Cover every `git`-unavailable path collapsing to the bare release
+- [X] T013 [P] [US2] Cover every `git`-unavailable path collapsing to the bare release
       number with no exception escaping: `_git` returns `None` for `rev-parse` (not a
       repository / `git` not installed / non-zero exit / timeout). Assert the bare number
       is returned even when the dirty check would have said dirty — if the commit is not
       knowable, neither is anything else (data-model step 2a).
-- [ ] T014 [P] [US2] Cover `_git` itself against real failure modes rather than a stub:
+- [X] T014 [P] [US2] Cover `_git` itself against real failure modes rather than a stub:
       a non-existent subcommand returns `None`, and a `FileNotFoundError` (simulating no
       `git` binary) and a `subprocess.TimeoutExpired` both return `None` rather than
       propagating. This is the test for FR-008, and it is the one test that must not use
@@ -159,14 +159,14 @@ it is not a significant additional complication") and found the condition unmet.
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] In `app/version.py`, add `_git(*args: str) -> str | None`: run
+- [X] T015 [US2] In `app/version.py`, add `_git(*args: str) -> str | None`: run
       `["git", *args]` with `subprocess.run`, `cwd` set to the repository root (the same
       directory `pyproject.toml` is read from), `capture_output=True`, `text=True`,
       `timeout=5`. Return stripped stdout on returncode 0; return `None` on a non-zero
       exit, `OSError`/`FileNotFoundError`, or `subprocess.TimeoutExpired`. It must never
       raise. Comment why the timeout is there: a hung `git` would otherwise take
       application startup with it.
-- [ ] T016 [US2] In `app/version.py`, add `_version_suffix(release_version: str) -> str`
+- [X] T016 [US2] In `app/version.py`, add `_version_suffix(release_version: str) -> str`
       implementing resolution step 2 from [data-model.md](./data-model.md): `rev-parse
       --short=7 HEAD` for the commit (`None` → return `""`), `tag --points-at HEAD` split
       on newlines for the tags, and `status --porcelain --untracked-files=no` for
@@ -175,7 +175,7 @@ it is not a significant additional complication") and found the condition unmet.
       working copy always has (`test-debug-output/`, `.pytest_cache/`) make every
       developer run report dirty, and the marker stops meaning anything. Say so in a
       comment at the call site.
-- [ ] T017 [US2] Wire `_version_suffix()` into `_compute_version()` as the fallback after
+- [X] T017 [US2] Wire `_version_suffix()` into `_compute_version()` as the fallback after
       the build-stamp branch returns nothing, completing the resolution order.
 
 **Checkpoint**: both stories complete. Every row of the worked-case table is covered by a
@@ -185,13 +185,13 @@ test.
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T018 [P] Update the "Versioning and Releases" section of `docs/deployment-guide.md`:
+- [X] T018 [P] Update the "Versioning and Releases" section of `docs/deployment-guide.md`:
       say what the three forms mean (`0.1.1` is a release, `0.1.1-6d15bde` is a CI build
       of that commit, a trailing `-dirty` means a working copy with edits), and that the
       version in the footer and the one from `/health` are the same string. The section
       currently states pyproject is the single source of truth for *the* version — keep
       that true by describing the suffix as added to it, not as replacing it.
-- [ ] T019 [P] Update the sample `/health` response near line 819 of
+- [X] T019 [P] Update the sample `/health` response near line 819 of
       `docs/deployment-guide.md`, which currently shows `"version":"0.1.0"` — stale
       against the current `0.1.1` and now also unrepresentative of a CI build. Show a
       suffixed example.
@@ -204,7 +204,7 @@ test.
       session must leave the working tree clean), and confirm no file under
       `app/templates/`, `app/static/css/` or `app/static/js/` was touched, so the
       screenshot-regeneration gate is genuinely not triggered rather than merely assumed.
-- [ ] T023 Build both container variants per [quickstart.md](./quickstart.md) §3 and
+- [X] T023 Build both container variants per [quickstart.md](./quickstart.md) §3 and
       confirm the stamped image reports the suffix and the unstamped one reports the bare
       number. This is the only check that exercises the real Dockerfile and the real
       "no git in the image" fallback; the unit tests cannot reach either.
