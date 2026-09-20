@@ -13,6 +13,11 @@
         }
         #problem { color: #842029; }
         code { background: #f1f3f5; padding: 0.1em 0.3em; border-radius: 3px; }
+        button {
+            padding: 0.45rem 1.1rem;
+            font: inherit;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -21,6 +26,10 @@
          navigation -- so it says what is happening rather than nothing. -->
     <p id="status">Sending the capture to your Workshop…</p>
     <p id="problem" hidden></p>
+    <!-- Offered only when the submission did not happen. The payload is still in
+         session storage at that point, so this really can send the same capture
+         rather than asking the operator to read the vendor's page again. -->
+    <p><button type="button" id="retry" hidden>Try sending it again</button></p>
     <script type="module" src="submit.js"></script>
 </body>
 </html>

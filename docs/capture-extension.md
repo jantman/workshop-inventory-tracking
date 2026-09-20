@@ -93,8 +93,14 @@ until you tell it.
    `https://workshop.example.com:15603`.
 3. **Save.**
 
-A trailing slash and surrounding spaces are fine — paste straight from the
-address bar. They are trimmed when the value is stored.
+**Paste straight from the address bar.** Surrounding spaces, a trailing slash,
+and the path of whatever page you copied it from are all trimmed off when the
+value is stored — `https://workshop.example.com:15603/products/capture` is
+stored as `https://workshop.example.com:15603`. What is kept is the scheme, the
+host and the port, because the extension appends `/api/capture` itself.
+
+That also means **the application has to be at the root of its host**. A
+deployment served under a sub-path is not supported.
 
 The address is kept in Chrome's synced storage, so it survives a browser restart
 and follows you to your other signed-in Chrome profiles.
@@ -164,6 +170,7 @@ the extension cannot read, and it cannot break this way.
 | "This is not a page it can read" | The address is not one of the four kinds above. On a McMaster family table, open the individual part. On an Amazon order *list*, open the order. |
 | "The page could not be read. Nothing was sent." | The reader failed outright. Nothing partial is ever submitted. Usually a vendor markup change large enough to break the reader rather than one field; the paste box is the fallback. |
 | The capture tab opens but the POST fails | The address is wrong, the application is unreachable, or it is not served over TLS. |
+| The capture tab says the browser **did not send** the capture | The navigation was refused rather than failing — almost always an `http://` address, which a page belonging to an extension may not be allowed to submit to. Fix the address on the options screen; the capture is still held, and **Try sending it again** will use it. |
 | A console message naming a `script-src` violation | Should be impossible now — the reader runs in an isolated world. If you see one, the injection is going into the page's main world, which is a defect worth an issue. |
 | One field missing, everything else present | A vendor markup change. This is the designed behavior, not a transport fault — do not chase it as one. |
 | Nothing at all happens | Nothing should ever produce silence. Check `chrome://extensions` → *Workshop Capture* → **service worker** for its console. |

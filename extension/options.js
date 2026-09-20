@@ -53,7 +53,11 @@ document.getElementById('address-form').addEventListener('submit', async (event)
         say(error, `That is not an address: ${problem.message}`);
         return;
     }
-    if (!parsed.protocol.startsWith('http')) {
+    // Named exactly, not matched by prefix. `httpx://host` parses -- the URL
+    // standard treats an unrecognized scheme as non-special rather than
+    // rejecting it -- so a `startsWith('http')` test accepts the typo and the
+    // operator finds out at capture time, with nothing pointing at the scheme.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         say(error, `That is not a web address — it says ${parsed.protocol}`);
         return;
     }

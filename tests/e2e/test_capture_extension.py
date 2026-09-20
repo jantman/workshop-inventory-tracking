@@ -489,6 +489,101 @@ def test_a_trailing_slash_and_stray_spaces_still_reach_the_endpoint(extension):
 
 
 @pytest.mark.e2e
+def test_an_address_carrying_a_page_path_is_reduced_to_its_origin(extension):
+    """FR-013, on the paste that actually happens.
+
+    The documentation says to paste straight from the address bar, and an
+    address bar showing this application is showing a *page* of it. Storing
+    `https://host/products/capture` composes `.../products/capture/api/capture`,
+    which 404s on every capture with nothing to say the address was the problem.
+
+    `data-model.md` calls the stored shape "scheme, host, optional port. No
+    path" -- so this asserts the whole of that, not just the trailing slash.
+    """
+    options = extension.configure_address(f"{extension.server.url}/products/capture")
+
+    expect(options.locator("#address")).to_have_value(extension.server.url)
+    options.close()
+
+    _, landed = extension.capture_from(f"/{MCMASTER_PART}/")
+
+    expect(landed.locator("#capture-form")).to_be_visible()
+    assert extension.captures[-1].url == f"{extension.server.url}/api/capture"
+
+
+@pytest.mark.e2e
+def test_a_scheme_that_merely_begins_with_http_is_refused(extension):
+    """`httpx://` parses, so it has to be named out rather than prefix-matched.
+
+    The URL standard treats an unrecognized scheme as non-special rather than
+    rejecting it, so `new URL('httpx://host')` succeeds. A check that asked
+    whether the scheme *starts with* "http" therefore accepted the typo, saved
+    it, and left the operator to discover it at capture time with nothing
+    pointing at the scheme.
+    """
+    options = extension.options()
+    options.fill("#address", "httpx://workshop.example.com")
+    options.click("#save")
+
+    expect(options.locator("#error")).to_be_visible()
+    expect(options.locator("#error")).to_contain_text("httpx:")
+    expect(options.locator("#saved")).to_be_hidden()
+    # Refused means not stored, not stored-and-complained-about.
+    assert options.evaluate(
+        "async () => (await chrome.storage.sync.get('applicationAddress'))"
+        ".applicationAddress ?? null"
+    ) is None
+
+
+@pytest.mark.e2e
+def test_the_submit_page_says_so_when_there_is_nothing_to_send(extension):
+    """A capture that is no longer there must not end in a page that just waits.
+
+    Reached by opening the submit page on a key nothing was ever stored under —
+    the shape of a tab restored into a new browser session, where
+    `chrome.storage.session` has been cleared out from under it.
+
+    **What this cannot reach is the case the page's watchdog exists for**: a
+    browser that refuses the navigation outright and says nothing, leaving the
+    tab on "Sending the capture…". Every locally reproducible bad address
+    *navigates* — to an error page — so `pagehide` fires and the watchdog is
+    gone with the document. A genuinely refused submission needs an insecure
+    non-loopback address, which is a manual check (quickstart.md §2) and is what
+    `SETTLE_MS` in submit.js is written against.
+    """
+    submitting = extension.context.new_page()
+    submitting.goto(f"chrome-extension://{extension.id}/submit.html?key=capture-gone")
+
+    expect(submitting.locator("#problem")).to_be_visible()
+    expect(submitting.locator("#problem")).to_contain_text("no longer available")
+    assert extension.captures == []
+
+
+@pytest.mark.e2e
+def test_a_sent_capture_is_dropped_from_session_storage(extension):
+    """The other half of holding the payload until the navigation commits.
+
+    It is deleted on `pagehide` rather than before the form is built, so that a
+    submission the browser refuses stays recoverable. That only works if the
+    deletion really happens on the way out — otherwise every capture leaves its
+    payload, tens of kilobytes of vendor data, sitting in session storage for
+    the rest of the browser's life.
+    """
+    extension.seed_address()
+
+    _, landed = extension.capture_from(f"/{MCMASTER_PART}/")
+    expect(landed.locator("#capture-form")).to_be_visible()
+
+    reader = extension.options()
+    left_behind = reader.evaluate(
+        """async () => Object.keys(await chrome.storage.session.get(null))
+            .filter((key) => key.startsWith('capture-'))"""
+    )
+
+    assert left_behind == []
+
+
+@pytest.mark.e2e
 def test_an_insecure_address_is_saved_and_warned_about(extension):
     """FR-012. The operator is told, not blocked -- it is their installation.
 
