@@ -103,7 +103,7 @@ class TestTheAddress:
     def test_the_address_carries_an_id_the_capture_agent_recognizes(self):
         """The agent's own pattern, so this cannot drift away from it.
 
-        `app/static/js/capture-agent.js` matches
+        `extension/capture-agent.js` matches
         ``orderID=(\\d{3}-\\d{7}-\\d{7})`` on the order-details path. An address
         this emits that the agent will not act on is a dead link.
         """

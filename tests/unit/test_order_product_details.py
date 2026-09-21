@@ -76,7 +76,7 @@ def todays_date_text():
     """Today as Amazon's order page writes a date.
 
     The confirmation page asks about an order purchase with *today's* date,
-    because the bookmarklet sends none -- so a test that needs the page to
+    because the reader sends none -- so a test that needs the page to
     recognize the order dates the order today rather than trusting the clock to
     sit within ninety days of a fixed date.
     """
@@ -417,7 +417,7 @@ def is_checked(html, element_id):
 
 
 def land(client, payload=None):
-    """What the bookmarklet's new tab shows: /api/capture with a form body."""
+    """What the extension's new tab shows: /api/capture with a form body."""
     response = client.post('/api/capture', data={
         'url': LISTING_URL,
         'listing_title': 'M3 Socket Head Cap Screws, 100 pack',

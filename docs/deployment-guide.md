@@ -903,26 +903,21 @@ The application trusts exactly one hop of those headers
 because the connection it actually receives is plain HTTP: without them it
 reports the page as `http` even though the browser loaded it over `https`.
 
-That matters in one place beyond cosmetics. The capture bookmarklet on
-`/products/capture` bakes the server's own address into itself when that page
-renders. If the app thinks it is on `http`, the bookmarklet points at `http`,
-and a vendor page sending `upgrade-insecure-requests` rewrites that to `https`
-and fails against a server that does not answer TLS on that port. The page shows
-a warning box whenever it believes it is being served over `http`, so if you are
-looking at an `https` address bar and still see that box, the proxy is not
-sending `X-Forwarded-Proto`.
-
 **If you are serving on a non-default port, `X-Forwarded-Port` is not optional
 and its absence is not cosmetic.** Without it the application believes it is on
-the scheme's default port, and two things follow. The bookmarklet points at that
-default port, where nothing is listening, so clicking it does nothing at all.
-More seriously, every form that writes -- capture confirmation, add and edit
-item, add and edit product, move, shorten, receive -- is refused with
+the scheme's default port, and every form that writes -- capture confirmation,
+add and edit item, add and edit product, move, shorten, receive -- is refused
+with
 `400 Bad Request: The referrer does not match the host`, because the CSRF
 referrer check compares the address the form came from against the address the
 application thinks it lives at, and a port is part of an address. Reads are
 unaffected, so the deployment looks entirely healthy until you try to save
 something. That was issue #114.
+
+**Serving over TLS is separately required for capture.** The
+[browser capture extension](capture-extension.md) submits from a page of its
+own, which is a secure context, and a browser may refuse to submit from one to a
+plain-`http://` address. The extension warns you where you enter the address.
 
 Nothing here is a security control. On a LAN-only single-user application there
 is no one to spoof the headers; the trust is there so the URLs come out right.

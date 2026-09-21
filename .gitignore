@@ -217,3 +217,8 @@ test-debug-output/
 .bmad-loop/runs/
 .bmad-loop/cache/
 .bmad-loop/policy.toml
+
+# The packaged extension. CI builds it from extension/ on every run
+# (.github/workflows/test.yml); a local `zip -r capture-extension.zip .` for
+# testing the install path must never be committed.
+capture-extension.zip

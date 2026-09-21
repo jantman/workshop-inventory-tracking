@@ -8,8 +8,8 @@
  *
  * This exists so the catalog's AJAX endpoints do not have to be exempted from
  * CSRF one by one. The one endpoint that genuinely cannot carry a token -- the
- * bookmarklet's POST /api/capture, which arrives from a vendor's origin -- stays
- * exempt and says why at the endpoint.
+ * browser extension's POST /api/capture, whose form is composed outside this
+ * application -- stays exempt and says why at the endpoint.
  */
 
 (function () {

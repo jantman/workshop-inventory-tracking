@@ -115,16 +115,23 @@ class TestARejectedEditKeepsTheTyping:
         assert updated.location == 'Bin 9'
 
 
-class TestTheBookmarkletSurvivesAFailedCapture:
-    """An empty href is a bookmark to the current page, saved silently"""
+class TestTheExtensionPointerSurvivesAFailedCapture:
+    """A rejected capture re-renders the whole page, not half of it.
 
-    def test_a_rejected_capture_still_renders_the_bookmarklet(self, client):
+    This began as a bookmarklet test: a re-render that lost the bookmarklet's
+    address left an empty `href`, which is a bookmark to the current page and is
+    saved without complaint. The bookmarklet is gone and the pointer beside the
+    paste box is a plain link, so there is no address left to lose -- but a
+    re-render that dropped the card entirely would still leave the operator with
+    no way to reach the extension from the page that tells them to use it.
+    """
+
+    def test_a_rejected_capture_still_points_at_the_extension(self, client):
         # No URL and no vendor -- capture_order rejects it.
         response = client.post('/products/capture', data={'url': '', 'vendor': ''})
 
         assert response.status_code == 200
-        assert b'href="javascript:' in response.data
-        assert b'id="capture-bookmarklet"\n                       href=""' not in response.data
+        assert b'id="capture-extension-docs"' in response.data
 
     def test_the_submitted_values_come_back_too(self, client):
         response = client.post('/products/capture', data={
