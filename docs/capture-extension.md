@@ -2,9 +2,8 @@
 
 Reads a vendor's listing or order page in your browser and hands what it read to
 this application, which opens its confirmation or order review already filled
-in. It replaces the capture bookmarklet, which no longer exists.
+in.
 
-- [Why it replaced the bookmarklet](#why-it-replaced-the-bookmarklet)
 - [Installing it](#installing-it)
 - [Pointing it at your application](#pointing-it-at-your-application)
 - [Using it](#using-it)
@@ -12,45 +11,6 @@ in. It replaces the capture bookmarklet, which no longer exists.
 - [When something goes wrong](#when-something-goes-wrong)
 - [Updating it](#updating-it)
 - [What it asks for, and what it does not](#what-it-asks-for-and-what-it-does-not)
-
----
-
-## Why it replaced the bookmarklet
-
-The bookmarklet was a loader: clicking it appended this application's
-`capture-agent.js` to the vendor's page as a `<script>`. That is a subresource
-from another origin, and a site is entitled to refuse those.
-
-**McMaster-Carr does.** Their `Content-Security-Policy` names a `script-src`
-that does not include your server, so the browser refuses to load the script and
-clicking the bookmark does nothing at all — no message, no error a person would
-notice, nothing. No McMaster page could be captured by any route: the paste-an-
-address path cannot express an order, and it was the order pages that mattered
-most.
-
-An extension's content script runs in an **isolated world**, which carries its
-own content policy rather than the page's. It is never measured against
-McMaster's `script-src`. That is the whole fix, and it is why the extension
-exists rather than some adjustment to the bookmarklet.
-
-Two things improved along the way:
-
-- **The submission no longer comes from the vendor's page.** The extension reads
-  the page, then submits from a page of its own. A vendor's
-  `upgrade-insecure-requests` — which broke the transport in issue #54 — is no
-  longer in the path, and neither is the popup blocker.
-- **Your vendor tab stays where it is.** The review opens in a new tab and the
-  page you were reading is never navigated away from.
-
-One thing got worse, and it is the reason this page exists:
-
-> **Changing what a capture reads now needs a new extension, installed by hand.**
-> With the bookmarklet, the reader was served by the application, so upgrading
-> the application was the whole deployment. The reader now lives inside the
-> extension. An application upgrade that changes what a capture sends needs the
-> matching extension version installed in your browser, by you. Nothing does
-> this automatically and nothing warns you — compare the version on the
-> extension's options screen with the one in the application's footer.
 
 ---
 
@@ -178,6 +138,11 @@ the extension cannot read, and it cannot break this way.
 ---
 
 ## Updating it
+
+> **Upgrading the application does not upgrade the extension.** The code that
+> reads vendor pages lives inside the extension, so an application release that
+> changes what a capture reads needs the matching extension installed by hand.
+> Nothing does this automatically and nothing warns you when they drift apart.
 
 1. Download the new `capture-extension.zip` from the release matching your
    upgraded application.
