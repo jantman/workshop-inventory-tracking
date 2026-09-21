@@ -25,6 +25,8 @@
  * for not having the service worker POST.
  */
 
+import { readAddress } from './storage.js';
+
 /** How long to wait for the navigation before deciding it is not coming. */
 const SETTLE_MS = 8000;
 
@@ -32,10 +34,26 @@ const problem = document.getElementById('problem');
 const sending = document.getElementById('status');
 const retry = document.getElementById('retry');
 
+/**
+ * Which capture this page is for. Fixed for the life of the document, so it is
+ * read once -- the `pagehide` handler below is registered against it once too,
+ * rather than once per attempt.
+ */
+const key = new URLSearchParams(location.search).get('key');
+
 function fail(message) {
     sending.hidden = true;
     problem.hidden = false;
     problem.textContent = message;
+}
+
+if (key) {
+    // **Dropped when the navigation commits, not before.** Deleting it up front
+    // would make a refused submission unrecoverable as well as invisible: this
+    // page holds the only copy. Letting it survive costs nothing, because
+    // sending the same capture twice is harmless — a form body to /api/capture
+    // renders the confirmation form and writes nothing (app/product/routes.py).
+    addEventListener('pagehide', () => chrome.storage.session.remove(key), { once: true });
 }
 
 async function send() {
@@ -43,7 +61,6 @@ async function send() {
     retry.hidden = true;
     sending.hidden = false;
 
-    const key = new URLSearchParams(location.search).get('key');
     if (!key) {
         fail('This page was opened without a capture to send.');
         return;
@@ -60,16 +77,24 @@ async function send() {
         return;
     }
 
+    // **Read on every attempt, not frozen into the payload when the page was
+    // captured.** What the watchdog below tells the operator to do is go and
+    // correct the address; a retry that resubmitted to the address which had
+    // just failed would make that advice useless, and the failing address is
+    // the likeliest reason to be retrying at all.
+    const address = await readAddress();
+    if (!address) {
+        fail(
+            'No application address is configured. Set one on the extension’s '
+            + 'options screen, then try again — the capture is still here.'
+        );
+        retry.hidden = false;
+        return;
+    }
+
     // The stored address is a bare origin (storage.js normalizes it on write),
     // so the endpoint path is appended here and nowhere else.
-    const endpoint = `${pending.address}/api/capture`;
-
-    // **Dropped when the navigation commits, not before.** Deleting it up front
-    // would make a refused submission unrecoverable as well as invisible: this
-    // page holds the only copy. Letting it survive costs nothing, because
-    // sending the same capture twice is harmless — a form body to /api/capture
-    // renders the confirmation form and writes nothing (app/product/routes.py).
-    addEventListener('pagehide', () => chrome.storage.session.remove(key), { once: true });
+    const endpoint = `${address}/api/capture`;
 
     const form = document.createElement('form');
     form.method = 'POST';
@@ -104,11 +129,24 @@ async function send() {
     }, SETTLE_MS);
 }
 
-retry.addEventListener('click', send);
+/**
+ * Run `send`, and let nothing it throws end in silence.
+ *
+ * **Both the first attempt and every retry go through here.** `send` clears the
+ * failure message before its first `await`, so an unguarded retry that rejected
+ * -- the extension reloaded after the operator fixed the address, say, which is
+ * exactly what the watchdog tells them to go and do -- would leave this tab
+ * reading "Sending the capture…" for ever with the retry button hidden. That is
+ * the state this whole page exists to prevent, so it cannot be reachable by the
+ * control offered for escaping it.
+ */
+function attempt() {
+    send().catch((error) => {
+        console.error('[workshop-capture] the submission failed:', error);
+        fail(`The capture could not be sent: ${error.message}`);
+        retry.hidden = false;
+    });
+}
 
-// Nothing may end in silence: a page left saying "Sending the capture…" for ever
-// is the symptom this whole feature exists to remove, one step further along.
-send().catch((error) => {
-    console.error('[workshop-capture] the submission failed:', error);
-    fail(`The capture could not be sent: ${error.message}`);
-});
+retry.addEventListener('click', attempt);
+attempt();

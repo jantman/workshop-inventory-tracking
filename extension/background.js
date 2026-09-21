@@ -153,8 +153,13 @@ async function capture(tab) {
     // overwrite one another. Session rather than local storage: the value is
     // meaningless once submitted and captured vendor data should not outlive the
     // browser session on disk.
+    //
+    // **The address is deliberately not stored alongside it.** The submit page
+    // reads the configured address itself, on every attempt, so that a retry
+    // after the operator corrects a wrong address uses the corrected one. An
+    // address frozen in here would look authoritative and be stale.
     const key = `capture-${crypto.randomUUID()}`;
-    await chrome.storage.session.set({ [key]: { address, fields } });
+    await chrome.storage.session.set({ [key]: { fields } });
     await chrome.tabs.create({
         url: chrome.runtime.getURL(`submit.html?key=${encodeURIComponent(key)}`),
     });

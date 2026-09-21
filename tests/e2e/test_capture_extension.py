@@ -560,6 +560,49 @@ def test_the_submit_page_says_so_when_there_is_nothing_to_send(extension):
 
 
 @pytest.mark.e2e
+def test_the_submit_page_uses_the_address_configured_now(extension):
+    """A retry after correcting the address has to use the corrected one.
+
+    What the watchdog tells the operator to do is go and fix the address on the
+    options screen. If the endpoint were composed from an address frozen into
+    the payload when the page was read, coming back and pressing **Try sending
+    it again** would resubmit to the address that had just failed, for ever —
+    and the failing address is the likeliest reason to be retrying at all. So
+    the address is read on every attempt, and the worker no longer stores one
+    alongside the payload.
+
+    Driven by staging the payload by hand and changing the stored address in
+    between, which is what the operator does. The watchdog itself needs a
+    navigation the browser refuses, which is not locally reproducible — see
+    `test_the_submit_page_says_so_when_there_is_nothing_to_send`.
+    """
+    # Configured wrongly when the capture was read...
+    extension.seed_address("https://wrong.example.invalid")
+    staging = extension.options()
+    staging.evaluate(
+        """async () => chrome.storage.session.set({'capture-staged': {
+            fields: {
+                url: 'https://www.amazon.com/dp/B0CKXJLP4B',
+                listing_title: 'Staged capture',
+                listing: JSON.stringify({
+                    version: 1,
+                    source_url: 'https://www.amazon.com/dp/B0CKXJLP4B',
+                }),
+            },
+        }})"""
+    )
+    # ...and corrected before the submission is attempted.
+    extension.seed_address()
+    staging.close()
+
+    submitting = extension.context.new_page()
+    submitting.goto(f"chrome-extension://{extension.id}/submit.html?key=capture-staged")
+
+    expect(submitting.locator("#capture-form")).to_be_visible()
+    assert extension.captures[-1].url == f"{extension.server.url}/api/capture"
+
+
+@pytest.mark.e2e
 def test_a_sent_capture_is_dropped_from_session_storage(extension):
     """The other half of holding the payload until the navigation commits.
 
