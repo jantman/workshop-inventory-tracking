@@ -157,6 +157,14 @@ class OrderVendor:
     #: customer's editable Purchase Order string.
     adopts_renames: bool = False
 
+    #: ``(item_id) -> str``. The vendor's own listing page for an item, built
+    #: from the line's item id -- where the operator goes to capture a product's
+    #: details by hand. Its presence is what puts the details checklist on the
+    #: order screen (044 US3), so it is registered only for vendors whose order
+    #: capture creates products *without* details: Amazon and McMaster. DigiKey's
+    #: arrive enriched and have nothing to fill in.
+    listing_url: Optional[Callable[[str], str]] = None
+
     def __post_init__(self):
         if self.receive_landing not in (LANDING_ORDER_SCREEN, LANDING_CHOICE_PAGE):
             raise ValueError(f"unknown receive_landing {self.receive_landing!r}")

@@ -24,6 +24,8 @@ import pytest
 from app.catalog_service import (
     AMAZON_ORDER_VENDOR,
     AMAZON_VENDOR,
+    DIGIKEY_VENDOR,
+    MCMASTER_VENDOR,
     CatalogService,
 )
 from app.exceptions import ItemNotFoundError, ValidationError
@@ -38,6 +40,8 @@ from app.models import (
     OrderCaptureResult,
 )
 from app.utils.clock import local_now
+from tests.unit.test_mcmaster_capture import build_order as build_mcmaster_order
+from tests.unit.test_mcmaster_capture import include_all
 
 pytestmark = pytest.mark.unit
 
@@ -671,17 +675,26 @@ class TestTheOrderChecklist:
         assert 'Every product on this order has its details' in html
         assert 'details-missing' not in html
 
-    def test_another_vendors_order_page_is_unchanged(self, catalog, client):
+    @pytest.mark.parametrize('vendor', [DIGIKEY_VENDOR, 'Grainger'])
+    def test_a_vendor_with_no_listing_address_has_no_checklist(
+        self, catalog, client, vendor
+    ):
+        """Issue #170 FR-004: DigiKey's products arrive with details, and a
+        vendor with no order capture has no address to build."""
         product = catalog.create_product(description='Hex standoff')
         catalog.record_purchase(
-            product.id, vendor='McMaster-Carr', vendor_item_id='93505A117',
+            product.id, vendor=vendor, vendor_item_id='93505A117',
             supplier_order_reference='PO-7',
         )
 
-        html = client.get('/products/orders/McMaster-Carr/PO-7').get_data(as_text=True)
+        response = client.get(f'/products/orders/{vendor}/PO-7')
 
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'id="order-lines"' in html
         assert 'id="details-progress"' not in html
         assert 'details-missing' not in html
+        assert 'open-listing' not in html
 
     def test_the_product_page_says_it_is_missing_details(self, catalog, client):
         """FR-018"""
@@ -722,6 +735,70 @@ class TestTheOrderChecklist:
         assert 'id="order-page-detail-note"' in html
         assert 'recognizes the purchase this order recorded' not in html
         assert 'without recording another' in html
+
+
+MCMASTER_PART = '91290A115'
+SECOND_MCMASTER_PART = '94180A331'
+MCMASTER_ORDER = 'MISC-AND-GRINDER'
+
+
+class TestTheMcMasterOrderChecklist:
+    """Issue #170: a McMaster order's page is the same checklist, with each
+    line linking to the part's own page on mcmaster.com."""
+
+    def two_line_order(self, catalog):
+        order = build_mcmaster_order(lines=[
+            {'line_number': 1, 'part_number': MCMASTER_PART,
+             'description': 'Socket head screws', 'packs': 1,
+             'pack_size': 100, 'pack_price': '13.23'},
+            {'line_number': 2, 'part_number': SECOND_MCMASTER_PART,
+             'description': 'Heat-set inserts', 'packs': 1,
+             'pack_size': 50, 'pack_price': '15.87'},
+        ])
+        catalog.capture_mcmaster_order(order, include_all(order))
+        return {
+            line.vendor_item_id: line.product_id
+            for line in catalog.find_order_lines_for(MCMASTER_VENDOR, MCMASTER_ORDER)
+        }
+
+    def order_page(self, client):
+        response = client.get(f'/products/orders/{MCMASTER_VENDOR}/{MCMASTER_ORDER}')
+        assert response.status_code == 200
+        return response.get_data(as_text=True)
+
+    def test_every_new_product_reads_as_missing_with_its_page(self, catalog, client):
+        """FR-001, FR-003, FR-005"""
+        self.two_line_order(catalog)
+
+        html = self.order_page(client)
+
+        assert 'id="details-progress"' in html
+        assert '2 of 2 product(s) still need details' in html
+        assert html.count('details-missing') == 2
+        assert f'href="https://www.mcmaster.com/{MCMASTER_PART}/"' in html
+        assert f'href="https://www.mcmaster.com/{SECOND_MCMASTER_PART}/"' in html
+        assert 'amazon.com' not in html
+
+    def test_filling_one_in_moves_the_count(self, catalog, client):
+        products = self.two_line_order(catalog)
+        catalog.apply_listing_details(products[MCMASTER_PART], listing())
+
+        html = self.order_page(client)
+
+        assert '1 of 2 product(s) still need details' in html
+        assert 'details-captured' in html
+        assert f'href="https://www.mcmaster.com/{MCMASTER_PART}/"' not in html
+        assert f'href="https://www.mcmaster.com/{SECOND_MCMASTER_PART}/"' in html
+
+    def test_an_order_with_nothing_missing_says_it_is_complete(self, catalog, client):
+        products = self.two_line_order(catalog)
+        for product_id in products.values():
+            catalog.apply_listing_details(product_id, listing())
+
+        html = self.order_page(client)
+
+        assert 'Every product on this order has its details' in html
+        assert 'details-missing' not in html
 
 
 def order_payload(lines, order_date=ORDER_DATE_TEXT):

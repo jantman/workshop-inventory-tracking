@@ -1,4 +1,7 @@
-"""E2E: filling in the products an Amazon order created (feature 044, issue #156).
+"""E2E: filling in the products an order created (feature 044, issue #156).
+
+Mostly Amazon's. The last section covers the same checklist on a McMaster
+order's page (issue #170), and its absence on a DigiKey one.
 
 Two harnesses, chosen per journey:
 
@@ -24,8 +27,22 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from app.catalog_service import AMAZON_ORDER_VENDOR, AMAZON_VENDOR, CatalogService
-from app.models import AMAZON_PAYLOAD_VENDOR, AMAZON_PAYLOAD_VERSION, AmazonOrder
+from app.catalog_service import (
+    AMAZON_ORDER_VENDOR,
+    AMAZON_VENDOR,
+    DIGIKEY_VENDOR,
+    MCMASTER_VENDOR,
+    CatalogService,
+)
+from app.models import (
+    AMAZON_PAYLOAD_VENDOR,
+    AMAZON_PAYLOAD_VERSION,
+    MCMASTER_PAYLOAD_VENDOR,
+    MCMASTER_PAYLOAD_VERSION,
+    AmazonOrder,
+    ListingCapture,
+    McMasterOrder,
+)
 from app.utils.clock import local_now
 from tests.e2e.test_amazon_order import (
     LINE_COUNT,
@@ -287,3 +304,80 @@ def test_recapturing_an_order_fills_in_what_it_created(page, live_server, image_
     )
     expect(review.locator("tr.order-line")).to_have_count(LINE_COUNT)
     assert re.search(r"Details added to \d+ product", review.content())
+
+
+# --------------------------------------------------------------------------
+# Issue #170 -- the checklist is per vendor, not Amazon's alone
+# --------------------------------------------------------------------------
+
+PART = "91290A115"
+SECOND_PART = "94180A331"
+MCMASTER_ORDER = "MISC-AND-GRINDER"
+
+
+def seed_mcmaster_order_of(live_server, *parts):
+    """A McMaster order captured through the service; each line a new, detail-less product."""
+    now = local_now()
+    order = McMasterOrder.from_payload({
+        "version": MCMASTER_PAYLOAD_VERSION,
+        "vendor": MCMASTER_PAYLOAD_VENDOR,
+        "source_url": "https://www.mcmaster.com/order-history/order/6a5ffba81f17e12ac4fb7d70",
+        "order_number": MCMASTER_ORDER,
+        "order_id": "6a5ffba81f17e12ac4fb7d70",
+        "order_date": f"{now:%B} {now.day}, {now:%Y}",
+        "lines": [
+            {"line_number": n, "part_number": part, "description": f"Part {part}",
+             "packs": 1, "pack_size": 10, "pack_price": "9.99"}
+            for n, part in enumerate(parts, start=1)
+        ],
+    })
+    service = CatalogService(live_server.storage)
+    service.capture_mcmaster_order(order, {
+        ln.form_key: {"include": True} for ln in order.lines
+    })
+    return {
+        purchase.vendor_item_id: purchase.product_id
+        for purchase in service.find_order_lines_for(MCMASTER_VENDOR, MCMASTER_ORDER)
+    }
+
+
+@pytest.mark.e2e
+def test_a_mcmaster_order_page_walks_through_each_product(page, live_server):
+    products = seed_mcmaster_order_of(live_server, PART, SECOND_PART)
+
+    page.goto(f"{live_server.url}/products/orders/{MCMASTER_VENDOR}/{MCMASTER_ORDER}")
+    expect(page.locator("#order-lines")).to_be_visible()
+    expect(page.locator("#details-progress")).to_contain_text("2 of 2")
+    expect(page.locator("a.open-listing")).to_have_count(2)
+    link = page.locator(f'tr.order-line[data-part="{PART}"] a.open-listing')
+    expect(link).to_have_attribute("href", f"https://www.mcmaster.com/{PART}/")
+    expect(link).to_have_attribute("target", "_blank")
+
+    # Filled in by any path -- the page derives "missing", it stores nothing.
+    CatalogService(live_server.storage).apply_listing_details(
+        products[PART], ListingCapture.from_data(listing_fields(PART))
+    )
+    page.reload()
+
+    expect(page.locator("#details-progress")).to_contain_text("1 of 2")
+    expect(page.locator(f'tr.order-line[data-part="{PART}"] .details-captured')).to_be_visible()
+    expect(page.locator("a.open-listing")).to_have_count(1)
+    expect(
+        page.locator(f'tr.order-line[data-part="{SECOND_PART}"] a.open-listing')
+    ).to_have_attribute("href", f"https://www.mcmaster.com/{SECOND_PART}/")
+
+
+@pytest.mark.e2e
+def test_a_digikey_order_page_has_no_checklist(page, live_server):
+    service = CatalogService(live_server.storage)
+    product = service.create_product(description="Hex standoff")
+    service.record_purchase(
+        product.id, vendor=DIGIKEY_VENDOR, vendor_item_id="36-24337-ND",
+        supplier_order_reference="98765432",
+    )
+
+    page.goto(f"{live_server.url}/products/orders/{DIGIKEY_VENDOR}/98765432")
+    # The line has rendered, so the checklist's absence is not a page still loading.
+    expect(page.locator('tr.order-line[data-part="36-24337-ND"]')).to_be_visible()
+    expect(page.locator("#details-progress")).to_have_count(0)
+    expect(page.locator(".details-missing")).to_have_count(0)
