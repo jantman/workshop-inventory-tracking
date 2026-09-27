@@ -186,6 +186,15 @@ class TestTheListingPayload:
         names = [entry['name'] for entry in listing().specification_entries()]
         assert names == ['Thread Size', 'Length', 'Description']
 
+    def test_a_swept_gallery_is_carried_through(self):
+        """052: the agent's flag reaches the model; nothing else changes"""
+        assert listing(images_swept=True).images_swept is True
+        assert listing().images_swept is False
+
+    @pytest.mark.parametrize('value', [False, 'true', 1, None, []])
+    def test_only_json_true_means_swept(self, value):
+        assert listing(images_swept=value).images_swept is False
+
     def test_a_barcode_row_is_noticed(self):
         assert listing().has_barcode is False
         with_upc = listing(specifications=[{'name': 'UPC', 'value': VALID_UPC}])
@@ -994,3 +1003,23 @@ class TestConfirmingAnOrderWithListings:
         assert 'the page was not a listing' in html
         assert 'data-listings-read="1"' in html
         assert 'data-listings-missing="1"' in html
+
+    def test_a_line_whose_gallery_was_swept_says_its_count_is_a_guess(self, client):
+        """052: the same caveat as the confirmation page, on that line only"""
+        source = 'https://www.amazon.com/your-orders/order-details'
+        response = client.post('/api/capture', data={
+            'url': source,
+            'listing': json.dumps({'version': 1, 'source_url': source}),
+            'vendor': AMAZON_VENDOR,
+            'order': order_payload([
+                order_line(listing=listing_payload(images_swept=True)),
+                order_line(
+                    asin=SECOND_ASIN, title='PLA Filament',
+                    listing=listing_payload(vendor_item_id=SECOND_ASIN),
+                ),
+            ]),
+        })
+
+        html = response.get_data(as_text=True)
+        assert 'data-listings-read="2"' in html
+        assert html.count('class="images-swept"') == 1

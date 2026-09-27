@@ -1212,6 +1212,14 @@ Two ways in:
    signal that the vendor has changed something. The capture still works; it just
    brings less. Nothing is ever refused for this.
 
+   The image count can also be a **guess**. When an Amazon listing's own gallery
+   data cannot be read, the images are found by searching the page for picture
+   addresses instead, and the count is marked *"the listing's own gallery data
+   could not be read, so this count is a guess"* — on the order review, as *"a
+   guess"* beside that line's picture count. Compare it with the listing before
+   you press **Capture** if the number matters to you. The same images are
+   captured either way.
+
    Whatever it read is written when you press **Capture**, and not before. A full
    gallery takes eight to fifteen seconds to fetch at that point, which is
    expected -- the page is downloading a dozen full-resolution images. The message

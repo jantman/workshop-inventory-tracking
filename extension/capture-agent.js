@@ -630,6 +630,10 @@
      * the DOM at all until the gallery is interacted with. That single finding
      * is what ruled out every archiving approach that worked from rendered
      * markup.
+     *
+     * Returns `{ addresses, swept }`. `swept` is true exactly when the console
+     * warning below fires: the count is a guess, and 052 (issue #172) puts that
+     * on the confirmation page beside the count, where the operator is looking.
      */
     function galleryFrom(doc) {
         const scripts = doc.querySelectorAll('script');
@@ -641,6 +645,7 @@
 
             const entries = initialImageArray(text);
             let addresses = [];
+            let swept = false;
             if (entries && entries.length) {
                 for (let j = 0; j < entries.length; j++) {
                     const entry = entries[j];
@@ -652,7 +657,8 @@
             }
             if (!addresses.length) {
                 addresses = sweepImageAddresses(text);
-                if (addresses.length) {
+                swept = addresses.length > 0;
+                if (swept) {
                     // 022 FR-009. The sweep is a guess at a block this could not
                     // parse, and a guess that says nothing is indistinguishable
                     // from a reading. That silence is the whole of issue #95: the
@@ -664,10 +670,10 @@
                 }
             }
             if (addresses.length) {
-                return addresses.map(withoutTransform);
+                return { addresses: addresses.map(withoutTransform), swept: swept };
             }
         }
-        return [];
+        return { addresses: [], swept: false };
     }
 
     /**
@@ -707,7 +713,13 @@
                 }
             }
         };
-        addImages(galleryFrom(doc));
+        const gallery = galleryFrom(doc);
+        addImages(gallery.addresses);
+        if (gallery.swept) {
+            // Omitted otherwise, like every other key. Not a version bump: an
+            // older extension simply sends no key, which reads as "read".
+            listing.images_swept = true;
+        }
 
         const description = descriptionBlocks(doc);
         if (description.length) {
