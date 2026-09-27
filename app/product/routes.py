@@ -388,30 +388,21 @@ def product_detail(product_id):
     )
 
 
-def _amazon_listing_url(asin: str) -> str:
-    """An Amazon item's own listing page -- where the capture extension reads details.
-
-    Built from the ASIN rather than read off a purchase: an order-captured
-    purchase's ``listing_url`` is the *order* page (``_amazon_line_fields``), not
-    the listing, and linking to it would send the operator to the wrong place.
-    """
-    return f'https://www.amazon.com/dp/{asin}'
-
-
 def _missing_details_link(product):
     """Where to fill this product in, when it has no details and we know (044 FR-018).
 
     "Missing details" is the derived rule -- no specification rows -- and the
-    link is only offered for a product carrying an Amazon ASIN, because that is
-    the only listing address the catalog can build. A product with nothing to
-    link to gets no nagging.
+    link is only offered for a product carrying an Amazon ASIN. A McMaster
+    listing address can be built too (the order page's checklist does), but this
+    page has not been extended to it. A product with nothing to link to gets no
+    nagging.
     """
     if product.specifications:
         return None
     for identifier in product.identifiers:
         if (identifier.id_type == IdentifierType.VENDOR.value
                 and identifier.vendor == AMAZON_VENDOR):
-            return _amazon_listing_url(identifier.value)
+            return AMAZON_ORDER_VENDOR.listing_url(identifier.value)
     return None
 
 
@@ -1728,10 +1719,13 @@ def order_detail(vendor, order_number):
         # receiving path here rather than a progress display (029 US2).
         receive_hint = 'Receive each line as its box arrives.'
 
-    # 044 US3: an Amazon order's page is also the checklist of its products'
-    # details. Amazon only, because it is the one page-read order whose products
-    # are created without them and whose listing address the catalog can build.
-    details_checklist = vendor == AMAZON_VENDOR and bool(lines)
+    # 044 US3: an order's page is also the checklist of its products' details,
+    # for a vendor whose order capture creates products without them and whose
+    # listing address can be built from a line's item id -- Amazon's ASIN,
+    # McMaster's part number (issue #170). That is exactly the vendors that
+    # register a listing_url; DigiKey's products arrive with their details.
+    listing_url = order_vendor.listing_url if order_vendor is not None else None
+    details_checklist = listing_url is not None and bool(lines)
     product_ids = {line.product_id for line in lines if line.product_id}
     details_missing = (
         service.products_missing_details(product_ids) if details_checklist else set()
@@ -1751,7 +1745,7 @@ def order_detail(vendor, order_number):
         details_checklist=details_checklist,
         details_missing=details_missing,
         products_total=len(product_ids),
-        amazon_listing_url=_amazon_listing_url,
+        listing_url=listing_url,
     )
 
 

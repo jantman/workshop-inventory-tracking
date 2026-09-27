@@ -5332,6 +5332,17 @@ def _mcmaster_incomplete_label(line, part) -> Optional[str]:
     return line.description or line.part_number or line.form_key
 
 
+def _mcmaster_listing_url(part_number: str) -> str:
+    """A McMaster part's own product page -- where its details are captured by hand.
+
+    Only a link for the operator to open: McMaster renders the page client-side,
+    so fetching this address returns an empty shell (028 research.md section 6).
+    That is why a McMaster order gets the details checklist but not Amazon's
+    automatic per-line listing read (044 US4).
+    """
+    return f'https://www.mcmaster.com/{part_number}/'
+
+
 DIGIKEY_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     name=DIGIKEY_VENDOR,
     item_id_of=lambda line: line.digikey_part_number,
@@ -5389,6 +5400,7 @@ MCMASTER_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     carries_payload=True,
     # The order "number" is the customer's editable Purchase Order string.
     adopts_renames=True,
+    listing_url=_mcmaster_listing_url,
 ))
 
 
@@ -5490,6 +5502,16 @@ def _amazon_incomplete_label(line, part) -> Optional[str]:
     return line.title or line.asin or line.form_key
 
 
+def _amazon_listing_url(asin: str) -> str:
+    """An Amazon item's own listing page -- where the capture extension reads details.
+
+    Built from the ASIN rather than read off a purchase: an order-captured
+    purchase's ``listing_url`` is the *order* page (``_amazon_line_fields``), not
+    the listing, and linking to it would send the operator to the wrong place.
+    """
+    return f'https://www.amazon.com/dp/{asin}'
+
+
 AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     name=AMAZON_VENDOR,
     item_id_of=lambda line: line.asin,
@@ -5517,4 +5539,5 @@ AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     review_columns=('pack_entry',),
     confirm_endpoint='product.amazon_order_confirm',
     carries_payload=True,
+    listing_url=_amazon_listing_url,
 ))

@@ -1734,6 +1734,14 @@ Open **Products → McMaster-Carr Order** and type the Purchase Order name, or
 follow the link after a capture. You get every line, its product, what you paid
 and whether it has arrived, plus a count of how many are still outstanding.
 
+It is also the checklist of which products still need their details, as an
+Amazon order's page is: each line reads *captured* or *missing*, and a missing
+one has an **Open listing** link to that part's page on mcmaster.com. Capture
+it there (see [Capturing a single part](#capturing-a-single-part)) and you come
+back to this page with the line reading *captured*. McMaster's pages cannot be
+read in the background, so capturing the order does not fill these in for you
+the way an Amazon order capture does — each one is a link you open.
+
 When the box turns up, **scan the part number off a bag**. You land on that
 line's receipt with the quantity already filled in — amend it if what arrived is
 short — and confirming marks the line received, raises the counted quantity and
