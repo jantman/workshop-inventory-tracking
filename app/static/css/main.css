@@ -23,9 +23,12 @@ body {
     font-size: 1.25rem;
 }
 
-.navbar-brand i {
+/* The logo beside the application's name: navbar brand and home banner */
+.brand-logo {
+    height: 1.5em;
+    width: auto;
     margin-right: 0.5rem;
-    font-size: 1.1rem;
+    vertical-align: middle;
 }
 
 .nav-link i {

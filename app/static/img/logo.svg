@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!--
+    Workshop Inventory logo: a hex nut on a blue tile. This file is the master;
+    every other logo image in the repository is rendered from it. Drawn on a
+    16-unit grid so the nut's flat sides land on pixel edges at 16/32/48/128 px.
+
+    After editing, regenerate and commit the copies (from the repository root):
+
+      for s in 16 48 128; do
+        rsvg-convert -w $s -h $s app/static/img/logo.svg -o extension/icons/icon-$s.png
+      done
+      for s in 16 32 48; do rsvg-convert -w $s -h $s app/static/img/logo.svg -o /tmp/fav-$s.png; done
+      magick /tmp/fav-16.png /tmp/fav-32.png /tmp/fav-48.png app/static/img/favicon.ico
+  -->
+  <rect width="16" height="16" rx="3" fill="#0a58ca"/>
+  <path fill="#fff" fill-rule="evenodd" d="M8 2.1 13 5v6l-5 2.9L3 11V5ZM8 5.4a2.6 2.6 0 1 0 0 5.2 2.6 2.6 0 1 0 0-5.2Z"/>
+</svg>
