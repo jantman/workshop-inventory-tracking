@@ -28,6 +28,7 @@ from app.catalog_service import (
     MCMASTER_VENDOR,
     VENDOR_SCOPED_TYPES,
     CatalogService,
+    vendor_page_links,
 )
 from app.services import order_vendors
 from app.exceptions import (
@@ -385,6 +386,7 @@ def product_detail(product_id):
         purchase_attachments=purchase_attachments,
         identifier_types=OPERATOR_IDENTIFIER_TYPES,
         listing_link=_missing_details_link(product),
+        vendor_links=vendor_page_links(product.identifiers),
     )
 
 

@@ -82,6 +82,17 @@
                     <dd class="col-sm-8" id="product-mpn">{{ product.manufacturer_part_number }}</dd>
                     {% endif %}
 
+                    {% if vendor_links %}
+                    <dt class="col-sm-4">Vendor Pages</dt>
+                    <dd class="col-sm-8" id="product-vendor-links">
+                        {% for vendor, value, url in vendor_links %}
+                        <a class="vendor-link me-3 text-nowrap" href="{{ url }}" target="_blank"
+                           rel="noopener" data-vendor="{{ vendor }}">{{ vendor }} {{ value }}
+                            <i class="bi bi-box-arrow-up-right"></i></a>
+                        {% endfor %}
+                    </dd>
+                    {% endif %}
+
                     {% if product.category_path %}
                     <dt class="col-sm-4">Category</dt>
                     <dd class="col-sm-8" id="product-category">{{ product.category_path }}</dd>
