@@ -46,7 +46,7 @@ None — existing project, no dependencies added.
 - [X] T009 [P] Edge-case tests in `tests/unit/test_mcmaster_details_only.py`: Amazon product-page capture still writes `VENDOR`; a `DISTRIBUTOR` `91290A115` held for DigiKey is not matched by a McMaster capture; a DigiKey paste capture with a typed DigiKey part number finds the DigiKey-order product
 - [X] T010 Rewrite `_mcmaster_product_by_part_number`'s docstring in `app/catalog_service.py`: both kinds are tried because products recorded as `VENDOR` before feature 049 must still be found; remove the "editing capture_order was rejected" rationale
 - [X] T011 Run `nox -s tests` and `nox -s lint`; fix failures
-- [ ] T012 Run `nox -s e2e` detached (≥20 min); confirm pass and a clean working tree
+- [X] T012 Run `nox -s e2e` detached (≥20 min); confirm pass and a clean working tree
 - [X] T013 The repository spelling check in CLAUDE.md returns nothing for touched files
 
 ## Dependencies
