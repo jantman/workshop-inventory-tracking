@@ -4,9 +4,10 @@
 
 **Created**: 2026-09-27
 
-**Status**: Draft. **The proposal below is waiting for the owner's approval.** The issue says
-"Let me review and approve your proposed categories and specification keys before proceeding".
-Planning and implementation start only after that approval.
+**Status**: Approved, 2026-09-27. The owner approved the proposal with one change: remove
+`tools/taps & dies/wrenches & die stocks`, because tap wrenches and die stocks are not
+consumable. The owner accepted every open question at its proposed default; see "Review
+outcome" below. The lists below are the approved lists.
 
 **Input**: GitHub issue #182, "Add tool categories to default taxonomy". During drafting the
 owner added one requirement: fastener installation tools (rivet setters, rivet nut tools,
@@ -65,7 +66,6 @@ record. Deployments that override the defaults with `CATEGORY_TAXONOMY_FILE` /
 | `tools/taps & dies/taps` | Hand and machine taps: taper, plug, bottoming, and sets of all three; spiral point, spiral flute, forming. Inch and metric alike |
 | `tools/taps & dies/dies` | Round (split/adjustable) and hex dies |
 | `tools/taps & dies/thread repair` | Thread files, thread chasers, and thread repair kits that ship tap, inserts and installer together |
-| `tools/taps & dies/wrenches & die stocks` | Tap wrenches, T-handles, tap guides and die stocks |
 | `tools/drill bits` | Tools that make a hole by drilling |
 | `tools/drill bits/twist drills` | Number, letter, fractional and metric twist drills of every length series (stub, jobber, aircraft, extra long), material and shank, and sets of them |
 | `tools/drill bits/spotting & center drills` | Spotting drills, and combined drill & countersinks (center drills) |
@@ -278,21 +278,21 @@ balls), `Length of Cut` / `Depth of Cut` → `Cut Depth`, `Included Angle` → `
 
 ---
 
-## Open questions for the reviewer
+## Review outcome
 
-1. **Root names.** `adhesives & chemicals` and `mechanical` are proposals. Alternatives:
-   `shop supplies` for the first; `machine components` or `hardware` for the second.
-2. **Hand and power tools.** The issue asks for *consumable* tools, so the tools that consume
-   them (a tap wrench aside) have no branch here and stay deferred. They could later go under
-   `tools/hand tools`, `tools/power tools` and `tools/measuring` without disturbing anything
-   proposed here.
-3. **Welding consumables under `tools`.** They are consumed by a tool, which is why they are
-   placed here. They could instead be a fourth root (`welding`).
-4. **Non-electrical wire vs. stock.** 025 put raw metal stock on the Inventory side. The
-   proposal treats music wire and safety wire as catalog products (bought by the coil, pulled
-   from a bin). If the owner tracks music wire as material stock instead,
-   `mechanical/wire & wire rope/music & spring wire` should be dropped.
-5. **"towel" pins** in the issue is read as **dowel** pins.
+The owner approved the proposal on 2026-09-27. The only change they asked for:
+
+- **Removed** `tools/taps & dies/wrenches & die stocks`. Tap wrenches and die stocks are hand
+  tools, not consumables.
+
+The open questions in the draft are settled at their proposed defaults:
+
+1. **Root names**: `adhesives & chemicals` and `mechanical`.
+2. **Hand and power tools**, including tap wrenches and die stocks, stay deferred and
+   uncategorized. They could later go under `tools/` without disturbing anything here.
+3. **Welding consumables** stay under `tools`.
+4. **Music and safety wire** are catalog products under `mechanical/wire & wire rope`.
+5. **"towel" pins** in the issue means **dowel** pins.
 
 ---
 
