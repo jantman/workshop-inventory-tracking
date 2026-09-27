@@ -904,6 +904,13 @@ half touches the inventory tables.
 ![Product Detail](images/screenshots/user-manual/product_detail.png)
 *A product page: what it is, what it cost, where it came from, and how many are on hand*
 
+The **Vendor Pages** row in a product's Details panel links straight to the item
+at Amazon, McMaster-Carr or DigiKey, built from the product's identifiers for
+those vendors: an ASIN, a McMaster part number, a DigiKey part number. Each
+opens in a new tab. DigiKey's link is a search for the part number, which
+DigiKey redirects to the part's own page. A product with no identifier for one
+of these vendors has no Vendor Pages row.
+
 ## Adding a Product
 
 **Products → Add Product**, or scan something the catalog does not recognize

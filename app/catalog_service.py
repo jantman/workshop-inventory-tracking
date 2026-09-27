@@ -16,7 +16,8 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from urllib.parse import quote
 
 from sqlalchemy import and_, case, create_engine, func, or_
 from sqlalchemy.orm import selectinload, sessionmaker
@@ -5340,7 +5341,7 @@ def _mcmaster_listing_url(part_number: str) -> str:
     That is why a McMaster order gets the details checklist but not Amazon's
     automatic per-line listing read (044 US4).
     """
-    return f'https://www.mcmaster.com/{part_number}/'
+    return f'https://www.mcmaster.com/{quote(part_number, safe="")}/'
 
 
 DIGIKEY_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
@@ -5509,7 +5510,7 @@ def _amazon_listing_url(asin: str) -> str:
     purchase's ``listing_url`` is the *order* page (``_amazon_line_fields``), not
     the listing, and linking to it would send the operator to the wrong place.
     """
-    return f'https://www.amazon.com/dp/{asin}'
+    return f'https://www.amazon.com/dp/{quote(asin, safe="")}'
 
 
 AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
@@ -5541,3 +5542,46 @@ AMAZON_ORDER_VENDOR = order_vendors.register(order_vendors.OrderVendor(
     carries_payload=True,
     listing_url=_amazon_listing_url,
 ))
+
+
+def _digikey_search_url(part_number: str) -> str:
+    """DigiKey's keyword search for a part number, which redirects to the part's page.
+
+    Not registered as the DigiKey order vendor's ``listing_url``: that field's
+    presence puts the details checklist on the order screen (044 US3), and a
+    DigiKey order arrives with its details already filled in. DigiKey's own
+    product address is returned by its lookup but never stored, so the search is
+    what can be built from an identifier alone (054 research R4).
+    """
+    return f'https://www.digikey.com/en/products/result?keywords={quote(part_number, safe="")}'
+
+
+# The vendor page each supported vendor's item id leads to, for the product
+# page's Details panel (054). Keyed by the vendor names identifiers are filed
+# under; a legacy spelling such as 'Digi-Key' is deliberately not a key.
+VENDOR_PAGE_URLS = {
+    AMAZON_VENDOR: _amazon_listing_url,
+    MCMASTER_VENDOR: _mcmaster_listing_url,
+    DIGIKEY_VENDOR: _digikey_search_url,
+}
+
+
+def vendor_page_links(identifiers: Iterable[ProductIdentifier]) -> List[Tuple[str, str, str]]:
+    """``(vendor, value, url)`` for each supported vendor item id a product carries.
+
+    **Either vendor-scoped type counts.** McMaster part numbers were recorded as
+    ``VENDOR`` before 049 and ``DISTRIBUTOR`` since, and a DigiKey part captured
+    from its product page is ``VENDOR`` while one from an order is
+    ``DISTRIBUTOR``. The vendor scope says whose id it is; the type does not, so
+    the same value under both types is one link, not two.
+    """
+    scoped = {id_type.value for id_type in VENDOR_SCOPED_TYPES}
+    links = {
+        (identifier.vendor, identifier.value)
+        for identifier in identifiers
+        if identifier.id_type in scoped and identifier.vendor in VENDOR_PAGE_URLS
+    }
+    return [
+        (vendor, value, VENDOR_PAGE_URLS[vendor](value))
+        for vendor, value in sorted(links)
+    ]
