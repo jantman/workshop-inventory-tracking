@@ -61,9 +61,9 @@ def listing_fields(asin, **overrides):
 
 
 def land_listing(page, live_server, asin, **overrides):
-    """Post what the bookmarklet posts, and wait for the landing to render.
+    """Post what the extension posts, and wait for the landing to render.
 
-    ``#bookmarklet-landing`` only renders on the landing, never on the capture
+    ``#extension-landing`` only renders on the landing, never on the capture
     page this starts from, so it is a completion signal that cannot be satisfied
     early (pattern C).
     """
@@ -93,7 +93,7 @@ def land_listing(page, live_server, asin, **overrides):
             },
         ],
     )
-    expect(page.locator("#bookmarklet-landing")).to_be_visible()
+    expect(page.locator("#extension-landing")).to_be_visible()
     return page
 
 

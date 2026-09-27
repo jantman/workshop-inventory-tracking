@@ -88,21 +88,24 @@ def create_app(config_class=Config, storage_backend=None):
 
     # Behind a TLS-terminating reverse proxy the app itself speaks plain HTTP,
     # so Werkzeug reports `request.scheme == 'http'` for a page the browser
-    # loaded over https. That is not cosmetic: the capture bookmarklet bakes in
-    # `url_for(..., _external=True)` addresses at render time, so it shipped
-    # http:// addresses that a vendor's `upgrade-insecure-requests` then broke
-    # (issue #89). Trusting one hop of X-Forwarded-Proto / -Host fixes the
-    # scheme, the host and therefore those URLs. This is LAN-only with one
-    # trusted user, so there is no header-spoofing concern -- but it does mean
-    # the proxy has to actually set the headers, which the deployment guide
-    # says.
+    # loaded over https. That is not cosmetic: the CSRF referrer check compares
+    # the referrer against `request.host`, so an app that misreads its own
+    # address refuses its own forms. It was first noticed as a capture
+    # bookmarklet shipping http:// addresses that a vendor's
+    # `upgrade-insecure-requests` then broke (issue #89); that bookmarklet is
+    # gone since 048, and the check below is why this still matters. Trusting
+    # one hop of X-Forwarded-Proto / -Host fixes the scheme and the host. This
+    # is LAN-only with one trusted user, so there is no header-spoofing concern
+    # -- but it does mean the proxy has to actually set the headers, which the
+    # deployment guide says.
     #
     # The port is trusted for the same reason and was learned the harder way
     # (issue #114). x_host=1 believes an X-Forwarded-Host that carries no port,
     # overwriting an HTTP_HOST that did, so on a non-default port the app ends
     # up believing it lives where the browser never was. The bookmarklet was
-    # the visible symptom -- addresses on 443, where nothing listens. The
-    # disabling one was that every CSRF-protected form over https was refused
+    # the visible symptom at the time -- addresses on 443, where nothing
+    # listens. The disabling one, which outlived it, was that every
+    # CSRF-protected form over https was refused
     # with "The referrer does not match the host", because that check compares
     # the referrer against request.host. Reads were unaffected, which is why
     # the deployment looked healthy until someone tried to save something.

@@ -266,6 +266,32 @@ jobs:
         retention-days: 7
         if-no-files-found: ignore
 
+  # Packages the browser capture extension and uploads it as a build artifact,
+  # so every CI build is installable for testing (048 FR-022).
+  # IMPORTANT: Keep the zip contents in sync with release.yml. When updating
+  # this job, also update the release workflow's packaging step.
+  #
+  # No build step, deliberately: the directory is loadable unpacked exactly as
+  # it sits in the repository, so packaging is `zip -r`. A job that had to
+  # transpile or bundle would make the checked-in directory unloadable during
+  # development, which is the whole development loop (048 research.md §10).
+  extension-package:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Package the extension
+      run: cd extension && zip -r ../capture-extension.zip .
+
+    - name: Upload the packaged extension
+      uses: actions/upload-artifact@v7
+      with:
+        name: capture-extension
+        path: capture-extension.zip
+        retention-days: 14
+        if-no-files-found: error
+
   # Builds the Docker image and pushes it to GHCR tagged with the commit SHA,
   # so every CI build is pullable for testing.
   # IMPORTANT: Keep the Docker build configuration in sync with release.yml.
@@ -352,7 +378,7 @@ jobs:
 
   test-summary:
     runs-on: ubuntu-latest
-    needs: [unit-tests, coverage, e2e-tests, docker-build]
+    needs: [unit-tests, coverage, e2e-tests, docker-build, extension-package]
     if: always()
     
     steps:
@@ -364,6 +390,7 @@ jobs:
           const coverageStatus = '${{ needs.coverage.result }}';
           const e2eStatus = '${{ needs.e2e-tests.result }}';
           const dockerStatus = '${{ needs.docker-build.result }}';
+          const extensionStatus = '${{ needs.extension-package.result }}';
 
           let summary = '## 🧪 Test Results Summary\n\n';
           
@@ -386,8 +413,13 @@ jobs:
           summary += `- **Image**: \`ghcr.io/${context.repo.owner.toLowerCase()}/${context.repo.repo.toLowerCase()}:ci-${context.sha}\`\n`;
           summary += `- **Status**: ${dockerStatus}\n\n`;
 
+          // Extension package
+          summary += `### Extension Package: ${extensionStatus === 'success' ? '✅ PASSED' : '❌ FAILED'}\n`;
+          summary += `- **Artifact**: \`capture-extension\`\n`;
+          summary += `- **Status**: ${extensionStatus}\n\n`;
+
           // Overall result
-          const overallStatus = unitStatus === 'success' && coverageStatus === 'success' && e2eStatus === 'success' && dockerStatus === 'success';
+          const overallStatus = unitStatus === 'success' && coverageStatus === 'success' && e2eStatus === 'success' && dockerStatus === 'success' && extensionStatus === 'success';
           summary += `### Overall: ${overallStatus ? '✅ ALL TESTS PASSED' : '❌ SOME TESTS FAILED'}\n\n`;
           
           if (!overallStatus) {

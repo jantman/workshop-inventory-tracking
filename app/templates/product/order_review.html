@@ -45,13 +45,13 @@
     <h5 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> No order on that page</h5>
     <p class="mb-2">
         The capture ran, but nothing on that page read as a {{ vendor.name }}
-        order. That usually means the bookmarklet was clicked somewhere other
-        than one order of your order history — the order list itself will do
-        this — and it can also mean {{ vendor.name }} changed the page.
+        order. That usually means capture was invoked somewhere other than one
+        order of your order history — the order list itself will do this — and
+        it can also mean {{ vendor.name }} changed the page.
     </p>
     <p class="mb-0">
-        Open the order so its own address is showing, then click the bookmarklet
-        again. Failing that, the purchase can be recorded by hand.
+        Open the order so its own address is showing, then capture it again.
+        Failing that, the purchase can be recorded by hand.
     </p>
 </div>
 <div class="d-flex gap-2">
@@ -129,9 +129,8 @@
         {% endif %}
         {% if vendor.name == 'Amazon' %}After you confirm, this order's page lists
         each product still missing its details, with a link to its listing.{% endif %}
-        Clicking the capture bookmarklet on an item's listing adds its pictures,
-        specifications and barcodes to the same product, without recording another
-        purchase.
+        Capturing an item's listing adds its pictures, specifications and
+        barcodes to the same product, without recording another purchase.
     </div>
     {% endif %}
 

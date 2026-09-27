@@ -1,10 +1,11 @@
 """
 E2E tests for order-time capture.
 
-Covers the **paste-a-URL** path end to end. The bookmarklet cannot be driven
-against a real vendor page from CI -- it depends on that page's form-action
-policy and on this app being served over TLS -- so it is verified by hand and
-this covers the path that always works.
+Covers the **paste-a-URL** path end to end. The browser extension's own
+transport cannot be driven against a real vendor page from CI -- it depends on
+that page's content policy and on this app being served over TLS -- so it is
+verified by hand (048 quickstart.md §3) and this covers the path that always
+works.
 
 Capture confirms rather than guesses. A capture with nothing ambiguous about it
 still writes on the first submit and lands on the receive screen; one that finds
@@ -258,70 +259,28 @@ def test_a_corroborated_match_attaches_without_asking(page, live_server):
 
 
 @pytest.mark.e2e
-def test_the_bookmarklet_says_so_when_it_cannot_work(page, live_server):
-    """Over plain http the bookmarklet is dead on arrival, and says so.
+def test_the_capture_page_points_at_the_extension(page, live_server):
+    """FR-018/FR-019. What replaced the bookmarklet, and what did not move.
 
-    Amazon sends `upgrade-insecure-requests`, which rewrites the bookmarklet's
-    destination to https; against a plain-http server that is an SSL error rather
-    than a capture. Offering the button with no warning would send the operator
-    to debug a failure that is not theirs. See issue #54.
+    Three tests used to stand here, all of them about a bookmarklet this page
+    built: that it was offered, that both of its baked-in addresses named this
+    server, and that a warning appeared beside it when the page was served over
+    plain http. None of those assertions has a subject any more -- the extension
+    is told the application's address by the operator, so the page builds no
+    absolute address at all, and there is nothing left for `X-Forwarded-Proto`
+    to get wrong here (what it still governs is asserted in
+    tests/unit/test_proxy_headers.py).
+
+    What is asserted instead is the pair FR-018 and FR-019 make: the operator is
+    pointed at the extension, and the paste box beside it is untouched.
     """
     page.goto(f"{live_server.url}/products/capture")
 
-    expect(page.locator("#bookmarklet-http-warning")).to_be_visible()
-    expect(page.locator("#bookmarklet-http-warning")).to_contain_text("https")
-    # The paste box is right there and works.
+    pointer = page.locator("#capture-extension-docs")
+    expect(pointer).to_be_visible()
+    assert "capture-extension" in pointer.get_attribute("href")
+    # FR-019. The path that cannot break is still right there.
     expect(page.locator("#url")).to_be_visible()
-
-
-@pytest.mark.e2e
-def test_the_bookmarklet_is_offered_and_points_at_this_server(page, live_server):
-    """It is a loader now, and what it loads has to come from *this* server.
-
-    This test used to assert `location.href`, `document.title` and
-    `createElement('form')`, because the bookmarklet was the extractor. All three
-    are false of a loader, and none of them were deleted: the extraction and the
-    form submission moved into capture-agent.js and are asserted there, in
-    test_product_page_capture.py. What is left here is what the *bookmarklet*
-    still has to get right, which is every part of it that cannot be fixed
-    without the operator dragging it again.
-    """
-    page.goto(f"{live_server.url}/products/capture")
-    expect(page.locator("#capture-bookmarklet")).to_be_visible()
-
-    href = page.locator("#capture-bookmarklet").get_attribute("href")
-    assert href.startswith("javascript:")
-    # Both addresses are baked in at render time and must be this server's.
-    assert f"{live_server.url}/static/js/capture-agent.js" in href
-    assert f"{live_server.url}/api/capture" in href
-    # FR-024: cache-busted, so editing the agent takes effect without a re-drag.
-    assert "Date.now()" in href
-    # Still not a fetch -- mixed content would block one before CORS or CSP got
-    # a say, which is the whole reason the agent submits a form.
-    assert "fetch(" not in href
-
-
-@pytest.mark.e2e
-def test_the_bookmarklet_follows_the_proxy_s_scheme(page, live_server):
-    """Behind a TLS terminator the page is on https and must say so (issue #89).
-
-    The test server speaks plain http, which is exactly the deployment this is
-    about: nginx terminates TLS and forwards http, so the only thing that tells
-    the app what the browser used is `X-Forwarded-Proto`. Without ProxyFix the
-    page renders the http warning at an https address bar *and* hands out an
-    http bookmarklet -- the very failure the warning exists to prevent.
-    """
-    page.set_extra_http_headers({"X-Forwarded-Proto": "https"})
-    page.goto(f"{live_server.url}/products/capture")
-
-    expect(page.locator("#capture-bookmarklet")).to_be_visible()
-    expect(page.locator("#bookmarklet-http-warning")).to_have_count(0)
-
-    href = page.locator("#capture-bookmarklet").get_attribute("href")
-    https_url = live_server.url.replace("http://", "https://")
-    assert f"{https_url}/static/js/capture-agent.js" in href
-    assert f"{https_url}/api/capture" in href
-    assert "http://" not in href
 
 
 # ---------------------------------------------------------------------------

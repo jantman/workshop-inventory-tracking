@@ -395,24 +395,19 @@ sudo systemctl status nginx
 3. **Upstream connection failures**
 4. **File permission issues**
 5. **Missing `X-Forwarded-Proto`** -- the app then reads the plain-HTTP hop it
-   received rather than the HTTPS the browser used. The visible symptom is the
-   "Not from this page" warning on `/products/capture` at an `https` address
-   bar, and a bookmarklet that points at `http`. See
+   received rather than the HTTPS the browser used, and treats a secure request
+   as insecure. See
    [Serving Behind a TLS Reverse Proxy](deployment-guide.md#serving-behind-a-tls-reverse-proxy).
 6. **Missing `X-Forwarded-Port` on a non-default port** -- the app then believes
-   it is on the scheme's default port. Two symptoms, and the second is the one
-   that matters:
-   - **Every form that saves returns `400 Bad Request: The referrer does not
-     match the host`.** The CSRF referrer check compares where the form came
-     from against where the app thinks it lives, and a port is part of that.
-     Reads keep working, so the site looks healthy until you try to write.
-   - **A freshly dragged bookmarklet does nothing when clicked**, because its
-     baked-in addresses name a port nothing is listening on.
-
-   Check it by loading `/products/capture` over `https` and reading the
-   bookmarklet's `href`: both addresses in it must carry your port. If they do
-   not, the proxy is not sending the header. See
+   it is on the scheme's default port, and **every form that saves returns
+   `400 Bad Request: The referrer does not match the host`**. The CSRF referrer
+   check compares where the form came from against where the app thinks it
+   lives, and a port is part of that. Reads keep working, so the site looks
+   healthy until you try to write. See
    [Serving Behind a TLS Reverse Proxy](deployment-guide.md#serving-behind-a-tls-reverse-proxy).
+
+   For capture failing specifically, see
+   [The Browser Capture Extension](capture-extension.md#when-something-goes-wrong).
 
 #### Nginx Logs
 ```bash

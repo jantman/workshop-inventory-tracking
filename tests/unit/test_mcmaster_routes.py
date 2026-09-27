@@ -531,7 +531,7 @@ class TestPackPricedUnitPrice:
             'pack_size': '100',
         })
 
-        # What the bookmarklet's landing page renders.
+        # What the extension's landing page renders.
         html = client.post('/api/capture', data={
             'url': 'https://www.mcmaster.com/91290A115/',
             'vendor': MCMASTER_VENDOR,

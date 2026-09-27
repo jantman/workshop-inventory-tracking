@@ -130,12 +130,24 @@ jobs:
             ${{ steps.image.outputs.name }}:${{ needs.check-version.outputs.version }}
             ${{ steps.image.outputs.name }}:latest
 
+      # IMPORTANT: Keep the zip contents in sync with test.yml. When updating
+      # this step, also update the extension-package job there.
+      #
+      # Built here rather than taken from the CI run's artifact so a release
+      # depends on nothing but its own checkout. The extension's manifest
+      # declares the same version as pyproject.toml -- a unit test enforces it
+      # (048 FR-024) -- so this zip is stamped by the same act that stamps the
+      # image, with nothing to keep in step by hand.
+      - name: Package the extension
+        run: cd extension && zip -r ../capture-extension.zip .
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           name: Release v${{ needs.check-version.outputs.version }}
           generate_release_notes: true
+          files: capture-extension.zip
           body: |
             ## Docker Image
 
@@ -155,5 +167,18 @@ jobs:
             ```
 
             See the [Docker image on GitHub Packages](https://github.com/${{ github.repository }}/pkgs/container/workshop-inventory-tracking).
+
+            ## Browser Capture Extension
+
+            `capture-extension.zip` below is the browser extension that captures
+            listings and orders off a vendor's page. Its version matches this
+            release. Download it, unzip it, and load the directory unpacked from
+            `chrome://extensions` with Developer mode enabled, then point it at
+            this application's address on its options screen.
+
+            **Updating it is by hand**, and it is not optional: the reader lives
+            in the extension, so an application upgrade that changes what a
+            capture sends needs the matching extension installed. See
+            [docs/capture-extension.md](https://github.com/${{ github.repository }}/blob/v${{ needs.check-version.outputs.version }}/docs/capture-extension.md).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

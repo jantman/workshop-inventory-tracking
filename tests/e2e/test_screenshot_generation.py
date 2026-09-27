@@ -1009,10 +1009,9 @@ class TestDocumentationScreenshots:
         page.goto(f"{live_server.url}/products/capture")
         expect(page.locator("#capture-form")).to_be_visible()
 
-        # #bookmarklet-http-warning is deliberately NOT hidden. The test server
-        # runs over plain HTTP so the page renders its HTTPS warning, and the
-        # manual spends a block quote on exactly that warning -- hiding it would
-        # picture a state the manual then explains.
+        # The page renders the same way over http and https since 048: the
+        # bookmarklet and the HTTPS warning beside it are gone, and what stands
+        # there now is a pointer to the browser extension. Nothing to hide.
         self.screenshot.capture_viewport(
             "user-manual/order_capture.png",
             viewport_size=(1920, 1080),

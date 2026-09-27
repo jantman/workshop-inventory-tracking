@@ -1,17 +1,24 @@
 """
 E2E tests for capturing a product page.
 
-The bookmarklet is no longer the extractor -- it is a loader, and everything it
-loads is ``app/static/js/capture-agent.js``. That agent cannot be driven against
-a real Amazon listing from CI, so two pieces of local infrastructure stand in for
-the vendor, and both of them are honest about what they are:
+The reader is ``extension/capture-agent.js``, which the browser extension injects
+into the vendor's page and then asks for its payload. That agent cannot be driven
+against a real Amazon listing from CI, so two pieces of local infrastructure stand
+in for the vendor, and both of them are honest about what they are:
 
 **The listing page.** ``fixtures/amazon_listing.html`` is fulfilled through
 Playwright's ``page.route`` at a ``/dp/<ASIN>`` address. The agent runs against
-it exactly as it would against the real thing -- same loader, same canonical
-``/dp/<ASIN>`` fetch, same form submission into a new tab. What this cannot do is
-fail when Amazon changes their markup. Nothing in this design can; see
-research.md, "The risk that is not mitigated".
+it exactly as it would against the real thing -- same file, same entry point,
+same canonical ``/dp/<ASIN>`` fetch. What this cannot do is fail when Amazon
+changes their markup. Nothing in this design can; see research.md, "The risk that
+is not mitigated".
+
+**What these tests do not drive is the extension itself.** They inject the reader
+from disk rather than installing the packed extension, for the reason 048
+research.md §9 gives: about 158 tests reach the readers through this module's
+driver, and putting all of them behind a persistent browser context would risk
+the suite's largest file to cover plumbing that a handful of tests can cover.
+``tests/e2e/test_capture_extension.py`` is where the real extension is loaded.
 
 **The image host.** A stdlib ``http.server`` thread serving ``fixtures/images/``.
 ``page.route`` is no help for the images because it is the *application* that
@@ -46,6 +53,7 @@ from playwright.sync_api import expect
 from tests.e2e import specification_rows
 
 FIXTURES = Path(__file__).parent / "fixtures"
+CAPTURE_AGENT = Path(__file__).parents[2] / "extension" / "capture-agent.js"
 
 ASIN = "B0CKXJLP4B"
 # What the operator's tab looks like: the canonical path plus the search-result
@@ -69,45 +77,73 @@ def serve_listing(page, image_host, fixture="amazon_listing.html"):
     )
 
 
-def run_bookmarklet(page, live_server, tab_url, landing="#capture-form"):
-    """Click the real bookmarklet on whatever page is being served; return the tab.
+def run_capture(page, live_server, tab_url, landing="#capture-form"):
+    """Run the real reader on whatever page is being served; return the landing tab.
 
-    The bookmarklet is read off this application's own page rather than
-    reconstructed, so the loader is under test too: one pointing at the wrong
-    address, or one that stopped cache-busting, fails here.
+    Three modules import this, so keeping its signature is what let the
+    bookmarklet come out from under ~158 tests in one change rather than five.
 
-    It is *clicked* rather than evaluated because a form submission into a new
-    tab needs a user activation to escape the popup blocker -- which is exactly
-    what the operator's click on a real bookmark provides.
+    It does what the extension's service worker does, minus the extension: it
+    injects ``extension/capture-agent.js`` into the vendor tab -- the file on
+    disk, so a reader that stopped defining its entry point fails here -- calls
+    the entry point, awaits the payload, and posts it. Playwright's ``add_script_tag``
+    runs the file in the page's main world rather than an isolated one; that is a
+    difference from the extension and it does not matter here, because no fixture
+    serves a content policy. A page that *does* is what issue #133 was, and what
+    quickstart.md §3a checks by hand against the real McMaster.
+
+    **What this no longer covers is the submission.** The extension posts from a
+    page of its own (048 research.md §3), which only exists inside the extension,
+    so this posts the payload the way that page will and
+    tests/e2e/test_capture_extension.py covers the page itself. The divergence is
+    one small function wide and is stated rather than hidden.
 
     ``landing`` names what proves the new tab has rendered. It defaults to the
     ordinary confirmation form; a McMaster order lands on the review instead,
-    which is a different page with a different form on it. Feature 028 reuses
-    this function from tests/e2e/test_mcmaster_order.py rather than copying it,
-    so the loader stays under test on both paths.
+    which is a different page with a different form on it.
     """
-    page.goto(f"{live_server.url}/products/capture")
-    expect(page.locator("#capture-bookmarklet")).to_be_visible()
-    bookmarklet = page.locator("#capture-bookmarklet").get_attribute("href")
-
     page.goto(tab_url)
-    page.evaluate(
-        """(href) => {
-            const link = document.createElement('a');
-            link.id = 'e2e-run-bookmarklet';
-            link.href = href;
-            link.textContent = 'Capture to Workshop';
-            document.body.appendChild(link);
+    page.add_script_tag(path=str(CAPTURE_AGENT))
+    # `capture()` settles only when the reader is done -- an Amazon order reads
+    # each line's listing first -- so awaiting it here is the whole wait, and the
+    # payload cannot predate a completed read (pattern C).
+    fields = page.evaluate("() => globalThis.workshopCapture.capture()")
+
+    # What extension/submit.js will do, in its own tab: build a form from the
+    # payload's own keys and POST it. A key the reader omitted -- `vendor` on a
+    # plain Amazon listing -- must produce no field at all (FR-003), which is why
+    # this iterates the object rather than naming the five fields.
+    #
+    # The form is built on the home page rather than on `/products/capture`
+    # because a form needs a document to live in and this one must carry neither
+    # `#capture-form` nor `#order-lines`: every caller's `landing` marker has to
+    # be something only the landing can satisfy, or the wait below passes before
+    # the POST has been made.
+    landed = page.context.new_page()
+    landed.set_default_timeout(60000)
+    landed.set_default_navigation_timeout(60000)
+    landed.goto(f"{live_server.url}/")
+    landed.evaluate(
+        """([endpoint, submitted]) => {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = endpoint;
+            for (const [name, value] of Object.entries(submitted)) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = value;
+                form.appendChild(input);
+            }
+            document.body.appendChild(form);
+            form.submit();
         }""",
-        bookmarklet,
+        [f"{live_server.url}/api/capture", fields],
     )
 
-    with page.expect_popup() as popup:
-        page.click("#e2e-run-bookmarklet")
-
-    landed = popup.value
-    # The landing is a full navigation, so the form's presence is the completion
-    # signal and a field read before it lands would read empty (pattern C).
+    # The landing is a full navigation, so the marker's presence is the
+    # completion signal and a field read before it lands would read empty
+    # (pattern C).
     expect(landed.locator(landing)).to_be_visible()
     return landed
 
@@ -120,7 +156,7 @@ def listing_url(live_server):
 def capture_from_listing(page, live_server, image_host, fixture="amazon_listing.html"):
     """Serve the fixture listing and capture from it."""
     serve_listing(page, image_host, fixture)
-    return run_bookmarklet(page, live_server, listing_url(live_server))
+    return run_capture(page, live_server, listing_url(live_server))
 
 
 def confirm(landed, **fields):
@@ -222,7 +258,7 @@ def test_a_page_the_agent_cannot_read_captures_exactly_as_it_does_today(
                  "<body><p>Nothing here.</p></body></html>",
         ),
     )
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
 
     # Exactly today's behaviour: the item id off the address, the title off the
     # page, and nothing claimed that was not found.
@@ -328,7 +364,7 @@ def test_a_gallery_array_written_as_a_plain_literal_is_still_read(
         LISTING_ROUTE,
         lambda route: route.fulfill(status=200, content_type="text/html", body=literal),
     )
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
 
     assert len(payload_of(landed)["images"]) == GALLERY_IMAGE_COUNT
 
@@ -432,7 +468,7 @@ def test_an_unreachable_image_costs_that_image_and_nothing_else(
         LISTING_ROUTE,
         lambda route: route.fulfill(status=200, content_type="text/html", body=body),
     )
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
     confirm(landed, description="12V 3A PSU")
 
     # The purchase exists, and the flash names what did not land. Its own
@@ -469,7 +505,7 @@ def test_the_same_image_named_twice_is_stored_once(page, live_server, image_host
         LISTING_ROUTE,
         lambda route: route.fulfill(status=200, content_type="text/html", body=body),
     )
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
 
     # Two distinct addresses go across; only one image is stored.
     assert len(payload_of(landed)["images"]) == GALLERY_IMAGE_COUNT
@@ -633,7 +669,7 @@ def test_a_listing_without_a_brand_story_captures_exactly_as_before(
     probed listings carry. The exclusion must not need the container to exist.
     """
     serve_aplus_variant(page, image_host, without_brand_story)
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
 
     payload = payload_of(landed)
     assert payload["images"] == [
@@ -685,7 +721,7 @@ def test_a_nested_carousel_reaches_neither_the_images_nor_the_description(
     that the fixture-only evidence had a hole in it.
     """
     serve_aplus_variant(page, image_host, with_brand_story_nested)
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
     payload = payload_of(landed)
 
     description = payload["description_text"]
@@ -721,7 +757,7 @@ def test_images_are_gathered_from_every_region_not_only_the_first(
             'id="aplusBrandStory_feature_div"', 'id="aplusStoryRenamed_feature_div"'
         ),
     )
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
 
     images = payload_of(landed)["images"]
     # Not one content image lost, though the first block matched is now the
@@ -950,8 +986,8 @@ def test_reading_the_listing_does_not_change_it(page, live_server, image_host):
     """
     serve_listing(page, image_host, "amazon_listing_aplus.html")
 
-    first = payload_of(run_bookmarklet(page, live_server, listing_url(live_server)))
-    second = payload_of(run_bookmarklet(page, live_server, listing_url(live_server)))
+    first = payload_of(run_capture(page, live_server, listing_url(live_server)))
+    second = payload_of(run_capture(page, live_server, listing_url(live_server)))
 
     assert first == second
 
@@ -1248,7 +1284,7 @@ def test_a_barcode_that_fails_its_check_digit_is_not_recorded(
 ):
     """016 US2: nobody typed it, so nobody would see a prompt -- refuse it"""
     serve_listing_with_upc(page, image_host, CORRUPTED_UPC)
-    landed = run_bookmarklet(page, live_server, listing_url(live_server))
+    landed = run_capture(page, live_server, listing_url(live_server))
     confirm(landed, description="12V 3A PSU")
 
     expect(
@@ -1390,7 +1426,7 @@ def test_a_repeat_buy_no_longer_has_to_answer_the_identifier_question(
 
     The manufacturer and the part number together are the evidence that decides
     whether a capture landing on an existing product's identifier is the same
-    product or a recycled id (006 FR-019, `_corroborates`). The bookmarklet has
+    product or a recycled id (006 FR-019, `_corroborates`). The reader has
     always supplied the manufacturer; until 019 nothing supplied the part number,
     so the pair never corroborated and every re-capture raised the question.
 

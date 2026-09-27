@@ -89,6 +89,16 @@ The project uses **Nox** for consistent test execution across environments. All 
 
 **Technology**: Playwright with Chromium browser + MariaDB 11.8 testcontainer
 
+**One module launches its own browser.** `tests/e2e/test_capture_extension.py`
+loads the real browser capture extension, and Chromium runs extensions only
+under a persistent context -- so it uses `launch_persistent_context` with
+`channel="chromium"` (which is what lets one run headless) rather than the
+shared `page` fixture. It also loads a *copy* of `extension/` with a host
+permission added for the harness's own origin, because `activeTab` is granted
+by a real toolbar click and there is no toolbar in a headless browser. Both
+divergences are argued at the top of that file; the shipped manifest's
+permissions are asserted separately in `tests/unit/test_extension_manifest.py`.
+
 **Runtime**: under 10 minutes for the full suite on a warm environment (dependencies installed, Playwright browsers present, MariaDB image pulled). A cold start adds a few minutes for the image pull and browser download. Screenshot-generation tests are *not* part of this session — see below.
 
 **Runtime is a maintained property, not an accident.** The suite took 22m 27s until the work in `specs/002-e2e-test-performance/`, and over half of every test body was spent blocking on a clock. Keeping it fast is the job of the authoring rules in the next section, not of periodic cleanups.

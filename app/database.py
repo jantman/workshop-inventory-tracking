@@ -1055,7 +1055,7 @@ class Purchase(Base):
     # The raw vendor title captured at order time (FR-020), deliberately
     # distinct from the operator's own products.description.
     listing_title = Column(String(500), nullable=True)
-    # The listing's address, as the bookmarklet or the operator supplied it.
+    # The listing's address, as the extension or the operator supplied it.
     # Its own column rather than a line in notes, because the duplicate check
     # falls back to it when the URL yields no item id -- and notes is a field the
     # receive screen invites the operator to overwrite. Not indexed: the lookup

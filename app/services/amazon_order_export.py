@@ -41,7 +41,7 @@ REQUIRED_COLUMNS = ('Order ID', 'Website')
 STATUS_COLUMN = 'Order Status'
 
 #: The shape the capture agent recognizes, from
-#: ``app/static/js/capture-agent.js``'s ``AMAZON_ORDER_ID_PATTERN``. Amazon's
+#: ``extension/capture-agent.js``'s ``AMAZON_ORDER_ID_PATTERN``. Amazon's
 #: digital orders (``D01-...``) live in a different file of the export and are
 #: filtered out by this for free, which is the right outcome -- they are not
 #: physical goods and there is nothing to receive.

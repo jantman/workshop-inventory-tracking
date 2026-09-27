@@ -37,8 +37,8 @@
                would be invisible until the day it mattered. #}
             <input type="hidden" name="listing" value="{{ form_data.get('listing') or '' }}"/>
 
-            {% if from_bookmarklet %}
-            <div class="alert alert-info" id="bookmarklet-landing">
+            {% if from_extension %}
+            <div class="alert alert-info" id="extension-landing">
                 Read off the listing. <strong>Nothing has been recorded yet</strong> — write
                 the description while the page is still open, then capture.
             </div>
@@ -290,7 +290,7 @@
                                **Tests whether the key is present, not whether
                                the value is truthy** -- and that is the whole of
                                019 FR-006. form_data has no such key on either
-                               first render (the bookmarklet's landing dict, and
+                               first render (the extension's landing dict, and
                                request.args on the GET), so the listing fills the
                                field. It always has one on a re-render, because
                                this form submits the field, so what comes back is
@@ -542,40 +542,30 @@
     <div class="col-lg-5">
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-bookmark-star"></i> The faster way</h5>
+                <h5 class="mb-0"><i class="bi bi-puzzle"></i> The faster way</h5>
             </div>
             <div class="card-body">
-                {% if request.scheme != 'https' %}
-                <div class="alert alert-warning small" id="bookmarklet-http-warning">
-                    <strong>Not from this page.</strong> Amazon and others tell the browser to
-                    upgrade every outgoing link to <code>https</code>, and you are viewing this
-                    page over <code>http</code> -- so a bookmarklet dragged from here fails with
-                    an SSL error instead of reaching the app. Open this page over
-                    <code>https</code> and drag it again. The paste box on the left works either
-                    way.
-                    {# If the address bar says https and this box is still here, the TLS
-                       terminator in front of the app is not sending X-Forwarded-Proto:
-                       the app is reading the connection it actually got. Issue #89. #}
-                    If the address bar already says <code>https</code>, the reverse proxy
-                    terminating TLS is not sending <code>X-Forwarded-Proto</code>, and the app
-                    cannot tell.
-                </div>
-                {% endif %}
-
                 <p class="small text-muted">
-                    Drag this to your bookmarks bar. On a vendor's listing, click it: a new tab
-                    opens on the confirmation page below, already filled in.
+                    The <strong>Workshop Capture</strong> browser extension reads the listing
+                    off the vendor's own page. Install it, point it at this application's
+                    address once, and a click on its toolbar button lands you here already
+                    filled in.
                 </p>
 
                 <p>
-                    <a class="btn btn-outline-primary" id="capture-bookmarklet"
-                       href="{{ bookmarklet }}"
-                       onclick="alert('Drag this to your bookmarks bar rather than clicking it here.'); return false;">
-                        Capture to Workshop
+                    <a class="btn btn-outline-primary" id="capture-extension-docs"
+                       href="https://github.com/jantman/workshop-inventory-tracking/blob/main/docs/capture-extension.md"
+                       target="_blank" rel="noopener">
+                        Installing the extension
                     </a>
                 </p>
 
                 <p class="small text-muted mb-0">
+                    Download <code>capture-extension.zip</code> from the
+                    <a href="https://github.com/jantman/workshop-inventory-tracking/releases"
+                       target="_blank" rel="noopener">release</a> matching this application's
+                    version, unzip it, and load it unpacked from
+                    <code>chrome://extensions</code>.
                     It reads the listing: the price, the brand, the description, the product
                     information rows, and every image the page's own data names. <strong>That
                     means it reads page markup, which is not a contract and changes without
@@ -584,13 +574,9 @@
                     why this page tells you what it found before you commit it. It is never
                     refused for reading nothing: a capture with no extraction is exactly the
                     capture this page did before.
-                    It submits a form rather than making a background request, because a
-                    background request to this host is blocked as mixed content before anything
-                    else gets a say. A form is not a way around that, though: a vendor sending
-                    <code>upgrade-insecure-requests</code> rewrites the form's destination to
-                    <code>https</code> too. Serving this application over TLS is what fixes it.
-                    Until then, and for any vendor that blocks the form outright, the paste box
-                    on the left is the path that cannot break.
+                    The extension can only reach this application over <code>https</code>, and
+                    says so where you enter the address. For any vendor it cannot read, the
+                    paste box on the left is the path that cannot break.
                 </p>
             </div>
         </div>

@@ -814,8 +814,8 @@ class TestAmendmentAtReceipt:
         assert captured.quantity == 10
 
 
-class TestTheBookmarkletLanding:
-    """FR-008, FR-009: a form POST from a vendor's origin writes nothing"""
+class TestTheExtensionLanding:
+    """FR-008, FR-009: a form POST composed outside this app writes nothing"""
 
     def test_it_renders_the_capture_form_rather_than_filing_a_purchase(self, client):
         response = client.post('/api/capture', data={
@@ -1404,7 +1404,7 @@ class TestThePartNumberFillsTheForm:
 
         assert self.field_of(response) == '7700-B'
 
-    def test_the_bookmarklet_landing_arrives_filled_from_the_listing(self, client):
+    def test_the_extension_landing_arrives_filled_from_the_listing(self, client):
         """The other first render: a form POST to /api/capture, which writes nothing"""
         response = client.post('/api/capture', data={
             'url': AMAZON_URL,

@@ -389,7 +389,7 @@ def product_detail(product_id):
 
 
 def _amazon_listing_url(asin: str) -> str:
-    """An Amazon item's own listing page -- where the capture bookmarklet reads details.
+    """An Amazon item's own listing page -- where the capture extension reads details.
 
     Built from the ASIN rather than read off a purchase: an order-captured
     purchase's ``listing_url`` is the *order* page (``_amazon_line_fields``), not
@@ -525,10 +525,11 @@ def purchase_new(product_id):
 def product_capture():
     """Paste-a-URL capture -- the path that cannot break when a vendor changes.
 
-    The bookmarklet is the fast path, but it depends on the vendor's page letting
-    a form POST out. This form depends on nothing but the operator's clipboard.
+    The browser extension is the fast path, but it has to be installed and
+    pointed at this application. This form depends on nothing but the operator's
+    clipboard.
 
-    This is also where the write happens for both paths: the bookmarklet lands on
+    This is also where the write happens for both paths: the extension lands on
     this form pre-filled and the operator submits it from here. The route detects
     nothing of its own -- it forwards the form and renders whatever the service
     hands back, including the questions it declines to answer.
@@ -666,7 +667,7 @@ def product_capture():
 def _capture_page(form_data, listing, **extra):
     """Render the confirmation form, knowing what the listing's item number names.
 
-    Every render of ``capture.html`` goes through here -- the bookmarklet's
+    Every render of ``capture.html`` goes through here -- the extension's
     landing, the paste form, and each re-render after a question or a refused
     value -- so the "what should this capture do?" choice (044 FR-001) is on
     every one of them or on none. ``find_listing_match`` writes nothing, and it
@@ -690,7 +691,6 @@ def _capture_page(form_data, listing, **extra):
         listing=listing,
         match=match,
         detail_fields=LISTING_DETAIL_FIELDS,
-        bookmarklet=_capture_bookmarklet(),
         **extra,
     )
 
@@ -842,59 +842,6 @@ def _image_tally(images) -> str:
     return '; '.join(parts) + '.'
 
 
-def _capture_bookmarklet() -> str:
-    """Build the capture bookmarklet, bound to this server's own address.
-
-    **It is a loader and nothing else.** It appends
-    ``app/static/js/capture-agent.js`` to the vendor's page with the endpoint on
-    a data attribute, and the agent does the reading and the submitting. What
-    used to be four lines of extraction inline in a ``javascript:`` URL is now an
-    ordinary reviewable file in this repository.
-
-    ``?v=' + Date.now()`` is what makes FR-024 true: the browser never serves a
-    cached agent, so editing that file is the whole deployment story and the
-    operator never re-drags this bookmarklet. It costs one uncached ~10 KB fetch
-    per capture, which is not worth a version-stamping mechanism.
-
-    Both addresses are absolute and are fixed when *this* page renders, which is
-    why the TLS caveat below is about where you drag it from. Their scheme is
-    whatever ``request.scheme`` says, which behind a TLS-terminating proxy means
-    whatever ``X-Forwarded-Proto`` says -- see the ``ProxyFix`` wrapping in
-    ``create_app``. Without it the page renders over https and hands out http
-    addresses, which is issue #89.
-
-    Their **port** comes the same way, from ``X-Forwarded-Port``, and is the
-    part that is easy to forget because it is invisible on any deployment
-    sitting on 80 or 443. On a non-default port a proxy that does not declare
-    it hands out a bookmarklet addressed to a port nothing listens on, so the
-    agent never loads and clicking it does nothing at all -- issue #114. These
-    two addresses are the only ones in the application that have to survive
-    being read from another origin; everything else is relative and would not
-    have noticed.
-
-    The agent still submits a **form into a new tab** rather than issuing a
-    fetch: the vendor page is HTTPS and this app is plain HTTP on the LAN, so a
-    fetch is refused as mixed content before CSRF, CORS or the page's CSP are
-    ever consulted, whereas a form submission is a navigation and is exempt from
-    that rule.
-
-    The new tab lands on this app's own confirmation page, which is also where
-    the operator amends anything the listing did not yield.
-    """
-    endpoint = url_for('product.api_capture', _external=True)
-    agent = url_for('static', filename='js/capture-agent.js', _external=True)
-
-    script = (
-        "javascript:(function(){"
-        "var s=document.createElement('script');"
-        f"s.src='{agent}?v='+Date.now();"
-        f"s.dataset.endpoint='{endpoint}';"
-        "document.body.appendChild(s);"
-        "})();"
-    )
-    return script
-
-
 @bp.route('/api/capture', methods=['POST'])
 @csrf.exempt
 def api_capture():
@@ -902,12 +849,12 @@ def api_capture():
 
     Two representations, and they no longer do the same thing.
 
-    **A form body -- the bookmarklet -- writes nothing.** It renders the capture
-    form, pre-filled with what the URL and the page title yielded, and the
-    operator confirms it from this application's own origin. That is what makes
-    the description authorable while the listing is still on screen, and it is
-    why an abandoned capture leaves no trace: there was never a record to clean
-    up, only a page that got closed.
+    **A form body -- the browser extension -- writes nothing.** It renders the
+    capture form, pre-filled with what the URL and the page title yielded, and
+    the operator confirms it from this application's own origin. That is what
+    makes the description authorable while the listing is still on screen, and
+    it is why an abandoned capture leaves no trace: there was never a record to
+    clean up, only a page that got closed.
 
     **A JSON body still writes**, honouring the same decision parameters
     ``product_capture`` forwards, and answering 409 with the assessment when the
@@ -920,30 +867,29 @@ def api_capture():
     the app; that was mistaken about the existing code, and the claim is recorded
     accurately here instead.)
 
-    The bookmarklet posts from the vendor's own origin, so a CSRF token cannot
-    travel with it. The exemption is proportionate under the constitution's
-    stated threat model: the app is LAN-only, has one trusted user, and treats
-    hostile input as out of scope -- and it is now narrower than it was, because
-    the representation that arrives from a vendor's origin does not write at all.
+    The extension composes its submission outside this application, so a CSRF
+    token cannot travel with it. The exemption is proportionate under the
+    constitution's stated threat model: the app is LAN-only, has one trusted
+    user, and treats hostile input as out of scope -- and it is narrower than it
+    reads, because the representation that arrives from a browser does not write
+    at all. It is narrower still since feature 048: the submitting document is
+    the extension's own page rather than a vendor's.
 
-    Accepts a form POST as well as JSON, because the bookmarklet submits a form
-    into a new tab rather than issuing a fetch: a fetch from an HTTPS vendor page
-    to an HTTP host is refused as mixed content before CSRF, CORS or the page's
-    CSP are ever consulted.
+    Accepts a form POST as well as JSON, because the extension submits a form
+    rather than issuing a fetch. A fetch would need CORS configuration this
+    application does not have; a form submission is a navigation, and the page
+    it lands on is the confirmation form the operator was going to need anyway.
 
-    **A form submission is not a way around that, and an earlier version of this
-    docstring claimed it was.** Chrome's mixed-content *blocking* does treat a
-    form POST as a navigation and let it through, but a vendor sending
-    ``Content-Security-Policy: upgrade-insecure-requests`` -- which Amazon does --
-    rewrites every insecure URL its document initiates, form submissions
-    included, from http to https. Against a plain-HTTP server the POST arrives as
-    a TLS handshake and dies with ERR_SSL_PROTOCOL_ERROR. There is no carve-out
-    to exploit.
-
-    **The bookmarklet therefore works only when this application is served over
-    TLS**, and only when it was dragged from the https page -- the address it
-    posts to is fixed when that page renders. Both confirmed working against a
-    real Amazon listing. The paste-a-URL page works either way and is the one
+    **This application must still be served over TLS for capture to work.** The
+    mechanism that forced that -- a vendor sending
+    ``Content-Security-Policy: upgrade-insecure-requests``, which rewrote the
+    bookmarklet's insecure POST into a TLS handshake against a plain-HTTP port --
+    no longer applies, because the vendor's document no longer initiates the
+    submission. But an extension page is itself a secure context, so a
+    submission from it to a plain-``http`` address is a downgrade the browser may
+    refuse anyway. The requirement is retained rather than dropped on a theory,
+    and the extension's options screen is where the operator is told
+    (048 research.md §4). The paste-a-URL page works either way and is the one
     covered by tests.
     """
     service = _get_catalog_service()
@@ -958,9 +904,8 @@ def api_capture():
     )
 
     # An order read off a page rides the same endpoint as one extra form field,
-    # because
-    # the bookmarklet's text cannot change without the operator re-dragging it
-    # (FR-034, research.md §2). **This still writes nothing** -- it is a read of
+    # rather than getting an endpoint of its own (028 FR-034, research.md §2).
+    # **This still writes nothing** -- it is a read of
     # the payload plus a read of the catalog, and the operator can close the tab
     # with no trace left (FR-005).
     #
@@ -971,7 +916,7 @@ def api_capture():
         return _page_order_review(service, data.get('order'))
 
     if not request.is_json:
-        # The bookmarklet's new tab lands here. Show the operator what the URL
+        # The extension's new tab lands here. Show the operator what the URL
         # yielded and let them finish it; the write happens when they submit to
         # product_capture, which is on this app's origin and carries a token.
         #
@@ -994,7 +939,7 @@ def api_capture():
             # back to it (US1 scenarios 1 and 2) and the "what will be written"
             # panel is built from it (FR-017). Reading it is not writing it.
             ListingCapture.from_json(data.get('listing')),
-            from_bookmarklet=True,
+            from_extension=True,
         )
 
     try:

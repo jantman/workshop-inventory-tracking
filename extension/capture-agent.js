@@ -1,22 +1,24 @@
 /**
- * The capture agent: what the bookmarklet loads into a vendor's listing page.
+ * The capture agent: what the extension injects into a vendor's listing page.
  *
- * The bookmarklet is only a loader now. It appends this file as a <script> with
- * `data-endpoint` naming this application's /api/capture, and everything that
- * reads the listing lives here -- in an ordinary reviewable file in this
- * repository rather than in a few hundred lines of unreadable `javascript:` URL.
- * The loader cache-busts, so editing this file is the whole deployment story.
+ * **It reads, and returns what it read. It does not submit.** The service
+ * worker injects this file into the tab's *isolated world* and then calls
+ * `workshopCapture.capture()`, whose promise settles with the fields the
+ * extension's own submit page will POST. Everything about the transport lives
+ * outside this file now.
  *
- * **It submits a form into a new tab rather than issuing a fetch.** A fetch from
- * the vendor's origin to this host would need CORS configuration this
- * application does not have, and would be refused as mixed content besides. A
- * form submission is a navigation: no preflight, no response header for the
- * vendor to influence, and it is the one path proven to survive Amazon's
- * `upgrade-insecure-requests` (issue #54).
+ * The isolated world is the whole point. A content script running there carries
+ * its own content-security policy rather than the host page's, so McMaster's
+ * `script-src` -- which refused the bookmarklet's subresource outright, and is
+ * issue #133 -- is never consulted. Nothing here needs the page's JavaScript,
+ * only its DOM, which the isolated world shares.
  *
- * The payload rides as one hidden `listing` field holding JSON. `url` and
- * `listing_title` are still sent unchanged, so a server that ignored `listing`
- * entirely would behave exactly as it does today.
+ * The payload rides as one `listing` field holding JSON. `url` and
+ * `listing_title` are sent unchanged, so a server that ignored `listing`
+ * entirely would behave exactly as it does today. `order` and `vendor` are
+ * *absent* rather than empty when they do not apply: the submit page builds its
+ * form from this object's own keys, and a field that is not sent is not the
+ * same as one sent empty.
  *
  * **Every extraction step here is independent and optional.** Amazon's markup is
  * not a contract; today's capture reads only the URL for exactly that reason,
@@ -1716,13 +1718,15 @@
     /**
      * Say what the agent is doing while it reads (044 FR-023).
      *
-     * On the Amazon page, inline-styled because nothing on a vendor's page can
-     * be relied on for a stylesheet -- and in the tab the review will land in,
-     * which the operator's eye has usually already moved to.
-     *
-     * @param {Window|null} landing - the tab opened for the review, if any.
+     * Inline-styled because nothing on a vendor's page can be relied on for a
+     * stylesheet. The banner is the whole of it now: this used to also write
+     * into a blank tab opened before the read began, because the form was
+     * submitted from this page and the click's activation had to be spent
+     * before it expired. The extension opens the landing tab from its service
+     * worker after the read completes (research.md §3), so there is no tab to
+     * write into and nothing to spend.
      */
-    function showProgress(landing) {
+    function showProgress() {
         const banner = document.createElement('div');
         banner.id = 'workshop-capture-progress';
         banner.setAttribute('role', 'status');
@@ -1734,15 +1738,6 @@
 
         const say = function (text) {
             banner.textContent = text;
-            if (landing) {
-                try {
-                    landing.document.title = text;
-                    landing.document.body.textContent = text;
-                } catch (error) {
-                    // The tab has already navigated away, or was closed. The
-                    // banner on this page still says it.
-                }
-            }
         };
         say('Workshop capture: reading the order…');
 
@@ -1756,137 +1751,145 @@
         };
     }
 
+
     // ---------------------------------------------------------------
-    // Transport
+    // The entry point
     // ---------------------------------------------------------------
 
     /**
-     * POST the payload into a new tab, landing on this app's confirmation page.
+     * The fields the extension's submit page will POST, as an object.
      *
-     * @param {string} endpoint - this application's /api/capture, absolute.
-     * @param {object} listing - the payload, serialized into the hidden field.
-     * @param {string} [vendor] - declared only when a McMaster page was
-     *        recognized. An Amazon capture must send no `vendor` field at all
-     *        and be byte-identical to what it sent before this existed.
-     * @param {object} [order] - a McMaster order payload, for an order page.
-     * @param {string} [target] - the name of a tab already opened for the
-     *        review (044). Absent means a new tab, as it always was.
+     * This is what `submitCapture()` used to build a `<form>` out of, stopping
+     * one step earlier. The keys are the form's field names and the values are
+     * its values, which is why `order` and `vendor` are *omitted* rather than
+     * set to a falsy value: the submit page appends an input per key it finds,
+     * and an empty `vendor` is not the same as no `vendor` at all. A plain
+     * Amazon listing sends none, and FR-003 requires that to stay true.
+     *
+     * @param {object} listing - the extraction, serialized into `listing`.
+     * @param {string} [vendor] - declared only when a McMaster or Amazon order
+     *        page was recognized. `product_capture()` already prefers a
+     *        submitted vendor over the one it derives from the URL, so this
+     *        fills a field that already exists rather than growing one.
+     * @param {object} [order] - an order payload, for an order page. The server
+     *        branches on its presence; a server that did not read it would
+     *        render the ordinary confirmation form, which is the documented
+     *        fall-through rather than a failure.
+     * @returns {{url: string, listing_title: string, listing: string,
+     *     order?: string, vendor?: string}}
      */
-    function submitCapture(endpoint, listing, vendor, order, target) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = endpoint;
-        form.target = target || '_blank';
-
-        const add = function (name, value) {
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = name;
-            input.value = value;
-            form.appendChild(input);
+    function payloadFields(listing, vendor, order) {
+        const fields = {
+            url: listing.source_url,
+            listing_title: listing.listing_title || document.title,
+            listing: JSON.stringify(listing)
         };
-
-        add('url', listing.source_url);
-        add('listing_title', listing.listing_title || document.title);
-        add('listing', JSON.stringify(listing));
         if (order) {
-            // One hidden field holding JSON, present only for a McMaster order
-            // page. The server branches on it; a server that did not read it
-            // would render the ordinary confirmation form, which is the
-            // documented fall-through rather than a failure.
-            add('order', JSON.stringify(order));
+            fields.order = JSON.stringify(order);
         }
         if (vendor) {
-            // `product_capture()` already prefers a submitted vendor over the
-            // one it derives from the URL (app/product/routes.py), so this is
-            // the agent filling a field that already exists rather than the
-            // server growing anything.
-            add('vendor', vendor);
+            fields.vendor = vendor;
+        }
+        return fields;
+    }
+
+    /**
+     * The kind of page this is, or null when it is not one the readers read.
+     *
+     * `pageKind` answers 'other' for two quite different pages: a plain Amazon
+     * listing, which *is* captured and always has been, and a search results
+     * page or a McMaster family table, which is not. FR-008 requires the
+     * operator to be told about the second, so the difference has to be
+     * expressible -- and an ASIN in the path is what expresses it, using the
+     * pattern the 'other' branch itself reads.
+     *
+     * The service worker asks *this*, rather than matching paths of its own.
+     * Two copies of these rules would be two chances for them to disagree
+     * (data-model.md, "Supported page kind").
+     *
+     * Still never the hostname, for the reason `pageKind` gives: the e2e
+     * harness serves every vendor fixture from the application's own origin.
+     *
+     * @param {Location|{pathname: string, search: string}} loc - `location`.
+     * @returns {string|null} a page kind, or null for a page it cannot read.
+     */
+    function readableKind(loc) {
+        const kind = pageKind(loc);
+        if (kind !== 'other') {
+            return kind;
+        }
+        return ASIN_PATTERN.test(loc.pathname) ? 'amazon-listing' : null;
+    }
+
+    /**
+     * Read this page and resolve with what the extension should send.
+     *
+     * The dispatch below is the bookmarklet's, unedited except that each branch
+     * *returns* its fields instead of submitting them. The 'other' branch is
+     * what ran before any of this existed, so an Amazon capture still sends
+     * exactly the fields it sent yesterday.
+     *
+     * @returns {Promise<object>} the fields, per `payloadFields`.
+     */
+    function capture() {
+        const kind = pageKind(location);
+
+        if (kind === 'amazon-order') {
+            const orderId = (location.search.match(AMAZON_ORDER_ID_PATTERN) || [])[1] || '';
+            const order = amazonOrder(document, location.href, orderId);
+            // 044: each line's own listing is read before the payload is
+            // complete, which takes seconds. Nothing is waiting on a click's
+            // activation any more -- the worker opens the landing tab when the
+            // promise below settles -- so the banner is all the progress there
+            // is to show, and all there needs to be.
+            const progress = showProgress();
+
+            return readOrderListings(order, progress.update).then(function () {
+                progress.remove();
+                // `listing` rides along and is read exactly as it always was.
+                return payloadFields(
+                    extract(document, location.href, null), AMAZON_VENDOR, order
+                );
+            });
         }
 
-        document.body.appendChild(form);
-        form.submit();
-        form.remove();
-    }
+        if (kind === 'mcmaster-product') {
+            const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];
+            // Read against the live document, and no canonical re-fetch. That is
+            // right on the merits rather than by omission: McMaster renders
+            // client-side, so a re-fetch returns an unrendered shell -- strictly
+            // worse than the document the operator is looking at (research.md §6).
+            return Promise.resolve(payloadFields(
+                mcmasterListing(document, location.href, part), MCMASTER_VENDOR
+            ));
+        }
 
-    const script = document.currentScript;
-    const endpoint = script && script.dataset ? script.dataset.endpoint : null;
-    if (!endpoint) {
-        // Without an endpoint there is nowhere to send it, and guessing this
-        // application's address from a vendor's page is not possible.
-        console.error('[capture-agent] no data-endpoint on the script element');
-        return;
-    }
-
-    // The dispatch. It *wraps* the existing path rather than editing it: the
-    // 'other' branch below is what ran before this existed, unchanged, and an
-    // Amazon capture posts exactly the fields it posted yesterday.
-    const kind = pageKind(location);
-
-    if (kind === 'amazon-order') {
-        const orderId = (location.search.match(AMAZON_ORDER_ID_PATTERN) || [])[1] || '';
-        const order = amazonOrder(document, location.href, orderId);
-
-        // 044: each line's own listing is read before submitting, which takes
-        // seconds -- longer than the few the browser allows between a click and
-        // a script opening a tab. So the review's tab is opened *now*, while
-        // the click on the bookmark still counts, and the form is submitted
-        // into it by name once the reads are done. If even this is blocked the
-        // form falls back to a new tab, which is exactly what it did before.
-        const target = 'workshop-capture-' + Date.now();
-        const landing = window.open('', target);
-        const progress = showProgress(landing);
-
-        readOrderListings(order, progress.update).then(function () {
-            progress.remove();
-            // `listing` rides along and is read exactly as it always was. A
-            // server that did not know about `order` would render the ordinary
-            // confirmation form from it, which is the documented fall-through
-            // rather than a failure.
-            submitCapture(
-                endpoint,
+        if (kind === 'mcmaster-order') {
+            const orderId = location.pathname.match(MCMASTER_ORDER_PATTERN)[1];
+            return Promise.resolve(payloadFields(
                 extract(document, location.href, null),
-                AMAZON_VENDOR,
-                order,
-                landing ? target : null
-            );
+                MCMASTER_VENDOR,
+                mcmasterOrder(document, location.href, orderId)
+            ));
+        }
+
+        const asinMatch = location.pathname.match(ASIN_PATTERN);
+        const asin = asinMatch ? asinMatch[1] : null;
+
+        return canonicalDocument(asin).then(function (source) {
+            return payloadFields(extract(source.doc, source.url, asin));
         });
-        return;
     }
 
-    if (kind === 'mcmaster-product') {
-        const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];
-        // Read against the live document, and no canonical re-fetch. That is
-        // right on the merits rather than by omission: McMaster renders
-        // client-side, so a re-fetch returns an unrendered shell -- strictly
-        // worse than the document the operator is looking at (research.md §6).
-        submitCapture(
-            endpoint,
-            mcmasterListing(document, location.href, part),
-            MCMASTER_VENDOR
-        );
-        return;
-    }
-
-    if (kind === 'mcmaster-order') {
-        const orderId = location.pathname.match(MCMASTER_ORDER_PATTERN)[1];
-        // `listing` still rides along and is still read the same way. A server
-        // that did not know about `order` would render the ordinary
-        // confirmation form from it, which is the documented fall-through
-        // (contracts/capture-payload.md §6) rather than a failure.
-        submitCapture(
-            endpoint,
-            extract(document, location.href, null),
-            MCMASTER_VENDOR,
-            mcmasterOrder(document, location.href, orderId)
-        );
-        return;
-    }
-
-    const asinMatch = location.pathname.match(ASIN_PATTERN);
-    const asin = asinMatch ? asinMatch[1] : null;
-
-    canonicalDocument(asin).then(function (source) {
-        submitCapture(endpoint, extract(source.doc, source.url, asin));
-    });
+    // What the service worker calls, in a second `executeScript` after this
+    // file is injected. Injections into the same frame share one isolated
+    // world, so the assignment made here is what the next call finds
+    // (research.md §7). An assignment rather than a declaration, so a second
+    // capture in the same tab re-injecting this file is harmless.
+    globalThis.workshopCapture = {
+        readableKind: function () {
+            return readableKind(location);
+        },
+        capture: capture
+    };
 })();

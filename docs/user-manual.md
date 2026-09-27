@@ -1114,7 +1114,7 @@ where you are buying from:
 
 | | **Amazon** | **DigiKey** | **McMaster-Carr** | **Anywhere else** |
 |---|---|---|---|---|
-| **A whole order at once** | Bookmarklet, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order* — pick from your recent orders, or type a sales order number | Bookmarklet, on the order page | — |
+| **A whole order at once** | Browser extension, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order* — pick from your recent orders, or type a sales order number | Browser extension, on the order page | — |
 | **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names | No reader of its own; use the part lookup below, which brings back more | Yes — title, price, pack size, specifications, images | No reader of its own; the general reader runs and usually finds little |
 | **One item, from the address** | Yes; the item id comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address and a vendor name; you fill in the rest |
 | **Catalog detail filled in for you** | — | Yes — manufacturer, category, datasheet, photograph, parametric specifications | — | — |
@@ -1128,8 +1128,9 @@ you had this catalog, see [Backfilling Past Orders](#backfilling-past-orders) --
 the same capture, plus a way to find the orders and a way to say they have
 already arrived.
 
-**One item with the page read** is the bookmarklet on a listing: it reads what
-the page states, so you get price and specifications rather than just a title.
+**One item with the page read** is the [browser extension](capture-extension.md)
+on a listing: it reads what the page states, so you get price and specifications
+rather than just a title.
 
 **One item from the address** is the paste-a-URL form below, and it works for
 anything at all. Nothing on the page is read on this path — only the address —
@@ -1156,8 +1157,9 @@ fills blanks — anything you have set yourself is left as you set it.
 
 **DigiKey is the only vendor that needs configuring.** Without credentials, its
 two screens still open and say they are not configured, and nothing else changes:
-Amazon and McMaster-Carr capture need nothing but the bookmarklet, because your
-own browser does the reading. See
+Amazon and McMaster-Carr capture need nothing but the
+[browser extension](capture-extension.md), because your own browser does the
+reading. See
 [DigiKey order capture and part lookup](deployment-guide.md#digikey-order-capture-and-part-lookup-optional)
 in the deployment guide.
 
@@ -1168,20 +1170,23 @@ price while the listing is still on screen, so that nothing has to be
 reconstructed at unboxing.
 
 ![Capture an Order](images/screenshots/user-manual/order_capture.png)
-*Capturing an order: paste the listing URL, or use the bookmarklet. The warning on the right is what an `http://` page shows*
+*Capturing an order: paste the listing URL, or use the browser extension*
 
 Two ways in:
 
 1. **Paste the URL** into the form. The vendor comes from the address, and for
    Amazon the item id comes out of the `/dp/` path. Fill in anything the URL did
    not yield. This path cannot break when a vendor changes their site.
-2. **The bookmarklet.** Drag *Capture to Workshop* to your bookmarks bar once. On
-   a listing, click it: a new tab opens on this application's confirmation page,
-   already filled in. It now reads the listing itself, not just the address --
-   for an Amazon page that means the price, the brand, the description, the
-   *About this item* bullets, every *Product information* row, and every image
-   the page's own data names, which is usually more than the thumbnail strip
-   shows.
+2. **The browser extension.** Install it once and point it at this
+   application's address — see
+   [The Browser Capture Extension](capture-extension.md). On a listing, click
+   its toolbar button (or right-click the page and choose *Capture to
+   Workshop*): a new tab opens on this application's confirmation page, already
+   filled in, and the vendor's tab stays where it was. It reads the listing
+   itself, not just the address -- for an Amazon page that means the price, the
+   brand, the description, the *About this item* bullets, every *Product
+   information* row, and every image the page's own data names, which is usually
+   more than the thumbnail strip shows.
 
    **The *About this item* bullets arrive as one specification row** of that
    name, one bullet to a line. Read them: on some listings that section is the
@@ -1210,20 +1215,19 @@ Two ways in:
    gallery takes eight to fifteen seconds to fetch at that point, which is
    expected -- the page is downloading a dozen full-resolution images.
 
-> **The bookmarklet requires this application to be served over HTTPS**, and it
-> must be dragged from the `https://` page. Two reasons, and both bite silently:
+> **The extension requires this application to be served over HTTPS.** An
+> extension page is a secure context, and a browser may refuse to submit from one
+> to a plain-`http://` address. The extension's own options screen warns you when
+> the address you entered is not secure — which is where the mistake is made, and
+> so where it is said. It saves the address anyway; it is your installation.
 >
-> - Amazon and most large vendors send an `upgrade-insecure-requests` policy that
->   rewrites every outgoing link from their page to `https://` — the
->   bookmarklet's included. Against a plain-`http://` server that arrives as a
->   TLS handshake and fails with `ERR_SSL_PROTOCOL_ERROR`.
-> - The address the bookmarklet posts to is **baked in when the page renders**.
->   One saved from an `http://` page keeps pointing at `http://` no matter how
->   the application is served afterwards, and keeps failing. Re-drag it.
+> The paste box on the capture page works either way.
 >
-> If the capture page is showing a warning about this, you are viewing it over
-> `http://` — open it over `https://` and drag the bookmarklet again. The paste
-> box works either way.
+> **Keep the extension's version and this application's in step.** The reader
+> lives inside the extension now, so upgrading the application does not upgrade
+> the reader — you install the matching extension by hand. The extension's
+> options screen shows its version; this application's footer shows its own.
+> They should read the same.
 
 ### When it is sold as a pack
 
@@ -1372,7 +1376,7 @@ and capture again.
 
 You usually order more than one thing at a time, and capturing an eleven-item
 order one listing at a time means eleven trips back to pages you have already
-left. **Open the order and click the bookmarklet once instead.**
+left. **Open the order and capture it once instead.**
 
 ### Capturing an order
 
@@ -1386,17 +1390,17 @@ the items that are new, untick anything you do not want cataloged — a gift, a
 consumable, a digital item — and confirm. One outstanding purchase is recorded
 per line you kept, filed under the order number.
 
-Clicking the bookmarklet on the *orders list* rather than on one order does not
-work, and says so: there is no single order on that page.
+Capturing the *orders list* rather than one order does not work, and says so:
+there is no single order on that page.
 
 **Catching up on orders you placed before you had this catalog** is the same
 capture with one extra step — picking the workshop orders out of a household's
 Amazon history. See [Backfilling Past Orders](#backfilling-past-orders).
 
-**The bookmarklet reads each item's own listing too.** An order page states only
+**The extension reads each item's own listing too.** An order page states only
 a title, a quantity and a price; the pictures, the specifications, the *About
 this item* bullets and the barcodes live on each item's listing page. So after
-reading the order, the bookmarklet opens each listing in the background — a
+reading the order, the extension reads each listing in the background — a
 small box on the Amazon page counts through them, *reading listing 3 of 5…* —
 and the review shows, under each item, what its listing gave: the brand, how
 many specification rows, how many pictures, and whether a barcode was found.
@@ -1465,7 +1469,7 @@ A few things worth knowing:
   purchase, because that is usually why you are on a listing.
 - **The product's own page says so too.** A product with no details from its
   listing shows a notice with the same *Open listing* link.
-- **Re-running the bookmarklet on the order fills in what an earlier capture
+- **Capturing the order again fills in what an earlier capture
   left thin.** Lines already captured are not captured again, but the listings
   it reads still fill in their products, and the message says how many gained
   details. This is the quickest way to fix an order captured before listings were
@@ -1658,16 +1662,17 @@ A McMaster order has the same shape problem a DigiKey one does — a dozen or tw
 lines placed in one checkout, arriving as a box of anonymous bags — but the
 opposite premise. **There is no API to read it from.** McMaster's requires an
 application review a one-person workshop will not pass, so the order is read off
-the page you are looking at, by the same capture bookmarklet you use on Amazon.
+the page you are looking at, by the same
+[browser extension](capture-extension.md) you use on Amazon.
 
 **Nothing needs setting up.** Unlike DigiKey, there is no account to register, no
-key to paste and no connection to configure. The bookmarklet carries your own
-signed-in session, which is why it can see an order page at all.
+key to paste and no connection to configure. The extension reads the page in
+your own signed-in session, which is why it can see an order page at all.
 
 ### Capturing an order
 
 Open one order from **Order History** on McMaster's site, so that order's own
-address is showing, and click the capture bookmarklet. A tab opens here with
+address is showing, and capture it from the extension. A tab opens here with
 every line of the order in it.
 
 The same walk down that Order History page is how you catch up on orders placed
@@ -1743,14 +1748,14 @@ opens the product. Nothing is ever received twice by scanning it twice.
 
 ### Capturing a single part
 
-The same bookmarklet works on a McMaster **product** page. The confirmation form
+The same extension works on a McMaster **product** page. The confirmation form
 arrives carrying the part number, McMaster's description, the price, what a pack
 holds, the specification table and the product image, with nothing typed. Write
 your own label description over McMaster's — theirs is kept alongside — and
 capture it.
 
 Pasting a McMaster product address into **Products → Capture** does the same
-thing without the bookmarklet, reading the part number out of the address.
+thing without the extension, reading the part number out of the address.
 
 ### When the page does not give it up
 
@@ -1837,7 +1842,7 @@ requires an application review a one-person workshop will not pass, which is why
 their capture reads the page in your own browser.
 
 So: open **Order History** on McMaster's site, and work down it. Open each order
-so that its own address is showing, click the capture bookmarklet, review, and
+so that its own address is showing, capture it from the extension, review, and
 capture. Then go back and do the next one.
 
 **How far back:** as far as McMaster's own order history goes, which for a
@@ -1904,13 +1909,13 @@ at all it says which column it could not find and stops, rather than handing you
 a short list that looks like a complete one.
 
 **5. Open each address and capture it.** Each one opens an Amazon order page;
-click the capture bookmarklet on it, review, and capture. Order pages of orders
+capture it from the extension, review, and capture. Order pages of orders
 long past open exactly like recent ones.
 
 **How far back:** the export covers your whole account history.
 
 **What you get:** the same as capturing the order the day you placed it. The
-bookmarklet reads each line's own *listing* page as well as the order page, so a
+extension reads each line's own *listing* page as well as the order page, so a
 backfilled product arrives with the pictures, the specifications, the *About this
 item* bullets and the barcode, exactly as capturing that listing on its own
 would. See [Amazon Orders](#amazon-orders) for what that looks like while it
@@ -1931,7 +1936,7 @@ and move on.
 
 ### Doing the opening for you
 
-Steps that say "open each of these thirty addresses and click the bookmarklet"
+Steps that say "open each of these thirty addresses and capture each one"
 are exactly the kind of thing worth handing to something that drives a browser —
 [Claude in Chrome](https://www.anthropic.com/claude-in-chrome) or any similar
 tool. It works on your own signed-in session, which is the only reason the
@@ -1939,7 +1944,7 @@ McMaster and Amazon captures can see an order page at all.
 
 **This application does not drive your browser and never will.** It has no
 credentials for Amazon or McMaster and does not want any; what it has is a page
-that accepts what the bookmarklet posts to it. Whatever opens the tabs is your
+that accepts what the extension posts to it. Whatever opens the tabs is your
 choice and runs on your machine.
 
 Two things to expect if you automate it. Amazon notices thirty order pages
