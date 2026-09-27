@@ -283,6 +283,36 @@ def test_a_listing_amazon_would_not_serve_falls_back_to_the_checklist(
 
 
 @pytest.mark.e2e
+def test_a_line_whose_gallery_was_swept_says_its_count_is_a_guess(
+    page, live_server, image_host
+):
+    """052 (issue #172): the order review's per-line summary carries the caveat.
+
+    Where the issue was observed: an order's per-line listing reads swept, and
+    only the console said so. One line's listing gets the unreadable gallery;
+    the others read normally and must show nothing extra.
+    """
+    readable = (FIXTURES / "amazon_listing.html").read_text().replace(
+        "__IMAGE_HOST__", image_host
+    )
+    swept = (FIXTURES / "amazon_listing_unreadable_gallery.html").read_text().replace(
+        "__IMAGE_HOST__", image_host
+    )
+    page.route(
+        LISTING_ROUTE,
+        lambda route: route.fulfill(
+            status=200, content_type="text/html",
+            body=swept if "B0TESTAAA2" in route.request.url else readable,
+        ),
+    )
+
+    review = capture_order(page, live_server, image_host)
+    expect(review.locator(".line-listing-summary")).to_have_count(LINE_COUNT)
+    expect(line(review, "2").locator(".images-swept")).to_contain_text("a guess")
+    expect(review.locator(".images-swept")).to_have_count(1)
+
+
+@pytest.mark.e2e
 def test_recapturing_an_order_fills_in_what_it_created(page, live_server, image_host):
     """FR-030: the repair for an order captured before its listings were read."""
     # First capture with every listing unreadable: the thin products 044 found.

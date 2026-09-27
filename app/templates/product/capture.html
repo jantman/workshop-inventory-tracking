@@ -509,6 +509,13 @@
                             <i class="bi bi-images"></i>
                             {{ listing.images | length }}
                             image{{ '' if listing.images | length == 1 else 's' }}
+                            {# 052: the reader swept for addresses because it could
+                               not parse the gallery, so this number is a guess. #}
+                            {% if listing.images_swept %}
+                            <span class="images-swept">&mdash; the listing's own
+                            gallery data could not be read, so this count is a
+                            guess</span>
+                            {% endif %}
                         </li>
                         <li id="summary-specifications">
                             <i class="bi bi-list-ul"></i>

@@ -881,6 +881,37 @@ class TestTheExtensionLanding:
         assert len(service.list_products()) == 2
 
 
+class TestASweptGalleryIsSaidOnThePage:
+    """052 (issue #172): a swept image count is a guess, and the page says so.
+
+    The agent's console warning was the only place it was said, and that is not
+    where the operator is looking when they decide whether to capture.
+    """
+
+    def summary(self, client, **listing):
+        body = {'version': 1, 'source_url': AMAZON_URL,
+                'images': ['https://m.media-amazon.com/images/I/71one.jpg']}
+        body.update(listing)
+        response = client.post('/api/capture', data={
+            'url': AMAZON_URL, 'listing': json.dumps(body),
+        })
+        html = response.data.decode()
+        start = html.index('id="summary-images"')
+        return ' '.join(html[start:html.index('</li>', start)].split())
+
+    def test_a_swept_count_is_called_a_guess(self, client):
+        summary = self.summary(client, images_swept=True)
+        assert 'images-swept' in summary
+        assert 'this count is a guess' in summary
+
+    def test_a_read_count_carries_no_caveat(self, client):
+        assert 'images-swept' not in self.summary(client)
+
+    def test_an_older_extension_that_never_says_is_read_as_read(self, client):
+        """No version bump: a payload without the key is an ordinary one"""
+        assert 'images-swept' not in self.summary(client, images_swept=None)
+
+
 class TestTheReceiveForm:
     """What the description field shows when a submission comes back"""
 

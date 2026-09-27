@@ -306,6 +306,7 @@
                             row{{ '' if line.listing.specification_entries() | length == 1 else 's' }}
                             · {{ line.listing.images | length }}
                             picture{{ '' if line.listing.images | length == 1 else 's' }}
+                            {% if line.listing.images_swept %}<span class="images-swept">(a guess &mdash; its gallery data could not be read)</span>{% endif %}
                             {% if line.listing.has_barcode %}· barcode found{% endif %}
                         </div>
                         {% elif line.listing_problem is defined and line.listing_problem %}

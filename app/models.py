@@ -852,6 +852,16 @@ class ListingCapture:
     # an IEEE double (Constitution III).
     pack_price: Optional[str] = None
     pack_size: Optional[str] = None
+    # The gallery could not be parsed and the agent swept the page text for
+    # image addresses instead, so ``images`` is a guess at the gallery rather
+    # than a reading of it (022 FR-009). Said on the confirmation page and the
+    # order review beside the count it qualifies (052, issue #172), because the
+    # agent's console warning is not where the operator is looking.
+    #
+    # Informational only: the same images are captured either way, and it is
+    # never persisted. An extension predating 052 omits the key, which reads as
+    # False -- so this needed no version bump.
+    images_swept: bool = False
 
     @property
     def unit_price_from_pack(self) -> Optional[str]:
@@ -1041,6 +1051,9 @@ class ListingCapture:
             images=_payload_images(data.get('images')),
             pack_price=_payload_string(data.get('pack_price')),
             pack_size=_payload_string(data.get('pack_size')),
+            # Exactly JSON true, nothing merely truthy: a caveat on a reading
+            # that was not a guess would be a false alarm.
+            images_swept=data.get('images_swept') is True,
         )
 
 

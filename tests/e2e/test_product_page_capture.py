@@ -284,6 +284,10 @@ def test_the_whole_gallery_comes_across_not_just_the_thumbnails(
 
     assert len(payload_of(landed)["images"]) == GALLERY_IMAGE_COUNT
     expect(landed.locator("#summary-images")).to_contain_text(str(GALLERY_IMAGE_COUNT))
+    # A reading, not a guess, so no caveat (052). The summary is server-rendered
+    # and was established by the expect above.
+    expect(landed.locator("#summary-images .images-swept")).to_have_count(0)
+    assert "images_swept" not in payload_of(landed)
 
 
 @pytest.mark.e2e
@@ -382,7 +386,8 @@ def test_a_gallery_it_cannot_parse_is_swept_loudly_not_silently(
     Two things are asserted together: that the capture still completes carrying
     the description and the product-information rows (a structural surprise costs
     images, never the capture), and that the console says the count came from a
-    sweep. Both are read off the confirmation page's own summary panel --
+    sweep -- and, since 052, that the page says so as well. All are read off the
+    confirmation page's own summary panel --
     `specification_rows.ROWS` is the *edit* form's repeating editor and is not on
     this page at all. The warning is emitted while the agent runs on the listing page, so
     the popup's arrival already implies it was emitted -- there is nothing to
@@ -398,6 +403,12 @@ def test_a_gallery_it_cannot_parse_is_swept_loudly_not_silently(
     expect(landed.locator("#summary-description")).to_contain_text("kept in full")
     expect(landed.locator("#summary-specifications")).not_to_contain_text("0 product")
     assert [w for w in warnings if "could not read the gallery data" in w]
+    # 052 (issue #172): and the page says so too, beside the count it qualifies.
+    # The console is the diagnostic channel; this is where the operator looks.
+    expect(landed.locator("#summary-images .images-swept")).to_contain_text(
+        "this count is a guess"
+    )
+    assert payload_of(landed)["images_swept"] is True
 
     # And the sweep still produced a reading rather than nothing: the payload's
     # truncated entries are readable even though the array is not.
