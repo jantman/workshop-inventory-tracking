@@ -670,10 +670,10 @@ class TestSpecificationVocabulary:
         assert set(service.list_specification_names()) == set(DEFAULT_SPECIFICATION_KEYS)
 
     def test_a_prefix_narrows_the_names(self, converters):
-        assert converters.list_specification_names(prefix='Vol') == ['Voltage']
+        assert converters.list_specification_names(prefix='Volt') == ['Voltage']
 
     def test_a_prefix_narrows_case_insensitively(self, converters):
-        assert converters.list_specification_names(prefix='vol') == ['Voltage']
+        assert converters.list_specification_names(prefix='volt') == ['Voltage']
 
     def test_a_prefix_matching_nothing_is_an_empty_list(self, converters):
         assert converters.list_specification_names(prefix='zzz') == []

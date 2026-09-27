@@ -8,7 +8,7 @@
 
 Add the approved branches and specification keys to the shipped defaults:
 
-- **123 new branches.** Three roots (`tools`, `adhesives & chemicals`, `mechanical`) with their
+- **124 new branches.** Three roots (`tools`, `adhesives & chemicals`, `mechanical`) with their
   subtrees, plus six leaves under `fasteners/pins & clips`.
 - **35 new specification keys.**
 
@@ -39,7 +39,7 @@ taxonomy is a suggestion list, so no rows are written (025 design).
 
 **Project Type**: Server-rendered web application
 
-**Performance Goals**: N/A. The suggestion list grows from 142 to 265 paths, and from 39 to 74
+**Performance Goals**: N/A. The suggestion list grows from 142 to 266 paths, and from 39 to 74
 keys, on a single-user LAN app.
 
 **Constraints**:

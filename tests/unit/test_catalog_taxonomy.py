@@ -36,7 +36,14 @@ from app.utils.category import canonical
 RECORD = Path(__file__).resolve().parents[2] / "docs" / "category-taxonomy.md"
 
 # The record's roots, which are also the headings its branch tables live under.
-ROOTS = ("fasteners", "electrical", "electronics")
+ROOTS = (
+    "fasteners",
+    "electrical",
+    "electronics",
+    "tools",
+    "adhesives & chemicals",
+    "mechanical",
+)
 
 # app/database.py: Product.category_path is String(512).
 MAX_PATH_LENGTH = 512
@@ -163,6 +170,35 @@ class TestCategoryPathShape:
             if count > MAX_CHILDREN
         }
         assert crowded == {}
+
+
+class TestToolTaxonomyProbes:
+    """055: the approved tool, chemical and mechanical additions are offered.
+
+    The agreement test proves module and record match; these prove the approved
+    list is what both contain, using the probes from 055's spec.
+    """
+
+    @pytest.mark.parametrize("path", [
+        "tools/taps & dies/taps",
+        "tools/drill bits/twist drills",
+        "tools/hole cutters/annular cutters",
+        "tools/fastener installation/anchor setting tools",
+        "tools/toolholding/collets",
+        "adhesives & chemicals/thread compounds/threadlockers",
+        "mechanical/bearings/ball bearings",
+        "fasteners/pins & clips/dowel pins",
+    ])
+    def test_probe_branch_is_offered(self, path):
+        assert path in DEFAULT_CATEGORY_PATHS
+
+    def test_tap_wrenches_were_left_out(self):
+        """Removed in review: tap wrenches and die stocks are not consumable."""
+        assert "tools/taps & dies/wrenches & die stocks" not in DEFAULT_CATEGORY_PATHS
+
+    @pytest.mark.parametrize("key", ["Chamfer", "Length Series", "Shank"])
+    def test_new_key_is_offered(self, key):
+        assert key in DEFAULT_SPECIFICATION_KEYS
 
 
 class TestSpecificationKeyShape:
