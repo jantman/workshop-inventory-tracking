@@ -36,7 +36,7 @@ None — existing project, no new dependencies.
 ## Phase 5: Polish
 
 - [X] T010 Update the module docstring of tests/e2e/test_order_product_details.py to say it covers McMaster's checklist too
-- [ ] T011 Run `nox -s tests` and `nox -s e2e` (detached, ≥20 min) and confirm the tree is clean afterward
+- [X] T011 Run `nox -s tests` and `nox -s e2e` (detached, ≥20 min) and confirm the tree is clean afterward
 - [X] T012 Check user docs for an Amazon-only description of the order checklist (`grep -rn "Open listing\|still need details" docs/ README.md`) and correct it
 
 ## Dependencies
