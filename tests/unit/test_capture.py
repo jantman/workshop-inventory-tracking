@@ -1104,6 +1104,20 @@ class TestTheListingPayload:
             'http://m.media-amazon.com/images/I/81two.jpg',
         ]
 
+    def test_an_inline_pdf_is_kept_in_order_and_no_other_inline_form_is(self):
+        """051: McMaster's drawing arrives as bytes, because the server would be
+        refused the address. That one form and no other -- an inline image is
+        still dropped, as it always was."""
+        drawing = 'data:application/pdf;base64,JVBERi0xLjQK'
+        listing = ListingCapture.from_json(self.payload(images=[
+            'https://www.mcmaster.com/mvC/one.png',
+            drawing,
+            'data:image/png;base64,AAAA',
+            'data:application/pdf,%PDF-1.4',
+        ]))
+
+        assert listing.images == ['https://www.mcmaster.com/mvC/one.png', drawing]
+
     def test_a_price_sent_as_a_json_number_is_refused_rather_than_coerced(self):
         """Constitution III: a float that reached str() would still have been a float"""
         listing = ListingCapture.from_json(self.payload(price=24.99))

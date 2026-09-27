@@ -26,6 +26,8 @@ existing MIME allow-list, the per-product cap -- are there because bad data
 breaks the inventory, which is the constitution's stated reason to validate.
 """
 
+import base64
+import binascii
 import logging
 import os
 from typing import List, Optional
@@ -33,7 +35,7 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
-from app.models import ImageCaptureResult
+from app.models import PDF_DATA_PREFIX, ImageCaptureResult
 from app.photo_service import PhotoService
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,17 @@ def _extension_of(url: str) -> str:
     return extension if extension in _KNOWN_EXTENSIONS else _DEFAULT_EXTENSION
 
 
+def _label(url: str) -> str:
+    """How an address is named in the log.
+
+    An inline PDF is the whole file, a hundred-odd kilobytes of base64; logging
+    it would bury every line around it.
+    """
+    if url.startswith(PDF_DATA_PREFIX):
+        return f"an inline PDF ({len(url) - len(PDF_DATA_PREFIX)} base64 characters)"
+    return url
+
+
 def store_listing_images(
     product_id: int,
     urls: List[str],
@@ -63,7 +76,9 @@ def store_listing_images(
 
     Args:
         product_id: The product the images belong to.
-        urls: Addresses in the order the agent found them, gallery first.
+        urls: Addresses in the order the agent found them, gallery first. An
+            entry may instead be an inline PDF (``PDF_DATA_PREFIX``), which is
+            decoded rather than requested.
         storage_backend: Passed to PhotoService rather than constructed here,
             matching how the routes already build it.
         timeout: Per-request, so one unresponsive address cannot hold the
@@ -99,35 +114,56 @@ def store_listing_images(
                 setattr(result, repeat, getattr(result, repeat) + 1)
                 continue
 
-            try:
-                response = requests.get(url, timeout=timeout)
-            except requests.RequestException as e:
-                logger.info(f"Could not retrieve {url}: {e}")
-                result.failed += 1
-                outcomes[url] = 'failed'
-                continue
+            label = _label(url)
 
-            if response.status_code != 200:
-                logger.info(f"Could not retrieve {url}: HTTP {response.status_code}")
-                result.failed += 1
-                outcomes[url] = 'failed'
-                continue
+            if url.startswith(PDF_DATA_PREFIX):
+                # 051: bytes the agent fetched in the page, because the vendor
+                # refuses them to anything without the operator's session.
+                # Nothing to request -- decode, then the same checks as below.
+                try:
+                    data = base64.b64decode(url[len(PDF_DATA_PREFIX):], validate=True)
+                except (binascii.Error, ValueError) as e:
+                    logger.info(f"Could not decode {label}: {e}")
+                    result.failed += 1
+                    outcomes[url] = 'failed'
+                    continue
+                content_type = 'application/pdf'
+            else:
+                try:
+                    response = requests.get(url, timeout=timeout)
+                except requests.RequestException as e:
+                    logger.info(f"Could not retrieve {label}: {e}")
+                    result.failed += 1
+                    outcomes[url] = 'failed'
+                    continue
 
-            content_type = (response.headers.get('Content-Type') or '').split(';')[0].strip()
+                if response.status_code != 200:
+                    logger.info(f"Could not retrieve {label}: HTTP {response.status_code}")
+                    result.failed += 1
+                    outcomes[url] = 'failed'
+                    continue
+
+                content_type = (
+                    (response.headers.get('Content-Type') or '').split(';')[0].strip()
+                )
+                data = response.content
+
             if content_type not in PhotoService.SUPPORTED_TYPES:
-                logger.info(f"Skipping {url}: content type {content_type!r} is not supported")
+                logger.info(f"Skipping {label}: content type {content_type!r} is not supported")
                 result.skipped += 1
                 outcomes[url] = 'skipped'
                 continue
 
-            data = response.content
             if len(data) > PhotoService.MAX_FILE_SIZE:
-                logger.info(f"Skipping {url}: {len(data)} bytes is over the file size limit")
+                logger.info(f"Skipping {label}: {len(data)} bytes is over the file size limit")
                 result.skipped += 1
                 outcomes[url] = 'skipped'
                 continue
 
-            filename = f"{stem}-{index:02d}{_extension_of(url)}"
+            # A PDF is named for what it is: an inline one has no path to read an
+            # extension from, and a vendor's address need not end in .pdf.
+            extension = '.pdf' if content_type == 'application/pdf' else _extension_of(url)
+            filename = f"{stem}-{index:02d}{extension}"
             try:
                 attachment = photo_service.upload_product_attachment_if_new(
                     product_id, data, filename, content_type
@@ -139,7 +175,7 @@ def store_listing_images(
                     logger.info(f"Attachment cap reached on product {product_id}; stopping")
                     result.cap_reached = True
                     break
-                logger.info(f"Skipping {url}: {e}")
+                logger.info(f"Skipping {label}: {e}")
                 result.skipped += 1
                 outcomes[url] = 'skipped'
                 continue
@@ -147,7 +183,7 @@ def store_listing_images(
                 # Bytes that fetched cleanly but would not decode. Reported as a
                 # failure for the same reason as a 404: the operator's next
                 # action is identical either way.
-                logger.info(f"Could not store {url}: {e}")
+                logger.info(f"Could not store {label}: {e}")
                 result.failed += 1
                 outcomes[url] = 'failed'
                 continue
@@ -157,11 +193,14 @@ def store_listing_images(
                 result.duplicates += 1
             else:
                 result.stored += 1
+                if content_type == 'application/pdf':
+                    result.pdfs += 1
     finally:
         photo_service.close()
 
     logger.info(
-        f"Listing images for product {product_id}: stored {result.stored}, "
+        f"Listing images for product {product_id}: stored {result.stored} "
+        f"({result.pdfs} PDF), "
         f"duplicates {result.duplicates}, skipped {result.skipped}, "
         f"failed {result.failed}, cap reached {result.cap_reached}"
     )

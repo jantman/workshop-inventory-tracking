@@ -731,6 +731,10 @@ class ImageCaptureResult:
     or a 404 -- add it by hand, or capture again.
     """
     stored: int = 0
+    # How many of ``stored`` were PDFs (051 FR-007). A subset rather than a
+    # sibling, so ``stored`` keeps meaning "files attached" for every caller that
+    # already reads it -- the DigiKey datasheet message among them.
+    pdfs: int = 0
     duplicates: int = 0
     skipped: int = 0
     failed: int = 0
@@ -1070,8 +1074,15 @@ def _payload_specifications(value: Any) -> List[Dict[str, str]]:
     return entries
 
 
+# The one inline form the agent sends (051). McMaster serves its CAD drawings
+# only to a browser holding a McMaster session, so the agent fetches the drawing
+# in the page and sends the bytes rather than an address the server would be
+# refused. research.md §1.
+PDF_DATA_PREFIX = 'data:application/pdf;base64,'
+
+
 def _payload_images(value: Any) -> List[str]:
-    """The http(s) addresses, in order; anything else is dropped"""
+    """The http(s) addresses and inline PDFs, in order; anything else is dropped"""
     if not isinstance(value, list):
         return []
 
@@ -1081,6 +1092,7 @@ def _payload_images(value: Any) -> List[str]:
         )
         if address and (
             address.startswith('http://') or address.startswith('https://')
+            or address.startswith(PDF_DATA_PREFIX)
         )
     ]
 
