@@ -1754,6 +1754,15 @@ holds, the specification table and the product image, with nothing typed. Write
 your own label description over McMaster's — theirs is kept alongside — and
 capture it.
 
+**This is also how a part from a captured order gets its details.** An order
+line gives its product little more than a description. Capture that part's
+product page and the confirmation page says *This is the item from order …*,
+with **Add the listing's details to it — don't record a purchase** already
+selected — the same choice as for an Amazon order (see
+[Filling in each product's details](#filling-in-each-products-details)). It
+works in either order: a part captured from its page first is the product its
+order line lands on later.
+
 Pasting a McMaster product address into **Products → Capture** does the same
 thing without the extension, reading the part number out of the address.
 

@@ -295,20 +295,16 @@ class TestPartNumberFromUrl:
 class TestProductCaptureIdentifiers:
     """US2 scenario 2, and the defect it turns out to guard.
 
-    The scenario asks for the part number as a `DISTRIBUTOR` identifier scoped
-    to McMaster-Carr, "so that scanning or searching that number finds it".
-    What the product-page path actually writes is `VENDOR`, scoped the same way
-    -- ``capture_order`` has written that for every vendor since feature 007,
-    and it is the path every Amazon capture goes through.
+    The scenario asks for the part number as a `DISTRIBUTOR` identifier
+    scoped to McMaster-Carr, "so that scanning or searching that number finds
+    it", and since 049 that is what the product-page path writes -- the same
+    kind the order capture writes. Until then it wrote `VENDOR`, and the
+    single-listing lookups, which asked only for `VENDOR`, could not see a
+    product an order had created (issue #171).
 
-    Both types are vendor-scoped and both are in ``VENDOR_SCOPED_TYPES``, so
-    the *stated purpose* holds either way: a scan finds it. Editing that shared
-    write path to emit a different type for one vendor was rejected -- SC-010
-    requires it to behave identically after this feature.
-
-    What genuinely had to be fixed is the other side: the order review looks up
-    **both** types, so an order capture recognizes a part already cataloged
-    from its product page instead of creating a second product for it.
+    The order review looks up **both** types, so an order capture recognizes
+    a part already cataloged from its product page instead of creating a
+    second product for it.
     """
 
     def capture_the_product_page(self, client):
@@ -331,7 +327,7 @@ class TestProductCaptureIdentifiers:
 
         catalog = CatalogService(app.config['STORAGE_BACKEND'])
         product = catalog.find_product_by_identifier(
-            '91290A115', id_type='VENDOR', vendor=MCMASTER_VENDOR)
+            '91290A115', id_type='DISTRIBUTOR', vendor=MCMASTER_VENDOR)
 
         assert product is not None, 'the part number was not recorded at all'
         scoped = [
@@ -358,7 +354,7 @@ class TestProductCaptureIdentifiers:
 
         catalog = CatalogService(app.config['STORAGE_BACKEND'])
         product = catalog.find_product_by_identifier(
-            '91290A115', id_type='VENDOR', vendor=MCMASTER_VENDOR)
+            '91290A115', id_type='DISTRIBUTOR', vendor=MCMASTER_VENDOR)
 
         assert not [
             i for i in product.identifiers
@@ -561,7 +557,7 @@ class TestPackPricedUnitPrice:
 
         catalog = CatalogService(app.config['STORAGE_BACKEND'])
         product = catalog.find_product_by_identifier(
-            '91290A115', id_type='VENDOR', vendor=MCMASTER_VENDOR)
+            '91290A115', id_type='DISTRIBUTOR', vendor=MCMASTER_VENDOR)
         assert product is not None
         assert product.purchases[0].unit_price == Decimal('0.13'), (
             'a pack-priced capture recorded a NULL or wrong unit price'

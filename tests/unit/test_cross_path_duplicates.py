@@ -894,9 +894,8 @@ class TestAContradictedLineCarryingACandidate:
           Claiming it would record this line against the wrong part.
         * **False** -- the operator captured the *new* part from its listing page
           and correctly got a product of its own, so the purchase is already in
-          the right place. The listing path looks up VENDOR identifiers and never
-          sees the old product's DISTRIBUTOR one, so this happens with no prompt
-          at all. PR #144 review.
+          the right place -- by answering "a new product" to the listing
+          path's matched-product question. PR #144 review.
         """
         import json
         from pathlib import Path
