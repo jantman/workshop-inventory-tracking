@@ -99,6 +99,11 @@ def index():
     """Home page with application overview"""
     return render_template('index.html', title='Home')
 
+@bp.route('/favicon.ico')
+def favicon():
+    """The logo, for clients that ask the root path instead of reading <head>"""
+    return current_app.send_static_file('img/favicon.ico')
+
 @bp.route('/health')
 def health():
     """Health check endpoint for monitoring"""
