@@ -103,8 +103,8 @@ shows the toolbox glyph; the brand still links home.
   the logo too, so the application never shows two different marks on one page.
 - **An extension installed before this change** keeps the placeholder until the operator
   reloads or re-installs it; the application cannot update it (048 FR-026). The logo is
-  delivered in the same change as the application's, and the extension documentation tells
-  the operator to reload.
+  delivered in the same change as the application's, and the extension's existing upgrade
+  instructions already tell the operator to reload.
 - **A browser that requests the conventional root icon path** without reading the page's
   declaration still gets the logo rather than an error.
 
@@ -129,7 +129,9 @@ shows the toolbox glyph; the brand still links home.
 - **FR-007**: The logo MUST remain distinguishable on the navbar's primary blue, on a white
   background, and on a dark background.
 - **FR-008**: The extension documentation MUST tell an operator who installed the extension
-  earlier that the new icon arrives only when they reload the extension.
+  earlier that the new icon arrives only when they reload the extension. The existing upgrade
+  instructions ("reload the extension whenever you upgrade the application") already say
+  this; the documentation MUST NOT gain a history note about the old icon.
 - **FR-009**: Documentation screenshots MUST be regenerated to show the new navbar, and only
   screenshots whose content actually changed are committed.
 
