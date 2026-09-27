@@ -46,7 +46,7 @@ None — existing project, no new dependency.
 - [X] T009 [P] In `docs/user-manual.md`, under "The Product Catalog" after the product detail screenshot, add a short paragraph: the Details panel's **Vendor Pages** row links to Amazon, McMaster-Carr and DigiKey pages built from the product's identifiers (DigiKey's goes via its search, which redirects to the part). No history of why.
 - [X] T010 Run `nox -s tests` (with the pyenv 3.13 PATH prefix, main-checkout venv) and fix failures, including any existing test asserting an unencoded listing address.
 - [X] T011 Regenerate screenshots with `nox -s screenshots_headless`; commit only `docs/images/screenshots/user-manual/product_detail.png` (and any other file whose change is caused by this feature), revert the rest; run `nox -s screenshots_verify`.
-- [ ] T012 Run `nox -s e2e` detached (≥20 min) and confirm it passes and leaves the tree clean.
+- [X] T012 Run `nox -s e2e` detached (≥20 min) and confirm it passes and leaves the tree clean.
 - [X] T013 Verify spelling rule: `grep -ric "catalogue" README.md docs/ app/ tests/` returns nothing.
 
 ## Dependencies & Execution Order
