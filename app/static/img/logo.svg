@@ -1,8 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <!--
-    Workshop Inventory logo: a hex nut on a blue tile. This file is the master;
-    every other logo image in the repository is rendered from it. Drawn on a
-    16-unit grid so the nut's flat sides land on pixel edges at 16/32/48/128 px.
+    Workshop Inventory logo: a stock tag, the barcoded hang tag every item
+    carries, on a blue tile. This file is the master; every other logo image in
+    the repository is rendered from it. Drawn on a 32-unit grid with every
+    vertical edge of the barcode on an even unit, so each bar and gap is a whole
+    pixel at 16 px.
 
     After editing, regenerate and commit the copies (from the repository root):
 
@@ -12,6 +14,7 @@
       for s in 16 32 48; do rsvg-convert -w $s -h $s app/static/img/logo.svg -o /tmp/fav-$s.png; done
       magick /tmp/fav-16.png /tmp/fav-32.png /tmp/fav-48.png app/static/img/favicon.ico
   -->
-  <rect width="16" height="16" rx="3" fill="#0a58ca"/>
-  <path fill="#fff" fill-rule="evenodd" d="M8 2.1 13 5v6l-5 2.9L3 11V5ZM8 5.4a2.6 2.6 0 1 0 0 5.2 2.6 2.6 0 1 0 0-5.2Z"/>
+  <rect width="32" height="32" rx="6" fill="#0a58ca"/>
+  <path fill="#fff" fill-rule="evenodd" d="M2 16 10 6h20v20H10Z M7.5 16a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0Z"/>
+  <path fill="#0a58ca" d="M16 10h2v12h-2ZM20 10h4v12h-4ZM26 10h2v12h-2Z"/>
 </svg>

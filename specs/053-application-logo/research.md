@@ -2,30 +2,30 @@
 
 ## 1. Motif
 
-- **Decision**: A white hex nut (a regular hexagon with a round hole), point up, on a
-  rounded-square tile in dark Bootstrap blue `#0a58ca`.
-- **Rationale**: A hex nut is the most recognizable piece of workshop hardware, and it
-  survives 16 px: at that size it is a white hexagon ring about 10 px across with a 5 px hole,
-  and nothing finer. We prototyped it on a 16-unit grid and viewed it at 16/32/128 px on the
-  navbar's `#0d6efd`, on white and on `#202124` (a dark tab strip). The ring stays readable at
-  16 px, and the tile stands slightly apart from the navbar's own blue without clashing. The
-  tile also gives the white nut a background of its own, which it needs on a light tab strip.
-- **Alternatives considered**:
-  - *Small-parts drawer cabinet* (three drawers with pulls): it says "inventory", but at
-    16 px it reads as a list, menu or server-rack icon.
-  - *Nut plus a tag or a letter*: two ideas do not fit in 16 px; the extra detail turns to
-    mush.
-  - *Bootstrap's `bi-nut` glyph*: it is a stock glyph, which FR-003 excludes. Our own shape
-    is also bolder at 16 px.
+- **Decision**: A **stock tag**: the barcoded hang tag every item carries, in white on a
+  rounded tile in dark Bootstrap blue `#0a58ca`. The tag points left, has a round
+  string hole, and carries three barcode bars.
+- **How it was chosen**: The first draft was a hex nut. The operator found it uninspired: it
+  is generic shop hardware and says nothing about *this* application. We drew eighteen
+  candidates from the app's own world and showed each at 112/48/16 px, in the navbar and in
+  light and dark tab strips. The candidates were stock cross-sections, the JA monogram,
+  calipers, a parts bin, cut-to-length, the Ø sign, a location pin, printed label tape, an
+  I-beam, and others. The operator picked the stock tag on app blue. It carries the idea at
+  the center of the application: every piece of material has a labeled identity.
+- **Legibility**: Every vertical barcode edge falls on an even unit of the 32-unit grid, so
+  at 16 px each bar and gap is a whole pixel (bars 1, 2 and 1 px wide), with no smearing. The
+  tag's outline and hole survive at 16 px as a pointed white shape with a dot.
+- **Alternatives considered**: the hex nut (generic); a small-parts drawer (reads as a list
+  or server icon at 16 px); Bootstrap's `bi-tag` (a stock glyph, which FR-003 excludes);
+  fine-detail marks such as the bolt and the magnifier, which turn to mush at 16 px.
 
 ## 2. Master format and where it lives
 
-- **Decision**: A hand-written SVG with `viewBox="0 0 16 16"`, two elements, at
-  `app/static/img/logo.svg`. The flat vertical sides fall on whole units (x = 3 and 13), so
-  every render that is a multiple of 16 px (16, 32, 48, 128) puts those edges on pixel
-  boundaries.
+- **Decision**: A hand-written SVG with `viewBox="0 0 32 32"`, three elements, at
+  `app/static/img/logo.svg`. The barcode's vertical edges sit on even units, so a 16 px render
+  puts them on pixel boundaries.
 - **Rationale**: The issue asks for "a real asset checked into the repository" rather than
-  a script's output. A two-element SVG is a real asset, can be edited by hand, and the
+  a script's output. A three-element SVG is a real asset, can be edited by hand, and the
   application serves it as-is.
 - **Alternatives**: a PNG master (not editable, and blurry when scaled up); a generator
   script (what the issue is replacing).

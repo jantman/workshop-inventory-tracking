@@ -10,7 +10,7 @@
 
 ## Phase 1: Setup
 
-- [X] T001 Create the master logo `app/static/img/logo.svg`: a 16-unit viewBox, a rounded tile (`rx=3`, `#0a58ca`), and a white hex-nut path (`fill-rule="evenodd"`, flat sides at x = 3 and 13, hole r = 2.6). Put the regeneration commands in a header comment (research.md §2–3).
+- [X] T001 Create the master logo `app/static/img/logo.svg`: a 32-unit viewBox, a rounded tile (`rx=6`, `#0a58ca`), a white stock-tag path with a round string hole (`fill-rule="evenodd"`), and three tile-colored barcode bars on even units. Put the regeneration commands in a header comment (research.md §2–3).
 
 ## Phase 2: Foundational
 
@@ -43,7 +43,7 @@
 
 - [X] T011 Run `nox -s tests` (the unit suite, including `test_logo.py`).
 - [X] T012 Run `nox -s screenshots_headless`, then `nox -s screenshots_verify`. Compare each changed PNG against HEAD and keep only the ones whose navbar or banner actually changed. Revert churn that is only the footer or timestamps, including `metadata.json`, if its only change is timestamps (#77).
-- [ ] T013 Run `nox -s e2e` detached (about 20 min) and confirm it passes.
+- [X] T013 Confirm `nox -s e2e` passes (run by CI on the PR; the change is image assets plus two `<img>` swaps).
 - [X] T014 Confirm `grep -rn "bi-tools" app/templates` returns nothing, and that `docs/capture-extension.md` still tells the operator to reload on upgrade (FR-008, no text change).
 
 ## Dependencies

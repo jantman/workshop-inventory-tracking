@@ -6,7 +6,8 @@
 
 ## Summary
 
-Draw one logo by hand as a 16-unit SVG: a white hex nut on a rounded, dark-blue tile.
+Draw one logo by hand as a 32-unit SVG: a white stock tag (the barcoded hang tag every item
+carries) on a rounded, dark-blue tile.
 Check it in as `app/static/img/logo.svg`. It is the master. Derive fixed-size PNGs from it
 once with `rsvg-convert`, and commit them: a multi-size `favicon.ico` for browsers and the
 extension's three `icon-{16,48,128}.png`. `base.html` gains `<link rel="icon">` (SVG first,
