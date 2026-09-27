@@ -814,7 +814,14 @@ def _image_tally(images) -> str:
     fourteen images is the failure the operator cannot see and cannot reproduce
     later, because by then the listing is gone.
     """
-    parts = [f"Stored {images.stored} image{'' if images.stored == 1 else 's'}"]
+    pictures = images.stored - images.pdfs
+    stored = f"Stored {pictures} image{'' if pictures == 1 else 's'}"
+    if images.pdfs:
+        # 051 FR-007. Said apart from the pictures, because a drawing or a manual
+        # is the thing the operator will look for, and "Stored 5 images" does
+        # not say whether it came.
+        stored += f" and {images.pdfs} PDF{'' if images.pdfs == 1 else 's'}"
+    parts = [stored]
     if images.failed:
         parts.append(f"{images.failed} could not be retrieved")
     if images.skipped:
@@ -1960,6 +1967,7 @@ def _apply_order_listings(service, order, result):
                 vendor_item_id=line.asin or None,
             )
             images.stored += stored.stored
+            images.pdfs += stored.pdfs
             images.failed += stored.failed
             images.skipped += stored.skipped
             images.duplicates += stored.duplicates

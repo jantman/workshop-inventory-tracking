@@ -1731,3 +1731,76 @@ def test_a_typed_quantity_is_not_recomputed_over(page, live_server, image_host):
     landed.fill("#quantity", "96")
 
     expect(landed.locator("#quantity")).to_have_value("96")
+
+
+# ---------------------------------------------------------------------------
+# 051: the listing's documents
+# ---------------------------------------------------------------------------
+
+# What the A+ fixture's pictures come to, the brand story's excluded.
+APLUS_IMAGES = [
+    "aluminum_tube_sample.jpg",
+    "spec_sheet_preview.jpg",
+    "aluminum_plate_sample.jpg",
+    "steel_plate_sample.jpg",
+    "brass_rod_sample.jpg",
+]
+
+
+def with_documents(image_host):
+    """The A+ listing as a vendor who published a manual would have it.
+
+    The manual where Amazon puts it, again in the quick-view overlay where
+    Amazon repeats it, and a PDF inside the brand-story carousel -- which is
+    another product's, and must not come across.
+    """
+    manual = f"{image_host}/product_manual_sample.pdf"
+
+    def transform(body):
+        body = body.replace(
+            "<h2>From the brand</h2>",
+            "<h2>From the brand</h2>\n"
+            f'<a href="{image_host}/vendor_other_catalog.pdf">Our catalog (PDF)</a>',
+            1,
+        )
+        return body.replace(
+            "</body>",
+            '<div id="productDocuments_feature_div">\n'
+            "    <h2>Product guides and documents</h2>\n"
+            f'    <a href="{manual}" rel="nofollow" target="_blank">User Manual (PDF)</a>\n'
+            "</div>\n"
+            '<div id="productQuickView_feature_div"><div id="pqv-documents">\n'
+            f'    <a href="{manual}">User Manual (PDF)</a>\n'
+            "</div></div>\n"
+            "</body>",
+            1,
+        )
+
+    return transform
+
+
+@pytest.mark.e2e
+def test_the_listings_pdfs_come_across_once_and_after_the_pictures(
+    page, live_server, image_host
+):
+    """051 FR-004, US2 scenarios 1 and 3."""
+    serve_aplus_variant(page, image_host, with_documents(image_host))
+    landed = run_capture(page, live_server, listing_url(live_server))
+
+    assert payload_of(landed)["images"] == [
+        f"{image_host}/{name}" for name in APLUS_IMAGES
+    ] + [f"{image_host}/product_manual_sample.pdf"]
+
+
+@pytest.mark.e2e
+def test_confirming_stores_the_manual_and_says_so(page, live_server, image_host):
+    """051 FR-005, FR-007, SC-002: the server fetches it like an image."""
+    serve_aplus_variant(page, image_host, with_documents(image_host))
+    landed = run_capture(page, live_server, listing_url(live_server))
+    confirm(landed, description="Aluminium extrusion, with manual")
+
+    expect(
+        landed.locator(".alert").filter(
+            has_text=f"Stored {len(APLUS_IMAGES)} images and 1 PDF"
+        )
+    ).to_be_visible()

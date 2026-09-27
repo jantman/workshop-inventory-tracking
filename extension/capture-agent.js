@@ -726,6 +726,12 @@
             addImages(descriptionImages(description));
         }
 
+        // 051: the listing's manuals and guides, after its pictures. The same
+        // list and the same `seen` map, because every path that stores a
+        // listing's images stores these too -- and Amazon repeats its documents
+        // in a quick-view overlay, which the map collapses.
+        addImages(documentLinks(doc, sourceUrl));
+
         if (images.length) {
             listing.images = images;
         }
@@ -787,6 +793,41 @@
      */
     function isCrossSell(node) {
         return !!(node && node.closest && node.closest(CROSS_SELL_CONTAINER));
+    }
+
+    /**
+     * Every PDF the listing links to, as absolute addresses, in page order.
+     *
+     * Amazon puts a product's manuals, guides and warranty statements under
+     * "Product guides and documents" (`#productDocuments_feature_div`), repeats
+     * them in the quick-view overlay, and occasionally links one from the
+     * product-details tables. All of them are the product's own and public, so
+     * the address is enough: the server fetches it as it fetches a gallery
+     * image (051 research.md §1, §4). The brand-story carousel is someone
+     * else's product and is excluded here for the reason it is for images.
+     *
+     * Matched on the path's extension rather than on the container, because
+     * the containers are where Amazon happens to put them this year and the
+     * extension is what makes a link a document.
+     */
+    function documentLinks(doc, sourceUrl) {
+        const found = [];
+        const anchors = doc.querySelectorAll('a[href]');
+        for (let i = 0; i < anchors.length; i++) {
+            if (isCrossSell(anchors[i])) {
+                continue;
+            }
+            let address;
+            try {
+                address = new URL(anchors[i].getAttribute('href'), sourceUrl);
+            } catch (e) {
+                continue;
+            }
+            if (/^https?:$/.test(address.protocol) && /\.pdf$/i.test(address.pathname)) {
+                found.push(address.href);
+            }
+        }
+        return found;
     }
 
     // A deferred-loading placeholder: an address that resolves, to a 1x1 grey
@@ -1507,6 +1548,138 @@
         return found;
     }
 
+    // ---------------------------------------------------------------
+    // McMaster's 2-D drawing (051)
+    // ---------------------------------------------------------------
+
+    // The page's CAD picker. Its format list exists in the DOM **only while it
+    // is open**, one `li` per format with an id of `dropdown-<label><path>`; the
+    // button's `aria-activedescendant` carries the same for whichever format is
+    // selected. Matched on the accessible name because the class is
+    // CSS-module hashed (research.md §1).
+    const MCMASTER_CAD_PICKER = 'button[role="combobox"][aria-label="Select CAD file type"]';
+    // The dimensioned single-page drawing. The 3-D PDF beside it is an
+    // interactive model, and the other formats are for CAD programs (FR-008).
+    const MCMASTER_DRAWING_ID = 'dropdown-2-D PDF';
+    // How long to let the list render after opening the picker: 20 looks, 50 ms
+    // apart. A picker that never opens costs one second and the drawing -- never
+    // the capture (FR-006).
+    const PICKER_LOOKS = 20;
+    const PICKER_LOOK_MS = 50;
+    // PhotoService.MAX_FILE_SIZE. Anything larger would be skipped by the server
+    // anyway, after riding the form there as base64.
+    const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
+
+    /** The drawing's path from a `dropdown-<label><path>` id, or ''. */
+    function drawingPathFrom(id) {
+        const prefix = MCMASTER_DRAWING_ID + '/';
+        return id && id.indexOf(prefix) === 0 ? id.slice(MCMASTER_DRAWING_ID.length) : '';
+    }
+
+    /** The picker's rendered options, once there are any or the looks run out. */
+    function pickerOptions(doc) {
+        return new Promise(function (resolve) {
+            let looks = 0;
+            const look = function () {
+                const options = doc.querySelectorAll('li[id^="dropdown-"]');
+                if (options.length || ++looks >= PICKER_LOOKS) {
+                    resolve(options);
+                    return;
+                }
+                setTimeout(look, PICKER_LOOK_MS);
+            };
+            look();
+        });
+    }
+
+    /**
+     * The 2-D PDF's path, or ''.
+     *
+     * Read off the button when 2-D PDF is already the selected format.
+     * Otherwise the picker is opened, read, and closed again -- **and no option
+     * is clicked**, so the format the operator chose and McMaster remembers is
+     * left alone (FR-003). A picker that was already open is left open.
+     */
+    function mcmasterDrawingPath(doc) {
+        const picker = doc.querySelector(MCMASTER_CAD_PICKER);
+        if (!picker) {
+            return Promise.resolve('');
+        }
+        const selected = drawingPathFrom(picker.getAttribute('aria-activedescendant'));
+        if (selected) {
+            return Promise.resolve(selected);
+        }
+
+        const wasOpen = picker.getAttribute('aria-expanded') === 'true';
+        if (!wasOpen) {
+            picker.click();
+        }
+        return pickerOptions(doc).then(function (options) {
+            let path = '';
+            for (let i = 0; i < options.length && !path; i++) {
+                path = drawingPathFrom(options[i].id);
+            }
+            // Only if this opened it, and only if it did open: clicking a
+            // picker that never opened would open it now.
+            if (!wasOpen && picker.getAttribute('aria-expanded') === 'true') {
+                picker.click();
+            }
+            return path;
+        });
+    }
+
+    /**
+     * Fetch a PDF **in the page** and resolve with it as a `data:` address.
+     *
+     * In the page because McMaster serves CAD files only to a request carrying
+     * the operator's session: the same address answers 200 here and 403 to the
+     * server (research.md §1). The bytes therefore travel in the payload rather
+     * than an address the server would be refused (§2).
+     */
+    function inlinePdf(address) {
+        return fetch(address, { credentials: 'include' })
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                const type = (response.headers.get('Content-Type') || '').split(';')[0].trim();
+                if (type.toLowerCase() !== 'application/pdf') {
+                    throw new Error('not a PDF but ' + (type || 'an untyped body'));
+                }
+                return response.blob();
+            })
+            .then(function (blob) {
+                if (blob.size > MAX_DOCUMENT_BYTES) {
+                    throw new Error(blob.size + ' bytes is over the attachment limit');
+                }
+                return new Promise(function (resolve, reject) {
+                    const reader = new FileReader();
+                    reader.onload = function () { resolve(reader.result); };
+                    reader.onerror = function () { reject(reader.error); };
+                    // Retyped so the prefix is exactly the one the server
+                    // accepts, whatever parameters the response carried.
+                    reader.readAsDataURL(new Blob([blob], { type: 'application/pdf' }));
+                });
+            });
+    }
+
+    /**
+     * The part's 2-D drawing as a `data:` address, or ''.
+     *
+     * Never rejects: a drawing that cannot be found or fetched costs the
+     * drawing and nothing else (FR-006).
+     */
+    function mcmasterDrawing(doc, sourceUrl) {
+        return mcmasterDrawingPath(doc)
+            .then(function (path) {
+                return path ? inlinePdf(new URL(path, sourceUrl).href) : '';
+            })
+            .catch(function (error) {
+                console.warn('[capture-agent] could not read the CAD drawing (' + error + ')');
+                return '';
+            });
+    }
+
     /**
      * One McMaster product page, as the `listing` payload.
      *
@@ -1859,9 +2032,15 @@
             // right on the merits rather than by omission: McMaster renders
             // client-side, so a re-fetch returns an unrendered shell -- strictly
             // worse than the document the operator is looking at (research.md §6).
-            return Promise.resolve(payloadFields(
-                mcmasterListing(document, location.href, part), MCMASTER_VENDOR
-            ));
+            const listing = mcmasterListing(document, location.href, part);
+            // 051: the drawing rides in `images` after the pictures, so every
+            // path that stores a listing's images stores it too.
+            return mcmasterDrawing(document, location.href).then(function (drawing) {
+                if (drawing) {
+                    listing.images = (listing.images || []).concat([drawing]);
+                }
+                return payloadFields(listing, MCMASTER_VENDOR);
+            });
         }
 
         if (kind === 'mcmaster-order') {

@@ -8,16 +8,16 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Add a one-page PDF the e2e image host can serve, at `tests/e2e/fixtures/images/product_manual_sample.pdf`, and a second distinct one for the McMaster drawing route, `tests/e2e/fixtures/images/mcmaster_drawing_sample.pdf`
+- [X] T001 Add a one-page PDF the e2e image host can serve, at `tests/e2e/fixtures/images/product_manual_sample.pdf`, and a second distinct one for the McMaster drawing route, `tests/e2e/fixtures/images/mcmaster_drawing_sample.pdf`
 
 ## Phase 2: Foundational (server accepts and reports PDFs — blocks both stories)
 
-- [ ] T002 [P] Unit tests: `_payload_images` keeps `data:application/pdf;base64,` entries and drops other `data:` entries, in `tests/unit/test_listing_images.py` (or the existing payload-parsing test module)
-- [ ] T003 [P] Unit tests: `store_listing_images` stores a `data:` PDF without calling `requests.get`, counts it in `pdfs`, fails an undecodable one, dedups a repeat, counts a fetched `application/pdf` in `pdfs`, and never logs the whole `data:` address, in `tests/unit/test_listing_images.py`
-- [ ] T004 [P] Unit tests: `_image_tally` names PDFs when `pdfs` > 0 and is unchanged otherwise, in `tests/unit/test_listing_images.py`
-- [ ] T005 Accept `data:application/pdf;base64,` in `_payload_images` and add `pdfs: int = 0` to `ImageCaptureResult` in `app/models.py`
-- [ ] T006 Decode `data:` entries instead of requesting them, count stored PDFs, shorten log labels in `app/services/listing_images.py`
-- [ ] T007 Name PDFs in `_image_tally` and carry `pdfs` through the order-listings sum in `app/product/routes.py`
+- [X] T002 [P] Unit tests: `_payload_images` keeps `data:application/pdf;base64,` entries and drops other `data:` entries, in `tests/unit/test_listing_images.py` (or the existing payload-parsing test module)
+- [X] T003 [P] Unit tests: `store_listing_images` stores a `data:` PDF without calling `requests.get`, counts it in `pdfs`, fails an undecodable one, dedups a repeat, counts a fetched `application/pdf` in `pdfs`, and never logs the whole `data:` address, in `tests/unit/test_listing_images.py`
+- [X] T004 [P] Unit tests: `_image_tally` names PDFs when `pdfs` > 0 and is unchanged otherwise, in `tests/unit/test_listing_images.py`
+- [X] T005 Accept `data:application/pdf;base64,` in `_payload_images` and add `pdfs: int = 0` to `ImageCaptureResult` in `app/models.py`
+- [X] T006 Decode `data:` entries instead of requesting them, count stored PDFs, shorten log labels in `app/services/listing_images.py`
+- [X] T007 Name PDFs in `_image_tally` and carry `pdfs` through the order-listings sum in `app/product/routes.py`
 
 **Checkpoint**: `nox -s tests` green.
 
@@ -25,23 +25,23 @@
 
 **Independent test**: capture the McMaster fixture whose CAD picker shows 3-D PDF; the payload carries one `data:application/pdf` entry, the picker is closed and still reads 3-D PDF, and confirming stores a PDF attachment.
 
-- [ ] T008 [US1] Add a scripted CAD picker to `tests/e2e/fixtures/mcmaster_product.html`: combobox showing "3-D PDF", download anchor, and an option list rendered only while open, with ids `dropdown-<label><path>`; document it in the fixture's header comment
-- [ ] T009 [US1] E2E tests in `tests/e2e/test_mcmaster_product.py`: drawing is in the payload as a PDF `data:` address (route the drawing path to the sample PDF); the picker is left closed showing 3-D PDF; confirming stores a PDF attachment and the flash names it; a page with no CAD control captures as before (existing tests cover this)
-- [ ] T010 [US1] Implement `mcmasterDrawing(doc)` (find the 2-D PDF path via `aria-activedescendant` or by opening/closing the picker, fetch with the session, return a data URL or '') and have the `mcmaster-product` branch of `capture()` await it, in `extension/capture-agent.js`
+- [X] T008 [US1] Add a scripted CAD picker to `tests/e2e/fixtures/mcmaster_product.html`: combobox showing "3-D PDF", download anchor, and an option list rendered only while open, with ids `dropdown-<label><path>`; document it in the fixture's header comment
+- [X] T009 [US1] E2E tests in `tests/e2e/test_mcmaster_product.py`: drawing is in the payload as a PDF `data:` address (route the drawing path to the sample PDF); the picker is left closed showing 3-D PDF; confirming stores a PDF attachment and the flash names it; a page with no CAD control captures as before (existing tests cover this)
+- [X] T010 [US1] Implement `mcmasterDrawing(doc)` (find the 2-D PDF path via `aria-activedescendant` or by opening/closing the picker, fetch with the session, return a data URL or '') and have the `mcmaster-product` branch of `capture()` await it, in `extension/capture-agent.js`
 
 ## Phase 4: User Story 2 — Amazon capture keeps the listing's documents (P2)
 
 **Independent test**: capture the Amazon fixture with a Product-guides PDF, its quick-view repeat, and a brand-story PDF; the payload carries the product PDF once and not the cross-sell one; confirming stores it.
 
-- [ ] T011 [US2] Add "Product guides and documents", a quick-view repeat and a brand-story PDF link to `tests/e2e/fixtures/amazon_listing.html` (and the A+ fixture if the brand story lives only there)
-- [ ] T012 [US2] E2E tests in `tests/e2e/test_product_page_capture.py`: PDF captured once, cross-sell PDF excluded, confirming stores it; update any exact image-list/count assertions the new entry changes
-- [ ] T013 [US2] Implement `documentLinks(doc, baseUrl)` and append its result in `extract()` in `extension/capture-agent.js`
+- [X] T011 [US2] Add "Product guides and documents", a quick-view repeat and a brand-story PDF link to `tests/e2e/fixtures/amazon_listing.html` (and the A+ fixture if the brand story lives only there)
+- [X] T012 [US2] E2E tests in `tests/e2e/test_product_page_capture.py`: PDF captured once, cross-sell PDF excluded, confirming stores it; update any exact image-list/count assertions the new entry changes
+- [X] T013 [US2] Implement `documentLinks(doc, baseUrl)` and append its result in `extract()` in `extension/capture-agent.js`
 
 ## Phase 5: Polish
 
-- [ ] T014 [P] Docs: say "images and PDFs" where capture is described in `docs/user-manual.md`, `docs/capture-extension.md`, `README.md`
+- [X] T014 [P] Docs: say "images and PDFs" where capture is described in `docs/user-manual.md`, `docs/capture-extension.md`, `README.md`
 - [ ] T015 Run `nox -s tests` and `nox -s e2e` (detached); record results in `specs/051-capture-product-pdfs/quickstart.md`
-- [ ] T016 Validate against the real `https://www.mcmaster.com/91074A329/` by running the agent's drawing reader in the owner's browser (SC-001)
+- [X] T016 Validate against the real `https://www.mcmaster.com/91074A329/` by running the agent's drawing reader in the owner's browser (SC-001)
 
 ## Dependencies
 

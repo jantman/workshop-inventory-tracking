@@ -16,7 +16,9 @@ hash is a build artifact that changes without warning. The fixture carries the
 real hashes so that substring matching is exercised rather than assumed.
 """
 
+import base64
 import json
+import re
 
 import pytest
 from playwright.sync_api import expect
@@ -234,3 +236,85 @@ def test_the_existing_duplicate_handling_applies_unchanged(
     # with an expect() before anything is read off the page.
     expect(again.locator("#capture-form")).to_be_visible()
     expect(again.locator("body")).to_contain_text("first capture")
+
+
+# ---------------------------------------------------------------------------
+# 051: the part's 2-D drawing
+# ---------------------------------------------------------------------------
+
+# The fixture's 2-D PDF, and only it: the 3-D PDF's path carries `_3D_` and is
+# deliberately left unrouted, so a reader that fetched the *selected* format
+# instead would come back with nothing.
+DRAWING_ROUTE = re.compile(r"/mvC/Library/CAD2/.*/91290A115_Black-Oxide[^/]*\.PDF$")
+DRAWING = FIXTURES / "images" / "mcmaster_drawing_sample.pdf"
+PDF_PREFIX = "data:application/pdf;base64,"
+
+
+def serve_drawing(page):
+    """What McMaster does for a visitor with a session: the PDF itself."""
+    page.route(
+        DRAWING_ROUTE,
+        lambda route: route.fulfill(
+            status=200, content_type="application/pdf", body=DRAWING.read_bytes()
+        ),
+    )
+
+
+@pytest.mark.e2e
+def test_the_2d_drawing_rides_in_the_payload_as_bytes(page, live_server, image_host):
+    """FR-001, FR-002. The picker shows 3-D PDF; the 2-D one is what comes, and
+    it comes as the file rather than an address the server would be refused."""
+    serve_drawing(page)
+    landed = capture_product(page, live_server, image_host)
+
+    images = payload_of(landed)["images"]
+    inline = [entry for entry in images if entry.startswith("data:")]
+    assert len(inline) == 1, f"expected one inline drawing, got {len(inline)}"
+    assert inline[0].startswith(PDF_PREFIX)
+    assert base64.b64decode(inline[0][len(PDF_PREFIX):]) == DRAWING.read_bytes()
+    # After the pictures, which keep their places.
+    assert images[-1] == inline[0]
+    assert not [src for src in images if "/init/gfx/" in src]
+
+
+@pytest.mark.e2e
+def test_the_picker_is_left_as_the_operator_had_it(page, live_server, image_host):
+    """FR-003. Opened to be read, closed again, and no format chosen."""
+    serve_drawing(page)
+    capture_product(page, live_server, image_host)
+
+    # `capture()` settled before run_capture returned, and it settles only
+    # after closing the picker, so this is the final state (pattern C).
+    picker = page.locator('button[role="combobox"]')
+    expect(picker).to_have_attribute("aria-expanded", "false")
+    expect(picker).to_have_text("3-D PDF")
+    expect(page.locator('ul[role="listbox"]')).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_drawing_that_cannot_be_fetched_costs_only_the_drawing(
+    page, live_server, image_host
+):
+    """FR-006. Unrouted, the drawing's address 404s from the live server, as
+    it would 403 from McMaster without a session. The pictures still come."""
+    landed = capture_product(page, live_server, image_host)
+
+    images = payload_of(landed)["images"]
+    assert images, "the pictures were lost with the drawing"
+    assert not [entry for entry in images if entry.startswith("data:")]
+
+
+@pytest.mark.e2e
+def test_confirming_stores_the_drawing_and_says_so(page, live_server, image_host):
+    """FR-005, FR-007, SC-001."""
+    serve_drawing(page)
+    landed = capture_product(page, live_server, image_host)
+    landed.fill("#description", "Socket head screw, with its drawing")
+    landed.fill("#quantity", "100")
+    landed.click("#capture-btn")
+
+    # The receipt is a full navigation; its button is the completion signal.
+    expect(landed.locator("#confirm-receive-btn")).to_be_visible()
+    expect(
+        landed.locator(".alert").filter(has_text="Stored 3 images and 1 PDF")
+    ).to_be_visible()

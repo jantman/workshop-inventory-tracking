@@ -49,6 +49,18 @@
     product images. `__IMAGE_HOST__` is replaced by the test with the local
     image server, as it is in the Amazon fixtures.
 
+  * **The CAD files sit behind a picker** (051). The button shows the selected
+    format -- here "3-D PDF", as McMaster remembers whatever the visitor last
+    chose -- and the download anchor beside it points at that one. The list of
+    formats exists only while the picker is open: the script at the foot of this
+    page renders it a moment after a click, as McMaster's own does, and removes
+    it on the next. Each option's id is `dropdown-<label><path>`, which is where
+    the 2-D PDF's address is read from. Transcribed from 91074A329 on
+    2026-09-27; the paths are this part's shape with this part's number.
+    **McMaster serves these files only with the visitor's session**, so the test
+    routes the 2-D path to a sample PDF and leaves the 3-D path unrouted: a
+    reader that fetched the selected format instead would get no PDF.
+
   Note the path this is served at: `/91290A115/`. Two other McMaster URL shapes
   reach a part and neither is this page -- `/catalog/<part>` redirects to
   `/products/<part-lowercased>/`, which is a filterable *family table* listing
@@ -82,6 +94,18 @@
     <img class="_printProductImage_8r35q_141" src="__IMAGE_HOST__/steel_rod_sample.jpg" alt="">
     <img class="_thumbnailImg_zomor_85" src="__IMAGE_HOST__/steel_plate_sample.jpg" alt="">
     <img class="_thumbnailImg_zomor_85" src="__IMAGE_HOST__/brass_rod_sample.jpg" alt="">
+</div>
+
+<div class="_productDetailCADControl_1cgou_111">
+    <div class="_cadControlWrapper_kifon_1">
+        <div class="_divDropdownWrapper_fiqqf_1">
+            <button class="_buttonDropdown_fiqqf_21" role="combobox" aria-label="Select CAD file type"
+                    aria-disabled="false" aria-haspopup="listbox" aria-expanded="false"
+                    aria-activedescendant="dropdown-3-D PDF/mvC/Library/CAD2/20260825/B6B6040F/91290A115_3D_Black-Oxide Alloy Steel Socket Head Screw.PDF">3-D PDF</button>
+        </div>
+        <a href="/mvC/Library/CAD2/20260825/B6B6040F/91290A115_3D_Black-Oxide Alloy Steel Socket Head Screw.PDF"
+           download="" class="_downloadAnchor_kifon_247" tabindex="-1" aria-hidden="true"><button class="_downloadButton_kifon_33">Download</button></a>
+    </div>
 </div>
 
 <!-- Catalog navigation chrome. Real pages carry about forty of these. They are
@@ -192,6 +216,44 @@
 
     </tbody>
 </table>
+
+<script>
+    // McMaster's picker, reduced to what the reader relies on: the list is
+    // rendered after the click returns rather than during it, and exists only
+    // while open.
+    (function () {
+        const FORMATS = [
+            ['3-D Solidworks', '/mvC/Library/CAD2/20260825/F84930D7/91290A115_Black-Oxide Alloy Steel Socket Head Screw.SLDPRT'],
+            ['3-D STEP', '/mvC/Library/CAD2/20260825/963F64BC/91290A115_Black-Oxide Alloy Steel Socket Head Screw.STEP'],
+            ['3-D PDF', '/mvC/Library/CAD2/20260825/B6B6040F/91290A115_3D_Black-Oxide Alloy Steel Socket Head Screw.PDF'],
+            ['2-D PDF', '/mvC/Library/CAD2/20260825/B6B6040F/91290A115_Black-Oxide Alloy Steel Socket Head Screw.PDF'],
+            ['2-D DXF', '/mvC/Library/CAD2/20260825/21C30204/91290A115_Black-Oxide Alloy Steel Socket Head Screw.DXF']
+        ];
+        const picker = document.querySelector('button[role="combobox"]');
+        picker.addEventListener('click', function () {
+            const list = document.querySelector('ul[role="listbox"]');
+            if (list) {
+                list.remove();
+                picker.setAttribute('aria-expanded', 'false');
+                return;
+            }
+            picker.setAttribute('aria-expanded', 'true');
+            setTimeout(function () {
+                const ul = document.createElement('ul');
+                ul.setAttribute('role', 'listbox');
+                FORMATS.forEach(function (format) {
+                    const li = document.createElement('li');
+                    li.setAttribute('role', 'option');
+                    li.className = '_liEnabled_19kwq_1';
+                    li.id = 'dropdown-' + format[0] + format[1];
+                    li.textContent = format[0];
+                    ul.appendChild(li);
+                });
+                picker.parentElement.appendChild(ul);
+            }, 120);
+        });
+    })();
+</script>
 
 </body>
 </html>

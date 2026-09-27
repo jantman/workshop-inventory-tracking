@@ -25,3 +25,14 @@ attachment.
    drawing as already stored; no second copy appears.
 6. Open an Amazon listing with "Product guides and documents" (e.g. `/dp/B000O3LUEI`) and
    capture it. Each distinct manual PDF is attached once.
+
+## Results
+
+**Real McMaster page (T016, SC-001)** — 2026-09-27, `https://www.mcmaster.com/91074A329/`
+in the owner's Chrome, CAD picker showing **3-D PDF**. The new reader's functions, copied
+verbatim from `extension/capture-agent.js`, returned a `data:application/pdf;base64,…`
+address decoding to 105,558 bytes beginning `%PDF-1.4`, one page — the washer's 2-D
+drawing, not the 3-D PDF that was selected. Afterwards the picker still read *3-D PDF*,
+`aria-expanded="false"`, and no option list was left in the DOM. The whole read took about
+one second. The full extension was not loaded into that browser, so the round trip through
+the application was exercised by the e2e suite rather than by hand.

@@ -12,7 +12,10 @@ fails loudly rather than reaching out. That is a feature, and the reason there i
 no network marker anywhere in this file.
 """
 
+import base64
 import io
+import logging
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +23,7 @@ from PIL import Image
 
 from app.catalog_service import CatalogService
 from app.photo_service import PhotoService
+from app.product.routes import _image_tally
 from app.services.listing_images import store_listing_images
 
 GALLERY = 'https://m.media-amazon.com/images/I/'
@@ -30,6 +34,20 @@ def jpeg_bytes(size=(40, 30), colour=(10, 120, 200)):
     buffer = io.BytesIO()
     Image.new('RGB', size, colour).save(buffer, format='JPEG')
     return buffer.getvalue()
+
+
+def pdf_bytes(text='A drawing'):
+    """A real one-page PDF -- the service renders a preview of what it is given"""
+    import fitz
+    document = fitz.open()
+    document.new_page().insert_text((72, 72), text)
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+def inline_pdf(data):
+    return 'data:application/pdf;base64,' + base64.b64encode(data).decode('ascii')
 
 
 class FakeResponse:
@@ -331,3 +349,84 @@ class TestTheServerDoesNotReFilterBySize:
         assert result.stored == 1
         assert result.skipped == 0
         assert len(photos.get_product_attachments(product.id)) == 1
+
+
+class TestPDFs:
+    """051: a product page's PDFs are stored beside its images.
+
+    Amazon's are addresses, fetched like any image. McMaster's drawing arrives
+    inline, because McMaster refuses it to anything without the operator's
+    session -- so an inline PDF must be stored **without a request**.
+    """
+
+    def test_an_inline_pdf_is_stored_without_a_request(self, test_storage, product, photos):
+        result = store(
+            product.id, [inline_pdf(pdf_bytes())], test_storage, {},
+            vendor_item_id='91074A329',
+        )
+
+        assert (result.stored, result.pdfs, result.failed) == (1, 1, 0)
+        assert result.calls == []
+        attachment = photos.get_product_attachments(product.id)[0]
+        assert attachment.photo.content_type == 'application/pdf'
+        assert attachment.photo.filename == '91074A329-00.pdf'
+
+    def test_an_inline_pdf_that_will_not_decode_is_one_failure(
+        self, test_storage, product
+    ):
+        good = f'{GALLERY}a.jpg'
+        result = store(
+            product.id,
+            ['data:application/pdf;base64,not base64!!', good],
+            test_storage,
+            {good: FakeResponse(jpeg_bytes())},
+        )
+
+        assert (result.failed, result.stored, result.pdfs) == (1, 1, 0)
+
+    def test_a_recaptured_drawing_is_a_duplicate(self, test_storage, product, photos):
+        drawing = inline_pdf(pdf_bytes())
+        store(product.id, [drawing], test_storage, {})
+        again = store(product.id, [drawing], test_storage, {})
+
+        assert (again.stored, again.pdfs, again.duplicates) == (0, 0, 1)
+        assert len(photos.get_product_attachments(product.id)) == 1
+
+    def test_a_fetched_pdf_is_counted_and_named_as_one(self, test_storage, product, photos):
+        """Amazon's manuals: an address, and the type comes from the response."""
+        image, manual = f'{GALLERY}a.jpg', f'{GALLERY}A1dp0humarL.pdf'
+        result = store(product.id, [image, manual], test_storage, {
+            image: FakeResponse(jpeg_bytes()),
+            manual: FakeResponse(pdf_bytes('Manual'), content_type='application/pdf'),
+        }, vendor_item_id='B000O3LUEI')
+
+        assert (result.stored, result.pdfs) == (2, 1)
+        names = [a.photo.filename for a in photos.get_product_attachments(product.id)]
+        assert names == ['B000O3LUEI-00.jpg', 'B000O3LUEI-01.pdf']
+
+    def test_the_inline_bytes_never_reach_the_log(self, test_storage, product, caplog):
+        drawing = inline_pdf(pdf_bytes())
+        with caplog.at_level(logging.INFO, logger='app.services.listing_images'):
+            store(product.id, [drawing, 'data:application/pdf;base64,@@'], test_storage, {})
+
+        assert drawing[40:80] not in caplog.text
+        assert 'inline PDF' in caplog.text
+
+
+class TestTheTally:
+    """FR-007: the operator can tell whether the drawing came."""
+
+    @staticmethod
+    def tally(**counts):
+        fields = dict(stored=0, pdfs=0, failed=0, skipped=0, duplicates=0,
+                      cap_reached=False)
+        fields.update(counts)
+        return _image_tally(SimpleNamespace(**fields))
+
+    def test_pdfs_are_named_apart_from_the_images(self):
+        assert self.tally(stored=5, pdfs=1) == 'Stored 4 images and 1 PDF.'
+        assert self.tally(stored=3, pdfs=2) == 'Stored 1 image and 2 PDFs.'
+
+    def test_without_pdfs_the_sentence_is_what_it_always_was(self):
+        assert self.tally(stored=4) == 'Stored 4 images.'
+        assert self.tally(stored=1, failed=2) == 'Stored 1 image; 2 could not be retrieved.'

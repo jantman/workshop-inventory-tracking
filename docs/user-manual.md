@@ -1115,7 +1115,7 @@ where you are buying from:
 | | **Amazon** | **DigiKey** | **McMaster-Carr** | **Anywhere else** |
 |---|---|---|---|---|
 | **A whole order at once** | Browser extension, on the order's own page in *Your Orders* | *Products → Capture a DigiKey Order* — pick from your recent orders, or type a sales order number | Browser extension, on the order page | — |
-| **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names | No reader of its own; use the part lookup below, which brings back more | Yes — title, price, pack size, specifications, images | No reader of its own; the general reader runs and usually finds little |
+| **One item, page read** | Yes — price, brand, description, *About this item*, every *Product information* row, every image the page names, and the manuals and guides it links as PDFs | No reader of its own; use the part lookup below, which brings back more | Yes — title, price, pack size, specifications, images, the 2-D PDF drawing | No reader of its own; the general reader runs and usually finds little |
 | **One item, from the address** | Yes; the item id comes out of the `/dp/` path | Yes | Yes; the part number comes out of the path | Yes — the address and a vendor name; you fill in the rest |
 | **Catalog detail filled in for you** | — | Yes — manufacturer, category, datasheet, photograph, parametric specifications | — | — |
 | **Needs configuring first** | No | Yes — see below | No | No |
@@ -1186,7 +1186,8 @@ Two ways in:
    itself, not just the address -- for an Amazon page that means the price, the
    brand, the description, the *About this item* bullets, every *Product
    information* row, and every image the page's own data names, which is usually
-   more than the thumbnail strip shows.
+   more than the thumbnail strip shows. Any manual, user guide or warranty the
+   listing links as a PDF comes too, and is attached beside the images.
 
    **The *About this item* bullets arrive as one specification row** of that
    name, one bullet to a line. Read them: on some listings that section is the
@@ -1206,14 +1207,16 @@ Two ways in:
 
    What it reads is a page's markup, and a vendor's markup is not a contract. So
    the confirmation page tells you **what it found before anything is written** --
-   a count of images, a count of information rows, and whether it found a
-   description. A capture that comes back thinner than the listing looks is the
+   a count of files (images, and any PDFs), a count of information rows, and
+   whether it found a description. A capture that comes back thinner than the listing looks is the
    signal that the vendor has changed something. The capture still works; it just
    brings less. Nothing is ever refused for this.
 
    Whatever it read is written when you press **Capture**, and not before. A full
    gallery takes eight to fifteen seconds to fetch at that point, which is
-   expected -- the page is downloading a dozen full-resolution images.
+   expected -- the page is downloading a dozen full-resolution images. The message
+   afterwards says how many landed, and names PDFs separately -- *Stored 6 images
+   and 1 PDF* -- so you can tell a manual or drawing arrived.
 
 > **The extension requires this application to be served over HTTPS.** An
 > extension page is a secure context, and a browser may refuse to submit from one
@@ -1758,9 +1761,14 @@ opens the product. Nothing is ever received twice by scanning it twice.
 
 The same extension works on a McMaster **product** page. The confirmation form
 arrives carrying the part number, McMaster's description, the price, what a pack
-holds, the specification table and the product image, with nothing typed. Write
-your own label description over McMaster's — theirs is kept alongside — and
-capture it.
+holds, the specification table, the product image and the part's **2-D PDF
+drawing**, with nothing typed. Write your own label description over McMaster's —
+theirs is kept alongside — and capture it.
+
+The drawing is the 2-D PDF whichever format McMaster's CAD picker is showing: the
+capture opens the picker for a moment to find it, and closes it again without
+changing your choice. Parts McMaster publishes no CAD files for capture as before,
+without one.
 
 **This is also how a part from a captured order gets its details.** An order
 line gives its product little more than a description. Capture that part's
