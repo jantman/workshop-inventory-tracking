@@ -854,6 +854,28 @@ class CatalogService:
             }
         return ids - detailed
 
+    def _find_listing_product(
+        self, item_id: str, vendor: str,
+    ) -> Optional[Product]:
+        """The product a vendor's item number names, whichever kind records it.
+
+        ``find_listing_match`` and ``capture_order`` both ask this, and must
+        get the same answer: the page offers details-only for the product the
+        submit would otherwise attach to. Order captures record McMaster and
+        DigiKey part numbers as ``DISTRIBUTOR``, and single-listing captures
+        before 049 recorded McMaster's as ``VENDOR``, so asking for only one
+        kind misses a product that is there (issue #171). ``VENDOR`` is tried
+        first, so every Amazon lookup is answered by exactly the query it
+        always was.
+        """
+        for id_type in VENDOR_SCOPED_TYPES:
+            product = self.find_product_by_identifier(
+                item_id, id_type=id_type.value, vendor=vendor
+            )
+            if product is not None:
+                return product
+        return None
+
     def find_listing_match(
         self,
         vendor: Optional[str],
@@ -885,9 +907,7 @@ class CatalogService:
         if not vendor_name or not item_id:
             return None
 
-        product = self.find_product_by_identifier(
-            item_id, id_type=IdentifierType.VENDOR.value, vendor=vendor_name
-        )
+        product = self._find_listing_product(item_id, vendor_name)
         if product is None:
             return None
 
@@ -1474,9 +1494,7 @@ class CatalogService:
         # part number both agree (FR-019).
         match = None
         if item_id:
-            match = self.find_product_by_identifier(
-                item_id, id_type=IdentifierType.VENDOR.value, vendor=vendor_name
-            )
+            match = self._find_listing_product(item_id, vendor_name)
 
         product = None
         match_open = False
@@ -1554,7 +1572,13 @@ class CatalogService:
                     # product cannot claim one the matched product already
                     # holds -- the purchase still records it as its own
                     # vendor_item_id, which is where it belongs anyway.
-                    [{'id_type': IdentifierType.VENDOR.value,
+                    #
+                    # McMaster's part number is recorded as its order capture
+                    # records it (028 FR-012); every other vendor as it always
+                    # has been.
+                    [{'id_type': (IdentifierType.DISTRIBUTOR.value
+                                  if vendor_name == MCMASTER_VENDOR
+                                  else IdentifierType.VENDOR.value),
                       'value': item_id, 'vendor': vendor_name}]
                     if item_id and match is None else None
                 ),
@@ -3447,19 +3471,12 @@ class CatalogService:
         """The product a McMaster part number names, however it was recorded.
 
         **Both vendor-scoped identifier types are tried**, and that is not
-        belt-and-braces. This feature's order capture writes `DISTRIBUTOR`
-        (FR-012), but the product-page capture goes through ``capture_order``,
-        which writes `VENDOR` for every vendor it has ever handled. Looking for
-        only one of them would mean an order capture failed to recognize a part
-        the operator had already cataloged from its product page, and would
-        create a second product for it -- the duplicate FR-007 exists to
-        prevent.
-
-        Editing ``capture_order`` to write a different type for one vendor was
-        the alternative, and it was rejected: it is the write path every Amazon
-        capture goes through, SC-010 requires that path to behave identically
-        after this feature, and both types are vendor-scoped and both are in
-        ``VENDOR_SCOPED_TYPES``, so a scan finds either one already.
+        belt-and-braces. Order capture and, since 049, the product-page
+        capture both write `DISTRIBUTOR` (028 FR-012); before 049 the
+        product-page capture wrote `VENDOR`. Looking for only one of them would
+        mean an order capture failed to recognize a part the operator had
+        cataloged from its product page back then, and would create a second
+        product for it -- the duplicate FR-007 exists to prevent.
         """
         for id_type in (IdentifierType.DISTRIBUTOR, IdentifierType.VENDOR):
             product = self._mcmaster_product_by_identifier(
