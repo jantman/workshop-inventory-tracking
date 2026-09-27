@@ -30,7 +30,7 @@ No setup is needed; every file already exists.
 - [X] T007 [US3] In `docs/category-taxonomy.md`, rewrite **Scope** to list the six settled roots and what stays deferred: hand and power tools, general DIY, 3D printing, automotive diagnostics. Add the seam statements for the new roots.
 - [X] T008 [US3] In `docs/category-taxonomy.md`, change the `fasteners` table. Edit the `pins & clips` row to drop the "out of scope" note. Add the six `pins & clips/*` rows. Widen the `rivets` row to cover solid rivets.
 - [X] T009 [US3] In `docs/category-taxonomy.md`, add `## tools`, `## adhesives & chemicals` and `## mechanical` sections. Each gets a one-line intro and a `| \`relative path\` | what belongs |` table, exactly the shape `_record_branches()` parses. Rows are relative to the root.
-- [ ] T010 [US3] In `docs/category-taxonomy.md`, add the new branch families to the registry table under `## Specification keys`. Add a `### Key meanings` table after it, so the parser stops before the example values. Add the new vendor-name normalization rows.
+- [X] T010 [US3] In `docs/category-taxonomy.md`, add the new branch families to the registry table under `## Specification keys`. Add a `### Key meanings` table after it, so the parser stops before the example values. Add the new vendor-name normalization rows.
 - [X] T011 [US3] In `docs/category-taxonomy.md`, add the approved probes to **The three probes**, retitled **Probes**. Update **What deliberately has no branch**: dielectric grease now has a home; hand tools, including tap wrenches and die stocks, stay deferred.
 
 ## Phase 6: Polish
