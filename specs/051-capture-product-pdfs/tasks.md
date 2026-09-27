@@ -40,7 +40,7 @@
 ## Phase 5: Polish
 
 - [X] T014 [P] Docs: say "images and PDFs" where capture is described in `docs/user-manual.md`, `docs/capture-extension.md`, `README.md`
-- [ ] T015 Run `nox -s tests` and `nox -s e2e` (detached); record results in `specs/051-capture-product-pdfs/quickstart.md`
+- [X] T015 Run `nox -s tests` and `nox -s e2e` (detached); record results in `specs/051-capture-product-pdfs/quickstart.md`
 - [X] T016 Validate against the real `https://www.mcmaster.com/91074A329/` by running the agent's drawing reader in the owner's browser (SC-001)
 
 ## Dependencies

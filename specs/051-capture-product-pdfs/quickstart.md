@@ -36,3 +36,6 @@ drawing, not the 3-D PDF that was selected. Afterwards the picker still read *3-
 `aria-expanded="false"`, and no option list was left in the DOM. The whole read took about
 one second. The full extension was not loaded into that browser, so the round trip through
 the application was exercised by the e2e suite rather than by hand.
+
+**Automated (T015)** — 2026-09-27: `nox -s tests` 2771 passed; `nox -s e2e` 861 passed in
+16m 55s, no reruns, working tree clean afterwards.
