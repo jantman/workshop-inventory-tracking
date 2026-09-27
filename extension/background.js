@@ -189,14 +189,22 @@ chrome.action.onClicked.addListener(startCapture);
 
 // FR-016. The registration is the whole of the context-menu entry; its handler
 // calls the same routine the toolbar control does, so the two cannot diverge.
-// `onInstalled` rather than top level because the worker is restarted often and
-// `create` throws on a duplicate id.
+//
+// **Cleared before it is created.** `onInstalled` fires on an update and on a
+// reload, not only on a first install, and `create` fails with "Cannot create
+// item with duplicate id" when the item is already there. That failure arrives
+// as an unchecked `chrome.runtime.lastError`, which is what puts the red
+// "Errors" badge on the extensions page -- a real defect report for something
+// that is merely a second registration. `removeAll` first makes it idempotent,
+// and the callback is what orders the two.
 chrome.runtime.onInstalled.addListener(() => {
-    chrome.contextMenus.create({
-        id: MENU_ID,
-        title: 'Capture to Workshop',
-        contexts: ['page'],
-        documentUrlPatterns: MENU_SITES,
+    chrome.contextMenus.removeAll(() => {
+        chrome.contextMenus.create({
+            id: MENU_ID,
+            title: 'Capture to Workshop',
+            contexts: ['page'],
+            documentUrlPatterns: MENU_SITES,
+        });
     });
 });
 
