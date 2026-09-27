@@ -37,7 +37,7 @@ No setup is needed; every file already exists.
 
 - [X] T012 Run `nox -s tests` and `nox -s e2e -- tests/e2e/test_category_taxonomy.py tests/e2e/test_product_specifications.py`.
 - [X] T013 Regenerate screenshots with `nox -s screenshots_headless`. Measure baseline churn first. Commit only files this feature changed (expected: `docs/images/screenshots/user-manual/category_tree.png`). Run `nox -s screenshots_verify`.
-- [ ] T014 Run the full `nox -s e2e` detached, and confirm it is green.
+- [X] T014 Run the full `nox -s e2e` detached, and confirm it is green.
 - [X] T015 Run the spelling check `grep -ric catalogue README.md docs/ app/ tests/`; it must return nothing.
 
 ## Dependencies
