@@ -49,7 +49,9 @@ EXTENSION = Path(__file__).parents[2] / "extension"
 ASIN = "B0CKXJLP4B"
 LISTING_ROUTE = re.compile(r"/dp/[A-Z0-9]{10}")
 MCMASTER_PART = "91290A115"
-MCMASTER_PRODUCT_ROUTE = re.compile(r"/91290A115/$")
+# Also the address McMaster moves to once a variant is chosen (056).
+MCMASTER_VARIANT_PART = "91290A116"
+MCMASTER_PRODUCT_ROUTE = re.compile(r"/91290A115(?:-91290A116)?/$")
 MCMASTER_ORDER_ID = "6a5ffba81f17e12ac4fb7d70"
 MCMASTER_ORDER_ROUTE = re.compile(r"/order-history/order/[0-9a-f]{24}")
 AMAZON_ORDER_ID = "111-2223334-5556667"
@@ -401,6 +403,25 @@ def test_a_mcmaster_product_captures_through_the_extension(extension):
     # Declared by the reader rather than derived from the host, which on this
     # harness would be the loopback address.
     expect(landed.locator("#vendor")).to_have_value("McMaster-Carr")
+
+
+@pytest.mark.e2e
+def test_a_mcmaster_variant_address_captures_through_the_extension(extension):
+    """Issue #184. Choosing a variant moves McMaster to `/<part>-<part>/`, and
+    the service worker refused that as not a page it can read.
+
+    The landing form is the completion signal; the refusal banner is appended
+    before any tab would open, so its absence is safe to read after it."""
+    extension.seed_address()
+
+    vendor, landed = extension.capture_from(
+        f"/{MCMASTER_PART}-{MCMASTER_VARIANT_PART}/"
+    )
+
+    expect(landed.locator("#capture-form")).to_be_visible()
+    expect(landed.locator("#vendor_item_id")).to_have_value(MCMASTER_PART)
+    expect(landed.locator("#vendor")).to_have_value("McMaster-Carr")
+    expect(vendor.locator("#workshop-capture-message")).to_have_count(0)
 
 
 @pytest.mark.e2e

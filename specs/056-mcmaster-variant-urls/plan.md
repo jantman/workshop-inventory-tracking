@@ -18,7 +18,10 @@ of this rule already straddle:
    part number: the page's `[class*="_productDetailPartNumber_"]` text when it is one of the
    address's part numbers, otherwise the address's first (FR-002). For a single-part
    address that rule can only ever answer the address's one part number, so FR-003 holds
-   by construction rather than by a branch.
+   by construction rather than by a branch. The McMaster product branch sends that number
+   as the top-level `vendor_item_id` field: until now the part number reached the form only
+   through the server re-reading the address (the one inside `listing` is not used for
+   it), and the server takes a sent `vendor_item_id` ahead of its own reading.
 2. **The server** (`app/product/routes.py`, `_mcmaster_part_from_url`): the same optional
    second group; the first part number is returned (FR-004). There is no page on this side
    to consult.

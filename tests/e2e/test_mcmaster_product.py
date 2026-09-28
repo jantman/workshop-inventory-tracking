@@ -26,7 +26,7 @@ from playwright.sync_api import expect
 from tests.e2e.test_product_page_capture import FIXTURES, run_capture
 
 PART_NUMBER = "91290A115"
-PRODUCT_ROUTE = "**/91290A115/"
+PRODUCT_PATH = f"/{PART_NUMBER}/"
 
 # What the fixture's own markup says.
 TITLE = ("Black-Oxide Alloy Steel Socket Head Screw, "
@@ -37,22 +37,21 @@ PACK_SIZE = "100"
 UNIT_PRICE = "0.13"
 
 
-def serve_product(page, image_host, fixture="mcmaster_product.html"):
+def serve_product(page, image_host, fixture="mcmaster_product.html",
+                  path=PRODUCT_PATH):
     body = (FIXTURES / fixture).read_text().replace("__IMAGE_HOST__", image_host)
     page.route(
-        PRODUCT_ROUTE,
+        f"**{path}",
         lambda route: route.fulfill(
             status=200, content_type="text/html", body=body
         ),
     )
 
 
-def capture_product(page, live_server, image_host):
-    """Serve the fixture product page and run the real reader on it."""
-    serve_product(page, image_host)
-    return run_capture(
-        page, live_server, f"{live_server.url}/{PART_NUMBER}/"
-    )
+def capture_product(page, live_server, image_host, path=PRODUCT_PATH):
+    """Serve the fixture product page at ``path`` and run the real reader on it."""
+    serve_product(page, image_host, path=path)
+    return run_capture(page, live_server, f"{live_server.url}{path}")
 
 
 def payload_of(landed):
@@ -318,3 +317,67 @@ def test_confirming_stores_the_drawing_and_says_so(page, live_server, image_host
     expect(
         landed.locator(".alert").filter(has_text="Stored 3 images and 1 PDF")
     ).to_be_visible()
+
+
+# ---------------------------------------------------------------------------
+# 056: the address McMaster moves to once a variant is chosen
+# ---------------------------------------------------------------------------
+#
+# Choosing a variant on /3408A521/ ("Threadlocker") moved the owner to
+# /3408A521-3408A523/, which the reader refused as not a page it can read
+# (issue #184). The fixture displays 91290A115 as its part number, so serving it
+# at two-part addresses exercises which number the reader believes.
+
+
+@pytest.mark.e2e
+def test_a_variant_address_is_read_as_a_product_page(page, live_server, image_host):
+    """US1 scenarios 1 and 2: the page's own part number, and the rest of the
+    listing read exactly as on a single-part address."""
+    landed = capture_product(
+        page, live_server, image_host, path=f"/{PART_NUMBER}-91290A116/"
+    )
+
+    expect(landed.locator("#vendor_item_id")).to_have_value(PART_NUMBER)
+    expect(landed.locator("#vendor")).to_have_value("McMaster-Carr")
+    expect(landed.locator("#listing_title")).to_have_value(TITLE)
+    expect(landed.locator("#unit_price")).to_have_value(UNIT_PRICE)
+
+
+@pytest.mark.e2e
+def test_the_page_names_the_part_even_when_it_is_second(
+    page, live_server, image_host
+):
+    """FR-002. Which of the two numbers McMaster means is undocumented; the
+    number the page displays is the authority when the address names it."""
+    landed = capture_product(
+        page, live_server, image_host, path=f"/91290A116-{PART_NUMBER}/"
+    )
+
+    expect(landed.locator("#vendor_item_id")).to_have_value(PART_NUMBER)
+
+
+@pytest.mark.e2e
+def test_a_displayed_part_the_address_does_not_name_is_not_believed(
+    page, live_server, image_host
+):
+    """US1 scenario 3. The recorded part number is always one the address
+    names, so a mis-read element cannot put a stranger on the product."""
+    landed = capture_product(
+        page, live_server, image_host, path="/91290A117-91290A118/"
+    )
+
+    expect(landed.locator("#vendor_item_id")).to_have_value("91290A117")
+
+
+@pytest.mark.e2e
+def test_a_variant_address_brings_its_drawing(page, live_server, image_host):
+    """US1 scenario 4. The drawing is the reason the owner chose the variant."""
+    serve_drawing(page)
+    landed = capture_product(
+        page, live_server, image_host, path=f"/{PART_NUMBER}-91290A116/"
+    )
+
+    images = payload_of(landed)["images"]
+    inline = [entry for entry in images if entry.startswith("data:")]
+    assert len(inline) == 1, f"expected one inline drawing, got {len(inline)}"
+    assert base64.b64decode(inline[0][len(PDF_PREFIX):]) == DRAWING.read_bytes()

@@ -1028,6 +1028,11 @@ def _mcmaster_part_from_url(url: str) -> str:
     Anything it cannot find is blank for the operator to fill in, never an
     error.
 
+    ``/3408A521-3408A523/`` is where McMaster moves once a variant is chosen on
+    the page (issue #184). The first number is returned: it is the one the page
+    displayed on the one live page observed, and with no page to read here there
+    is nothing better to go on. The agent's copy prefers the page's own number.
+
     **Matched on the path, never the host**, exactly as ``_asin_from_url`` is
     and for the same two reasons: a path is a contract in a way a host lookup
     table is not, and the e2e harness serves vendor fixtures from this
@@ -1046,7 +1051,9 @@ def _mcmaster_part_from_url(url: str) -> str:
         return ''
 
     path = urlparse(url).path if '//' in url else url
-    match = re.match(r'^/(\d{1,5}[A-Z][0-9A-Z]{0,6})/?$', path)
+    match = re.match(
+        r'^/(\d{1,5}[A-Z][0-9A-Z]{0,6})(?:-\d{1,5}[A-Z][0-9A-Z]{0,6})?/?$', path
+    )
     return match.group(1) if match else ''
 
 

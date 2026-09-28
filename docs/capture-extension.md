@@ -106,7 +106,7 @@ well. A banner on the vendor's page says how far it has got.
 |---|---|
 | An Amazon **listing** (`/dp/<ASIN>`) | The confirmation form, pre-filled: price, brand, description, the *About this item* bullets, the product-information rows, every image the page's own data names, and every PDF the listing links (manuals, guides) |
 | An Amazon **order** (`/your-orders/order-details?orderID=…`) | The order review, one row per ordered line, each with its own listing read as well |
-| A McMaster **product** (`mcmaster.com/<part>/`) | The confirmation form, pre-filled from the part page, with the part's 2-D PDF drawing |
+| A McMaster **product** (`mcmaster.com/<part>/`, or `mcmaster.com/<part>-<part>/` once a variant is chosen) | The confirmation form, pre-filled from the part page, with the part's 2-D PDF drawing |
 | A McMaster **order** (`/order-history/order/<id>`) | The order review, one row per line |
 
 Anything else — a search results page, an Amazon order *list*, a McMaster family

@@ -48,7 +48,12 @@ element (`91290A115`), so the e2e tests can serve it at variant addresses unchan
 `_mcmaster_part_from_url` is documented as a deliberate duplicate of the agent's pattern,
 used by the paste-a-URL form with no page available. It takes the same optional second
 group and returns the first number (FR-004) — the only answer available without the page.
-It is also the fallback when a capture payload carries no `vendor_item_id`.
+It is also the fallback when a capture payload carries no top-level `vendor_item_id` —
+which, found by the first e2e run, was *every* McMaster product capture: the agent's part
+number rode only inside the `listing` JSON, which is not where the form's part number is
+taken from. So the agent now sends `vendor_item_id` as a top-level field on a McMaster
+product capture; `/api/capture` already prefers a sent one over its own reading of the
+address. Amazon's payload is unchanged (its field set is asserted exactly).
 
 ## §4 The drawing half of the issue
 

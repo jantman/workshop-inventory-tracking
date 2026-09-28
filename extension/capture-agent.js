@@ -49,7 +49,13 @@
     // link there, so the operator can easily be standing on one. The
     // `/products/` prefix already excludes it; the case requirement is the
     // second lock.
-    const MCMASTER_PRODUCT_PATTERN = /^\/(\d{1,5}[A-Z][0-9A-Z]{0,6})\/$/;
+    //
+    // Choosing a variant on the page -- "Threadlocker" on `/3408A521/` -- moves
+    // it to `/3408A521-3408A523/`: two part numbers and a hyphen, and exactly
+    // two. Which of them McMaster means is undocumented, so `mcmasterPartNumber`
+    // asks the page (056 research.md §1).
+    const MCMASTER_PRODUCT_PATTERN =
+        /^\/(\d{1,5}[A-Z][0-9A-Z]{0,6})(?:-(\d{1,5}[A-Z][0-9A-Z]{0,6}))?\/$/;
 
     // A McMaster order-history order: `/order-history/order/6a5ffba81f17e12ac4fb7d70`.
     // The id is opaque and relates to nothing the page displays -- in
@@ -1693,6 +1699,31 @@
     }
 
     /**
+     * The part number a McMaster product page is for.
+     *
+     * The number the page displays, when it is one the address names; otherwise
+     * the address's first. On the one variant page observed the page showed the
+     * first of its two numbers, but the 3-D PDF on the same page was named for
+     * the second, so the address alone is not trusted to say which is meant.
+     * Nor is the page alone: a number the address does not name is more likely
+     * a misread element than the product, and is never recorded.
+     *
+     * On a single-part address this can only ever answer that part, so those
+     * captures are unchanged.
+     *
+     * @param {Document} doc - the page.
+     * @param {Array} match - `MCMASTER_PRODUCT_PATTERN` matched on its path.
+     * @returns {string} the part number.
+     */
+    function mcmasterPartNumber(doc, match) {
+        const shown = textOf(doc.querySelector('[class*="_productDetailPartNumber_"]'));
+        if (shown && (shown === match[1] || shown === match[2])) {
+            return shown;
+        }
+        return match[1];
+    }
+
+    /**
      * One McMaster product page, as the `listing` payload.
      *
      * Fills the `ListingCapture` shape that already exists, so the server needs
@@ -2039,7 +2070,9 @@
         }
 
         if (kind === 'mcmaster-product') {
-            const part = location.pathname.match(MCMASTER_PRODUCT_PATTERN)[1];
+            const part = mcmasterPartNumber(
+                document, location.pathname.match(MCMASTER_PRODUCT_PATTERN)
+            );
             // Read against the live document, and no canonical re-fetch. That is
             // right on the merits rather than by omission: McMaster renders
             // client-side, so a re-fetch returns an unrendered shell -- strictly
@@ -2051,7 +2084,12 @@
                 if (drawing) {
                     listing.images = (listing.images || []).concat([drawing]);
                 }
-                return payloadFields(listing, MCMASTER_VENDOR);
+                const fields = payloadFields(listing, MCMASTER_VENDOR);
+                // The server reads a part number out of the address only when
+                // none is sent, and on a variant address it can only guess the
+                // first (056). This one has seen the page.
+                fields.vendor_item_id = part;
+                return fields;
             });
         }
 
