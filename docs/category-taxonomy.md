@@ -24,12 +24,14 @@ A category path is at most three segments, `/`-separated, and the application lo
 
 ## Scope
 
-**Settled here**: electronics, electrical, and fasteners.
+**Settled here**: electronics, electrical, fasteners, tools, adhesives & chemicals, and
+mechanical.
 
-**Not settled**: machining, general DIY, 3D printing, hand tools and shop supplies, and
-automotive diagnostics. Products in those areas are filed uncategorized until a later session
-settles them. They are *deferred*, not homeless: no branch below is to be stretched to cover
-them.
+**Not settled**: general DIY, 3D printing, hand and power tools, measuring tools, and
+automotive diagnostics. `tools` holds *consumable* tooling only: a tap is filed there, the tap
+wrench that turns it is a hand tool and is not. Products in the unsettled areas are filed
+uncategorized until a later session settles them. They are *deferred*, not homeless: no branch
+below is to be stretched to cover them.
 
 **Never in this tree**: raw metal stock, drops and offcuts, and threaded rod. Those are held
 by the Inventory side of the application, not the catalog. The material taxonomy — the metal
@@ -55,6 +57,24 @@ Consequences worth stating, because each will be questioned later:
   panels, not installed as building wiring.
 - Motors, fans and solenoids are **electronics**; motor run capacitors and thermostats are
   **electrical** — appliance and HVAC repair parts.
+
+### Seams of the tools, chemicals and mechanical roots
+
+- **`tools` vs. everything else.** `tools` is consumable and wearing tooling, and the holders
+  it mounts in: what goes *into* a machine, power tool or hand tool and is used up,
+  resharpened or swapped. The machine or hand tool itself is not settled. Solder, flux and
+  tips stay `electronics/soldering & rework`.
+- **`tools/fastener installation` vs. `fasteners`.** The tool that sets a fastener is a tool;
+  the fastener is a fastener. A rivet nut tool is `tools/fastener installation/rivet nut
+  tools`; its rivet nuts are `fasteners/rivets`.
+- **`adhesives & chemicals` vs. `electrical`.** Electrical tape and heat-shrink stay
+  `electrical/insulation & sleeving`; every other tape is `adhesives & chemicals/tapes`. Thread
+  seal tape is `thread compounds/thread sealants`, because it does the job pipe dope does.
+- **`mechanical` vs. `fasteners`.** Pins, clips and retaining rings are fasteners. Bearings,
+  springs, seals and wheels are mechanical.
+- **Kits.** A thread repair kit (tap, inserts and installer) is
+  `tools/taps & dies/thread repair`: the kit is bought to repair a thread. A kit of loose
+  inserts alone is `fasteners/threaded inserts`.
 
 ## The tie-break rules
 
@@ -130,8 +150,14 @@ it is — never by thread system or size.
 | `nails & staples/staples & tacks` | Hand and gun staples, thumb tacks, ground staples |
 | `anchors/drywall anchors` | Toggles, self-drillers and expanding anchors for hollow board |
 | `anchors/masonry anchors` | Sleeve, wedge and screw anchors for concrete and block |
-| `rivets` | Blind rivets and rivet nuts |
-| `pins & clips` | Cotter, hitch, PTO, hairpin and R clips. Machining dowel, roll and taper pins are out of scope |
+| `rivets` | Blind rivets, solid rivets and rivet nuts. The tools that set them are `tools/fastener installation` |
+| `pins & clips` | Pins, clips and retaining rings, filed by form below |
+| `pins & clips/dowel pins` | Hardened and unhardened dowel pins |
+| `pins & clips/roll & spring pins` | Slotted and coiled spring pins |
+| `pins & clips/taper pins` | Taper pins |
+| `pins & clips/cotter & hitch pins` | Cotter pins, hitch, PTO and hairpin (R) clips, linchpins |
+| `pins & clips/clevis pins` | Clevis pins, and quick-release (ball-lock) pins |
+| `pins & clips/retaining rings` | E-clips, snap rings, circlips and push-on retainers |
 | `threaded inserts` | Inserts adding a machine thread to a softer material — helicoil, heat-set, brass |
 | `standoffs & spacers` | Threaded and unthreaded pillars holding two things apart |
 | `hooks & hangers` | Screw hooks, eyes, picture and mirror hangers |
@@ -238,6 +264,142 @@ Bench stock: what goes onto a bench, a board, or into a project.
 | `computing & storage/pc parts & peripherals` | Internal PC components, keyboards, mice |
 | `enclosures & mounting` | Project boxes, panel and DIN mounts, goosenecks, brackets |
 
+## tools
+
+Consumable and wearing tooling, and the holders it mounts in, filed by **what the tool does**. Tool material, size, inch vs. metric and length series are specification keys, never branches — there is no `metric taps` or `cobalt drills`.
+
+| Branch | What belongs in it |
+|---|---|
+| `taps & dies` | Thread-cutting tools |
+| `taps & dies/taps` | Hand and machine taps: taper, plug, bottoming, and sets of all three; spiral point, spiral flute, forming. Inch and metric alike |
+| `taps & dies/dies` | Round (split/adjustable) and hex dies |
+| `taps & dies/thread repair` | Thread files, thread chasers, and thread repair kits that ship tap, inserts and installer together |
+| `drill bits` | Tools that make a hole by drilling |
+| `drill bits/twist drills` | Number, letter, fractional and metric twist drills of every length series (stub, jobber, aircraft, extra long), material and shank, and sets of them |
+| `drill bits/spotting & center drills` | Spotting drills, and combined drill & countersinks (center drills) |
+| `drill bits/step drills` | Step (Unibit-style) drills |
+| `drill bits/wood & masonry bits` | Brad point, spade, Forstner, auger and masonry bits |
+| `hole cutters` | Tools that cut a hole by removing a ring |
+| `hole cutters/annular cutters` | Annular (Rotabroach-style) cutters |
+| `hole cutters/hole saws` | Hole saws of any tooth material |
+| `hole cutters/arbors & pilots` | Hole saw arbors, annular cutter pilot pins and ejector pins, and the parts of their assemblies |
+| `countersinks & counterbores` | Tools that shape the mouth of an existing hole |
+| `countersinks & counterbores/countersinks` | Single-flute, multi-flute and zero-flute (cross-hole) countersinks |
+| `countersinks & counterbores/counterbores` | Counterbores, piloted or with interchangeable pilots |
+| `countersinks & counterbores/counterbore pilots` | Interchangeable pilots sold on their own |
+| `countersinks & counterbores/deburring tools` | Deburring handles and replacement blades |
+| `reamers` | Tools that finish a hole to size |
+| `reamers/straight reamers` | Chucking, hand, adjustable and expansion reamers |
+| `reamers/taper reamers` | Taper pin, Morse taper and other taper reamers |
+| `extractors` | Broken screw, stud and tap extractors |
+| `fastener installation` | Tools that set a fastener, as opposed to the fastener. The fasteners stay under `fasteners/` |
+| `fastener installation/rivet tools` | Solid rivet sets, bucking bars, rivet squeezer sets, blind rivet nosepieces |
+| `fastener installation/rivet nut tools` | Rivet nut setters, mandrels and nosepieces |
+| `fastener installation/anchor setting tools` | Drop-in anchor setting tools, anchor setting punches, sleeve and wedge anchor setters |
+| `fastener installation/insert installation tools` | Helicoil-style insert installers and tang breakers, threaded-insert drivers, heat-set insert tips |
+| `milling cutters` | Rotating cutters for a mill |
+| `milling cutters/end mills` | Square, ball and corner-radius end mills; roughers |
+| `milling cutters/face mills & fly cutters` | Indexable face mills, shell mills and fly cutters. Their inserts go to `tools/indexable inserts` |
+| `milling cutters/slitting & slotting saws` | Slitting, slotting and screw-slotting saws, and their arbors |
+| `milling cutters/form cutters` | Chamfer, dovetail, T-slot, corner-rounding and keyseat cutters |
+| `lathe tooling` | Non-rotating cutting tools for a lathe |
+| `lathe tooling/tool bits & blanks` | HSS and brazed carbide tool bits and blanks |
+| `lathe tooling/turning & boring holders` | Indexable turning holders, boring bars, quick-change tool post holders |
+| `lathe tooling/parting & grooving` | Parting blades, grooving tools and their holders |
+| `lathe tooling/knurls` | Knurling tools and wheels |
+| `indexable inserts` | Carbide and ceramic inserts for any holder, lathe or mill. They get their own branch because one insert fits both |
+| `toolholding` | What holds a cutter in a spindle |
+| `toolholding/collets` | R8, 5C, ER and other collets, of any bore shape |
+| `toolholding/holders & adapters` | End mill holders, collet chucks, drill chucks and arbors, Morse taper sleeves |
+| `abrasives` | Anything that cuts by grit |
+| `abrasives/grinding wheels` | Bench, surface and tool-and-cutter grinding wheels; depressed-center grinding wheels |
+| `abrasives/cut-off wheels` | Thin cut-off and chop saw wheels |
+| `abrasives/flap & sanding discs` | Flap discs, fiber discs, hook-and-loop and PSA sanding discs, quick-change (Roloc) discs |
+| `abrasives/sanding belts` | Belts for belt sanders and grinders |
+| `abrasives/sheets & rolls` | Sandpaper, emery cloth, abrasive rolls and non-woven (Scotch-Brite) pads |
+| `abrasives/sharpening stones` | Bench stones, files-in-a-stone, diamond plates, slip stones |
+| `abrasives/hones` | Cylinder, brake and flex (ball) hones |
+| `abrasives/wire wheels & brushes` | Wire wheels, cup and end brushes, hand wire brushes |
+| `abrasives/polishing & buffing` | Buffing wheels and polishing compounds |
+| `abrasives/mounted points & burrs` | Mounted stones and rotary carbide burrs for die grinders and rotary tools |
+| `saw blades` | Blades for a saw |
+| `saw blades/bandsaw blades` | Bandsaw blades, cut to length or by the coil |
+| `saw blades/hacksaw blades` | Hand and power hacksaw blades |
+| `saw blades/circular & cold saw blades` | Circular, miter and cold saw blades |
+| `saw blades/jigsaw & reciprocating blades` | Jigsaw, reciprocating and oscillating multi-tool blades |
+| `driver bits` | Screwdriver, nut driver and impact bits, and bit holders |
+| `knife & scraper blades` | Utility knife, scraper and hobby knife blades |
+| `welding consumables` | What a welder, torch or plasma cutter uses up |
+| `welding consumables/electrodes` | Stick electrodes |
+| `welding consumables/filler wire` | MIG and flux-core wire on a spool |
+| `welding consumables/filler rod` | TIG, gas and brazing rod |
+| `welding consumables/tungsten` | TIG tungsten electrodes |
+| `welding consumables/torch consumables` | Contact tips, nozzles, cups, collets and collet bodies for MIG and TIG torches, and plasma electrodes, tips and shields |
+
+## adhesives & chemicals
+
+What is applied from a tube, bottle, can or roll.
+
+| Branch | What belongs in it |
+|---|---|
+| `adhesives` | Things that bond |
+| `adhesives/epoxies` | Two-part epoxies and epoxy putties (JB Weld) |
+| `adhesives/cyanoacrylates` | Super glues and their accelerators and primers |
+| `adhesives/glues` | Wood (PVA), polyurethane, contact cement, construction adhesive, plastic cement |
+| `adhesives/hot melt` | Hot glue sticks |
+| `tapes` | Duct, masking, painter's, double-sided, foil, Kapton and PTFE-film tape. Electrical tape is `electrical/insulation & sleeving`; thread seal tape is `thread compounds/thread sealants` |
+| `thread compounds` | Compounds applied to a thread or a fit |
+| `thread compounds/threadlockers` | Low, medium and high strength threadlockers |
+| `thread compounds/retaining compounds` | Cylindrical retaining compounds (Loctite 6xx) |
+| `thread compounds/anti-seize` | Anti-seize compounds |
+| `thread compounds/thread sealants` | PTFE thread seal tape, pipe dope, thread sealant pastes |
+| `lubricants` | Things that make parts slide |
+| `lubricants/oils` | Way, spindle, machine and general-purpose oils; penetrating oils |
+| `lubricants/greases` | Greases of any base, including dielectric grease |
+| `lubricants/cutting fluids` | Tapping fluid, cutting oil, coolant concentrate, cutting wax |
+| `lubricants/dry lubricants` | Graphite, PTFE and molybdenum dry lubricants |
+| `sealants & caulks` | Silicone and polyurethane sealants, caulk, RTV gasket makers |
+| `solvents & cleaners` | Degreasers, brake cleaner, acetone, IPA, hand cleaner |
+| `paints & coatings` | Spray paint, primers, cold galvanizing, layout fluid, rust preventives, anti-spatter |
+
+## mechanical
+
+Machine components that are not threaded fasteners.
+
+| Branch | What belongs in it |
+|---|---|
+| `bearings` | Things that carry a rotating or sliding load |
+| `bearings/ball bearings` | Radial and angular-contact ball bearings, sealed or open |
+| `bearings/roller & needle bearings` | Tapered roller, cylindrical roller, needle and thrust bearings |
+| `bearings/bushings` | Plain bearings: bronze, oil-impregnated, plastic |
+| `bearings/mounted bearings` | Pillow blocks and flange bearings |
+| `balls` | Loose precision balls of any material: steel, stainless, ceramic, bearing balls |
+| `springs` | Springs |
+| `springs/compression springs` | Compression springs, including die springs |
+| `springs/extension springs` | Extension springs |
+| `springs/torsion springs` | Torsion springs |
+| `springs/gas springs` | Gas springs and struts |
+| `lubrication fittings` | Grease fittings (zerks), oil cups, ball oilers and fitting caps |
+| `seals & gaskets` | Things that seal a joint |
+| `seals & gaskets/o-rings` | O-rings, individually or in kits, and O-ring cord |
+| `seals & gaskets/gaskets` | Cut gaskets and gasket sheet material |
+| `seals & gaskets/shaft seals` | Lip and oil seals for rotating shafts |
+| `wire & wire rope` | Non-electrical wire |
+| `wire & wire rope/music & spring wire` | Music wire and spring-temper wire |
+| `wire & wire rope/safety wire` | Lockwire and general-purpose tie wire |
+| `wire & wire rope/wire rope & fittings` | Wire rope, cable, and its thimbles, ferrules, clips and turnbuckles |
+| `wheels & casters` | Rolling things |
+| `wheels & casters/casters` | Swivel, rigid and locking casters |
+| `wheels & casters/wheels` | Loose wheels and their axles |
+| `power transmission` | Things that transmit rotation |
+| `power transmission/shaft collars` | Set-screw and clamp collars |
+| `power transmission/keys & keystock` | Machine keys and key stock |
+| `power transmission/couplings` | Shaft couplings of any type |
+| `power transmission/belts & pulleys` | V-belts, timing belts and their pulleys |
+| `power transmission/chain & sprockets` | Roller chain, links and sprockets |
+| `power transmission/gears` | Spur, bevel and worm gears, and racks |
+| `linear motion` | Linear rails, shafts and bearings, lead screws and nuts |
+
 ---
 
 ## Specification keys
@@ -258,6 +420,7 @@ new key is added to this table when it is first needed rather than invented whil
 | `fasteners/nuts`, `washers` | `Thread`, `Material` |
 | `fasteners/anchors/*` | `Size`, `Length`, `Substrate` |
 | `fasteners/threaded inserts`, `standoffs & spacers` | `Thread`, `Length`, `Material` |
+| `fasteners/pins & clips/*` | `Size`, `Length`, `Material`, `Type` |
 | `electrical/devices/*` | `Amperage`, `Voltage`, `Poles`, `Color` |
 | `electrical/conduit & raceway/*` | `Trade Size`, `Material` |
 | `electrical/wire & cable` | `Gauge`, `Conductors`, `Type`, `Length` |
@@ -273,6 +436,59 @@ new key is added to this table when it is first needed rather than invented whil
 | `electronics/sensors/*` | `Interface`, `Range`, `Supply Voltage` |
 | `electronics/actuators/motors` | `Voltage`, `Type`, `Shaft` |
 | `electronics/dev boards/*` | `Chipset`, `Flash`, `PSRAM`, `Connectivity` |
+| `tools/taps & dies/taps` | `Thread`, `Chamfer`, `Flute Type`, `Material`, `Coating` |
+| `tools/taps & dies/dies` | `Thread`, `Size`, `Type`, `Material` |
+| `tools/drill bits/*` | `Size`, `Length Series`, `Material`, `Point Angle`, `Shank`, `Coating` |
+| `tools/hole cutters/*` | `Size`, `Cut Depth`, `Material`, `Shank`, `Arbor` |
+| `tools/countersinks & counterbores/*` | `Size`, `Angle`, `Flutes`, `Pilot`, `Shank`, `Material` |
+| `tools/reamers/*` | `Size`, `Taper`, `Flute Type`, `Shank`, `Material` |
+| `tools/extractors` | `Size`, `Type`, `Material` |
+| `tools/fastener installation/*` | `Size`, `Thread`, `Type`, `Shank` |
+| `tools/milling cutters/*` | `Size`, `Flutes`, `Cut Depth`, `Shank`, `Material`, `Coating` |
+| `tools/lathe tooling/*` | `Size`, `Shank`, `Material`, `Insert` |
+| `tools/indexable inserts` | `Insert`, `Grade`, `Material`, `Coating` |
+| `tools/toolholding/collets` | `Collet`, `Size`, `Type` |
+| `tools/toolholding/holders & adapters` | `Collet`, `Shank`, `Taper`, `Size` |
+| `tools/abrasives/*` | `Size`, `Grit`, `Abrasive`, `Arbor`, `Type` |
+| `tools/saw blades/*` | `Length`, `Size`, `Width`, `TPI`, `Material`, `Arbor` |
+| `tools/driver bits` | `Drive`, `Size`, `Shank`, `Length` |
+| `tools/welding consumables/*` | `Process`, `Classification`, `Size`, `Series` |
+| `adhesives & chemicals/adhesives/*` | `Type`, `Cure Time`, `Volume`, `Temperature` |
+| `adhesives & chemicals/tapes` | `Type`, `Width`, `Length`, `Temperature` |
+| `adhesives & chemicals/thread compounds/*` | `Strength`, `Color`, `Volume`, `Temperature` |
+| `adhesives & chemicals/lubricants/*` | `Type`, `Viscosity`, `Grade`, `Volume`, `Temperature` |
+| `adhesives & chemicals/sealants & caulks`, `solvents & cleaners`, `paints & coatings` | `Type`, `Color`, `Volume` |
+| `mechanical/bearings/*` | `Size`, `Bore`, `OD`, `Width`, `Seal` |
+| `mechanical/balls` | `Size`, `Material`, `Grade` |
+| `mechanical/springs/*` | `OD`, `Wire Diameter`, `Length`, `Rate`, `Material` |
+| `mechanical/lubrication fittings` | `Thread`, `Angle`, `Type` |
+| `mechanical/seals & gaskets/*` | `Size`, `ID`, `OD`, `Cross Section`, `Material`, `Durometer` |
+| `mechanical/wire & wire rope/*` | `Size`, `Material`, `Length` |
+| `mechanical/wheels & casters/*` | `Size`, `Capacity`, `Mount`, `Type`, `Material` |
+| `mechanical/power transmission/*` | `Size`, `Bore`, `Type`, `Material` |
+| `mechanical/linear motion` | `Size`, `Length`, `Type`, `Thread` |
+
+### Key meanings
+
+Keys whose meaning is not obvious from the name:
+
+| Key | Meaning | Example values |
+|---|---|---|
+| `Chamfer` | Tap chamfer | `Taper`, `Plug`, `Bottoming`, `Set of 3` |
+| `Flute Type` | Flute *form* | `Straight`, `Spiral Point`, `Spiral Flute`, `Forming` |
+| `Flutes` | Flute *count* | `2`, `4`, `Single`, `Zero` |
+| `Length Series` | Drill length class. Kept apart from `Length`, which is a measurement | `Stub`, `Jobber`, `Aircraft`, `Extra Long` |
+| `Shank` | Shank form and size | `Reduced 1/2"`, `MT2`, `3/4" Weldon`, `1/4" Hex`, `R8` |
+| `Angle` | Included angle of a countersink, or the angle of a lubrication fitting | `82°`, `90°`, `45°` |
+| `Point Angle` | Drill point angle. Kept apart from `Angle` so a filter on `90` does not mix spotting drills with countersinks | `118°`, `135°`, `90°` |
+| `Taper` | A standard taper | `MT3`, `#4 taper pin`, `JT33` |
+| `Collet` | Collet system | `R8`, `5C`, `ER32` |
+| `Insert` | ISO/ANSI insert designation | `CCMT 32.51`, `TCMT 21.51` |
+| `Grade` | Carbide grade, NLGI grease grade, or ball grade | `C2`, `NLGI 2`, `Grade 25` |
+| `Abrasive` | Abrasive grain | `Aluminum Oxide`, `Zirconia`, `Ceramic`, `Silicon Carbide`, `Diamond`, `CBN` |
+| `Process` | Welding process | `MIG`, `TIG`, `Stick`, `Gas`, `Plasma` |
+| `Classification` | AWS classification | `ER70S-6`, `E7018`, `ER4043` |
+| `Volume` | Container contents | `10 ml`, `14 oz` |
 
 ### Normalizing a vendor's names
 
@@ -287,27 +503,42 @@ A captured listing arrives carrying the vendor's vocabulary. Normalize on captur
 | `Number of Positions` | `Positions` |
 | `Voltage - Rated`, `Voltage - Supply` | `Voltage`, `Supply Voltage` |
 | `Head Style`, `Head Type` | *not a key* — it is the branch |
+| `Diameter` (tools, balls) | `Size` |
+| `Length of Cut`, `Depth of Cut` | `Cut Depth` |
+| `Included Angle` | `Angle` |
+| `Bore Diameter` | `Bore` |
+| `Outside Diameter`, `Inside Diameter` | `OD`, `ID` |
+| `Teeth per Inch` | `TPI` |
 
 ---
 
-## The three probes
+## Probes
 
 | Item | Branch | Why not the other one |
 |---|---|---|
 | 1/4-20 socket head cap screw | `fasteners/machine screws & bolts/socket head cap` | Thread size is a specification key, not a branch |
 | Wago connector | `electrical/wire connectors/wire nuts & lever connectors` | Installed wiring, not bench stock |
 | ESP32 dev board | `electronics/dev boards/esp32 & esp8266` | — |
+| 1/4-20 plug tap, HSS | `tools/taps & dies/taps` | Plug vs. bottoming is `Chamfer`, and inch vs. metric is `Thread`. Neither is a branch |
+| #7 cobalt jobber drill | `tools/drill bits/twist drills` | Size, material and length series are keys |
+| 7/8" x 1" annular cutter | `tools/hole cutters/annular cutters` | — |
+| Drop-in anchor setting tool | `tools/fastener installation/anchor setting tools` | It sets an anchor; the anchor is `fasteners/anchors` |
+| 5C 3/8" collet | `tools/toolholding/collets` | The collet system is `Collet`, not a branch |
+| Loctite 243 | `adhesives & chemicals/thread compounds/threadlockers` | Not an adhesive: it is applied to a thread |
+| 6203-2RS bearing | `mechanical/bearings/ball bearings` | — |
+| 1/4" x 1" dowel pin | `fasteners/pins & clips/dowel pins` | A pin is a fastener, not a mechanical component |
+| Electrical tape | `electrical/insulation & sleeving` | The only tape that is not `adhesives & chemicals/tapes` |
 
 ## What deliberately has no branch
 
 Uncategorized is an ordinary state. These are known, decided, and not gaps:
 
-- **Deferred areas** — machining, general DIY, 3D printing, hand tools and shop supplies
-  (staplers, crimpers, pin extractors, gauges, ESD supplies), automotive diagnostics.
+- **Deferred areas** — general DIY, 3D printing, hand and power tools (staplers, crimpers,
+  pin extractors, tap wrenches and die stocks), measuring tools and gauges, ESD supplies,
+  automotive diagnostics.
 - **Finished consumer instruments** — the weather station, the Govee display. Neither a sensor
   nor a display in this tree's sense.
-- **One-offs with nothing to join** — dielectric grease, label tape, Cameo vinyl, negative ion
-  generators.
+- **One-offs with nothing to join** — label tape, Cameo vinyl, negative ion generators.
 - **Catch-all bins** — "Misc. Components", "Misc. Terminals", "Misc Connectors / Adapters",
   "Misc. Electronics". A `misc` branch under every parent is how a taxonomy dies. Products from
   these bins are filed by what they actually are, or left uncategorized.
