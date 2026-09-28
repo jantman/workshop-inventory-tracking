@@ -253,6 +253,12 @@ class TestPartNumberFromUrl:
         # the same reason: the e2e harness serves the fixture from this app's
         # own origin, so a host gate would leave it with no coverage.
         ('http://127.0.0.1:8080/91290A115/', '91290A115'),
+        # 056: where McMaster moves once a variant is chosen (issue #184). The
+        # first number is the one the page displayed on the one live page
+        # observed, and with no page to read here it is the only answer.
+        ('https://www.mcmaster.com/3408A521-3408A523/', '3408A521'),
+        ('https://www.mcmaster.com/3408A521-3408A523', '3408A521'),
+        ('http://127.0.0.1:8080/3408A521-3408A523/', '3408A521'),
     ])
     def test_a_product_page_yields_its_part_number(self, url, expected):
         from app.product.routes import _mcmaster_part_from_url
@@ -271,6 +277,10 @@ class TestPartNumberFromUrl:
         # The order list, and one order.
         'https://www.mcmaster.com/order-history/',
         'https://www.mcmaster.com/order-history/order/6a5ffba81f17e12ac4fb7d70',
+        # A hyphen does not make a variant address: exactly two part numbers.
+        'https://www.mcmaster.com/3408A521-/',
+        'https://www.mcmaster.com/3408A521-3408A523-3408A525/',
+        'https://www.mcmaster.com/3408A521-3408a523/',
     ])
     def test_anything_else_is_blank_rather_than_an_error(self, url):
         """Blank is the ordinary answer -- the operator fills it in."""
@@ -290,6 +300,26 @@ class TestPartNumberFromUrl:
         assert resp.status_code == 200
         html = resp.get_data(as_text=True)
         assert '91290A115' in html
+
+
+    def test_a_pasted_variant_address_records_its_first_part(self, client, app):
+        """US2 (056). Recorded, not merely somewhere on the page: the variant
+        address itself is on the page too, carrying both numbers."""
+        from app.catalog_service import CatalogService, MCMASTER_VENDOR
+
+        resp = client.post('/products/capture', data={
+            'url': 'https://www.mcmaster.com/3408A521-3408A523/',
+            'description': 'Ball-nose spring plunger, threadlocker',
+            'quantity': '2',
+            'unit_price': '6.38',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        catalog = CatalogService(app.config['STORAGE_BACKEND'])
+        product = catalog.find_product_by_identifier(
+            '3408A521', id_type='DISTRIBUTOR', vendor=MCMASTER_VENDOR)
+        assert product is not None, 'the first part number was not recorded'
+        assert not [i for i in product.identifiers if i.value == '3408A523']
 
 
 class TestProductCaptureIdentifiers:

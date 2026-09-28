@@ -1785,6 +1785,12 @@ capture opens the picker for a moment to find it, and closes it again without
 changing your choice. Parts McMaster publishes no CAD files for capture as before,
 without one.
 
+**Choose the variant first.** Some parts come in variants picked on the page —
+with or without threadlocker, say — and until one is picked the page may show no
+drawing to capture. Picking one moves the address to something like
+`/3408A521-3408A523/`; capture that page, and the part number recorded is the one
+the page shows.
+
 **This is also how a part from a captured order gets its details.** An order
 line gives its product little more than a description. Capture that part's
 product page and the confirmation page says *This is the item from order …*,
@@ -1795,7 +1801,8 @@ works in either order: a part captured from its page first is the product its
 order line lands on later.
 
 Pasting a McMaster product address into **Products → Capture** does the same
-thing without the extension, reading the part number out of the address.
+thing without the extension, reading the part number out of the address — the
+first of the two, for a variant's address. Check it against the page.
 
 ### When the page does not give it up
 
