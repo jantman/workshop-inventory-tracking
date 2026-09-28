@@ -43,7 +43,7 @@ two-part address and capture it; the confirmation form carries the right part nu
 ## Phase 5: Polish
 
 - [X] T006 `nox -s tests` (full unit suite) passes
-- [ ] T007 `nox -s e2e` (detached, ~20 min) passes and leaves the tree clean
+- [X] T007 `nox -s e2e` (detached, ~20 min) passes and leaves the tree clean
 - [X] T008 Check user docs for a list of the address shapes the extension reads (`grep -rn "91290A115\|product page" docs/ README.md`) and update any that enumerate them
 
 ## Dependencies
