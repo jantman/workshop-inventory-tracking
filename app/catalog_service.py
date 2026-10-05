@@ -740,9 +740,10 @@ class CatalogService:
 
         Raises:
             ItemNotFoundError: If no product carries ``code``.
-            ValidationError: If ``location`` is blank.
+            ValidationError: If ``location`` is blank, or either value is not
+                text or is longer than its column.
         """
-        normalized = (code or '').strip().upper()
+        normalized = code.strip().upper() if isinstance(code, str) else ''
         product = None
         if internal_id_utils.is_internal_id(normalized):
             product = self.find_product_by_identifier(
@@ -753,8 +754,15 @@ class CatalogService:
 
         if not isinstance(location, str) or not location.strip():
             raise ValidationError("A location is required to move a product", field='location')
+        if sub_location is not None and not isinstance(sub_location, str):
+            raise ValidationError("A sub-location must be text", field='sub_location')
 
         new_location, new_sub_location = destination(location, sub_location)
+        # Held to the column widths here, so an over-long scan is refused as one
+        # failed move rather than failing at the database mid-batch.
+        self._validate_detail_value('location', new_location)
+        if new_sub_location is not None:
+            self._validate_detail_value('sub_location', new_sub_location)
         moved = self.update_product(
             product.id, location=new_location, sub_location=new_sub_location
         )

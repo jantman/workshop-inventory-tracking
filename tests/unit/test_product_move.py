@@ -63,6 +63,16 @@ class TestMoveProduct:
         with pytest.raises(ItemNotFoundError):
             service.move_product(code, 'M1')
 
+    @pytest.mark.parametrize('location, sub', [('M' * 101, None), ('M1', 'x' * 101), ('M1', 7)])
+    def test_overlong_or_non_text_destination_is_refused(self, service, located, location, sub):
+        with pytest.raises(ValidationError):
+            service.move_product(located.internal_code, location, sub)
+        assert service.get_product(located.id).location == 'M2'
+
+    def test_a_full_width_destination_fits(self, service, located):
+        moved = service.move_product(located.internal_code, 'M' * 100, 's' * 100)
+        assert (len(moved.location), len(moved.sub_location)) == (100, 100)
+
     @pytest.mark.parametrize('location', ['', '   ', None])
     def test_blank_location_is_refused_and_nothing_changes(self, service, located, location):
         with pytest.raises(ValidationError):
@@ -133,8 +143,28 @@ class TestBatchMove:
         ]
         assert service.get_product(located.id).location == 'M9'
 
+    def test_invalid_entries_between_valid_ones(self, client, service, located, unlocated):
+        """Each bad entry is one failed move; the batch carries on past it."""
+        response = self.post(client, [
+            {'code': located.internal_code, 'new_location': 'M7'},
+            {'code': 123, 'new_location': 'M1'},
+            {'code': unlocated.internal_code, 'new_location': 'M1', 'new_sub_location': 5},
+            {'code': unlocated.internal_code, 'new_location': 'L' * 101},
+            'not a move',
+            {'code': unlocated.internal_code, 'new_location': 'M8'},
+        ])
+        data = response.get_json()
+        assert response.status_code == 200
+        assert (data['moved_count'], data['total_count']) == (2, 6)
+        assert [f['code'] for f in data['failed_moves']] == [
+            123, unlocated.internal_code, unlocated.internal_code, None,
+        ]
+        assert service.get_product(located.id).location == 'M7'
+        assert service.get_product(unlocated.id).location == 'M8'
+
     @pytest.mark.parametrize('body, message', [
         ({}, 'Invalid request data'),
+        (['moves'], 'Invalid request data'),
         ({'moves': []}, 'No moves provided'),
         ({'moves': 'x'}, 'No moves provided'),
     ])

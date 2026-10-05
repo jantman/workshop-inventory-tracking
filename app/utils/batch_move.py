@@ -15,11 +15,12 @@ def parse_moves(data) -> list:
     """Return the request's ``moves`` list.
 
     Raises:
-        ValueError: ``'Invalid request data'`` when the body or its ``moves`` key
-            is missing, ``'No moves provided'`` when ``moves`` is empty or not a
-            list. The message is what the endpoint returns with its 400.
+        ValueError: ``'Invalid request data'`` when the body is not a JSON
+            object or has no ``moves`` key, ``'No moves provided'`` when
+            ``moves`` is empty or not a list. The message is what the endpoint
+            returns with its 400.
     """
-    if not data or 'moves' not in data:
+    if not isinstance(data, dict) or 'moves' not in data:
         raise ValueError('Invalid request data')
 
     moves = data['moves']

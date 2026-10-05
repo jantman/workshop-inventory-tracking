@@ -188,7 +188,10 @@ def test_an_unknown_code_fails_validation_and_can_be_removed(page, live_server):
 def test_move_from_the_product_page(page, live_server):
     """US3: the detail page's Move button opens the page with the product
     awaiting a destination."""
-    product = _seed(live_server, description="M3 nuts", location="M2")
+    # Angle brackets and an ampersand: the description is free text, and the
+    # queue must show it literally rather than parse it.
+    description = "Washers <spare> & nuts"
+    product = _seed(live_server, description=description, location="M2")
     page.goto(f"{live_server.url}/products/{product.id}")
 
     page.locator("#move-product-btn").click()
@@ -204,5 +207,6 @@ def test_move_from_the_product_page(page, live_server):
     scan_on_move_page(page, "T-5")
     expect(page.locator("#queue-count")).to_have_text("1 item")
     row = _row(page, product.internal_code)
+    expect(row.locator("td").nth(0)).to_contain_text(description)
     expect(row.locator("td").nth(1)).to_have_text("M2")
     expect(row.locator("td").nth(3)).to_have_text("T-5")

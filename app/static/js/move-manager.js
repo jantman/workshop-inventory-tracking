@@ -12,6 +12,16 @@
  * "Subject" below means the thing being moved: an item or a product.
  */
 
+/** Free text for interpolation into innerHTML, displayed literally. */
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 class MoveManager {
     constructor() {
         this.moveQueue = [];
@@ -797,13 +807,18 @@ class MoveManager {
 
             // Format location display. A null current location is one that was
             // never set; 'Unknown' is one that could not be looked up.
+            // Every value below is free text -- a product description can
+            // easily contain `<` or `&` -- so it is escaped, not parsed.
+            const esc = escapeHtml;
             const currentLoc = item.currentLocation
-                ? `<span class="text-muted">${item.currentLocation}</span>`
+                ? `<span class="text-muted">${esc(item.currentLocation)}</span>`
                 : '<span class="text-muted fst-italic">None</span>';
-            const currentSubLoc = item.currentSubLocation || '<span class="text-muted fst-italic">None</span>';
+            const currentSubLoc = item.currentSubLocation
+                ? esc(item.currentSubLocation)
+                : '<span class="text-muted fst-italic">None</span>';
             let newSubLoc;
             if (item.newSubLocation) {
-                newSubLoc = `<span class="fw-bold text-primary">${item.newSubLocation}</span>`;
+                newSubLoc = `<span class="fw-bold text-primary">${esc(item.newSubLocation)}</span>`;
             } else if (item.currentSubLocation) {
                 // Clearing sub-location
                 newSubLoc = '<span class="text-danger fst-italic">Cleared</span>';
@@ -814,8 +829,8 @@ class MoveManager {
 
             row.innerHTML = `
                 <td>
-                    <strong>${item.id}</strong>
-                    ${item.itemInfo ? `<br><small class="text-muted">${item.itemInfo}</small>` : ''}
+                    <strong>${esc(item.id)}</strong>
+                    ${item.itemInfo ? `<br><small class="text-muted">${esc(item.itemInfo)}</small>` : ''}
                 </td>
                 <td>
                     ${currentLoc}
@@ -824,7 +839,7 @@ class MoveManager {
                     ${currentSubLoc}
                 </td>
                 <td>
-                    <span class="fw-bold text-primary">${item.newLocation}</span>
+                    <span class="fw-bold text-primary">${esc(item.newLocation)}</span>
                 </td>
                 <td>
                     ${newSubLoc}

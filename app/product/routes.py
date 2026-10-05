@@ -2333,7 +2333,8 @@ def api_batch_move_products():
     for move in moves:
         code = move.get('code') if isinstance(move, dict) else None
         new_location = move.get('new_location') if isinstance(move, dict) else None
-        if not code or not isinstance(new_location, str) or not new_location.strip():
+        if (not isinstance(code, str) or not code.strip()
+                or not isinstance(new_location, str) or not new_location.strip()):
             failed.append({'code': code, 'error': 'Missing product code or location'})
             continue
         try:

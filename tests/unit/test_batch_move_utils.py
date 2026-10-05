@@ -6,7 +6,7 @@ from app.utils.batch_move import batch_result, destination, parse_moves
 
 
 class TestParseMoves:
-    @pytest.mark.parametrize('data', [None, {}, {'other': 1}])
+    @pytest.mark.parametrize('data', [None, {}, {'other': 1}, ['moves'], 'moves'])
     def test_missing_body_or_key_is_invalid(self, data):
         with pytest.raises(ValueError, match='Invalid request data'):
             parse_moves(data)
