@@ -56,6 +56,11 @@ class MoveManager {
         // nothing at all. Keying by ID cannot go stale: a removed row simply
         // stops matching.
         this.bulkGroupIds = [];
+        // IDs whose move is being finalized: finalizeCurrentMove() has taken
+        // them off the scanner but its lookup has not returned, so they are not
+        // in moveQueue yet. A duplicate check that only looked at the queue
+        // would let the same subject be queued twice in that window.
+        this.inFlightIds = new Set();
         // Set when handleBarcodeInput() consumed >>DONE<< and emptied the field.
         // The scanner's Enter is still on its way and would otherwise reach
         // processInput() with nothing to process (FR-016).
@@ -446,8 +451,8 @@ class MoveManager {
     handleIdInput(id) {
         console.log(`handleIdInput() called: id=${id}`);
 
-        // Check if this ID is already in queue
-        if (this.moveQueue.some(item => item.id === id)) {
+        // Check if this ID is already in queue, or on its way there
+        if (this.moveQueue.some(item => item.id === id) || this.inFlightIds.has(id)) {
             this.showAlert(`${this.nounTitle} ${id} is already in the move queue`, 'warning');
             this.clearInput();
             return false;
@@ -626,6 +631,19 @@ class MoveManager {
         return { location: 'Unknown', subLocation: null, label: null };
     }
 
+    /**
+     * Queue the move for `idOverride` (or the current subject) once its current
+     * location is known.
+     *
+     * Everything that changes the scan state happens *before* the lookup is
+     * awaited. The scanner does not wait for the network: if the reset were
+     * left until the lookup returned, a subject scanned in the meantime would
+     * find the machine still holding this one -- re-finalizing it as a second,
+     * sub-location-less row -- and the late reset would then throw the new
+     * scan away. So the move is taken off the scanner and reserved in
+     * inFlightIds immediately, and the completion only touches the queue (and
+     * the status line, if nothing has been scanned since).
+     */
     async finalizeCurrentMove(subLocation, idOverride = null, locationOverride = null) {
         console.log(`finalizeCurrentMove() called: subLocation=${subLocation}, idOverride=${idOverride}, locationOverride=${locationOverride}`);
 
@@ -634,8 +652,25 @@ class MoveManager {
         const newLocation = locationOverride || this.currentLocation;
         console.log(`finalizeCurrentMove(): Will use id=${id}, newLocation=${newLocation}`);
 
+        // Only reset state if we're finalizing the current move.
+        // If using overrides (idOverride != null), we're finalizing a previous move
+        // while a new move has already been started, so don't reset state.
+        const resetsState = !idOverride;
+        if (resetsState) {
+            this.currentId = null;
+            this.currentLocation = null;
+            this.currentExpectedInput = 'id';
+            this.updateScannerStatus(`Ready for ${this.idLabel}`);
+        }
+        this.inFlightIds.add(id);
+
         // Fetch current location and sub-location for the subject
-        const current = await this.fetchCurrentLocation(id);
+        let current;
+        try {
+            current = await this.fetchCurrentLocation(id);
+        } finally {
+            this.inFlightIds.delete(id);
+        }
 
         // Add to move queue
         const moveItem = {
@@ -658,18 +693,10 @@ class MoveManager {
         }
         statusMsg += ` to queue. Ready to scan next ${this.idLabel}.`;
 
-        // Only reset state if we're finalizing the current move
-        // If using overrides (idOverride != null), we're finalizing a previous move
-        // while a new move has already been started, so don't reset state
-        if (!idOverride) {
-            console.log('finalizeCurrentMove(): Resetting state (no override)');
-            this.currentId = null;
-            this.currentLocation = null;
-            this.currentExpectedInput = 'id';
+        // Report it only if the scanner has not moved on since: otherwise the
+        // status line belongs to whatever was scanned next.
+        if (resetsState && this.currentExpectedInput === 'id' && this.currentId === null) {
             this.updateStatus(statusMsg);
-            this.updateScannerStatus(`Ready for ${this.idLabel}`);
-        } else {
-            console.log('finalizeCurrentMove(): Not resetting state (using override)');
         }
 
         // Always update UI to reflect new queue count
@@ -908,6 +935,9 @@ class MoveManager {
      * so a sub-location can still be applied to the group.
      */
     halfEnteredReason() {
+        if (this.inFlightIds.size > 0) {
+            return `Still adding ${[...this.inFlightIds].join(', ')} to the queue.`;
+        }
         if (this.currentExpectedInput === 'bulk_location') {
             const count = this.pendingMoves.length;
             return `${count} ${this.nounFor(count)} still need a destination.`;
@@ -1102,17 +1132,46 @@ class MoveManager {
             if (result.success) {
                 this.showAlert(`Successfully moved ${result.moved_count} ${this.nounPlural}!`, 'success');
                 this.clearAll();
+            } else if (Array.isArray(result.failed_moves)) {
+                this.reportPartialMove(result);
             } else {
-                this.showAlert(`Move failed: ${result.error}`, 'danger');
+                this.showAlert(`Move failed: ${escapeHtml(result.error)}`, 'danger');
             }
             
         } catch (error) {
             console.error('Execute moves error:', error);
             this.showAlert('Failed to execute moves. Please try again.', 'danger');
         } finally {
-            this.executeMoveBtn.disabled = false;
             this.executeMoveBtn.innerHTML = '<i class="bi bi-play-fill"></i> Execute Moves';
+            this.updateButtonStates();
         }
+    }
+
+    /**
+     * Some moves committed and some did not. Say which: the committed ones
+     * leave the queue (they are done, and must not be sent again), and each
+     * failure stays in it marked as an error with the server's reason, so
+     * what is left on screen is exactly what still needs dealing with.
+     */
+    reportPartialMove(result) {
+        // The endpoints key a failure by their own ID field.
+        const failures = new Map(result.failed_moves.map(f => [f.code ?? f.ja_id, f.error]));
+
+        this.moveQueue = this.moveQueue
+            .filter(item => item.status !== 'validated' || failures.has(item.id))
+            .map(item => failures.has(item.id)
+                ? { ...item, status: 'error', error: failures.get(item.id) }
+                : item);
+        this.hideValidationResults();
+        this.updateUI();
+
+        const list = [...failures]
+            .map(([id, error]) => `<li><strong>${escapeHtml(id)}</strong> &mdash; ${escapeHtml(error)}</li>`)
+            .join('');
+        this.showAlert(
+            `Moved ${result.moved_count} of ${result.total_count} ${this.nounPlural}. ` +
+            `These were not moved and are still in the queue:<ul class="mb-0 mt-2">${list}</ul>`,
+            'danger');
     }
     
     showAlert(message, type = 'info') {

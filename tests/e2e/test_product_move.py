@@ -210,3 +210,93 @@ def test_move_from_the_product_page(page, live_server):
     expect(row.locator("td").nth(0)).to_contain_text(description)
     expect(row.locator("td").nth(1)).to_have_text("M2")
     expect(row.locator("td").nth(3)).to_have_text("T-5")
+
+
+def _type_scan(page, value):
+    """Type and terminate one scan without waiting on its outcome -- for the
+    one test that has to scan while a lookup is deliberately held open."""
+    barcode = page.locator("#barcode-input")
+    barcode.fill("")
+    barcode.type(value)
+    barcode.press("Enter")
+
+
+@pytest.mark.e2e
+def test_a_scan_during_a_slow_lookup_is_not_lost(page, live_server):
+    """Queueing a move awaits a lookup; the scanner does not. The next product
+    scanned while that lookup is outstanding must start its own move, and the
+    first must be queued once, with its sub-location."""
+    first = _seed(live_server, description="First")
+    second = _seed(live_server, description="Second")
+    _open(page, live_server)
+
+    # Hold every product lookup until the test releases it: the slow network,
+    # made deterministic rather than raced.
+    held = []
+    page.route("**/api/products/by-code/**", lambda route: held.append(route))
+
+    scan_on_move_page(page, first.internal_code)
+    scan_on_move_page(page, "M1-A")
+    with page.expect_request("**/api/products/by-code/**"):
+        _type_scan(page, "Drawer 3")
+    # The move is off the scanner before its lookup returns...
+    expect(page.locator("#scanner-status")).to_have_text("Ready for Product Code")
+    # ...so the next product starts a move of its own.
+    _type_scan(page, second.internal_code)
+    expect(page.locator("#scanner-status")).to_have_text("Waiting for Location")
+    expect(page.locator("#queue-count")).to_have_text("0 items")
+    # A round trip flushes the route event to the handler before it is read.
+    page.evaluate("1")
+    assert len(held) == 1
+
+    held[0].continue_()
+    page.unroute("**/api/products/by-code/**")
+    expect(page.locator("#queue-count")).to_have_text("1 item")
+    # The late completion left the second product's move alone.
+    expect(page.locator("#scanner-status")).to_have_text("Waiting for Location")
+    assert page.evaluate("() => window.moveManager.currentId") == second.internal_code
+
+    scan_on_move_page(page, "M2-B")
+    scan_on_move_page(page, ">>DONE<<")
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+    first_rows = _row(page, first.internal_code)
+    expect(first_rows).to_have_count(1)
+    expect(first_rows.locator("td").nth(4)).to_have_text("Drawer 3")
+    expect(_row(page, second.internal_code).locator("td").nth(3)).to_have_text("M2-B")
+
+
+@pytest.mark.e2e
+def test_a_partly_failed_execute_says_what_moved_and_what_did_not(page, live_server):
+    """A sub-location too long for its column passes validation (which only
+    looks the product up) and fails at execute; the other move commits."""
+    good = _seed(live_server, description="Good")
+    bad = _seed(live_server, description="Bad")
+    too_long = "S" * 101
+    _open(page, live_server)
+
+    scan_on_move_page(page, good.internal_code)
+    scan_on_move_page(page, "M1-A")
+    scan_on_move_page(page, bad.internal_code)
+    scan_on_move_page(page, "M2-B")
+    scan_on_move_page(page, too_long)
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+
+    page.locator("#validate-btn").click()
+    expect(page.locator("#execute-moves-btn")).to_be_enabled()
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.locator("#execute-moves-btn").click()
+
+    alert = _alerts(page).last
+    expect(alert).to_contain_text("Moved 1 of 2 products")
+    expect(alert).to_contain_text(bad.internal_code)
+    expect(alert).to_contain_text("longer than 100 characters")
+
+    # The committed move has left the queue; the failed one stays, marked.
+    expect(page.locator("#queue-count")).to_have_text("1 item")
+    expect(_row(page, bad.internal_code).locator("td").nth(5)).to_have_text("error")
+    expect(page.locator("#execute-moves-btn")).to_be_disabled()
+
+    page.goto(f"{live_server.url}/products/{good.id}")
+    expect(page.locator("#product-location")).to_have_text("M1-A")
+    page.goto(f"{live_server.url}/products/{bad.id}")
+    expect(page.locator("#product-location")).to_contain_text("Not recorded")
