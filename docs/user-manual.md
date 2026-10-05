@@ -69,6 +69,7 @@
 - **Move Items** - Batch move operations
 - **Shorten Items** - Cut materials to length
 - **Products** - The product catalog: what a part is, what it cost, where it came from
+- **Products → Move Products** - Scan products into new locations, like Move Items
 - **Scan box** - In the header on every page; scan or type a code from wherever you are
 
 ## Overview
@@ -1055,6 +1056,38 @@ always read it yourself and type what you need.
 > This depends on the scanner passing through the field separators inside the
 > label. If distributor scans suddenly come out as one run-together string, that
 > is the setting to check.
+
+## Moving Products
+
+**Products → Move Products** puts products away, or moves them, by scanning:
+the same page and the same scanner workflow as [Moving Items](#moving-items),
+but for products. It is the quick way to give a box of newly labelled products
+their locations without opening each one's edit form.
+
+For each product:
+
+1. **Scan the product's label** -- the `WIT…` code printed on it. A code typed
+   in lower case is fine.
+2. **Scan the location** (e.g. `M1-A`, `T-5`, `Other`), using the same location
+   patterns as for items.
+3. **Scan a sub-location** (optional), e.g. `Drawer 3`.
+4. Scan the next product's label, or `>>DONE<<` when you have finished.
+
+Then **Validate & Preview** and **Execute Moves**, exactly as for items.
+
+- **A product with no location yet** is fine: its current location shows as
+  *None* in the queue, and the move gives it one.
+- **Moving replaces the sub-location.** If you do not scan one, any existing
+  sub-location is cleared; the queue shows *Cleared* in red before you execute.
+- **Only location and sub-location change.** Nothing else about the product is
+  touched.
+- **Inventory item labels are refused.** A `JA…` label scanned here is not taken
+  as a sub-location; the page tells you to use Move Items instead.
+- **A code that matches no product** is queued, then marked *not_found* when
+  you validate. Remove it from the queue before executing.
+
+A product's own page has a **Move** button that opens Move Products with that
+product already loaded, waiting for you to scan where it is going.
 
 ## Recording Purchases
 

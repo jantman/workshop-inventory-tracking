@@ -73,6 +73,13 @@ class TestProtectionIsActuallyOn:
         )
         assert response.status_code == 400
 
+    def test_batch_move_without_a_token_is_rejected(self, csrf_client, product):
+        response = csrf_client.post(
+            '/api/products/batch-move',
+            json={'moves': [{'code': product.internal_code, 'new_location': 'M1'}]},
+        )
+        assert response.status_code == 400
+
     def test_label_without_a_token_is_rejected(self, csrf_client, product):
         response = csrf_client.post(
             f'/api/products/{product.id}/label', json={'label_type': 'Sato 2x4'}
@@ -127,6 +134,15 @@ class TestTheClientCanReachEveryEndpoint:
             json={'id_type': 'MPN', 'value': 'ACME-1'}, headers=header(token),
         )
         assert response.status_code == 201
+
+    def test_batch_move(self, csrf_client, token, product):
+        response = csrf_client.post(
+            '/api/products/batch-move',
+            json={'moves': [{'code': product.internal_code, 'new_location': 'M1'}]},
+            headers=header(token),
+        )
+        assert response.status_code == 200
+        assert response.get_json()['moved_count'] == 1
 
     def test_create_product(self, csrf_client, token):
         response = csrf_client.post(

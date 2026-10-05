@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "move/_scan_move.html" import move_page with context %}
+
+{% block content %}
+{{ move_page(noun='product', nouns='products', id_label='Product Code', id_example='WIT0123456789',
+             list_url=url_for('product.product_search'),
+             selection_heading='Product To Move',
+             not_found_text='no product carries this code',
+             preselected_items=preselected_items, rejected_items=rejected_items) }}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/move-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-move.js') }}"></script>
+{% endblock %}

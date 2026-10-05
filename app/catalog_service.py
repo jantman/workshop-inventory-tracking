@@ -73,6 +73,7 @@ from .utils import category as category_utils
 from .utils import gtin as gtin_utils
 from .utils import internal_id as internal_id_utils
 from .utils import catalog_taxonomy
+from .utils.batch_move import destination
 from .utils.clock import local_now, utc_now
 from .utils.scan_router import classify
 from .utils.sql import escape_like as _escape_like
@@ -719,6 +720,49 @@ class CatalogService:
 
         logger.info(f"Updated product {product_id}")
         return self.get_product(product_id)
+
+    def move_product(
+        self, code: str, location: str, sub_location: Optional[str] = None
+    ) -> Product:
+        """Move a product, found by its internal code, to a new location.
+
+        The product Move page's write. Moving always replaces the sub-location,
+        as it does for inventory items: one not given -- absent, ``None`` or
+        blank -- is cleared. Only ``location`` and ``sub_location`` change.
+
+        Args:
+            code: The product's ``WIT`` internal code, in any case.
+            location: The destination location. Must not be blank.
+            sub_location: The destination sub-location, if any.
+
+        Returns:
+            The moved Product.
+
+        Raises:
+            ItemNotFoundError: If no product carries ``code``.
+            ValidationError: If ``location`` is blank.
+        """
+        normalized = (code or '').strip().upper()
+        product = None
+        if internal_id_utils.is_internal_id(normalized):
+            product = self.find_product_by_identifier(
+                normalized, id_type=IdentifierType.INTERNAL.value
+            )
+        if product is None:
+            raise ItemNotFoundError(f"No product carries the code {code}", item_id=str(code))
+
+        if not isinstance(location, str) or not location.strip():
+            raise ValidationError("A location is required to move a product", field='location')
+
+        new_location, new_sub_location = destination(location, sub_location)
+        moved = self.update_product(
+            product.id, location=new_location, sub_location=new_sub_location
+        )
+        logger.info(
+            f'Moved product {normalized} from "{product.location}" / "{product.sub_location}" '
+            f'to "{new_location}" / "{new_sub_location}"'
+        )
+        return moved
 
     def merge_specifications(
         self, product_id: int, entries: List[Dict[str, str]]

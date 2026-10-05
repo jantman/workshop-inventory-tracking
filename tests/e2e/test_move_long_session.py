@@ -101,7 +101,7 @@ def test_a_ja_id_while_a_location_is_expected_resolves_the_machine(page, live_se
 
     # The machine has moved on to the new item rather than bouncing, and the
     # abandoned one is named rather than lost silently.
-    assert page.evaluate("() => window.moveManager.currentJaId") == "JA200002"
+    assert page.evaluate("() => window.moveManager.currentId") == "JA200002"
     assert page.evaluate("() => window.moveManager.currentExpectedInput") == "location"
     expect(page.locator("#form-alerts .alert").last).to_contain_text("JA200001")
 

@@ -10,33 +10,34 @@ import re
 
 from playwright.sync_api import Page, expect
 
-# Mirrors InventoryMoveManager.isJaId() / isLocation() in
-# app/static/js/inventory-move.js. The move page classifies scanner input by
-# pattern, not by what it prompted for, so a test cannot know which transition a
-# scan will take without applying the same rules.
-_JA_ID = re.compile(r"^JA[0-9]+$")
-_LOCATION = re.compile(r"^(M[0-9]+.*|T-?[0-9]+.*|Other)$")
-
 
 def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
-    """Type a barcode on the move page and wait for that scan to finish.
+    """Type a barcode on a move page and wait for that scan to finish.
+
+    Serves both move pages -- Move Items and Move Products -- because both are
+    driven by MoveManager (app/static/js/move-manager.js). The page classifies
+    scanner input by pattern, not by what it prompted for, so which transition a
+    scan takes depends on that classification; rather than keep a Python copy of
+    each page's patterns, this asks the page itself (`classifyInput`) before
+    typing. Badge wording is built from the page's `idLabel` ('JA ID' or
+    'Product Code') the same way the page builds it.
 
     There is no single condition that covers every scan, which is what defeated
     three earlier attempts at this file. `#scanner-status` is set synchronously
     for the two transitions that only change state, and is set *early and
     wrongly* for the one that also finalises a move: processInput() calls
-    handleJaIdInput(value) -- which immediately advertises readiness for the next
+    handleIdInput(value) -- which immediately advertises readiness for the next
     scan -- and only then calls finalizeCurrentMove(...) without awaiting it. The
     badge therefore reports the new move while the previous one is still inside
-    `await fetch('/api/items/{jaId}')`.
+    `await this.lookup(id)`.
 
     So the signal is chosen per transition, per
     specs/003-e2e-remove-timed-waits/contracts/readiness-signals.md section 1:
 
-      JA ID, from state `ja_id`      #scanner-status -> Waiting for Location
-      location                       #scanner-status -> Waiting for JA ID or Sub-Location
+      ID, from state `id`            #scanner-status -> Waiting for Location
+      location                       #scanner-status -> Waiting for <ID> or Sub-Location
       sub-location                   #queue-count reaching N+1 (finalise awaits a fetch)
-      JA ID, from `ja_id_or_sub_location`
+      ID, from `id_or_sub_location`
                                      BOTH of the above -- one action, two completions
       >>DONE<<                       #queue-count reaching its final N
 
@@ -57,7 +58,7 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
       sub-location, after a group      the sub-location is written onto rows that
                                        are already queued, so #queue-count does
                                        not move at all; the state reset to
-                                       `Ready for JA ID` is what happens last
+                                       `Ready for <ID>` is what happens last
       anything rejected                nothing on the page changes except an
                                        alert being appended
 
@@ -65,17 +66,28 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
     .alert` rather than by matching its wording: showAlert() now accumulates
     (issue #107 -- fourteen failed scans used to render as one message), so the
     count is a structural signal that does not couple this file to phrasing.
+
+    Feature 057 added one more input class, `foreign`: the other move page's ID
+    (a JA label on the product page). It is refused in every state. So is an ID
+    already in the queue, outside `bulk_location` (where every ID is refused
+    anyway): handleIdInput() refuses a duplicate before changing any state.
     """
     before = page.evaluate(
-        "() => ({ state: window.moveManager.currentExpectedInput,"
+        "value => ({ state: window.moveManager.currentExpectedInput,"
+        "         kind: window.moveManager.classifyInput(value),"
+        "         idLabel: window.moveManager.idLabel,"
+        "         duplicate: window.moveManager.moveQueue.some("
+        "             e => e.id === window.moveManager.normalizeId(value)),"
         "         queued: window.moveManager.moveQueue.length,"
         "         pending: window.moveManager.pendingMoves.length,"
-        "         grouped: window.moveManager.bulkGroupJaIds.length,"
-        "         inProgress: window.moveManager.currentJaId !== null,"
+        "         grouped: window.moveManager.bulkGroupIds.length,"
+        "         inProgress: window.moveManager.currentId !== null,"
         "         alerts: document.querySelectorAll('#form-alerts .alert').length"
-        "       })"
+        "       })",
+        value,
     )
-    state, queued = before["state"], before["queued"]
+    state, queued, kind = before["state"], before["queued"], before["kind"]
+    id_label = before["idLabel"]
 
     barcode_input = page.locator("#barcode-input")
     barcode_input.fill("")
@@ -103,52 +115,62 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
             # says why, and saying so is the only thing that changes.
             _rejected()
             return
-        # Only the ja_id_or_sub_location branch with a move in progress
+        # Only the id_or_sub_location branch with a move in progress
         # finalises anything; otherwise the queue is already what it will be.
-        finalises = state == "ja_id_or_sub_location" and before["inProgress"]
+        finalises = state == "id_or_sub_location" and before["inProgress"]
         expect(queue_count).to_have_text(_queue_text(queued + 1 if finalises else queued))
         return
 
-    if _JA_ID.match(value):
+    if kind == "foreign":
+        # The other move page's ID: never a subject, location or sub-location.
+        _rejected()
+        return
+
+    if kind == "id":
         if state == "bulk_location":
-            # A JA ID is not a destination. Refused, with an explanation.
+            # An ID is not a destination. Refused, with an explanation.
+            _rejected()
+            return
+        if before["duplicate"]:
+            # Already queued: refused, and the machine stays where it was.
             _rejected()
             return
         if state == "location":
             # The wedge fix: this unambiguously means the previous item's
             # location was missed, so the machine resolves onto the new item.
             # #scanner-status already reads `Waiting for Location` and so proves
-            # nothing here; #status-text names the item that is now in progress.
-            expect(status_text).to_contain_text(value)
+            # nothing here; #status-text names the subject now in progress
+            # (normalized, so compared case-insensitively).
+            expect(status_text).to_contain_text(value, ignore_case=True)
             return
-        if state == "ja_id_or_sub_location" and before["inProgress"]:
+        if state == "id_or_sub_location" and before["inProgress"]:
             # One action, two completions. Waiting on either alone races.
             expect(queue_count).to_have_text(_queue_text(queued + 1))
         expect(scanner_status).to_have_text("Waiting for Location")
         return
 
-    if _LOCATION.match(value):
+    if kind == "location":
         if state == "bulk_location":
             # The destination for the whole preselected group, queued at once.
             expect(queue_count).to_have_text(_queue_text(queued + before["pending"]))
             return
-        if state in ("ja_id", "ja_id_or_sub_location"):
-            # Two locations in a row, or one where a JA ID was expected.
+        if state in ("id", "id_or_sub_location"):
+            # Two locations in a row, or one where an ID was expected.
             _rejected()
             return
-        expect(scanner_status).to_have_text("Waiting for JA ID or Sub-Location")
+        expect(scanner_status).to_have_text(f"Waiting for {id_label} or Sub-Location")
         return
 
-    # A sub-location. Only `ja_id_or_sub_location` accepts one; from anywhere
+    # A sub-location. Only `id_or_sub_location` accepts one; from anywhere
     # else it is refused, and the appended alert is all that changes.
-    if state != "ja_id_or_sub_location":
+    if state != "id_or_sub_location":
         _rejected()
         return
 
     if before["grouped"]:
         # Applied to every row of the group, all of them already queued, so
         # #queue-count cannot move. The state reset is what happens last.
-        expect(scanner_status).to_have_text("Ready for JA ID")
+        expect(scanner_status).to_have_text(f"Ready for {id_label}")
         return
 
     # Sub-location: finalises the current move behind a fetch. #scanner-status
@@ -165,7 +187,7 @@ def _queue_text(count: int) -> str:
 def wait_for_move_executed(page: Page) -> None:
     """Wait for Execute Moves to have committed on the server.
 
-    executeMoves() awaits POST /api/inventory/batch-move and, on success, calls
+    executeMoves() awaits the page's batch-move POST and, on success, calls
     clearAll() -- which is the only thing in the file that writes `All data
     cleared` into #status-text. Waiting on that is waiting on the response, and
     therefore on the transaction: the row is committed before the response is

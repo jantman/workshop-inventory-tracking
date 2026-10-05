@@ -41,8 +41,8 @@
         These items were not carried over:
         <ul class="mb-0 mt-2">
             {% for rejected in rejected_items %}
-            <li data-ja-id="{{ rejected.ja_id }}">
-                <strong>{{ rejected.ja_id }}</strong> &mdash;
+            <li data-id="{{ rejected.id }}">
+                <strong>{{ rejected.id }}</strong> &mdash;
                 {% if rejected.reason == 'inactive' %}
                 no longer the active item, so it cannot be shortened
                 {% else %}
