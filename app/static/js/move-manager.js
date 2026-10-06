@@ -410,8 +410,14 @@ class MoveManager {
                 const locationToFinalize = this.currentLocation;
                 console.log(`processInput(): Finalizing previous move: ${idToFinalize} → ${locationToFinalize}`);
 
-                // Start new move first (synchronous state update)
-                this.handleIdInput(this.normalizeId(value));
+                // Start new move first (synchronous state update). A refused
+                // scan (a duplicate) changes nothing, so the current move must
+                // stay current -- finalizing it here would queue it while
+                // leaving it open, and a sub-location scanned next would
+                // queue it a second time.
+                if (!this.handleIdInput(this.normalizeId(value))) {
+                    return;
+                }
 
                 // Then finalize previous move (async operation). There may be
                 // no previous move to finalize: this state is also where a
@@ -1131,9 +1137,14 @@ class MoveManager {
             
             if (result.success) {
                 this.showAlert(`Successfully moved ${result.moved_count} ${this.nounPlural}!`, 'success');
-                this.clearAll();
+                this.settleExecutedMoves(validItems, new Map());
+                // Back to a clean page -- unless something was scanned while
+                // the batch was in flight, which clearAll() would throw away.
+                if (this.moveQueue.length === 0 && this.halfEnteredReason() === '') {
+                    this.clearAll();
+                }
             } else if (Array.isArray(result.failed_moves)) {
-                this.reportPartialMove(result);
+                this.reportPartialMove(result, validItems);
             } else {
                 this.showAlert(`Move failed: ${escapeHtml(result.error)}`, 'danger');
             }
@@ -1148,22 +1159,35 @@ class MoveManager {
     }
 
     /**
+     * Take an executed batch's results off the queue.
+     *
+     * Only the entries that were actually submitted are touched: scanning and
+     * validating stay available while the request is in flight, so the live
+     * queue may by now hold moves that were never sent. Of the submitted
+     * ones, a success leaves the queue and a failure stays, marked as an
+     * error with the server's reason.
+     */
+    settleExecutedMoves(submitted, failures) {
+        const submittedIds = new Set(submitted.map(item => item.id));
+        this.moveQueue = this.moveQueue
+            .filter(item => !submittedIds.has(item.id) || failures.has(item.id))
+            .map(item => submittedIds.has(item.id)
+                ? { ...item, status: 'error', error: failures.get(item.id) }
+                : item);
+        this.hideValidationResults();
+        this.updateUI();
+    }
+
+    /**
      * Some moves committed and some did not. Say which: the committed ones
      * leave the queue (they are done, and must not be sent again), and each
      * failure stays in it marked as an error with the server's reason, so
      * what is left on screen is exactly what still needs dealing with.
      */
-    reportPartialMove(result) {
+    reportPartialMove(result, submitted) {
         // The endpoints key a failure by their own ID field.
         const failures = new Map(result.failed_moves.map(f => [f.code ?? f.ja_id, f.error]));
-
-        this.moveQueue = this.moveQueue
-            .filter(item => item.status !== 'validated' || failures.has(item.id))
-            .map(item => failures.has(item.id)
-                ? { ...item, status: 'error', error: failures.get(item.id) }
-                : item);
-        this.hideValidationResults();
-        this.updateUI();
+        this.settleExecutedMoves(submitted, failures);
 
         const list = [...failures]
             .map(([id, error]) => `<li><strong>${escapeHtml(id)}</strong> &mdash; ${escapeHtml(error)}</li>`)

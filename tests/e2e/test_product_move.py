@@ -300,3 +300,77 @@ def test_a_partly_failed_execute_says_what_moved_and_what_did_not(page, live_ser
     expect(page.locator("#product-location")).to_have_text("M1-A")
     page.goto(f"{live_server.url}/products/{bad.id}")
     expect(page.locator("#product-location")).to_contain_text("Not recorded")
+
+
+@pytest.mark.e2e
+def test_a_refused_duplicate_leaves_the_open_move_open(page, live_server):
+    """B is half-entered (location scanned) when an already-queued A is
+    scanned. A is refused -- and B must stay open for its sub-location, not
+    be queued behind the refusal and then queued again."""
+    a = _seed(live_server, description="A")
+    b = _seed(live_server, description="B")
+    _open(page, live_server)
+
+    scan_on_move_page(page, a.internal_code)
+    scan_on_move_page(page, "M1-A")
+    scan_on_move_page(page, "Bin 1")
+    scan_on_move_page(page, b.internal_code)
+    scan_on_move_page(page, "M2-B")
+    scan_on_move_page(page, a.internal_code)
+    expect(_alerts(page).last).to_contain_text("already in the move queue")
+    expect(page.locator("#queue-count")).to_have_text("1 item")
+    expect(page.locator("#scanner-status")).to_have_text(
+        "Waiting for Product Code or Sub-Location")
+
+    scan_on_move_page(page, "Bin 2")
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+    b_rows = _row(page, b.internal_code)
+    expect(b_rows).to_have_count(1)
+    expect(b_rows.locator("td").nth(4)).to_have_text("Bin 2")
+
+
+@pytest.mark.e2e
+def test_a_move_queued_during_execute_is_kept(page, live_server):
+    """Scanning stays available while Execute's request is in flight. A move
+    queued in that window was never submitted, so the batch's result -- here
+    a partial one -- must not take it off the queue."""
+    good = _seed(live_server, description="Good")
+    bad = _seed(live_server, description="Bad")
+    later = _seed(live_server, description="Later")
+    _open(page, live_server)
+
+    scan_on_move_page(page, good.internal_code)
+    scan_on_move_page(page, "M1-A")
+    scan_on_move_page(page, bad.internal_code)
+    scan_on_move_page(page, "M2-B")
+    scan_on_move_page(page, "S" * 101)
+    page.locator("#validate-btn").click()
+    expect(page.locator("#execute-moves-btn")).to_be_enabled()
+
+    held = []
+    page.route("**/api/products/batch-move", lambda route: held.append(route))
+    page.once("dialog", lambda dialog: dialog.accept())
+    with page.expect_request("**/api/products/batch-move"):
+        page.locator("#execute-moves-btn").click()
+
+    # While the batch is in flight, another product is queued and validated.
+    scan_on_move_page(page, later.internal_code)
+    scan_on_move_page(page, "T-9")
+    scan_on_move_page(page, ">>DONE<<")
+    expect(page.locator("#queue-count")).to_have_text("3 items")
+    page.locator("#validate-btn").click()
+    later_row = _row(page, later.internal_code)
+    expect(later_row.locator("td").nth(5)).to_have_text("validated")
+
+    page.evaluate("1")
+    assert len(held) == 1
+    held[0].continue_()
+    page.unroute("**/api/products/batch-move")
+
+    expect(_alerts(page).last).to_contain_text("Moved 1 of 2 products")
+    # The committed move left; the failure and the unsubmitted move stayed.
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+    expect(_row(page, good.internal_code)).to_have_count(0)
+    expect(_row(page, bad.internal_code).locator("td").nth(5)).to_have_text("error")
+    expect(later_row.locator("td").nth(5)).to_have_text("validated")
+    expect(later_row.locator("td").nth(3)).to_have_text("T-9")
