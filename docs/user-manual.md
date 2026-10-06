@@ -1094,6 +1094,11 @@ product already loaded, waiting for you to scan where it is going.
 **Add Purchase** on a product records one acquisition: vendor, item id, listing
 title, order date, quantity, unit price and order reference.
 
+If it came as packs, fill in **Packs Bought**, **Paid for the Pack** and **Units in
+the Pack** instead of working out Quantity and Unit Price yourself. They behave
+exactly as they do when capturing an order -- see
+[When it is sold as a pack](#when-it-is-sold-as-a-pack).
+
 Leave **Received Date** blank while the order is still on its way. That blank is
 the entire representation of "outstanding" -- there is no separate status to keep
 in step with it.

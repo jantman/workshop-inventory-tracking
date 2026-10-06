@@ -503,8 +503,13 @@ def purchase_new(product_id):
 
     if request.method == 'POST':
         try:
-            service.record_purchase(
+            service.record_purchase_with_pack(
                 product_id,
+                # 058: the capture page's pack fields. Blank on a POST from a
+                # form that predates them, which records exactly as before.
+                packs=request.form.get('packs'),
+                pack_size=request.form.get('pack_size'),
+                pack_price=request.form.get('pack_price'),
                 vendor=request.form.get('vendor', ''),
                 vendor_item_id=request.form.get('vendor_item_id'),
                 listing_title=request.form.get('listing_title'),

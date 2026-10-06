@@ -99,14 +99,52 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="quantity" class="form-label">Quantity</label>
+                            {# 058. Worked out from the pack fields below, as on
+                               the capture page, and yours to overrule. #}
                             <input type="number" class="form-control" id="quantity" name="quantity"
                                    min="1" step="1" value="{{ form_data.get('quantity') or '' }}">
+                            <div class="form-text">
+                                How many items this brings in, not how many packs.
+                            </div>
                         </div>
-                        <div class="col-md-6 mb-3">
+                    </div>
+
+                    {# 058. The capture page's pack fields, with the same ids so
+                       that pack-unit-price.js drives both. Read left to right:
+                       how many you bought, what one cost, how many were in it,
+                       what that makes a single item. A pack of two or more with
+                       a price is kept on the purchase as what the vendor
+                       charged; the defaults record exactly what this form did
+                       before it had them. #}
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="packs" class="form-label">Packs Bought</label>
+                            <input type="number" class="form-control" id="packs"
+                                   name="packs" min="1" step="1"
+                                   value="{{ form_data.get('packs') or '1' }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="pack_price" class="form-label">Paid for the Pack</label>
+                            <input type="text" class="form-control" id="pack_price"
+                                   name="pack_price" inputmode="decimal"
+                                   value="{{ form_data.get('pack_price') or '' }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="pack_size" class="form-label">Units in the Pack</label>
+                            <input type="number" class="form-control" id="pack_size"
+                                   name="pack_size" min="1" step="1"
+                                   value="{{ form_data.get('pack_size') or '1' }}">
+                            <div class="form-text">
+                                How many came in one -- not how many you bought.
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
                             <label for="unit_price" class="form-label">Unit Price</label>
                             <input type="text" class="form-control" id="unit_price" name="unit_price"
                                    inputmode="decimal"
                                    value="{{ form_data.get('unit_price') or '' }}">
+                            <div class="form-text d-none" id="unit-price-inexact"></div>
+                            <div class="form-text text-danger d-none" id="unit-price-error"></div>
                         </div>
                     </div>
 
@@ -132,4 +170,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/field-autocomplete.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pack-unit-price.js') }}"></script>
 {% endblock %}
