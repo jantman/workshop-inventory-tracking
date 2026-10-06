@@ -35,7 +35,7 @@ None needed. The change touches existing files only.
 
 - [X] T009 [P] Update the `scan_on_move_page` docstring to say that the product page's classification depends on its state. File: tests/e2e/waits.py
 - [X] T010 [P] Update Moving Products: a location is any text, and the next scan after a location is the sub-location. File: docs/user-manual.md
-- [ ] T011 Run `nox -s lint`, `nox -s tests` and the full `nox -s e2e` (detached, given the suite's length).
+- [X] T011 Run `nox -s lint`, `nox -s tests` and the full `nox -s e2e` (detached, given the suite's length).
 
 ## Dependencies
 
