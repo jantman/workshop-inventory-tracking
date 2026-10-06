@@ -9,13 +9,14 @@
   noun / nouns        'item' / 'items'
   id_label            what the ID is called, e.g. 'JA ID'
   id_example          an ID to show in the instructions
+  location_example    what a location looks like, for the instructions
   list_url            the "View All" button's target
   selection_heading   the hand-off card's title
   not_found_text      why a handed-off ID was rejected as not found
   preselected_items   IDs handed off and accepted
   rejected_items      [{'id', 'reason'}] handed off and refused
 #}
-{% macro move_page(noun, nouns, id_label, id_example, list_url, selection_heading,
+{% macro move_page(noun, nouns, id_label, id_example, location_example, list_url, selection_heading,
                    not_found_text, preselected_items, rejected_items) %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-arrow-left-right"></i> Batch Move {{ nouns|title }}</h2>
@@ -147,7 +148,7 @@
                             <i class="bi bi-info-circle"></i>
                             <strong>Instructions:</strong><br>
                             1. Scan or type {{ id_label }} (e.g., {{ id_example }})<br>
-                            2. Scan or type new location (e.g., M1-A, T-5, or Other)<br>
+                            2. Scan or type new location ({{ location_example }})<br>
                             3. (Optional) Scan or type sub-location (e.g., Drawer 3)<br>
                             4. Repeat for all {{ nouns }} to move<br>
                             5. Scan or type <code>>>DONE&lt;&lt;</code> when finished

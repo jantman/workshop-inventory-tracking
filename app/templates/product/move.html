@@ -3,6 +3,7 @@
 
 {% block content %}
 {{ move_page(noun='product', nouns='products', id_label='Product Code', id_example='WIT0123456789',
+             location_example='any text, e.g., WoodshopShelf',
              list_url=url_for('product.product_search'),
              selection_heading='Product To Move',
              not_found_text='no product carries this code',

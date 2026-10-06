@@ -71,6 +71,11 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
     (a JA label on the product page). It is refused in every state. So is an ID
     already in the queue, outside `bulk_location` (where every ID is refused
     anyway): handleIdInput() refuses a duplicate before changing any state.
+
+    Feature 059 made the product page's classification depend on its state: a
+    product location is free text, so while that page waits for a location
+    (`location`, `bulk_location`) any text is one. Asking `classifyInput` in the
+    page's current state, before typing, is what keeps that correct here.
     """
     before = page.evaluate(
         "value => ({ state: window.moveManager.currentExpectedInput,"
