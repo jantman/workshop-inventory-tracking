@@ -1320,6 +1320,59 @@ class CatalogService:
         logger.info(f"Recorded purchase {purchase_id} of product {product_id} from {vendor_name}")
         return self.get_purchase(purchase_id)
 
+    def record_purchase_with_pack(
+        self,
+        product_id: int,
+        packs: Optional[Any] = None,
+        pack_size: Optional[Any] = None,
+        pack_price: Optional[Any] = None,
+        quantity: Optional[Any] = None,
+        unit_price: Optional[Any] = None,
+        **fields: Any,
+    ) -> Purchase:
+        """Record a Purchase, as typed on the product's form (058).
+
+        The same three pack fields the capture page has: how many packs were
+        bought, what one cost and how many came in it. An empty Quantity or
+        Unit Price is worked out from them, so the result does not depend on
+        ``pack-unit-price.js`` having run; a typed one is the operator's. This
+        form is never pre-filled, so empty is the whole of "untouched".
+
+        The vendor's pack is stored when the operator *states* one -- a size of
+        two or more, with a price. That is not the inference the 046 contract
+        forbids on a hand-recorded purchase: nothing is worked out backwards
+        from the quantity and unit price.
+
+        Args:
+            product_id: The product acquired.
+            packs: Packs Bought. Blank means one.
+            pack_size: Units in the Pack. Blank means one, which is no pack.
+            pack_price: Paid for the Pack.
+            quantity: Items brought in, if typed.
+            unit_price: Price of one item, if typed.
+            **fields: Everything else :meth:`record_purchase` takes.
+
+        Returns:
+            The created Purchase.
+
+        Raises:
+            ValidationError: If a field fails validation. Nothing is written.
+        """
+        pack_count = self._validate_pack_size(pack_size)
+        paid_per_pack = self._validate_price(pack_price)
+        count, price = self._apply_pack(
+            self._validate_purchase_quantity(quantity),
+            self._validate_price(unit_price),
+            packs, pack_count, paid_per_pack,
+        )
+        return self.record_purchase(
+            product_id,
+            quantity=count,
+            unit_price=price,
+            **_pack_fields(self, pack_count, paid_per_pack),
+            **fields,
+        )
+
     def get_purchase(self, purchase_id: int) -> Optional[Purchase]:
         """Load one purchase.
 
@@ -1514,12 +1567,10 @@ class CatalogService:
         pack_count = self._validate_pack_size(pack_size)
         paid_per_pack = self._validate_price(pack_price)
         if pack_count > 1:
-            rendered_count, rendered_price = self._rendered_pack_defaults(listing)
-            if count is None or count == rendered_count:
-                bought = self._validate_purchase_quantity(packs) or 1
-                count = bought * pack_count
-            if paid_per_pack is not None and (price is None or price == rendered_price):
-                price = self._validate_price(paid_per_pack / pack_count)
+            count, price = self._apply_pack(
+                count, price, packs, pack_count, paid_per_pack,
+                *self._rendered_pack_defaults(listing),
+            )
         # Here rather than inside create_product/update_product so that an
         # over-length path is refused before the duplicate and recycled-
         # identifier questions are put to the operator, keeping this method's
@@ -1683,6 +1734,38 @@ class CatalogService:
             # `contracts/purchase-pack-fields.md`.
             **_pack_fields(self, pack_count, paid_per_pack),
         )
+
+    def _apply_pack(
+        self,
+        count: Optional[int],
+        price: Optional[Decimal],
+        packs: Any,
+        pack_count: int,
+        paid_per_pack: Optional[Decimal],
+        rendered_count: Optional[int] = None,
+        rendered_price: Optional[Decimal] = None,
+    ) -> tuple:
+        """The quantity and unit price a stated pack implies (046, 058).
+
+        One rule for the capture form and Record a Purchase: a value the
+        operator left untouched is worked out from the pack, and one they
+        typed is theirs. "Untouched" is empty, or equal to what the form was
+        rendered carrying -- which only the capture page pre-fills, so only it
+        passes ``rendered_count`` and ``rendered_price``.
+
+        A pack of one is no pack, and changes nothing.
+
+        Returns:
+            ``(quantity, unit_price)``.
+        """
+        if pack_count < 2:
+            return count, price
+        if count is None or count == rendered_count:
+            bought = self._validate_purchase_quantity(packs) or 1
+            count = bought * pack_count
+        if paid_per_pack is not None and (price is None or price == rendered_price):
+            price = self._validate_price(paid_per_pack / pack_count)
+        return count, price
 
     def _rendered_pack_defaults(self, listing) -> tuple:
         """The quantity and unit price the capture form was rendered carrying.

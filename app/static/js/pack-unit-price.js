@@ -19,6 +19,9 @@
  * 2^53. `BigInt` is used anyway because the exactness should be *visible*
  * rather than something each reader has to re-derive.
  *
+ * Two pages host it: the capture form and, since 058, Record a Purchase
+ * (`purchase_add.html`), which carries the same field ids for this purpose.
+ *
  * A plain global rather than an ES module, matching `label-count.js`:
  * `capture.html` loads plain scripts, and exposing the pure function on
  * `window` is what lets the E2E suite drive the rounding table directly
@@ -115,7 +118,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const packsField = document.getElementById('packs');
     const quantityField = document.getElementById('quantity');
 
-    // Inert on every page that is not the capture form.
+    // Inert on every page without the pack fields.
     if (!paidField || !sizeField || !priceField || !inexactNote || !errorNote) {
         return;
     }
