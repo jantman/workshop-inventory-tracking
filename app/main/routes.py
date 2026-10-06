@@ -14,6 +14,7 @@ from app.error_handlers import with_error_handling, ErrorHandler, wants_json
 from app.exceptions import ValidationError, StorageError, ItemNotFoundError
 from app.logging_config import log_audit_operation, log_audit_batch_operation
 from app.utils.handoff import resolve_handoff
+from app.utils.batch_move import batch_result, destination, parse_moves
 from decimal import Decimal, InvalidOperation
 import traceback
 from config import Config
@@ -1562,20 +1563,10 @@ def get_item_history(ja_id):
 def batch_move_items():
     """Execute batch move of inventory items"""
     try:
-        data = request.get_json()
-        if not data or 'moves' not in data:
-            error_msg = 'Invalid request data'
-            # AUDIT: Log input validation error for batch move
-            log_audit_batch_operation('batch_move_items', 'error', 
-                                    error_details=error_msg)
-            return jsonify({
-                'success': False,
-                'error': error_msg
-            }), 400
-        
-        moves = data['moves']
-        if not moves or not isinstance(moves, list):
-            error_msg = 'No moves provided'
+        try:
+            moves = parse_moves(request.get_json())
+        except ValueError as e:
+            error_msg = str(e)
             # AUDIT: Log input validation error for batch move
             log_audit_batch_operation('batch_move_items', 'error', 
                                     error_details=error_msg)
@@ -1622,16 +1613,8 @@ def batch_move_items():
                 old_location = item.location
                 old_sub_location = item.sub_location
 
-                # Update location
-                item.location = new_location.strip()
-
-                # Update sub-location with clearing logic:
-                # - If new_sub_location is provided and non-empty, set it (stripped)
-                # - If new_sub_location is not provided or empty, clear it (set to None)
-                if new_sub_location and new_sub_location.strip():
-                    item.sub_location = new_sub_location.strip()
-                else:
-                    item.sub_location = None
+                # Moving always replaces the sub-location; one not given clears it.
+                item.location, item.sub_location = destination(new_location, new_sub_location)
 
                 # AUDIT: Log individual move operation input
                 log_audit_operation('move_item', 'input',
@@ -1693,17 +1676,8 @@ def batch_move_items():
                     'error': str(e)
                 })
         
-        # Prepare response
-        response_data = {
-            'success': len(failed_moves) == 0,
-            'moved_count': successful_moves,
-            'total_count': len(moves),
-            'failed_moves': failed_moves
-        }
-        
-        if len(failed_moves) > 0:
-            response_data['error'] = f'{len(failed_moves)} items failed to move'
-        
+        response_data = batch_result(successful_moves, len(moves), failed_moves)
+
         # AUDIT: Log batch move completion with results
         batch_results = {
             'successful_count': successful_moves,

@@ -133,3 +133,11 @@ def test_move_current_location_shows_unknown_bug(page, live_server):
     )
 
 
+
+    # Step 6 (057, FR-012): validating must keep that location. The validator
+    # used to read the item lookup without its `item` envelope and overwrite
+    # every row's current location with "Unknown".
+    move_page.click_validate_moves()
+    row = page.locator("#queue-items tr").filter(has_text=test_ja_id)
+    expect(row.locator("td").nth(5)).to_have_text("validated")
+    expect(row.locator("td").nth(1)).to_have_text(expected_location)

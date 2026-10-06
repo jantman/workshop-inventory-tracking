@@ -24,6 +24,7 @@ STATIC_PRODUCT_PATHS = [
     ('/products/reorder', 'product.product_reorder'),
     ('/products/categories', 'product.product_categories'),
     ('/products/tags', 'product.product_tags'),
+    ('/products/move', 'product.product_move'),
 ]
 
 

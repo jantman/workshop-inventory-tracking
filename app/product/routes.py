@@ -50,6 +50,8 @@ from app.photo_service import PhotoService
 from app.product import bp
 from app.services.listing_images import store_listing_images
 from app.utils import internal_id
+from app.utils.batch_move import batch_result, parse_moves
+from app.utils.handoff import resolve_product_handoff
 
 
 logger = logging.getLogger(__name__)
@@ -341,6 +343,26 @@ def product_new():
         form_data={},
         prefill=prefill,
         identifier_types=OPERATOR_IDENTIFIER_TYPES,
+    )
+
+
+@bp.route('/products/move')
+def product_move():
+    """The scan-driven batch move page for products (057).
+
+    The same page as Move Items, worded for products and driven by
+    ``ProductMoveManager``. ``?code=`` hands it products to move -- the detail
+    page's Move button sends one -- using the item page's hand-off convention.
+
+    A static rule, so Werkzeug ranks it above ``/products/<product_code>``
+    exactly as it does ``/products/new``.
+    """
+    handoff = resolve_product_handoff(request.args.get('code'), _get_catalog_service())
+    return render_template(
+        'product/move.html',
+        title='Move Products',
+        preselected_items=handoff.preselected_items,
+        rejected_items=handoff.rejected_items,
     )
 
 
@@ -2272,6 +2294,58 @@ def api_specification_values():
             request.args.get('name', ''), request.args.get('prefix')
         ),
     })
+
+
+@bp.route('/api/products/by-code/<code>')
+def api_product_by_code(code):
+    """Fetch one product by the internal code on its label (057).
+
+    The product Move page's lookup, used both when a move is queued (to show
+    where the product is now) and when the queue is validated. Upper-cased for
+    the same reason as ``product_by_code``.
+    """
+    normalized = code.strip().upper()
+    product = None
+    if internal_id.is_internal_id(normalized):
+        product = _get_catalog_service().find_product_by_identifier(
+            normalized, id_type=IdentifierType.INTERNAL.value
+        )
+    if product is None:
+        return jsonify({'success': False, 'error': f'No product carries the code {code}'}), 404
+    return jsonify({'success': True, 'product': product.to_dict()})
+
+
+@bp.route('/api/products/batch-move', methods=['POST'])
+def api_batch_move_products():
+    """Execute the product Move page's queue (057).
+
+    Same request and response as ``/api/inventory/batch-move``, with each move
+    keyed by ``code``. One failed move never stops the rest.
+    """
+    try:
+        moves = parse_moves(request.get_json(silent=True))
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+    service = _get_catalog_service()
+    moved_count = 0
+    failed = []
+    for move in moves:
+        code = move.get('code') if isinstance(move, dict) else None
+        new_location = move.get('new_location') if isinstance(move, dict) else None
+        if (not isinstance(code, str) or not code.strip()
+                or not isinstance(new_location, str) or not new_location.strip()):
+            failed.append({'code': code, 'error': 'Missing product code or location'})
+            continue
+        try:
+            service.move_product(code, new_location, move.get('new_sub_location'))
+            moved_count += 1
+        except ItemNotFoundError:
+            failed.append({'code': code, 'error': 'Product not found'})
+        except ValidationError as e:
+            failed.append({'code': code, 'error': e.message})
+
+    return jsonify(batch_result(moved_count, len(moves), failed))
 
 
 @bp.route('/api/products/search')

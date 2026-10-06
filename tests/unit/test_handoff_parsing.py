@@ -15,43 +15,43 @@ asserted on by name and reason.
 
 import pytest
 
-from app.utils.handoff import INACTIVE, NOT_FOUND, parse_ja_ids, resolve_handoff
+from app.utils.handoff import INACTIVE, NOT_FOUND, parse_ids, resolve_handoff
 
 
 class TestParseJaIds:
     """contracts/handoff.md section 2, steps 1, 2 and 4."""
 
     def test_absent_parameter_is_no_hand_off(self):
-        assert parse_ja_ids(None) == []
+        assert parse_ids(None) == []
 
     def test_empty_parameter_is_no_hand_off(self):
-        assert parse_ja_ids('') == []
+        assert parse_ids('') == []
 
     def test_whitespace_only_parameter_is_no_hand_off(self):
-        assert parse_ja_ids('   ') == []
+        assert parse_ids('   ') == []
 
     def test_single_item_is_a_list_of_one(self):
-        assert parse_ja_ids('JA000101') == ['JA000101']
+        assert parse_ids('JA000101') == ['JA000101']
 
     def test_comma_separated_list_keeps_payload_order(self):
-        assert parse_ja_ids('JA000117,JA000101,JA000102') == [
+        assert parse_ids('JA000117,JA000101,JA000102') == [
             'JA000117', 'JA000101', 'JA000102'
         ]
 
     def test_surrounding_whitespace_is_trimmed(self):
-        assert parse_ja_ids(' JA000101 , JA000102 ') == ['JA000101', 'JA000102']
+        assert parse_ids(' JA000101 , JA000102 ') == ['JA000101', 'JA000102']
 
     def test_empty_elements_are_discarded(self):
-        assert parse_ja_ids('JA000101,,JA000102,') == ['JA000101', 'JA000102']
+        assert parse_ids('JA000101,,JA000102,') == ['JA000101', 'JA000102']
 
     def test_duplicates_collapse_to_first_occurrence(self):
         """FR-006. A queue cannot move one item to two places."""
-        assert parse_ja_ids('JA000101,JA000102,JA000101') == ['JA000101', 'JA000102']
+        assert parse_ids('JA000101,JA000102,JA000101') == ['JA000101', 'JA000102']
 
     def test_malformed_elements_are_kept_for_rejection_not_dropped(self):
         """Step 3 rejects a malformed identifier as not_found -- and a rejection
         has to be reported by name, so parsing must not discard it silently."""
-        assert parse_ja_ids('JA000101,banana') == ['JA000101', 'banana']
+        assert parse_ids('JA000101,banana') == ['JA000101', 'banana']
 
 
 class FakeService:
@@ -62,7 +62,7 @@ class FakeService:
         self._inactive = set(inactive)
 
     def get_active_item(self, ja_id):
-        return {'ja_id': ja_id} if ja_id in self._active else None
+        return {'id': ja_id} if ja_id in self._active else None
 
     def ja_id_exists(self, ja_id, only_active=True):
         known = self._active if only_active else self._active | self._inactive
@@ -89,7 +89,7 @@ class TestResolveHandoff:
         handoff = resolve_handoff('JA000999', FakeService(active=['JA000101']))
         assert handoff.preselected_items == []
         assert handoff.rejected_items == [
-            {'ja_id': 'JA000999', 'reason': NOT_FOUND}
+            {'id': 'JA000999', 'reason': NOT_FOUND}
         ]
 
     def test_an_inactive_row_is_rejected_as_inactive(self):
@@ -98,14 +98,14 @@ class TestResolveHandoff:
         handoff = resolve_handoff('JA000102', service)
         assert handoff.preselected_items == []
         assert handoff.rejected_items == [
-            {'ja_id': 'JA000102', 'reason': INACTIVE}
+            {'id': 'JA000102', 'reason': INACTIVE}
         ]
 
     def test_a_malformed_identifier_is_rejected_as_not_found(self):
         """Step 3. It cannot name an item, so it is reported, not consulted."""
         handoff = resolve_handoff('banana', FakeService(active=['JA000101']))
         assert handoff.preselected_items == []
-        assert handoff.rejected_items == [{'ja_id': 'banana', 'reason': NOT_FOUND}]
+        assert handoff.rejected_items == [{'id': 'banana', 'reason': NOT_FOUND}]
 
     def test_the_remainder_proceeds_when_one_item_is_rejected(self):
         """FR-005: report the failure, do not fail wholesale."""
@@ -113,14 +113,14 @@ class TestResolveHandoff:
         handoff = resolve_handoff('JA000101,JA000102,JA000999,JA000103', service)
         assert handoff.preselected_items == ['JA000101', 'JA000103']
         assert handoff.rejected_items == [
-            {'ja_id': 'JA000102', 'reason': INACTIVE},
-            {'ja_id': 'JA000999', 'reason': NOT_FOUND},
+            {'id': 'JA000102', 'reason': INACTIVE},
+            {'id': 'JA000999', 'reason': NOT_FOUND},
         ]
 
     def test_rejections_are_reported_in_payload_order(self):
         service = FakeService(active=['JA000102'])
         handoff = resolve_handoff('banana,JA000102,JA000999', service)
-        assert [r['ja_id'] for r in handoff.rejected_items] == ['banana', 'JA000999']
+        assert [r['id'] for r in handoff.rejected_items] == ['banana', 'JA000999']
 
     def test_every_item_rejected_is_distinguishable_from_no_hand_off(self):
         """Edge case: an all-rejected arrival must not look like a normal one."""
