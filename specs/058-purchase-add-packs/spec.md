@@ -100,8 +100,8 @@ records them, and no pack size or pack price.
   (both or neither; never a pack of one).
 - **FR-006**: A purchase recorded with the pack fields at their defaults MUST be recorded
   exactly as it is today.
-- **FR-007**: Invalid pack values MUST be refused with a message naming the field, and
-  nothing recorded.
+- **FR-007**: Invalid pack values MUST be refused with the same messages the capture page
+  gives, the form re-displayed as entered, and nothing recorded.
 
 ### Key Entities
 
