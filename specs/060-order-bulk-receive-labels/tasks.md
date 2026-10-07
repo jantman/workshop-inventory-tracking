@@ -39,7 +39,7 @@ No setup: existing app, no new dependencies.
 ## Phase 6: Polish
 
 - [X] T010 [P] Document the two bulk actions in the order page section of docs/user-manual.md
-- [ ] T011 Run `nox -s tests` and `nox -s e2e` (detached); confirm the working tree is clean afterward and `grep -ric catalogue README.md docs/ app/ tests/` is empty
+- [X] T011 Run `nox -s tests` and `nox -s e2e` (detached); confirm the working tree is clean afterward and `grep -ric catalogue README.md docs/ app/ tests/` is empty
 
 ## Dependencies
 
