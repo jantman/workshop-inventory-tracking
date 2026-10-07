@@ -2156,10 +2156,6 @@ class CatalogService:
 
             self._validate_receipt_order(purchase.order_date, received)
 
-            already_received = purchase.received_date is not None
-            if not already_received:
-                purchase.received_date = received
-
             if amended_quantity is not None:
                 purchase.quantity = amended_quantity
             if amended_price is not None:
@@ -2197,32 +2193,127 @@ class CatalogService:
             if counted and product is not None and product.quantity is not None:
                 product.quantity_updated_at = utc_now()
 
-            if product is not None and not already_received:
-                # A tracked count goes up by what arrived, which clears any
-                # threshold-derived low on its own (008 FR-007).
-                #
-                # The count's age is deliberately *not* touched here (008
-                # FR-008). Arithmetic against a packing slip is not a
-                # verification: the number moved, but nobody has looked in the
-                # drawer, and quantity_updated_at means the last time somebody
-                # did. The one thing that can say somebody has is the operator
-                # saying so -- `counted`, handled above, outside this guard.
-                if product.quantity is not None and purchase.quantity:
-                    product.quantity = product.quantity + purchase.quantity
-
-                # The manual flag has to be cleared explicitly -- this is the
-                # other half of FR-029, and the half nothing else covers. Its
-                # date goes with it (008 FR-006), so that a flag set again
-                # later cannot inherit this one's age.
-                if product.stock_status is not None:
-                    logger.info(
-                        f"Clearing manual stock flag and its date on product "
-                        f"{product.id}: purchase {purchase_id} received"
-                    )
-                    product.stock_status = None
-                    product.stock_status_updated_at = None
+            self._apply_receipt(purchase, product, received)
 
         return self.get_purchase(purchase_id)
+
+    def receive_order_lines(
+        self,
+        vendor_name: str,
+        order_number: str,
+        purchase_ids: Iterable[Any],
+        received_date: Optional[Any] = None,
+    ) -> Tuple[int, int]:
+        """Receive several lines of one order as ordered, all at once (060).
+
+        Each outstanding line gets exactly what :meth:`receive_purchase` does
+        with nothing amended and ``counted`` left false: the ordered quantity is
+        what arrived, and nobody is asserting they looked in the drawer.
+
+        **All or nothing.** One session for the whole batch, and every line is
+        checked before any is changed, so a refusal leaves every ticked line as
+        it was -- a bulk receipt never half-happens.
+
+        Args:
+            vendor_name: The order's vendor, as stored on its purchases.
+            order_number: The order's number.
+            purchase_ids: The ticked lines. Every one must be on this order.
+            received_date: When they arrived. Blank means now, as on the
+                receipt screen.
+
+        Returns:
+            ``(received, skipped)`` -- lines newly received, and ticked lines
+            that were already received and so left alone.
+
+        Raises:
+            ValidationError: Nothing ticked, a line not on this order, an
+                unreadable date, or a date before a line's order date.
+        """
+        try:
+            ids = {int(pid) for pid in purchase_ids}
+        except (TypeError, ValueError):
+            raise ValidationError("Not a purchase id", field='purchase_id')
+        if not ids:
+            raise ValidationError("Tick at least one line to receive", field='purchase_id')
+
+        received = _parse_datetime(received_date, 'received_date') or local_now()
+        cleaned = (order_number or '').strip()
+
+        with self._session() as session:
+            purchases = (
+                session.query(Purchase)
+                .filter(
+                    Purchase.id.in_(ids),
+                    Purchase.vendor == vendor_name,
+                    Purchase.supplier_order_reference == cleaned,
+                )
+                .order_by(Purchase.id)
+                .all()
+            )
+            if len(purchases) != len(ids):
+                # A stale page or a mistyped address must not receive a line
+                # of some other order.
+                raise ValidationError(
+                    f"Some ticked lines are not on {vendor_name} order {cleaned}",
+                    field='purchase_id'
+                )
+
+            outstanding = [p for p in purchases if p.received_date is None]
+            for purchase in outstanding:
+                self._validate_receipt_order(purchase.order_date, received)
+
+            for purchase in outstanding:
+                product = session.query(Product).filter(
+                    Product.id == purchase.product_id
+                ).first()
+                self._apply_receipt(purchase, product, received)
+
+        return len(outstanding), len(purchases) - len(outstanding)
+
+    def _apply_receipt(
+        self, purchase: Purchase, product: Optional[Product], received: datetime
+    ) -> bool:
+        """What receiving does to a purchase and its product, inside a session.
+
+        Shared by :meth:`receive_purchase` and :meth:`receive_order_lines`, so a
+        line received in bulk ends up exactly as one received singly with
+        nothing amended (060 SC-003).
+
+        An already-received purchase is left alone: its date stands and the count
+        is not touched a second time.
+
+        Returns:
+            True if this call received the purchase, False if it already was.
+        """
+        if purchase.received_date is not None:
+            return False
+        purchase.received_date = received
+
+        if product is not None:
+            # A tracked count goes up by what arrived, which clears any
+            # threshold-derived low on its own (008 FR-007).
+            #
+            # The count's age is deliberately *not* touched here (008
+            # FR-008). Arithmetic against a packing slip is not a
+            # verification: the number moved, but nobody has looked in the
+            # drawer, and quantity_updated_at means the last time somebody
+            # did. The one thing that can say somebody has is the operator
+            # saying so -- `counted`, handled by receive_purchase.
+            if product.quantity is not None and purchase.quantity:
+                product.quantity = product.quantity + purchase.quantity
+
+            # The manual flag has to be cleared explicitly -- this is the
+            # other half of FR-029, and the half nothing else covers. Its
+            # date goes with it (008 FR-006), so that a flag set again
+            # later cannot inherit this one's age.
+            if product.stock_status is not None:
+                logger.info(
+                    f"Clearing manual stock flag and its date on product "
+                    f"{product.id}: purchase {purchase.id} received"
+                )
+                product.stock_status = None
+                product.stock_status_updated_at = None
+        return True
 
     def delete_purchase(self, purchase_id: int) -> Optional[PurchaseDeletion]:
         """Remove one purchase recorded in error (032 FR-001, issue #130).

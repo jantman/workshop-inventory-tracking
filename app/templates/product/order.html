@@ -9,6 +9,7 @@
    name -- which is exactly `vendor.receive_landing`, so it drives the wording
    here rather than being written out twice. #}
 {% extends "product/_layout.html" %}
+{% from '_bulk_label_modal.html' import bulk_label_modal %}
 
 {% block page_icon %}bi-box-seam{% endblock %}
 {% block page_heading %}{{ vendor_name }} Order {{ order_number }}{% endblock %}
@@ -80,10 +81,44 @@
 </div>
 {% endif %}
 
+{# 060. One set of checkboxes drives both actions: labels for every ticked
+   line's product, and a receipt for every ticked line still outstanding. The
+   checkboxes sit in the table but belong to the receive form through their
+   `form` attribute, so receiving is a plain form post. #}
+<div class="mb-3" id="order-bulk-toolbar">
+<div class="d-flex flex-wrap align-items-end gap-2">
+    <button type="button" class="btn btn-outline-secondary" id="order-print-labels-btn" disabled>
+        <i class="bi bi-printer"></i> Print Labels
+        <span class="badge text-bg-secondary" id="order-selected-count">0</span>
+    </button>
+    <form id="order-receive-form" method="POST" class="d-flex flex-wrap align-items-end gap-2"
+          action="{{ url_for('product.order_receive_lines', vendor=vendor_name, order_number=order_number) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div>
+            <label for="bulk-received-date" class="form-label small mb-1">Received date</label>
+            <input type="date" class="form-control" id="bulk-received-date" name="received_date"
+                   aria-describedby="bulk-received-date-help">
+        </div>
+        <button type="submit" class="btn btn-primary" id="order-receive-btn" disabled>
+            <i class="bi bi-box-arrow-in-down"></i> Receive Selected
+        </button>
+    </form>
+</div>
+<div class="form-text" id="bulk-received-date-help">
+    Received date: blank means today. Each ticked line is received with the quantity
+    ordered; lines already received are left alone. Use a line's own Receive button if
+    what arrived differs from the order.
+</div>
+</div>
+
 <div class="table-responsive">
     <table class="table align-middle" id="order-lines">
         <thead>
             <tr>
+                <th class="text-center" style="width: 1%;">
+                    <input type="checkbox" class="form-check-input" id="order-select-all"
+                           aria-label="Select all lines">
+                </th>
                 <th>Part</th>
                 <th>Product</th>
                 <th class="text-end">Qty</th>
@@ -99,6 +134,17 @@
                 data-part="{{ purchase.vendor_item_id or '' }}"
                 data-line="{{ purchase.order_line_number or '' }}"
                 data-outstanding="{{ 'true' if purchase.is_outstanding else 'false' }}">
+                <td class="text-center">
+                    {# No product, no checkbox: nothing to label, and nothing for
+                       a receipt to add to. #}
+                    {% if purchase.product %}
+                    <input type="checkbox" class="form-check-input order-line-checkbox"
+                           name="purchase_id" value="{{ purchase.id }}" form="order-receive-form"
+                           data-product-id="{{ purchase.product_id }}"
+                           data-product-label="{{ purchase.product.description }}"
+                           aria-label="Select {{ purchase.product.description }}">
+                    {% endif %}
+                </td>
                 <td>
                     {% if purchase.vendor_item_id %}
                     <code>{{ purchase.vendor_item_id }}</code>
@@ -218,5 +264,15 @@
     This page is worked out from the purchases each time you open it — nothing
     about the order is stored separately, so it cannot fall out of step with them.
 </p>
+
+{{ bulk_label_modal('orderBulkLabelPrintingModal', 'order-bulk', 'product', 'products') }}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if lines %}
+<script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bulk-label-print.js') }}"></script>
+<script src="{{ url_for('static', filename='js/order-bulk-actions.js') }}"></script>
 {% endif %}
 {% endblock %}
