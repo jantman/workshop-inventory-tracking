@@ -1254,6 +1254,98 @@ def _purchase_deleted_sentence(deletion) -> str:
     return sentence
 
 
+# The fields the purchase edit form posts, each straight through to
+# CatalogService.update_purchase under the same name.
+_PURCHASE_EDIT_FIELDS = (
+    'vendor', 'vendor_item_id', 'listing_title', 'listing_url',
+    'order_date', 'received_date', 'quantity', 'unit_price',
+    'pack_size', 'pack_price', 'order_reference', 'supplier_order_reference',
+    'order_line_number', 'notes',
+)
+
+
+@bp.route('/purchases/<int:purchase_id>/edit', methods=['GET', 'POST'])
+def purchase_edit(purchase_id):
+    """Correct a purchase in place (061, issue #192).
+
+    The same shape as ``purchase_delete`` and the same ``return_to`` flag, from
+    the same two places. Where a save lands is worked out from the purchase *as
+    saved*: an edit that moved it onto another order lands on that order.
+    """
+    service = _get_catalog_service()
+    purchase = service.get_purchase(purchase_id)
+    if purchase is None:
+        raise ItemNotFoundError(f"Purchase {purchase_id} not found", item_id=str(purchase_id))
+
+    product = _product_or_404(service, purchase.product_id)
+    return_to = _purchase_delete_return_to(request.values.get('return_to'))
+    cancel_url = _purchase_delete_cancel_url(purchase, return_to)
+
+    if request.method == 'POST':
+        # request.form.get, so a field the form did not send -- the received
+        # date of an outstanding purchase -- arrives as None and is left alone.
+        fields = {name: request.form.get(name) for name in _PURCHASE_EDIT_FIELDS}
+        try:
+            updated = service.update_purchase(purchase_id, **fields)
+        except ValidationError as e:
+            flash(e.message, 'error')
+            return render_template(
+                'product/purchase_edit.html',
+                title='Edit a Purchase',
+                purchase=purchase,
+                product=product,
+                form_data=request.form,
+                return_to=return_to,
+                cancel_url=cancel_url,
+            )
+        if updated is None:
+            # Deleted in another tab since the load above.
+            raise ItemNotFoundError(
+                f"Purchase {purchase_id} not found", item_id=str(purchase_id)
+            )
+
+        flash('Purchase updated.', 'success')
+        # The cancel address of the purchase as it now is: its own order, or
+        # its product.
+        return redirect(_purchase_delete_cancel_url(updated, return_to))
+
+    return render_template(
+        'product/purchase_edit.html',
+        title='Edit a Purchase',
+        purchase=purchase,
+        product=product,
+        form_data=_purchase_form_values(purchase),
+        return_to=return_to,
+        cancel_url=cancel_url,
+    )
+
+
+def _purchase_form_values(purchase) -> dict:
+    """The stored purchase as the edit form's fields, as strings."""
+    def day(value):
+        return value.strftime('%Y-%m-%d') if value else ''
+
+    def text(value):
+        return '' if value is None else str(value)
+
+    return {
+        'vendor': text(purchase.vendor),
+        'vendor_item_id': text(purchase.vendor_item_id),
+        'listing_title': text(purchase.listing_title),
+        'listing_url': text(purchase.listing_url),
+        'order_date': day(purchase.order_date),
+        'received_date': day(purchase.received_date),
+        'quantity': text(purchase.quantity),
+        'unit_price': text(purchase.unit_price),
+        'pack_size': text(purchase.pack_size),
+        'pack_price': text(purchase.pack_price),
+        'order_reference': text(purchase.order_reference),
+        'supplier_order_reference': text(purchase.supplier_order_reference),
+        'order_line_number': text(purchase.order_line_number),
+        'notes': text(purchase.notes),
+    }
+
+
 # ---------------------------------------------------------------------------
 # JSON API
 # ---------------------------------------------------------------------------
@@ -1820,6 +1912,70 @@ def order_receive_lines(vendor, order_number):
             flash('Nothing to receive: the ticked line(s) were already received.', 'info')
 
     return redirect(url_for('product.order_detail', vendor=vendor, order_number=order_number))
+
+
+@bp.route('/products/orders/<vendor>/<order_number>/edit', methods=['GET', 'POST'])
+def order_edit(vendor, order_number):
+    """Correct an order's number, date and customer reference (061 US3).
+
+    Written onto every line at once. An order with no lines has nothing to
+    edit, so it is reported not found here -- unlike the order page, which
+    renders "not captured" because it has somewhere to send the operator.
+    """
+    service = _get_catalog_service()
+    lines = service.find_order_lines_for(vendor, order_number)
+    if not lines:
+        raise ItemNotFoundError(
+            f"No {vendor} order {order_number}", item_id=order_number
+        )
+
+    order_dates = {line.order_date.date() if line.order_date else None for line in lines}
+    references = {line.order_reference for line in lines}
+
+    if request.method == 'POST':
+        new_number = request.form.get('order_number')
+        try:
+            updated = service.update_order(
+                vendor,
+                order_number,
+                new_number,
+                order_date=request.form.get('order_date'),
+                order_reference=request.form.get('order_reference'),
+            )
+        except ValidationError as e:
+            flash(e.message, 'error')
+            form_data = request.form
+        else:
+            if not updated:
+                # Every line deleted in another tab since the load above.
+                raise ItemNotFoundError(
+                    f"No {vendor} order {order_number}", item_id=order_number
+                )
+            flash(f"Updated {updated} line(s) of the order.", 'success')
+            return redirect(url_for(
+                'product.order_detail', vendor=vendor, order_number=new_number.strip()
+            ))
+    else:
+        # Where lines disagree there is no one value to show: the first line's
+        # is offered, and the page says the save will set them all to it.
+        first = lines[0]
+        form_data = {
+            'order_number': order_number,
+            'order_date': first.order_date.strftime('%Y-%m-%d') if first.order_date else '',
+            'order_reference': first.order_reference or '',
+        }
+
+    return render_template(
+        'product/order_edit.html',
+        title=f'Edit {vendor} Order {order_number}',
+        vendor_name=vendor,
+        order_number=order_number,
+        order_url=url_for('product.order_detail', vendor=vendor, order_number=order_number),
+        line_count=len(lines),
+        dates_differ=len(order_dates) > 1,
+        references_differ=len(references) > 1,
+        form_data=form_data,
+    )
 
 
 @bp.route('/products/digikey/orders/<sales_order_number>')

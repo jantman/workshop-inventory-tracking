@@ -1153,6 +1153,37 @@ Two more things worth knowing:
   order" again -- and if you capture it afresh, the deleted line is offered
   again, because there is no record of your having refused it.
 
+### Correcting a Purchase or an Order
+
+If a purchase was recorded with something wrong -- the quantity, the price, the
+pack, a date, the order number -- correct it in place rather than deleting it.
+The **pencil button** beside the trash button opens its edit screen, from the
+product page's **Purchase History** or from any line on the order screen. Every
+field is filled in with what is stored; change what is wrong and **Save
+Changes**. Opened from the order screen, it brings you back to the order.
+
+- **Units in the Pack** and **Paid for the Pack** are what the vendor charged.
+  Fill in both, or leave both blank. They are not used to work out Quantity and
+  Unit Price here -- set those yourself.
+- **Received Date** is only offered once a purchase has been received; until
+  then the screen links to **Receive** instead, because receiving is what adds
+  to the counted quantity. You can change the date, or clear it to put the
+  purchase back on order.
+- **The counted quantity does not change**, whatever you edit -- for the same
+  reason given above for deleting. Use the **+** and **-** controls on the
+  product page if the count needs correcting.
+- **Supplier Order Number** decides which order a purchase is a line of. To put
+  a purchase you recorded by hand onto its order, enter that order's number (the
+  vendor must match) and, if you know it, the **Order Line**. Two purchases on
+  one order cannot share a line number.
+
+To correct something about the whole order, use **Edit Order** at the top of the
+order screen. It changes the **order number**, **order date** and **order
+reference** on every line at once and takes you to the order at its new number.
+A number another order from the same vendor already uses is refused -- orders are
+never merged -- and an order date later than a line's received date is refused
+too.
+
 ## Which Vendors Are Supported
 
 Three vendors have capture written for them -- Amazon, DigiKey and McMaster-Carr

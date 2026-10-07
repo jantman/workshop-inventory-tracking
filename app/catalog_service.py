@@ -2400,6 +2400,254 @@ class CatalogService:
         )
         return deletion
 
+    def update_purchase(
+        self,
+        purchase_id: int,
+        vendor: Optional[str] = None,
+        vendor_item_id: Optional[str] = None,
+        listing_title: Optional[str] = None,
+        listing_url: Optional[str] = None,
+        order_date: Optional[Any] = None,
+        received_date: Optional[Any] = None,
+        quantity: Optional[Any] = None,
+        unit_price: Optional[Any] = None,
+        pack_size: Optional[Any] = None,
+        pack_price: Optional[Any] = None,
+        order_reference: Optional[str] = None,
+        supplier_order_reference: Optional[str] = None,
+        order_line_number: Optional[Any] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[Purchase]:
+        """Correct a purchase in place (061, issue #192).
+
+        A capture that got something wrong used to leave two fixes: the
+        database by hand, or delete and record again -- which loses the order
+        line the purchase came from. This keeps the row, and with it the line.
+
+        **Absent is not blank.** ``None`` leaves a field as it is; ``''``
+        clears it. The edit form submits every field it shows, so there blank
+        means the operator cleared it; the one field it may not show is the
+        received date, and leaving it out must not un-receive anything.
+
+        **The product is never touched** -- its count, the count's age and any
+        stock flag stay put, for the reason ``delete_purchase`` gives: nothing
+        records whether a receipt ever moved a count, so neither a changed
+        quantity nor a cleared receipt can say what the count should now be.
+
+        For that reason a received date can only be *changed or cleared* here.
+        Setting one on an outstanding purchase would be a receipt that skips
+        what receiving does; the Receive screen is the way to do that.
+
+        Changing the vendor or the supplier order number moves the purchase
+        between orders -- which is how a purchase recorded by hand is attached
+        to the order it belongs to.
+
+        Returns:
+            The updated Purchase, or None when there is no such purchase --
+            matching ``get_purchase`` and ``delete_purchase``.
+
+        Raises:
+            ValidationError: A field failed validation. Nothing is written.
+        """
+        with self._session() as session:
+            purchase = session.query(Purchase).filter(Purchase.id == purchase_id).first()
+            if purchase is None:
+                return None
+            # What the line number is checked against below: unchanged, it is
+            # not re-litigated, so a row that already shares a number with
+            # another can still have its price corrected.
+            line_key = (
+                purchase.vendor, purchase.supplier_order_reference, purchase.order_line_number
+            )
+
+            if vendor is not None:
+                vendor_name = _clean(vendor)
+                if not vendor_name:
+                    raise ValidationError("Vendor is required on a purchase", field='vendor')
+                purchase.vendor = vendor_name
+
+            for field, value in (
+                ('vendor_item_id', vendor_item_id),
+                ('listing_title', listing_title),
+                ('listing_url', listing_url),
+                ('order_reference', order_reference),
+                ('supplier_order_reference', supplier_order_reference),
+                ('notes', notes),
+            ):
+                if value is not None:
+                    setattr(purchase, field, _clean(value))
+
+            if order_date is not None:
+                purchase.order_date = _keep_time_if_same_day(
+                    _parse_datetime(order_date, 'order_date'), purchase.order_date
+                )
+            if received_date is not None:
+                received = _parse_datetime(received_date, 'received_date')
+                if received is not None and purchase.received_date is None:
+                    raise ValidationError(
+                        "This purchase is still outstanding -- receive it from "
+                        "the Receive screen, which also adds it to the count",
+                        field='received_date'
+                    )
+                purchase.received_date = _keep_time_if_same_day(
+                    received, purchase.received_date
+                )
+            self._validate_receipt_order(purchase.order_date, purchase.received_date)
+
+            if quantity is not None:
+                purchase.quantity = self._validate_purchase_quantity(quantity)
+            if unit_price is not None:
+                purchase.unit_price = self._validate_price(unit_price)
+
+            if pack_size is not None or pack_price is not None:
+                purchase.pack_size, purchase.pack_price = self._validate_stated_pack(
+                    purchase.pack_size if pack_size is None else pack_size,
+                    purchase.pack_price if pack_price is None else pack_price,
+                )
+
+            if order_line_number is not None:
+                purchase.order_line_number = self._validate_order_line_number(
+                    order_line_number
+                )
+
+            new_key = (
+                purchase.vendor, purchase.supplier_order_reference, purchase.order_line_number
+            )
+            if (
+                new_key != line_key
+                and purchase.supplier_order_reference
+                and purchase.order_line_number is not None
+            ):
+                # A re-capture pairs lines by this number (024): two purchases
+                # claiming one line would have it write to the wrong row.
+                taken = session.query(Purchase.id).filter(
+                    Purchase.id != purchase.id,
+                    Purchase.vendor == purchase.vendor,
+                    Purchase.supplier_order_reference == purchase.supplier_order_reference,
+                    Purchase.order_line_number == purchase.order_line_number,
+                ).first()
+                if taken is not None:
+                    raise ValidationError(
+                        f"Line {purchase.order_line_number} of {purchase.vendor} order "
+                        f"{purchase.supplier_order_reference} is already another purchase",
+                        field='order_line_number'
+                    )
+
+        logger.info(f"Updated purchase {purchase_id}")
+        return self.get_purchase(purchase_id)
+
+    def update_order(
+        self,
+        vendor_name: str,
+        order_number: str,
+        new_order_number: Any,
+        order_date: Any = None,
+        order_reference: Any = None,
+    ) -> int:
+        """Correct an order's number, date and customer reference (061).
+
+        An order is not stored -- it is the purchases carrying one vendor and
+        order number -- so this is those three fields written onto every one
+        of them, in one session: all of its lines change, or none do.
+
+        **Never a merge.** A new number another order from the same vendor
+        already uses is refused: two orders' line numbers can collide, and a
+        mistyped number is not fixed by folding one order into another. A
+        single purchase can still be moved with :meth:`update_purchase`.
+
+        Args:
+            vendor_name: The order's vendor, as stored on its purchases.
+            order_number: Its number now.
+            new_order_number: Its number after the edit. Required.
+            order_date: The date ordered; blank clears it on every line.
+            order_reference: The customer's reference; blank clears it.
+
+        Returns:
+            How many lines were updated; 0 when the order has none.
+
+        Raises:
+            ValidationError: No number, a number already in use, an unreadable
+                date, or a date after one of the lines arrived.
+        """
+        current = (order_number or '').strip()
+        new_number = _clean(new_order_number)
+        if not new_number:
+            raise ValidationError("An order needs an order number", field='order_number')
+        ordered = _parse_datetime(order_date, 'order_date')
+        reference = _clean(order_reference)
+
+        with self._session() as session:
+            lines = session.query(Purchase).filter(
+                Purchase.vendor == vendor_name,
+                Purchase.supplier_order_reference == current,
+            ).all()
+            if not current or not lines:
+                return 0
+
+            if new_number != current and session.query(Purchase.id).filter(
+                Purchase.vendor == vendor_name,
+                Purchase.supplier_order_reference == new_number,
+            ).first() is not None:
+                raise ValidationError(
+                    f"{vendor_name} order {new_number} already exists -- "
+                    f"orders are not merged here",
+                    field='order_number'
+                )
+
+            for purchase in lines:
+                line_date = _keep_time_if_same_day(ordered, purchase.order_date)
+                self._validate_receipt_order(line_date, purchase.received_date)
+                purchase.order_date = line_date
+                purchase.order_reference = reference
+                purchase.supplier_order_reference = new_number
+
+        logger.info(
+            f"Updated {len(lines)} line(s) of {vendor_name} order {current}"
+            + (f", now {new_number}" if new_number != current else '')
+        )
+        return len(lines)
+
+    def _validate_stated_pack(
+        self, pack_size: Any, pack_price: Any
+    ) -> Tuple[Optional[int], Optional[Decimal]]:
+        """A pack the operator typed: both blank, or two or more with a price.
+
+        Stricter than :func:`_pack_fields`, which quietly drops a pack it cannot
+        use. Here the operator is correcting the record and asked for exactly
+        what they typed, so half a pack is a question to put back to them.
+        """
+        no_size = pack_size is None or str(pack_size).strip() == ''
+        price = self._validate_price(pack_price)
+        if no_size and price is None:
+            return None, None
+        size = self._validate_pack_size(pack_size)
+        if size < 2:
+            raise ValidationError(
+                "A pack of one is no pack -- leave both pack fields blank",
+                field='pack_size'
+            )
+        if price is None:
+            raise ValidationError(
+                "A pack needs what was paid for it, or leave both pack fields blank",
+                field='pack_price'
+            )
+        return size, price
+
+    def _validate_order_line_number(self, value: Any) -> Optional[int]:
+        """Which line of the order: a whole number from 1, or blank."""
+        if value is None or str(value).strip() == '':
+            return None
+        try:
+            line = int(str(value).strip())
+        except (TypeError, ValueError):
+            line = 0
+        if line < 1:
+            raise ValidationError(
+                f"The order line must be a whole number from 1: {value!r}",
+                field='order_line_number'
+            )
+        return line
+
     def _validate_purchase_quantity(self, quantity: Any) -> Optional[int]:
         """A purchase of zero is not a purchase"""
         if quantity is None or quantity == '':
@@ -5306,6 +5554,24 @@ def _parse_datetime(value: Any, field: str) -> Optional[datetime]:
         return datetime.fromisoformat(text)
     except ValueError:
         raise ValidationError(f"Not a date: {value!r}", field=field)
+
+
+def _keep_time_if_same_day(
+    new: Optional[datetime], stored: Optional[datetime]
+) -> Optional[datetime]:
+    """A date typed into a date field, without losing the stored time of day.
+
+    The edit screens offer a date, and a capture may have stored a time. Saving
+    a form whose date was left alone must not truncate it -- which could also
+    make an untouched same-day receipt appear to precede its order (061 R7).
+    Only a bare date is read that way; a value carrying its own time is meant.
+    """
+    if (
+        new is not None and stored is not None
+        and new.date() == stored.date() and new.time() == datetime.min.time()
+    ):
+        return stored
+    return new
 
 
 def _clean(value: Any) -> Optional[str]:

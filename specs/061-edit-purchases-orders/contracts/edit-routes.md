@@ -2,7 +2,7 @@
 
 ## `GET /purchases/<purchase_id>/edit[?return_to=order|product]`
 
-Renders `product/purchase_edit.html`, every field pre-filled. 404 for an unknown id.
+Renders `product/purchase_edit.html`, every field pre-filled. An unknown id is reported "not found" through the app-wide handler (flash + redirect), as `purchase_delete` does.
 
 ## `POST /purchases/<purchase_id>/edit`
 
@@ -15,12 +15,12 @@ Form fields: `vendor`, `vendor_item_id`, `listing_title`, `listing_url`, `order_
   (`return_to=order` and the saved purchase has an order number) or the product page.
 - `ValidationError` → 200, form re-rendered with submitted values, flash names the problem;
   nothing written.
-- Purchase gone → 404.
+- Purchase gone → reported "not found" the same way.
 
 ## `GET /products/orders/<vendor>/<order_number>/edit`
 
 Renders `product/order_edit.html` with the order number, order date and customer reference
-pre-filled (and a note where lines disagree). An order with no lines → 404.
+pre-filled (and a note where lines disagree). An order with no lines → reported the same way.
 
 ## `POST /products/orders/<vendor>/<order_number>/edit`
 
@@ -29,7 +29,7 @@ Form fields: `order_number`, `order_date`, `order_reference`, `csrf_token`.
 - Success → flash "Updated N line(s) of the order." and 302 to
   `/products/orders/<vendor>/<new order number>`.
 - `ValidationError` → 200, form re-rendered with submitted values; nothing written.
-- No lines → 404.
+- No lines → reported the same way.
 
 ## Service
 
