@@ -30,6 +30,30 @@ class ProductMoveManager extends MoveManager {
     }
 
     /**
+     * A product's location is free text (`WoodshopShelf`, `eShop Shelf3`), not
+     * the item convention, so its shape cannot say whether it is a location.
+     * Where the page is waiting for one -- after a code, or for a preselected
+     * group -- whatever arrives is it. Everywhere else the item rule still
+     * applies: free text after a location is the sub-location, and an
+     * item-shaped location there is still "two locations in a row".
+     *
+     * classifyInput() tests the subject and foreign IDs first, so neither can
+     * be taken for a location here.
+     */
+    isLocation(value) {
+        if (!value) {
+            return false;
+        }
+        if (this.currentExpectedInput === 'location' ||
+                this.currentExpectedInput === 'bulk_location') {
+            return true;
+        }
+        return super.isLocation(value);
+    }
+
+    get locationHint() { return ''; }
+
+    /**
      * An inventory item's JA label. Without this it would fall through to
      * "sub-location" after a location and quietly become one.
      */

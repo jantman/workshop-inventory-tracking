@@ -374,3 +374,87 @@ def test_a_move_queued_during_execute_is_kept(page, live_server):
     expect(_row(page, bad.internal_code).locator("td").nth(5)).to_have_text("error")
     expect(later_row.locator("td").nth(5)).to_have_text("validated")
     expect(later_row.locator("td").nth(3)).to_have_text("T-9")
+
+
+# Feature 059 (issue #195): a product's location is free text, not the item
+# page's M*/T*/Other convention, so where the page waits for a location any
+# text is one.
+
+
+@pytest.mark.e2e
+def test_preselected_products_take_a_free_text_location(page, live_server):
+    """US1: the scan the issue reports refused, from the hand-off path."""
+    one = _seed(live_server, description="Blue tape", location="Garage")
+    two = _seed(live_server, description="Red tape")
+    page.goto(f"{live_server.url}/products/move?code={one.internal_code},{two.internal_code}")
+    expect(page.locator("#pending-moves tbody tr")).to_have_count(2)
+    expect(page.locator("#scanner-status")).to_have_text("Waiting for Destination")
+
+    scan_on_move_page(page, "eShop Shelf3")
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+    expect(_alerts(page)).to_have_count(0)
+    # Free text straight after the group's location is its sub-location.
+    scan_on_move_page(page, "Top Bin")
+    scan_on_move_page(page, ">>DONE<<")
+    for product in (one, two):
+        row = _row(page, product.internal_code)
+        expect(row.locator("td").nth(3)).to_have_text("eShop Shelf3")
+        expect(row.locator("td").nth(4)).to_have_text("Top Bin")
+
+    page.locator("#validate-btn").click()
+    expect(page.locator("#execute-moves-btn")).to_be_enabled()
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.locator("#execute-moves-btn").click()
+    wait_for_move_executed(page)
+
+    page.goto(f"{live_server.url}/products/{one.id}")
+    expect(page.locator("#product-location")).to_have_text("eShop Shelf3")
+    expect(page.locator("#product-sub-location")).to_have_text("Top Bin")
+
+
+@pytest.mark.e2e
+def test_hand_scanned_products_take_a_free_text_location(page, live_server):
+    """US2: code, location, sub-location, by hand."""
+    first = _seed(live_server, description="Blue tape")
+    second = _seed(live_server, description="Red tape")
+    _open(page, live_server)
+    expect(page.locator("#barcode-input + .form-text")).to_contain_text("WoodshopShelf")
+
+    scan_on_move_page(page, first.internal_code)
+    # The prompt ends where the item page quotes its M*/T*/Other convention.
+    expect(page.locator("#status-text")).to_have_text(
+        f"Product Code {first.internal_code} scanned. Now scan or enter the location.")
+    scan_on_move_page(page, "WoodshopShelf")
+    scan_on_move_page(page, "Drawer 2")
+    scan_on_move_page(page, second.internal_code)
+    scan_on_move_page(page, "Garage Rack")
+    scan_on_move_page(page, ">>DONE<<")
+
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+    expect(_alerts(page).filter(has_text="Expected")).to_have_count(0)
+    first_row = _row(page, first.internal_code)
+    expect(first_row.locator("td").nth(3)).to_have_text("WoodshopShelf")
+    expect(first_row.locator("td").nth(4)).to_have_text("Drawer 2")
+    second_row = _row(page, second.internal_code)
+    expect(second_row.locator("td").nth(3)).to_have_text("Garage Rack")
+    expect(second_row.locator("td").nth(4)).to_have_text("None")
+
+
+@pytest.mark.e2e
+def test_free_text_is_still_refused_where_no_location_is_expected(page, live_server):
+    """Edge cases: free text with no product to locate is refused, and no
+    refusal quotes the item page's location convention."""
+    waiting = _seed(live_server, description="Blue tape")
+    other = _seed(live_server, description="Red tape")
+    _open(page, live_server)
+
+    scan_on_move_page(page, "WoodshopShelf")
+    expect(_alerts(page).last).to_contain_text("Expected Product Code")
+    expect(page.locator("#queue-count")).to_have_text("0 items")
+
+    page.goto(f"{live_server.url}/products/move?code={waiting.internal_code}")
+    expect(page.locator("#scanner-status")).to_have_text("Waiting for Destination")
+    scan_on_move_page(page, other.internal_code)
+    expect(_alerts(page).last).to_contain_text(
+        "1 product is waiting for a destination, and a Product Code is not one. "
+        "Please scan the location they are going to.")

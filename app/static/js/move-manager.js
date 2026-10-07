@@ -202,6 +202,14 @@ class MoveManager {
      * 4. Sub-location: Any string NOT matching the above
      */
 
+    /**
+     * The location convention, as the prompts and warnings quote it. A
+     * subclass whose locations follow no convention returns ''.
+     */
+    get locationHint() {
+        return ' (M*, T*, or Other)';
+    }
+
     isLocation(value) {
         if (!value || value.length === 0) {
             return false;
@@ -359,7 +367,7 @@ class MoveManager {
                 const noun = count === 1 ? `${this.noun} is` : `${this.nounPlural} are`;
                 this.showAlert(
                     `${count} ${noun} waiting for a destination, and ${inputType === 'id' ? `a ${this.idLabel}` : 'a sub-location'} is not one. ` +
-                    'Please scan the location they are going to (M*, T*, or Other).',
+                    `Please scan the location they are going to${this.locationHint}.`,
                     'warning');
                 this.clearInput();
             }
@@ -394,7 +402,7 @@ class MoveManager {
                         'warning');
                 }
             } else {
-                this.showAlert('Expected location but received sub-location. Please scan a valid location (M*, T*, or Other).', 'warning');
+                this.showAlert(`Expected location but received sub-location. Please scan a valid location${this.locationHint}.`, 'warning');
                 this.clearInput();
             }
         } else if (this.currentExpectedInput === 'id_or_sub_location') {
@@ -473,7 +481,7 @@ class MoveManager {
         this.currentExpectedInput = 'location';
         console.log(`handleIdInput(): Set currentId=${this.currentId}, currentExpectedInput=${this.currentExpectedInput}`);
         this.clearInput();
-        this.updateStatus(`${this.idLabel} ${id} scanned. Now scan or enter the location (M*, T*, or Other).`);
+        this.updateStatus(`${this.idLabel} ${id} scanned. Now scan or enter the location${this.locationHint}.`);
         this.updateScannerStatus('Waiting for Location');
         this.updateButtonStates();
         return true;
@@ -723,7 +731,7 @@ class MoveManager {
             const count = this.pendingMoves.length;
             this.showAlert(
                 `Nothing was queued: ${count} ${this.nounFor(count)} still ` +
-                'need a destination. Scan the location they are going to (M*, T*, or Other).',
+                `need a destination. Scan the location they are going to${this.locationHint}.`,
                 'warning');
             return;
         }

@@ -1068,9 +1068,12 @@ For each product:
 
 1. **Scan the product's label** -- the `WIT…` code printed on it. A code typed
    in lower case is fine.
-2. **Scan the location** (e.g. `M1-A`, `T-5`, `Other`), using the same location
-   patterns as for items.
-3. **Scan a sub-location** (optional), e.g. `Drawer 3`.
+2. **Scan the location.** A product's location is any text -- `WoodshopShelf`,
+   `eShop Shelf3`, or an item location such as `M1-A`.
+3. **Scan a sub-location** (optional), e.g. `Drawer 3`. Text scanned
+   straight after a location is taken as its sub-location (an item-style
+   location such as `M2` is refused there as two locations in a row), so to fix
+   a wrong location, remove the row from the queue and scan the product again.
 4. Scan the next product's label, or `>>DONE<<` when you have finished.
 
 Then **Validate & Preview** and **Execute Moves**, exactly as for items.
