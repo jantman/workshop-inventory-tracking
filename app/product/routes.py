@@ -1792,6 +1792,36 @@ def order_detail(vendor, order_number):
     )
 
 
+@bp.route('/products/orders/<vendor>/<order_number>/receive', methods=['POST'])
+def order_receive_lines(vendor, order_number):
+    """Receive the ticked lines of an order, as ordered, on one date (060).
+
+    Always lands back on the order page, which is where the operator was and
+    which shows the result. The per-line receipt screen stays the way to receive
+    a line that arrived differently from how it was ordered.
+    """
+    service = _get_catalog_service()
+    try:
+        received, skipped = service.receive_order_lines(
+            vendor,
+            order_number,
+            request.form.getlist('purchase_id'),
+            received_date=request.form.get('received_date'),
+        )
+    except ValidationError as e:
+        flash(f"Nothing was received: {e.message}", 'error')
+    else:
+        if received:
+            message = f"Received {received} line(s)."
+            if skipped:
+                message += f" {skipped} already received, skipped."
+            flash(message, 'success')
+        else:
+            flash('Nothing to receive: the ticked line(s) were already received.', 'info')
+
+    return redirect(url_for('product.order_detail', vendor=vendor, order_number=order_number))
+
+
 @bp.route('/products/digikey/orders/<sales_order_number>')
 def digikey_order_detail(sales_order_number):
     """The address a DigiKey order lives at.

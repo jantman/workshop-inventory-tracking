@@ -2213,6 +2213,23 @@ It is worked out from the purchases each time you open it. There is no separate
 record of an order anywhere in this application: an order *is* the purchases
 carrying its number, which is why the list cannot fall out of step with them.
 
+### Receiving several lines, and printing their labels
+
+Every order page, from any vendor, has a checkbox on each line and one in the
+header that ticks them all. Two buttons above the table act on the ticked lines:
+
+- **Receive Selected** receives every ticked line that is still outstanding, with
+  the quantity that was ordered, on the **Received date** beside it (blank means
+  today). Each line is received exactly as its own Receive button would receive
+  it with nothing changed: the counted quantity rises, the date of your last count
+  stays put, and any low-stock flag clears. Lines already received are left alone,
+  and the message says how many. If the date is refused for any line — it is
+  before the order date, say — none of them is received. When something arrived
+  short or different, use that line's own **Receive** button instead, where the
+  quantity, price and description can be amended.
+- **Print Labels** opens the same label dialog as the products list, for the
+  ticked lines' products. A product on two lines is printed once.
+
 ## Stock Levels and Reordering
 
 Quantity is deliberately **three-state**, and the three are shown differently
