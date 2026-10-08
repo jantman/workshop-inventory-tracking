@@ -1,0 +1,61 @@
+{# Correct an order (061 US3). Written onto every line of it at once. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-pencil-square{% endblock %}
+{% block page_heading %}Edit {{ vendor_name }} Order {{ order_number }}{% endblock %}
+
+{% block page_actions %}
+<a href="{{ order_url }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back to Order
+</a>
+{% endblock %}
+
+{% block product_content %}
+<p class="text-muted">
+    Saving sets these on all <strong id="edit-order-line-count">{{ line_count }}</strong> line(s)
+    of this order. To change one line, or move it to another order, edit that line instead.
+</p>
+
+<form id="order-edit-form" method="POST" class="col-lg-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="mb-3">
+        <label for="order_number" class="form-label">Order Number *</label>
+        <input type="text" class="form-control" id="order_number" name="order_number"
+               maxlength="200" required value="{{ form_data.get('order_number') or '' }}">
+        <div class="form-text">
+            A number another {{ vendor_name }} order already has is refused — orders are not
+            merged here.
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label for="order_date" class="form-label">Order Date</label>
+        <input type="date" class="form-control" id="order_date" name="order_date"
+               value="{{ form_data.get('order_date') or '' }}">
+        {% if dates_differ %}
+        <div class="form-text text-warning-emphasis" id="order-dates-differ">
+            The lines of this order carry different order dates; saving gives them all this one.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="mb-3">
+        <label for="order_reference" class="form-label">Order Reference</label>
+        <input type="text" class="form-control" id="order_reference" name="order_reference"
+               maxlength="200" value="{{ form_data.get('order_reference') or '' }}">
+        {% if references_differ %}
+        <div class="form-text text-warning-emphasis" id="order-references-differ">
+            The lines of this order carry different references; saving gives them all this one.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="d-flex gap-2 mb-5">
+        <button type="submit" class="btn btn-primary" id="save-order-edit-btn">
+            <i class="bi bi-check-circle"></i> Save Changes
+        </button>
+        <a href="{{ order_url }}" class="btn btn-outline-secondary" id="cancel-order-edit">Cancel</a>
+    </div>
+</form>
+{% endblock %}

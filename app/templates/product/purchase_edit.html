@@ -1,0 +1,185 @@
+{# Correct a purchase in place (061, issue #192).
+
+   Every field a capture can get wrong, pre-filled. form_data is the stored
+   purchase on a GET and what was submitted on a refused POST, so nothing typed
+   is lost to a refusal about some other field. #}
+{% extends "product/_layout.html" %}
+
+{% block page_icon %}bi-pencil-square{% endblock %}
+{% block page_heading %}Edit a Purchase{% endblock %}
+
+{% block page_actions %}
+<a href="{{ cancel_url }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back
+</a>
+{% endblock %}
+
+{% block product_content %}
+<p class="text-muted">
+    A purchase of <strong>{{ product.description }}</strong>.
+    Saving changes this record only — the product's counted quantity, the date it was
+    last counted and any stock flag stay as they are.
+</p>
+
+<form id="purchase-edit-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <input type="hidden" name="return_to" value="{{ return_to }}"/>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-shop"></i> Provenance</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor" class="form-label">Vendor *</label>
+                            <input type="text" class="form-control" id="vendor" name="vendor"
+                                   maxlength="200" required
+                                   value="{{ form_data.get('vendor') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="vendor_item_id" class="form-label">Vendor Item ID</label>
+                            <input type="text" class="form-control" id="vendor_item_id"
+                                   name="vendor_item_id" maxlength="100"
+                                   value="{{ form_data.get('vendor_item_id') or '' }}">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="listing_title" class="form-label">Listing Title</label>
+                        <input type="text" class="form-control" id="listing_title"
+                               name="listing_title" maxlength="500"
+                               value="{{ form_data.get('listing_title') or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="listing_url" class="form-label">Listing Address</label>
+                        <input type="text" class="form-control" id="listing_url"
+                               name="listing_url" maxlength="1000"
+                               value="{{ form_data.get('listing_url') or '' }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-box-seam"></i> Order</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="supplier_order_reference" class="form-label">Supplier Order Number</label>
+                            <input type="text" class="form-control" id="supplier_order_reference"
+                                   name="supplier_order_reference" maxlength="200"
+                                   value="{{ form_data.get('supplier_order_reference') or '' }}">
+                            <div class="form-text">
+                                The order this purchase is a line of. Set it to an existing
+                                order's number, with the same vendor, to put this purchase
+                                on that order; blank puts it on none.
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="order_line_number" class="form-label">Order Line</label>
+                            <input type="number" class="form-control" id="order_line_number"
+                                   name="order_line_number" min="1" step="1"
+                                   value="{{ form_data.get('order_line_number') or '' }}">
+                            <div class="form-text">
+                                Which line of that order. Two purchases cannot share one.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="order_reference" class="form-label">Order Reference</label>
+                        <input type="text" class="form-control" id="order_reference"
+                               name="order_reference" maxlength="200"
+                               value="{{ form_data.get('order_reference') or '' }}">
+                        <div class="form-text">Your own reference for the order, if any.</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="order_date" class="form-label">Order Date</label>
+                            <input type="date" class="form-control" id="order_date" name="order_date"
+                                   value="{{ form_data.get('order_date') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            {% if purchase.is_outstanding %}
+                            {# Not a field: receiving is what adds to the count,
+                               and an edit never does. Omitted, so the post
+                               leaves the received date alone. #}
+                            <label class="form-label">Received Date</label>
+                            <div class="form-text mt-0" id="receive-instead">
+                                Still on order.
+                                <a href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}">Receive it</a>
+                                when it arrives.
+                            </div>
+                            {% else %}
+                            <label for="received_date" class="form-label">Received Date</label>
+                            <input type="date" class="form-control" id="received_date"
+                                   name="received_date"
+                                   value="{{ form_data.get('received_date') or '' }}">
+                            <div class="form-text">
+                                Clearing it puts the purchase back on order, without
+                                changing the counted quantity.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-cash-coin"></i> Quantity &amp; Price</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="quantity" class="form-label">Quantity</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity"
+                                   min="1" step="1" value="{{ form_data.get('quantity') or '' }}">
+                            <div class="form-text">Items, not packs.</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="unit_price" class="form-label">Unit Price</label>
+                            <input type="text" class="form-control" id="unit_price" name="unit_price"
+                                   inputmode="decimal" value="{{ form_data.get('unit_price') or '' }}">
+                            <div class="form-text">The price of one item.</div>
+                        </div>
+                    </div>
+                    {# What the vendor charged, where it sold a pack. Not worked
+                       out from the two fields above, and not used to work them
+                       out: the two pairs record different things. #}
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="pack_size" class="form-label">Units in the Pack</label>
+                            <input type="number" class="form-control" id="pack_size" name="pack_size"
+                                   min="2" step="1" value="{{ form_data.get('pack_size') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="pack_price" class="form-label">Paid for the Pack</label>
+                            <input type="text" class="form-control" id="pack_price" name="pack_price"
+                                   inputmode="decimal" value="{{ form_data.get('pack_price') or '' }}">
+                        </div>
+                    </div>
+                    <div class="form-text mb-3">
+                        Only where the vendor sold it as a pack: fill in both, or leave both blank.
+                        Changing them does not change Quantity or Unit Price.
+                    </div>
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes"
+                                  rows="3">{{ form_data.get('notes') or '' }}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-5">
+        <button type="submit" class="btn btn-primary btn-lg" id="save-purchase-edit-btn">
+            <i class="bi bi-check-circle"></i> Save Changes
+        </button>
+        <a href="{{ cancel_url }}" class="btn btn-outline-secondary btn-lg" id="cancel-purchase-edit">Cancel</a>
+    </div>
+</form>
+{% endblock %}

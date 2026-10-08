@@ -194,6 +194,12 @@
                                    layout and the empty-state row's colspan stay
                                    correct. A plain link: the confirmation is a
                                    page, so there is no dialog and no JS. #}
+                                {# 061, issue #192: correct it in place. #}
+                                <a href="{{ url_for('product.purchase_edit', purchase_id=purchase.id) }}"
+                                   class="btn btn-sm btn-outline-secondary ms-1 edit-purchase-btn"
+                                   title="Edit this purchase">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
                                 <a href="{{ url_for('product.purchase_delete', purchase_id=purchase.id) }}"
                                    class="btn btn-sm btn-outline-danger ms-1 delete-purchase-btn"
                                    title="Delete this purchase">

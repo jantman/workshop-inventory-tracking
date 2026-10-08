@@ -20,6 +20,12 @@
     <i class="bi bi-box-arrow-in-down"></i> Capture Another
 </a>
 {% endif %}
+{% if lines %}
+<a href="{{ url_for('product.order_edit', vendor=vendor_name, order_number=order_number) }}"
+   class="btn btn-outline-secondary" id="edit-order-btn">
+    <i class="bi bi-pencil-square"></i> Edit Order
+</a>
+{% endif %}
 <a href="{{ url_for('product.orders_list') }}" class="btn btn-outline-secondary">
     <i class="bi bi-list-ul"></i> All Orders
 </a>
@@ -248,6 +254,13 @@
                        return_to=order brings them back to this page; the address
                        is rebuilt from the purchase's own vendor and order number
                        rather than from anything passed in. #}
+                    {# 061, issue #192. Same return_to flag as delete: a
+                       save lands on the order the line is on afterwards. #}
+                    <a class="btn btn-sm btn-outline-secondary ms-1 edit-purchase-btn"
+                       href="{{ url_for('product.purchase_edit', purchase_id=purchase.id, return_to='order') }}"
+                       title="Edit this purchase">
+                        <i class="bi bi-pencil"></i>
+                    </a>
                     <a class="btn btn-sm btn-outline-danger ms-1 delete-purchase-btn"
                        href="{{ url_for('product.purchase_delete', purchase_id=purchase.id, return_to='order') }}"
                        title="Delete this purchase">
