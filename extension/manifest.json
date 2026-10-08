@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Workshop Capture",
   "description": "Capture a vendor listing or order into Workshop Inventory Tracking.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "permissions": [
     "scripting",
     "storage",
