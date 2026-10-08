@@ -1162,6 +1162,8 @@ product page's **Purchase History** or from any line on the order screen. Every
 field is filled in with what is stored; change what is wrong and **Save
 Changes**. Opened from the order screen, it brings you back to the order.
 
+![Editing a purchase](images/screenshots/user-manual/purchase_edit.png)
+
 - **Units in the Pack** and **Paid for the Pack** are what the vendor charged.
   Fill in both, or leave both blank. They are not used to work out Quantity and
   Unit Price here -- set those yourself.
@@ -1183,6 +1185,8 @@ reference** on every line at once and takes you to the order at its new number.
 A number another order from the same vendor already uses is refused -- orders are
 never merged -- and an order date later than a line's received date is refused
 too.
+
+![Editing an order](images/screenshots/user-manual/order_edit.png)
 
 ## Which Vendors Are Supported
 

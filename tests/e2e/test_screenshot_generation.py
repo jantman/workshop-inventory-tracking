@@ -1081,6 +1081,75 @@ class TestDocumentationScreenshots:
 
         print("✓ Generated screenshot: user-manual/digikey_order.png")
 
+    def _seed_order_to_correct(self, live_server):
+        """A received three-line Amazon order, one line of it sold as a pack.
+
+        Its own seed rather than _seed_catalog's: those purchases carry no
+        supplier order number, and adding one there would change the product
+        detail capture as well.
+        """
+        from datetime import datetime, timedelta
+        from app.catalog_service import CatalogService
+
+        service = CatalogService(live_server.storage)
+        ordered = datetime.now() - timedelta(days=12)
+        received = datetime.now() - timedelta(days=9)
+        lines = [
+            ('M3 x 8mm socket head cap screws, A2 stainless', 'B07FKQ9B2L', 100, '0.09', 100, '8.99'),
+            ('Loctite 243 Medium Strength Threadlocker, 10ml', 'B0ABCDEFGH', 1, '9.12', None, None),
+            ('Brass heat-set inserts, M3 x 5mm', 'B08BCRZZS3', 50, '0.14', 50, '6.99'),
+        ]
+        purchases = []
+        for number, (description, asin, quantity, price, pack, pack_price) in enumerate(lines, 1):
+            product = service.create_product(description=description)
+            purchase = service.record_purchase(
+                product.id, vendor='Amazon', vendor_item_id=asin, listing_title=description,
+                order_date=ordered, received_date=received, quantity=quantity,
+                unit_price=Decimal(price), supplier_order_reference='114-5582014-7730261',
+                pack_size=pack, pack_price=Decimal(pack_price) if pack_price else None,
+            )
+            service.update_purchase(purchase.id, order_line_number=str(number))
+            purchases.append(purchase)
+        return purchases
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_purchase_edit(self, page, live_server):
+        """Generate the Edit Purchase screenshot (feature 061)"""
+        purchase = self._seed_order_to_correct(live_server)[0]
+
+        page.goto(f"{live_server.url}/purchases/{purchase.id}/edit?return_to=order")
+        expect(page.locator("#quantity")).to_have_value("100")
+
+        self.screenshot.capture_viewport(
+            "user-manual/purchase_edit.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#purchase-edit-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/purchase_edit.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
+    def test_screenshot_order_edit(self, page, live_server):
+        """Generate the Edit Order screenshot (feature 061)"""
+        self._seed_order_to_correct(live_server)
+
+        page.goto(f"{live_server.url}/products/orders/Amazon/114-5582014-7730261/edit")
+        expect(page.locator("#edit-order-line-count")).to_have_text("3")
+
+        self.screenshot.capture_viewport(
+            "user-manual/order_edit.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#order-edit-form",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/order_edit.png")
+
     @pytest.mark.screenshot
     @pytest.mark.e2e
     def test_screenshot_reorder_list(self, page, live_server):
