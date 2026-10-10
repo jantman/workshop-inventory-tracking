@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-08T05:42:10.490896",
+  "generated_at": "2026-10-10T16:03:46.993285",
   "screenshots": [
     {
       "filename": "readme/inventory_list.png",
@@ -203,6 +203,22 @@
         ],
         "full_page": true,
         "wait_for_selector": "#order-edit-form",
+        "hide_selectors": [
+          ".toast-container"
+        ]
+      }
+    },
+    {
+      "filename": "user-manual/outstanding_products.png",
+      "capture_type": "viewport",
+      "timestamp": "2026-10-10T16:03:48.255394",
+      "details": {
+        "viewport_size": [
+          1920,
+          1080
+        ],
+        "full_page": true,
+        "wait_for_selector": "#order-lines",
         "hide_selectors": [
           ".toast-container"
         ]

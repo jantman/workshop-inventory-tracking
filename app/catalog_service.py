@@ -2229,6 +2229,46 @@ class CatalogService:
             ValidationError: Nothing ticked, a line not on this order, an
                 unreadable date, or a date before a line's order date.
         """
+        return self._receive_lines(
+            purchase_ids, received_date, order=(vendor_name, order_number)
+        )
+
+    def receive_purchases(
+        self,
+        purchase_ids: Iterable[Any],
+        received_date: Optional[Any] = None,
+    ) -> Tuple[int, int]:
+        """Receive outstanding purchases from any orders, as ordered, at once (062).
+
+        The Outstanding Products page's receipt: :meth:`receive_order_lines`
+        without the one-order restriction, because a delivery day's boxes come
+        from several orders. Same effects, same all-or-nothing session.
+
+        Args:
+            purchase_ids: The ticked purchases, from any order or none.
+            received_date: When they arrived. Blank means now.
+
+        Returns:
+            ``(received, skipped)``, as :meth:`receive_order_lines`.
+
+        Raises:
+            ValidationError: Nothing ticked, a purchase that no longer exists,
+                an unreadable date, or a date before a line's order date.
+        """
+        return self._receive_lines(purchase_ids, received_date)
+
+    def _receive_lines(
+        self,
+        purchase_ids: Iterable[Any],
+        received_date: Optional[Any],
+        order: Optional[Tuple[str, str]] = None,
+    ) -> Tuple[int, int]:
+        """The bulk receipt behind both the order page and Outstanding Products.
+
+        Every line is checked before any is changed, in one session, so a
+        refusal leaves every ticked line as it was. ``order``, a ``(vendor,
+        order_number)`` pair, additionally requires every id to be on that order.
+        """
         try:
             ids = {int(pid) for pid in purchase_ids}
         except (TypeError, ValueError):
@@ -2237,24 +2277,28 @@ class CatalogService:
             raise ValidationError("Tick at least one line to receive", field='purchase_id')
 
         received = _parse_datetime(received_date, 'received_date') or local_now()
-        cleaned = (order_number or '').strip()
 
         with self._session() as session:
-            purchases = (
-                session.query(Purchase)
-                .filter(
-                    Purchase.id.in_(ids),
+            query = session.query(Purchase).filter(Purchase.id.in_(ids))
+            if order is not None:
+                vendor_name, order_number = order
+                cleaned = (order_number or '').strip()
+                query = query.filter(
                     Purchase.vendor == vendor_name,
                     Purchase.supplier_order_reference == cleaned,
                 )
-                .order_by(Purchase.id)
-                .all()
-            )
+            purchases = query.order_by(Purchase.id).all()
             if len(purchases) != len(ids):
-                # A stale page or a mistyped address must not receive a line
-                # of some other order.
+                if order is not None:
+                    # A stale page or a mistyped address must not receive a
+                    # line of some other order.
+                    raise ValidationError(
+                        f"Some ticked lines are not on {vendor_name} order {cleaned}",
+                        field='purchase_id'
+                    )
+                # Deleted since the page was rendered.
                 raise ValidationError(
-                    f"Some ticked lines are not on {vendor_name} order {cleaned}",
+                    "Some ticked lines no longer exist; reload the page",
                     field='purchase_id'
                 )
 
@@ -2275,8 +2319,8 @@ class CatalogService:
     ) -> bool:
         """What receiving does to a purchase and its product, inside a session.
 
-        Shared by :meth:`receive_purchase` and :meth:`receive_order_lines`, so a
-        line received in bulk ends up exactly as one received singly with
+        Shared by :meth:`receive_purchase` and :meth:`_receive_lines` (the order
+        page and Outstanding Products), so a line received in bulk ends up exactly as one received singly with
         nothing amended (060 SC-003).
 
         An already-received purchase is left alone: its date stands and the count
@@ -4160,6 +4204,41 @@ class CatalogService:
             reverse=True,
         )
         return orders
+
+    def find_outstanding_purchases(self) -> List[Purchase]:
+        """Every purchase not yet received, from every order and none (062).
+
+        The Outstanding Products page: one list to receive a delivery day's
+        boxes from, whichever orders they came on. A purchase with no order
+        number is outstanding too and is included -- leaving it out would make
+        the page a wrong answer to "what is still on its way?".
+
+        Lines of one order sit together, oldest order first: the one that has
+        waited longest is likeliest to be in today's box. Undated orders follow
+        dated ones and purchases on no order come last. Sorted in Python, as
+        :meth:`find_captured_orders` is, because the backends disagree about
+        where NULLs sort.
+        """
+        with self._session() as session:
+            purchases = (
+                session.query(Purchase)
+                .options(selectinload(Purchase.product))
+                .filter(Purchase.received_date.is_(None))
+                .all()
+            )
+
+        def position(purchase: Purchase):
+            reference = (purchase.supplier_order_reference or '').strip()
+            return (
+                not reference,
+                purchase.order_date is None,
+                purchase.order_date or datetime.min,
+                purchase.vendor or '',
+                reference,
+                purchase.id,
+            )
+
+        return sorted(purchases, key=position)
 
     def plan_outstanding_receipts(
         self, before: datetime, vendor: Optional[str] = None,

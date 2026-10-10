@@ -1,0 +1,35 @@
+{# The bulk-action toolbar shared by the order page (060) and Outstanding
+   Products (062).
+
+   Its ids are the ones app/static/js/order-bulk-actions.js reads, so both pages
+   render it from here rather than each writing its own copy -- the same reason
+   _bulk_label_modal.html exists. `action_url` is where Receive Selected posts;
+   the line checkboxes join the form through `form="order-receive-form"`. #}
+
+{% macro order_bulk_toolbar(action_url) %}
+<div class="mb-3" id="order-bulk-toolbar">
+<div class="d-flex flex-wrap align-items-end gap-2">
+    <button type="button" class="btn btn-outline-secondary" id="order-print-labels-btn" disabled>
+        <i class="bi bi-printer"></i> Print Labels
+        <span class="badge text-bg-secondary" id="order-selected-count">0</span>
+    </button>
+    <form id="order-receive-form" method="POST" class="d-flex flex-wrap align-items-end gap-2"
+          action="{{ action_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div>
+            <label for="bulk-received-date" class="form-label small mb-1">Received date</label>
+            <input type="date" class="form-control" id="bulk-received-date" name="received_date"
+                   aria-describedby="bulk-received-date-help">
+        </div>
+        <button type="submit" class="btn btn-primary" id="order-receive-btn" disabled>
+            <i class="bi bi-box-arrow-in-down"></i> Receive Selected
+        </button>
+    </form>
+</div>
+<div class="form-text" id="bulk-received-date-help">
+    Received date: blank means today. Each ticked line is received with the quantity
+    ordered; lines already received are left alone. Use a line's own Receive button if
+    what arrived differs from the order.
+</div>
+</div>
+{% endmacro %}

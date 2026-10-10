@@ -10,6 +10,7 @@
    here rather than being written out twice. #}
 {% extends "product/_layout.html" %}
 {% from '_bulk_label_modal.html' import bulk_label_modal %}
+{% from 'product/_order_bulk_toolbar.html' import order_bulk_toolbar %}
 
 {% block page_icon %}bi-box-seam{% endblock %}
 {% block page_heading %}{{ vendor_name }} Order {{ order_number }}{% endblock %}
@@ -91,31 +92,7 @@
    line's product, and a receipt for every ticked line still outstanding. The
    checkboxes sit in the table but belong to the receive form through their
    `form` attribute, so receiving is a plain form post. #}
-<div class="mb-3" id="order-bulk-toolbar">
-<div class="d-flex flex-wrap align-items-end gap-2">
-    <button type="button" class="btn btn-outline-secondary" id="order-print-labels-btn" disabled>
-        <i class="bi bi-printer"></i> Print Labels
-        <span class="badge text-bg-secondary" id="order-selected-count">0</span>
-    </button>
-    <form id="order-receive-form" method="POST" class="d-flex flex-wrap align-items-end gap-2"
-          action="{{ url_for('product.order_receive_lines', vendor=vendor_name, order_number=order_number) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <div>
-            <label for="bulk-received-date" class="form-label small mb-1">Received date</label>
-            <input type="date" class="form-control" id="bulk-received-date" name="received_date"
-                   aria-describedby="bulk-received-date-help">
-        </div>
-        <button type="submit" class="btn btn-primary" id="order-receive-btn" disabled>
-            <i class="bi bi-box-arrow-in-down"></i> Receive Selected
-        </button>
-    </form>
-</div>
-<div class="form-text" id="bulk-received-date-help">
-    Received date: blank means today. Each ticked line is received with the quantity
-    ordered; lines already received are left alone. Use a line's own Receive button if
-    what arrived differs from the order.
-</div>
-</div>
+{{ order_bulk_toolbar(url_for('product.order_receive_lines', vendor=vendor_name, order_number=order_number)) }}
 
 <div class="table-responsive">
     <table class="table align-middle" id="order-lines">

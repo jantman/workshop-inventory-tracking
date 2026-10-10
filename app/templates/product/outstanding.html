@@ -1,0 +1,134 @@
+{# Every purchase not yet received, across every order (062, issue #200).
+
+   The order page's bulk actions (060), for a delivery day whose boxes come from
+   several orders: tick what arrived, receive it on one date, print its labels.
+
+   The toolbar, the table's ids and the label dialog are the order page's, so
+   order-bulk-actions.js drives this page unchanged. A page of lines from many
+   orders is still a page of order lines. #}
+{% extends "product/_layout.html" %}
+{% from '_bulk_label_modal.html' import bulk_label_modal %}
+{% from 'product/_order_bulk_toolbar.html' import order_bulk_toolbar %}
+
+{% block page_icon %}bi-hourglass-split{% endblock %}
+{% block page_heading %}Outstanding Products{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('product.orders_list') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list-ul"></i> All Orders
+</a>
+{% endblock %}
+
+{% block product_content %}
+{% if not lines %}
+<div class="alert alert-success" id="nothing-outstanding">
+    <i class="bi bi-check-circle"></i>
+    <strong>Nothing outstanding.</strong> Every purchase recorded has been received.
+</div>
+{% else %}
+
+<div class="alert alert-warning" id="outstanding-summary">
+    <i class="bi bi-hourglass-split"></i>
+    <strong>{{ lines | length }} line(s) outstanding across {{ order_count }} order(s).</strong>
+    Tick what arrived to receive it or print its labels, whichever order it came on.
+</div>
+
+{{ order_bulk_toolbar(url_for('product.outstanding_receive')) }}
+
+<div class="table-responsive">
+    <table class="table align-middle" id="order-lines">
+        <thead>
+            <tr>
+                <th class="text-center" style="width: 1%;">
+                    <input type="checkbox" class="form-check-input" id="order-select-all"
+                           aria-label="Select all lines">
+                </th>
+                <th>Order</th>
+                <th>Vendor</th>
+                <th>Ordered</th>
+                <th>Part</th>
+                <th>Product</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Receive</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for purchase in lines %}
+            {% set reference = (purchase.supplier_order_reference or '').strip() %}
+            <tr class="order-line outstanding-line" data-purchase-id="{{ purchase.id }}">
+                <td class="text-center">
+                    {# No product, no checkbox: nothing to label, and nothing for
+                       a receipt to add to. #}
+                    {% if purchase.product %}
+                    <input type="checkbox" class="form-check-input order-line-checkbox"
+                           name="purchase_id" value="{{ purchase.id }}" form="order-receive-form"
+                           data-product-id="{{ purchase.product_id }}"
+                           data-product-label="{{ purchase.product.description }}"
+                           aria-label="Select {{ purchase.product.description }}">
+                    {% endif %}
+                </td>
+                <td>
+                    {% if reference %}
+                    <a class="order-link"
+                       href="{{ url_for('product.order_detail', vendor=purchase.vendor, order_number=reference) }}">
+                        {{ reference }}
+                    </a>
+                    {% else %}
+                    <span class="text-body-secondary no-order">no order</span>
+                    {% endif %}
+                </td>
+                <td>{{ purchase.vendor }}</td>
+                <td>
+                    {% if purchase.order_date %}
+                    {{ purchase.order_date.strftime('%-d %b %Y') }}
+                    {% else %}
+                    <span class="text-body-secondary">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if purchase.vendor_item_id %}
+                    <code>{{ purchase.vendor_item_id }}</code>
+                    {% else %}
+                    <span class="text-body-secondary">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if purchase.product %}
+                    <a href="{{ url_for('product.product_detail', product_id=purchase.product_id) }}">
+                        {{ purchase.product.description }}
+                    </a>
+                    {% else %}
+                    <span class="text-body-secondary">product deleted</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
+                <td class="text-end">
+                    {# The single receipt, for a line that arrived differently
+                       from how it was ordered. #}
+                    <a class="btn btn-sm btn-primary receive-line"
+                       href="{{ url_for('product.purchase_receive', purchase_id=purchase.id) }}">
+                        <i class="bi bi-box-arrow-in-down"></i> Receive
+                    </a>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="small text-body-secondary mb-0">
+    This page is worked out from the purchases each time you open it. A line received
+    here is received exactly as its order page would receive it.
+</p>
+
+{{ bulk_label_modal('orderBulkLabelPrintingModal', 'order-bulk', 'product', 'products') }}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if lines %}
+<script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bulk-label-print.js') }}"></script>
+<script src="{{ url_for('static', filename='js/order-bulk-actions.js') }}"></script>
+{% endif %}
+{% endblock %}
