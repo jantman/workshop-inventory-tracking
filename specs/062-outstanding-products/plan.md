@@ -92,8 +92,7 @@ app/
 tests/
 ├── unit/test_outstanding_products.py        # new
 ├── e2e/test_outstanding_products.py         # new
-├── e2e/test_screenshot_generation.py        # outstanding page screenshot
-└── e2e/screenshot_config.yaml               # its entry
+└── e2e/test_screenshot_generation.py        # outstanding page screenshot
 docs/user-manual.md                          # "Outstanding Products" section + screenshot
 ```
 

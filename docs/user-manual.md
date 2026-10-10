@@ -2265,6 +2265,32 @@ header that ticks them all. Two buttons above the table act on the ticked lines:
 - **Print Labels** opens the same label dialog as the products list, for the
   ticked lines' products. A product on two lines is printed once.
 
+### Outstanding Products
+
+When boxes from several orders arrive on the same day, open **Products →
+Outstanding Products** instead of each order in turn. It lists every purchase
+that has not been received yet, from every vendor and every order, along with
+purchases you recorded by hand with no order number.
+
+![Outstanding Products](images/screenshots/user-manual/outstanding_products.png)
+*Outstanding lines from three orders on one page, two of them ticked*
+
+Lines from the same order are listed together, and the oldest order comes first,
+since it is the one most likely to be in today's delivery. Purchases with no
+order number come last. Each line links to its order's page.
+
+**Receive Selected** and **Print Labels** work exactly as they do on an order
+page, except that the ticked lines can come from any number of orders:
+
+- Receiving uses the ordered quantity and the date you choose, and leaves the
+  date of your last count alone.
+- If the date is too early for any ticked line, none of them is received.
+- A product ticked on two lines is printed once.
+
+Received lines disappear from the list. If something arrived short or different
+from the order, use that line's own **Receive** button, which opens the
+single-receipt screen where quantity, price and description can be amended.
+
 ## Stock Levels and Reordering
 
 Quantity is deliberately **three-state**, and the three are shown differently

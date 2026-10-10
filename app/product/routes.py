@@ -1893,25 +1893,68 @@ def order_receive_lines(vendor, order_number):
     a line that arrived differently from how it was ordered.
     """
     service = _get_catalog_service()
+    _flash_bulk_receipt(lambda: service.receive_order_lines(
+        vendor,
+        order_number,
+        request.form.getlist('purchase_id'),
+        received_date=request.form.get('received_date'),
+    ))
+    return redirect(url_for('product.order_detail', vendor=vendor, order_number=order_number))
+
+
+def _flash_bulk_receipt(receive) -> None:
+    """Run a bulk receipt and say what it did (060, 062).
+
+    One wording for the order page and Outstanding Products, which receive the
+    same way and should report it the same way.
+    """
     try:
-        received, skipped = service.receive_order_lines(
-            vendor,
-            order_number,
-            request.form.getlist('purchase_id'),
-            received_date=request.form.get('received_date'),
-        )
+        received, skipped = receive()
     except ValidationError as e:
         flash(f"Nothing was received: {e.message}", 'error')
-    else:
-        if received:
-            message = f"Received {received} line(s)."
-            if skipped:
-                message += f" {skipped} already received, skipped."
-            flash(message, 'success')
-        else:
-            flash('Nothing to receive: the ticked line(s) were already received.', 'info')
+        return
 
-    return redirect(url_for('product.order_detail', vendor=vendor, order_number=order_number))
+    if received:
+        message = f"Received {received} line(s)."
+        if skipped:
+            message += f" {skipped} already received, skipped."
+        flash(message, 'success')
+    else:
+        flash('Nothing to receive: the ticked line(s) were already received.', 'info')
+
+
+@bp.route('/products/outstanding')
+def outstanding_products():
+    """Every purchase not yet received, across every order (062, issue #200).
+
+    A delivery day's boxes come from several orders. This is the one page to
+    receive them and print their labels from, instead of one order page each.
+    Derived from the purchases, like every other order view here.
+    """
+    service = _get_catalog_service()
+    lines = service.find_outstanding_purchases()
+    orders = {
+        (line.vendor, line.supplier_order_reference)
+        for line in lines if (line.supplier_order_reference or '').strip()
+    }
+
+    return render_template(
+        'product/outstanding.html',
+        title='Outstanding Products',
+        lines=lines,
+        order_count=len(orders),
+    )
+
+
+@bp.route('/products/outstanding/receive', methods=['POST'])
+def outstanding_receive():
+    """Receive the ticked outstanding lines, from any orders, on one date (062)."""
+    service = _get_catalog_service()
+    _flash_bulk_receipt(lambda: service.receive_purchases(
+        request.form.getlist('purchase_id'),
+        received_date=request.form.get('received_date'),
+    ))
+    return redirect(url_for('product.outstanding_products'))
 
 
 @bp.route('/products/orders/<vendor>/<order_number>/edit', methods=['GET', 'POST'])

@@ -1152,6 +1152,46 @@ class TestDocumentationScreenshots:
 
     @pytest.mark.screenshot
     @pytest.mark.e2e
+    def test_screenshot_outstanding_products(self, page, live_server):
+        """Generate the Outstanding Products screenshot (feature 062)"""
+        from datetime import datetime, timedelta
+        from app.catalog_service import CatalogService
+
+        service = CatalogService(live_server.storage)
+        lines = [
+            ('McMaster-Carr', '7001K42', 16, '91290A115', 'M3 x 10mm socket head screw, black-oxide alloy steel', 100),
+            ('McMaster-Carr', '7001K42', 16, '94180A331', 'M3 heat-set insert for plastic, brass', 50),
+            ('DigiKey', '84112907', 9, '296-1395-5-ND', 'NE555P timer IC, DIP-8', 10),
+            ('Amazon', '114-5582014-7730299', 5, 'B07FKQ9B2L', 'PLA filament, 1.75mm, black, 1kg', 2),
+            ('Amazon', '114-5582014-7730299', 5, 'B0ABCDEFGH', 'Loctite 243 Medium Strength Threadlocker, 10ml', 1),
+        ]
+        for vendor, order, days_ago, part, description, quantity in lines:
+            product = service.create_product(description=description)
+            service.record_purchase(
+                product.id, vendor=vendor, vendor_item_id=part,
+                order_date=datetime.now() - timedelta(days=days_ago), quantity=quantity,
+                supplier_order_reference=order,
+            )
+
+        page.goto(f"{live_server.url}/products/outstanding")
+        expect(page.locator("#order-lines tbody tr.outstanding-line")).to_have_count(5)
+        # Two lines ticked, so the picture shows what the toolbar is for.
+        page.locator("input.order-line-checkbox").nth(2).check()
+        page.locator("input.order-line-checkbox").nth(3).check()
+        expect(page.locator("#order-selected-count")).to_have_text("2")
+
+        self.screenshot.capture_viewport(
+            "user-manual/outstanding_products.png",
+            viewport_size=(1920, 1080),
+            wait_for_selector="#order-lines",
+            hide_selectors=[".toast-container"],
+            full_page=True
+        )
+
+        print("✓ Generated screenshot: user-manual/outstanding_products.png")
+
+    @pytest.mark.screenshot
+    @pytest.mark.e2e
     def test_screenshot_reorder_list(self, page, live_server):
         """Generate the reorder list screenshot"""
         self._seed_catalog(live_server)
