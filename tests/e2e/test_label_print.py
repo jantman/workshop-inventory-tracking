@@ -6,9 +6,11 @@ the short-circuit that logs what it would have printed. **Nothing here reaches
 LpPrinter.print_images()** -- that drives real hardware.
 """
 
+import json
+
 import pytest
 from playwright.sync_api import expect
-from tests.e2e.waits import wait_for_select_populated
+from tests.e2e.waits import wait_for_modal_hidden, wait_for_select_populated
 
 
 def create_product(page, base_url, description):
@@ -201,9 +203,49 @@ def test_the_count_does_not_survive_into_the_next_job(page, live_server):
     print_label(page, count=3)
     expect(page.locator("#product-label-alert")).to_contain_text("3 labels printed")
 
-    page.click("#product-label-modal .btn-secondary")
-    expect(page.locator("#product-label-modal")).not_to_be_visible()
+    # A successful print closes the dialog itself; clicking Cancel here would
+    # race that close.
+    wait_for_modal_hidden(page, "product-label-modal")
 
     page.click("#print-product-label-btn")
     expect(page.locator("#product-label-modal")).to_be_visible()
     expect(page.locator("#product-label-count")).to_have_value("1")
+
+
+@pytest.mark.e2e
+def test_the_dialog_closes_itself_after_a_successful_print(page, live_server):
+    """#202: nothing to click once the label has printed"""
+    create_product(page, live_server.url, "Closing widget")
+
+    print_label(page)
+    expect(page.locator("#product-label-alert")).to_contain_text(
+        "Label printed for Closing widget"
+    )
+
+    wait_for_modal_hidden(page, "product-label-modal")
+
+    # Reopening starts clean: no leftover confirmation.
+    page.click("#print-product-label-btn")
+    expect(page.locator("#product-label-modal")).to_be_visible()
+    expect(page.locator("#product-label-alert")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_a_failed_print_keeps_the_dialog_open(page, live_server):
+    """#202: an error is there to be read, so it is not closed over"""
+    create_product(page, live_server.url, "Jammed widget")
+    page.route(
+        "**/api/products/*/label",
+        lambda route: route.fulfill(
+            status=500,
+            content_type="application/json",
+            body=json.dumps({"success": False, "error": "Printer jammed"}),
+        ),
+    )
+
+    print_label(page)
+    expect(page.locator("#product-label-alert")).to_contain_text("Printer jammed")
+
+    # Nothing schedules a close on this path, so the dialog being open now is
+    # the dialog staying open.
+    expect(page.locator("#product-label-modal")).to_be_visible()

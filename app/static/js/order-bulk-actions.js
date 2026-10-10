@@ -35,6 +35,7 @@
                 prefix: 'order-bulk',
                 noun: 'product',
                 nounPlural: 'products',
+                closeOnSuccess: true,
                 printOne: (entry, labelType, labelCount) =>
                     csrfFetch(`/api/products/${entry.id}/label`, {
                         method: 'POST',

@@ -24,14 +24,24 @@
             this.confirm = document.getElementById('product-label-print-confirm');
             this.alerts = document.getElementById('product-label-alerts');
             this.modalEl = document.getElementById('product-label-modal');
+            this.closeTimer = null;
         }
 
         init() {
             this.button.addEventListener('click', () => this.open());
             this.confirm.addEventListener('click', () => this.print());
+            // However the dialog closed, a close still pending from the last
+            // print must not reach the next open.
+            this.modalEl.addEventListener('hidden.bs.modal', () => this.cancelClose());
+        }
+
+        cancelClose() {
+            clearTimeout(this.closeTimer);
+            this.closeTimer = null;
         }
 
         open() {
+            this.cancelClose();
             this.alerts.innerHTML = '';
             // The stock is remembered across opens; the count deliberately is
             // not. The modal is one static node reused every time it is shown,
@@ -114,6 +124,12 @@
                     this.confirm.disabled = false;
                     if (data.success) {
                         this.showAlert('success', data.message);
+                        // Close once the confirmation has had time to be read,
+                        // as the JA ID label dialog does. A failure stays open.
+                        this.cancelClose();
+                        this.closeTimer = setTimeout(() => {
+                            bootstrap.Modal.getOrCreateInstance(this.modalEl).hide();
+                        }, 2000);
                     } else {
                         this.showAlert('danger', data.error || 'Printing failed');
                     }

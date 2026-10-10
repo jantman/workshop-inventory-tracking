@@ -24,6 +24,7 @@
                 prefix: 'product-bulk',
                 noun: 'product',
                 nounPlural: 'products',
+                closeOnSuccess: true,
                 printOne: (entry, labelType, labelCount) =>
                     // csrfFetch, not fetch: unlike the item label endpoint this
                     // one is not @csrf.exempt. base.html loads csrf.js on every
