@@ -48,7 +48,7 @@ None. There are no new dependencies and no schema change.
 ## Phase 6: Polish
 
 - [X] T016 [P] In `docs/user-manual.md`, add a short "Setting a category on several products" section near the product catalog sections, covering the three pages, suggestions, that blank is refused, and that the selection is cleared.
-- [ ] T017 Run `nox -s tests` and `nox -s e2e` (detached, at least 20 minutes). Regenerate only the screenshots that show the changed toolbars (Products list, order page, Outstanding Products) with `nox -s screenshots`. Measure the churn, commit only the relevant images, and run `nox -s screenshots_verify`.
+- [X] T017 Run `nox -s tests` and `nox -s e2e` (detached, at least 20 minutes). Regenerate only the screenshots that show the changed toolbars (Products list, order page, Outstanding Products) with `nox -s screenshots`. Measure the churn, commit only the relevant images, and run `nox -s screenshots_verify`.
 - [X] T018 Check `grep -ric "catalogue" README.md docs/ app/ tests/` returns nothing, and lint only the touched Python files.
 
 ## Dependencies

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-10T16:03:46.993285",
+  "generated_at": "2026-10-10T17:12:14.530994",
   "screenshots": [
     {
       "filename": "readme/inventory_list.png",
@@ -83,7 +83,7 @@
     {
       "filename": "user-manual/digikey_order.png",
       "capture_type": "viewport",
-      "timestamp": "2026-10-08T05:42:06.713571",
+      "timestamp": "2026-10-10T17:12:14.223419",
       "details": {
         "viewport_size": [
           1920,
@@ -211,7 +211,7 @@
     {
       "filename": "user-manual/outstanding_products.png",
       "capture_type": "viewport",
-      "timestamp": "2026-10-10T16:03:48.255394",
+      "timestamp": "2026-10-10T17:12:15.736887",
       "details": {
         "viewport_size": [
           1920,
@@ -291,7 +291,7 @@
     {
       "filename": "user-manual/product_search.png",
       "capture_type": "viewport",
-      "timestamp": "2026-10-08T05:42:00.862173",
+      "timestamp": "2026-10-10T17:12:11.686416",
       "details": {
         "viewport_size": [
           1920,
