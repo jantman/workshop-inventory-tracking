@@ -1108,7 +1108,8 @@ in step with it.
 
 Buying the same thing again adds a second purchase to the same product. It does
 not create a duplicate. The product page shows the whole history oldest-first
-with the most recent price called out.
+with the most recent price called out. A purchase that carries an order number
+links to that order's screen from its **Vendor** cell.
 
 ### Removing a Purchase Recorded in Error
 

@@ -176,6 +176,16 @@
                                 {% if purchase.listing_title %}
                                 <div class="text-muted small">{{ purchase.listing_title }}</div>
                                 {% endif %}
+                                {# Issue #203: the way to the order this was
+                                   bought on. Only a captured order has a page;
+                                   a hand-recorded purchase has no reference. #}
+                                {% if purchase.supplier_order_reference %}
+                                <a href="{{ url_for('product.order_detail', vendor=purchase.vendor, order_number=purchase.supplier_order_reference) }}"
+                                   class="d-block small purchase-order-link"
+                                   title="View this order">
+                                    <i class="bi bi-receipt"></i> Order {{ purchase.supplier_order_reference }}
+                                </a>
+                                {% endif %}
                             </td>
                             <td>{{ purchase.quantity if purchase.quantity is not none else '—' }}</td>
                             <td>{{ '$' ~ purchase.unit_price if purchase.unit_price is not none else '—' }}</td>
