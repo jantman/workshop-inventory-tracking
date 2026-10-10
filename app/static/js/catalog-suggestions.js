@@ -23,7 +23,17 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        load('/api/categories', 'categories', 'category-suggestions');
+        // The Set Category dialog (063) has its own list, because the Products
+        // page already carries #category-suggestions behind its filter. One
+        // fetch fills both.
+        const categoryLists = ['category-suggestions', 'bulk-category-suggestions']
+            .map((id) => document.getElementById(id))
+            .filter(Boolean);
+        if (categoryLists.length) {
+            datalists.load('/api/categories', 'categories').then((values) => {
+                categoryLists.forEach((datalist) => datalists.fill(datalist, values));
+            });
+        }
         load('/api/tags', 'tags', 'tag-suggestions');
     });
 })();

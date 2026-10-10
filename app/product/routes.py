@@ -2582,6 +2582,46 @@ def api_batch_move_products():
     return jsonify(batch_result(moved_count, len(moves), failed))
 
 
+@bp.route('/api/products/category', methods=['POST'])
+def api_set_product_category():
+    """Give the selected products one category (063).
+
+    All or nothing. The success message is flashed rather than rendered by the
+    caller: the page reloads after a success, and that reload is what shows it.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': 'Expected a JSON object'}), 400
+
+    product_ids = payload.get('product_ids')
+    category_path = payload.get('category_path')
+    # bool is an int subclass; True is not a product id.
+    if (not isinstance(product_ids, list) or not product_ids
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in product_ids)):
+        return jsonify({'success': False, 'error': 'No products were selected'}), 400
+    if not isinstance(category_path, str):
+        return jsonify({'success': False, 'error': 'A category is required'}), 400
+
+    try:
+        report = _get_catalog_service().set_category(product_ids, category_path)
+    except ValidationError as e:
+        return jsonify({'success': False, 'error': e.message}), 400
+    except ItemNotFoundError as e:
+        return jsonify({'success': False, 'error': e.message}), 404
+
+    count = report['products']
+    flash(
+        f'Set category "{report["category_path"]}" on {count} '
+        f'product{"" if count == 1 else "s"}.',
+        'success'
+    )
+    return jsonify({
+        'success': True,
+        'updated': count,
+        'category_path': report['category_path'],
+    })
+
+
 @bp.route('/api/products/search')
 def api_search_products():
     """Search and filter the catalog (FR-032)."""

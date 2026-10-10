@@ -10,6 +10,7 @@
    here rather than being written out twice. #}
 {% extends "product/_layout.html" %}
 {% from '_bulk_label_modal.html' import bulk_label_modal %}
+{% from '_bulk_category_modal.html' import bulk_category_modal %}
 {% from 'product/_order_bulk_toolbar.html' import order_bulk_toolbar %}
 
 {% block page_icon %}bi-box-seam{% endblock %}
@@ -256,6 +257,7 @@
 </p>
 
 {{ bulk_label_modal('orderBulkLabelPrintingModal', 'order-bulk', 'product', 'products') }}
+{{ bulk_category_modal() }}
 {% endif %}
 {% endblock %}
 
@@ -263,6 +265,9 @@
 {% if lines %}
 <script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
 <script src="{{ url_for('static', filename='js/bulk-label-print.js') }}"></script>
+<script src="{{ url_for('static', filename='js/datalist.js') }}"></script>
+<script src="{{ url_for('static', filename='js/catalog-suggestions.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bulk-set-category.js') }}"></script>
 <script src="{{ url_for('static', filename='js/order-bulk-actions.js') }}"></script>
 {% endif %}
 {% endblock %}

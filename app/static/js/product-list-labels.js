@@ -17,6 +17,7 @@
             this.selectAll = document.getElementById('product-select-all');
             this.printBtn = document.getElementById('product-print-labels-btn');
             this.countBadge = document.getElementById('product-selected-count');
+            this.categoryBtn = document.getElementById('bulk-category-btn');
 
             this.dialog = new BulkLabelPrintDialog({
                 modalId: 'productBulkLabelPrintingModal',
@@ -40,6 +41,20 @@
 
         init() {
             this.dialog.init();
+
+            // Set Category (063): the same selection, one more action.
+            if (this.categoryBtn) {
+                this.categoryDialog = new BulkSetCategoryDialog({
+                    clearSelection: () => {
+                        this.checkboxes().forEach(cb => { cb.checked = false; });
+                        this.onSelectionChange();
+                    }
+                });
+                this.categoryDialog.init();
+                this.categoryBtn.addEventListener('click', () => {
+                    this.categoryDialog.open(this.selectedEntries().map(e => e.id));
+                });
+            }
 
             this.checkboxes().forEach(cb => {
                 cb.addEventListener('change', () => this.onSelectionChange());
@@ -94,6 +109,9 @@
             }
             if (this.printBtn) {
                 this.printBtn.disabled = selected === 0;
+            }
+            if (this.categoryBtn) {
+                this.categoryBtn.disabled = selected === 0;
             }
             if (this.selectAll) {
                 // Three states, not two. `indeterminate` is a property rather

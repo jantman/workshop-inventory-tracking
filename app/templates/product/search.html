@@ -1,5 +1,6 @@
 {% extends "product/_layout.html" %}
 {% from '_bulk_label_modal.html' import bulk_label_modal %}
+{% from '_bulk_category_modal.html' import bulk_category_modal %}
 
 {% block page_icon %}bi-box-seam{% endblock %}
 {% block page_heading %}Products{% endblock %}
@@ -8,6 +9,9 @@
 <button type="button" class="btn btn-outline-secondary" id="product-print-labels-btn" disabled>
     <i class="bi bi-printer"></i> Print Labels
     <span class="badge text-bg-secondary" id="product-selected-count">0</span>
+</button>
+<button type="button" class="btn btn-outline-secondary" id="bulk-category-btn" disabled>
+    <i class="bi bi-tags"></i> Set Category
 </button>
 <a href="{{ url_for('product.product_new') }}" class="btn btn-primary">
     <i class="bi bi-plus-circle"></i> Add Product
@@ -124,7 +128,7 @@
                         {% endfor %}
                     </td>
                     <td>{{ product.manufacturer or '' }}</td>
-                    <td>{{ product.category_path or '' }}</td>
+                    <td class="product-category">{{ product.category_path or '' }}</td>
                     <td>
                         {{ product.location or '' }}
                         {%- if product.sub_location %}
@@ -155,6 +159,7 @@
 </div>
 
 {{ bulk_label_modal('productBulkLabelPrintingModal', 'product-bulk', 'product', 'products') }}
+{{ bulk_category_modal() }}
 {% endblock %}
 
 {% block scripts %}
@@ -163,5 +168,6 @@
 <script src="{{ url_for('static', filename='js/product-specifications.js') }}"></script>
 <script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
 <script src="{{ url_for('static', filename='js/bulk-label-print.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bulk-set-category.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-list-labels.js') }}"></script>
 {% endblock %}
