@@ -68,7 +68,7 @@ No setup. Nothing new to install, configure or migrate.
   - the Products menu links to the page
 - [X] T013 [P] Add a "### Outstanding Products" section to `docs/user-manual.md` under "## Captured Orders": what is listed, the order, the two actions (same rules as the order page), and the per-line Receive button for amendments. Include the screenshot.
 - [X] T014 Add `test_screenshot_outstanding_products` to `tests/e2e/test_screenshot_generation.py`, seeding outstanding lines on two or three orders, producing `user-manual/outstanding_products.png` (no `screenshot_config.yaml` entry: like the other product-page shots, e.g. `reorder_list`, it is driven by the generation test alone). Generate with `nox -s screenshots_headless`, verify with `nox -s screenshots_verify`, and commit only that new image.
-- [ ] T015 Run `nox -s tests`, then `nox -s e2e` detached. Both must pass.
+- [X] T015 Run `nox -s tests`, then `nox -s e2e` detached. Both must pass.
 
 ## Dependencies
 
