@@ -721,6 +721,54 @@ class CatalogService:
         logger.info(f"Updated product {product_id}")
         return self.get_product(product_id)
 
+    def set_category(self, product_ids: Iterable[int], category_path: Any) -> Dict[str, Any]:
+        """Give several products one category (063, issue #201).
+
+        The category is normalized by the same ``_validate_category_path`` that
+        ``update_product`` uses, so a bulk set and an Edit Product save store the
+        same value for the same input. Blank is refused rather than clearing the
+        category: this action sets one. Every id is checked before anything is
+        written, so a stale selection changes nothing.
+
+        Args:
+            product_ids: The products to change. Repeats are collapsed.
+            category_path: The category as typed.
+
+        Returns:
+            ``{'category_path', 'products'}`` -- the canonical category applied
+            and the number of distinct products given it.
+
+        Raises:
+            ValidationError: If no product is named or the category is blank or
+                too long.
+            ItemNotFoundError: If any id names no product.
+        """
+        ids = sorted(set(product_ids))
+        if not ids:
+            raise ValidationError("No products were selected", field='product_ids')
+
+        canonical = self._validate_category_path(category_path)
+        if canonical is None:
+            raise ValidationError(
+                "A category is required; blank does not set one.",
+                field='category_path', value=category_path
+            )
+
+        with self._session() as session:
+            products = session.query(Product).filter(Product.id.in_(ids)).all()
+            missing = sorted(set(ids) - {product.id for product in products})
+            if missing:
+                raise ItemNotFoundError(
+                    f"Product(s) not found: {', '.join(str(i) for i in missing)}. "
+                    f"Reload the page and try again.",
+                    item_id=str(missing[0])
+                )
+            for product in products:
+                product.category_path = canonical
+
+        logger.info(f"Set category {canonical!r} on {len(ids)} product(s)")
+        return {'category_path': canonical, 'products': len(ids)}
+
     def move_product(
         self, code: str, location: str, sub_location: Optional[str] = None
     ) -> Product:

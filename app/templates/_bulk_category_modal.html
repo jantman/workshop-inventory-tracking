@@ -1,0 +1,43 @@
+{# The Set Category dialog (063), shared by the Products list, the order page
+   and Outstanding Products.
+
+   Its ids are the ones app/static/js/bulk-set-category.js reads, so the pages
+   render it from here rather than each writing a copy -- the same reason
+   _bulk_label_modal.html exists. One per page, so the ids are fixed.
+
+   The datalist is its own rather than #category-suggestions: the Products list
+   already has that one behind its filter, and an id may appear once.
+   catalog-suggestions.js fills both from the same source Edit Product uses. #}
+
+{% macro bulk_category_modal() %}
+<div class="modal fade" id="bulkCategoryModal" tabindex="-1" aria-labelledby="bulkCategoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bulkCategoryModalLabel">
+                    <i class="bi bi-tags"></i> Set Category
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="bulk-category-summary"></p>
+                <label for="bulk-category-input" class="form-label">Category</label>
+                <input type="text" class="form-control" id="bulk-category-input"
+                       maxlength="512" list="bulk-category-suggestions"
+                       placeholder="electronics/passives/resistors">
+                <datalist id="bulk-category-suggestions"></datalist>
+                <div class="form-text">
+                    Slash-separated, any depth. Typing a new one creates it.
+                </div>
+                <div id="bulk-category-error" class="alert alert-danger mt-3 mb-0 d-none" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="bulk-category-submit">
+                    <i class="bi bi-check-lg"></i> Set Category
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

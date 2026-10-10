@@ -2430,6 +2430,21 @@ exists because something is in it, and moving the last product out removes it.
 *The category tree: branches on offer at a count of zero, and a typed category
 marked "not in the record"*
 
+### Setting a category on several products
+
+**Set Category** sits next to **Print Labels** on three pages: **Products**, an
+order's page, and **Outstanding Products**. Tick the rows, choose **Set
+Category**, type the category and confirm. The field suggests the same
+categories Edit Product does, and typing a new one creates it. On an order or
+Outstanding Products, ticking a line selects its product, so two lines for the
+same product change it once.
+
+Every ticked product gets the category, and only the category changes. Afterwards
+the page reloads with nothing ticked. A blank category is refused, because this
+sets a category and does not clear one; clear a category from the product's Edit
+page. If any ticked product no longer exists, nothing changes, and your ticks
+stay so you can reload and try again.
+
 **Products → Tags** is the same view for tags: every tag in use, with how many
 products carry it. Unlike categories, a tag with nothing on it survives, and it
 is shown here with a count of zero -- that is the debris the page exists to

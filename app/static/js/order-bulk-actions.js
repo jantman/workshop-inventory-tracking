@@ -19,6 +19,16 @@
             this.printBtn = document.getElementById('order-print-labels-btn');
             this.receiveBtn = document.getElementById('order-receive-btn');
             this.countBadge = document.getElementById('order-selected-count');
+            this.categoryBtn = document.getElementById('bulk-category-btn');
+
+            // Set Category (063) gives each ticked line's product the
+            // category -- each product once, as for labels.
+            this.categoryDialog = new BulkSetCategoryDialog({
+                clearSelection: () => {
+                    this.checkboxes().forEach(cb => { cb.checked = false; });
+                    this.onSelectionChange();
+                }
+            });
 
             this.dialog = new BulkLabelPrintDialog({
                 modalId: 'orderBulkLabelPrintingModal',
@@ -39,6 +49,7 @@
 
         init() {
             this.dialog.init();
+            this.categoryDialog.init();
 
             this.checkboxes().forEach(cb => {
                 cb.addEventListener('change', () => this.onSelectionChange());
@@ -52,6 +63,10 @@
 
             this.printBtn.addEventListener('click', () => {
                 this.dialog.open(this.selectedProducts());
+            });
+
+            this.categoryBtn.addEventListener('click', () => {
+                this.categoryDialog.open(this.selectedProducts().map(e => e.id));
             });
 
             this.onSelectionChange();
@@ -88,6 +103,7 @@
             this.countBadge.textContent = String(selected);
             this.printBtn.disabled = selected === 0;
             this.receiveBtn.disabled = selected === 0;
+            this.categoryBtn.disabled = selected === 0;
             // `indeterminate` is a property, not an attribute.
             this.selectAll.checked = boxes.length > 0 && selected === boxes.length;
             this.selectAll.indeterminate = selected > 0 && selected < boxes.length;
