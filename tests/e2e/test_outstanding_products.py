@@ -18,7 +18,11 @@ import pytest
 from playwright.sync_api import expect
 
 from app.catalog_service import CatalogService
-from tests.e2e.waits import wait_for_modal_shown, wait_for_select_populated
+from tests.e2e.waits import (
+    wait_for_modal_hidden,
+    wait_for_modal_shown,
+    wait_for_select_populated,
+)
 
 MODAL = "orderBulkLabelPrintingModal"
 SELECT = "order-bulk-label-type"
@@ -166,6 +170,9 @@ def test_labels_print_once_per_product_across_orders(page, live_server):
     assert sorted(posts) == sorted([str(p["washer"].product_id), str(p["bolt"].product_id)])
     expect(page.locator("#order-bulk-print-status")).to_have_text(
         "Complete: 2 labels for 2 products, 0 failed")
+
+    # Every label printed, so the dialog closes itself (#202).
+    wait_for_modal_hidden(page, MODAL)
 
 
 @pytest.mark.e2e

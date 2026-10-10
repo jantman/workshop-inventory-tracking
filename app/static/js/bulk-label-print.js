@@ -33,6 +33,10 @@ class BulkLabelPrintDialog {
      *     {successCount, failureCount, labelsPrinted} once a run completes. It
      *     exists so the inventory list can raise the toast it has always raised
      *     without this file growing a toast of its own.
+     * @param {boolean} [config.closeOnSuccess] - optional, default false. When
+     *     set, a run with no failures closes the dialog two seconds after its
+     *     summary appears, as the JA ID label dialog does. The product pages
+     *     set it; a run with any failure always stays open to be read.
      */
     constructor(config) {
         this.modalId = config.modalId;
@@ -41,6 +45,8 @@ class BulkLabelPrintDialog {
         this.nounPlural = config.nounPlural;
         this.printOne = config.printOne;
         this.onFinished = config.onFinished || (() => {});
+        this.closeOnSuccess = Boolean(config.closeOnSuccess);
+        this.closeTimer = null;
         this.entries = [];
     }
 
@@ -131,6 +137,11 @@ class BulkLabelPrintDialog {
     }
 
     reset() {
+        // reset() runs on every open and close, so a close still pending from
+        // the last run can never reach a dialog opened since.
+        clearTimeout(this.closeTimer);
+        this.closeTimer = null;
+
         this.el('label-type').value = '';
 
         // Reset the label count. The modal is reused rather than recreated, so
@@ -259,6 +270,13 @@ class BulkLabelPrintDialog {
         progressBar.classList.remove('progress-bar-animated');
 
         doneBtn.classList.remove('d-none');
+
+        if (this.closeOnSuccess && failureCount === 0) {
+            this.closeTimer = setTimeout(() => {
+                bootstrap.Modal.getOrCreateInstance(
+                    document.getElementById(this.modalId)).hide();
+            }, 2000);
+        }
 
         this.onFinished({ successCount, failureCount, labelsPrinted });
     }

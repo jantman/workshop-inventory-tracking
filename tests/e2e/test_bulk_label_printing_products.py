@@ -126,6 +126,21 @@ def test_labels_print_for_every_selected_product(page, live_server):
 
 
 @pytest.mark.e2e
+def test_a_clean_run_closes_the_dialog(page, live_server):
+    """#202: once every label has printed there is nothing left to click"""
+    widget, gizmo = _seed(live_server, ["Blue widget", "Green gizmo"])
+
+    _open_list(page, live_server, 2)
+    _tick(page, widget)
+    _tick(page, gizmo)
+    _open_dialog(page)
+    _print(page)
+    _wait_for_run_to_finish(page)
+
+    wait_for_modal_hidden(page, MODAL)
+
+
+@pytest.mark.e2e
 def test_the_dialog_names_the_selected_products(page, live_server):
     """US1: the operator sees what they are about to print, before it"""
     widget, gizmo = _seed(live_server, ["Blue widget", "Green gizmo"])
@@ -275,7 +290,8 @@ def test_the_dialog_resets_when_it_is_reopened(page, live_server):
     _print(page, count=7)
     _wait_for_run_to_finish(page)
 
-    page.locator(DONE_BTN).click()
+    # A clean run closes the dialog itself (#202); clicking Done here would
+    # race that close.
     wait_for_modal_hidden(page, MODAL)
 
     _open_dialog(page)
@@ -421,6 +437,10 @@ def test_one_failure_does_not_take_the_run_with_it(page, live_server):
 
     # The run was not abandoned: every product was still attempted.
     assert len(posts) == 5
+
+    # A failure is not closed over (#202): Done is how this dialog ends.
+    page.locator(DONE_BTN).click()
+    wait_for_modal_hidden(page, MODAL)
 
 
 @pytest.mark.e2e

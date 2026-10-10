@@ -2207,6 +2207,9 @@ Reprinting takes two clicks and no typing. The label is composed from the record
 each time rather than stored, so a reprint after you have improved the
 description shows the improved one.
 
+Once the label has printed, the dialog shows the confirmation and closes itself
+two seconds later. If printing fails, it stays open with the error.
+
 ### Printing Labels for Several Products at Once
 
 You do not have to visit each product to label a box of parts you have just
@@ -2230,6 +2233,11 @@ the end how many labels it produced. If one product fails — an unreachable
 printer, a record deleted from another tab — the rest are still printed and the
 one that failed is named. The count it reports is labels that actually came out,
 so a product that failed contributes none of its copies to the total.
+
+When every label has printed, the dialog closes itself two seconds after the
+summary appears. If anything failed, it stays open so you can read which product
+it was; close it with **Done**. The same applies to **Print Labels** on an
+order's page and on Outstanding Products.
 
 The labels themselves are exactly the ones you get from **Print Label** on a
 single product, composed by the same code from the same record.
