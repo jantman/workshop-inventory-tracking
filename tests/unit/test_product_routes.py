@@ -326,3 +326,28 @@ class TestTheProductsListOffersBulkLabelPrinting:
 
         assert 'colspan="6"' in html
         assert 'id="no-products"' in html
+
+
+class TestThePurchaseHistoryLinksToItsOrder:
+    """Issue #203: a purchase from a captured order links to that order."""
+
+    def test_a_purchase_with_an_order_number_links_to_the_order(
+        self, client, service
+    ):
+        product = service.create_product(description='Blue widget')
+        service.record_purchase(
+            product.id, vendor='DigiKey', supplier_order_reference='88001234'
+        )
+
+        html = client.get(f'/products/{product.id}').get_data(as_text=True)
+
+        assert 'href="/products/orders/DigiKey/88001234"' in html
+        assert 'Order 88001234' in html
+
+    def test_a_purchase_without_one_offers_no_link(self, client, service):
+        product = service.create_product(description='Blue widget')
+        service.record_purchase(product.id, vendor='Local hardware store')
+
+        html = client.get(f'/products/{product.id}').get_data(as_text=True)
+
+        assert 'purchase-order-link' not in html
