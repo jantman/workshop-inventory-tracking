@@ -10,6 +10,7 @@ FR-031, FR-032, SC-009, and 009 FR-010).
 import pytest
 
 from app.catalog_service import CatalogService
+from app.database import Product
 from app.exceptions import ValidationError
 from app.utils.catalog_taxonomy import (
     DEFAULT_CATEGORY_PATHS,
@@ -255,6 +256,67 @@ class TestStockFilter:
         with pytest.raises(ValidationError) as excinfo:
             stocked.search_products(stock='banana')
         assert 'none-on-hand' in str(excinfo.value)
+
+
+class TestMissingFilter:
+    """065: find the products still waiting for a category or a location"""
+
+    @pytest.fixture
+    def placed(self, service):
+        service.create_product(description='both set',
+                               category_path='hardware', location='Shelf A')
+        service.create_product(description='no category', location='Shelf A')
+        service.create_product(description='no location', category_path='hardware',
+                               tags=['surplus'])
+        service.create_product(description='neither', tags=['surplus'])
+        return service
+
+    def test_no_category(self, placed):
+        assert descriptions(placed.search_products(missing='category')) == [
+            'neither', 'no category',
+        ]
+
+    def test_no_location(self, placed):
+        assert descriptions(placed.search_products(missing='location')) == [
+            'neither', 'no location',
+        ]
+
+    def test_either_is_the_needs_action_list(self, placed):
+        assert descriptions(placed.search_products(missing='either')) == [
+            'neither', 'no category', 'no location',
+        ]
+
+    def test_no_value_narrows_nothing(self, placed):
+        assert len(placed.search_products(missing='')) == 4
+        assert len(placed.search_products(missing=None)) == 4
+
+    def test_it_combines_with_the_other_filters(self, placed):
+        assert descriptions(placed.search_products(missing='either', tag='surplus')) == [
+            'neither', 'no location',
+        ]
+
+    def test_blank_values_count_as_missing(self, service):
+        """The service writes None, but an empty cell is what the operator sees"""
+        product = service.create_product(description='blanks',
+                                         category_path='hardware', location='Shelf A')
+        with service._session() as session:
+            row = session.get(Product, product.id)
+            row.category_path = ''
+            row.location = '  '
+            session.commit()
+
+        assert descriptions(service.search_products(missing='category')) == ['blanks']
+        assert descriptions(service.search_products(missing='location')) == ['blanks']
+
+    def test_a_sub_location_alone_is_not_a_location(self, service):
+        service.create_product(description='bin only', category_path='hardware',
+                               sub_location='Bin 3')
+        assert descriptions(service.search_products(missing='location')) == ['bin only']
+
+    def test_an_unknown_value_says_what_the_valid_ones_are(self, placed):
+        with pytest.raises(ValidationError) as excinfo:
+            placed.search_products(missing='banana')
+        assert 'either' in str(excinfo.value)
 
 
 class TestCategoryListing:
