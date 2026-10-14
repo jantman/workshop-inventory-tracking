@@ -91,6 +91,21 @@
             <datalist id="specification-value-suggestions"></datalist>
             <div class="form-text">Needs a name. Matches values containing this text.</div>
         </div>
+        <div class="col-md-3">
+            <label for="filter-missing" class="form-label">Missing</label>
+            <select class="form-select" id="filter-missing" name="missing">
+                <option value="">Any</option>
+                {% for value, label in [
+                    ('category', 'No category'),
+                    ('location', 'No location'),
+                    ('either', 'Category or location'),
+                ] %}
+                <option value="{{ value }}" {% if filters.get('missing') == value %}selected{% endif %}>
+                    {{ label }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
     </div>
 </form>
 

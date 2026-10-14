@@ -180,7 +180,7 @@ def _split_tags(raw) -> list:
 
 @bp.route('/products')
 def product_search():
-    """The catalog list, with text search and category/tag/stock filters."""
+    """The catalog list, with text search and category/tag/stock/missing filters."""
     service = _get_catalog_service()
     filters = {
         'q': request.args.get('q', ''),
@@ -189,6 +189,7 @@ def product_search():
         'stock': request.args.get('stock', ''),
         'spec_name': request.args.get('spec_name', ''),
         'spec_value': request.args.get('spec_value', ''),
+        'missing': request.args.get('missing', ''),
     }
 
     try:
@@ -199,6 +200,7 @@ def product_search():
             stock=filters['stock'],
             spec_name=filters['spec_name'],
             spec_value=filters['spec_value'],
+            missing=filters['missing'],
         )
     except ValidationError as e:
         flash(e.message, 'error')
@@ -2635,6 +2637,7 @@ def api_search_products():
             stock=request.args.get('stock'),
             spec_name=request.args.get('spec_name'),
             spec_value=request.args.get('spec_value'),
+            missing=request.args.get('missing'),
         )
     except ValidationError as e:
         return jsonify({'success': False, 'error': e.message}), 400

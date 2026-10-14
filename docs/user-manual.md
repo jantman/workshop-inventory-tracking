@@ -70,6 +70,7 @@
 - **Shorten Items** - Cut materials to length
 - **Products** - The product catalog: what a part is, what it cost, where it came from
 - **Products → Move Products** - Scan products into new locations, like Move Items
+- **Products → Needs Action** - Products still missing a category or a location
 - **Scan box** - In the header on every page; scan or type a code from wherever you are
 
 ## Overview
@@ -2407,6 +2408,13 @@ Filters, which combine:
   `electronics/passives/resistors`, and does not find `electronics-surplus`.
 - **Tag** -- ignores category entirely.
 - **Stock** -- low, on order, tracked, not tracked, none on hand.
+- **Missing** -- no category, no location, or either one. A sub-location without
+  a location counts as no location.
+
+**Products → Needs Action** opens the list with *Missing* set to *Category or
+location*: everything still waiting to be categorized or put away. Fill the gaps in
+with **Set Category** on the same list, the product's **Edit** page, or
+[Move Products](#moving-products); a product leaves the list once it has both.
 
 To browse the category and tag trees rather than search across them, see
 [Categories and Tags](#categories-and-tags).

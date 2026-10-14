@@ -344,9 +344,10 @@ class CatalogService:
         stock: Optional[str] = None,
         spec_name: Optional[str] = None,
         spec_value: Optional[str] = None,
+        missing: Optional[str] = None,
         limit: int = 500,
     ) -> List[Product]:
-        """Find products by text, category subtree, tag, stock state and spec.
+        """Find products by text, category subtree, tag, stock state, spec and gaps.
 
         Args:
             query: Matched against description, specifications, manufacturer,
@@ -364,6 +365,9 @@ class CatalogService:
                 text (FR-013, FR-014). On its own it adds no clause -- a value
                 filter without a name is not offered, and unusable input is
                 dropped rather than raised, matching the other filters.
+            missing: One of 'category', 'location', 'either' -- the products
+                still waiting for that information (065). Blank counts as
+                missing; a sub-location alone is not a location.
             limit: Most products to return.
 
         Returns:
@@ -423,6 +427,7 @@ class CatalogService:
             )
 
             statement = self._apply_stock_filter(session, statement, stock)
+            statement = self._apply_missing_filter(statement, missing)
 
             return statement.order_by(Product.description).limit(limit).all()
 
@@ -618,6 +623,29 @@ class CatalogService:
         raise ValidationError(
             f"Unknown stock filter {stock!r}. Valid values: {valid}",
             field='stock', value=str(stock)
+        )
+
+    def _apply_missing_filter(self, statement, missing: Optional[str]):
+        """Narrow a product query to those lacking a category and/or location"""
+        if not missing:
+            return statement
+
+        no_category = or_(Product.category_path.is_(None),
+                          func.trim(Product.category_path) == '')
+        no_location = or_(Product.location.is_(None),
+                          func.trim(Product.location) == '')
+
+        if missing == 'category':
+            return statement.filter(no_category)
+        if missing == 'location':
+            return statement.filter(no_location)
+        if missing == 'either':
+            return statement.filter(or_(no_category, no_location))
+
+        valid = "'category', 'location', 'either'"
+        raise ValidationError(
+            f"Unknown missing filter {missing!r}. Valid values: {valid}",
+            field='missing', value=str(missing)
         )
 
     def _effectively_low_clause(self):
