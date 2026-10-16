@@ -10,6 +10,7 @@ static pages, and if it ever outranked them the failure would surface somewhere
 else entirely.
 """
 
+import re
 from unittest.mock import patch
 
 import pytest
@@ -321,11 +322,71 @@ class TestTheProductsListOffersBulkLabelPrinting:
             assert f'id="product-bulk-{suffix}"' in html
 
     def test_the_empty_row_spans_every_column(self, client):
-        """Six columns now; a stale colspan misaligns the table."""
+        """Seven columns now; a stale colspan misaligns the table."""
         html = client.get('/products').get_data(as_text=True)
 
-        assert 'colspan="6"' in html
+        assert 'colspan="7"' in html
         assert 'id="no-products"' in html
+
+
+class TestTheProductsListShowsWhereEachProductIs:
+    """066 FR-001..FR-004: Location and Sub-location are columns of their own.
+
+    On the Needs Action view a product with a category is listed because it
+    has no location; its blank Location cell is what says so.
+    """
+
+    HEADERS = ['Description', 'Manufacturer', 'Category', 'Location',
+               'Sub-location', 'Quantity']
+
+    @staticmethod
+    def _headers(html):
+        return re.findall(r'<th>([^<]+)</th>', html)
+
+    @staticmethod
+    def _cell(html, css_class):
+        return [value.strip() for value in
+                re.findall(rf'<td class="{css_class}">(.*?)</td>', html, re.S)]
+
+    @pytest.mark.parametrize('query', ['', '?missing=either'])
+    def test_every_view_has_both_columns_in_order(self, client, service, query):
+        service.create_product(description='Blue widget')
+
+        html = client.get(f'/products{query}').get_data(as_text=True)
+
+        assert self._headers(html) == self.HEADERS
+
+    def test_each_value_is_in_its_own_cell(self, client, service):
+        service.create_product(description='Blue widget', category_path='hardware',
+                               location='Shelf A', sub_location='Bin 3')
+
+        html = client.get('/products').get_data(as_text=True)
+
+        assert self._cell(html, 'product-location') == ['Shelf A']
+        assert self._cell(html, 'product-sub-location') == ['Bin 3']
+
+    def test_an_unset_location_is_a_blank_cell_on_needs_action(self, client, service):
+        service.create_product(description='Blue widget', category_path='hardware')
+
+        html = client.get('/products?missing=either').get_data(as_text=True)
+
+        assert 'Blue widget' in html
+        assert self._cell(html, 'product-location') == ['']
+        assert self._cell(html, 'product-sub-location') == ['']
+
+
+class TestOnlyTheProductsListIsFullWidth:
+    """066 FR-006/FR-009: the list spans the window; other pages do not change."""
+
+    def test_the_products_list_is_full_width(self, client):
+        html = client.get('/products').get_data(as_text=True)
+
+        assert '<main class="container-fluid my-4">' in html
+
+    def test_another_page_keeps_the_fixed_width(self, client):
+        html = client.get('/products/categories').get_data(as_text=True)
+
+        assert '<main class="container my-4">' in html
 
 
 class TestThePurchaseHistoryLinksToItsOrder:

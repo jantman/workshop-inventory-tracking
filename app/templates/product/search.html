@@ -2,6 +2,9 @@
 {% from '_bulk_label_modal.html' import bulk_label_modal %}
 {% from '_bulk_category_modal.html' import bulk_category_modal %}
 
+{# Full width: the list has seven columns and a desktop screen to put them on (066). #}
+{% block main_container_class %}container-fluid{% endblock %}
+
 {% block page_icon %}bi-box-seam{% endblock %}
 {% block page_heading %}Products{% endblock %}
 
@@ -122,6 +125,7 @@
                     <th>Manufacturer</th>
                     <th>Category</th>
                     <th>Location</th>
+                    <th>Sub-location</th>
                     <th>Quantity</th>
                 </tr>
             </thead>
@@ -144,12 +148,8 @@
                     </td>
                     <td>{{ product.manufacturer or '' }}</td>
                     <td class="product-category">{{ product.category_path or '' }}</td>
-                    <td>
-                        {{ product.location or '' }}
-                        {%- if product.sub_location %}
-                        <span class="text-muted small">/ {{ product.sub_location }}</span>
-                        {%- endif %}
-                    </td>
+                    <td class="product-location">{{ product.location or '' }}</td>
+                    <td class="product-sub-location">{{ product.sub_location or '' }}</td>
                     <td class="product-quantity">
                         {# SC-007: "none on hand" and "not tracked" must never look alike #}
                         {% if product.quantity is none %}
@@ -163,7 +163,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="6" class="text-center text-muted py-4" id="no-products">
+                    <td colspan="7" class="text-center text-muted py-4" id="no-products">
                         Nothing here matches.
                     </td>
                 </tr>

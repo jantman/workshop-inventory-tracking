@@ -2415,6 +2415,8 @@ Filters, which combine:
 location*: everything still waiting to be categorized or put away. Fill the gaps in
 with **Set Category** on the same list, the product's **Edit** page, or
 [Move Products](#moving-products); a product leaves the list once it has both.
+The list shows **Category**, **Location** and **Sub-location** in columns of their
+own, so the blank cell on each row says which of the two it is still waiting for.
 
 To browse the category and tag trees rather than search across them, see
 [Categories and Tags](#categories-and-tags).
