@@ -43,6 +43,16 @@ class TestSuccessfulAnswers:
         assert '/products/new' in body['url']
         assert 'identifier=00012345678905' in body['url']
 
+    def test_a_ja_id_is_200_and_goes_to_the_items_edit_page(self, client):
+        """Feature 067: no existence check -- the edit page answers a miss"""
+        response = client.post('/api/scan', json={'scan': 'ja000123'})
+
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['outcome'] == 'item'
+        assert body['product'] is None
+        assert body['url'] == '/inventory/edit/JA000123'
+
     def test_junk_is_200_with_a_search(self, client):
         response = client.post('/api/scan', json={'scan': 'total nonsense'})
 

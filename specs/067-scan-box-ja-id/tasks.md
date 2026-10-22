@@ -10,8 +10,8 @@ None — no new dependencies or project structure.
 
 ## Phase 2: Foundational
 
-- [ ] T001 Add `ScanKind.JA_ID` and list `'item'` among `ScanResolution` outcomes (docstring) in app/models.py
-- [ ] T002 [P] Create `normalize_ja_id(value: str) -> Optional[str]` (strip, `^JA[0-9]{6}$` case-insensitive, returns uppercase or None; never raises on str) in app/utils/ja_id.py
+- [X] T001 Add `ScanKind.JA_ID` and list `'item'` among `ScanResolution` outcomes (docstring) in app/models.py
+- [X] T002 [P] Create `normalize_ja_id(value: str) -> Optional[str]` (strip, `^JA[0-9]{6}$` case-insensitive, returns uppercase or None; never raises on str) in app/utils/ja_id.py
 
 ## Phase 3: User Story 1 — Scan a JA ID into the header scan box (P1) 🎯 MVP
 
@@ -19,15 +19,15 @@ None — no new dependencies or project structure.
 
 **Independent test**: Seed an item, enter its JA ID in the scan box, land on its edit page.
 
-- [ ] T003 [US1] Add rule 0 (JA ID → `ScanKind.JA_ID`, value uppercased/stripped) ahead of rule 1 and update the module docstring in app/utils/scan_router.py
-- [ ] T004 [US1] Return `ScanResolution('item', classification)` for `ScanKind.JA_ID` and update the docstring's outcome list in app/catalog_service.py `resolve_scan`
-- [ ] T005 [US1] Map outcome `'item'` to `url_for('main.inventory_edit', ja_id=classification.value)` and update the docstring in app/product/routes.py `api_scan`
-- [ ] T006 [P] [US1] Update the `resolve()` comment that says every scan ends at a product in app/static/js/scan-capture.js
-- [ ] T007 [P] [US1] Unit tests: JA ID classifies `JA_ID` (upper, lower, whitespace); `JA12345`, `JA1234567`, `JA000123 bolt`, `XJA000123` do not; in tests/unit/test_scan_router.py
-- [ ] T008 [P] [US1] Unit test: `JA_ID` resolves to `'item'` with `product` None, even when a vendor identifier with that value exists, in tests/unit/test_scan_resolution.py
-- [ ] T009 [P] [US1] Unit test: `POST /api/scan` with `ja000123` returns `outcome == 'item'` and `url == '/inventory/edit/JA000123'` in tests/unit/test_scan_routes.py
-- [ ] T010 [US1] Rewrite e2e tests against `#global-scan-input` (existing item, nonexistent item → "not found", lowercase input, malformed JA ID → product search) seeding via `live_server.add_test_data`, in tests/e2e/test_ja_id_lookup.py
-- [ ] T011 [US1] Switch the inactive-item tests from `#ja-id-lookup` to `#global-scan-input` in tests/e2e/test_edit_inactive_item_via_search.py
+- [X] T003 [US1] Add rule 0 (JA ID → `ScanKind.JA_ID`, value uppercased/stripped) ahead of rule 1 and update the module docstring in app/utils/scan_router.py
+- [X] T004 [US1] Return `ScanResolution('item', classification)` for `ScanKind.JA_ID` and update the docstring's outcome list in app/catalog_service.py `resolve_scan`
+- [X] T005 [US1] Map outcome `'item'` to `url_for('main.inventory_edit', ja_id=classification.value)` and update the docstring in app/product/routes.py `api_scan`
+- [X] T006 [P] [US1] Update the `resolve()` comment that says every scan ends at a product in app/static/js/scan-capture.js
+- [X] T007 [P] [US1] Unit tests: JA ID classifies `JA_ID` (upper, lower, whitespace); `JA12345`, `JA1234567`, `JA000123 bolt`, `XJA000123` do not; in tests/unit/test_scan_router.py
+- [X] T008 [P] [US1] Unit test: `JA_ID` resolves to `'item'` with `product` None, even when a vendor identifier with that value exists, in tests/unit/test_scan_resolution.py
+- [X] T009 [P] [US1] Unit test: `POST /api/scan` with `ja000123` returns `outcome == 'item'` and `url == '/inventory/edit/JA000123'` in tests/unit/test_scan_routes.py
+- [X] T010 [US1] Rewrite e2e tests against `#global-scan-input` (existing item, nonexistent item → "not found", lowercase input, malformed JA ID → product search) seeding via `live_server.add_test_data`, in tests/e2e/test_ja_id_lookup.py
+- [X] T011 [US1] Switch the inactive-item tests from `#ja-id-lookup` to `#global-scan-input` in tests/e2e/test_edit_inactive_item_via_search.py
 
 ## Phase 4: User Story 2 — One box in the header (P2)
 
@@ -35,17 +35,17 @@ None — no new dependencies or project structure.
 
 **Independent test**: Any page's header contains `#global-scan-input` and no `#ja-id-lookup`.
 
-- [ ] T012 [US2] Remove the JA ID Quick Lookup block and mention JA IDs in the scan box `title` in app/templates/base.html
-- [ ] T013 [P] [US2] Remove `setupJaIdLookup` and its call in `init` in app/static/js/main.js
-- [ ] T014 [P] [US2] Remove the `#ja-id-lookup` rules in app/static/css/main.css
-- [ ] T015 [P] [US2] Add a JA ID row to the scanning table and a sentence that the scan box opens inventory items in docs/user-manual.md
-- [ ] T016 [US2] e2e assertion that the header has no `#ja-id-lookup` (after establishing `#global-scan-input` visible) in tests/e2e/test_ja_id_lookup.py
+- [X] T012 [US2] Remove the JA ID Quick Lookup block and mention JA IDs in the scan box `title` in app/templates/base.html
+- [X] T013 [P] [US2] Remove `setupJaIdLookup` and its call in `init` in app/static/js/main.js
+- [X] T014 [P] [US2] Remove the `#ja-id-lookup` rules in app/static/css/main.css
+- [X] T015 [P] [US2] Add a JA ID row to the scanning table and a sentence that the scan box opens inventory items in docs/user-manual.md
+- [X] T016 [US2] e2e assertion that the header has no `#ja-id-lookup` (after establishing `#global-scan-input` visible) in tests/e2e/test_ja_id_lookup.py
 
 ## Phase 5: Polish
 
-- [ ] T017 `grep -rn "ja-id-lookup\|setupJaIdLookup\|JA ID Quick" app tests docs README.md` returns nothing
-- [ ] T018 Run `nox -s tests`, then `nox -s e2e` detached
-- [ ] T019 Regenerate screenshots (`nox -s screenshots_headless`); commit only images where the header change is visible, discard per-run churn
+- [X] T017 `grep -rn "ja-id-lookup\|setupJaIdLookup\|JA ID Quick" app docs README.md` returns nothing (tests/ names it only in the absence assertion)
+- [X] T018 Run `nox -s tests`, then `nox -s e2e` detached
+- [X] T019 Regenerate screenshots (`nox -s screenshots_headless`); commit only images where the header change is visible, discard per-run churn
 
 ## Dependencies
 

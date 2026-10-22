@@ -71,7 +71,7 @@
 - **Products** - The product catalog: what a part is, what it cost, where it came from
 - **Products → Move Products** - Scan products into new locations, like Move Items
 - **Products → Needs Action** - Products still missing a category or a location
-- **Scan box** - In the header on every page; scan or type a code from wherever you are
+- **Scan box** - In the header on every page; scan or type a product code or a JA ID from wherever you are
 
 ## Overview
 
@@ -1019,12 +1019,14 @@ specifications, add it here as a `GTIN`, and the scan lands.
 ## Scanning Products
 
 There is a scan box in the header on every page, so a scan starts wherever you
-already are. It also accepts typing, if you would rather.
+already are. It also accepts typing, if you would rather. It takes inventory JA IDs
+as well as product codes: scan or type `JA000123` and that item's edit page opens.
 
 A scan always gets an answer. There is no "not found":
 
 | What you scanned | What happens |
 |---|---|
+| An inventory JA ID (`JA` and six digits) | That item's edit page opens, or "not found" if there is no such item |
 | An internal code, or a barcode you have cataloged | The product opens |
 | A manufacturer's own 2D barcode | Exactly as though you had scanned the plain barcode it carries |
 | A valid barcode you have not cataloged | A create form, with the barcode already attached |

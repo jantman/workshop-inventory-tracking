@@ -424,11 +424,14 @@ OPERATOR_IDENTIFIER_TYPES: tuple[str, ...] = tuple(
 class ScanKind(Enum):
     """What kind of thing a scan turned out to be.
 
-    INTERNAL, ECIA, GTIN and FREE_TEXT are produced by the pure classifier in
-    app/utils/scan_router.py. VENDOR is produced by resolution, not by
-    classification -- a vendor item id has no distinguishing shape, so it can
-    only be recognized by looking it up.
+    JA_ID, INTERNAL, ECIA, GTIN and FREE_TEXT are produced by the pure
+    classifier in app/utils/scan_router.py. VENDOR is produced by resolution,
+    not by classification -- a vendor item id has no distinguishing shape, so it
+    can only be recognized by looking it up.
+
+    JA_ID is the odd one out: it names an inventory item, not a product.
     """
+    JA_ID = "JA_ID"
     INTERNAL = "INTERNAL"
     ECIA = "ECIA"
     GTIN = "GTIN"
@@ -473,7 +476,12 @@ class ScanResolution:
     """The answer to 'which product is it, and what should happen next?'
 
     Produced by CatalogService.resolve_scan(). ``outcome`` is one of 'product',
-    'create', 'search' or 'receive'.
+    'create', 'search', 'receive' or 'item'.
+
+    ``item`` (feature 067) is the first outcome that is not about the catalog at
+    all: a scanned JA ID names an inventory item, and every other field is left
+    empty. It carries no lookup -- the item's edit page answers a missing JA ID
+    itself, exactly as the header's old JA ID lookup box relied on.
 
     **This docstring used to say "three outcomes and no fourth".** Feature 024
     added ``receive``: a bag from a captured DigiKey order is neither "here is

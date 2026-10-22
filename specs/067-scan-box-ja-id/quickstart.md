@@ -22,5 +22,7 @@ tests pass unchanged; `tests/e2e/test_ja_id_lookup.py` and
 ## Static check
 
 ```bash
-grep -rn "ja-id-lookup\|setupJaIdLookup" app tests docs   # must return nothing
+grep -rn "ja-id-lookup\|setupJaIdLookup" app docs   # must return nothing
 ```
+
+`tests/e2e/test_ja_id_lookup.py` names `#ja-id-lookup` once, to assert it is gone.

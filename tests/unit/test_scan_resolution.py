@@ -29,6 +29,26 @@ def service(test_storage):
     return CatalogService(test_storage)
 
 
+class TestJaId:
+    """Feature 067 -- a JA ID names an inventory item, not a product"""
+
+    def test_a_ja_id_resolves_to_the_item_outcome(self, service):
+        resolution = service.scan('ja000123')
+
+        assert resolution.outcome == 'item'
+        assert resolution.classification.kind is ScanKind.JA_ID
+        assert resolution.classification.value == 'JA000123'
+        assert resolution.product is None
+
+    def test_a_ja_id_never_resolves_to_a_vendor_product(self, service):
+        """Rule 0 outranks the vendor-id lookup, which would otherwise match"""
+        service.create_product(
+            description='Blue widget',
+            identifiers=[{'id_type': 'VENDOR', 'value': 'JA000123', 'vendor': 'Amazon'}],
+        )
+        assert service.scan('JA000123').outcome == 'item'
+
+
 class TestInternalCode:
     def test_a_known_internal_code_resolves_to_its_product(self, service):
         product = service.create_product(description='Blue widget')

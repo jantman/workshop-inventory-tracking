@@ -1,121 +1,88 @@
 """
-E2E Tests for JA ID Lookup functionality
+E2E tests for opening an inventory item by JA ID from the header scan box.
+
+Feature 067 folded the old JA ID Quick Lookup box into the scan box: a JA ID
+scanned or typed there opens that item's edit page, and the header carries one
+code-entry box.
 """
 
-import pytest
 import re
-from tests.e2e.pages.add_item_page import AddItemPage
-from tests.e2e.pages.inventory_list_page import InventoryListPage
+
+import pytest
 from playwright.sync_api import expect
 
 
+ITEM = {
+    "ja_id": "JA200001",
+    "item_type": "Bar",
+    "shape": "Round",
+    "material": "Carbon Steel",
+    "length": 12.0,
+    "width": 1.0,
+    "location": "Workshop",
+    "notes": "Test item for JA ID scan",
+    "active": True,
+}
+
+
+def enter_in_scan_box(page, text):
+    """Type into the header scan box and press Enter, as an operator would"""
+    scan_input = page.locator('#global-scan-input')
+    expect(scan_input).to_be_visible()
+    scan_input.fill(text)
+    scan_input.press('Enter')
+
+
 @pytest.mark.e2e
-def test_ja_id_lookup_with_existing_item(page, live_server):
-    """Test JA ID lookup with an existing item navigates to edit page"""
-    # First add a test item
-    add_page = AddItemPage(page, live_server.url)
-    add_page.navigate()
-    
-    test_item = {
-        "ja_id": "JA200001",
-        "item_type": "Bar",
-        "shape": "Round",
-        "material": "Carbon Steel",
-        "length": "12",
-        "width": "1",
-        "location": "Workshop"
-    }
-    
-    # Add the test item
-    add_page.fill_basic_item_data(test_item["ja_id"], test_item["item_type"], 
-                                 test_item["shape"], test_item["material"])
-    add_page.fill_dimensions(length=test_item["length"], width=test_item["width"])
-    add_page.fill_location_and_notes(location=test_item["location"], notes="Test item for JA lookup")
-    add_page.submit_form()
-    
-    # Navigate to any page to see the navbar
-    list_page = InventoryListPage(page, live_server.url)
-    list_page.navigate()
-    
-    # Find the JA ID lookup input
-    lookup_input = page.locator('#ja-id-lookup')
-    expect(lookup_input).to_be_visible()
-    
-    # Enter the JA ID and press Enter
-    lookup_input.fill("JA200001")
-    lookup_input.press('Enter')
-    
-    # Should navigate to edit page
+def test_a_ja_id_opens_the_items_edit_page(page, live_server):
+    live_server.add_test_data([ITEM])
+    page.goto(f'{live_server.url}/inventory')
+
+    enter_in_scan_box(page, 'JA200001')
+
     expect(page).to_have_url(f'{live_server.url}/inventory/edit/JA200001')
-    
-    # Verify we're on the edit page by checking the form is populated
-    ja_id_field = page.locator('#ja_id')
-    expect(ja_id_field).to_have_value('JA200001')
+    expect(page.locator('#ja_id')).to_have_value('JA200001')
 
 
 @pytest.mark.e2e
-def test_ja_id_lookup_with_nonexistent_item(page, live_server):
-    """Test JA ID lookup with nonexistent item shows error"""
-    # Navigate to inventory list to see the navbar
-    list_page = InventoryListPage(page, live_server.url)
-    list_page.navigate()
-    
-    # Find the JA ID lookup input
-    lookup_input = page.locator('#ja-id-lookup')
-    expect(lookup_input).to_be_visible()
-    
-    # Enter a nonexistent JA ID and press Enter
-    lookup_input.fill("JA999999")
-    lookup_input.press('Enter')
-    
-    # Should redirect to inventory list with error message
-    expect(page).to_have_url(f'{live_server.url}/inventory')
-    
-    # Verify error message appears (be specific to avoid multiple matches)
-    error_alert = page.locator('.alert-danger.alert-dismissible')
-    expect(error_alert).to_contain_text('Item JA999999 not found')
+def test_a_lowercase_ja_id_opens_the_same_page(page, live_server):
+    live_server.add_test_data([ITEM])
+    page.goto(f'{live_server.url}/inventory')
 
+    enter_in_scan_box(page, 'ja200001')
 
-@pytest.mark.e2e 
-def test_ja_id_lookup_input_formatting(page, live_server):
-    """Test JA ID lookup input formatting (manual entry only)"""
-    # Navigate to inventory list to see the navbar
-    list_page = InventoryListPage(page, live_server.url)
-    list_page.navigate()
-    
-    # Find the JA ID lookup input
-    lookup_input = page.locator('#ja-id-lookup')
-    expect(lookup_input).to_be_visible()
-    
-    # Test that numbers alone are NOT auto-formatted (no JA prefix added)
-    lookup_input.fill("123456")
-    expect(lookup_input).to_have_value("123456")
-    
-    # Test that full JA ID is preserved when entered
-    lookup_input.fill("JA654321")
-    expect(lookup_input).to_have_value("JA654321")
+    expect(page).to_have_url(f'{live_server.url}/inventory/edit/JA200001')
+    expect(page.locator('#ja_id')).to_have_value('JA200001')
 
 
 @pytest.mark.e2e
-def test_ja_id_lookup_invalid_format_validation(page, live_server):
-    """Test JA ID lookup validation for invalid formats"""
-    # Navigate to inventory list to see the navbar
-    list_page = InventoryListPage(page, live_server.url)
-    list_page.navigate()
-    
-    # Find the JA ID lookup input
-    lookup_input = page.locator('#ja-id-lookup')
-    expect(lookup_input).to_be_visible()
-    
-    # Enter invalid format and press Enter
-    lookup_input.fill("invalid")
-    lookup_input.press('Enter')
-    
-    # Should show validation error (input becomes invalid)
-    expect(lookup_input).to_have_class(re.compile(r'.*is-invalid.*'))
-    
-    # Should not navigate away from current page
+def test_a_nonexistent_ja_id_says_not_found(page, live_server):
+    """FR-003: answered as the old box answered it, not with a product search"""
+    page.goto(f'{live_server.url}/inventory')
+
+    enter_in_scan_box(page, 'JA999999')
+
     expect(page).to_have_url(f'{live_server.url}/inventory')
-    
-    # Wait for error to clear automatically
-    expect(lookup_input).not_to_have_class(re.compile(r'.*is-invalid.*'))
+    expect(page.locator('.alert-danger.alert-dismissible')).to_contain_text(
+        'Item JA999999 not found'
+    )
+
+
+@pytest.mark.e2e
+def test_a_malformed_ja_id_is_a_product_search(page, live_server):
+    """Only the exact JA###### shape is a JA ID; anything else keeps its old path"""
+    page.goto(f'{live_server.url}/inventory')
+
+    enter_in_scan_box(page, 'JA12345')
+
+    expect(page).to_have_url(re.compile(r'/products\?q=JA12345$'))
+
+
+@pytest.mark.e2e
+def test_the_header_has_one_code_entry_box(page, live_server):
+    """FR-005: the JA ID Quick Lookup box is gone"""
+    page.goto(f'{live_server.url}/inventory')
+
+    # Server-rendered header: once the scan box is visible, the header is there.
+    expect(page.locator('#global-scan-input')).to_be_visible()
+    expect(page.locator('#ja-id-lookup')).to_have_count(0)
