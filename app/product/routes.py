@@ -2651,7 +2651,8 @@ def api_search_products():
 
 @bp.route('/api/scan', methods=['POST'])
 def api_scan():
-    """Resolve a scan to a product, an offer to create one, or a search.
+    """Resolve a scan to a product, an offer to create one, a search, or an
+    inventory item when the scan is a JA ID.
 
     Returns 200 for every well-formed request. An unrecognized scan is not an
     error -- it is ``outcome='search'``, which is a successful answer (SC-008).
@@ -2671,7 +2672,13 @@ def api_scan():
 
     payload = resolution.to_dict()
     payload['success'] = True
-    if resolution.outcome == 'receive':
+    if resolution.outcome == 'item':
+        # No existence check: the edit page answers a missing JA ID with "not
+        # found" and opens an inactive-only one, as the old lookup box relied on.
+        payload['url'] = url_for(
+            'main.inventory_edit', ja_id=resolution.classification.value
+        )
+    elif resolution.outcome == 'receive':
         payload['url'] = _receive_url(resolution)
     elif resolution.outcome == 'product':
         # from_scan is what makes FR-019 work: arriving at a known product from a

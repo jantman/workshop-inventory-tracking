@@ -4754,11 +4754,17 @@ class CatalogService:
         Args:
             classification: The pure classifier's structural answer.
 
+        A scanned JA ID is the exception to "which product is it": it names an
+        inventory item, and is answered 'item' without a lookup (feature 067).
+
         Returns:
-            A ScanResolution with outcome 'product', 'receive', 'create' or
-            'search'.
+            A ScanResolution with outcome 'product', 'receive', 'create',
+            'search' or 'item'.
         """
         kind = classification.kind
+
+        if kind is ScanKind.JA_ID:
+            return ScanResolution('item', classification)
 
         if kind in (ScanKind.INTERNAL, ScanKind.GTIN):
             id_type = (

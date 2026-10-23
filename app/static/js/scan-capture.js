@@ -176,8 +176,9 @@
 
         /**
          * Ask the server what the scan is. Every well-formed scan gets an
-         * answer -- a product, an offer to create one, or a search -- so there
-         * is no not-found branch to handle here.
+         * answer -- a product, an offer to create one, a receipt, a search, or
+         * for a JA ID the inventory item's edit page -- so there is no
+         * not-found branch to handle here.
          */
         resolve(scan) {
             this.setBusy(true);

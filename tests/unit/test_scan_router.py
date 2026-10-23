@@ -7,7 +7,7 @@ classify() never raises on a str (SC-008: a scan must never dead-end, and an
 exception is a dead end).
 
 Feature 009 inserted the trade-item element string as rule 3, so the rules a
-test names are: 1 internal, 2 ECIA envelope, 3 element string, 4 GTIN, 5 vendor
+test names are: 0 JA ID (feature 067), 1 internal, 2 ECIA envelope, 3 element string, 4 GTIN, 5 vendor
 item id (not structural -- resolution looks it up), 6 free text.
 """
 
@@ -215,7 +215,7 @@ class TestPrecedence:
             (VALID_INTERNAL, ScanKind.INTERNAL),   # this shop's own code
             (ENVELOPE, ScanKind.ECIA),             # a distributor's 2D label
             ("B0ABCDEFGH", ScanKind.FREE_TEXT),    # an ASIN has no shape
-            ("JA000123", ScanKind.FREE_TEXT),      # an inventory item id
+            ("JA000123", ScanKind.JA_ID),          # an inventory item id (rule 0, 067)
             ("M3 standoff", ScanKind.FREE_TEXT),   # plain text
         ],
     )
@@ -239,9 +239,6 @@ class TestFreeText:
     def test_asin_shaped_string_is_free_text_because_it_has_no_shape(self):
         """Rule 5 is not structural -- resolution looks it up afterwards"""
         assert classify("B0ABCDEFGH").kind is ScanKind.FREE_TEXT
-
-    def test_ja_id_is_free_text(self):
-        assert classify("JA000123").kind is ScanKind.FREE_TEXT
 
     def test_empty_string(self):
         result = classify("")
@@ -286,3 +283,33 @@ class TestNeverRaises:
             classify(None)
         with pytest.raises(TypeError):
             classify(12345)
+
+
+class TestJaId:
+    """Rule 0 -- an inventory item's JA ID (feature 067)"""
+
+    def test_a_ja_id_classifies_ja_id(self):
+        result = classify("JA000123")
+        assert result.kind is ScanKind.JA_ID
+        assert result.value == "JA000123"
+
+    def test_lowercase_is_accepted_and_uppercased(self):
+        result = classify("ja000123")
+        assert result.kind is ScanKind.JA_ID
+        assert result.value == "JA000123"
+
+    def test_wedge_terminator_is_stripped_but_raw_is_kept(self):
+        result = classify("JA000123\r\n")
+        assert result.kind is ScanKind.JA_ID
+        assert result.value == "JA000123"
+        assert result.raw == "JA000123\r\n"
+
+    @pytest.mark.parametrize("scan", [
+        "JA12345",          # five digits
+        "JA1234567",        # seven digits
+        "JA000123 bolt",    # trailing text
+        "XJA000123",        # leading text
+        "JA00012A",         # not all digits
+    ])
+    def test_lookalikes_are_not_ja_ids(self, scan):
+        assert classify(scan).kind is ScanKind.FREE_TEXT

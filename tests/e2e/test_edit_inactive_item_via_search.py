@@ -53,8 +53,8 @@ def test_edit_inactive_item_via_search_box(page, live_server):
     # Verify page loaded
     expect(page).to_have_url(f'{live_server.url}/inventory')
 
-    # Locate the JA ID search input in top-right navigation
-    ja_id_input = page.locator('#ja-id-lookup')
+    # Locate the header scan box
+    ja_id_input = page.locator('#global-scan-input')
     expect(ja_id_input).to_be_visible()
 
     # Type inactive item JA ID and press Enter
@@ -161,8 +161,8 @@ def test_active_item_still_works_via_search(page, live_server):
     # Navigate to inventory list
     page.goto(f'{live_server.url}/inventory')
 
-    # Use search box to find active item
-    ja_id_input = page.locator('#ja-id-lookup')
+    # Enter the JA ID in the header scan box
+    ja_id_input = page.locator('#global-scan-input')
     ja_id_input.fill('JA302001')
     ja_id_input.press('Enter')
 

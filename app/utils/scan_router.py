@@ -1,12 +1,12 @@
 """
 Scan classification -- what kind of thing was scanned?
 
-One pure function, six rules, first match wins, and the last rule always
-matches. That last property is the whole point: FR-018 and SC-008 require that a
+One pure function, seven rules (0 to 6), first match wins, and the last rule
+always matches. That last property is the whole point: FR-018 and SC-008 require that a
 scan never dead-ends, so an unparseable scan is answered with FREE_TEXT carrying
 the raw text rather than an exception.
 
-The rules, in order: (1) our own printed code; (2) a distributor's format-06
+The rules, in order: (0) an inventory item's JA ID; (1) our own printed code; (2) a distributor's format-06
 envelope; (3) a GS1 element string opening with AI 01, whose trade item number
 becomes the value rule 4 judges; (4) a check-digit-valid trade item number;
 (5) a vendor item id, which is not structural and lives in resolution; (6)
@@ -33,7 +33,7 @@ No Flask, no database, no config.
 """
 
 from app.models import ScanClassification, ScanKind
-from app.utils import ecia, gs1, gtin, internal_id
+from app.utils import ecia, gs1, gtin, internal_id, ja_id
 
 
 def classify(scan: str) -> ScanClassification:
@@ -62,6 +62,19 @@ def classify(scan: str) -> ScanClassification:
     """
     if not isinstance(scan, str):
         raise TypeError(f"scan must be a str, got {type(scan).__name__}")
+
+    # Rule 0: an inventory item's JA ID (feature 067). Its shape is disjoint from
+    # every rule below -- not WIT, not an envelope, not all digits -- so its place
+    # changes no other result. It goes first because it is the one rule that does
+    # not lead to the catalog, and because it must beat the vendor-id lookup in
+    # resolution: a JA ID is ours and never names somebody else's product.
+    ja = ja_id.normalize_ja_id(scan)
+    if ja is not None:
+        return ScanClassification(
+            kind=ScanKind.JA_ID,
+            value=ja,
+            raw=scan,
+        )
 
     # Rule 1: our own code. This outranks the GTIN rule by design -- a label this
     # shop printed must never resolve to somebody else's trade item.
