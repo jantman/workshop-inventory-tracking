@@ -28,6 +28,17 @@ def scan(page: Page, code: str) -> None:
     page.keyboard.press("Enter")
 
 
+def wedge(page: Page, code: str) -> None:
+    """Deliver a scan to whatever holds focus, without waiting for the scan entry.
+
+    DataWedge does not wait for anything: it types into the focused element.
+    Use this where the test is about what a scan does when focus might not be
+    on the scan entry (after a tap on a card or a field).
+    """
+    page.keyboard.type(code)
+    page.keyboard.press("Enter")
+
+
 # How a wedge delivers a distributor label's separators: as Ctrl-key events,
 # which scan-capture.js maps back (test_wedge_scan.py asserts the mapping).
 _CONTROL_KEYS = {"\x1d": "Control+]", "\x1e": "Control+6", "\x04": "Control+d"}

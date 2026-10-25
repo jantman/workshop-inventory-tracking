@@ -251,8 +251,12 @@ class InventoryShortenManager {
         // Update summary with initial values
         this.updateSummary();
         
-        // Focus on new length input
-        setTimeout(() => this.newLengthInput.focus(), 100);
+        // Focus on new length input -- except on the handheld, whose scan
+        // entry keeps focus (feature 068, FR-002) so the next scan loads the
+        // next item; the length is tapped, which is what raises its keyboard.
+        if (!this.sourceJaIdInput.hasAttribute('data-handheld-scan')) {
+            setTimeout(() => this.newLengthInput.focus(), 100);
+        }
     }
     
     hideShorteningSection() {

@@ -24,7 +24,12 @@ from tests.e2e.handheld import (
     long_item,
     long_product,
 )
-from tests.e2e.waits import scan_on_move_page, wait_for_modal_shown, wait_for_move_executed
+from tests.e2e.waits import (
+    scan_on_move_page,
+    wait_for_modal_hidden,
+    wait_for_modal_shown,
+    wait_for_move_executed,
+)
 
 BARCODE = "#barcode-input"
 
@@ -203,7 +208,9 @@ def test_the_keyboard_button_turns_on_manual_entry_for_one_code(handheld_page, l
     expect(barcode).to_have_attribute("inputmode", "text")
     expect(manual).to_be_checked()
     expect(barcode).to_be_focused()
-    page.keyboard.type("JA310004")
+    # At hand-typing speed, slower than the 100 ms auto-process delay: a code
+    # processed mid-word would leave the status on an error, not this item.
+    page.keyboard.type("JA310004", delay=150)
     page.keyboard.press("Enter")
 
     expect(page.locator("#scanner-status")).to_have_text("Waiting for Location")
@@ -211,3 +218,31 @@ def test_the_keyboard_button_turns_on_manual_entry_for_one_code(handheld_page, l
     expect(manual).not_to_be_checked()
     assert_scan_entry_no_keyboard(page, BARCODE)
     expect(barcode).to_be_focused()
+
+
+@pytest.mark.e2e
+def test_cancel_in_the_execute_confirm_moves_nothing(handheld_page, live_server):
+    """FR-026: Cancel in the in-page confirm leaves the queue and the items as they were"""
+    page = handheld_page
+    live_server.add_test_data([item("JA310005")])
+    posts: list[str] = []
+    page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
+    open_move(page, live_server, "items")
+    scan_on_move_page(page, "JA310005")
+    scan_on_move_page(page, "T-3")
+    scan_on_move_page(page, ">>DONE<<")
+    page.locator("#validate-btn").tap()
+    execute = page.locator("#execute-moves-btn")
+    expect(execute).to_be_enabled()
+    posts.clear()
+
+    execute.tap()
+    wait_for_modal_shown(page, "handheld-confirm-modal")
+    page.locator("#handheld-confirm-cancel").tap()
+    wait_for_modal_hidden(page, "handheld-confirm-modal")
+
+    expect(page.locator(BARCODE)).to_be_focused()
+    expect(page.locator("#queue-count")).to_have_text("1 item")
+    expect(execute).to_be_enabled()
+    assert item_location(page, live_server, "JA310005") == "M1-A"
+    assert posts == []

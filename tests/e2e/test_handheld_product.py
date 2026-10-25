@@ -21,7 +21,7 @@ from PIL import Image
 from playwright.sync_api import expect
 
 from tests.e2e.handheld import assert_handheld_layout, assert_scan_entry_no_keyboard, long_product
-from tests.e2e.waits import wait_for_modal_shown, wait_for_stock_flag
+from tests.e2e.waits import wait_for_modal_hidden, wait_for_modal_shown, wait_for_stock_flag
 
 SCAN = "#handheld-scan-input"
 TILES = "#attachment-list .attachment-row"
@@ -206,6 +206,32 @@ def test_delete_an_attachment_with_the_in_page_confirm(handheld_page, live_serve
     assert dialogs == []
     page.goto(f"{live_server.url}/products/{product.id}")
     expect(page.locator(TILES)).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_cancel_in_the_delete_confirm_keeps_the_attachment(handheld_page, live_server):
+    """FR-026: Cancel in the in-page confirm deletes nothing"""
+    page = handheld_page
+    product = live_server.add_test_products([{"description": "Blue widget"}])[0]
+    live_server.add_product_attachments(product.id, 2)
+    deletes: list[str] = []
+    page.on("request", lambda r: deletes.append(r.url) if r.method in ("DELETE", "POST") else None)
+    open_product(page, live_server, product)
+    tiles = page.locator(TILES)
+    expect(tiles).to_have_count(2)
+
+    tiles.first.tap()
+    expect(tiles.first.locator(".attachment-select")).to_be_checked()
+    page.locator("#delete-selected-attachments").tap()
+    wait_for_modal_shown(page, "handheld-confirm-modal")
+    page.locator("#handheld-confirm-cancel").tap()
+    wait_for_modal_hidden(page, "handheld-confirm-modal")
+
+    expect(page.locator(SCAN)).to_be_focused()
+    expect(tiles).to_have_count(2)
+    page.goto(f"{live_server.url}/products/{product.id}")
+    expect(page.locator(TILES)).to_have_count(2)
+    assert deletes == []
 
 
 @pytest.mark.e2e

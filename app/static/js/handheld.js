@@ -10,6 +10,9 @@
  *   keyboard; this button raises it for one typed entry.
  * - #handheld-confirm-modal with #handheld-confirm-message, -ok and -cancel:
  *   backs window.confirmAction, so no browser dialog appears on a handheld.
+ *
+ * Enter in any field but the scan entry is cancelled: a scan that lands in a
+ * tapped field must not submit its form. Only the action bar's buttons do.
  */
 
 (function () {
@@ -19,10 +22,20 @@
         return document.querySelector('[data-handheld-scan]');
     }
 
+    // Fields where a tap means "I am about to type here", so focus stays.
+    // Checkboxes and radios are not among them: the full-width cards are
+    // labels wrapping one, and a scan after ticking a card must still reach
+    // the scan entry.
+    const TEXT_ENTRY = 'input:not([type=checkbox]):not([type=radio]):not([type=file])'
+        + ':not([type=button]):not([type=submit]):not([type=reset]), select, textarea';
+
+    // Focus the scan entry with its contents selected, so the next scan
+    // replaces what is there (a prefill, the last code) instead of appending.
     function focusScanEntry() {
         const input = scanEntry();
-        if (input && !input.disabled) {
+        if (input && !input.disabled && document.activeElement !== input) {
             input.focus({ preventScroll: true });
+            input.select();
         }
     }
 
@@ -31,6 +44,7 @@
     function refocus(input) {
         input.blur();
         input.focus({ preventScroll: true });
+        input.select();
     }
 
     function setManualEntry(checked) {
@@ -78,7 +92,15 @@
         input.addEventListener('keydown', onEnter);
     }
 
+    // One question at a time: a second ask while one is open would add a
+    // second OK listener, and one tap would answer both.
+    let confirmPending = false;
+
     function confirmInPage(message) {
+        if (confirmPending) {
+            return Promise.resolve(false);
+        }
+        confirmPending = true;
         const modalEl = document.getElementById('handheld-confirm-modal');
         const okBtn = document.getElementById('handheld-confirm-ok');
         document.getElementById('handheld-confirm-message').textContent = message;
@@ -95,6 +117,7 @@
             // (and the refocus below) never races the closing animation.
             modalEl.addEventListener('hidden.bs.modal', () => {
                 okBtn.removeEventListener('click', onOk);
+                confirmPending = false;
                 resolve(confirmed);
             }, { once: true });
             modal.show();
@@ -121,17 +144,52 @@
     // goes to the scan entry.
     document.addEventListener('hidden.bs.modal', focusScanEntry);
 
-    // After a tap on anything but a form field, return focus to the scan
-    // entry: tapping +, Execute or Print must not strand the next scan.
-    // Taps inside an open modal are left alone; its close refocuses.
+    // After a tap on anything but a text field (or its label), return focus
+    // to the scan entry: tapping +, Execute, Print or a card must not strand
+    // the next scan. Taps inside an open modal are left alone; its close
+    // refocuses. File inputs are left alone too: Attach opens the chooser.
     document.addEventListener('click', (event) => {
         const target = event.target;
         if (!(target instanceof Element)) {
             return;
         }
-        if (target.closest('input, select, textarea, label, .modal, [data-keyboard-for]')) {
+        if (target.closest('.modal, [data-keyboard-for], input[type=file]')) {
+            return;
+        }
+        const label = target.closest('label');
+        const field = target.closest(TEXT_ENTRY) || (label && label.control);
+        if (field && field.matches(TEXT_ENTRY)) {
             return;
         }
         queueMicrotask(focusScanEntry);
+    });
+
+    // A tap on a label moves focus to its checkbox after the label's click
+    // has been handled, so the click above is too early for a card. The
+    // change comes last; refocus there. (Only a real tap: handheld.js's own
+    // manual-entry toggle dispatches a change too.)
+    document.addEventListener('change', (event) => {
+        if (event.isTrusted && event.target instanceof Element
+                && event.target.matches('input[type=checkbox], input[type=radio]')) {
+            focusScanEntry();
+        }
+    });
+
+    // Enter in a form field submits its form (implicit submission), and every
+    // scan ends with Enter. A scan that lands in a tapped field -- Quantity, a
+    // ticked card -- must not receive or shorten anything, so on a handheld
+    // only the action bar's buttons submit. The scan entry keeps its Enter
+    // (its controller handles it), and is left selected for the next scan.
+    // Registered on the document, so the field's own handlers run first.
+    document.addEventListener('keydown', (event) => {
+        const target = event.target;
+        if (event.key !== 'Enter' || !(target instanceof Element)) {
+            return;
+        }
+        if (target.matches('[data-handheld-scan]')) {
+            target.select();
+        } else if (target.matches('input, select')) {
+            event.preventDefault();
+        }
     });
 })();

@@ -145,7 +145,7 @@ def test_the_keyboard_button_raises_the_keyboard_for_one_entry(handheld_page, li
 
     expect(scan_entry).to_have_attribute("inputmode", "text")
     expect(scan_entry).to_be_focused()
-    page.keyboard.type("JA300001")
+    page.keyboard.type("JA300001", delay=150)
     page.keyboard.press("Enter")
 
     expect(page).to_have_url(f"{live_server.url}/h/item/JA300001")

@@ -459,6 +459,11 @@ retained.
     `#confirm-operation` and `#execute-shortening-btn` carry `form="shorten-form"`. `#clear-form-btn`
     is also in the action bar (Clear, Confirm, Execute), so a second item can be scanned after one
     is loaded: the controller moves focus to `#new-length` on load.
+  - *Note (review fix):* superseded. On the handheld the controller no longer moves focus to
+    `#new-length` on load (it checks `data-handheld-scan`; the desktop is unchanged): the scan
+    entry keeps focus (FR-002), so the next scan loads the next item, and the length is tapped,
+    which is what raises Android's keyboard anyway. handheld.js selects the scan entry's contents
+    on refocus and after each Enter, so a scan replaces the last code instead of appending.
 
 ---
 
