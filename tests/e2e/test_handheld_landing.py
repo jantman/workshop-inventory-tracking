@@ -79,9 +79,8 @@ def test_a_wit_code_and_a_retail_gtin_open_the_handheld_product_screen(
         expect(page).to_have_url(product_url)
         expect(page.locator("#handheld-product-description")).to_have_text(product.description)
         assert_scan_entry_no_keyboard(page, SCAN)
-        # The product screen gains its primary actions in US2; until then this
-        # checks the sticky header and that the long text wraps.
-        assert_handheld_layout(page, SCAN, "#handheld-home-btn")
+        # Label, in the fixed action bar (research.md D12).
+        assert_handheld_layout(page, SCAN, "#print-product-label-btn")
 
 
 @pytest.mark.e2e

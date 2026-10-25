@@ -97,3 +97,85 @@ class TestProduct:
 
         assert handheld.status_code == desktop.status_code
         assert handheld.headers.get('Location') == desktop.headers.get('Location')
+
+    def test_carries_the_stock_card_label_modal_and_attachments(self, client, service):
+        """US2 (research.md D8, D9): the desktop Stock card and label modal, and
+        the attachments markup product-attachments.js binds -- without the
+        desktop's unconfirmed per-tile delete button."""
+        product = service.create_product(description='Counted widget', quantity=5)
+
+        html = client.get(f'/h/product/{product.id}').get_data(as_text=True)
+
+        assert re.search(rf'id="stock-card"[^>]*data-product-id="{product.id}"', html)
+        assert 'id="quantity-set-btn"' in html
+        assert 'id="product-label-modal"' in html
+        assert 'id="print-product-label-btn"' in html
+        assert re.search(rf'id="attachments-card"[^>]*data-product-id="{product.id}"', html)
+        assert 'id="product-attachment-input"' in html
+        assert 'id="upload-product-attachment-btn"' in html
+        assert 'delete-attachment-btn' not in html
+        assert 'js/product-stock.js' in html
+        assert 'js/product-label-modal.js' in html
+        assert 'js/product-attachments.js' in html
+
+    def test_move_opens_handheld_move_with_the_product(self, client, service):
+        """US2 scenario 8 / FR-020"""
+        product = service.create_product(description='Movable widget')
+
+        html = client.get(f'/h/product/{product.id}').get_data(as_text=True)
+
+        assert f'href="/h/move?kind=products&amp;code={product.internal_code}"' in html
+
+
+class TestMove:
+    @pytest.mark.parametrize('kind', ['items', 'products'])
+    def test_renders_the_move_manager_markup(self, client, kind):
+        response = client.get(f'/h/move?kind={kind}')
+
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        barcode = re.search(r'<input[^>]*id="barcode-input"[^>]*>', html)
+        assert barcode, 'no #barcode-input'
+        assert 'data-handheld-scan' in barcode.group(0)
+        assert 'inputmode="none"' in barcode.group(0)
+        assert 'data-keyboard-for="barcode-input"' in html
+        assert 'id="handheld-scan-input"' not in html
+        assert '<tbody id="queue-items">' in html
+        form = re.search(r'<form id="batch-move-form".*?</form>', html, re.S)
+        assert form and 'name="csrf_token"' in form.group(0)
+        for element_id in ('validate-btn', 'execute-moves-btn', 'manual-entry-mode',
+                           'clear-all-btn', 'scanner-status', 'form-alerts'):
+            assert f'id="{element_id}"' in html
+        script = 'inventory-move.js' if kind == 'items' else 'product-move.js'
+        assert f'js/{script}' in html
+
+    @pytest.mark.parametrize('query', ['', '?kind=', '?kind=widgets'])
+    def test_a_missing_or_unknown_kind_is_a_404(self, client, query):
+        """``abort(404)``, which the app's 404 handler turns into a flash and a
+        redirect for a page request -- the same response as any unknown URL."""
+        unknown_page = client.get('/no-such-page')
+        response = client.get(f'/h/move{query}')
+
+        assert response.status_code == unknown_page.status_code == 302
+        assert response.headers.get('Location') == unknown_page.headers.get('Location')
+
+    def test_an_item_hand_off_is_preselected(self, client, test_storage):
+        InventoryService(test_storage).add_item(InventoryItem(
+            ja_id='JA000077', item_type='Bar', shape='Round', material='Steel',
+            length=Decimal('1000'), width=Decimal('25'), location='M1-A', active=True,
+        ))
+
+        html = client.get('/h/move?kind=items&ja_id=JA000077').get_data(as_text=True)
+
+        assert 'id="preselected-section"' in html
+        assert '<tr data-id="JA000077">' in html
+
+    def test_a_product_hand_off_is_preselected(self, client, service):
+        product = service.create_product(description='Movable widget')
+
+        html = client.get(
+            f'/h/move?kind=products&code={product.internal_code}'
+        ).get_data(as_text=True)
+
+        assert 'id="preselected-section"' in html
+        assert f'<tr data-id="{product.internal_code}">' in html

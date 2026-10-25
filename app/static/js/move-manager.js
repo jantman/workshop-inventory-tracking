@@ -1122,7 +1122,8 @@ class MoveManager {
             return;
         }
         
-        if (!confirm(`Are you sure you want to move ${validItems.length} ${this.nounPlural}? This action cannot be undone.`)) {
+        // 068 D10: native confirm on desktop (main.js), in-page on the handheld.
+        if (!(await window.confirmAction(`Are you sure you want to move ${validItems.length} ${this.nounPlural}? This action cannot be undone.`))) {
             return;
         }
         

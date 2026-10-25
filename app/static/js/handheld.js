@@ -36,10 +36,20 @@
     function setManualEntry(checked) {
         // The Move page auto-processes its field 100 ms after each character
         // unless manual entry mode is on, which would submit a half-typed code.
+        //
+        // MoveManager's change handler also resets #scanner-status to "Ready",
+        // which would misreport a move in progress (it would read "Ready" while
+        // waiting for a location), so the badge is put back as it was.
         const manual = document.getElementById('manual-entry-mode');
         if (manual && manual.checked !== checked) {
+            const status = document.getElementById('scanner-status');
+            const before = status && { text: status.textContent, cls: status.className };
             manual.checked = checked;
             manual.dispatchEvent(new Event('change', { bubbles: true }));
+            if (before) {
+                status.textContent = before.text;
+                status.className = before.cls;
+            }
         }
     }
 

@@ -7,11 +7,29 @@ call its desktop counterpart makes and renders a template extending
 Author: Jason Antman, 2026.
 """
 
-from flask import render_template
+from flask import abort, render_template, request
 
 from app.handheld import bp
 from app.main.routes import _get_inventory_service
-from app.product.routes import _get_catalog_service, _product_or_404
+from app.photo_service import PhotoService
+from app.product.routes import (
+    _get_catalog_service,
+    _get_storage_backend,
+    _product_or_404,
+    _received_total,
+)
+from app.utils.handoff import resolve_handoff, resolve_product_handoff
+
+# The wording the desktop move wrappers (inventory/move.html, product/move.html)
+# pass to the move macro, keyed by ``?kind=``.
+_MOVE_KINDS: dict[str, dict[str, str]] = {
+    'items': {'noun': 'item', 'nouns': 'items', 'id_label': 'JA ID',
+              'selection_heading': 'Items From Your Selection',
+              'not_found_text': 'not found in the inventory'},
+    'products': {'noun': 'product', 'nouns': 'products', 'id_label': 'Product Code',
+                 'selection_heading': 'Product To Move',
+                 'not_found_text': 'no product carries this code'},
+}
 
 
 @bp.route('/')
@@ -41,8 +59,46 @@ def item(ja_id: str):
 
 @bp.route('/product/<int:product_id>')
 def product(product_id: int):
-    """A product's handheld screen (US1; US2 completes it). Unknown id is a 404."""
-    catalog_product = _product_or_404(_get_catalog_service(), product_id)
+    """A product's handheld screen: summary, Stock card, label, attachments (US2).
+
+    The same reads as the desktop product page (``product_detail``), so the
+    included Stock card and label modal see the same context.
+    """
+    service = _get_catalog_service()
+    catalog_product = _product_or_404(service, product_id)
+    purchases = service.get_purchase_history(product_id)
+    with PhotoService(_get_storage_backend()) as photos:
+        attachments = [a.to_dict() for a in photos.get_product_attachments(product_id)]
     return render_template(
-        'handheld/product.html', title=catalog_product.description, product=catalog_product,
+        'handheld/product.html',
+        title=catalog_product.description,
+        product=catalog_product,
+        purchases=purchases,
+        received_total=_received_total(purchases),
+        attachments=attachments,
+    )
+
+
+@bp.route('/move')
+def move():
+    """Handheld Move for items or products (US3), driven by the desktop MoveManager.
+
+    ``?kind=items`` takes ``?ja_id=`` hand-offs and ``?kind=products`` takes
+    ``?code=``, resolved exactly as the desktop move pages resolve them.
+    """
+    kind = request.args.get('kind')
+    if kind not in _MOVE_KINDS:
+        abort(404)
+    if kind == 'items':
+        handoff = resolve_handoff(request.args.get('ja_id'), _get_inventory_service())
+    else:
+        handoff = resolve_product_handoff(request.args.get('code'), _get_catalog_service())
+    wording = _MOVE_KINDS[kind]
+    return render_template(
+        'handheld/move.html',
+        title=f"Move {wording['nouns'].title()}",
+        kind=kind,
+        preselected_items=handoff.preselected_items,
+        rejected_items=handoff.rejected_items,
+        **wording,
     )

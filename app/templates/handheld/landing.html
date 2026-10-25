@@ -1,13 +1,13 @@
 {% extends "handheld/base.html" %}
 
 {% block screen %}
-{# Built from the landing URL until the move, shorten and orders routes exist
-   (US3, US5, US7); each phase switches its link to url_for() when it adds the route. #}
+{# Shorten and Orders are built from the landing URL until their routes exist
+   (US5, US7); each phase switches its link to url_for() when it adds the route. #}
 <div class="d-grid gap-2" id="handheld-tasks">
-    <a class="btn btn-primary btn-lg" id="landing-move-items" href="{{ url_for('handheld.landing') }}move?kind=items">
+    <a class="btn btn-primary btn-lg" id="landing-move-items" href="{{ url_for('handheld.move', kind='items') }}">
         <i class="bi bi-arrow-left-right"></i> Move items
     </a>
-    <a class="btn btn-primary btn-lg" id="landing-move-products" href="{{ url_for('handheld.landing') }}move?kind=products">
+    <a class="btn btn-primary btn-lg" id="landing-move-products" href="{{ url_for('handheld.move', kind='products') }}">
         <i class="bi bi-box-seam"></i> Move products
     </a>
     <a class="btn btn-primary btn-lg" id="landing-shorten" href="{{ url_for('handheld.landing') }}shorten">

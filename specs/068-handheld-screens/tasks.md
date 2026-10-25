@@ -212,29 +212,33 @@ see both on `/products/<id>`.
 
 ### Desktop refactor (do first, then verify identity)
 
-- [ ] T017 [US2] **(desktop)** Move the Stock card (D8; today `detail.html` lines 355–498)
+- [X] T017 [US2] **(desktop)** Move the Stock card (D8; today `detail.html` lines 355–498)
   verbatim into `app/templates/product/_stock_card.html`. Move the product label modal
   (lines 592–633) into `app/templates/product/_label_modal.html`. `{% include %}` both at the
   same positions in `app/templates/product/detail.html`. Line numbers are as of `e5c2bd9`, so
   confirm the boundaries by element (`#stock-card`, `#product-label-modal`).
-- [ ] T018 [US2] **(desktop)** Extract `_received_total(purchases)` from `product_detail` in
+- [X] T018 [US2] **(desktop)** Extract `_received_total(purchases)` from `product_detail` in
   `app/product/routes.py`. `product_detail` calls it, with the same result.
-- [ ] T019 [US2] **(desktop)** In `app/templates/product/_label_modal.html`, add
+- [X] T019 [US2] **(desktop)** In `app/templates/product/_label_modal.html`, add
   `d-none d-sm-block` to the two `.form-text` help lines (FR-016). This is the one intended
   desktop markup change.
-- [ ] T020 [US2] Desktop-identity check after T002, T017 and T019. Re-run T001's curl loop
+- [X] T020 [US2] Desktop-identity check after T002, T017 and T019. Re-run T001's curl loop
   into `$SCRATCH/identity-after-us2/` and `diff -r` it against `identity-before/`. The only
   allowed differences are whitespace and the `d-none d-sm-block` classes. Any other
   difference must be fixed before continuing. Run the existing product e2e tests detached,
   unedited, and confirm they pass: `tests/e2e/test_product_*.py` and any test touching
   `#stock-card` or `#product-label-modal`.
+  - *Done with the phase-1 capture test (`068-baseline/identity-after-us2/`): the only diff
+    is `d-none d-sm-block` on the two help lines. Desktop e2e (`test_product_*`, `test_move_*`,
+    `test_bulk_move_handoff`, `test_label_print`, `test_touch_readiness`, `test_typed_quantity`,
+    `test_reorder_view`, `test_stock_age`) pass unedited: 249 + 8.*
 
 ### Tests
 
-- [ ] T021 [P] [US2] In `tests/unit/test_handheld_routes.py`, `GET /h/product/<id>` renders
+- [X] T021 [P] [US2] In `tests/unit/test_handheld_routes.py`, `GET /h/product/<id>` renders
   `#stock-card[data-product-id]`, `#product-label-modal`, `#attachments-card[data-product-id]`,
   and no `.delete-attachment-btn` (D9).
-- [ ] T022 [P] [US2] Create `tests/e2e/test_handheld_product.py`, covering US2 scenarios 1–7.
+- [X] T022 [P] [US2] Create `tests/e2e/test_handheld_product.py`, covering US2 scenarios 1–7.
   Seed with `add_test_products` and `add_product_attachments`, including one long-data
   product from `tests/e2e/handheld.py`.
   - **Scenario 1.** Description, location and the −/+ controls are in the viewport.
@@ -249,27 +253,35 @@ see both on `/products/<id>`.
   - **Scenario 7.** Select a tile, Delete Selected, and accept the in-page
     `#handheld-confirm-modal`. Assert no native dialog fires by registering `page.on('dialog')`
     to fail. The tile count drops.
+  - *Scenario 1 asserts Set `to_be_in_viewport()` and clear of the fixed action bar at load,
+    then `assert_handheld_layout` with Label (`#print-product-label-btn`, action bar) as the
+    primary: the helper re-checks after scrolling to the bottom, which an in-flow Set cannot
+    pass by design (D12 puts Set above the fold, not in the bar). Scenarios 1 and 5 run with
+    short and long data.*
 
 ### Implementation
 
-- [ ] T023 [P] [US2] **(desktop)** In `app/static/js/product-attachments.js` (about line 178),
+- [X] T023 [P] [US2] **(desktop)** In `app/static/js/product-attachments.js` (about line 178),
   make the Delete Selected handler `async` and replace `confirm(...)` with
   `await window.confirmAction(...)` (D10). Desktop still gets a native confirm through the
   T003 default.
-- [ ] T024 [US2] Complete `handheld.product` in `app/handheld/routes.py`:
+- [X] T024 [US2] Complete `handheld.product` in `app/handheld/routes.py`:
   - add `purchases` (`get_purchase_history`), `received_total` (`_received_total`) and
     `attachments` (`PhotoService.get_product_attachments(...)` as `.to_dict()`), per
     data-model.md
   - load `product-stock.js`, `product-label-modal.js` and `product-attachments.js` from the
     template
-- [ ] T025 [US2] Complete `app/templates/handheld/product.html` (FR-014, FR-017, D8, D9,
+- [X] T025 [US2] Complete `app/templates/handheld/product.html` (FR-014, FR-017, D8, D9,
   controller-markup.md):
   - description, location and sub-location first, then `{% include 'product/_stock_card.html' %}`
   - the label modal include and `#print-product-label-btn`
   - the attachments card with the IDs `product-attachments.js` binds; full-width `<label>`
     tiles around `.attachment-select`; no `.delete-attachment-btn`
   - Label and Attach in `action_bar`
-- [ ] T026 [P] [US2] In `app/static/css/handheld.css`, under `.handheld-main #stock-card`, hide
+  - *Attach in the action bar is a `<label for="product-attachment-input">`; the file input and
+    `#upload-product-attachment-btn` are visually hidden, and a small inline script clicks the
+    upload button on `change`, so choosing a file is the upload (one step on the handheld).*
+- [X] T026 [P] [US2] In `app/static/css/handheld.css`, under `.handheld-main #stock-card`, hide
   the Stock card's own header and helper text so the controls sit as high as possible (D8).
   Style the attachment tiles as full-width cards.
 
@@ -287,13 +299,15 @@ both locations changed.
 
 ### Tests
 
-- [ ] T027 [P] [US3] In `tests/unit/test_handheld_routes.py`:
+- [X] T027 [P] [US3] In `tests/unit/test_handheld_routes.py`:
   - `/h/move?kind=items` and `?kind=products` return 200 with `#barcode-input[data-handheld-scan]`,
     `#queue-items` as a `<tbody>`, `#batch-move-form` with `csrf_token`, `#validate-btn` and
     `#execute-moves-btn`
   - a missing or unknown `kind` returns 404
   - `?ja_id=<JA>` renders `#preselected-section` with the hand-off
-- [ ] T028 [P] [US3] Create `tests/e2e/test_handheld_move.py`, covering US3 scenarios 1–5.
+  - *An unknown `kind` is `abort(404)`, which the app's global 404 handler turns into a flash
+    and redirect for page requests; the test asserts the same response as any unknown URL.*
+- [X] T028 [P] [US3] Create `tests/e2e/test_handheld_move.py`, covering US3 scenarios 1–5.
   Reuse `waits.scan_on_move_page` and `waits.wait_for_move_executed` unchanged.
   - **Scenarios 1–2.** Two items with a location each. Validate, then Execute through the
     in-page confirm with no native dialog. Locations are verified via `/api/items/<ja>`.
@@ -305,21 +319,23 @@ both locations changed.
     '#execute-moves-btn')`, with no horizontal overflow.
   - **Keyboard button.** `#manual-entry-mode` is checked while typing and cleared after
     Enter.
-- [ ] T029 [US3] Extend `tests/e2e/test_handheld_product.py` with US2 scenario 8. Move opens
+  - *Fixed in `handheld.js`: unchecking `#manual-entry-mode` fires MoveManager's change
+    handler, which resets `#scanner-status` to "Ready" mid-move; the badge is restored.*
+- [X] T029 [US3] Extend `tests/e2e/test_handheld_product.py` with US2 scenario 8. Move opens
   `/h/move?kind=products&code=<code>` with the product pending in `#pending-moves`.
 
 ### Implementation
 
-- [ ] T030 [P] [US3] **(desktop)** In `app/static/js/move-manager.js` `executeMoves()` (about
+- [X] T030 [P] [US3] **(desktop)** In `app/static/js/move-manager.js` `executeMoves()` (about
   line 1125), replace `confirm(...)` with `await window.confirmAction(...)` (D10). The existing
   desktop move e2e tests must pass unedited.
-- [ ] T031 [US3] Add `handheld.move` to `app/handheld/routes.py`:
+- [X] T031 [US3] Add `handheld.move` to `app/handheld/routes.py`:
   - `kind` is `items` or `products`, otherwise `abort(404)`
   - the hand-off uses `resolve_handoff(request.args.get('ja_id'), …)` for items and
     `resolve_product_handoff(request.args.get('code'), …)` for products, as the desktop move
     routes do
   - pass `noun`, `nouns` and `id_label`, the same strings as the desktop wrappers
-- [ ] T032 [US3] Create `app/templates/handheld/move.html`, carrying every ID in
+- [X] T032 [US3] Create `app/templates/handheld/move.html`, carrying every ID in
   controller-markup.md "`MoveManager`", with the handheld placement it describes:
   - `#barcode-input` (`data-handheld-scan`, `inputmode="none"`) and `#scanner-status` in the
     `scan_entry` block, with the keyboard button
@@ -329,13 +345,13 @@ both locations changed.
   - copy the preselected and rejected sections from `app/templates/move/_scan_move.html`
     (lines 61–127) with the same IDs and `data-` attributes
   - load `move-manager.js` plus `inventory-move.js` or `product-move.js` by `kind`
-- [ ] T033 [P] [US3] In `app/static/css/handheld.css`:
+- [X] T033 [P] [US3] In `app/static/css/handheld.css`:
   - give `.handheld-main #form-alerts` a `max-height` and `overflow-y: auto` (FR-019)
   - under `.handheld-main #move-queue-list`, set `table`, `thead`, `tbody`, `tr` and `td` to
     `display: block` and hide `thead`
   - lay each `tr` out as a card: columns 2–3 as one muted line, the new location emphasized,
     status and remove floated right
-- [ ] T034 [US3] Add a Move button (`/h/move?kind=products&code=<internal_code>`) to the
+- [X] T034 [US3] Add a Move button (`/h/move?kind=products&code=<internal_code>`) to the
   `action_bar` of `app/templates/handheld/product.html` (FR-020).
 
 **Checkpoint**: all P1 stories are done. This is a usable shelf tool: scan, adjust stock, move.
