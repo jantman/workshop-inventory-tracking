@@ -33,6 +33,19 @@ def open_product(page, live_server, product):
     assert_scan_entry_no_keyboard(page, SCAN)
 
 
+def wait_for_stock_reload(page, quantity: str) -> None:
+    """A stock button PATCHes and then reloads the page.
+
+    The new quantity is in the server-rendered HTML, so it shows before the
+    page's scripts have run; a tap in that gap reaches a button with no
+    handler. handheld.js focuses the scan entry on DOMContentLoaded, the same
+    event product-stock.js wires the buttons on, so focus is the signal that
+    the reloaded page is ready for the next tap.
+    """
+    expect(page.locator("#quantity-value")).to_have_text(quantity)
+    expect(page.locator(SCAN)).to_be_focused()
+
+
 def png_bytes() -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (64, 48), (10, 120, 200)).save(buffer, format="PNG")
@@ -87,15 +100,14 @@ def test_quantity_and_stock_status_change_as_on_the_desktop(handheld_page, live_
     page = handheld_page
     product = live_server.add_test_products([{"description": "Blue widget", "quantity": 5}])[0]
     open_product(page, live_server, product)
-    quantity = page.locator("#quantity-value")
 
     page.locator("#quantity-decrement").tap()
-    expect(quantity).to_have_text("4")
+    wait_for_stock_reload(page, "4")
     page.locator("#quantity-increment").tap()
-    expect(quantity).to_have_text("5")
+    wait_for_stock_reload(page, "5")
     page.locator("#quantity-input").fill("12")
     page.locator("#quantity-set-btn").tap()
-    expect(quantity).to_have_text("12")
+    wait_for_stock_reload(page, "12")
 
     page.locator("#flag-low-btn").tap()
     wait_for_stock_flag(page, "low")
