@@ -611,7 +611,7 @@ receive them. Exactly those two are received.
 
 ## Phase 10: Polish & cross-cutting
 
-- [ ] T062 [P] Write the "Using a Handheld Scanner" section in `docs/user-manual.md`, with a
+- [X] T062 [P] Write the "Using a Handheld Scanner" section in `docs/user-manual.md`, with a
   TOC entry under **Across both halves** (FR-028, plan Phase I). Describe the current state
   only, no history. Cover:
   - DataWedge Profile0 (or a profile bound to `com.android.chrome`): Keystroke output →
@@ -621,14 +621,18 @@ receive them. Exactly those two are received.
     finding
   - bookmarking `http://<host>:5000/h/` and setting it as Chrome's home page
   - what each screen does, the keyboard button, and that anything else opens the desktop page
-- [ ] T063 [P] Check FR-026. Grep `app/templates/handheld/` and `app/static/js/handheld.js` for
+- [X] T063 [P] Check FR-026. Grep `app/templates/handheld/` and `app/static/js/handheld.js` for
   `alert(`, `confirm(` and `prompt(`; only the `window.confirmAction` override may match.
   Re-grep `app/static/js` to confirm the three converted call sites are the only `confirm(`
   changes.
-- [ ] T064 [P] Check spelling and lint on touched files.
+  - *Done: nothing matches in `app/templates/handheld/` or `handheld.js` (the override is
+    `window.confirmAction = confirmInPage`). The feature's only `confirm(` changes are in
+    `move-manager.js`, `photo-manager.js` (two sites: one photo, selected photos) and
+    `product-attachments.js`, plus the desktop default in `main.js`.*
+- [X] T064 [P] Check spelling and lint on touched files.
   - `grep -ric "catalogue" README.md docs/ app/ tests/` must return nothing.
   - Run flake8 on the Python files this feature touched only.
-- [ ] T065 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests`. All
+- [X] T065 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests`. All
   pass.
 - [ ] T066 Final desktop-identity diff (quickstart §3). Re-run T001's curl loop into
   `$SCRATCH/identity-final/` and `diff -r` against `identity-before/`. The only allowed
