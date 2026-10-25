@@ -1,0 +1,170 @@
+{% extends "handheld/base.html" %}
+{#
+  Handheld Move (US3, research.md D5): the desktop move page's MoveManager
+  markup (contracts/controller-markup.md), laid out for 360x512. Every ID the
+  controller binds is here, some visually hidden; the logic is unchanged.
+#}
+
+{% block scan_entry %}
+<input type="text"
+       class="form-control"
+       id="barcode-input"
+       data-handheld-scan
+       inputmode="none"
+       autocomplete="off"
+       placeholder="Scan"
+       aria-label="Scan {{ id_label }}, location, or >>DONE<<">
+<span class="badge bg-secondary" id="scanner-status">Ready</span>
+{% endblock %}
+
+{% block scan_input_id %}barcode-input{% endblock %}
+
+{% block screen %}
+<form id="batch-move-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div id="form-alerts"></div>
+
+    {# Copied from move/_scan_move.html with the same IDs and data- attributes:
+       subjects handed over from an item or product screen's Move (FR-020). #}
+    {% if preselected_items or rejected_items %}
+    {# The JSON list is quoted with apostrophes deliberately: `tojson` escapes
+       `'`, `<`, `>` and `&` but not `"`. #}
+    <div class="card mb-2" id="preselected-section"
+         data-ids='{{ preselected_items|tojson }}'>
+        <div class="card-body p-2">
+            <h2 class="h6"><i class="bi bi-check2-square"></i> {{ selection_heading }}</h2>
+            {% if preselected_items %}
+            <p id="preselected-prompt" class="mb-2 small">
+                {% if preselected_items|length == 1 %}
+                <strong>1 {{ noun }} is awaiting a destination.</strong>
+                Scan the location it is going to.
+                {% else %}
+                <strong>{{ preselected_items|length }} {{ nouns }} are awaiting a destination.</strong>
+                Scan the location all {{ preselected_items|length }} are going to.
+                {% endif %}
+            </p>
+            <table class="table table-sm mb-0" id="pending-moves">
+                <thead>
+                    <tr>
+                        <th>{{ noun|title }}</th>
+                        <th>Current Location</th>
+                        <th>Current Sub-Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for id in preselected_items %}
+                    <tr data-id="{{ id }}">
+                        <td><strong>{{ id }}</strong><br><small class="pending-label text-muted"></small></td>
+                        <td class="pending-current-location text-muted">&hellip;</td>
+                        <td class="pending-current-sub-location text-muted">&hellip;</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p id="preselected-none" class="mb-0 small">
+                <strong>None of the {{ nouns }} you selected can be moved.</strong>
+                They are listed below with the reason. You can still scan {{ nouns }}
+                to move in the usual way.
+            </p>
+            {% endif %}
+
+            {% if rejected_items %}
+            <div class="alert alert-warning mt-2 mb-0 small" id="rejected-items">
+                <i class="bi bi-exclamation-triangle"></i>
+                These {{ nouns }} were not carried over:
+                <ul class="mb-0 mt-2">
+                    {% for rejected in rejected_items %}
+                    <li data-id="{{ rejected.id }}">
+                        <strong>{{ rejected.id }}</strong> &mdash;
+                        {% if rejected.reason == 'inactive' %}
+                        no longer the active {{ noun }}, so it cannot be moved
+                        {% else %}
+                        {{ not_found_text }}
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="alert alert-info py-2 mb-2 small" id="input-status">
+        <i class="bi bi-info-circle"></i>
+        <span id="status-text">Ready to scan first {{ id_label }}</span>
+    </div>
+
+    {# Present for MoveManager, driven by the keyboard button (handheld.js). #}
+    <div class="visually-hidden">
+        <input class="form-check-input" type="checkbox" id="manual-entry-mode" tabindex="-1">
+        <label for="manual-entry-mode">Manual entry mode</label>
+        <button type="button" id="clear-all-btn" tabindex="-1">Clear All</button>
+    </div>
+
+    <div class="card mb-2">
+        <div class="card-header d-flex justify-content-between align-items-center py-1 px-2">
+            <h2 class="h6 mb-0">
+                Move queue <span class="badge bg-primary ms-1" id="queue-count">0 {{ nouns }}</span>
+            </h2>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="clear-queue-btn" disabled>
+                <i class="bi bi-trash"></i> Clear
+            </button>
+        </div>
+        <div class="card-body p-2">
+            <div id="move-queue-empty" class="text-center text-muted py-2 small">
+                No {{ nouns }} queued. Scan a {{ id_label }}, then a location; scan
+                <code>&gt;&gt;DONE&lt;&lt;</code> when finished.
+            </div>
+
+            <div id="move-queue-list" class="d-none">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>{{ noun|title }}</th>
+                            <th>Current Location</th>
+                            <th>Current Sub-Location</th>
+                            <th>New Location</th>
+                            <th>New Sub-Location</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    {# A <tbody>: renderQueueItems() appends <tr>s of seven <td>s. #}
+                    <tbody id="queue-items"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-2" id="validation-section" style="display: none;">
+        <div class="card-body p-2">
+            <h2 class="h6"><i class="bi bi-check-circle-fill text-success"></i> Validation</h2>
+            <div id="validation-results"></div>
+        </div>
+    </div>
+
+    <div><small class="text-warning" id="validate-hint"></small></div>
+</form>
+{% endblock %}
+
+{% block action_bar %}
+<button type="button" class="btn btn-outline-primary" id="validate-btn" disabled>
+    <i class="bi bi-check-square"></i> Validate
+</button>
+<button type="button" class="btn btn-success" id="execute-moves-btn" disabled>
+    <i class="bi bi-play-fill"></i> Execute
+</button>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/move-manager.js') }}"></script>
+{% if kind == 'items' %}
+<script src="{{ url_for('static', filename='js/inventory-move.js') }}"></script>
+{% else %}
+<script src="{{ url_for('static', filename='js/product-move.js') }}"></script>
+{% endif %}
+{% endblock %}

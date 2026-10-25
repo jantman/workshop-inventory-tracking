@@ -183,10 +183,17 @@
         resolve(scan) {
             this.setBusy(true);
 
+            // A handheld screen's box asks for the handheld screens' URLs. The
+            // desktop header box (bare attribute) sends exactly {scan}.
+            const body = { scan: scan };
+            if (this.input.dataset.scanCapture === 'handheld') {
+                body.handheld = true;
+            }
+
             csrfFetch('/api/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scan: scan })
+                body: JSON.stringify(body)
             })
                 .then((response) => response.json())
                 .then((data) => {

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{#
+  Handheld screens (feature 068, research.md D3/D4). Extends the desktop base so
+  the CSRF meta, Bootstrap, icons, main.js, photo-manager.js, scan-capture.js and
+  flash messages come with it; only the navbar, footer and styles differ.
+
+  Blocks for a screen:
+  - screen:        the content
+  - action_bar:    the primary action(s), rendered in a fixed bottom bar
+  - scan_entry:    the header's scan input; the default resolves scans through
+                   /api/scan like the landing page. Move and Shorten replace it
+                   with their controller's own input.
+  - scan_input_id: the id of that input, for the keyboard button
+  - scripts:       page scripts; call {{ super() }} first to keep handheld.js
+#}
+
+{% block styles %}<link href="{{ url_for('static', filename='css/handheld.css') }}" rel="stylesheet">{% endblock %}
+
+{% block navbar %}<header class="handheld-header">
+        <a class="btn btn-light handheld-icon-btn" id="handheld-home-btn" href="{{ url_for('handheld.landing') }}" title="Home" aria-label="Home">
+            <i class="bi bi-house"></i>
+        </a>
+        <div class="handheld-scan-slot">
+            {% block scan_entry %}
+            <input type="text"
+                   class="form-control"
+                   id="handheld-scan-input"
+                   data-scan-capture="handheld"
+                   data-handheld-scan
+                   inputmode="none"
+                   autocomplete="off"
+                   placeholder="Scan"
+                   aria-label="Scan a code or JA ID">
+            {% endblock %}
+        </div>
+        <button type="button" class="btn btn-light handheld-icon-btn" id="handheld-keyboard-btn"
+                data-keyboard-for="{% block scan_input_id %}handheld-scan-input{% endblock %}"
+                title="Type with the keyboard" aria-label="Type with the keyboard">
+            <i class="bi bi-keyboard"></i>
+        </button>
+    </header>{% endblock %}
+
+{% block main_container_class %}handheld-main container-fluid px-2{% endblock %}
+
+{% block content %}
+{% block screen %}{% endblock %}
+
+{% set action_bar_html = self.action_bar() %}
+{% if action_bar_html | trim %}
+<div class="handheld-action-bar" id="handheld-action-bar">{{ action_bar_html }}</div>
+{% endif %}
+
+<div class="modal fade" id="handheld-confirm-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body handheld-confirm-message" id="handheld-confirm-message"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="handheld-confirm-cancel" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="handheld-confirm-ok">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block action_bar %}{% endblock %}
+
+{% block footer %}{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/handheld.js') }}"></script>
+{% endblock %}

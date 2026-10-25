@@ -1,0 +1,65 @@
+{% extends "handheld/base.html" %}
+{#
+  Receive one purchase line (US6, research.md D7). Posts exactly the fields the
+  desktop receipt page posts when nothing is amended: the visible quantity and
+  "counted", and, hidden, the stored description, unit price and notes and a
+  blank received date (today).
+#}
+
+{% block screen %}
+<div class="handheld-summary mb-2" id="handheld-receive-summary">
+    <h1 class="h6 mb-1" id="handheld-receive-description">{{ product.description }}</h1>
+    <div class="small" id="handheld-receive-ordered">
+        Ordered {{ purchase.quantity if purchase.quantity is not none else '—' }}
+        {%- if purchase.pack_size %}, as packs of {{ purchase.pack_size }}{% endif %}
+    </div>
+</div>
+
+{% if not purchase.is_outstanding %}
+<div class="alert alert-success" id="handheld-already-received">
+    Already received on {{ purchase.received_date.strftime('%Y-%m-%d') }}. Nothing to do.
+</div>
+<a class="btn btn-outline-primary w-100" id="handheld-receive-product-link"
+   href="{{ url_for('handheld.product', product_id=product.id) }}">
+    <i class="bi bi-box-seam"></i> Open the product
+</a>
+{% else %}
+<form id="handheld-receive-form" method="POST"
+      action="{{ url_for('handheld.receive', purchase_id=purchase.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <input type="hidden" name="description"
+           value="{{ form_data.get('description', '') if form_data is not none else product.description }}">
+    <input type="hidden" name="unit_price"
+           value="{{ purchase.unit_price if purchase.unit_price is not none else '' }}">
+    <input type="hidden" name="notes" value="{{ purchase.notes or '' }}">
+    <input type="hidden" name="received_date" value="">
+
+    <div class="mb-2">
+        <label for="quantity" class="form-label mb-1">Quantity received</label>
+        <input type="number" class="form-control" id="quantity" name="quantity"
+               min="1" step="1"
+               value="{{ scanned_quantity or (purchase.quantity if purchase.quantity is not none else '') }}">
+        {% if purchase.pack_size %}
+        <div class="form-text purchase-pack">In items, not packs.</div>
+        {% endif %}
+    </div>
+
+    {# As on the desktop: only where there is a count for it to be about. #}
+    {% if product.quantity is not none %}
+    <label class="handheld-select-card" id="handheld-counted-card">
+        <input type="checkbox" class="form-check-input" id="counted" name="counted"
+               {% if form_data and form_data.get('counted') %}checked{% endif %}>
+        <span>I counted what is on the shelf</span>
+    </label>
+    {% endif %}
+</form>
+{% endif %}
+{% endblock %}
+
+{% block action_bar %}
+{% if purchase.is_outstanding %}
+<button type="submit" class="btn btn-success" id="handheld-receive-btn" form="handheld-receive-form">
+    <i class="bi bi-check-circle"></i> Receive
+</button>
+{% endif %}
+{% endblock %}

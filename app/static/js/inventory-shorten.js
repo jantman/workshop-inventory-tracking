@@ -182,6 +182,18 @@ class InventoryShortenManager {
                 return;
             }
             
+            // On the handheld a scan loads the next item without clearing the
+            // page, so the previous item's length and Confirm must not carry
+            // over: one tap on Execute would cut the new item to that length.
+            // Only on a different item -- the input's scanner timer reloads
+            // the same one after Enter, possibly after the length was typed.
+            if (this.sourceJaIdInput.hasAttribute('data-handheld-scan')
+                    && this.currentItem && this.currentItem.ja_id !== item.ja_id) {
+                this.newLengthInput.value = '';
+                this.confirmOperationCheckbox.checked = false;
+                this.lengthValidation.classList.add('d-none');
+            }
+
             this.currentItem = item;
             this.displayItemDetails(item);
             this.showShorteningSections();
@@ -251,8 +263,12 @@ class InventoryShortenManager {
         // Update summary with initial values
         this.updateSummary();
         
-        // Focus on new length input
-        setTimeout(() => this.newLengthInput.focus(), 100);
+        // Focus on new length input -- except on the handheld, whose scan
+        // entry keeps focus (feature 068, FR-002) so the next scan loads the
+        // next item; the length is tapped, which is what raises its keyboard.
+        if (!this.sourceJaIdInput.hasAttribute('data-handheld-scan')) {
+            setTimeout(() => this.newLengthInput.focus(), 100);
+        }
     }
     
     hideShorteningSection() {

@@ -1,0 +1,18 @@
+{% extends "handheld/base.html" %}
+
+{% block screen %}
+<div class="d-grid gap-2" id="handheld-tasks">
+    <a class="btn btn-primary btn-lg" id="landing-move-items" href="{{ url_for('handheld.move', kind='items') }}">
+        <i class="bi bi-arrow-left-right"></i> Move items
+    </a>
+    <a class="btn btn-primary btn-lg" id="landing-move-products" href="{{ url_for('handheld.move', kind='products') }}">
+        <i class="bi bi-box-seam"></i> Move products
+    </a>
+    <a class="btn btn-primary btn-lg" id="landing-shorten" href="{{ url_for('handheld.shorten') }}">
+        <i class="bi bi-scissors"></i> Shorten
+    </a>
+    <a class="btn btn-primary btn-lg" id="landing-orders" href="{{ url_for('handheld.orders') }}">
+        <i class="bi bi-list-ul"></i> Orders
+    </a>
+</div>
+{% endblock %}

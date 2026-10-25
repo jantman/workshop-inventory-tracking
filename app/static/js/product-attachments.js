@@ -168,14 +168,15 @@
             refresh();
         });
 
-        deleteSelected.addEventListener('click', () => {
+        deleteSelected.addEventListener('click', async () => {
             const chosen = selected();
             if (chosen.length === 0) {
                 return;
             }
 
             const noun = chosen.length === 1 ? 'attachment' : 'attachments';
-            if (!window.confirm(`Delete ${chosen.length} ${noun}?`)) {
+            // 068 D10: native confirm on desktop (main.js), in-page on the handheld.
+            if (!(await window.confirmAction(`Delete ${chosen.length} ${noun}?`))) {
                 return;
             }
 

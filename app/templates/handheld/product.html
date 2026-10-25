@@ -1,0 +1,143 @@
+{% extends "handheld/base.html" %}
+
+{% block screen %}
+<div class="handheld-summary mb-2" id="handheld-product-summary" data-product-id="{{ product.id }}">
+    <h1 class="h6 mb-1" id="handheld-product-description">{{ product.description }}</h1>
+    <div class="small" id="handheld-product-location">{{ product.location or '' }}{% if product.sub_location %} / {{ product.sub_location }}{% endif %}</div>
+</div>
+
+{# The desktop Stock card, unchanged (research.md D8); handheld.css hides its
+   header and helper text so the controls sit directly under the summary. #}
+{% include 'product/_stock_card.html' %}
+
+{# What is still on its way (US6 scenario 5, FR-023b): each outstanding
+   purchase with its handheld Receive, and each distinct order with an Order
+   link, which is the choice the action bar's Order button opens when there is
+   more than one. #}
+{% if outstanding %}
+<div class="card mb-3" id="handheld-product-outstanding">
+    <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-truck"></i> On order</h2>
+    </div>
+    <div class="card-body p-2">
+        {% for vendor, order_number in outstanding_orders %}
+        <a class="btn btn-outline-primary w-100 mb-2 handheld-order-link"
+           href="{{ url_for('handheld.order', vendor=vendor, order_number=order_number) }}">
+            <i class="bi bi-list-ul"></i> Order {{ order_number }} &middot; {{ vendor }}
+        </a>
+        {% endfor %}
+        {% for purchase in outstanding %}
+        <div class="d-flex align-items-center gap-2 mb-2 handheld-outstanding-purchase"
+             data-purchase="{{ purchase.id }}">
+            <div class="flex-grow-1 small">
+                {{ purchase.quantity if purchase.quantity is not none else '—' }} from {{ purchase.vendor }}
+                {%- if purchase.supplier_order_reference %}, order {{ purchase.supplier_order_reference }}{% endif %}
+                {%- if purchase.order_date %}, ordered {{ purchase.order_date.strftime('%-d %b %Y') }}{% endif %}
+            </div>
+            <a class="btn btn-primary handheld-receive-link"
+               href="{{ url_for('handheld.receive', purchase_id=purchase.id) }}">
+                <i class="bi bi-box-arrow-in-down"></i> Receive
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# Attachments (D9): the markup product-attachments.js binds, with each tile a
+   full-width label around its checkbox. No per-tile .delete-attachment-btn:
+   on the desktop it deletes without confirmation (FR-017), so the handheld
+   deletes through Delete Selected, which confirms. #}
+<div class="card mb-3" id="attachments-card" data-product-id="{{ product.id }}">
+    <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-paperclip"></i> Attachments</h2>
+    </div>
+    <div class="card-body">
+        <div id="attachment-alerts"></div>
+
+        {% if attachments %}
+        <div class="d-flex align-items-center gap-3 mb-2" id="attachment-selection-toolbar">
+            <div class="form-check mb-0">
+                <input type="checkbox" class="form-check-input" id="select-all-attachments">
+                <label class="form-check-label" for="select-all-attachments">Select all</label>
+            </div>
+            <button type="button" class="btn btn-outline-danger ms-auto"
+                    id="delete-selected-attachments" disabled>
+                <i class="bi bi-trash"></i>
+                <span id="delete-selected-attachments-label">Delete Selected</span>
+            </button>
+        </div>
+        {% endif %}
+
+        <div id="attachment-list">
+            {% for attachment in attachments %}
+            <label class="handheld-select-card attachment-row">
+                <input type="checkbox" class="form-check-input attachment-select"
+                       data-attachment-id="{{ attachment.id }}"
+                       aria-label="Select {{ attachment.photo.filename }}">
+                <img class="handheld-attachment-thumb"
+                     src="{{ url_for('main.get_photo_data', photo_id=attachment.photo_id) }}?size=thumbnail"
+                     alt="">
+                <span class="small">{{ attachment.photo.filename }}</span>
+            </label>
+            {% else %}
+            <div class="text-muted" id="no-attachments">Nothing attached.</div>
+            {% endfor %}
+        </div>
+
+        {# Chosen through the Attach button in the action bar; picking a file
+           uploads it (see the script below). Kept in the DOM because
+           product-attachments.js binds both. #}
+        <div class="visually-hidden">
+            <input type="file" id="product-attachment-input" tabindex="-1"
+                   accept="image/jpeg,image/png,image/webp,application/pdf">
+            <button type="button" id="upload-product-attachment-btn" tabindex="-1">Attach</button>
+        </div>
+    </div>
+</div>
+
+{% include 'product/_label_modal.html' %}
+{% endblock %}
+
+{% block action_bar %}
+<button type="button" class="btn btn-outline-primary" id="print-product-label-btn"
+        data-product-id="{{ product.id }}">
+    <i class="bi bi-printer"></i> Label
+</button>
+<label class="btn btn-outline-primary" id="handheld-attach-btn" for="product-attachment-input">
+    <i class="bi bi-paperclip"></i> Attach
+</label>
+{% if product.internal_code %}
+<a class="btn btn-outline-primary" id="handheld-move-btn"
+   href="{{ url_for('handheld.move', kind='products', code=product.internal_code) }}">
+    <i class="bi bi-arrow-left-right"></i> Move
+</a>
+{% endif %}
+{% if outstanding_orders | length == 1 %}
+<a class="btn btn-outline-primary" id="handheld-order-btn"
+   href="{{ url_for('handheld.order', vendor=outstanding_orders[0][0], order_number=outstanding_orders[0][1]) }}">
+    <i class="bi bi-list-ul"></i> Order
+</a>
+{% elif outstanding_orders %}
+<a class="btn btn-outline-primary" id="handheld-order-btn" href="#handheld-product-outstanding">
+    <i class="bi bi-list-ul"></i> Orders
+</a>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-label-modal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-stock.js') }}"></script>
+<script src="{{ url_for('static', filename='js/product-attachments.js') }}"></script>
+<script>
+    // One step on the handheld: choosing a file is the upload. The desktop's
+    // own Attach button handler does the work, unchanged.
+    document.getElementById('product-attachment-input').addEventListener('change', (event) => {
+        if (event.target.files && event.target.files.length > 0) {
+            document.getElementById('upload-product-attachment-btn').click();
+        }
+    });
+</script>
+{% endblock %}

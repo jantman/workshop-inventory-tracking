@@ -1,0 +1,51 @@
+{% extends "handheld/base.html" %}
+{#
+  Which outstanding line did this bag come from? (US6, FR-022). The desktop
+  receive-choice page's candidates, each a full-width link to its handheld
+  receive screen. Nothing is chosen for the operator.
+#}
+
+{% block screen %}
+{% if not candidates %}
+<div class="alert alert-info" id="nothing-outstanding">
+    Nothing is outstanding for <code>{{ scan }}</code>. It may have been received already.
+</div>
+{% if product %}
+<a class="btn btn-outline-primary w-100" id="handheld-choice-product-link"
+   href="{{ url_for('handheld.product', product_id=product.id) }}">
+    <i class="bi bi-box-seam"></i> Open {{ product.description }}
+</a>
+{% else %}
+<a class="btn btn-outline-primary w-100" id="handheld-choice-search-link"
+   href="{{ url_for('product.product_search', q=scan) }}">
+    <i class="bi bi-search"></i> Search for it
+</a>
+{% endif %}
+{% else %}
+<p class="mb-2" id="choose-line">
+    <code>{{ scan }}</code> is outstanding on {{ candidates | length }} lines. Pick the order it
+    came from.
+</p>
+<div id="receive-candidates">
+    {% for purchase in candidates %}
+    <a class="card handheld-card mb-2 text-decoration-none text-body receive-candidate"
+       data-purchase="{{ purchase.id }}"
+       href="{{ url_for('handheld.receive', purchase_id=purchase.id) }}">
+        <div class="card-body p-2">
+            <div class="fw-bold">
+                {% if purchase.supplier_order_reference %}Order {{ purchase.supplier_order_reference }}{% else %}No order{% endif %}
+                {%- if purchase.order_line_number %}, line {{ purchase.order_line_number }}{% endif %}
+            </div>
+            <div class="small">
+                {% if purchase.order_date %}Ordered {{ purchase.order_date.strftime('%-d %b %Y') }} &middot; {% endif %}
+                {{ purchase.quantity if purchase.quantity is not none else '—' }} units
+            </div>
+            <div class="small text-body-secondary">
+                {{ purchase.product.description if purchase.product else 'product deleted' }}
+            </div>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

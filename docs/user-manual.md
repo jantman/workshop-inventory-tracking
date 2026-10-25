@@ -42,12 +42,13 @@
 **Across both halves**
 
 21. [Locations and Vendors: One Shared Vocabulary](#locations-and-vendors-one-shared-vocabulary)
-22. [Data Export](#data-export)
-23. [REST API](#rest-api)
-24. [Help and Utilities](#help-and-utilities)
-25. [Tips and Best Practices](#tips-and-best-practices)
-26. [Troubleshooting](#troubleshooting)
-27. [Quick Reference Card](#quick-reference-card)
+22. [Using a Handheld Scanner](#using-a-handheld-scanner)
+23. [Data Export](#data-export)
+24. [REST API](#rest-api)
+25. [Help and Utilities](#help-and-utilities)
+26. [Tips and Best Practices](#tips-and-best-practices)
+27. [Troubleshooting](#troubleshooting)
+28. [Quick Reference Card](#quick-reference-card)
 
 ## Getting Started
 
@@ -2523,6 +2524,113 @@ something that matches nothing saves exactly as typed.
 
 Thread Size and Purchase Location are inventory-only fields and are unchanged --
 nothing in the catalog records either.
+
+## Using a Handheld Scanner
+
+The handheld screens under `/h/` are built for an Android scanner such as the
+Zebra TC52: a 360 px wide touch screen, a built-in scanner that types what it
+reads, and an on-screen keyboard that would cover half the screen. They cover
+the jobs done standing at a shelf -- looking something up, moving it, cutting
+it, receiving it. Everything else opens the ordinary desktop page.
+
+### Setting Up the Scanner
+
+The scanner is set up in the **DataWedge** app on the device:
+
+1. Open DataWedge and choose **Profile0 (default)**, or a profile bound to
+   Chrome (`com.android.chrome`).
+2. **Keystroke output → Basic data formatting → Send ENTER key**: turn it on.
+   Without it a scan is typed but never submitted.
+3. Under the barcode decoders, enable **Code 128** (the JA ID and `WIT…`
+   labels), plus **DataMatrix** and **QR Code** for distributor and
+   manufacturer 2D labels.
+4. DigiKey 2D labels need no further setting. With the settings above, their
+   field separators reach the page intact (see
+   [Distributor Labels](#distributor-labels)).
+
+Then in Chrome on the device:
+
+1. Open `http://<host>:5000/h/`.
+2. **Add to Home screen** from Chrome's menu, so the handheld landing page is
+   one tap away.
+3. Set the same address as Chrome's home page (**Settings → Homepage**), so the
+   Home button in Chrome returns to it too.
+
+### Scanning on the Handheld
+
+Every handheld screen has a **Scan** box at the top that already has focus, so
+scanning works without tapping anything first. It takes the same codes as the
+desktop scan box (see [Scanning Products](#scanning-products)), and opens the
+handheld screen for the result:
+
+| What you scanned | What opens |
+|---|---|
+| An inventory JA ID | The handheld item screen |
+| A product's `WIT…` code, or a barcode you have cataloged | The handheld product screen |
+| A package with outstanding purchases | Handheld receiving: one line, a choice of lines, or the order |
+| Anything else | The desktop page the desktop scan box would open |
+
+The Scan box never raises the on-screen keyboard, even when tapped. To type a
+code by hand, tap the **keyboard** button beside it, type, and press Enter;
+after that the box goes back to scanning without the keyboard.
+
+The **house** button in the top-left corner returns to the landing page from
+any screen. Confirmations (deleting a photo or an attachment, for example)
+appear as an in-page **Cancel**/**OK** box. The main action of each screen sits
+in a bar fixed to the bottom, so it stays in view however long the page is.
+
+### The Handheld Screens
+
+**Landing page (`/h/`).** The Scan box and four buttons: **Move items**,
+**Move products**, **Shorten** and **Orders**.
+
+**Item.** The JA ID, material, type, shape, dimensions with the length in bold,
+and location, followed by the item's photos. The bottom bar has **Label**
+(the usual item label dialog), **Photos** (jumps to the photos, where **Upload Photos**
+opens the camera or the file chooser), **Shorten** and **Move**, each opening
+with this item already loaded. A JA ID that does not exist, or belongs to an
+inactive item, says so and links to the desktop page.
+
+**Product.** The description and location, then the same Stock card as the
+desktop product page: quantity −/+ and set, counting on or off, and
+Low/Out/clear. When the product has purchases still outstanding, an **On
+order** card lists each order (tap it to open the order) and each outstanding
+purchase with its own **Receive** button. Attachments follow, with **Select
+all** and **Delete Selected**. The bottom bar has **Label**, **Attach**,
+**Move** and, when something is on order, **Order** -- which opens the order,
+or the On order card when there is more than one.
+
+**Move (items or products).** The same sequence as the desktop pages (see
+[Moving Items](#moving-items) and [Moving Products](#moving-products)): scan the
+item or product, then the location, then optionally a sub-location, and finish
+with the `>>DONE<<` barcode. The queue is shown as a list of cards. Opened from
+an item or product screen, that item or product is already queued.
+
+**Shorten.** Scan the JA ID; the item loads with its current length. Tap
+**New length**, type the length that remains, tick the confirmation and tap
+**Execute** in the bottom bar. This is the same operation as
+[Shortening Items](#shortening-items), with the history kept. Scanning another
+JA ID loads that item and clears the length and confirmation, so nothing typed
+for one item is applied to the next.
+
+**Receive.** Opened by scanning a package or tapping **Receive**. It shows the
+product and how many were ordered, the **Quantity received** (filled in from
+the label when the label carries one), and **I counted what is on the shelf**
+for products whose quantity is tracked. Tap **Receive** in the bottom bar. A
+purchase that has already been received says so and links to the product.
+
+**Choose a line.** When a scan matches several outstanding lines, each is
+listed with its order, line and date; tap the one the package came from. If
+nothing is outstanding, the screen says so and links to the product or a
+search.
+
+**Orders.** Every captured order that still has outstanding lines, from every
+vendor. Tap one to open it.
+
+**Order.** The order's lines as cards. Tap outstanding lines to select them --
+the line you scanned to get here is highlighted but not selected -- and tap
+**Receive Selected**. Received lines show their date and cannot be selected.
+Lines received here are dated today.
 
 ## Data Export
 

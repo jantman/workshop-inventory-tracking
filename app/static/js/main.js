@@ -750,6 +750,11 @@ window.initializeReadOnlyPhotoManager = function(containerSelector, jaId) {
     }
 };
 
+// Ask the user to confirm an action. Resolves to true or false.
+// The default is the browser's own dialog; handheld.js replaces it with an
+// in-page modal, because the handheld screens show no browser dialogs.
+window.confirmAction = (message) => Promise.resolve(window.confirm(message));
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
     WorkshopInventory.init();

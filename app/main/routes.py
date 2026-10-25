@@ -17,6 +17,8 @@ from app.utils.handoff import resolve_handoff
 from app.utils.batch_move import batch_result, destination, parse_moves
 from decimal import Decimal, InvalidOperation
 import traceback
+from werkzeug.datastructures import MultiDict
+from werkzeug.wrappers import Response
 from config import Config
 
 def _get_storage_backend():
@@ -1043,10 +1045,23 @@ def inventory_shorten():
                                preselected_ja_id=handoff.first_accepted,
                                rejected_items=handoff.rejected_items)
 
-    # Handle POST request for shortening operation
+    return handle_shorten_post(request.form, 'main.inventory_shorten')
+
+
+def handle_shorten_post(form: MultiDict, return_endpoint: str) -> Response:
+    """Shorten an item from a submitted shorten form, then redirect.
+
+    The POST side of ``/inventory/shorten``, shared with handheld Shorten
+    (``/h/shorten``, feature 068) so both perform the same validation, audit
+    log entries, flashes and shortening operation. Every redirect goes to
+    ``return_endpoint``.
+
+    :param form: the submitted form (``request.form``)
+    :param return_endpoint: the endpoint to redirect to afterwards
+    """
     try:
         # Get form data
-        form_data = request.form.to_dict()
+        form_data = form.to_dict()
         
         # AUDIT: Log shorten operation input
         log_audit_operation('shorten_item', 'input',
@@ -1064,7 +1079,7 @@ def inventory_shorten():
                               item_id=form_data.get('source_ja_id'),
                               error_details=error_msg)
             flash(error_msg, 'error')
-            return redirect(url_for('main.inventory_shorten'))
+            return redirect(url_for(return_endpoint))
         
         if form_data.get('confirm_operation') != 'on':
             error_msg = 'You must confirm the shortening operation'
@@ -1073,7 +1088,7 @@ def inventory_shorten():
                               item_id=form_data.get('source_ja_id'),
                               error_details=error_msg)
             flash(error_msg, 'error')
-            return redirect(url_for('main.inventory_shorten'))
+            return redirect(url_for(return_endpoint))
         
         # Execute shortening operation
         result = _execute_shortening_operation(form_data)
@@ -1098,14 +1113,14 @@ def inventory_shorten():
                 flash(f"Item {ja_id} successfully shortened from {original_length}\" to {new_length}\"! History preserved.", 'success')
             else:
                 flash(f"Item {ja_id} successfully shortened! History preserved.", 'success')
-            return redirect(url_for('main.inventory_shorten'))
+            return redirect(url_for(return_endpoint))
         else:
             # AUDIT: Log failed shortening operation
             log_audit_operation('shorten_item', 'error',
                               item_id=form_data.get('source_ja_id'),
                               error_details=f"Shortening operation failed: {result['error']}")
             flash(f"Shortening failed: {result['error']}", 'error')
-            return redirect(url_for('main.inventory_shorten'))
+            return redirect(url_for(return_endpoint))
             
     except Exception as e:
         # AUDIT: Log shortening operation exception
@@ -1114,7 +1129,7 @@ def inventory_shorten():
                           error_details=f'Exception during shortening: {str(e)}')
         current_app.logger.error(f'Error in shortening operation: {e}\n{traceback.format_exc()}')
         flash('An error occurred during the shortening operation. Please try again.', 'error')
-        return redirect(url_for('main.inventory_shorten'))
+        return redirect(url_for(return_endpoint))
 
 # API Routes
 
