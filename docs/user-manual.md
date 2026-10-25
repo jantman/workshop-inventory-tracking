@@ -2544,11 +2544,9 @@ The scanner is set up in the **DataWedge** app on the device:
 3. Under the barcode decoders, enable **Code 128** (the JA ID and `WIT…`
    labels), plus **DataMatrix** and **QR Code** for distributor and
    manufacturer 2D labels.
-4. DigiKey and Mouser labels need the field separators inside the label to
-   reach the page (see [Distributor Labels](#distributor-labels)). Whether
-   DataWedge's **Send Control Characters as Events** setting is needed for
-   that is still to be confirmed on the device.
-   <!-- T069: record the device finding here. -->
+4. DigiKey 2D labels need no further setting. With the settings above, their
+   field separators reach the page intact (see
+   [Distributor Labels](#distributor-labels)).
 
 Then in Chrome on the device:
 

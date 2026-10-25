@@ -659,7 +659,7 @@ receive them. Exactly those two are received.
   - *Done 2026-10-25: 23 PNGs changed, all data churn (footer line, random `WIT` codes,
     dates relative to today); none shows the product label modal. Nothing committed; all
     reverted.*
-- [ ] T069 **Manual, for Jason on the TC52, not an agent task.** Work through the
+- [X] T069 **Manual, for Jason on the TC52, not an agent task.** Work through the
   device-verification checklist (quickstart.md §5):
   1. Configure DataWedge Send ENTER and the symbologies. Bookmark `/h/` and set it as the
      home page.
@@ -670,6 +670,7 @@ receive them. Exactly those two are received.
   5. Move: a JA ID, a location, a printed `>>DONE<<`, then Validate and Execute.
   6. **DigiKey control-character path.** A DigiKey 2D bag label on `/h/` reaches
      `/h/receive/…` or the order screen, not a mangled search (D11 item 2).
+  - **Result (2026-10-25):** Jason verified every check on the TC52 running the PR image (`ci-68d7fdd`), DigiKey 2D scanning included, with Profile0 plus Send ENTER and no "Send Control Characters as Events".
   7. **Android chooser.** Item photo Add opens it, with the camera offered.
 
   Record the findings in `specs/068-handheld-screens/research.md`, and the DigiKey setting in
